@@ -1,0 +1,10 @@
+/build/
+/build-*/
+/out/
+/dist/
+/work/
+/.cache/
+*.user
+*.suo
+*.VC.db
+*.log
