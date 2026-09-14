@@ -6,11 +6,15 @@ Call of Juarez VR is intended to be one user-facing project with shared VR polic
 
 Call of Juarez (2006) is the reference implementation. Reuse is evidence-driven: a Chrome Engine behavior is not promoted to a shared contract until at least one additional game demonstrates the same boundary.
 
+The current stabilization architecture is governed by `docs/TECHNICAL_AUDIT.md` and `docs/AUDIT_REMEDIATION_PLAN.md`.
+
 ## Layers
 
-1. **Runtime** — renderer/game-independent poses, eye/view data, tracking space, configuration, logical input, haptics and VR runtime lifecycle.
-2. **Renderer backend** — D3D9 or D3D10 device/frame boundaries, image transport, eye targets and presentation/submission.
-3. **Game backend** — camera, player, weapon, UI, physics and exact-build knowledge.
+1. **Neutral runtime** — renderer/game-independent poses, eye/view data, tracking-space policy, configuration, logical input and haptics.
+2. **VR runtime adapters** — OpenVR or OpenXR lifecycle, runtime state, tracking conversion and compositor/session integration.
+3. **Renderer backends** — D3D9 or D3D10 device/frame ownership, capture/transport, eye targets and presentation handoff.
+4. **Game/build integration** — exact executable identity plus camera, player, weapon, UI and physics knowledge for one game/build.
+5. **Diagnostics/evidence** — hook ownership, factory/device/swapchain identity, device generations, run telemetry and source/build/deployment/run provenance.
 
 This mirrors the useful separation proven in Penumbra VR while keeping Chrome Engine-specific behavior local to this project.
 
@@ -18,87 +22,127 @@ This mirrors the useful separation proven in Penumbra VR while keeping Chrome En
 
 | Game | Engine evidence | Renderer path | Initial integration |
 | --- | --- | --- | --- |
-| Call of Juarez | Chrome Engine 3 | D3D9 + D3D10 | D3D9 first; D3D10 retained as a first-class backend |
-| Bound in Blood | Chrome Engine 4 | D3D9 | shared D3D9 layer + game adapter once contracts are proven |
-| Gunslinger | later Chrome Engine branch | D3D9 | shared D3D9 layer + game adapter once contracts are proven |
+| Call of Juarez | Chrome Engine 3 | D3D9 + D3D10 | D3D9 reference; D3D10 retained as first-class later backend |
+| Bound in Blood | Chrome Engine 4 | D3D9 | shared contracts only after independent evidence |
+| Gunslinger | later Chrome Engine branch | D3D9 | shared contracts only after independent evidence |
 
 ## Runtime boundary
 
-`src/runtime` must not contain Chrome Engine addresses, native object layouts, camera offsets or weapon assumptions. Those belong to game backends and must be supported by build-specific evidence.
+Neutral runtime code must not contain Chrome Engine addresses, native object layouts, camera offsets, executable hashes or weapon assumptions.
 
-The renderer-neutral types include `Pose`, `EyeFov` and `EyeView`. VR API adapters translate OpenVR/OpenXR data into these types rather than leaking API-specific headers through every game/backend boundary.
+Build/game identity belongs to an integration layer rather than to the neutral VR runtime. OpenVR and OpenXR are separate adapters and must be independently selectable: configuring the OpenVR path must not require the experimental OpenXR backend.
+
+Renderer-neutral types must have one semantic meaning across adapters. In particular, eye-to-head transforms, poses in tracking/reference space, FOV, units, handedness and composition order must be explicit before real stereo camera work.
 
 ## Build identity
 
-Filename matching is diagnostic only. `build_catalog` records exact SHA-256 identities for inspected builds. Game-specific modifications must fail closed on unknown hashes while renderer/runtime diagnostics may continue only where they are safe and build-independent.
+Filename matching is diagnostic only. Exact SHA-256 identifies known inspected builds. A known executable is not synonymous with a supported VR integration.
 
-## D3D9 renderer path
+Game-specific modifications fail closed on unknown builds. Renderer/runtime diagnostics may operate on unknown builds only where their behavior is demonstrably build-independent and safe.
 
-D3D9 is the first integration target because all three inspected games expose a D3D9 path. Call of Juarez additionally has a D3D10 renderer with visible graphics improvements, so D3D10 remains a planned first-class backend rather than a disposable fallback.
+## Current D3D9 evidence
 
-The initial renderer gate was deliberately small:
+D3D9 remains the first integration target because all three inspected games expose a D3D9 path. Call of Juarez additionally has a D3D10 renderer with visible graphics improvements, so D3D10 remains a later first-class backend.
 
-`normal game -> forwarding bootstrap -> unchanged rendering -> diagnostics`
+The basic transport chain has been demonstrated:
 
-The forwarding proxy and native-vtable observation path are live-tested on the exact Call of Juarez D3D9 build.
+`classic D3D9 backbuffer -> CPU readback -> D3D11 texture -> OpenVR -> SteamVR`
 
-### Transport evidence
+Established evidence includes:
 
-Host interoperability testing established the current transport boundary:
+- forwarding/bootstrap and native D3D9 observation in the exact game build;
+- successful classic-D3D9 CPU readback -> D3D11 upload;
+- successful isolated OpenVR initialization, PSVR2 HMD pose and D3D11 submission;
+- genuine in-game captured-frame submissions through the flat bridge;
+- one diagnostic run in which exactly three project `Present`, `BeginScene` and `EndScene` callbacks were followed by loss of integrity of the installed device-vtable entries while monitor rendering continued.
 
-- classic `Direct3DCreate9` cannot create the shared render target required for direct D3D9 -> D3D11 sharing on the development host;
-- D3D9Ex -> D3D11 shared-resource transport works synthetically with pixel verification;
-- substituting the live game device with D3D9Ex passed host tests but failed the exact-build live test and is therefore rejected as the current game path;
-- classic D3D9 `GetRenderTargetData` -> system-memory readback -> D3D11 upload is slower but preserves the original device semantics and is live-tested in Call of Juarez.
+The last point is a confirmed failure mode of the current interception design. It does not by itself prove which module caused the replacement, whether another factory/device/generation becomes active, or whether hook loss is the only condition preventing a stable visible headset image.
 
-The sustained diagnostic uses that conservative path:
+The historical `369754A6...A14A6AF` candidate can resolve replacement-slot ownership and remains useful baseline evidence, but the stabilization plan does not treat another headset run with that candidate as the first priority.
 
-`D3D9 backbuffer -> CPU readback -> D3D11 texture -> OpenVR -> SteamVR`
+## Hook and device ownership target
 
-The implementation is packaged as `d3d9_openvr_flat.dll`. It submits the same captured flat game image to both eyes. It is a renderer/runtime transport proof only; it does not yet implement stereo cameras or HMD-driven view transforms.
+Ad-hoc global vtable patching is not the target architecture.
 
-### Current interception problem
+The stabilization target is:
 
-The transport and compositor calls are not the active blocker. Exact-build live evidence has shown that the flat bridge successfully completes D3D9 readback, D3D11 upload, HMD pose wait and OpenVR submission for the first three frames.
+- safe conditional `VtablePatch` operations with explicit result states;
+- `HookRegistry` ownership per vtable/device;
+- rollback only for entries still owned by this project;
+- integrity verification and conflict reporting;
+- support for multiple factories/devices/vtables;
+- `DeviceContext` identity for factory, device, swapchain, thread and generation.
 
-After exactly three `Present`, `BeginScene` and `EndScene` callbacks, the D3D9 device-vtable entries installed by the project are overwritten while the game continues rendering normally on the monitor. This means the VR path loses interception rather than stalling inside `Present`, readback, upload or compositor submission.
+Preserve native COM identity where possible. The preferred audit direction is to observe/intercept device creation on native/reachable D3D9 factories using the safe hook infrastructure.
 
-The active diagnostic observes `Reset`, `Present`, `BeginScene` and `EndScene` individually and resolves each replacement function address to the loaded module that owns it. The next architecture decision depends on that evidence:
+A complete `IDirect3DDevice9` forwarding wrapper is not the default remedy for current hook replacement. It may be considered only if evidence requires it and COM identity, `QueryInterface`, `GetDirect3D`, reference/lifetime and device-discovery semantics are explicitly validated.
 
-- if a known overlay/hook module replaces the entries, either remove that interference for validation or chain after it;
-- if the targets resolve back to D3D9/engine-owned code, investigate the engine/runtime transition that restores or replaces the native vtable;
-- if vtable ownership remains inherently unstable, prefer an owned `IDirect3DDevice9` forwarding wrapper over repeated re-hooking of a shared/native vtable.
+Do not use blind periodic re-hooking as the normal ownership model.
 
-Do not move on to camera, stereo or motion-controller work until sustained frame interception is demonstrated.
+## Flat capture/presentation target
+
+The current diagnostic bridge performs capture, D3D11 upload, pose wait and OpenVR submission synchronously from the game callback. This proved transport but is not the intended sustained architecture.
+
+The target flat path is:
+
+```text
+verified D3D9 callback
+  -> D3D9Capture on the game/render thread
+  -> owned CPU Frame
+  -> bounded FrameMailbox
+  -> OpenVrPresenter with exclusive D3D11/OpenVR ownership
+  -> compositor
+```
+
+The frame contract includes at least device ID, generation, capture sequence/time, dimensions, stride, explicit pixel format and owned storage.
+
+No D3D9 COM resource crosses to the presenter thread. Reset/device recreation invalidates the old generation. The presenter may repeat the last frame to prove runtime continuity, but repeated presentation increments `submit_sequence`, not `capture_sequence` or new-content sequence.
+
+This separation exists to distinguish engine capture progress from compositor progress and to prevent SteamVR synchronization from directly owning the Chrome Engine render callback cadence.
+
+## Evidence architecture
+
+Every meaningful runtime result must be correlated by `run_id` to:
+
+`sources -> build manifest -> package/deployed hashes -> process -> device generation -> events -> verifier result`
+
+Minimum structured events and fields are defined in `docs/AUDIT_REMEDIATION_PLAN.md`.
+
+A successful OpenVR submission does not prove a unique new game frame. A missing final summary marks evidence incomplete. Historical log phrases must never validate a new artifact.
 
 ## OpenVR direction
 
-OpenVR -> SteamVR is the initial VR runtime path. It reuses game-neutral semantics proven elsewhere: runtime lifecycle, standing tracking space, recommended eye size, per-eye projection, eye-to-head transforms, compositor poses and later logical controller actions/haptics.
+OpenVR -> SteamVR remains the initial PSVR2 runtime path.
 
-The pinned dependency is Valve OpenVR SDK 2.15.6. `OpenVrRuntime` translates OpenVR eye and HMD data into renderer-neutral runtime types. The D3D11 backend creates a device on the runtime-selected adapter and submits ordinary `ID3D11Texture2D` eye images through `IVRCompositor::Submit`.
+The OpenVR adapter should own and expose explicit lifecycle/state transitions rather than leaking them into renderer callbacks. One process-level owner controls OpenVR initialization. D3D11 immediate-context ownership and GPU handoff are explicit.
 
-The isolated OpenVR path is live-tested against manually started SteamVR with PSVR2: runtime initialization, eye configuration, valid HMD pose acquisition and synthetic D3D11 stereo submission have all succeeded. Headset-visible confirmation of the isolated synthetic test remains distinct from those technical submissions.
-
-The in-game flat bridge has also completed real OpenVR submissions from captured game frames; sustained presentation is blocked by the D3D9 hook replacement described above.
+The isolated OpenVR path has demonstrated runtime initialization, eye configuration, valid HMD pose acquisition and accepted D3D11 submissions. Sustained, physically visible compositor behavior remains a separate validation gate.
 
 ## OpenXR direction
 
-The OpenXR backend is retained as an experimental/future path. It already contains instance/system/session lifecycle, frame timing, D3D11 graphics binding, adapter-LUID selection, stereo swapchains and projection layers. A SteamVR run reached valid runtime/session/swapchain creation and one projection-frame submission without headset-visible/focused evidence.
+OpenXR remains experimental/future. Its existing work is useful research evidence, but it must be build-configurable independently and must not contaminate the neutral runtime ownership model.
 
-OpenXR is not the critical path for the first Call of Juarez headset proof. Its code remains useful as a future backend and as prior evidence for D3D11 adapter/resource handling.
+OpenXR runtime/handle lifetime and neutral pose/FOV semantics must be corrected before that backend is promoted.
 
-## Game integration direction
+## Validation progression
 
-Renderer transport and sustained HMD presentation come before game-camera work. Once the sustained frame gate is complete, the intended progression is:
+The current critical path is audit remediation, not camera work:
 
-1. rotational HMD tracking / 3DOF camera proof;
-2. stereo per-eye projection;
-3. positional tracking and room-scale reconciliation;
-4. HUD, cinematics and post-process handling;
-5. decoupled weapon/controller interaction where game boundaries permit.
+1. auditable source/build/run provenance;
+2. valid clean build/CI/tests;
+3. safe hook ownership;
+4. complete native factory/device discovery;
+5. structured render/run telemetry;
+6. manual game observation without requiring a headset;
+7. separated capture/presenter path and formal OpenVR lifecycle;
+8. transactional deployment and flat integration validation;
+9. neutral math contracts complete;
+10. only then rotational camera, real stereo, 6DOF and motion-controller integration.
 
-Exact camera/player/weapon knowledge belongs to the Call of Juarez game backend and must not be generalized to Bound in Blood or Gunslinger without independent evidence.
+See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
 ## Primary validation hardware
 
-The primary headset target is PlayStation VR2 on PC through OpenVR -> SteamVR. The primary motion-controller target is the paired PS VR2 Sense controllers. Shared runtime input remains expressed as logical actions so controller-specific bindings do not leak into game or renderer policy.
+The primary headset target is PlayStation VR2 on PC through OpenVR -> SteamVR. The primary motion-controller target is the paired PS VR2 Sense controllers.
+
+Physical headset/controller validation is intentionally later than host and game-observation gates. Do not require the user to wear the headset for evidence that can be obtained from structured game/runtime telemetry.
