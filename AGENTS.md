@@ -18,7 +18,7 @@ addresses, hooks or source assumptions.
 ## Ownership
 
 The shared runtime owns game-neutral VR concepts: poses, eye views, tracking
-space, configuration semantics, logical input and future OpenXR lifecycle.
+space, configuration semantics, logical input, haptics and VR runtime lifecycle.
 
 Renderer backends own D3D9/D3D10 device and frame boundaries, render targets,
 per-eye submission and renderer-specific resource handling.
@@ -43,17 +43,33 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
-Milestone 0 is repository/bootstrap research: Win32 build, build catalog, D3D9
-availability probe and documentation. Milestone 1 is a forwarding-only D3D9
-bootstrap for Call of Juarez with no rendering changes. OpenXR initialization and
-camera work come only after forwarding is proven stable.
+Milestone 1's forwarding-only D3D9 bootstrap and native `Present`/`Reset`
+observation are live-tested on the exact Call of Juarez build. The current gate is
+the smallest OpenVR/SteamVR runtime plus a justified D3D9-to-D3D11 texture
+transport boundary. Camera work comes only after those renderer/runtime boundaries
+have evidence.
 
 The D3D10 path for Call of Juarez remains a first-class target because it has
 visual improvements. D3D9 is implemented first because it is the common renderer
 surface shared by all three installed games.
 
-DLSS/DLAA is a later renderer research track. Do not make it a prerequisite for
-the initial VR path.
+## Manual runtime validation
+
+Do not launch a Call of Juarez game or SteamVR automatically. The user performs
+all game and SteamVR launches manually. Advance implementation, build validation,
+deployment preparation, diagnostics and log verification as far as possible before
+handing off a runtime test.
+
+Do not stop merely because a game launch is the next evidence gate: prepare the
+exact build artifact, reversible deployment step and post-run verifier first. Stop
+only when the remaining evidence requires the user's manual game/SteamVR launch or
+physical headset/controller validation.
+
+The primary headset path is PlayStation VR2 on PC through OpenVR -> SteamVR,
+including both PS VR2 Sense controllers. Keep input abstractions logical and
+controller-independent, then provide PS VR2 Sense bindings at the controller
+milestone. Preserve the existing OpenXR work as an experimental/future backend;
+it is not the critical path for the first headset proof.
 
 ## Before editing
 

@@ -23,6 +23,12 @@ Observed executable identities:
 - `CoJ.exe`: `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`
 - `CoJ_DX10.exe`: `23EDE8E8B3BA0E9E662E83DA2B70D3F80BCADAC5BEE9554578C3AAA7AC109390`
 
+The D3D9 executable identity was rechecked on 2026-09-13 before proxy validation.
+An ASCII symbol scan of the observed `ChromeEngine3.dll` found `Direct3DCreate9`
+and no other common D3D9 bootstrap export names in the inspected set. This supports
+the current minimal forwarding surface for this exact build; it does not establish
+requirements for other game builds.
+
 ## Bound in Blood
 
 The installation contains `CoJBiBGame_x86.exe`, `engine_x86.dll` and
