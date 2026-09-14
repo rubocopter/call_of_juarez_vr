@@ -1,6 +1,15 @@
 # Call of Juarez VR — Agent instructions
 
-Read this file before changing code. Then read `docs/internal/CODEX_HANDOFF.md`, `ARCHITECTURE.md`, `ROADMAP.md` and the relevant validation notes before assuming any task is still pending.
+Read this file before changing code. Then read, in order:
+
+1. `docs/TECHNICAL_AUDIT.md`
+2. `docs/AUDIT_REMEDIATION_PLAN.md`
+3. `docs/internal/CODEX_HANDOFF.md`
+4. `docs/VALIDATION.md`
+5. `ARCHITECTURE.md`
+6. `ROADMAP.md`
+
+Do not assume a documented task is still pending without inspecting the current repository state, but do not mark an audit finding resolved merely because code exists. The acceptance criteria in the remediation plan control promotion.
 
 ## Core rule
 
@@ -10,15 +19,17 @@ Reuse proven game-neutral policy from the Penumbra VR Framework when the semanti
 
 ## Ownership
 
-The shared runtime owns game-neutral VR concepts: poses, eye views, tracking space, configuration semantics, logical input, haptics and VR runtime lifecycle.
+The shared runtime owns game-neutral VR concepts and policy.
 
-Renderer backends own D3D9/D3D10 device and frame boundaries, transport, render targets, per-eye submission and renderer-specific resource handling.
+Renderer backends own D3D9/D3D10 device/frame ownership, capture/transport, render targets and compositor integration.
 
 Game backends own camera/player/weapon/UI/physics knowledge for a specific game and build. Exact binary details must never leak into shared runtime code.
 
+Diagnostics/evidence infrastructure owns hook integrity, factory/device/generation identity, structured run telemetry and source/build/deployment/run correlation.
+
 ## Build identity
 
-Binary integration is exact-build first. Filename recognition is diagnostic only. Use SHA-256 to decide whether a build is known. Unknown builds must fail closed for game-specific modifications while generic diagnostics may continue safely.
+Binary integration is exact-build first. Filename recognition is diagnostic only. Use SHA-256 to decide whether a build is known. A known binary is not automatically a supported VR integration. Unknown builds must fail closed for game-specific modifications while generic diagnostics may continue only where safe.
 
 ## Validation states
 
@@ -30,41 +41,78 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
-The current critical path is the Call of Juarez D3D9 -> D3D11 -> OpenVR flat-game proof.
+The current objective is **audit-driven stabilization**, not new VR feature work.
 
-Already established:
+Already established evidence includes:
 
-- forwarding/bootstrap and native D3D9 observation are live-tested;
-- classic-D3D9 CPU readback -> D3D11 upload is live-tested on the exact game build;
-- OpenVR/SteamVR initialization, valid PSVR2 HMD pose acquisition and synthetic D3D11 submission are live-tested;
-- the in-game flat bridge has completed three genuine game-frame submissions through readback, upload, `WaitForHmdPose` and stereo `Submit`;
-- the active failure is not a compositor/readback stall: after exactly three `Present`, `BeginScene` and `EndScene` callbacks, the installed D3D9 device-vtable hooks are overwritten while the game continues rendering normally on the monitor.
+- forwarding/bootstrap and native D3D9 observation have worked in the exact game build;
+- classic-D3D9 CPU readback -> D3D11 upload has worked in the exact game build;
+- OpenVR/SteamVR initialization, valid PSVR2 HMD pose acquisition and synthetic D3D11 submission have worked;
+- the in-game flat bridge has completed genuine captured-frame submissions;
+- one later diagnostic observed exactly three project `Present`, `BeginScene` and `EndScene` callbacks followed by loss of integrity of the installed D3D9 device-vtable entries while monitor rendering continued.
 
-The active diagnostic identifies which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves each replacement target to its owning loaded module. Use that evidence before choosing the next interception strategy.
+Treat that last point as a confirmed failure mode of the current interception design, not as a complete root-cause explanation for the blank headset. The current repository still lacks sufficient run provenance, device/generation coverage, safe hook ownership and decoupled capture/presentation to make the next physical run maximally discriminating.
 
-If a known overlay/hook module owns the replacement, decide whether to remove that interference for validation or chain after it. If D3D9/engine-owned code restores the entries, investigate that lifecycle. If native-vtable ownership remains inherently unstable, prefer an owned `IDirect3DDevice9` forwarding wrapper over periodic re-hooking.
+## Required execution order
 
-Do not skip ahead to camera hooks, stereo rendering, 6DOF or motion controls before sustained renderer interception is demonstrated. The flat bridge should sustain at least 300 submitted frames before promotion.
+Follow `docs/AUDIT_REMEDIATION_PLAN.md`.
 
-The D3D10 path for Call of Juarez remains a first-class target because it has visual improvements. D3D9 is implemented first because it is the common renderer surface shared by all three inspected games.
+Critical path before another manual game-observation run:
+
+1. Phase 0 — auditable source/build/deployment/run provenance.
+2. Phase 1 — build, CI and host-test validity.
+3. Phase 2 — safe vtable patching and `HookRegistry` ownership.
+4. Phase 3 — native factory/device discovery without split COM identity.
+5. Phase 4 — structured run/render telemetry.
+
+Do not ask for another headset test to validate these phases. The first post-remediation runtime gate is a manual game observation run; a headset is unnecessary for that gate.
+
+After that evidence, continue with capture/presenter separation, OpenVR lifecycle/synchronization, transactional deployment and neutral math contracts as defined in the remediation plan.
+
+## Explicit prohibitions during stabilization
+
+- Do not skip to camera hooks, stereo cameras, 6DOF, UI adaptation or motion controls.
+- Do not reactivate D3D9Ex as the primary game path without new evidence.
+- Do not use a blind periodic re-hook loop as the default fix.
+- Do not introduce a full `IDirect3DDevice9` wrapper solely to avoid current hook replacement unless COM identity, `QueryInterface`, `GetDirect3D`, lifetime and discovery semantics are explicitly validated and evidence justifies the design.
+- Do not equate OpenVR submit count with unique game-frame count.
+- Do not interpret historical logs as evidence for a new artifact/run.
+- Do not preserve an existing abstraction if the audit demonstrates that its ownership or testability is fundamentally wrong.
+
+The historical `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` diagnostic remains useful baseline evidence because it can report replacement-slot ownership. Preserve it, but do not let it bypass the remediation order.
+
+The D3D10 path for Call of Juarez remains a first-class later target because it has visible rendering improvements. D3D9 is first because it is the common renderer surface shared by all three inspected games.
 
 ## Runtime direction
 
-OpenVR -> SteamVR is the primary PSVR2 path, including both PS VR2 Sense controllers at the input milestone. Keep input abstractions logical and controller-independent.
+OpenVR -> SteamVR is the primary PSVR2 path, including both PS VR2 Sense controllers at the later input milestone. Keep input abstractions logical and controller-independent.
 
-Preserve the existing OpenXR work as an experimental/future backend. It is not the critical path for the first headset proof.
+Preserve OpenXR as an experimental/future backend, but it must be independently selectable and must not be required merely to configure/build the OpenVR path.
 
 ## Manual runtime validation
 
-Do not launch a Call of Juarez game or SteamVR automatically. The user performs all game and SteamVR launches manually. Advance implementation, build validation, deployment preparation, diagnostics and log verification as far as possible before handing off a runtime test.
+Never launch Call of Juarez or SteamVR automatically. The user performs all game and SteamVR launches manually.
 
-Do not stop merely because a game launch is the next evidence gate: prepare the exact build artifact, reversible deployment step and post-run verifier first. Stop only when the remaining evidence requires the user's manual game/SteamVR launch or physical headset/controller validation.
+Do not stop merely because a game launch is eventually required. Advance implementation, host tests, exact artifact build, deployment preparation and verifier work as far as the current gate allows.
+
+Before requesting any manual run:
+
+1. identify the exact source/build manifest;
+2. build the exact candidate from current sources;
+3. pass the phase-specific host acceptance criteria;
+4. prepare reversible/transactional staging appropriate to the current phase;
+5. prepare the post-run verifier and expected evidence;
+6. record the candidate/run identity.
+
+Stop only when the remaining evidence genuinely requires the user's manual game/SteamVR launch or physical headset/controller confirmation.
 
 ## Before editing
 
-1. Inspect repository status, HEAD and the relevant owning files.
-2. Read the current handoff and validation state; do not assume a planned item remains unimplemented.
-3. Prefer a narrow evidence-backed change that advances the current validation gate.
-4. Run the smallest meaningful host tests after each behavioral change.
-5. Update status documents without promoting evidence beyond what was actually tested.
-6. Do not repeat a historical live diagnostic unless a new candidate or hypothesis makes the run materially different.
+1. Inspect `git status`, HEAD and the relevant owning files.
+2. Read the current audit, remediation phase and handoff.
+3. Make the smallest coherent change that advances the active phase.
+4. Add/strengthen success and failure-path tests.
+5. Build the relevant Debug/Release targets from current sources.
+6. Update `docs/TECHNICAL_AUDIT.md` only when evidence changes a finding status.
+7. Update `docs/VALIDATION.md` with actual evidence, never intended behavior.
+8. Update `docs/internal/CODEX_HANDOFF.md` before stopping.
