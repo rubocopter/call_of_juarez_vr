@@ -112,9 +112,8 @@ D3D9 device and do not retry the D3D9Ex substitution unless new evidence justifi
 
 The isolated OpenVR runtime/pose/one-frame submission gate is now **live-tested**.
 The older `EndScene`-driven diagnostic that first produced the 3/3 evidence was
-cleanly unstaged before the current successor was deployed. The current successor
-(`A1420BFF...`) was then staged, live-exercised on the exact build, and remains staged
-in the Steam installation after that run.
+cleanly unstaged before `A1420BFF...` was deployed and live-exercised on the exact
+build. That candidate is now historical evidence rather than the active diagnostic.
 
 A narrower diagnostic successor was built, host-tested, staged and live-exercised. Its Release DLL
 SHA-256 is
@@ -130,14 +129,43 @@ confirmed all bridge phases through `after_submit_stereo` and the EndScene callb
 return for frame 3, but did not reach frame 4.
 
 Do not repeat the current `A1420BFF...` run: it would only reproduce evidence already
-captured. Before another manual run, instrument sustained device `Present` entry/return
-counts using the existing device-vtable hook, build and host-validate a new Release
-candidate, then replace the currently staged diagnostic with that new hash using the
-reversible staging scripts. The next run should determine whether device `Present`
-continues after the third EndScene, blocks inside the original Present, or also stops.
-Only then decide whether an additional-swapchain/alternate D3D9 boundary needs
-investigation. Continue to require at least 300 submitted frames before promoting the
-bridge.
+captured. Sustained device `Present` entry/return telemetry is now implemented in the
+OpenVR-flat diagnostic using the existing device-vtable hook. A Release build produced
+candidate SHA-256
+`DFFEC057CD41A65A6A529E776A89D6BF79F133A53595614B62B8E6D757252227`; the verifier
+summarized Present entry/return counters for that live run.
+The device-hook host test now exercises five Present entry/return cycles; the complete
+Release build succeeds and the Release suite passes 12/12 CTests. DFFE is therefore
+host-validated. A later manual run launched from SteamVR while A1420 was still staged
+again showed the game only on the monitor and no image in PSVR2, with the log repeating
+the same 3/3 cutoff. The installed DLL hash was confirmed as A1420, so that run adds
+repeatability evidence for the old cutoff but does not test DFFE.
+
+DFFE has now been staged and live-exercised on the exact build. Its installed hash was
+confirmed as `DFFEC057CD41A65A6A529E776A89D6BF79F133A53595614B62B8E6D757252227`.
+The user again saw normal monitor rendering and no game image in PSVR2. The live log
+reached three device Present entries and three Present returns, `BeginScene=3`,
+`EndScene=3`, three EndScene returns and three successful OpenVR submissions. Frame 3
+completed every bridge phase through `after_submit_stereo`; neither the bridge callback
+nor the original device `Present` is blocking at the cutoff.
+
+The `6589B445...68621` continuity candidate has now been live-exercised on the exact
+build. Its installed hash was confirmed. The run reached `Present=3`, `BeginScene=3`,
+`EndScene=3` and three successful OpenVR submissions, then logged
+`d3d9 device hook continuity: overwritten present_callbacks=3 begin_scene_callbacks=3 end_scene_callbacks=3`.
+The game remained normal on the monitor and PSVR2 still showed no game image. This
+confirms that the OpenVR path stops because the installed D3D9 vtable hooks are replaced
+after the third frame.
+
+The active diagnostic now identifies exactly which Reset/Present/BeginScene/EndScene
+slots are overwritten and resolves each replacement target to the loaded module that
+owns it. It does not re-hook or issue rendering calls from the observer thread. Release
+candidate SHA-256 is `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF`.
+The complete Release build succeeds and the Release suite passes 12/12 CTests. The next
+live run should use this candidate. If the replacement resolves to a known overlay/hook
+module, decide whether to chain after it or remove that interference; if the targets
+remain in D3D9 itself, investigate the engine/runtime transition that restores the native
+vtable. Continue to require at least 300 submitted frames before promoting the bridge.
 Do not infer stereo rendering or camera tracking from this same-image-to-both-eyes proof.
 
 Do not skip directly to camera hooks, stereo rendering or motion controls.

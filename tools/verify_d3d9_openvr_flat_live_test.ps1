@@ -8,7 +8,7 @@ $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $Log = Join-Path $GameDirectory "cojvr.log"
 $Proxy = Join-Path $GameDirectory "d3d9.dll"
 $StageStatePath = Join-Path $GameDirectory ".cojvr-d3d9-stage.json"
-$ExpectedProxySha256 = "A1420BFFA5B09C16CC586917491841BCC945ED858C00D232FC5667892E0A19B8"
+$ExpectedProxySha256 = "369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF"
 
 if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) {
     throw "cojvr.log was not found. The OpenVR flat bridge has not produced live-test evidence."
@@ -41,6 +41,7 @@ $MaxEndSceneCallbackReturns = 0L
 $MaxSubmittedFrames = 0L
 $LastPhaseCallback = 0L
 $LastPhase = "none"
+$HookContinuity = "none"
 foreach ($Line in $Lines) {
     if ($Line -match "d3d9 Present: callback_count=([0-9]+)") {
         $MaxPresentCallbacks = [Math]::Max($MaxPresentCallbacks, [int64]$Matches[1])
@@ -63,6 +64,9 @@ foreach ($Line in $Lines) {
     if ($Line -match "d3d9 OpenVR flat bridge: callback=([0-9]+) phase=([a-z0-9_]+)") {
         $LastPhaseCallback = [int64]$Matches[1]
         $LastPhase = [string]$Matches[2]
+    }
+    if ($Line -match "d3d9 device hook continuity: (overwritten|stable_10s)") {
+        $HookContinuity = [string]$Matches[1]
     }
 }
 
@@ -110,6 +114,7 @@ foreach ($Check in $Checks.GetEnumerator()) {
 
 Write-Host "Observed progress - Present callbacks: $MaxPresentCallbacks; Present callback returns: $MaxPresentCallbackReturns; BeginScene callbacks: $MaxBeginSceneCallbacks; EndScene callbacks: $MaxEndSceneCallbacks; EndScene callback returns: $MaxEndSceneCallbackReturns; OpenVR submissions: $MaxSubmittedFrames"
 Write-Host "Last OpenVR bridge phase - callback: $LastPhaseCallback; phase: $LastPhase"
+Write-Host "Device hook continuity - $HookContinuity"
 
 if ($Failed.Count -ne 0) {
     throw "OpenVR flat live-test evidence is incomplete. Do not promote the in-game bridge."

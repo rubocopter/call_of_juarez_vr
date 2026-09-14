@@ -10,6 +10,20 @@ namespace {
 
 std::atomic_uint32_t g_end_scene_callbacks{0};
 std::atomic_uint32_t g_begin_scene_callbacks{0};
+std::atomic_uint32_t g_present_callbacks{0};
+std::atomic_uint32_t g_present_callback_returns{0};
+
+void BeforePresent(IDirect3DDevice9* device) noexcept {
+    if (device) {
+        g_present_callbacks.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void AfterPresent(IDirect3DDevice9* device, HRESULT result) noexcept {
+    if (device && SUCCEEDED(result)) {
+        g_present_callback_returns.fetch_add(1, std::memory_order_relaxed);
+    }
+}
 
 void AfterBeginScene(IDirect3DDevice9* device, HRESULT result) noexcept {
     if (device && SUCCEEDED(result)) {
@@ -68,6 +82,8 @@ int main() {
     }
 
     const cojvr::backends::d3d9::DeviceHookCallbacks callbacks{
+        .before_present = BeforePresent,
+        .after_present = AfterPresent,
         .after_begin_scene = AfterBeginScene,
         .after_end_scene = AfterEndScene,
     };
@@ -78,8 +94,17 @@ int main() {
         return Fail("failed to install D3D9 device hook");
     }
 
+    const auto installed_status = cojvr::backends::d3d9::InspectDeviceVtableHook(device);
+    if (!installed_status.installed || !installed_status.device_uses_hooked_vtable) {
+        device->Release();
+        d3d9->Release();
+        DestroyWindow(window);
+        return Fail("D3D9 device hook status did not report the hooked vtable");
+    }
+
     constexpr std::uint32_t kSceneCycles = 5;
     HRESULT end_result = S_OK;
+    HRESULT present_result = S_OK;
     for (std::uint32_t cycle = 0; cycle < kSceneCycles; ++cycle) {
         const HRESULT begin_result = device->BeginScene();
         if (FAILED(begin_result)) {
@@ -91,15 +116,37 @@ int main() {
 
         end_result = device->EndScene();
         if (FAILED(end_result)) break;
+
+        present_result = device->Present(nullptr, nullptr, nullptr, nullptr);
+        if (FAILED(present_result)) break;
     }
     const auto callbacks_seen = g_end_scene_callbacks.load(std::memory_order_relaxed);
     const auto begin_callbacks_seen = g_begin_scene_callbacks.load(std::memory_order_relaxed);
+    const auto present_callbacks_seen = g_present_callbacks.load(std::memory_order_relaxed);
+    const auto present_callback_returns_seen =
+        g_present_callback_returns.load(std::memory_order_relaxed);
+    const auto final_status = cojvr::backends::d3d9::InspectDeviceVtableHook(device);
+    const auto continuity = cojvr::backends::d3d9::InspectInstalledDeviceVtableHook();
 
     device->Release();
     d3d9->Release();
     DestroyWindow(window);
 
     if (FAILED(end_result)) return Fail("D3D9 EndScene failed");
+    if (FAILED(present_result)) return Fail("D3D9 Present failed");
+    if (present_callbacks_seen != kSceneCycles) {
+        return Fail("D3D9 Present did not traverse the installed entry callback for every scene cycle");
+    }
+    if (present_callback_returns_seen != kSceneCycles) {
+        return Fail("D3D9 Present did not traverse the installed return callback for every scene cycle");
+    }
+    if (!final_status.device_uses_hooked_vtable) {
+        return Fail("D3D9 device changed vtable during the hook test");
+    }
+    if (!continuity.installed || !continuity.reset_active || !continuity.present_active ||
+        !continuity.begin_scene_active || !continuity.end_scene_active) {
+        return Fail("D3D9 device hook entries did not remain installed during the hook test");
+    }
     if (begin_callbacks_seen != kSceneCycles) {
         return Fail("D3D9 BeginScene did not traverse the installed callback for every scene cycle");
     }
@@ -107,6 +154,6 @@ int main() {
         return Fail("D3D9 EndScene did not traverse the installed callback for every scene cycle");
     }
 
-    std::cout << "d3d9 BeginScene/EndScene device hooks passed for " << kSceneCycles << " cycles\n";
+    std::cout << "d3d9 Present/BeginScene/EndScene device hooks passed for " << kSceneCycles << " cycles\n";
     return 0;
 }

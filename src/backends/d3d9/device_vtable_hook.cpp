@@ -200,4 +200,48 @@ bool InstallDeviceVtableHook(
     }
 }
 
+DeviceVtableHookStatus InspectDeviceVtableHook(IDirect3DDevice9* device) noexcept {
+    DeviceVtableHookStatus status{};
+    if (!device) return status;
+
+    try {
+        std::lock_guard lock(g_install_mutex);
+        status.installed = g_hooked_vtable != nullptr;
+        if (!status.installed) return status;
+
+        auto** vtable = *reinterpret_cast<void***>(device);
+        status.device_uses_hooked_vtable = vtable == g_hooked_vtable;
+    } catch (...) {
+    }
+    return status;
+}
+
+bool InstalledDeviceVtableHookActive() noexcept {
+    const DeviceVtableHookContinuity continuity = InspectInstalledDeviceVtableHook();
+    return continuity.installed && continuity.reset_active && continuity.present_active &&
+        continuity.begin_scene_active && continuity.end_scene_active;
+}
+
+DeviceVtableHookContinuity InspectInstalledDeviceVtableHook() noexcept {
+    DeviceVtableHookContinuity continuity{};
+    try {
+        std::lock_guard lock(g_install_mutex);
+        if (!g_hooked_vtable) return continuity;
+
+        continuity.installed = true;
+        continuity.reset_target = g_hooked_vtable[kResetIndex];
+        continuity.present_target = g_hooked_vtable[kPresentIndex];
+        continuity.begin_scene_target = g_hooked_vtable[kBeginSceneIndex];
+        continuity.end_scene_target = g_hooked_vtable[kEndSceneIndex];
+        continuity.reset_active = continuity.reset_target == reinterpret_cast<void*>(&HookReset);
+        continuity.present_active = continuity.present_target == reinterpret_cast<void*>(&HookPresent);
+        continuity.begin_scene_active = g_original_begin_scene == nullptr ||
+            continuity.begin_scene_target == reinterpret_cast<void*>(&HookBeginScene);
+        continuity.end_scene_active = g_original_end_scene == nullptr ||
+            continuity.end_scene_target == reinterpret_cast<void*>(&HookEndScene);
+    } catch (...) {
+    }
+    return continuity;
+}
+
 } // namespace cojvr::backends::d3d9

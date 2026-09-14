@@ -96,11 +96,36 @@ Frame 3 completed `after_readback`, `after_upload`, `after_wait_for_hmd_pose` an
 was observed and no OpenVR failure was logged. This rules out a stall inside the flat
 bridge callback for the observed cutoff; sustained presentation/frame lifecycle is the
 next diagnostic boundary. The >=300-frame live/headset gate remains incomplete.
-The `A1420BFF...` diagnostic remains staged after this live run. Do not repeat it as a
-new evidence run. The next manual test requires a newly built candidate with sustained
-device-`Present` entry/return telemetry; only after that candidate is built and
-host-tested should the existing staging be replaced with the reversible unstage/stage
-scripts. Run `tools/verify_d3d9_openvr_flat_live_test.ps1` after that future test.
+Do not repeat the historical `A1420BFF...` diagnostic as a new evidence run. A later
+run launched manually from SteamVR while it was staged again left the game visible
+only on the monitor and produced the same `BeginScene=3`, `EndScene=3`, three callback
+returns and three successful submissions. Its staged DLL hash was confirmed as
+`A1420BFFA5B09C16CC586917491841BCC945ED858C00D232FC5667892E0A19B8`, so that run does
+not exercise the newer Present telemetry.
+
+Release candidate `DFFEC057CD41A65A6A529E776A89D6BF79F133A53595614B62B8E6D757252227`
+has now been staged and exercised on the exact build. The user again observed normal
+monitor rendering and no game image in PSVR2. The live log reached `Present=3` with
+three Present returns, `BeginScene=3`, `EndScene=3`, three EndScene returns and three
+successful OpenVR submissions. Frame 3 completed every bridge phase through
+`after_submit_stereo`. This rules out a stall inside the original device `Present` as
+well as inside the flat bridge callback for the observed cutoff.
+
+Release candidate `6589B445A6033FABE3CB37C4014E034655CD52D8B1B08C4C4C6F70E962068621`
+has now been exercised on the exact build. The installed hash was confirmed before log
+inspection. The run again reached three device Present entries/returns, three successful
+BeginScene/EndScene callbacks and three successful OpenVR submissions, then the continuity
+observer reported `overwritten` with `present_callbacks=3`, `begin_scene_callbacks=3`
+and `end_scene_callbacks=3`. The game continued rendering normally on the monitor while
+PSVR2 showed no game image. This is live evidence that the installed D3D9 vtable hooks
+are replaced after the third frame.
+
+The next diagnostic candidate records the state of Reset, Present, BeginScene and EndScene
+individually and resolves each replacement function address to its owning loaded module.
+Release SHA-256 is
+`369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF`. The complete
+Release build succeeds and the Release suite passes 12/12 CTests. The >=300-frame
+live/headset gate remains incomplete.
 
 The D3D9/D3D11 transport boundary is now characterized by host evidence:
 

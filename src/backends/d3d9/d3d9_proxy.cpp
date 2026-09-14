@@ -11,6 +11,7 @@
 
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <iterator>
@@ -30,9 +31,12 @@ std::once_flag g_openvr_flat_success_log_once;
 std::once_flag g_openvr_flat_failure_log_once;
 std::once_flag g_begin_scene_log_once;
 std::once_flag g_end_scene_log_once;
+std::atomic_uint64_t g_present_callbacks{0};
+std::atomic_uint64_t g_present_callback_returns{0};
 std::atomic_uint64_t g_begin_scene_callbacks{0};
 std::atomic_uint64_t g_end_scene_callbacks{0};
 std::atomic_uint64_t g_end_scene_callback_returns{0};
+std::atomic_bool g_device_hook_observer_started{false};
 #endif
 
 bool D3D9ExBridgeRequested() noexcept {
@@ -89,6 +93,79 @@ void LogLine(std::string_view line) noexcept {
     cojvr::runtime::AppendLogLine(LogPath(), line);
 }
 
+#if defined(COJVR_D3D9_OPENVR_FLAT_ALWAYS_ON)
+std::string ModuleNameForAddress(void* address) noexcept {
+    if (!address) return "null";
+    try {
+        HMODULE module = nullptr;
+        if (!GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                reinterpret_cast<LPCWSTR>(address), &module) || !module) {
+            return "unknown";
+        }
+        wchar_t module_path[MAX_PATH]{};
+        const DWORD length = GetModuleFileNameW(module, module_path, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) return "unknown";
+        return std::filesystem::path(std::wstring_view(module_path, length)).filename().string();
+    } catch (...) {
+        return "unknown";
+    }
+}
+
+void AppendHookTarget(
+    std::ostringstream& out, std::string_view name, bool active, void* target) noexcept {
+    out << ' ' << name << '=' << (active ? "active" : "overwritten");
+    if (!active) {
+        out << '(' << ModuleNameForAddress(target) << "@0x" << std::hex
+            << reinterpret_cast<std::uintptr_t>(target) << std::dec << ')';
+    }
+}
+
+DWORD WINAPI ObserveDeviceHookContinuity(LPVOID) noexcept {
+    constexpr DWORD kPollMilliseconds = 25;
+    constexpr unsigned kPollCount = 400;
+    for (unsigned poll = 0; poll < kPollCount; ++poll) {
+        Sleep(kPollMilliseconds);
+        const auto continuity = cojvr::backends::d3d9::InspectInstalledDeviceVtableHook();
+        if (!continuity.installed || !continuity.reset_active || !continuity.present_active ||
+            !continuity.begin_scene_active || !continuity.end_scene_active) {
+            std::ostringstream out;
+            out << "d3d9 device hook continuity: overwritten"
+                << " present_callbacks=" << g_present_callbacks.load(std::memory_order_relaxed)
+                << " begin_scene_callbacks=" << g_begin_scene_callbacks.load(std::memory_order_relaxed)
+                << " end_scene_callbacks=" << g_end_scene_callbacks.load(std::memory_order_relaxed);
+            AppendHookTarget(out, "reset", continuity.reset_active, continuity.reset_target);
+            AppendHookTarget(out, "present", continuity.present_active, continuity.present_target);
+            AppendHookTarget(
+                out, "begin_scene", continuity.begin_scene_active, continuity.begin_scene_target);
+            AppendHookTarget(out, "end_scene", continuity.end_scene_active, continuity.end_scene_target);
+            LogLine(out.str());
+            return 0;
+        }
+    }
+
+    std::ostringstream out;
+    out << "d3d9 device hook continuity: stable_10s"
+        << " present_callbacks=" << g_present_callbacks.load(std::memory_order_relaxed)
+        << " begin_scene_callbacks=" << g_begin_scene_callbacks.load(std::memory_order_relaxed)
+        << " end_scene_callbacks=" << g_end_scene_callbacks.load(std::memory_order_relaxed);
+    LogLine(out.str());
+    return 0;
+}
+
+void StartDeviceHookObserver() noexcept {
+    if (g_device_hook_observer_started.exchange(true, std::memory_order_relaxed)) return;
+
+    HANDLE thread = CreateThread(nullptr, 0, ObserveDeviceHookContinuity, nullptr, 0, nullptr);
+    if (!thread) {
+        LogLine("d3d9 device hook continuity: observer_start_failed");
+        return;
+    }
+    CloseHandle(thread);
+    LogLine("d3d9 device hook continuity: observer_started");
+}
+#endif
+
 void LogHostIdentityOnce() noexcept {
     try {
         std::call_once(g_identity_log_once, [] {
@@ -114,6 +191,15 @@ void BeforePresent(IDirect3DDevice9* device) noexcept {
         std::call_once(g_present_log_once, [] {
             LogLine("d3d9 Present: frame boundary observed");
         });
+
+#if defined(COJVR_D3D9_OPENVR_FLAT_ALWAYS_ON)
+        const std::uint64_t callbacks =
+            g_present_callbacks.fetch_add(1, std::memory_order_relaxed) + 1;
+        if ((callbacks >= 2 && callbacks <= 10) || callbacks == 60 || callbacks == 300 ||
+            (callbacks > 300 && callbacks % 1800 == 0)) {
+            LogLine("d3d9 Present: callback_count=" + std::to_string(callbacks));
+        }
+#endif
 
         if (g_readback_requested.load(std::memory_order_relaxed)) {
             std::call_once(g_readback_capture_once, [device] {
@@ -159,6 +245,20 @@ void LogOpenVrFlatPhase(const cojvr::backends::d3d9::OpenVrFlatBridgePhase phase
     } catch (...) {
     }
 }
+
+#if defined(COJVR_D3D9_OPENVR_FLAT_ALWAYS_ON)
+void AfterPresent(IDirect3DDevice9*, HRESULT) noexcept {
+    try {
+        const std::uint64_t returns =
+            g_present_callback_returns.fetch_add(1, std::memory_order_relaxed) + 1;
+        if ((returns >= 2 && returns <= 10) || returns == 60 || returns == 300 ||
+            (returns > 300 && returns % 1800 == 0)) {
+            LogLine("d3d9 Present: callback_return_count=" + std::to_string(returns));
+        }
+    } catch (...) {
+    }
+}
+#endif
 
 void AfterBeginScene(IDirect3DDevice9*, HRESULT result) noexcept {
     try {
@@ -346,11 +446,12 @@ public:
         if (SUCCEEDED(result) && returned_device && *returned_device) {
             const cojvr::backends::d3d9::DeviceHookCallbacks callbacks{
                 .before_present = BeforePresent,
-                .after_present = nullptr,
 #if defined(COJVR_D3D9_OPENVR_FLAT_ALWAYS_ON)
+                .after_present = AfterPresent,
                 .after_begin_scene = AfterBeginScene,
                 .after_end_scene = AfterEndScene,
 #else
+                .after_present = nullptr,
                 .after_begin_scene = nullptr,
                 .after_end_scene = nullptr,
 #endif
@@ -365,6 +466,7 @@ public:
 #if defined(COJVR_D3D9_OPENVR_FLAT_ALWAYS_ON)
             if (hooks_installed) {
                 LogLine("d3d9 device hook: EndScene active");
+                StartDeviceHookObserver();
             }
 #endif
         }
