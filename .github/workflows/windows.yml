@@ -1,0 +1,32 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  win32:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap pinned OpenXR loader
+        shell: pwsh
+        run: .\tools\bootstrap_openxr.ps1
+
+      - name: Configure Win32
+        run: cmake --preset win32-debug
+
+      - name: Build Debug
+        run: cmake --build --preset debug
+
+      - name: Test Debug
+        run: ctest --preset debug
+
+      - name: Build Release
+        run: cmake --build --preset release
+
+      - name: Test Release
+        run: ctest --preset release

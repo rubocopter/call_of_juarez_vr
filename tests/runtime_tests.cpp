@@ -1,7 +1,9 @@
 #include "runtime/build_catalog.hpp"
 #include "runtime/build_identity.hpp"
 #include "runtime/game_id.hpp"
+#include "runtime/vr_math.hpp"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -43,6 +45,24 @@ int main() {
     if (!digest) return Fail("SHA-256 calculation failed");
     if (*digest != "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD") {
         return Fail("SHA-256 result mismatch");
+    }
+
+    const Pose converted = PoseFromRigidTransform3x4({
+        1.0F, 0.0F, 0.0F, 1.25F,
+        0.0F, 1.0F, 0.0F, -2.5F,
+        0.0F, 0.0F, 1.0F, 3.75F,
+    });
+    if (std::fabs(converted.position.x - 1.25F) > 0.0001F ||
+        std::fabs(converted.position.y + 2.5F) > 0.0001F ||
+        std::fabs(converted.position.z - 3.75F) > 0.0001F ||
+        std::fabs(converted.orientation.w - 1.0F) > 0.0001F) {
+        return Fail("VR rigid-transform conversion failed");
+    }
+
+    const EyeFov fov = FovFromTangents(-1.0F, 1.0F, 1.0F, -1.0F);
+    if (std::fabs(fov.angle_left + 0.78539816F) > 0.0001F ||
+        std::fabs(fov.angle_right - 0.78539816F) > 0.0001F) {
+        return Fail("VR FOV conversion failed");
     }
 
     std::cout << "runtime tests passed\n";

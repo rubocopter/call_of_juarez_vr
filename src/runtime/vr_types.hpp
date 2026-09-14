@@ -20,7 +20,8 @@ struct Quaternion {
 struct Pose {
     Vec3 position{};
     Quaternion orientation{};
-    bool valid = false;
+    bool orientation_valid = false;
+    bool position_valid = false;
 };
 
 struct EyeFov {
