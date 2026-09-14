@@ -1,7 +1,6 @@
 # Roadmap
 
-Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`,
-`headset-validated`, `supported`.
+Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
 ## Milestone 0 — repository and evidence
 
@@ -22,19 +21,24 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`,
 
 ## Milestone 2 — OpenVR/SteamVR and first HMD proof
 
-- Pinned OpenVR SDK 2.15.6 bootstrap/build integration: **host-tested** for the build integration; standalone bootstrap execution still needs an independent run.
+- Pinned OpenVR SDK 2.15.6 bootstrap/build integration: **host-tested**.
 - OpenVR runtime lifecycle, standing tracking space and neutral eye/HMD conversion: **live-tested** against SteamVR/PSVR2.
 - OpenVR-selected D3D11 device and stereo compositor submission backend: **live-tested** for isolated synthetic submission.
-- Isolated OpenVR runtime/eye/pose/submission probe: **live-tested**; headset-visible confirmation pending.
+- Isolated OpenVR runtime/eye/pose/submission probe: **live-tested**; headset-visible confirmation remains separate.
 - D3D9Ex -> D3D11 shared render-target transport: **host-tested**.
 - Direct classic-D3D9 shared render targets: **host-tested unsupported** on the development host (`D3DERR_INVALIDCALL`).
-- Opt-in classic-API -> D3D9Ex proxy bridge with shared render-target capability: **host-tested; live-test failed** (engine access violation after the first observed `Present`).
+- Opt-in classic-API -> D3D9Ex proxy bridge: **host-tested; live-rejected** after an engine access violation in the exact game build.
 - Classic D3D9 -> CPU readback -> D3D11 upload fallback: **live-tested**.
-- Validate the classic-D3D9 readback path in the exact Call of Juarez build with unchanged flat rendering: **live-tested**.
+- Validate classic-D3D9 readback in Call of Juarez with unchanged flat rendering: **live-tested**.
 - Validate OpenVR runtime/eye configuration against manually started SteamVR: **live-tested**.
-- Sustained in-game classic-D3D9 -> CPU -> D3D11 -> OpenVR flat submission bridge: **host-tested; live/headset gate incomplete**. The exact-build `6589B445...68621` run reproduced the same monitor-only result but closed the lifecycle question: after exactly three `Present`, `BeginScene` and `EndScene` callbacks, the installed device-vtable hook entries were observed as overwritten while the game continued rendering on the monitor. The OpenVR bridge is therefore losing its D3D9 interception rather than stalling inside submission or `Present`. Candidate `369754A6...A14A6AF` now records which individual slots are replaced and which loaded module owns each replacement target; it builds cleanly and passes 12/12 Release CTests. The >=300-frame live/headset gate remains incomplete.
+- In-game classic-D3D9 -> CPU -> D3D11 -> OpenVR flat submission: **live-tested for the first three genuine game frames**. Readback, upload, `WaitForHmdPose` and stereo submission all complete successfully for those frames.
+- Diagnose sustained D3D9 interception loss: **live-tested root symptom**. After exactly three `Present`, `BeginScene` and `EndScene` callbacks, the installed device-vtable hooks are overwritten while the game continues rendering normally on the monitor.
+- Identify which D3D9 vtable slots are replaced and which loaded module owns each replacement target: **implemented / host-tested; next live gate**. Release candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` builds cleanly and the Release suite passes 12/12 CTests.
+- Choose a durable interception strategy from that evidence: **planned**. Prefer chaining after a known third-party hook when justified; otherwise investigate engine/runtime vtable restoration. If native-vtable ownership remains unstable, move to an owned `IDirect3DDevice9` forwarding wrapper instead of periodic re-hooking.
+- Sustain at least 300 captured/submitted game frames before promoting the flat bridge: **planned validation gate**.
+- Confirm sustained game image in the headset: **planned headset gate**.
 - Rotational HMD tracking / 3DOF camera proof in Call of Juarez: **planned**.
-- Stereo eye projection and headset submission in Call of Juarez: **planned**.
+- Stereo eye projection in Call of Juarez: **planned**.
 
 ### Experimental OpenXR track
 
