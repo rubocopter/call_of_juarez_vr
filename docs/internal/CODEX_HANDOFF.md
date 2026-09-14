@@ -2,131 +2,150 @@
 
 ## Current checkpoint
 
-Call of Juarez (2006), Direct3D 9, remains the reference implementation. OpenVR -> SteamVR is the initial PSVR2 path; OpenXR remains experimental/future.
+The repository is entering an **audit-driven stabilization pass**. Do not continue the earlier Present/EndScene-by-elimination workflow and do not start new VR gameplay features.
 
-The renderer/runtime transport proof is substantially complete. The current blocker is no longer D3D9 readback, D3D11 upload or OpenVR submission. Exact-build live evidence shows that the installed D3D9 device-vtable hooks are replaced after the third frame while the game continues rendering normally on the monitor.
+The authoritative implementation order is:
 
-Do not skip to camera, stereo or motion-controller work until sustained renderer interception is demonstrated.
+1. `AGENTS.md`
+2. `docs/TECHNICAL_AUDIT.md`
+3. `docs/AUDIT_REMEDIATION_PLAN.md`
+4. this handoff
+5. `docs/VALIDATION.md`
+6. `ARCHITECTURE.md`
+7. `ROADMAP.md`
 
-## Architecture rules
+`docs/internal/CODEX_OBJECTIVE.md` contains the complete current objective for a fresh Codex session.
 
-- Keep game-neutral VR policy in the shared runtime.
-- Keep D3D9/D3D10 device, frame, transport and submission behavior in renderer backends.
-- Keep camera/player/weapon/UI/physics and exact-build knowledge in game backends.
-- Call of Juarez is the reference implementation; do not generalize Chrome Engine behavior until another game demonstrates the same contract.
-- Unknown executable builds fail closed for game-specific modifications.
-- Preserve the original classic D3D9 device unless new evidence justifies a different path.
+## Evidence that must be preserved
 
-Read `AGENTS.md`, `ARCHITECTURE.md`, `ROADMAP.md` and `docs/VALIDATION.md` before changing behavior.
+Call of Juarez (2006) DX9 remains the reference implementation. OpenVR -> SteamVR remains the primary PSVR2 path; OpenXR is experimental/future.
 
-## Implemented and established
+Established evidence:
 
-### Repository/runtime
+- the forwarding D3D9 path has run the exact game build successfully on the monitor;
+- classic D3D9 -> CPU readback -> D3D11 upload has succeeded in the exact game build;
+- OpenVR has initialized against manually started SteamVR, returned a valid PSVR2 HMD pose and accepted D3D11 submissions;
+- the in-game flat bridge has completed genuine captured-game-frame submissions through readback, upload, pose wait and both-eye submit;
+- one later exact-build diagnostic observed exactly three project `Present`, `BeginScene` and `EndScene` callbacks and then detected that the installed device-vtable entries no longer pointed at the project hooks while monitor rendering continued;
+- that hook-integrity loss is confirmed for the current interception design, but it is not yet a complete root-cause explanation for the blank headset;
+- no real game stereo camera, 6DOF integration or motion-controller gameplay is implemented yet.
 
-- Win32 CMake project and presets.
-- Exact executable SHA-256 catalog and host identity helpers.
-- Renderer-neutral pose/eye types.
-- D3D9 availability and runtime probes.
-- Validation tooling and reversible staging scripts.
-
-### D3D9 integration
-
-- forwarding `d3d9.dll` proxy around system `Direct3DCreate9`;
-- `CreateDevice` diagnostics;
-- device-vtable observation hooks for `Reset`, `Present`, `BeginScene` and `EndScene`;
-- host smoke coverage for forwarding, device creation, rendering and hook behavior;
-- classic D3D9 -> CPU readback -> D3D11 upload bridge;
-- D3D9Ex -> D3D11 shared-resource research harness;
-- opt-in classic-API -> D3D9Ex substitution diagnostic;
-- sustained flat-game OpenVR bridge packaged as `d3d9_openvr_flat.dll`.
-
-### OpenVR
-
-- pinned Valve OpenVR SDK 2.15.6;
-- OpenVR runtime lifecycle and standing tracking space;
-- eye configuration and HMD pose conversion;
-- runtime-selected D3D11 adapter/device;
-- D3D11 compositor submission;
-- isolated runtime/pose/submission probe;
-- same-game-frame-to-both-eyes flat submission path for the in-game transport gate.
-
-### OpenXR
-
-- pinned OpenXR.Loader 1.1.63;
-- instance/system/session lifecycle;
-- D3D11 graphics binding and adapter-LUID selection;
-- frame timing, stereo swapchains and projection layers;
-- experimental SteamVR runtime submission evidence.
-
-## Validation summary
-
-The authoritative detailed evidence trail is `docs/VALIDATION.md`. Current high-value facts:
-
-- D3D9 forwarding/bootstrap is **live-tested** on the exact Call of Juarez build.
-- Native D3D9 observation is **live-tested**.
-- Classic D3D9 -> CPU readback -> D3D11 upload is **live-tested** in the exact game build and preserves normal menus/gameplay, videos/animations, sound and controls.
-- Direct classic-D3D9 shared render targets are unsupported on the development host (`D3DERR_INVALIDCALL`).
-- D3D9Ex -> D3D11 shared-resource transport is **host-tested**, but substituting the real game device with D3D9Ex failed its live test and is not the active path.
-- OpenVR runtime/eye setup, valid PSVR2 HMD pose acquisition and isolated synthetic D3D11 submission are **live-tested** against manually started SteamVR.
-- The in-game flat bridge has completed genuine game-frame submissions through D3D9 readback, D3D11 upload, `WaitForHmdPose` and stereo `Submit`.
-- The exact-build runs consistently stop producing our callbacks after frame 3 while the monitor continues rendering.
-- Candidate `6589B445...68621` proved that the device-vtable hook entries themselves are overwritten after exactly three `Present`, `BeginScene` and `EndScene` callbacks.
-- This rules out a stall inside the bridge callback or original `Present` as the active blocking hypothesis.
-
-## Active diagnostic
-
-The active candidate inspects each installed device-vtable slot individually:
-
-- `Reset`
-- `Present`
-- `BeginScene`
-- `EndScene`
-
-When a slot is replaced, it resolves the replacement address to the loaded module that owns it. It does not re-hook and does not issue rendering calls from the observer thread.
-
-Release SHA-256:
+Historical candidate:
 
 `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF`
 
-The complete Release build succeeds and the Release suite passes 12/12 CTests.
+This candidate can identify which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolve replacement addresses to owning modules. Preserve it as baseline evidence. Do **not** make another headset run with it the first action of this stabilization pass.
 
-## Next gate
+## Why the direction changed
 
-Run the active candidate on the exact Call of Juarez D3D9 build with SteamVR/PSVR2 using the existing manual validation policy. The required evidence is the `d3d9 device hook continuity: overwritten ...` line showing the state and owning module for each slot.
+The technical audit found that several parts of the diagnostic chain were too weak to support confident root-cause attribution:
 
-Interpret the result as follows:
+- incomplete source/build/deployment/run provenance;
+- unsafe global vtable-patch ownership and rollback semantics;
+- split/ambiguous D3D9 COM factory identity and possible device-discovery bypasses;
+- synchronous coupling of D3D9 capture, D3D11 upload, pose wait and OpenVR submission inside a game callback;
+- resource ownership not keyed strongly enough by device/generation;
+- host tests that do not fully exercise the deployed pipeline;
+- live verification not bound to a unique run;
+- non-transactional staging/evidence handling;
+- neutral runtime contaminated by OpenXR/build-identity concerns;
+- incomplete runtime lifetime/error contracts;
+- ambiguous neutral math semantics before camera work.
 
-1. **Known overlay/hook module owns replacements** — decide whether to disable it for validation or chain after it.
-2. **D3D9/engine-owned code owns replacements** — investigate the engine/runtime lifecycle that restores or replaces the native vtable.
-3. **Native-vtable ownership is inherently unstable** — prefer a real owned `IDirect3DDevice9` forwarding wrapper returned to Chrome Engine instead of periodically re-installing hooks into the native/shared vtable.
+Some observability has improved since the original audit: callback counters, return counters and hook-integrity inspection are now present, and the five-cycle device-hook host test is stronger. Those improvements are reflected in `docs/TECHNICAL_AUDIT.md`; they do not resolve the broader stabilization work.
 
-Do not implement a re-hook polling loop as the default solution without evidence that this is the correct ownership model.
+## Immediate objective
 
-After a durable interception strategy is implemented, require at least **300 sustained captured/submitted game frames** before promoting the flat bridge. Then obtain explicit headset-visible confirmation.
+Execute `docs/AUDIT_REMEDIATION_PLAN.md` in order.
 
-Only after that gate should work proceed to:
+### Phase 0 — current starting point
 
-- rotational HMD tracking / 3DOF camera proof;
-- stereo per-eye projection;
+Begin by making the source/build/deployment/run chain auditable.
+
+Required work includes:
+
+- inspect current `git status`, HEAD and tracked state;
+- introduce a manifest tying source snapshot to built artifact hashes;
+- preserve historical logs instead of deleting them during staging;
+- record exact `CoJ.exe`, `ChromeEngine3.dll`, proxy and runtime dependency identities;
+- introduce run-evidence collection without launching the game;
+- keep "known build" distinct from "supported integration".
+
+Do not proceed to a manual runtime test during Phase 0.
+
+### Phases 1-4 — host-only critical path
+
+After Phase 0, continue through:
+
+1. build/CI/test validity;
+2. safe `VtablePatch`/`HookRegistry` infrastructure;
+3. native factory/device discovery and COM-identity coverage;
+4. structured run/render telemetry.
+
+Complete each phase's acceptance criteria before moving on.
+
+The next manual game run should occur **only after Phases 0-4 satisfy their host gates**. That run is a game-observation gate and does not require the user to wear the headset.
+
+It must be able to answer from one `run_id`:
+
+- which factory/device/swapchain/generation rendered;
+- whether installed hooks stayed valid and who replaced any lost target;
+- exact callback entry/exit progression;
+- unique capture/content progression;
+- stage entry/exit/timing;
+- OpenVR/runtime state progression where applicable.
+
+## After the first audit-quality game observation
+
+Use the evidence, not preference, to choose the next interception/render path.
+
+Then continue with:
+
+- Phase 5 — separate D3D9 capture from OpenVR presentation through owned frames and a bounded mailbox;
+- Phase 6 — formalize OpenVR state/lifetime/synchronization;
+- Phase 7 — transactional deployment and run-bound verification;
+- Phase 8 — neutral VR math semantics before real stereo cameras.
+
+Only after flat integration is sustained and physically validated should work proceed to:
+
+- rotational HMD camera ownership;
+- real per-eye stereo projection;
 - 6DOF/room-scale reconciliation;
 - UI/cinematics/post-processing;
 - PS VR2 Sense actions, weapon decoupling and motion interaction.
 
+## Architecture constraints
+
+- Preserve native classic D3D9 semantics unless evidence requires otherwise.
+- Do not reactivate D3D9Ex as the main game path without new evidence.
+- Do not use blind periodic re-hooking as the default fix.
+- Preserve native COM identity where possible.
+- A complete `IDirect3DDevice9` wrapper is not the default next step; use it only if evidence requires it and its COM/lifetime semantics are explicitly validated.
+- OpenVR must be buildable without requiring the experimental OpenXR backend.
+- OpenVR submit count is not unique-game-frame count; maintain separate capture/content/submit sequences.
+- Call of Juarez is the reference implementation; do not generalize Chrome Engine contracts without evidence from another game.
+
 ## Manual runtime policy
 
-Never launch Call of Juarez or SteamVR automatically. The user performs all game and SteamVR launches manually.
+Never launch Call of Juarez or SteamVR automatically. The user performs all game, SteamVR, headset and controller launches/tests manually.
 
-Before requesting a runtime test:
+Before requesting a manual run:
 
-1. build the exact candidate;
-2. run the smallest meaningful host tests;
-3. stage it reversibly;
-4. provide or update the post-run verifier;
-5. record the candidate hash;
-6. after the user closes the game, inspect the evidence and update documentation without overstating the validation level.
+1. build the exact candidate from current sources;
+2. pass the active phase's host acceptance criteria;
+3. identify source/build/package/deployment hashes;
+4. prepare safe staging/recovery;
+5. prepare the post-run verifier;
+6. define the exact evidence expected from the run.
 
-Do not repeat historical candidates as new evidence unless the hypothesis or deployed artifact has materially changed.
+Do not ask for another physical headset test merely because implementation changed.
 
-## Renderer/game follow-up
+## Documentation discipline
 
-Call of Juarez D3D10 remains a first-class follow-up because it provides visible rendering improvements. Bound in Blood and Gunslinger remain planned D3D9 backends, but only genuinely demonstrated shared contracts should move into the common layer.
+- `docs/TECHNICAL_AUDIT.md` is the authoritative open-findings/status document.
+- `docs/AUDIT_REMEDIATION_PLAN.md` is the authoritative execution order.
+- `docs/VALIDATION.md` records evidence and historical runs, not future instructions.
+- Update this handoff with the precise next incomplete phase before stopping.
+- Update `ROADMAP.md` only at product/milestone granularity.
+
+An audit item becomes resolved only when its acceptance evidence exists, not when an implementation attempt is present.
