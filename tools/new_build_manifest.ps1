@@ -4,7 +4,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
 
-    [ValidateSet("d3d9_forwarding", "d3d9_readback", "d3d9_openvr_flat")]
+    [ValidateSet("d3d9_forwarding", "d3d9_readback", "d3d9_openvr_flat", "d3d9_camera_probe", "d3d9_hmd_camera")]
     [string]$DiagnosticMode = "d3d9_forwarding",
 
     [string]$ProxyPath = "",
@@ -46,6 +46,8 @@ $DefaultProxyNames = @{
     d3d9_forwarding = "d3d9.dll"
     d3d9_readback = "d3d9_readback.dll"
     d3d9_openvr_flat = "d3d9_openvr_flat.dll"
+    d3d9_camera_probe = "d3d9_camera_probe.dll"
+    d3d9_hmd_camera = "d3d9_hmd_camera.dll"
 }
 if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
     $ProxyPath = Join-Path $RepositoryRoot "build\win32-debug\$Configuration\$($DefaultProxyNames[$DiagnosticMode])"
@@ -55,7 +57,7 @@ if (-not (Test-Path -LiteralPath $ProxyPath -PathType Leaf)) {
     throw "Proxy artifact was not found at '$ProxyPath'. Build $Configuration first."
 }
 
-if ($DiagnosticMode -eq "d3d9_openvr_flat") {
+if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera")) {
     if ([string]::IsNullOrWhiteSpace($OpenVrDllPath)) {
         $OpenVrDllPath = Join-Path ([System.IO.Path]::GetDirectoryName($ProxyPath)) "openvr_api.dll"
     }
@@ -111,7 +113,7 @@ $Artifacts = @(
         size = (Get-Item -LiteralPath $ProxyPath).Length
     }
 )
-if ($DiagnosticMode -eq "d3d9_openvr_flat") {
+if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera")) {
     $Artifacts += [ordered]@{
         role = "openvr_runtime"
         fileName = [System.IO.Path]::GetFileName($OpenVrDllPath)

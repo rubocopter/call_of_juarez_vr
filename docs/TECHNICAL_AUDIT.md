@@ -50,7 +50,7 @@ The Phase 0-4 candidate now emits run-bound JSONL records with PID/TID, monotoni
 
 The parser/verifier has host-tested success, malformed/mixed-run and incomplete-run paths. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercised this telemetry in the exact game: provenance was complete, one factory/device/swapchain generation was identified, all three observed captures completed upload and balanced-eye submission, and both runs ended normally. The verifier failed only because four device hooks lost ownership after the third frame.
 
-**Required action:** preserve these runs as live observability evidence. The next discriminating observation should compare the same candidate with Steam Overlay disabled, because the native factory `CreateDevice` entry was already owned by `gameoverlayrenderer.dll` before the project installed its factory hook. Do not infer causality from that fact alone; use the A/B run.
+**Required action:** preserve these runs as live observability evidence. The Steam-Overlay-disabled A/B remains the controlled experiment required to resolve this D3D9 finding, because the native factory `CreateDevice` entry was already owned by `gameoverlayrenderer.dll` before the project installed its factory hook. The user has deferred that repetition while the separate camera/render-boundary gate is investigated; do not infer overlay causality without the A/B run.
 
 ### A2 — The current vtable patching mechanism is not transactionally safe
 
@@ -61,7 +61,7 @@ The audited implementation had the unsafe behavior described above. It has now b
 
 Failure-injection host tests cover failure before and after replacement, conflicting targets/reinstall, two vtables, integrity loss, partial rollback, foreign-hook-safe restore and callback reentrancy during installation. Native hook tests preserve HRESULTs. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercised the replacement infrastructure in the game and again lost `Reset`, `Present`, `BeginScene` and `EndScene` ownership on the same device vtable after exactly three callbacks. There was no install conflict or install failure. The second run recorded each `current_target` equal to the corresponding `original_target` in `C:\WINDOWS\system32\d3d9.dll`. Source inspection finds no production callsite that invokes `HookRegistry::Restore` for these hooks while the game is running.
 
-**Required action:** determine which external component restores the native device vtable. First perform an A/B observation with Steam Overlay disabled; the run must verify that the factory `CreateDevice` original target is no longer `gameoverlayrenderer.dll` before drawing a conclusion. Do not add blind re-hooking.
+**Required action:** determine which external component restores the native device vtable. The required controlled test remains an A/B observation with Steam Overlay disabled, verifying that the factory `CreateDevice` original target is no longer `gameoverlayrenderer.dll` before drawing a conclusion. This test is currently deferred by the user-directed camera/render-boundary gate. Do not add blind re-hooking.
 
 ### A3 — D3D9 factory wrapping currently creates split COM identity and bypass paths
 
@@ -160,6 +160,12 @@ OpenVR/OpenXR ownership, state transitions, move semantics, `noexcept` boundarie
 
 These issues do not explain the current flat bridge because it does not yet construct game stereo cameras, but they would become dangerous immediately afterward.
 
+The HMD-rotation gate has now narrowed the orientation subset without closing this finding:
+the neutral HMD pose convention is explicitly right-handed `+X` right, `+Y` up, `-Z`
+forward with `(x,y,z,w)` quaternions, and base-relative orientation/recenter is host-tested.
+OpenVR supplies this contract through a backend-neutral `PoseSource`. Eye-to-head semantics,
+OpenXR equivalence, asymmetric FOV/projection and stereo matrix validation remain open.
+
 **Required action:** complete remediation Phase 8 before camera/stereo implementation is promoted.
 
 ### A12 — Documentation and source-to-run provenance were incomplete
@@ -201,7 +207,38 @@ The following are still legitimate until stronger evidence eliminates them:
 | Captured image is not always the final useful game image | capture remains tied to EndScene; RGB content hashing distinguishes repeats | run-bound changing-content evidence and later visual capture validation |
 | Focus/tracking/runtime state changes during the relevant window | timestamped initialization/wait/submit results are now emitted | live correlation plus Phase 6 focus/tracking lifecycle states |
 
-There is currently no basis to blame PSVR2 hardware, abandon OpenVR, reactivate D3D9Ex as the main path or start game-camera hooks.
+There is currently no basis to blame PSVR2 hardware, abandon OpenVR or reactivate D3D9Ex as the main path. A narrowly scoped game-camera diagnostic is now authorized to establish the ChromeEngine3 camera/render boundary; it does not change the status of the blank-headset hypotheses above.
+
+## Camera/render boundary evidence — 2026-09-15
+
+The current exact `ChromeEngine3.dll` has now been statically inspected far enough to
+justify a separate functional camera gate. This evidence does not change A1/A2 status:
+
+- `LawmanModule.SetViewFullscreen(Camera)` reaches native `Module.SetViewCamera` at RVA
+  `0x00039710`, which installs the resolved native camera on the active level view.
+- MSVC RTTI identifies the primary `CBaseCamera` vtable at RVA `0x0030AE1C`.
+- vtable slot `+0x24` targets RVA `0x001C5BA0`. That function invokes the FOV/frustum
+  virtual at `+0x28`, calls matrix update RVA `0x0022BB10`, updates projection-related
+  globals and finally writes the same camera pointer to renderer offsets `+0x1AC` and
+  `+0x1B0` through global renderer pointer RVA `0x00590074`.
+- slot `+0x28` targets RVA `0x001C58E0`; the Java `Camera.SetFOV` path ultimately reaches
+  this camera projection boundary.
+- camera basis/position data used by the Java/native bridges are exposed at native camera
+  offsets left `+0xC4`, up `+0xD4`, forward `+0xE4`, position `+0xF4`.
+- RVA `0x0022BB10` constructs/copies view-related matrices and combines them with the
+  projection matrix; projection construction is visible at RVA `0x0022BC50`.
+
+The dedicated `d3d9_camera_probe` therefore hooks only the exact `CBaseCamera` render
+update and FOV slots. It transiently applies yaw/pitch for the render update, restores the
+natural basis immediately afterward, and uses ordinary system-D3D9 forwarding solely as
+the bootstrap. No OpenVR initialization or D3D9 frame-vtable interception is involved.
+See `docs/research/COJ_CAMERA_PATH.md` for the complete evidence and live acceptance gate.
+
+The follow-on `d3d9_hmd_camera` candidate is host-tested. It supplies the same transient
+camera path from the neutral pose/recenter boundary, currently using the already-proven
+OpenVR x86 HMD pose acquisition. The proxy still has no D3D9 frame hooks. This does not
+change A1/A2 and does not close A11; the pending evidence is a physical HMD -> monitor
+camera rotation run before any stereo work.
 
 ## Target component boundaries
 

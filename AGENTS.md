@@ -41,7 +41,15 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
-The current objective is **audit-driven stabilization**, not new VR feature work.
+Audit-remediation Phases 0-4 remain the established stabilization baseline. The
+Call of Juarez camera-path gate has now passed live validation:
+`Camera -> View/Projection -> ChromeEngine3 renderer` and reproducible external
+FOV/orientation control are proven in the exact game build. The current task is the
+monocular HMD-rotation gate: feed the same transient `CBaseCamera` boundary from a
+backend-neutral pose source, use the proven OpenVR HMD pose path initially, and prove
+physical 1:1 monitor-camera rotation before any stereo work. The proof remains
+game/build-specific and must not be generalized to another Chrome Engine title without
+independent evidence.
 
 Already established evidence includes:
 
@@ -65,13 +73,24 @@ Critical path before another manual game-observation run:
 4. Phase 3 — native factory/device discovery without split COM identity.
 5. Phase 4 — structured run/render telemetry.
 
-Do not ask for another headset test to validate these phases. The first post-remediation observation gate has already run. The next manual gate is an otherwise identical A/B observation with Steam Overlay disabled, and its telemetry must first prove that `gameoverlayrenderer.dll` no longer owns the pre-project factory `CreateDevice` target. A headset is unnecessary for that gate.
+Do not ask for another headset test to validate Phases 0-4 or the camera-boundary proof.
+The two post-remediation observations and the unresolved Steam Overlay A/B remain valid
+evidence/work, but the user has explicitly deferred that repeat run. The exact-build
+camera-control probe described in `docs/research/COJ_CAMERA_PATH.md` has passed its manual
+DX9 gameplay gate with matching run-bound telemetry.
 
-After that evidence, continue with capture/presenter separation, OpenVR lifecycle/synchronization, transactional deployment and neutral math contracts as defined in the remediation plan.
+The HMD-rotation implementation may proceed through exact candidate build, host tests,
+transactional staging and verifier preparation without launching the game or SteamVR.
+The next manual gate is one `d3d9_hmd_camera` run proving HMD pose validity, continuous
+yaw/pitch motion, no accumulation, disable-to-natural passthrough, clean hook/runtime
+shutdown and `renderer_camera_match=true`. Do not return to capture/presenter or compositor
+work until that gate is resolved.
 
 ## Explicit prohibitions during stabilization
 
-- Do not skip to camera hooks, stereo cameras, 6DOF, UI adaptation or motion controls.
+- Camera hooks and HMD orientation injection must remain in the exact Call of Juarez game
+  integration. Do not extend this into stereo cameras, positional 6DOF, UI adaptation or
+  motion controls yet.
 - Do not reactivate D3D9Ex as the primary game path without new evidence.
 - Do not use a blind periodic re-hook loop as the default fix.
 - Do not introduce a full `IDirect3DDevice9` wrapper solely to avoid current hook replacement unless COM identity, `QueryInterface`, `GetDirect3D`, lifetime and discovery semantics are explicitly validated and evidence justifies the design.

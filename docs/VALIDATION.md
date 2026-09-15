@@ -40,7 +40,7 @@ Phases 1-4 reached their **host-tested** acceptance gate on 2026-09-14. No Call 
 Phase 1 evidence:
 
 - The neutral runtime, build/game identity, diagnostics, OpenVR and OpenXR targets are separate. OpenVR and OpenXR are independently selectable, and dependency checks are conditional on the enabled backend.
-- Full Win32 Debug and Release builds completed at `/W4`. Each CTest suite produced 17 valid outcomes: 16 PASS and one explicit SKIP for direct classic-D3D9 shared-texture capability returning `D3DERR_INVALIDCALL` on this host.
+- Full Win32 Debug and Release builds completed at `/W4`. Before the camera-boundary work, each CTest suite produced 17 valid outcomes: 16 PASS and one explicit SKIP for direct classic-D3D9 shared-texture capability returning `D3DERR_INVALIDCALL` on this host. The current suite has 18 outcomes as recorded below.
 - Separate OpenVR-only and OpenXR-only Debug configurations each built and produced the same 16 PASS / one SKIP suite while the disabled backend's SDK root was deliberately nonexistent.
 - Native D3D9 tests assert the loaded system `d3d9.dll`; proxy tests execute from unique temporary directories and verify a normal process exit emits structured `run_end`.
 - The classic readback test validates two changing 65x37 asymmetric patterns across complete visible rows and row pitch rather than a single pixel.
@@ -107,10 +107,10 @@ ended normally, was packaged successfully, and its evidence package SHA-256 is
 `0FF39018DF5FF9FF6B7AAFC76672B89BD3F84A813B431E5D228A8CC83EE99420`.
 
 There is no production callsite that restores the device `HookRegistry` during the live
-run. The next observation is therefore an A/B test with Steam Overlay disabled. Its
-telemetry must first confirm that the factory `CreateDevice` original target is no longer
-`gameoverlayrenderer.dll`; only then can persistence or disappearance of the three-frame
-restoration be used as evidence about overlay involvement.
+run. A Steam-Overlay-disabled A/B remains the required controlled observation to determine
+whether `gameoverlayrenderer.dll` contributes to the three-frame restoration. The user has
+explicitly deferred that repeat run while the camera/render boundary is investigated, so
+no conclusion about overlay involvement is drawn here.
 The evidence package for the earlier run `20260914T214318Z-fe71b222b664` has SHA-256
 `C453F3795E30860215F1C5135D4222A825FC56538E5566F7E7AC1F00217C6B5A`.
 
@@ -123,7 +123,7 @@ known hook losses. Debug and Release were rebuilt successfully after these chang
 
 The earlier staged candidate `20260914T224423Z-3a4527d3e3ab` produced no runtime log and
 was superseded before any game launch so the A/B expectation could be part of the run
-manifest itself. The replacement manual gate is currently staged as run
+manifest itself. The replacement A/B candidate was staged as run
 `20260914T224904Z-overlay-ab` with `validation.requireSteamOverlayAbsent=true`, build
 manifest ID `054813FAF3446544AC26F25D07D919EE2B893323736885F3701DBD7F877E4A93`
 and staged proxy SHA-256
@@ -132,9 +132,99 @@ Its source manifest is intentionally recorded as a dirty snapshot rooted at comm
 `ef27ac7451370e54391534885a1bf8b59e6436d1`; it is not reproducible from that commit
 alone and must not be mistaken for the repository HEAD after the stabilization work is
 committed. No game or SteamVR process was launched while preparing these verifier
-changes. The remaining evidence requires the user to disable Steam Overlay for Call of
-Juarez, launch SteamVR and the game manually, exercise the same DX9 path and exit
-normally before running the prepared verifier.
+changes. That staged A/B has not been promoted by a game run and is superseded as the
+active manual gate by the camera-boundary experiment below. Its historical staging record
+remains useful if the A/B is resumed later.
+
+## Camera -> view/projection -> renderer host evidence — 2026-09-15
+
+The current user-directed gate investigates the game-camera boundary before investing
+further in VR presentation. Static exact-build inspection establishes the following chain;
+the full address-level record is in `docs/research/COJ_CAMERA_PATH.md`:
+
+- `LawmanModule.SetViewFullscreen(Camera)` reaches native `Module.SetViewCamera` at
+  `ChromeEngine3.dll` RVA `0x00039710`, binding the native camera to the active view.
+- `CBaseCamera` RTTI identifies its primary vtable at RVA `0x0030AE1C`.
+- vtable slot `+0x24` -> RVA `0x001C5BA0` calls the FOV/frustum slot `+0x28`, invokes
+  the view/projection matrix update, then writes the current camera into the renderer at
+  offsets `+0x1AC/+0x1B0` through renderer global RVA `0x00590074`.
+- slot `+0x28` -> RVA `0x001C58E0`; matrix update RVA `0x0022BB10` and projection
+  builder RVA `0x0022BC50` provide the View/Projection side of the chain.
+
+The new `d3d9_camera_probe` diagnostic is **host-tested**. It requires both exact binary
+hashes, validates the expected `CBaseCamera` vtable targets, uses the existing safe
+`HookRegistry`, and forwards D3D9 directly to the Windows system runtime. It does not
+initialize OpenVR and does not install D3D9 frame hooks. An external JSON command can
+request FOV/yaw/pitch; yaw/pitch are applied only during the engine render-camera update
+and the natural camera basis is restored immediately afterward.
+
+`tools/set_camera_probe_control.ps1` updates the control atomically and rejects any staging
+mode other than `d3d9_camera_probe`. `tools/verify_camera_probe_live_test.ps1` requires
+exact run/build/deployment provenance, exact engine identity, successful camera hook
+installation, an accepted external command, orientation/FOV application through the
+renderer camera, basis restoration, hook restoration and a normal bound `run_end`.
+
+Fresh full Win32 Debug and Release builds pass. Each current CTest suite produces
+**17 PASS plus one explicit capability SKIP out of 18 CTests**. The added `camera_probe`
+test now also covers XR-neutral recenter, 20-degree yaw mapping, pitch/roll basis mapping,
+return-to-origin without accumulation, invalid-pose passthrough and tracking disable;
+`provenance_tools` covers both manual camera control and the HMD enable/recenter/disable
+control plus HMD build-manifest identity. No Call of Juarez or SteamVR process was launched
+for this host evidence.
+
+The exact-build camera-boundary gate is now **live-tested**. Candidate run
+`20260915T150554Z-7e0d7da45949` used Release proxy
+SHA-256 `0D221F41A28E18B07DED7582EA292AC7077ACF35391C5238945A524DE612E3DE`
+and build manifest `5D14F545D3164C21AB430B439AA9E093253A94A21470CBFD2A6F1A9410DB0FD5`.
+Staging reverified the exact game/engine hashes, installed an initially disabled camera
+control, and removed the previously staged OpenVR-flat proxy/runtime without launching
+Call of Juarez. These lines record post-staging state; the build manifest itself preserves
+the source snapshot captured immediately before deployment.
+
+During manual gameplay the user enabled FOV `110`, yaw `20` and pitch `-10` and confirmed
+an obvious change in the rendered game view. The run log recorded the accepted control,
+natural FOV `80` -> applied FOV `110`, the natural/applied camera basis,
+`renderer_camera_match=true` and `restored=true`. The control was then disabled and the
+probe returned to natural passthrough. Normal game exit restored both camera-vtable hooks
+and emitted the bound `run_end`.
+
+`tools/verify_camera_probe_live_test.ps1` passed all run/build/deployment, exact-binary,
+camera-path, restoration and finalization checks. `tools/collect_run_evidence.ps1` marked
+the run complete and produced package SHA-256
+`2C41F3668EC4F7C1167C2BC7D3B88455119EC06E3FBB3E89C382074B52644866`.
+
+## HMD -> monocular game-camera rotation host evidence — 2026-09-15
+
+The next gate now has a **host-tested** candidate, `d3d9_hmd_camera`. It reuses the exact
+two-slot camera hook and restoration path proven above, but camera orientation is sourced
+through the backend-neutral `runtime::PoseSource` / `RelativePoseTracker` boundary.
+OpenVR is only the current producer: its existing x86 `WaitForHmdPose` path runs in
+standing tracking space and publishes neutral `PoseSample` values. ChromeEngine-specific
+code does not depend on OpenVR/OpenXR types.
+
+The neutral orientation contract is right-handed `+X` right, `+Y` up, `-Z` forward,
+quaternion `(x,y,z,w)`. Enabling tracking captures the current physical orientation as
+base; subsequent orientation is recomputed as `R_base^T * R_current`, not integrated from
+frame deltas. CoJ receives this relative rotation as a transient offset on the natural
+camera basis and the basis is restored after the render-camera update. Invalid/missing XR
+pose or disabled tracking leaves the game camera untouched.
+
+The dedicated proxy only forwards `Direct3DCreate9`; it does not install D3D9 `Present`,
+`BeginScene`, `EndScene` or `Reset` hooks. Staging binds both `d3d9_hmd_camera.dll` and
+`openvr_api.dll` to the run manifest, verifies exact CoJ/ChromeEngine hashes, and backs up
+and restores both runtime deployment and the camera-control file transactionally.
+
+Fresh Win32 Debug and Release builds completed with `/W4`. Both CTest suites passed all
+18 outcomes with **17 PASS plus the existing explicit classic-D3D9 capability SKIP**.
+`tools/verify_hmd_camera_live_test.ps1` is prepared to require: OpenVR pose-source startup,
+accepted exact camera profile, recenter, advancing HMD pose sequences, meaningful yaw and
+pitch samples, `renderer_camera_match=true`, `restored=true`, post-tracking natural
+passthrough, clean camera-hook restoration, OpenVR shutdown and the bound `run_end`.
+
+This does not promote HMD-driven camera rotation to `live-tested`: no game/SteamVR/HMD
+run was launched while implementing this candidate. The remaining evidence is the manual
+physical-head-motion gate described in `docs/research/COJ_CAMERA_PATH.md`. Stereo views,
+per-eye projection/render targets and headset presentation remain out of scope.
 
 The user performs all game and SteamVR launches manually. For the D3D9 live gate,
 prepare the run with `tools/stage_d3d9_proxy.ps1`, let the user launch and close the
@@ -292,8 +382,8 @@ The initial development host passed the Release D3D9 availability probe and
 reported two adapters. The D3D9 proxy smoke test, including native factory,
 device and implicit-swapchain observation, passes in Debug and Release. The
 optional `EndScene` callback passes repeated real D3D9 scene cycles. The current
-Debug and Release suites each produce **16 PASS plus one explicit capability
-SKIP out of 17 CTests**; the OpenVR flat proxy builds successfully in both. This
+Debug and Release suites each produce **17 PASS plus one explicit capability
+SKIP out of 18 CTests**; the OpenVR flat and camera-probe proxies build successfully in both. This
 was revalidated from the current working tree on 2026-09-15 with fresh Debug and
 Release builds followed by both CTest presets.
 

@@ -26,14 +26,25 @@ $State = Join-Path $GameDirectory ".cojvr-d3d9-stage.json"
 $CurrentRun = Join-Path $GameDirectory ".cojvr-run.json"
 $EvidenceRoot = Join-Path $GameDirectory ".cojvr-evidence"
 $D3D9ExMarker = Join-Path $GameDirectory ".cojvr-d3d9-ex-bridge"
+$CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
+$CameraControlBackup = Join-Path $GameDirectory "cojvr-camera-control.cojvr-backup.json"
+$OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
+$OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 
 $ProxyLeaf = [System.IO.Path]::GetFileName($ProxyPath)
 $IsReadbackDiagnostic = $ProxyLeaf -ieq "d3d9_readback.dll"
 $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
+$IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
+$IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
+$IsCameraIntegration = $IsCameraProbe -or $IsHmdCamera
 $DiagnosticMode = if ($IsReadbackDiagnostic) {
     "d3d9_readback"
 } elseif ($IsOpenVrFlatDiagnostic) {
     "d3d9_openvr_flat"
+} elseif ($IsCameraProbe) {
+    "d3d9_camera_probe"
+} elseif ($IsHmdCamera) {
+    "d3d9_hmd_camera"
 } else {
     "d3d9_forwarding"
 }
@@ -78,6 +89,21 @@ $ProxyHash = (Get-FileHash -LiteralPath $ProxyPath -Algorithm SHA256).Hash.ToUpp
 if ($ProxyHash -ne ([string]$ProxyArtifact[0].sha256).ToUpperInvariant()) {
     throw "Proxy SHA-256 does not match the selected build manifest."
 }
+$OpenVrArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_runtime" })
+$OpenVrSource = $null
+if ($IsHmdCamera) {
+    if ($OpenVrArtifact.Count -ne 1) {
+        throw "HMD camera manifest must contain exactly one OpenVR runtime artifact."
+    }
+    $OpenVrSource = Join-Path ([System.IO.Path]::GetDirectoryName($ProxyPath)) ([string]$OpenVrArtifact[0].fileName)
+    if (-not (Test-Path -LiteralPath $OpenVrSource -PathType Leaf)) {
+        throw "OpenVR runtime artifact was not found at '$OpenVrSource'."
+    }
+    $OpenVrHash = (Get-FileHash -LiteralPath $OpenVrSource -Algorithm SHA256).Hash.ToUpperInvariant()
+    if ($OpenVrHash -ne ([string]$OpenVrArtifact[0].sha256).ToUpperInvariant()) {
+        throw "OpenVR runtime SHA-256 does not match the selected build manifest."
+    }
+}
 
 $ActualHash = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToUpperInvariant()
 if ($ActualHash -ne $ExpectedCoJHash) {
@@ -90,12 +116,22 @@ $ChromeEngineHash = if (Test-Path -LiteralPath $ChromeEngine -PathType Leaf) {
     $null
 }
 
+if ($IsCameraIntegration -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
+    throw "Camera probe requires the exact inspected ChromeEngine3.dll. Expected $ExpectedChromeEngineHash, got '$ChromeEngineHash'."
+}
+
 if (Test-Path -LiteralPath $Backup) {
     throw "Backup '$Backup' already exists. Restore or remove it before staging another proxy."
 }
 
 if (Test-Path -LiteralPath $State) {
     throw "A previous CoJ VR staging state already exists at '$State'. Unstage it first."
+}
+if ($IsCameraIntegration -and (Test-Path -LiteralPath $CameraControlBackup)) {
+    throw "Camera-control backup '$CameraControlBackup' already exists. Restore or remove it before staging the camera probe."
+}
+if ($IsHmdCamera -and (Test-Path -LiteralPath $OpenVrBackup)) {
+    throw "OpenVR backup '$OpenVrBackup' already exists. Restore or remove it before staging the HMD camera candidate."
 }
 
 if ([string]::IsNullOrWhiteSpace($RunId)) {
@@ -125,6 +161,8 @@ foreach ($HistoricalFile in $HistoricalFiles) {
 }
 
 $HadOriginal = Test-Path -LiteralPath $Destination
+$HadOriginalCameraControl = $IsCameraIntegration -and (Test-Path -LiteralPath $CameraControl -PathType Leaf)
+$HadOriginalOpenVr = $IsHmdCamera -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
 if ($HadOriginal) {
     Move-Item -LiteralPath $Destination -Destination $Backup
     Write-Host "Backed up existing d3d9.dll to d3d9.cojvr-backup.dll"
@@ -132,6 +170,21 @@ if ($HadOriginal) {
 
 try {
     Copy-Item -LiteralPath $ProxyPath -Destination $Destination
+    if ($IsHmdCamera) {
+        if ($HadOriginalOpenVr) {
+            Move-Item -LiteralPath $OpenVrDestination -Destination $OpenVrBackup
+        }
+        Copy-Item -LiteralPath $OpenVrSource -Destination $OpenVrDestination
+    }
+    if ($IsCameraIntegration) {
+        if ($HadOriginalCameraControl) {
+            Move-Item -LiteralPath $CameraControl -Destination $CameraControlBackup
+        }
+        [System.IO.File]::WriteAllText(
+            $CameraControl,
+            "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0`n}`n",
+            [System.Text.UTF8Encoding]::new($false))
+    }
     @{
         schemaVersion = 1
         hadOriginalD3D9 = $HadOriginal
@@ -140,7 +193,29 @@ try {
         buildManifestId = [string]$BuildManifest.manifestId
         buildManifestSha256 = (Get-FileHash -LiteralPath $BuildManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
         stagedProxySha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
+        cameraControlManaged = $IsCameraIntegration
+        hadOriginalCameraControl = $HadOriginalCameraControl
+        openVrRuntimeManaged = $IsHmdCamera
+        hadOriginalOpenVr = $HadOriginalOpenVr
+        stagedOpenVrSha256 = if ($IsHmdCamera) {
+            (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
+        } else { $null }
     } | ConvertTo-Json | Set-Content -LiteralPath $State -Encoding UTF8
+
+    $Deployment = @(
+        [ordered]@{
+            role = "proxy"
+            destination = "d3d9.dll"
+            sha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
+        }
+    )
+    if ($IsHmdCamera) {
+        $Deployment += [ordered]@{
+            role = "openvr_runtime"
+            destination = "openvr_api.dll"
+            sha256 = (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
+        }
+    }
 
     $RunManifest = [ordered]@{
         schemaVersion = 1
@@ -164,13 +239,10 @@ try {
                 knownInspectedBuild = $ChromeEngineHash -eq $ExpectedChromeEngineHash
             }
         }
-        deployment = @(
-            [ordered]@{
-                role = "proxy"
-                destination = "d3d9.dll"
-                sha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
-            }
-        )
+        validation = [ordered]@{
+            requireExactChromeEngine = $IsCameraIntegration
+        }
+        deployment = @($Deployment)
     }
     $RunJson = $RunManifest | ConvertTo-Json -Depth 10
     [System.IO.File]::WriteAllText(
@@ -179,6 +251,25 @@ try {
         [System.Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath $CurrentRun -Destination (Join-Path $RunDirectory "run-manifest.json") -Force
 } catch {
+    if ($IsCameraIntegration) {
+        if (Test-Path -LiteralPath $CameraControl -PathType Leaf) {
+            Remove-Item -LiteralPath $CameraControl -Force
+        }
+        if ($HadOriginalCameraControl -and (Test-Path -LiteralPath $CameraControlBackup -PathType Leaf)) {
+            Move-Item -LiteralPath $CameraControlBackup -Destination $CameraControl
+        }
+    }
+    if ($IsHmdCamera) {
+        if (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf) {
+            $CurrentOpenVrHash = (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
+            if ($CurrentOpenVrHash -eq $OpenVrHash) {
+                Remove-Item -LiteralPath $OpenVrDestination -Force
+            }
+        }
+        if ($HadOriginalOpenVr -and (Test-Path -LiteralPath $OpenVrBackup -PathType Leaf)) {
+            Move-Item -LiteralPath $OpenVrBackup -Destination $OpenVrDestination
+        }
+    }
     if (Test-Path -LiteralPath $Destination) {
         Remove-Item -LiteralPath $Destination -Force
     }
@@ -198,13 +289,17 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Staged CoJ VR classic-D3D9 readback diagnostic proxy."
 } elseif ($IsOpenVrFlatDiagnostic) {
     Write-Host "Staged CoJ VR EndScene-driven OpenVR flat diagnostic proxy."
+} elseif ($IsCameraProbe) {
+    Write-Host "Staged exact-build ChromeEngine3 camera-control probe with D3D9 forwarding only."
+} elseif ($IsHmdCamera) {
+    Write-Host "Staged exact-build ChromeEngine3 HMD camera candidate with OpenVR pose input and D3D9 forwarding only."
 } else {
     Write-Host "Staged CoJ VR D3D9 forwarding proxy with Present/Reset observation hooks."
 }
 Write-Host "Build identity: $ActualHash"
 Write-Host "Build manifest ID: $($BuildManifest.manifestId)"
 Write-Host "Run ID: $RunId"
-if ($ChromeEngineHash -ne $ExpectedChromeEngineHash) {
+if (-not $IsCameraIntegration -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
     Write-Warning "ChromeEngine3.dll is missing or differs from the inspected baseline; its identity was recorded as '$ChromeEngineHash'."
 }
 Write-Host "Next: launch Call of Juarez manually, load a save, confirm normal rendering, then exit normally."
@@ -212,6 +307,15 @@ if ($IsReadbackDiagnostic) {
     Write-Host "After exit run tools\verify_d3d9_readback_live_test.ps1 -GameDirectory '$GameDirectory'."
 } elseif ($IsOpenVrFlatDiagnostic) {
     Write-Host "After exit run tools\verify_d3d9_openvr_flat_live_test.ps1 -GameDirectory '$GameDirectory'."
+} elseif ($IsCameraProbe) {
+    Write-Host "Control file: '$CameraControl'."
+    Write-Host "While gameplay is visible, run tools\set_camera_probe_control.ps1 to apply FOV/yaw/pitch."
+    Write-Host "After exit run tools\verify_camera_probe_live_test.ps1 -GameDirectory '$GameDirectory'."
+} elseif ($IsHmdCamera) {
+    Write-Host "Start SteamVR manually before launching the game so the OpenVR pose source can initialize."
+    Write-Host "Control file: '$CameraControl'."
+    Write-Host "While gameplay is visible, use tools\set_hmd_camera_control.ps1 to enable/recenter/disable tracking."
+    Write-Host "After exit run tools\verify_hmd_camera_live_test.ps1 -GameDirectory '$GameDirectory'."
 } else {
     Write-Host "After exit run tools\verify_d3d9_live_test.ps1 -GameDirectory '$GameDirectory'."
 }

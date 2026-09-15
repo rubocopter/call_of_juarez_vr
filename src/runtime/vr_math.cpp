@@ -5,6 +5,39 @@
 
 namespace cojvr::runtime {
 
+Quaternion NormalizeQuaternion(Quaternion value) noexcept {
+    const float length = std::sqrt(
+        value.x * value.x + value.y * value.y + value.z * value.z + value.w * value.w);
+    if (!std::isfinite(length) || length <= 1.0e-6F) return {};
+    const float inverse = 1.0F / length;
+    value.x *= inverse;
+    value.y *= inverse;
+    value.z *= inverse;
+    value.w *= inverse;
+    return value;
+}
+
+Vec3 RotateVector(const Quaternion rotation, const Vec3 value) noexcept {
+    const Quaternion q = NormalizeQuaternion(rotation);
+    const Vec3 qv{q.x, q.y, q.z};
+    const Vec3 first_cross{
+        qv.y * value.z - qv.z * value.y,
+        qv.z * value.x - qv.x * value.z,
+        qv.x * value.y - qv.y * value.x,
+    };
+    const Vec3 t{2.0F * first_cross.x, 2.0F * first_cross.y, 2.0F * first_cross.z};
+    const Vec3 second_cross{
+        qv.y * t.z - qv.z * t.y,
+        qv.z * t.x - qv.x * t.z,
+        qv.x * t.y - qv.y * t.x,
+    };
+    return {
+        value.x + q.w * t.x + second_cross.x,
+        value.y + q.w * t.y + second_cross.y,
+        value.z + q.w * t.z + second_cross.z,
+    };
+}
+
 Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
     Pose pose{};
     pose.position = {matrix[3], matrix[7], matrix[11]};
@@ -55,16 +88,7 @@ Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
         }
     }
 
-    const float length = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-    if (length > 0.0F) {
-        const float inverse = 1.0F / length;
-        q.x *= inverse;
-        q.y *= inverse;
-        q.z *= inverse;
-        q.w *= inverse;
-    }
-
-    pose.orientation = q;
+    pose.orientation = NormalizeQuaternion(q);
     pose.orientation_valid = true;
     pose.position_valid = true;
     return pose;

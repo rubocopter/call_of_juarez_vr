@@ -126,20 +126,36 @@ OpenXR runtime/handle lifetime and neutral pose/FOV semantics must be corrected 
 
 ## Validation progression
 
-The current critical path is audit remediation, not camera work:
+Audit-remediation Phases 0-4 are the established host-tested baseline. The current
+user-directed diagnostic gate moves one level inward, to prove the exact Call of Juarez
+camera/render boundary before more presentation work:
 
 1. auditable source/build/run provenance;
 2. valid clean build/CI/tests;
 3. safe hook ownership;
 4. complete native factory/device discovery;
 5. structured render/run telemetry;
-6. manual game observation without requiring a headset;
-7. separated capture/presenter path and formal OpenVR lifecycle;
-8. transactional deployment and flat integration validation;
-9. neutral math contracts complete;
-10. only then rotational camera, real stereo, 6DOF and motion-controller integration.
+6. exact-build `CBaseCamera -> view/projection -> renderer` static proof — complete;
+7. one manual, non-headset proof of externally controlled FOV/yaw/pitch with clean restoration — live-tested;
+8. backend-neutral HMD pose/recenter boundary feeding the same transient camera path — host-tested;
+9. one manual monocular proof that physical HMD rotation drives the monitor camera 1:1 — current gate;
+10. investigate the exact ChromeEngine render-view boundary for independent eye transforms/projections;
+11. complete the remaining stereo projection/culling contracts before headset presentation;
+12. only then promote stereo, positional 6DOF and motion-controller integration.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
+
+The camera probe is game/build integration. Exact RVAs, native layouts and
+`ChromeEngine3.dll` identities stay below the neutral runtime boundary. It uses D3D9 only
+as a bootstrap/forwarding DLL and does not depend on the known-fragile D3D9 frame hooks.
+
+The HMD-rotation candidate adds a neutral `PoseSource` boundary plus
+`RelativePoseTracker`. Runtime pose semantics are right-handed `+X` right, `+Y` up,
+`-Z` forward, metres, quaternion `(x,y,z,w)`, local/device to tracking space. OpenVR is
+the current producer because its x86 standing-space HMD path already has live evidence;
+the Call of Juarez integration depends only on `PoseSource`. Recenter computes an absolute
+relative orientation from a captured base (`R_base^T * R_current`), so no per-frame delta
+is accumulated. Invalid/missing pose data immediately produces natural camera passthrough.
 
 ## Primary validation hardware
 

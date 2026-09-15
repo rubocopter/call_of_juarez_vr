@@ -327,11 +327,35 @@ Phase 0
 
 Phase 8 may progress through host tests in parallel but must be complete before real stereo camera work is promoted.
 
+### Camera/render boundary proof — live-tested
+
+The user explicitly deferred another Steam-Overlay-disabled repetition of the Phase 0-4
+observation gate in favor of a more discriminating engine-boundary experiment. Call of
+Juarez (2006) has now passed this narrow exact-build diagnostic gate:
+
+```text
+exact CoJ.exe + exact ChromeEngine3.dll
+  -> CBaseCamera render update / FOV boundary
+  -> view + projection matrix update
+  -> ChromeEngine3 renderer camera ownership
+  -> externally commanded FOV/yaw/pitch proof
+```
+
+Run `20260915T150554Z-7e0d7da45949` proved visible external FOV/yaw/pitch control,
+renderer-camera correlation, natural-basis restoration, disabled passthrough and clean
+hook restoration. The follow-on HMD-rotation implementation now host-tests an explicit
+neutral pose/recenter boundary and an OpenVR-backed `d3d9_hmd_camera` candidate, but it
+does not promote stereo, positional 6DOF or motion controls. The Steam Overlay A/B remains unresolved evidence for the D3D9 interception
+finding and may be resumed later if presentation work returns to that boundary. Exact
+static/live evidence and constraints are recorded in `docs/research/COJ_CAMERA_PATH.md`.
+
 ## Validation gates
 
 | Gate | Required evidence | User action |
 | --- | --- | --- |
 | Host | hooks/resources/states/transfer pass controlled and failure-injection tests | none |
+| Camera boundary | exact engine profile, camera-vtable ownership, external FOV/orientation command, renderer-camera correlation and clean restore | one manual game launch; headset/SteamVR unnecessary |
+| Monocular HMD rotation | valid HMD pose, recenter, continuous 1:1 yaw/pitch monitor-camera motion, no accumulation, disable passthrough, renderer-camera correlation and clean restore | manual SteamVR + game + physical HMD motion |
 | Game observation | sustained callback/device/generation coverage with structured evidence | manual game launch; headset unnecessary |
 | Game capture | changing images, correct orientation/stride/content | manual game launch; headset unnecessary |
 | Isolated compositor | sustained timing/submission and recognizable visible pattern | manual SteamVR + physical headset confirmation |

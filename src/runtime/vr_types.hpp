@@ -17,6 +17,8 @@ struct Quaternion {
     float w = 1.0F;
 };
 
+// Neutral tracking-space convention: right-handed, +X right, +Y up,
+// -Z forward, metres for position, quaternion stored as (x, y, z, w).
 struct Pose {
     Vec3 position{};
     Quaternion orientation{};

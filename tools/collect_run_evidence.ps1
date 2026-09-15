@@ -73,8 +73,10 @@ foreach ($StageStatePath in $StageStatePaths) {
 
 $RuntimeLog = Join-Path $GameDirectory "cojvr.log"
 $Callstack = Join-Path $GameDirectory "callstack.txt"
+$CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
 Copy-EvidenceFile $RuntimeLog (Join-Path $RunDirectory "runtime\cojvr.log") $Inventory
 Copy-EvidenceFile $Callstack (Join-Path $RunDirectory "runtime\callstack.txt") $Inventory
+Copy-EvidenceFile $CameraControl (Join-Path $RunDirectory "runtime\cojvr-camera-control.json") $Inventory
 
 $RuntimeStarted = $false
 $RuntimeEnded = $false

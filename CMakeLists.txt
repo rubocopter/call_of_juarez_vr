@@ -73,6 +73,7 @@ if(COJVR_ENABLE_OPENXR)
 endif()
 
 add_library(cojvr_runtime STATIC
+    src/runtime/pose_source.cpp
     src/runtime/vr_math.cpp
 )
 
@@ -97,6 +98,10 @@ add_library(cojvr_d3d9_hooks STATIC
     src/backends/d3d9/vtable_patch.cpp
 )
 
+add_library(cojvr_coj_camera_probe STATIC
+    src/games/call_of_juarez/camera_probe.cpp
+)
+
 target_include_directories(cojvr_runtime PUBLIC src)
 target_compile_features(cojvr_runtime PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_runtime PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
@@ -110,6 +115,10 @@ target_compile_definitions(cojvr_diagnostics PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN
 target_include_directories(cojvr_d3d9_hooks PUBLIC src)
 target_compile_features(cojvr_d3d9_hooks PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_d3d9_hooks PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_include_directories(cojvr_coj_camera_probe PUBLIC src)
+target_compile_features(cojvr_coj_camera_probe PUBLIC cxx_std_20)
+target_compile_definitions(cojvr_coj_camera_probe PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_link_libraries(cojvr_coj_camera_probe PUBLIC cojvr_build_identity cojvr_d3d9_hooks cojvr_runtime)
 
 if(COJVR_ENABLE_OPENVR)
     add_library(cojvr_openvr_runtime STATIC
@@ -215,7 +224,46 @@ target_compile_definitions(
 target_link_libraries(cojvr_d3d9_readback_proxy PRIVATE cojvr_build_identity cojvr_diagnostics cojvr_d3d9_hooks d3d11 dxgi dxguid)
 set_target_properties(cojvr_d3d9_readback_proxy PROPERTIES OUTPUT_NAME d3d9_readback)
 
+add_library(cojvr_d3d9_camera_probe_proxy SHARED
+    src/games/call_of_juarez/camera_probe_proxy.cpp
+    src/games/call_of_juarez/d3d9_camera_probe_proxy.def
+    src/backends/d3d9/system_d3d9.cpp
+)
+target_include_directories(cojvr_d3d9_camera_probe_proxy PRIVATE src)
+target_compile_features(cojvr_d3d9_camera_probe_proxy PRIVATE cxx_std_20)
+target_compile_definitions(
+    cojvr_d3d9_camera_probe_proxy
+    PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE
+)
+target_link_libraries(
+    cojvr_d3d9_camera_probe_proxy
+    PRIVATE cojvr_coj_camera_probe cojvr_diagnostics
+)
+set_target_properties(cojvr_d3d9_camera_probe_proxy PROPERTIES OUTPUT_NAME d3d9_camera_probe)
+
 if(COJVR_ENABLE_OPENVR)
+    add_library(cojvr_d3d9_hmd_camera_proxy SHARED
+        src/games/call_of_juarez/camera_probe_proxy.cpp
+        src/games/call_of_juarez/d3d9_hmd_camera_proxy.def
+        src/backends/d3d9/system_d3d9.cpp
+    )
+    target_include_directories(cojvr_d3d9_hmd_camera_proxy PRIVATE src)
+    target_compile_features(cojvr_d3d9_hmd_camera_proxy PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d9_hmd_camera_proxy
+        PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE COJVR_CAMERA_HMD_OPENVR
+    )
+    target_link_libraries(
+        cojvr_d3d9_hmd_camera_proxy
+        PRIVATE cojvr_coj_camera_probe cojvr_diagnostics cojvr_openvr_runtime
+    )
+    set_target_properties(cojvr_d3d9_hmd_camera_proxy PROPERTIES OUTPUT_NAME d3d9_hmd_camera)
+    add_custom_command(TARGET cojvr_d3d9_hmd_camera_proxy POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${COJVR_OPENVR_DLL}"
+            "$<TARGET_FILE_DIR:cojvr_d3d9_hmd_camera_proxy>/openvr_api.dll"
+    )
+
     add_library(cojvr_d3d9_openvr_flat_proxy SHARED
         src/backends/d3d9/classic_readback_bridge.cpp
         src/backends/d3d9/d3d9_proxy.cpp
@@ -247,15 +295,18 @@ if(MSVC)
         cojvr_build_identity
         cojvr_diagnostics
         cojvr_d3d9_hooks
+        cojvr_coj_camera_probe
         cojvr_d3d9_probe
         cojvr_d3d9_proxy
         cojvr_d3d9_readback_proxy
+        cojvr_d3d9_camera_probe_proxy
     )
     if(COJVR_ENABLE_OPENVR)
         list(APPEND cojvr_warning_targets
             cojvr_openvr_runtime
             cojvr_openvr_d3d11_backend
             cojvr_openvr_probe
+            cojvr_d3d9_hmd_camera_proxy
             cojvr_d3d9_openvr_flat_proxy
         )
     endif()
@@ -379,6 +430,14 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_structured_telemetry_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME structured_telemetry COMMAND cojvr_structured_telemetry_test)
+
+    add_executable(cojvr_camera_probe_test tests/camera_probe.cpp)
+    target_link_libraries(cojvr_camera_probe_test PRIVATE cojvr_coj_camera_probe)
+    target_compile_features(cojvr_camera_probe_test PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(cojvr_camera_probe_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME camera_probe COMMAND cojvr_camera_probe_test)
 
     add_executable(
         cojvr_d3d9_factory_hook_test

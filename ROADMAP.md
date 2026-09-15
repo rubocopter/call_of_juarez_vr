@@ -2,7 +2,11 @@
 
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
-The current engineering priority is the audit-driven stabilization track defined in `docs/TECHNICAL_AUDIT.md` and `docs/AUDIT_REMEDIATION_PLAN.md`. Product milestones below remain valid, but camera/stereo/controller work is blocked until the stabilization gates are satisfied.
+The audit-driven stabilization track remains authoritative. The exact-build camera/render
+boundary proof is now live-tested, and the current engineering priority is the monocular
+HMD-rotation gate: physical HMD rotation must drive the same proven camera path 1:1 on the
+monitor. Stereo, positional 6DOF and controller gameplay remain blocked until that gate and
+the later stereo/math contracts are satisfied.
 
 ## Stabilization track — audit remediation
 
@@ -43,7 +47,18 @@ The current engineering priority is the audit-driven stabilization track defined
 - Separate process/per-device callback, capture, new-content, upload and per-eye submit sequences: **host-tested**.
 - Periodic/final summaries and explicit incomplete-run state: **host-tested**.
 
-**Manual runtime gate:** Phases 0-4 meet their host acceptance criteria. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` produced complete run-bound evidence but failed because device `Reset`, `Present`, `BeginScene` and `EndScene` all lost ownership after exactly three callbacks. The second run proved that all four slots revert exactly to their original `C:\WINDOWS\system32\d3d9.dll` targets; the factory and swapchain hooks remain owned. Because Steam's `gameoverlayrenderer.dll` owns the pre-project factory `CreateDevice` target, the next gate is an otherwise identical run with Steam Overlay disabled and telemetry confirmation that the overlay factory hook is absent. Headset use remains unnecessary.
+**Manual runtime gate:** Phases 0-4 meet their host acceptance criteria. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` remain authoritative evidence for the three-frame D3D9 hook loss. The Steam-Overlay-disabled A/B remains unresolved and deferred. The separate exact-build camera-boundary gate passed on run `20260915T150554Z-7e0d7da45949`: external FOV plus yaw/pitch visibly changed the gameplay view, telemetry correlated the controlled camera with the ChromeEngine3 renderer, disabling returned to natural passthrough, and both camera hooks restored on normal exit.
+
+### Camera/render boundary probe
+
+- Exact `CoJ.exe` + `ChromeEngine3.dll` identity gate: **host-tested**.
+- `CBaseCamera` vtable/profile validation and safe hook ownership: **host-tested**.
+- Static `Camera -> view/projection matrices -> renderer camera` path: **implemented evidence record** from exact-binary host inspection.
+- External JSON FOV/yaw/pitch control with non-accumulating orientation override: **live-tested**.
+- Dedicated D3D9-forwarding-only proxy and run verifier: **live-tested**.
+- XR-neutral `PoseSource` plus base-orientation/recenter policy: **host-tested**.
+- OpenVR HMD pose feeding the transient CoJ camera basis through a D3D9-forwarding-only candidate: **host-tested**.
+- Physical HMD -> monocular monitor-camera rotation with run-bound renderer correlation: **manual live gate pending**.
 
 ### Phase 5 — capture/presenter separation
 
@@ -101,11 +116,12 @@ The current engineering priority is the audit-driven stabilization track defined
 - Opt-in classic-API -> D3D9Ex proxy bridge: **host-tested; live-rejected** after an engine access violation in the exact game build.
 - Classic D3D9 -> CPU readback -> D3D11 upload fallback: **live-tested initial transport evidence**.
 - In-game classic-D3D9 -> CPU -> D3D11 -> OpenVR flat submission: **live-tested for initial genuine captured frames**.
-- Current native device-vtable hook integrity: **live-tested failure mode** — the Phase 0-4 run-bound candidate reproduced three project frame callbacks followed by simultaneous loss of the four instrumented device hooks; the exact-target run proved that every lost slot returned to its recorded original function in `C:\\WINDOWS\\system32\\d3d9.dll`. The external actor that performs that restoration remains unresolved; Steam Overlay is the next controlled A/B variable.
+- Current native device-vtable hook integrity: **live-tested failure mode** — the Phase 0-4 run-bound candidate reproduced three project frame callbacks followed by simultaneous loss of the four instrumented device hooks; the exact-target run proved that every lost slot returned to its recorded original function in `C:\\WINDOWS\\system32\\d3d9.dll`. The external actor remains unresolved; the Steam Overlay A/B is preserved as a deferred controlled experiment.
 - Historical replacement-owner diagnostic `369754A6...A14A6AF`: **implemented / host-tested baseline artifact**; not the first action of the stabilization pass.
 - Sustained, run-auditable changing game-frame capture and presentation: **blocked by stabilization track**.
 - Sustained game image physically visible in headset: **planned headset gate after flat integration is auditable**.
-- Rotational HMD tracking / 3DOF camera proof: **planned after stabilization**.
+- External engine-camera orientation/FOV control: **live-tested exact-build proof**.
+- Rotational HMD tracking / 3DOF camera proof: **host-tested implementation; manual live gate pending**.
 - Stereo eye projection: **planned after stabilization and math-contract gate**.
 
 ### Experimental OpenXR track

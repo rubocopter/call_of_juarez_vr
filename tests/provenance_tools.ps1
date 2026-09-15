@@ -37,7 +37,11 @@ try {
         "collect_run_evidence.ps1",
         "get_run_provenance.ps1",
         "stage_d3d9_proxy.ps1",
-        "stage_d3d9_openvr_flat.ps1"
+        "stage_d3d9_openvr_flat.ps1",
+        "set_camera_probe_control.ps1",
+        "verify_camera_probe_live_test.ps1",
+        "set_hmd_camera_control.ps1",
+        "verify_hmd_camera_live_test.ps1"
     )
     foreach ($Script in $Scripts) {
         $Tokens = $null
@@ -79,6 +83,23 @@ try {
     Assert-True ($BuildManifest.source.headCommit -match "^[a-f0-9]{40}$") "Source commit was not recorded."
     Assert-True ($BuildManifest.build.platform -eq "Win32") "Win32 build identity was not recorded."
     Assert-True (@($BuildManifest.artifacts).Count -eq 2) "Expected proxy and OpenVR artifacts."
+
+    $HmdProxyPath = Join-Path $ArtifactDirectory "d3d9_hmd_camera.dll"
+    Copy-Item -LiteralPath $ProxyPath -Destination $HmdProxyPath
+    $HmdBuildManifestPath = Join-Path $ArtifactDirectory "d3d9_hmd_camera.build-manifest.json"
+    & (Join-Path $SourceDirectory "tools\new_build_manifest.ps1") `
+        -RepositoryRoot $SourceDirectory `
+        -Configuration Release `
+        -DiagnosticMode d3d9_hmd_camera `
+        -ProxyPath $HmdProxyPath `
+        -OpenVrDllPath $OpenVrPath `
+        -OutputPath $HmdBuildManifestPath `
+        -AllowDirty
+    $HmdBuildManifest = Get-Content -LiteralPath $HmdBuildManifestPath -Raw | ConvertFrom-Json
+    Assert-True ($HmdBuildManifest.build.diagnosticMode -eq "d3d9_hmd_camera") `
+        "HMD camera build mode was not recorded."
+    Assert-True (@($HmdBuildManifest.artifacts).Count -eq 2) `
+        "HMD camera manifest did not bind proxy and OpenVR runtime."
 
     $GameDirectory = Join-Path $TestRoot "game"
     $RunId = "host-test-run"
@@ -154,7 +175,68 @@ try {
     Assert-True ($ProxyCheck.Count -eq 1 -and -not [bool]$ProxyCheck[0].matches) `
         "Changed deployed proxy was not reported."
 
-    Write-Host "PASS - provenance build/run manifests and evidence collection"
+    $CameraControlGame = Join-Path $TestRoot "camera-control-game"
+    New-Item -ItemType Directory -Path $CameraControlGame -Force | Out-Null
+    Write-Utf8Json (Join-Path $CameraControlGame ".cojvr-d3d9-stage.json") ([ordered]@{
+        diagnosticMode = "d3d9_camera_probe"
+    })
+    & (Join-Path $SourceDirectory "tools\set_camera_probe_control.ps1") `
+        -GameDirectory $CameraControlGame `
+        -Mode enable `
+        -FovDegrees 105 `
+        -YawDegrees 15 `
+        -PitchDegrees -5
+    $CameraControl = Get-Content -LiteralPath `
+        (Join-Path $CameraControlGame "cojvr-camera-control.json") -Raw | ConvertFrom-Json
+    Assert-True ([bool]$CameraControl.enabled) "Camera control enable command was not written."
+    Assert-True ([double]$CameraControl.fovDegrees -eq 105.0) "Camera control FOV was not preserved."
+    Assert-True ([double]$CameraControl.yawDegrees -eq 15.0) "Camera control yaw was not preserved."
+    Assert-True ([double]$CameraControl.pitchDegrees -eq -5.0) "Camera control pitch was not preserved."
+
+    & (Join-Path $SourceDirectory "tools\set_camera_probe_control.ps1") `
+        -GameDirectory $CameraControlGame `
+        -Mode disable
+    $CameraControl = Get-Content -LiteralPath `
+        (Join-Path $CameraControlGame "cojvr-camera-control.json") -Raw | ConvertFrom-Json
+    Assert-True (-not [bool]$CameraControl.enabled) "Camera control disable command was not written."
+
+    Write-Utf8Json (Join-Path $CameraControlGame ".cojvr-d3d9-stage.json") ([ordered]@{
+        diagnosticMode = "d3d9_forwarding"
+    })
+    $WrongModeRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\set_camera_probe_control.ps1") `
+            -GameDirectory $CameraControlGame `
+            -Mode enable
+    } catch {
+        $WrongModeRejected = $true
+    }
+    Assert-True $WrongModeRejected "Camera control accepted a non-camera-probe staging mode."
+
+    $HmdControlGame = Join-Path $TestRoot "hmd-control-game"
+    New-Item -ItemType Directory -Path $HmdControlGame -Force | Out-Null
+    Write-Utf8Json (Join-Path $HmdControlGame ".cojvr-d3d9-stage.json") ([ordered]@{
+        diagnosticMode = "d3d9_hmd_camera"
+    })
+    & (Join-Path $SourceDirectory "tools\set_hmd_camera_control.ps1") `
+        -GameDirectory $HmdControlGame `
+        -Mode enable
+    $HmdControl = Get-Content -LiteralPath `
+        (Join-Path $HmdControlGame "cojvr-camera-control.json") -Raw | ConvertFrom-Json
+    Assert-True ([bool]$HmdControl.trackingEnabled -and [bool]$HmdControl.recenter) `
+        "HMD enable did not request tracking plus base-orientation capture."
+    Assert-True (-not [bool]$HmdControl.enabled) `
+        "HMD control accidentally enabled the manual diagnostic orientation source."
+
+    & (Join-Path $SourceDirectory "tools\set_hmd_camera_control.ps1") `
+        -GameDirectory $HmdControlGame `
+        -Mode disable
+    $HmdControl = Get-Content -LiteralPath `
+        (Join-Path $HmdControlGame "cojvr-camera-control.json") -Raw | ConvertFrom-Json
+    Assert-True (-not [bool]$HmdControl.trackingEnabled) `
+        "HMD disable did not restore tracking passthrough."
+
+    Write-Host "PASS - provenance manifests, evidence collection and camera/HMD controls"
 } finally {
     if (Test-Path -LiteralPath $ResolvedTestRoot -PathType Container) {
         Remove-Item -LiteralPath $ResolvedTestRoot -Recurse -Force
