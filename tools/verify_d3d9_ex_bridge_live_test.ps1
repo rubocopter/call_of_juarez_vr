@@ -6,13 +6,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
-$Log = Join-Path $GameDirectory "cojvr.log"
-
-if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) {
-    throw "cojvr.log was not found. The proxy has not produced live-test evidence."
-}
-
-$Lines = Get-Content -LiteralPath $Log
+$Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
+    -GameDirectory $GameDirectory `
+    -ExpectedDiagnosticMode "d3d9_forwarding"
+$Lines = $Provenance.Lines
 $Checks = [ordered]@{
     "known exact build" = [bool]($Lines -match "d3d9 bootstrap: host=Call of Juarez \(Direct3D 9\).*exact_build=known")
     "D3D9Ex bridge active" = [bool]($Lines -match "d3d9 D3D9Ex bridge: forwarding wrapper active")

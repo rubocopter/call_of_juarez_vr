@@ -51,7 +51,7 @@ Already established evidence includes:
 - the in-game flat bridge has completed genuine captured-frame submissions;
 - one later diagnostic observed exactly three project `Present`, `BeginScene` and `EndScene` callbacks followed by loss of integrity of the installed D3D9 device-vtable entries while monitor rendering continued.
 
-Treat that last point as a confirmed failure mode of the current interception design, not as a complete root-cause explanation for the blank headset. The current repository still lacks sufficient run provenance, device/generation coverage, safe hook ownership and decoupled capture/presentation to make the next physical run maximally discriminating.
+Treat that last point as a confirmed failure mode of the current interception design, not as a complete root-cause explanation for the blank headset. Audit-remediation Phases 0-4 now provide host-tested run provenance, device/generation coverage, safe hook ownership and structured render telemetry. Two run-bound manual observations reproduced the three-frame device-hook loss; the second proved that all four lost slots return to their recorded Windows D3D9 originals. Capture/presentation decoupling remains open for Phase 5.
 
 ## Required execution order
 
@@ -65,7 +65,7 @@ Critical path before another manual game-observation run:
 4. Phase 3 — native factory/device discovery without split COM identity.
 5. Phase 4 — structured run/render telemetry.
 
-Do not ask for another headset test to validate these phases. The first post-remediation runtime gate is a manual game observation run; a headset is unnecessary for that gate.
+Do not ask for another headset test to validate these phases. The first post-remediation observation gate has already run. The next manual gate is an otherwise identical A/B observation with Steam Overlay disabled, and its telemetry must first prove that `gameoverlayrenderer.dll` no longer owns the pre-project factory `CreateDevice` target. A headset is unnecessary for that gate.
 
 After that evidence, continue with capture/presenter separation, OpenVR lifecycle/synchronization, transactional deployment and neutral math contracts as defined in the remediation plan.
 

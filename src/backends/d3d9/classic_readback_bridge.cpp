@@ -158,9 +158,6 @@ bool CaptureBackBufferToD3D11(
             return false;
         }
 
-        const auto* d3d9_pixel = static_cast<const std::uint8_t*>(locked.pBits);
-        const std::array<std::uint8_t, 4> expected_pixel{
-            d3d9_pixel[0], d3d9_pixel[1], d3d9_pixel[2], d3d9_pixel[3]};
         const UINT source_pitch = static_cast<UINT>(locked.Pitch);
         const std::size_t source_size =
             static_cast<std::size_t>(source_pitch) * back_buffer_desc.Height;
@@ -237,15 +234,20 @@ bool CaptureBackBufferToD3D11(
             diagnostic = Failure("D3D11 staging Map", hr);
             return false;
         }
-        const auto* uploaded_pixel = static_cast<const std::uint8_t*>(mapped.pData);
-        const bool pixel_matches =
-            uploaded_pixel[0] == expected_pixel[0] &&
-            uploaded_pixel[1] == expected_pixel[1] &&
-            uploaded_pixel[2] == expected_pixel[2] &&
-            uploaded_pixel[3] == expected_pixel[3];
+        const auto* uploaded_pixels = static_cast<const std::uint8_t*>(mapped.pData);
+        const std::size_t active_row_bytes =
+            static_cast<std::size_t>(back_buffer_desc.Width) * 4;
+        bool pixels_match = mapped.RowPitch >= active_row_bytes;
+        for (UINT row = 0; pixels_match && row < back_buffer_desc.Height; ++row) {
+            const auto* source_row = source_pixels.data() +
+                static_cast<std::size_t>(row) * source_pitch;
+            const auto* uploaded_row = uploaded_pixels +
+                static_cast<std::size_t>(row) * mapped.RowPitch;
+            pixels_match = std::memcmp(source_row, uploaded_row, active_row_bytes) == 0;
+        }
         context11->Unmap(staging.Get(), 0);
-        if (!pixel_matches) {
-            diagnostic = "D3D9/D3D11 verification pixel mismatch";
+        if (!pixels_match) {
+            diagnostic = "D3D9/D3D11 full-frame verification mismatch";
             return false;
         }
 
@@ -254,6 +256,8 @@ bool CaptureBackBufferToD3D11(
             << back_buffer_desc.Height
             << " format=" << static_cast<unsigned>(back_buffer_desc.Format)
             << " msaa=" << static_cast<unsigned>(back_buffer_desc.MultiSampleType)
+            << " source_pitch=" << std::dec << source_pitch
+            << " upload_pitch=" << mapped.RowPitch
             << " feature_level=0x" << std::hex << static_cast<unsigned>(feature_level);
         diagnostic = out.str();
         return true;

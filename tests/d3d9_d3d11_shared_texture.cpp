@@ -33,6 +33,9 @@ bool SameLuid(const LUID& left, const LUID& right) {
 int main() {
     const auto create_d3d9_ex = cojvr::backends::d3d9::SystemDirect3DCreate9Ex();
     if (create_d3d9_ex == nullptr) return Fail("System d3d9.dll has no Direct3DCreate9Ex");
+    if (!cojvr::backends::d3d9::IsExpectedSystemD3D9Module()) {
+        return Fail("interop test did not load the expected system d3d9.dll");
+    }
 
     ComPtr<IDirect3D9Ex> d3d9;
     HRESULT hr = create_d3d9_ex(D3D_SDK_VERSION, &d3d9);
@@ -59,7 +62,13 @@ int main() {
         &present,
         nullptr,
         &device9);
-    if (FAILED(hr)) return Fail("CreateDeviceEx failed", hr);
+    if (FAILED(hr)) {
+        if (hr == D3DERR_NOTAVAILABLE) {
+            std::cout << "D3D9Ex interop test skipped: HAL device unavailable\n";
+            return 77;
+        }
+        return Fail("CreateDeviceEx failed", hr);
+    }
 
     IDirect3DDevice9* classic_device = device9.Get();
     hr = classic_device->Clear(

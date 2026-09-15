@@ -2,7 +2,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$GameDirectory,
 
-    [string]$ProxyPath = ""
+    [string]$ProxyPath = "",
+    [string]$BuildManifestPath = "",
+    [string]$RunId = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,13 +14,41 @@ if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
 }
 
 $ExpectedCoJHash = "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE"
+$ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $ProxyPath = [System.IO.Path]::GetFullPath($ProxyPath)
 $Executable = Join-Path $GameDirectory "CoJ.exe"
+$ChromeEngine = Join-Path $GameDirectory "ChromeEngine3.dll"
 $Destination = Join-Path $GameDirectory "d3d9.dll"
 $Backup = Join-Path $GameDirectory "d3d9.cojvr-backup.dll"
 $Log = Join-Path $GameDirectory "cojvr.log"
 $State = Join-Path $GameDirectory ".cojvr-d3d9-stage.json"
+$CurrentRun = Join-Path $GameDirectory ".cojvr-run.json"
+$EvidenceRoot = Join-Path $GameDirectory ".cojvr-evidence"
+$D3D9ExMarker = Join-Path $GameDirectory ".cojvr-d3d9-ex-bridge"
+
+$ProxyLeaf = [System.IO.Path]::GetFileName($ProxyPath)
+$IsReadbackDiagnostic = $ProxyLeaf -ieq "d3d9_readback.dll"
+$IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
+$DiagnosticMode = if ($IsReadbackDiagnostic) {
+    "d3d9_readback"
+} elseif ($IsOpenVrFlatDiagnostic) {
+    "d3d9_openvr_flat"
+} else {
+    "d3d9_forwarding"
+}
+
+$D3D9ExEnvironmentRequested = $env:COJVR_D3D9_EX_BRIDGE -match "^(1|true|on)$"
+if ($D3D9ExEnvironmentRequested -or (Test-Path -LiteralPath $D3D9ExMarker -PathType Leaf)) {
+    throw "D3D9Ex is a laboratory-only path and must be disabled before classic diagnostic staging. Remove the marker/unset COJVR_D3D9_EX_BRIDGE explicitly."
+}
+
+if ([string]::IsNullOrWhiteSpace($BuildManifestPath)) {
+    $BuildManifestPath = Join-Path `
+        ([System.IO.Path]::GetDirectoryName($ProxyPath)) `
+        "$([System.IO.Path]::GetFileNameWithoutExtension($ProxyPath)).build-manifest.json"
+}
+$BuildManifestPath = [System.IO.Path]::GetFullPath($BuildManifestPath)
 
 if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
     throw "CoJ.exe was not found in '$GameDirectory'."
@@ -28,9 +58,36 @@ if (-not (Test-Path -LiteralPath $ProxyPath -PathType Leaf)) {
     throw "Release proxy was not found at '$ProxyPath'. Build the Release preset first."
 }
 
+if (-not (Test-Path -LiteralPath $BuildManifestPath -PathType Leaf)) {
+    throw "Build manifest was not found at '$BuildManifestPath'. Run tools\new_build_manifest.ps1 for this exact proxy first."
+}
+
+$BuildManifest = Get-Content -LiteralPath $BuildManifestPath -Raw | ConvertFrom-Json
+if ([string]$BuildManifest.manifestType -ne "cojvr-build" -or
+    [int]$BuildManifest.schemaVersion -ne 1) {
+    throw "Build manifest '$BuildManifestPath' has an unsupported schema."
+}
+if ([string]$BuildManifest.build.diagnosticMode -ne $DiagnosticMode) {
+    throw "Build manifest diagnostic mode '$($BuildManifest.build.diagnosticMode)' does not match '$DiagnosticMode'."
+}
+$ProxyArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "proxy" })
+if ($ProxyArtifact.Count -ne 1) {
+    throw "Build manifest must contain exactly one proxy artifact."
+}
+$ProxyHash = (Get-FileHash -LiteralPath $ProxyPath -Algorithm SHA256).Hash.ToUpperInvariant()
+if ($ProxyHash -ne ([string]$ProxyArtifact[0].sha256).ToUpperInvariant()) {
+    throw "Proxy SHA-256 does not match the selected build manifest."
+}
+
 $ActualHash = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToUpperInvariant()
 if ($ActualHash -ne $ExpectedCoJHash) {
-    throw "CoJ.exe SHA-256 is not the supported build. Expected $ExpectedCoJHash, got $ActualHash."
+    throw "CoJ.exe SHA-256 is not the known exact build. Expected $ExpectedCoJHash, got $ActualHash."
+}
+
+$ChromeEngineHash = if (Test-Path -LiteralPath $ChromeEngine -PathType Leaf) {
+    (Get-FileHash -LiteralPath $ChromeEngine -Algorithm SHA256).Hash.ToUpperInvariant()
+} else {
+    $null
 }
 
 if (Test-Path -LiteralPath $Backup) {
@@ -39,6 +96,32 @@ if (Test-Path -LiteralPath $Backup) {
 
 if (Test-Path -LiteralPath $State) {
     throw "A previous CoJ VR staging state already exists at '$State'. Unstage it first."
+}
+
+if ([string]::IsNullOrWhiteSpace($RunId)) {
+    $RunId = "{0}-{1}" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), ([Guid]::NewGuid().ToString("N").Substring(0, 12))
+}
+if ($RunId -notmatch "^[A-Za-z0-9._-]+$") {
+    throw "RunId may contain only letters, digits, '.', '_' and '-'."
+}
+
+$RunDirectory = Join-Path (Join-Path $EvidenceRoot "runs") $RunId
+if (Test-Path -LiteralPath $RunDirectory) {
+    throw "Run evidence directory '$RunDirectory' already exists. Choose a unique RunId."
+}
+$HistoricalDirectory = Join-Path `
+    (Join-Path $EvidenceRoot "historical") `
+    ("{0}-{1}" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), ([Guid]::NewGuid().ToString("N").Substring(0, 8)))
+New-Item -ItemType Directory -Path $RunDirectory -Force | Out-Null
+Copy-Item -LiteralPath $BuildManifestPath -Destination (Join-Path $RunDirectory "build-manifest.json")
+
+$HistoricalFiles = @($Log, (Join-Path $GameDirectory "callstack.txt"), $CurrentRun)
+foreach ($HistoricalFile in $HistoricalFiles) {
+    if (Test-Path -LiteralPath $HistoricalFile -PathType Leaf) {
+        New-Item -ItemType Directory -Path $HistoricalDirectory -Force | Out-Null
+        Move-Item -LiteralPath $HistoricalFile -Destination `
+            (Join-Path $HistoricalDirectory ([System.IO.Path]::GetFileName($HistoricalFile)))
+    }
 }
 
 $HadOriginal = Test-Path -LiteralPath $Destination
@@ -50,9 +133,51 @@ if ($HadOriginal) {
 try {
     Copy-Item -LiteralPath $ProxyPath -Destination $Destination
     @{
+        schemaVersion = 1
         hadOriginalD3D9 = $HadOriginal
+        runId = $RunId
+        diagnosticMode = $DiagnosticMode
+        buildManifestId = [string]$BuildManifest.manifestId
+        buildManifestSha256 = (Get-FileHash -LiteralPath $BuildManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
         stagedProxySha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
     } | ConvertTo-Json | Set-Content -LiteralPath $State -Encoding UTF8
+
+    $RunManifest = [ordered]@{
+        schemaVersion = 1
+        manifestType = "cojvr-run"
+        runId = $RunId
+        createdUtc = [DateTime]::UtcNow.ToString("o")
+        status = "staged"
+        diagnosticMode = $DiagnosticMode
+        buildManifestId = [string]$BuildManifest.manifestId
+        buildManifestSha256 = (Get-FileHash -LiteralPath $BuildManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        source = $BuildManifest.source
+        game = [ordered]@{
+            executable = [ordered]@{
+                fileName = "CoJ.exe"
+                sha256 = $ActualHash
+                knownExactBuild = $ActualHash -eq $ExpectedCoJHash
+            }
+            engine = [ordered]@{
+                fileName = "ChromeEngine3.dll"
+                sha256 = $ChromeEngineHash
+                knownInspectedBuild = $ChromeEngineHash -eq $ExpectedChromeEngineHash
+            }
+        }
+        deployment = @(
+            [ordered]@{
+                role = "proxy"
+                destination = "d3d9.dll"
+                sha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
+            }
+        )
+    }
+    $RunJson = $RunManifest | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText(
+        $CurrentRun,
+        $RunJson + [Environment]::NewLine,
+        [System.Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $CurrentRun -Destination (Join-Path $RunDirectory "run-manifest.json") -Force
 } catch {
     if (Test-Path -LiteralPath $Destination) {
         Remove-Item -LiteralPath $Destination -Force
@@ -60,16 +185,14 @@ try {
     if (Test-Path -LiteralPath $Backup) {
         Move-Item -LiteralPath $Backup -Destination $Destination
     }
+    if (Test-Path -LiteralPath $State) {
+        Remove-Item -LiteralPath $State -Force
+    }
+    if (Test-Path -LiteralPath $CurrentRun) {
+        Remove-Item -LiteralPath $CurrentRun -Force
+    }
     throw
 }
-
-if (Test-Path -LiteralPath $Log) {
-    Remove-Item -LiteralPath $Log -Force
-}
-
-$ProxyLeaf = [System.IO.Path]::GetFileName($ProxyPath)
-$IsReadbackDiagnostic = $ProxyLeaf -ieq "d3d9_readback.dll"
-$IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 
 if ($IsReadbackDiagnostic) {
     Write-Host "Staged CoJ VR classic-D3D9 readback diagnostic proxy."
@@ -79,6 +202,11 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Staged CoJ VR D3D9 forwarding proxy with Present/Reset observation hooks."
 }
 Write-Host "Build identity: $ActualHash"
+Write-Host "Build manifest ID: $($BuildManifest.manifestId)"
+Write-Host "Run ID: $RunId"
+if ($ChromeEngineHash -ne $ExpectedChromeEngineHash) {
+    Write-Warning "ChromeEngine3.dll is missing or differs from the inspected baseline; its identity was recorded as '$ChromeEngineHash'."
+}
 Write-Host "Next: launch Call of Juarez manually, load a save, confirm normal rendering, then exit normally."
 if ($IsReadbackDiagnostic) {
     Write-Host "After exit run tools\verify_d3d9_readback_live_test.ps1 -GameDirectory '$GameDirectory'."

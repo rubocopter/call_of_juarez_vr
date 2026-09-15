@@ -38,6 +38,36 @@ bool SameSurfaceDescription(const D3DSURFACE_DESC& left, const D3DSURFACE_DESC& 
         left.MultiSampleQuality == right.MultiSampleQuality;
 }
 
+std::uint64_t HashSurface(
+    const D3DLOCKED_RECT& locked, const UINT width, const UINT height) noexcept {
+    constexpr std::uint64_t offset = 14695981039346656037ULL;
+    constexpr std::uint64_t prime = 1099511628211ULL;
+    std::uint64_t hash = offset;
+    const auto* row = static_cast<const std::uint8_t*>(locked.pBits);
+    for (UINT y = 0; y < height; ++y) {
+        for (UINT x = 0; x < width; ++x) {
+            const auto* pixel = row + static_cast<std::size_t>(x) * 4;
+            // Both supported formats are B8G8R8X8/A8. Ignore the fourth byte so
+            // undefined X or presentation alpha cannot masquerade as new content.
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                hash ^= pixel[channel];
+                hash *= prime;
+            }
+        }
+        row += locked.Pitch;
+    }
+    return hash;
+}
+
+void Report(
+    const OpenVrFlatBridgePhaseCallback callback,
+    const OpenVrFlatBridgePhase phase,
+    const HRESULT hresult = S_OK,
+    const int runtime_result = 0,
+    const std::uint64_t content_hash = 0) noexcept {
+    if (callback) callback(OpenVrFlatBridgePhaseEvent{phase, hresult, runtime_result, content_hash});
+}
+
 } // namespace
 
 struct OpenVrFlatBridge::Impl {
@@ -157,7 +187,14 @@ bool OpenVrFlatBridge::CaptureAndSubmit(
 
     try {
         impl_->last_error.clear();
-        if (!impl_->EnsureRuntime()) return false;
+        if (!impl_->EnsureRuntime()) {
+            const int runtime_result = impl_->runtime.last_result_code() == 0
+                ? -1 : impl_->runtime.last_result_code();
+            Report(phase_callback, OpenVrFlatBridgePhase::RuntimeInitializationFailed,
+                E_FAIL, runtime_result);
+            return false;
+        }
+        Report(phase_callback, OpenVrFlatBridgePhase::RuntimeInitialized);
 
         ComPtr<IDirect3DSurface9> back_buffer;
         HRESULT hr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
@@ -178,44 +215,70 @@ bool OpenVrFlatBridge::CaptureAndSubmit(
             readback_source = impl_->resolved.Get();
         }
 
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::BeforeReadback);
+        Report(phase_callback, OpenVrFlatBridgePhase::BeforeReadback);
         hr = device->GetRenderTargetData(readback_source, impl_->system_memory.Get());
+        Report(phase_callback, OpenVrFlatBridgePhase::AfterReadback, hr);
         if (FAILED(hr)) {
             impl_->last_error = Failure("GetRenderTargetData", hr);
             return false;
         }
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::AfterReadback);
-
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::BeforeUpload);
+        Report(phase_callback, OpenVrFlatBridgePhase::BeforeUpload);
         D3DLOCKED_RECT locked{};
         hr = impl_->system_memory->LockRect(&locked, nullptr, D3DLOCK_READONLY);
         if (FAILED(hr) || locked.pBits == nullptr || locked.Pitch <= 0) {
+            if (SUCCEEDED(hr)) hr = E_FAIL;
+            Report(phase_callback, OpenVrFlatBridgePhase::AfterUpload, hr);
             impl_->last_error = Failure("system-memory LockRect", hr);
             return false;
         }
 
+        const std::uint64_t content_hash = HashSurface(
+            locked, impl_->surface_desc.Width, impl_->surface_desc.Height);
+        Report(phase_callback, OpenVrFlatBridgePhase::FramePublished, S_OK, 0, content_hash);
+
         impl_->d3d11.context()->UpdateSubresource(
             impl_->texture11.Get(), 0, nullptr, locked.pBits,
             static_cast<UINT>(locked.Pitch), 0);
-        impl_->system_memory->UnlockRect();
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::AfterUpload);
+        hr = impl_->system_memory->UnlockRect();
+        Report(phase_callback, OpenVrFlatBridgePhase::AfterUpload, hr);
+        if (FAILED(hr)) {
+            impl_->last_error = Failure("system-memory UnlockRect", hr);
+            return false;
+        }
 
         runtime::Pose ignored_pose{};
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::BeforeWaitForHmdPose);
+        Report(phase_callback, OpenVrFlatBridgePhase::BeforeWaitForHmdPose);
         if (!impl_->runtime.WaitForHmdPose(ignored_pose)) {
+            Report(phase_callback, OpenVrFlatBridgePhase::AfterWaitForHmdPose,
+                E_FAIL, impl_->runtime.last_result_code());
             impl_->last_error = std::string(impl_->runtime.last_error());
             return false;
         }
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::AfterWaitForHmdPose);
+        Report(phase_callback, OpenVrFlatBridgePhase::AfterWaitForHmdPose);
 
         std::string submit_error;
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::BeforeSubmitStereo);
-        if (!openvr::SubmitStereoD3D11(
-                impl_->runtime, impl_->texture11.Get(), impl_->texture11.Get(), submit_error)) {
+        int submit_result = 0;
+        Report(phase_callback, OpenVrFlatBridgePhase::BeforeSubmitLeft);
+        const bool left_submitted = openvr::SubmitEyeD3D11(
+            impl_->runtime, impl_->texture11.Get(), openvr::EyeSubmission::Left,
+            submit_result, submit_error);
+        Report(phase_callback, OpenVrFlatBridgePhase::AfterSubmitLeft,
+            left_submitted ? S_OK : E_FAIL, submit_result);
+        if (!left_submitted) {
             impl_->last_error = submit_error;
             return false;
         }
-        if (phase_callback) phase_callback(OpenVrFlatBridgePhase::AfterSubmitStereo);
+
+        Report(phase_callback, OpenVrFlatBridgePhase::BeforeSubmitRight);
+        const bool right_submitted = openvr::SubmitEyeD3D11(
+            impl_->runtime, impl_->texture11.Get(), openvr::EyeSubmission::Right,
+            submit_result, submit_error);
+        Report(phase_callback, OpenVrFlatBridgePhase::AfterSubmitRight,
+            right_submitted ? S_OK : E_FAIL, submit_result);
+        if (!right_submitted) {
+            impl_->last_error = submit_error;
+            return false;
+        }
 
         ++impl_->submitted_frames;
         return true;

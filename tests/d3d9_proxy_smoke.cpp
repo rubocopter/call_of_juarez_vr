@@ -95,11 +95,25 @@ int wmain(int argc, wchar_t** argv) {
         D3DCREATE_SOFTWARE_VERTEXPROCESSING, &presentation, &device);
 
     if (device && SUCCEEDED(result)) {
+        const HRESULT begin_result = device->BeginScene();
+        if (FAILED(begin_result)) return Fail("BeginScene failed after hook installation");
         const HRESULT clear_result = device->Clear(
             0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(8, 16, 24), 1.0F, 0);
         if (FAILED(clear_result)) return Fail("Clear failed after hook installation");
+        const HRESULT end_result = device->EndScene();
+        if (FAILED(end_result)) return Fail("EndScene failed after hook installation");
         const HRESULT present_result = device->Present(nullptr, nullptr, nullptr, nullptr);
         if (FAILED(present_result)) return Fail("Present failed after hook installation");
+        IDirect3DSwapChain9* swapchain = nullptr;
+        if (FAILED(device->GetSwapChain(0, &swapchain)) || !swapchain) {
+            return Fail("implicit swapchain unavailable after hook installation");
+        }
+        const HRESULT swapchain_present_result =
+            swapchain->Present(nullptr, nullptr, nullptr, nullptr, 0);
+        swapchain->Release();
+        if (FAILED(swapchain_present_result)) {
+            return Fail("swapchain Present failed after hook installation");
+        }
         const HRESULT reset_result = device->Reset(&presentation);
         if (FAILED(reset_result)) return Fail("Reset failed after hook installation");
     }
@@ -110,8 +124,9 @@ int wmain(int argc, wchar_t** argv) {
     // module loaded until process teardown so patched entries always point to
     // valid code.
 
+    const bool logged_run_start = FileContains(log_path, "run_start: run_id=");
     const bool logged_identity = FileContains(log_path, "d3d9 bootstrap: host=");
-    const bool logged_forwarder = FileContains(log_path, "d3d9 Direct3DCreate9: forwarding wrapper active");
+    const bool logged_forwarder = FileContains(log_path, "d3d9 Direct3DCreate9: native factory observation active");
     const bool logged_device = FileContains(log_path, "d3d9 CreateDevice:");
     const bool logged_hooks = FileContains(log_path, "d3d9 device hooks: Present/Reset active");
     const bool logged_present = FileContains(log_path, "d3d9 Present: frame boundary observed");
@@ -120,13 +135,39 @@ int wmain(int argc, wchar_t** argv) {
         log_path, "d3d9 classic readback -> D3D11: success");
     const bool logged_openvr_flat = FileContains(
         log_path, "d3d9 OpenVR flat bridge: first stereo submission success");
+    const bool logged_structured_device = FileContains(log_path, "\"event\":\"device_created\"");
+    const bool logged_native_identity = FileContains(
+        log_path, "\"runtime_result\":\"native_identity_match\"");
+    const bool logged_hook_modules = FileContains(log_path, "original_module=") &&
+        FileContains(log_path, "replacement_module=") &&
+        FileContains(log_path, "current_module=");
+    const bool logged_swapchain_callback = FileContains(
+        log_path, "\"callback\":\"SwapChainPresent\"");
+    const bool logged_generation = FileContains(log_path, "\"event\":\"generation_changed\"") &&
+        FileContains(log_path, "\"generation\":2");
 
+    if (!logged_run_start) return Fail("proxy did not log run provenance state");
     if (!logged_identity) return Fail("proxy did not log host identity");
-    if (!logged_forwarder) return Fail("proxy did not log forwarding activation");
+    if (!logged_forwarder) return Fail("proxy did not log native factory observation");
     if (!logged_device) return Fail("proxy did not log device creation");
     if (SUCCEEDED(result) && !logged_hooks) return Fail("proxy did not install D3D9 device hooks");
     if (SUCCEEDED(result) && !logged_present) return Fail("proxy did not observe a D3D9 Present");
     if (SUCCEEDED(result) && !logged_reset) return Fail("proxy did not observe a successful D3D9 Reset");
+    if (SUCCEEDED(result) && !logged_structured_device) {
+        return Fail("proxy did not emit structured device identity");
+    }
+    if (SUCCEEDED(result) && !logged_native_identity) {
+        return Fail("proxy did not verify native factory/device COM identity");
+    }
+    if (SUCCEEDED(result) && !logged_hook_modules) {
+        return Fail("proxy did not record hook target module ownership");
+    }
+    if (SUCCEEDED(result) && !logged_swapchain_callback) {
+        return Fail("proxy did not observe implicit swapchain Present");
+    }
+    if (SUCCEEDED(result) && !logged_generation) {
+        return Fail("proxy did not identify the post-Reset device generation");
+    }
     if (SUCCEEDED(result) && expect_readback && !logged_readback) {
         return Fail("proxy readback diagnostic did not complete D3D9 -> CPU -> D3D11 upload");
     }
@@ -136,10 +177,12 @@ int wmain(int argc, wchar_t** argv) {
 
     if (FAILED(result)) {
         std::filesystem::remove(log_path, remove_error);
-        std::cout << "d3d9 proxy smoke passed without an available HAL device\n";
-        return 0;
+        if (result == D3DERR_NOTAVAILABLE) {
+            std::cout << "d3d9 proxy smoke skipped: HAL device unavailable\n";
+            return 77;
+        }
+        return Fail("proxy CreateDevice failed unexpectedly");
     }
-    std::filesystem::remove(log_path, remove_error);
     std::cout << "d3d9 proxy smoke passed with device creation\n";
     return 0;
 }

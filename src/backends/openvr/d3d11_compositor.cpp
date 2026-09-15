@@ -9,41 +9,60 @@
 
 namespace cojvr::backends::openvr {
 
+bool SubmitEyeD3D11(
+    runtime::OpenVrRuntime& runtime,
+    ID3D11Texture2D* texture,
+    const EyeSubmission eye,
+    int& runtime_result,
+    std::string& error) noexcept {
+    error.clear();
+    runtime_result = static_cast<int>(vr::VRCompositorError_None);
+    if (!runtime.initialized()) {
+        error = "OpenVR runtime is not initialized";
+        runtime_result = -1;
+        return false;
+    }
+    if (!texture) {
+        error = "OpenVR D3D11 submission requires an eye texture";
+        runtime_result = -1;
+        return false;
+    }
+    auto* compositor = static_cast<vr::IVRCompositor*>(runtime.native_compositor());
+    if (!compositor) {
+        error = "OpenVR compositor interface is unavailable";
+        runtime_result = -1;
+        return false;
+    }
+
+    vr::Texture_t native_texture{texture, vr::TextureType_DirectX, vr::ColorSpace_Auto};
+    const vr::EVRCompositorError result = compositor->Submit(
+        eye == EyeSubmission::Left ? vr::Eye_Left : vr::Eye_Right,
+        &native_texture, nullptr, vr::Submit_Default);
+    runtime_result = static_cast<int>(result);
+    if (result != vr::VRCompositorError_None) {
+        error = std::string(eye == EyeSubmission::Left ? "Left" : "Right") +
+            " eye OpenVR submission failed with code " + std::to_string(runtime_result);
+        return false;
+    }
+    return true;
+}
+
 bool SubmitStereoD3D11(
     runtime::OpenVrRuntime& runtime,
     ID3D11Texture2D* left_eye,
     ID3D11Texture2D* right_eye,
     std::string& error) noexcept {
     error.clear();
-    if (!runtime.initialized()) {
-        error = "OpenVR runtime is not initialized";
-        return false;
-    }
     if (left_eye == nullptr || right_eye == nullptr) {
         error = "OpenVR D3D11 submission requires both eye textures";
         return false;
     }
 
-    auto* compositor = static_cast<vr::IVRCompositor*>(runtime.native_compositor());
-    if (compositor == nullptr) {
-        error = "OpenVR compositor interface is unavailable";
-        return false;
-    }
-
-    constexpr std::array<vr::EVREye, 2> eyes{vr::Eye_Left, vr::Eye_Right};
     const std::array<ID3D11Texture2D*, 2> textures{left_eye, right_eye};
+    constexpr std::array<EyeSubmission, 2> eyes{EyeSubmission::Left, EyeSubmission::Right};
     for (std::size_t index = 0; index < eyes.size(); ++index) {
-        vr::Texture_t texture{
-            textures[index],
-            vr::TextureType_DirectX,
-            vr::ColorSpace_Auto,
-        };
-        const vr::EVRCompositorError result = compositor->Submit(
-            eyes[index], &texture, nullptr, vr::Submit_Default);
-        if (result != vr::VRCompositorError_None) {
-            error = std::string(index == 0 ? "Left" : "Right") +
-                " eye OpenVR submission failed with code " +
-                std::to_string(static_cast<int>(result));
+        int runtime_result = 0;
+        if (!SubmitEyeD3D11(runtime, textures[index], eyes[index], runtime_result, error)) {
             return false;
         }
     }

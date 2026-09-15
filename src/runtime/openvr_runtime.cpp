@@ -30,6 +30,7 @@ struct OpenVrRuntime::Impl {
     vr::IVRCompositor* compositor = nullptr;
     OpenVrSystemInfo system_info{};
     std::string last_error;
+    std::int32_t last_result_code = 0;
 };
 
 OpenVrRuntime::OpenVrRuntime() : impl_(std::make_unique<Impl>()) {}
@@ -39,8 +40,10 @@ OpenVrRuntime& OpenVrRuntime::operator=(OpenVrRuntime&&) noexcept = default;
 
 bool OpenVrRuntime::Initialize(const std::string_view application_name) noexcept {
     impl_->last_error.clear();
+    impl_->last_result_code = 0;
     if (initialized()) {
         impl_->last_error = "OpenVR is already initialized";
+        impl_->last_result_code = -1;
         return false;
     }
 
@@ -48,6 +51,7 @@ bool OpenVrRuntime::Initialize(const std::string_view application_name) noexcept
     vr::EVRInitError init_error = vr::VRInitError_None;
     vr::IVRSystem* system = vr::VR_Init(&init_error, vr::VRApplication_Scene, application_name_copy.c_str());
     if (init_error != vr::VRInitError_None || system == nullptr) {
+        impl_->last_result_code = static_cast<std::int32_t>(init_error);
         impl_->last_error = InitializationError(init_error);
         if (system != nullptr) vr::VR_Shutdown();
         return false;
@@ -56,6 +60,7 @@ bool OpenVrRuntime::Initialize(const std::string_view application_name) noexcept
     vr::IVRCompositor* compositor = vr::VRCompositor();
     if (compositor == nullptr) {
         impl_->last_error = "OpenVR compositor interface is unavailable";
+        impl_->last_result_code = -1;
         vr::VR_Shutdown();
         return false;
     }
@@ -66,6 +71,7 @@ bool OpenVrRuntime::Initialize(const std::string_view application_name) noexcept
     system->GetDXGIOutputInfo(&info.dxgi_adapter_index);
     if (info.recommended_width == 0 || info.recommended_height == 0) {
         impl_->last_error = "OpenVR returned an empty recommended render-target size";
+        impl_->last_result_code = -1;
         vr::VR_Shutdown();
         return false;
     }
@@ -113,9 +119,11 @@ bool OpenVrRuntime::ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept 
 
 bool OpenVrRuntime::WaitForHmdPose(Pose& pose) noexcept {
     impl_->last_error.clear();
+    impl_->last_result_code = 0;
     pose = {};
     if (!initialized()) {
         impl_->last_error = "OpenVR is not initialized";
+        impl_->last_result_code = -1;
         return false;
     }
 
@@ -123,6 +131,7 @@ bool OpenVrRuntime::WaitForHmdPose(Pose& pose) noexcept {
     const vr::EVRCompositorError error = impl_->compositor->WaitGetPoses(
         poses.data(), static_cast<std::uint32_t>(poses.size()), nullptr, 0);
     if (error != vr::VRCompositorError_None) {
+        impl_->last_result_code = static_cast<std::int32_t>(error);
         impl_->last_error = "OpenVR WaitGetPoses failed with code " + std::to_string(static_cast<int>(error));
         return false;
     }
@@ -140,6 +149,9 @@ bool OpenVrRuntime::initialized() const noexcept {
 
 const OpenVrSystemInfo& OpenVrRuntime::system_info() const noexcept { return impl_->system_info; }
 std::string_view OpenVrRuntime::last_error() const noexcept { return impl_->last_error; }
+std::int32_t OpenVrRuntime::last_result_code() const noexcept {
+    return impl_->last_result_code;
+}
 void* OpenVrRuntime::native_system() const noexcept { return impl_->system; }
 void* OpenVrRuntime::native_compositor() const noexcept { return impl_->compositor; }
 

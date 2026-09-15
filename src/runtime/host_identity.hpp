@@ -14,7 +14,7 @@ struct HostIdentity {
     std::string sha256{};
     const KnownBuild* known_build = nullptr;
 
-    bool IsSupported() const noexcept {
+    bool IsKnownExactBuild() const noexcept {
         return known_build != nullptr && known_build->game == filename_game;
     }
 };

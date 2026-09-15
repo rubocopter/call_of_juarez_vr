@@ -1,5 +1,8 @@
 #pragma once
 
+#include "backends/d3d9/hook_diagnostics.hpp"
+#include "backends/d3d9/hook_registry.hpp"
+
 #include <d3d9.h>
 
 namespace cojvr::backends::d3d9 {
@@ -7,7 +10,9 @@ namespace cojvr::backends::d3d9 {
 struct DeviceHookCallbacks {
     void (*before_present)(IDirect3DDevice9* device) noexcept = nullptr;
     void (*after_present)(IDirect3DDevice9* device, HRESULT result) noexcept = nullptr;
+    void (*before_begin_scene)(IDirect3DDevice9* device) noexcept = nullptr;
     void (*after_begin_scene)(IDirect3DDevice9* device, HRESULT result) noexcept = nullptr;
+    void (*before_end_scene)(IDirect3DDevice9* device) noexcept = nullptr;
     void (*after_end_scene)(IDirect3DDevice9* device, HRESULT result) noexcept = nullptr;
     void (*before_reset)(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* parameters) noexcept = nullptr;
     void (*after_reset)(
@@ -20,6 +25,7 @@ struct DeviceVtableHookStatus {
 };
 
 struct DeviceVtableHookContinuity {
+    void** vtable = nullptr;
     bool installed = false;
     bool reset_active = false;
     bool present_active = false;
@@ -37,11 +43,16 @@ struct DeviceVtableHookContinuity {
 bool InstallDeviceVtableHook(
     IDirect3DDevice9* device, DeviceHookCallbacks callbacks) noexcept;
 
+[[nodiscard]] HookRegistryOutcome InstallDeviceVtableHookDetailed(
+    IDirect3DDevice9* device, DeviceHookCallbacks callbacks) noexcept;
+
 [[nodiscard]] DeviceVtableHookStatus InspectDeviceVtableHook(
     IDirect3DDevice9* device) noexcept;
 
 [[nodiscard]] bool InstalledDeviceVtableHookActive() noexcept;
 
 [[nodiscard]] DeviceVtableHookContinuity InspectInstalledDeviceVtableHook() noexcept;
+
+[[nodiscard]] HookDiagnostics InspectAllDeviceVtableHooks() noexcept;
 
 } // namespace cojvr::backends::d3d9

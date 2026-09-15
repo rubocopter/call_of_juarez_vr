@@ -26,7 +26,7 @@ The reference game has demonstrated the basic flat transport chain:
 
 The isolated OpenVR runtime initializes against SteamVR, acquires a valid PSVR2 HMD pose and accepts D3D11 eye submissions. The in-game flat bridge has also completed real submissions from captured game frames.
 
-The current engineering priority is not another headset experiment. The repository is being hardened so one future execution can prove which factory/device/generation renders, whether hooks remain valid, how many **new** game frames are captured, where each bridge stage progresses or stalls, and how that activity maps to OpenVR submissions.
+Audit-remediation Phases 0-4 are host-tested and have now been exercised in two run-bound manual observations. Both reproduced the same three-frame loss of the four instrumented device hooks; the second proved that those slots return to their original Windows D3D9 targets while the factory and swapchain hooks remain owned. Because Steam's `gameoverlayrenderer.dll` owned the factory `CreateDevice` target before the project hook, the next evidence gate is an otherwise identical run with Steam Overlay disabled and telemetry confirmation that the overlay factory hook is absent. Headset-visible confirmation is not required for this gate.
 
 See the [technical audit](docs/TECHNICAL_AUDIT.md) for the current findings and the [audit remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) for the required execution order.
 
@@ -52,6 +52,17 @@ ctest --preset debug
 ```
 
 Runtime validation is evidence-driven. Successful builds and host tests are distinct from live-game and headset validation. Call of Juarez and SteamVR are launched manually; agents must prepare the exact artifact, deployment path, verifier and expected evidence before requesting a runtime test.
+
+Every staged diagnostic now requires a build manifest for the exact artifact. For example:
+
+```powershell
+pwsh -File tools/new_build_manifest.ps1 -DiagnosticMode d3d9_openvr_flat -Configuration Release
+pwsh -File tools/stage_d3d9_openvr_flat.ps1 -GameDirectory "C:\path\to\Call of Juarez"
+pwsh -File tools/verify_d3d9_openvr_flat_live_test.ps1 -GameDirectory "C:\path\to\Call of Juarez"
+pwsh -File tools/collect_run_evidence.ps1 -GameDirectory "C:\path\to\Call of Juarez"
+```
+
+Staging assigns a unique run ID, preserves older logs under `.cojvr-evidence`, records the exact game/engine/proxy/runtime hashes, and writes the run identity into the proxy log. The structured verifier rejects stale, mixed, malformed or incomplete evidence and reports exact activity per device/generation, hook ownership, stage failures/stalls, repeated captured content and capture-versus-presentation clock progression.
 
 Developer workflow is documented in [AGENTS.md](AGENTS.md). The detailed continuation state lives in [`docs/internal/CODEX_HANDOFF.md`](docs/internal/CODEX_HANDOFF.md), and the current implementation objective is recorded in [`docs/internal/CODEX_OBJECTIVE.md`](docs/internal/CODEX_OBJECTIVE.md).
 

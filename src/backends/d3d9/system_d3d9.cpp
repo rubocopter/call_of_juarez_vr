@@ -46,6 +46,36 @@ HMODULE SystemD3D9Module() noexcept {
     return g_system_d3d9;
 }
 
+std::filesystem::path SystemD3D9ModulePath() noexcept {
+    try {
+        HMODULE module = SystemD3D9Module();
+        if (!module) return {};
+        std::array<wchar_t, 32768> path{};
+        const DWORD length = GetModuleFileNameW(
+            module, path.data(), static_cast<DWORD>(path.size()));
+        if (length == 0 || length >= path.size()) return {};
+        return std::filesystem::path(std::wstring_view(path.data(), length));
+    } catch (...) {
+        return {};
+    }
+}
+
+bool IsExpectedSystemD3D9Module() noexcept {
+    try {
+        std::array<wchar_t, 32768> system_directory{};
+        const UINT length = GetSystemDirectoryW(
+            system_directory.data(), static_cast<UINT>(system_directory.size()));
+        if (length == 0 || length >= system_directory.size()) return false;
+        const std::filesystem::path expected =
+            std::filesystem::path(std::wstring_view(system_directory.data(), length)) / L"d3d9.dll";
+        const std::filesystem::path actual = SystemD3D9ModulePath();
+        if (actual.empty()) return false;
+        return _wcsicmp(actual.c_str(), expected.c_str()) == 0;
+    } catch (...) {
+        return false;
+    }
+}
+
 Direct3DCreate9Fn SystemDirect3DCreate9() noexcept {
     (void)SystemD3D9Module();
     return g_direct3d_create9;

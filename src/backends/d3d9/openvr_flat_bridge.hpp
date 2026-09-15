@@ -9,17 +9,30 @@
 namespace cojvr::backends::d3d9 {
 
 enum class OpenVrFlatBridgePhase {
+    RuntimeInitialized,
+    RuntimeInitializationFailed,
     BeforeReadback,
     AfterReadback,
+    FramePublished,
     BeforeUpload,
     AfterUpload,
     BeforeWaitForHmdPose,
     AfterWaitForHmdPose,
-    BeforeSubmitStereo,
-    AfterSubmitStereo,
+    BeforeSubmitLeft,
+    AfterSubmitLeft,
+    BeforeSubmitRight,
+    AfterSubmitRight,
 };
 
-using OpenVrFlatBridgePhaseCallback = void (*)(OpenVrFlatBridgePhase phase) noexcept;
+struct OpenVrFlatBridgePhaseEvent {
+    OpenVrFlatBridgePhase phase = OpenVrFlatBridgePhase::BeforeReadback;
+    HRESULT hresult = S_OK;
+    int runtime_result = 0;
+    std::uint64_t content_hash = 0;
+};
+
+using OpenVrFlatBridgePhaseCallback = void (*)(
+    const OpenVrFlatBridgePhaseEvent& event) noexcept;
 
 // Diagnostic bridge used to prove the real game's classic-D3D9 backbuffer can
 // reach the OpenVR compositor without replacing the game's native D3D9 device.

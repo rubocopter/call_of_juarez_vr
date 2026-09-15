@@ -8,42 +8,42 @@ The current engineering priority is the audit-driven stabilization track defined
 
 ### Phase 0 — auditable provenance
 
-- Source/build/deployment/run manifest: **planned**.
-- Preserve historical logs and run-specific evidence: **planned**.
-- Bind exact game/engine/proxy/runtime hashes to each run: **planned**.
-- Separate known build from supported integration: **planned documentation/tooling correction**.
+- Source/build/deployment/run manifest: **host-tested**.
+- Preserve historical logs and run-specific evidence: **host-tested**.
+- Bind exact game/engine/proxy/runtime hashes to each run: **host-tested**.
+- Separate known build from supported integration: **implemented**; support promotion remains evidence-gated.
 
 ### Phase 1 — build and test validity
 
-- Decouple neutral runtime from OpenXR dependency: **planned**.
-- Make OpenVR/OpenXR independently selectable: **planned**.
-- Bootstrap every enabled dependency in CI: **planned**.
-- Assert system D3D9 in native tests and isolate proxy tests: **planned**.
-- Explicit PASS/FAIL/SKIP semantics: **planned**.
-- Exercise the active scene path and temporal readback behavior in host tests: **planned**.
+- Decouple neutral runtime from OpenXR dependency: **host-tested**.
+- Make OpenVR/OpenXR independently selectable: **host-tested**.
+- Bootstrap every enabled dependency in CI: **implemented**; CI execution remains external evidence.
+- Assert system D3D9 in native tests and isolate proxy tests: **host-tested**.
+- Explicit PASS/FAIL/SKIP semantics: **host-tested**.
+- Exercise the active scene path and temporal readback behavior in host tests: **host-tested**.
 
 ### Phase 2 — safe hook infrastructure
 
-- Replace ad-hoc global vtable mutation with `VtablePatch` / `HookRegistry`: **planned**.
-- Conditional patch ownership, conflict reporting and complete rollback: **planned**.
-- Multi-vtable/device support and integrity verification: **planned**.
-- Failure-injection and conflict tests: **planned**.
+- Replace ad-hoc global vtable mutation with `VtablePatch` / `HookRegistry`: **host-tested**.
+- Conditional patch ownership, conflict reporting and complete rollback: **host-tested**.
+- Multi-vtable/device support and integrity verification: **host-tested**.
+- Failure-injection and conflict tests: **host-tested**.
 
 ### Phase 3 — factory/device discovery
 
-- Preserve native COM identity while observing all relevant device-creation paths: **planned**.
-- Track factory/device/swapchain/thread/generation identity: **planned**.
-- Detect device recreation/new generations: **planned**.
-- Keep D3D9Ex substitution isolated as a laboratory path: **planned**.
+- Preserve native COM identity while observing all relevant device-creation paths: **host-tested**.
+- Track factory/device/swapchain/thread/generation identity: **host-tested**.
+- Detect device recreation/new generations: **host-tested**.
+- Keep D3D9Ex substitution isolated as a laboratory path: **host-tested**.
 
 ### Phase 4 — structured run/render telemetry
 
-- `run_id` and source/build/deployment correlation: **planned**.
-- Structured callback/stage entry/exit/timing: **planned**.
-- Separate callback, capture, new-content, upload and submit sequences: **planned**.
-- Periodic/final summaries and explicit incomplete-run state: **planned**.
+- `run_id` and source/build/deployment correlation: **host-tested**.
+- Structured callback/stage entry/exit/timing: **host-tested**.
+- Separate process/per-device callback, capture, new-content, upload and per-eye submit sequences: **host-tested**.
+- Periodic/final summaries and explicit incomplete-run state: **host-tested**.
 
-**Next manual runtime gate:** only after Phases 0-4 meet their host acceptance criteria. This gate is a manual game-observation run; headset use is unnecessary.
+**Manual runtime gate:** Phases 0-4 meet their host acceptance criteria. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` produced complete run-bound evidence but failed because device `Reset`, `Present`, `BeginScene` and `EndScene` all lost ownership after exactly three callbacks. The second run proved that all four slots revert exactly to their original `C:\WINDOWS\system32\d3d9.dll` targets; the factory and swapchain hooks remain owned. Because Steam's `gameoverlayrenderer.dll` owns the pre-project factory `CreateDevice` target, the next gate is an otherwise identical run with Steam Overlay disabled and telemetry confirmation that the overlay factory hook is absent. Headset use remains unnecessary.
 
 ### Phase 5 — capture/presenter separation
 
@@ -101,7 +101,7 @@ The current engineering priority is the audit-driven stabilization track defined
 - Opt-in classic-API -> D3D9Ex proxy bridge: **host-tested; live-rejected** after an engine access violation in the exact game build.
 - Classic D3D9 -> CPU readback -> D3D11 upload fallback: **live-tested initial transport evidence**.
 - In-game classic-D3D9 -> CPU -> D3D11 -> OpenVR flat submission: **live-tested for initial genuine captured frames**.
-- Current native device-vtable hook integrity: **live-tested failure mode** — one diagnostic observed three project frame callbacks followed by loss of installed-hook integrity while monitor rendering continued.
+- Current native device-vtable hook integrity: **live-tested failure mode** — the Phase 0-4 run-bound candidate reproduced three project frame callbacks followed by simultaneous loss of the four instrumented device hooks; the exact-target run proved that every lost slot returned to its recorded original function in `C:\\WINDOWS\\system32\\d3d9.dll`. The external actor that performs that restoration remains unresolved; Steam Overlay is the next controlled A/B variable.
 - Historical replacement-owner diagnostic `369754A6...A14A6AF`: **implemented / host-tested baseline artifact**; not the first action of the stabilization pass.
 - Sustained, run-auditable changing game-frame capture and presentation: **blocked by stabilization track**.
 - Sustained game image physically visible in headset: **planned headset gate after flat integration is auditable**.

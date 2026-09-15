@@ -85,9 +85,13 @@ int wmain(int argc, wchar_t** argv) {
         D3DCREATE_SOFTWARE_VERTEXPROCESSING, &presentation, &device);
 
     if (device && SUCCEEDED(result)) {
+        const HRESULT begin_result = device->BeginScene();
+        if (FAILED(begin_result)) return Fail("BeginScene failed after hook installation");
         const HRESULT clear_result = device->Clear(
             0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_XRGB(8, 16, 24), 1.0F, 0);
         if (FAILED(clear_result)) return Fail("Clear failed after hook installation");
+        const HRESULT end_result = device->EndScene();
+        if (FAILED(end_result)) return Fail("EndScene failed after hook installation");
         const HRESULT present_result = device->Present(nullptr, nullptr, nullptr, nullptr);
         if (FAILED(present_result)) return Fail("Present failed after hook installation");
         const HRESULT reset_result = device->Reset(&presentation);
@@ -125,8 +129,6 @@ int wmain(int argc, wchar_t** argv) {
     const bool logged_hooks = FileContains(log_path, "d3d9 device hooks: Present/Reset active");
     const bool logged_present = FileContains(log_path, "d3d9 Present: frame boundary observed");
     const bool logged_reset = FileContains(log_path, "d3d9 Reset: hr=0x0");
-    std::filesystem::remove(log_path, remove_error);
-
     if (!logged_identity) return Fail("proxy did not log host identity");
     if (!logged_forwarder) return Fail("proxy did not log forwarding activation");
     if (!logged_device) return Fail("proxy did not log device creation");
@@ -135,8 +137,11 @@ int wmain(int argc, wchar_t** argv) {
     if (SUCCEEDED(result) && !logged_reset) return Fail("proxy did not observe a successful D3D9 Reset");
 
     if (FAILED(result)) {
-        std::cout << "d3d9 proxy smoke passed without an available HAL device\n";
-        return 0;
+        if (result == D3DERR_NOTAVAILABLE) {
+            std::cout << "d3d9 proxy smoke skipped: HAL device unavailable\n";
+            return 77;
+        }
+        return Fail("proxy D3D9Ex CreateDevice failed unexpectedly");
     }
     std::cout << "d3d9 proxy D3D9Ex bridge smoke passed with device creation\n";
     return 0;

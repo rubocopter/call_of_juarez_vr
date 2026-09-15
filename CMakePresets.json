@@ -15,6 +15,26 @@
       "cacheVariables": {
         "COJVR_BUILD_TESTS": "ON"
       }
+    },
+    {
+      "name": "win32-openvr-only",
+      "displayName": "Win32 OpenVR only",
+      "inherits": "win32-debug",
+      "binaryDir": "${sourceDir}/build/win32-openvr-only",
+      "cacheVariables": {
+        "COJVR_ENABLE_OPENVR": "ON",
+        "COJVR_ENABLE_OPENXR": "OFF"
+      }
+    },
+    {
+      "name": "win32-openxr-only",
+      "displayName": "Win32 OpenXR only",
+      "inherits": "win32-debug",
+      "binaryDir": "${sourceDir}/build/win32-openxr-only",
+      "cacheVariables": {
+        "COJVR_ENABLE_OPENVR": "OFF",
+        "COJVR_ENABLE_OPENXR": "ON"
+      }
     }
   ],
   "buildPresets": [

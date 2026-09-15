@@ -36,6 +36,9 @@ int main() {
     if (create_d3d9 == nullptr || create_d3d9_ex == nullptr) {
         return Fail("System d3d9.dll is missing a required D3D9 entry point");
     }
+    if (!cojvr::backends::d3d9::IsExpectedSystemD3D9Module()) {
+        return Fail("classic interop test did not load the expected system d3d9.dll");
+    }
 
     ComPtr<IDirect3D9> d3d9;
     d3d9.Attach(create_d3d9(D3D_SDK_VERSION));
@@ -65,7 +68,13 @@ int main() {
         D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
         &present,
         &device9);
-    if (FAILED(hr)) return Fail("Classic D3D9 CreateDevice failed", hr);
+    if (FAILED(hr)) {
+        if (hr == D3DERR_NOTAVAILABLE) {
+            std::cout << "Classic D3D9 shared-texture test skipped: HAL device unavailable\n";
+            return 77;
+        }
+        return Fail("Classic D3D9 CreateDevice failed", hr);
+    }
 
     HANDLE shared_handle = nullptr;
     ComPtr<IDirect3DTexture9> texture9;
@@ -79,7 +88,7 @@ int main() {
     if (FAILED(hr) || shared_handle == nullptr) {
         if (hr == D3DERR_INVALIDCALL) {
             std::cout << "Classic D3D9 shared render targets are unavailable on this host: D3DERR_INVALIDCALL\n";
-            return 0;
+            return 77;
         }
         return Fail("Classic D3D9 shared render-target creation failed", hr);
     }

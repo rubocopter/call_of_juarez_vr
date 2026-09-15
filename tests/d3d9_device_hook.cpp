@@ -1,4 +1,5 @@
 #include "backends/d3d9/device_vtable_hook.hpp"
+#include "backends/d3d9/system_d3d9.hpp"
 
 #include <d3d9.h>
 #include <windows.h>
@@ -51,7 +52,12 @@ int main() {
         nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!window) return Fail("failed to create D3D9 test window");
 
-    IDirect3D9* d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
+    const auto create_d3d9 = cojvr::backends::d3d9::SystemDirect3DCreate9();
+    if (!create_d3d9 || !cojvr::backends::d3d9::IsExpectedSystemD3D9Module()) {
+        DestroyWindow(window);
+        return Fail("native hook test did not load the expected system d3d9.dll");
+    }
+    IDirect3D9* d3d9 = create_d3d9(D3D_SDK_VERSION);
     if (!d3d9) {
         DestroyWindow(window);
         return Fail("Direct3DCreate9 failed");
@@ -77,8 +83,11 @@ int main() {
     if (FAILED(create_result) || !device) {
         d3d9->Release();
         DestroyWindow(window);
-        std::cout << "d3d9 device hook test skipped: HAL device unavailable\n";
-        return 0;
+        if (create_result == D3DERR_NOTAVAILABLE) {
+            std::cout << "d3d9 device hook test skipped: HAL device unavailable\n";
+            return 77;
+        }
+        return Fail("D3D9 device creation failed unexpectedly");
     }
 
     const cojvr::backends::d3d9::DeviceHookCallbacks callbacks{

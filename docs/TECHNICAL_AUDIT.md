@@ -31,7 +31,7 @@ The following facts are currently established:
 - OpenVR can initialize against manually started SteamVR, acquire a valid PSVR2 HMD pose and accept D3D11 eye submissions.
 - The in-game flat bridge has completed D3D9 readback, D3D11 upload, pose wait and OpenVR submission for captured game frames.
 - A later exact-build diagnostic observed exactly three project callbacks for `Present`, `BeginScene` and `EndScene`, followed by loss of integrity of the installed device-vtable entries while the game continued rendering on the monitor.
-- That hook-integrity loss is a confirmed failure mode of the current interception design. It does **not** yet prove which component replaces the entries, why the transition occurs, whether other devices/factories are involved, or that hook loss is the only reason the user never sees a stable game image in the headset.
+- That hook-integrity loss is a confirmed failure mode of the current interception design. Run `20260914T215121Z-9bac4e22cffd` established that all four lost device slots return exactly to their recorded original targets in `C:\WINDOWS\system32\d3d9.dll`; no foreign replacement target was observed. It still does **not** prove which component performs the restoration, why it occurs, or that hook loss is the only reason the user never sees a stable game image in the headset.
 - No functional game-camera VR, real stereo rendering, 6DOF integration or motion-controller gameplay is implemented yet.
 - Headset-visible in-game presentation is not validated.
 
@@ -42,45 +42,37 @@ The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518
 ### A1 — Observability previously supported conclusions stronger than the evidence
 
 **Severity:** P0  
-**Status:** partially resolved
+**Status:** live-tested observability; observation gate failed on hook ownership
 
 The original implementation used one-shot log markers for frame boundaries, so absence of later milestones could not distinguish low callback count from hook loss, failure, blocking, device replacement or logging problems.
 
-The current code improves this materially: `Present`, `BeginScene`, `EndScene`, callback returns, submission milestones and installed-vtable continuity are now counted/inspected. This is what allowed the later hook-integrity loss to become confirmed evidence.
+The Phase 0-4 candidate now emits run-bound JSONL records with PID/TID, monotonic time, factory/device/swapchain/generation IDs, callback and stage entry/exit, HRESULT/runtime result, duration, exact process and per-device counters, content hashes that ignore the undefined D3D9 X/alpha byte, and independent capture/content/upload/left-submit/right-submit sequences. A separate observer thread emits periodic per-device summaries and hook-integrity state; normal process exit emits `run_end`, while its absence is rejected as an incomplete run. Detailed high-frequency records are bounded, but counters and active-stage state are updated on every observation.
 
-Still missing:
+The parser/verifier has host-tested success, malformed/mixed-run and incomplete-run paths. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercised this telemetry in the exact game: provenance was complete, one factory/device/swapchain generation was identified, all three observed captures completed upload and balanced-eye submission, and both runs ended normally. The verifier failed only because four device hooks lost ownership after the third frame.
 
-- per-run identity;
-- PID/TID and monotonic timestamps;
-- device, factory, swapchain and generation identity;
-- stage entry/exit and duration for every critical operation;
-- explicit separation of callback count, capture count, **new-content** count, upload count and submit count;
-- periodic summaries independent of render callbacks;
-- explicit incomplete-run markers when the process terminates without a final summary.
-
-**Required action:** complete the structured run-evidence and render-telemetry model in remediation Phase 4. Do not infer unique game frames from OpenVR submission count.
+**Required action:** preserve these runs as live observability evidence. The next discriminating observation should compare the same candidate with Steam Overlay disabled, because the native factory `CreateDevice` entry was already owned by `gameoverlayrenderer.dll` before the project installed its factory hook. Do not infer causality from that fact alone; use the A/B run.
 
 ### A2 — The current vtable patching mechanism is not transactionally safe
 
 **Severity:** P0  
-**Status:** open
+**Status:** live-tested failure persists under remediated ownership
 
-Source inspection shows that the current patch helper can modify an entry and then report failure if protection restoration fails. Installation/rollback logic can therefore lose reliable ownership of an entry. Other issues include unconditional exchange before conflict validation, one global vtable assumption, incomplete rollback guarantees, unsafe reinstall semantics, insufficient synchronization and duplicated weaknesses in swapchain hooking.
+The audited implementation had the unsafe behavior described above. It has now been replaced by `VtablePatch` and `HookRegistry`: conditional compare/exchange, explicit no-change/applied/protection-failure/conflict/incomplete-rollback outcomes, retained originals and ownership records, per-vtable records, conflict-safe restore, synchronized callback lookup, module pinning and the same ownership model for factory/device/swapchain hooks.
 
-The later hook-integrity diagnostic confirms that vtable ownership is unstable in the live process, making these defects more important, not less.
+Failure-injection host tests cover failure before and after replacement, conflicting targets/reinstall, two vtables, integrity loss, partial rollback, foreign-hook-safe restore and callback reentrancy during installation. Native hook tests preserve HRESULTs. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercised the replacement infrastructure in the game and again lost `Reset`, `Present`, `BeginScene` and `EndScene` ownership on the same device vtable after exactly three callbacks. There was no install conflict or install failure. The second run recorded each `current_target` equal to the corresponding `original_target` in `C:\WINDOWS\system32\d3d9.dll`. Source inspection finds no production callsite that invokes `HookRegistry::Restore` for these hooks while the game is running.
 
-**Required action:** replace ad-hoc patching with an explicit patch/registry contract that distinguishes no-change, applied, protection failure, conflict and incomplete rollback; uses conditional replacement; records ownership per vtable/device; verifies integrity; and never blindly overwrites another component's hook.
+**Required action:** determine which external component restores the native device vtable. First perform an A/B observation with Steam Overlay disabled; the run must verify that the factory `CreateDevice` original target is no longer `gameoverlayrenderer.dll` before drawing a conclusion. Do not add blind re-hooking.
 
 ### A3 — D3D9 factory wrapping currently creates split COM identity and bypass paths
 
 **Severity:** P1  
-**Status:** open
+**Status:** live-tested single factory/device/swapchain coverage; sustained callbacks blocked by hook loss
 
-`Direct3D9Forwarder` returns the wrapper for selected interfaces but delegates other `QueryInterface` requests to the inner object. Devices remain native, and `GetDirect3D` can expose the native factory. That makes both wrapped and native factory paths reachable and complicates guarantees that all subsequently created devices are observed.
+The classic path no longer returns `Direct3D9Forwarder`. It returns the native `IDirect3D9` and observes `CreateDevice` by patching each reachable native factory vtable through `HookRegistry`. The D3D9Ex forwarder remains only behind its explicit laboratory opt-in, and classic staging rejects both its environment switch and marker.
 
-This is a plausible coverage problem, not yet a demonstrated cause of the live failure.
+A native host test creates a device, recovers the factory through `GetDirect3D`, verifies canonical `IUnknown` identity, then creates a second observed device through that recovered factory with unchanged native HRESULTs. Stable diagnostic IDs cover factories, devices and implicit swapchains; successful Reset advances device generation and re-identifies the implicit swapchain without changing native COM identity. Hook records include original/replacement/current target modules.
 
-**Required action:** preserve native COM identity and close device-discovery paths deliberately. The preferred audit direction is to observe/intercept device creation on registered native factories using the safe hook infrastructure from Phase 2. Do not introduce a full `IDirect3DDevice9` wrapper merely to avoid the current hook loss unless its COM identity, `QueryInterface`, `GetDirect3D` and lifetime semantics are explicitly proven.
+Run `20260914T215121Z-9bac4e22cffd` again observed one native factory, one device, one implicit swapchain and generation 1; that device received all 3/3/3 `Present`/`BeginScene`/`EndScene` callbacks before hook loss. The factory's pre-project `CreateDevice` target belonged to `C:\Program Files (x86)\Steam\gameoverlayrenderer.dll`, while the four device slots later reverted exactly to their Windows D3D9 originals. **Required action:** use an overlay-disabled A/B run before changing the interception design. Do not introduce a full device wrapper without new evidence.
 
 ### A4 — Capture, VR synchronization and compositor submission are coupled inside the game callback
 
@@ -88,6 +80,8 @@ This is a plausible coverage problem, not yet a demonstrated cause of the live f
 **Status:** open
 
 The flat bridge currently performs D3D9 readback, CPU access, D3D11 upload, pose wait and both eye submissions synchronously from the render callback. This couples the engine render cadence to the VR compositor cadence and makes stage stalls hard to distinguish.
+
+Phase 4 now makes that synchronous path observable: every attempt updates active-stage state and exact counters, sampled entry/exit events include duration and result, and the independent summary thread can identify a stage that remains active. That improves diagnosis but does not remove the coupling.
 
 The fact that the first few calls completed does not make the architecture suitable for sustained operation.
 
@@ -100,45 +94,35 @@ The fact that the first few calls completed does not make the architecture suita
 
 The current bridge can reuse resources when dimensions/format/MSAA match even if the underlying D3D9 device or generation has changed. Reset/device loss, reentrancy, D3D11-context ownership and teardown are not modeled strongly enough.
 
+Phase 3 now assigns device/generation identity and emits generation changes after successful Reset; the current bridge also invalidates its D3D9/D3D11 resources before Reset. Resource ownership is still not keyed structurally by those IDs, so this finding remains open for Phase 5.
+
 **Required action:** introduce explicit device/generation identity, resource invalidation on Reset/recreation, bounded ownership, RAII for mapped/locked resources and shutdown outside `DllMain`.
 
 ### A6 — Host tests do not yet prove the deployed pipeline
 
 **Severity:** P0  
-**Status:** partially resolved
+**Status:** Phase 1 host acceptance complete; full mocked OpenVR path remains open
 
-The device-hook test has improved since the original audit and now exercises five `BeginScene`/`EndScene`/`Present` cycles plus continuity checks.
+Phase 1 acceptance is now host-tested. Neutral runtime, build identity, OpenVR and OpenXR targets are separated; OpenVR-only and OpenXR-only configurations build/test while the disabled SDK root is deliberately absent; CI bootstraps each enabled dependency; integration artifacts require Win32. Native D3D9 tests load and assert the system DLL, proxy smoke tests run in isolated directories, unavailable HAL/capability results use CTest SKIP, scene boundaries are exercised, and classic readback validates full asymmetric frames, row pitch and temporal changes.
 
-Remaining gaps include:
+Phase 2-4 tests add deterministic patch failures/conflicts/multiple vtables/rollback/reentrancy, native factory recovery/two-device identity, swapchain observation, generation changes, structured stage failures and telemetry parser rejection paths. Fresh Debug and Release suites pass; the classic shared-texture capability is the single explicit SKIP on this host.
 
-- the proxy smoke path still primarily exercises `Clear -> Present -> Reset` and does not prove the actual EndScene-driven OpenVR path;
-- no registered test validates the complete flat OpenVR pipeline with controlled doubles/mocks;
-- HAL-device unavailability is still represented as process success rather than a distinct test skip state;
-- tests do not yet cover patch conflicts, protection failures, multiple vtables/devices, partial rollback, device recreation or stage stalls;
-- test binaries can still risk loading the project proxy when the intent is native system D3D9 unless the loaded module path is asserted;
-- shared log filenames can make parallel tests interfere;
-- readback validation remains too narrow for orientation/stride/temporal-change guarantees.
+The remaining host gap is a controlled-double test of the complete OpenVR flat bridge. Runtime submission still requires a real OpenVR compositor, so it is not misreported as host evidence.
 
-**Required action:** complete remediation Phase 1 before interpreting future host-suite success as pipeline evidence.
+**Required action:** keep live and headset promotion separate from these host results; add a controlled OpenVR boundary when Phase 5/6 separates presenter ownership.
 
 ### A7 — Live verification is not tied to a unique execution
 
 **Severity:** P1  
-**Status:** partially resolved
+**Status:** live-tested run binding; current A/B gate pending
 
-The current verifier now checks the expected staged proxy hash and staging state and extracts stronger counters than the original version.
+Phase 0 now supplies a SHA-256 build manifest, staging-assigned `run_id`, run manifest, exact deployed-file identities and a run-evidence package. The proxy records the bound run/build-manifest IDs at startup, and all D3D9 live verifiers reject a log, staging state, build manifest or deployed hash that does not belong to the same run. Host tests cover complete/incomplete evidence, finalization recognition and changed deployed artifacts.
 
-It still lacks a durable run identity binding together:
+Phase 4 adds the structured runtime side: PID/TID, monotonic timeline, factory/device/swapchain/generation identity, exact global and per-device counters, stage results/durations, content-change sequencing, periodic summaries and `run_end`. The parser rejects malformed records, foreign run/build IDs and missing finalization unless explicitly asked for an incomplete diagnostic report. The evidence collector recognizes the structured final event.
 
-- source snapshot/build manifest;
-- deployed artifact hash and diagnostic mode;
-- PID and process start time;
-- device/generation identity;
-- run duration and finalization state;
-- unique captures versus repeated submissions;
-- physical headset confirmation.
+Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercised that provenance chain in the exact game. Both produced a unique `run_end`, matched their run/build/staging/deployment identities and were collected into run-specific evidence packages. Physical headset confirmation is intentionally outside provenance acceptance.
 
-**Required action:** introduce `RunEvidence` and `run_id` through build/deployment/runtime/verifier tooling. Old logs must be incapable of validating a new artifact.
+**Required action:** preserve the run-bound verifier guarantees for the staged overlay-disabled A/B candidate. Old logs must remain incapable of validating it, and the A/B result must be rejected unless the run manifest, deployed hashes and factory-target evidence all belong to the same `run_id`.
 
 ### A8 — Deployment is reversible only on the happy path, not transactional
 
@@ -152,13 +136,11 @@ Current staging/unstaging does not provide a complete journal-before-mutation tr
 ### A9 — Declared architectural separation does not match current build dependencies
 
 **Severity:** P1  
-**Status:** open
+**Status:** resolved at host/build level
 
-The neutral runtime target currently contains OpenXR runtime code and links `openxr_loader` publicly. The OpenVR path depends on that runtime, so configuring/building OpenVR also requires the experimental OpenXR dependency. CI bootstraps OpenXR but does not currently bootstrap the pinned OpenVR SDK before CMake configuration.
+The neutral runtime now contains only neutral math. Build/game identity, diagnostics, OpenVR runtime/backend and OpenXR runtime/backend are separate targets. `COJVR_ENABLE_OPENVR` and `COJVR_ENABLE_OPENXR` independently control dependency checks and targets; CI prepares only enabled pinned dependencies. Both single-backend configurations build and pass the host suite with the disabled SDK root intentionally absent.
 
-The executable identity/catalog code also remains in the runtime target rather than a clearly separated game/build-identity layer.
-
-**Required action:** split neutral runtime, game/build identity and OpenVR/OpenXR adapters. Make backends independently selectable and prepare each enabled dependency in CI.
+**Required action:** preserve this dependency boundary as later runtime ownership work proceeds.
 
 ### A10 — Runtime/lifetime/error contracts are not yet recovery-safe
 
@@ -180,16 +162,16 @@ These issues do not explain the current flat bridge because it does not yet cons
 
 **Required action:** complete remediation Phase 8 before camera/stereo implementation is promoted.
 
-### A12 — Documentation is improved, but provenance from source to run is still incomplete
+### A12 — Documentation and source-to-run provenance were incomplete
 
 **Severity:** P1  
-**Status:** partially resolved
+**Status:** live-tested provenance; documentation synchronized to current gate
 
-README, architecture, roadmap, research notes and handoff were refreshed after the original audit. The remaining problem is not prose freshness alone; it is the lack of an automatic provenance chain:
+README, architecture, roadmap, research notes and handoff were refreshed after the original audit. The Phase 0 tooling establishes this chain for staged diagnostics:
 
 `sources -> build -> package -> deployed files -> process/run -> evidence`
 
-Documentation must also avoid wording that turns the observed three-frame hook loss into a fully proven sole root cause of the blank headset.
+Clean source snapshots are identified by commit/tree, dirty manifests are explicitly non-commit-reproducible and include status/diff/untracked hashes, built artifacts are SHA-256 identified, staging records game/engine/deployment identities, and collection produces a run-specific evidence package without launching the game. Phase 4 adds structured process/device/event/finalization evidence and a run-bound parser. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` live-tested the complete provenance chain. Documentation continues to treat the observed three-frame hook loss as a confirmed failure mode, not a proven sole root cause of the blank headset.
 
 **Required action:** keep this audit and the remediation plan authoritative, update finding status only with evidence, and make run provenance part of the tooling rather than a manual narrative.
 
@@ -213,11 +195,11 @@ The following are still legitimate until stronger evidence eliminates them:
 
 | Hypothesis | Evidence currently available | Evidence still required |
 | --- | --- | --- |
-| The project stops observing the active render path | confirmed hook-integrity loss in the current device-vtable path | factory/device/generation coverage and owner of replacement targets |
-| A bridge stage ceases to progress | first frames completed; sustained operation not proven | per-stage entry/exit, timing and independent presenter progress |
-| OpenVR does not receive useful new work at the required cadence | initial submissions accepted; headset image not validated | presenter timing, unique-content sequencing and compositor/runtime state |
-| Captured image is not always the final useful game image | capture is tied to one chosen callback | render-sequence evidence plus changing asymmetric frame patterns |
-| Focus/tracking/runtime state changes during the relevant window | runtime state exists but is weakly correlated to game events | timestamped runtime-state events bound to the same run |
+| The project stops observing the active render path | run-bound live evidence identifies the active factory/device/swapchain/generation and proves all four lost device slots return to their recorded Windows D3D9 originals | overlay-disabled A/B evidence that identifies whether the restoration still occurs after `gameoverlayrenderer.dll` is absent from the factory target |
+| A bridge stage ceases to progress | first frames completed; active-stage/counter/duration telemetry is host-tested | sustained game evidence and, after Phase 5, independent presenter progress |
+| OpenVR does not receive useful new work at the required cadence | initial submissions accepted; separate capture/content/upload/eye-submit sequences are host-tested | run-bound cadence evidence and later headset-visible confirmation |
+| Captured image is not always the final useful game image | capture remains tied to EndScene; RGB content hashing distinguishes repeats | run-bound changing-content evidence and later visual capture validation |
+| Focus/tracking/runtime state changes during the relevant window | timestamped initialization/wait/submit results are now emitted | live correlation plus Phase 6 focus/tracking lifecycle states |
 
 There is currently no basis to blame PSVR2 hardware, abandon OpenVR, reactivate D3D9Ex as the main path or start game-camera hooks.
 

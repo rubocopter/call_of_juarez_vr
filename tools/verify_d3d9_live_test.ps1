@@ -6,16 +6,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
-$Log = Join-Path $GameDirectory "cojvr.log"
-
-if (-not (Test-Path -LiteralPath $Log -PathType Leaf)) {
-    throw "cojvr.log was not found. The proxy has not produced live-test evidence."
-}
-
-$Lines = Get-Content -LiteralPath $Log
+$Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
+    -GameDirectory $GameDirectory `
+    -ExpectedDiagnosticMode "d3d9_forwarding"
+$Lines = $Provenance.Lines
 $Checks = [ordered]@{
     "known exact build" = [bool]($Lines -match "d3d9 bootstrap: host=Call of Juarez \(Direct3D 9\).*exact_build=known")
-    "forwarding active" = [bool]($Lines -match "d3d9 Direct3DCreate9: forwarding wrapper active")
+    "native factory observation active" = [bool]($Lines -match "d3d9 Direct3DCreate9: native factory observation active")
     "CreateDevice observed" = [bool]($Lines -match "d3d9 CreateDevice: .*hr=0x0")
     "Present/Reset hooks active" = [bool]($Lines -match "d3d9 device hooks: Present/Reset active")
     "Present frame boundary observed" = [bool]($Lines -match "d3d9 Present: frame boundary observed")

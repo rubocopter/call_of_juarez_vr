@@ -9,6 +9,8 @@ $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $State = Join-Path $GameDirectory ".cojvr-openvr-flat-stage.json"
+$D3D9Destination = Join-Path $GameDirectory "d3d9.dll"
+$D3D9State = Join-Path $GameDirectory ".cojvr-d3d9-stage.json"
 
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
     throw "Call of Juarez is running. Close it before unstaging the OpenVR flat bridge."
@@ -30,7 +32,13 @@ if ([bool]$StageState.hadOriginalOpenVr -and
     throw "The original openvr_api.dll backup is missing. Refusing to alter the staged files."
 }
 
-& (Join-Path $PSScriptRoot "unstage_d3d9_proxy.ps1") -GameDirectory $GameDirectory
+if (Test-Path -LiteralPath $D3D9State -PathType Leaf) {
+    & (Join-Path $PSScriptRoot "unstage_d3d9_proxy.ps1") -GameDirectory $GameDirectory
+} elseif (Test-Path -LiteralPath $D3D9Destination -PathType Leaf) {
+    throw "The D3D9 staging state is missing but d3d9.dll is still present. Refusing to alter an unrecognized proxy."
+} else {
+    Write-Host "The D3D9 proxy was already unstaged; continuing OpenVR flat cleanup."
+}
 
 Remove-Item -LiteralPath $OpenVrDestination -Force
 if ([bool]$StageState.hadOriginalOpenVr) {

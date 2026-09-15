@@ -9,16 +9,132 @@ Current bootstrap checks:
 
 1. Configure a Win32 CMake build.
 2. Build with MSVC at `/W4`.
-3. Run `cojvr_runtime_tests` to validate filename routing, catalog lookup and
+3. Run `cojvr_build_identity_tests` to validate filename routing, catalog lookup and
    SHA-256 calculation.
 4. Run `cojvr_d3d9_probe` to verify that a D3D9 interface can be created on the
    target machine.
 5. Run `cojvr_d3d9_proxy_smoke` to load the proxy, forward `Direct3DCreate9`,
-   attempt device creation, exercise `Clear`, `Present` and `Reset`, and verify
-   identity/forwarding/device/frame-boundary log entries.
+   attempt device creation, exercise `BeginScene`, `EndScene`, device and
+   swapchain `Present`, and `Reset`, then verify native identity, hook-module,
+   device/generation and structured-finalization evidence.
 6. Test the Release proxy beside the exact known `CoJ.exe` build with VR disabled.
    Verify normal rendering, a known-build identity log, successful device creation
    logging and clean game shutdown before any VR-runtime or camera work.
+
+## Audit-remediation Phase 0 host evidence
+
+Phase 0 provenance tooling is **host-tested** as of 2026-09-14:
+
+- `tools/new_build_manifest.ps1` records the source commit/tree/dirty state, Win32 configuration, diagnostic mode, rebuild commands and SHA-256 identities for the proxy and required OpenVR runtime artifact. Clean source is required by default; `-AllowDirty` produces an explicitly non-commit-reproducible diagnostic manifest with tracked-diff and untracked-file identities.
+- D3D9 staging now requires the exact matching build manifest, assigns one `run_id`, records `CoJ.exe`, `ChromeEngine3.dll`, proxy and `openvr_api.dll` identities, and moves prior logs/run markers into `.cojvr-evidence/historical` instead of deleting them.
+- The proxy logs `run_start` with the staging-provided run/build-manifest IDs and PID. All D3D9 live verifiers require that identity to match the current run manifest, staging state, copied build manifest and deployed hashes.
+- `tools/collect_run_evidence.ps1` packages the run/build/staging/log evidence without launching the game, reports deployed-file changes, and marks evidence incomplete when no matching `run_end` exists.
+- The provenance host test exercises manifest generation, run/log binding, matching deployments, missing-final-summary state, finalized state and altered deployment detection.
+
+At the Phase 0 checkpoint, fresh Win32 Debug and Release builds completed successfully with `/W4`; both suites then passed **13/13 CTests**. This is the historical Phase 0 evidence; the current larger suite is recorded below. No new game, SteamVR or headset run was performed.
+
+## Audit-remediation Phases 1-4 host evidence
+
+Phases 1-4 reached their **host-tested** acceptance gate on 2026-09-14. No Call of Juarez, SteamVR or headset process was launched for this evidence.
+
+Phase 1 evidence:
+
+- The neutral runtime, build/game identity, diagnostics, OpenVR and OpenXR targets are separate. OpenVR and OpenXR are independently selectable, and dependency checks are conditional on the enabled backend.
+- Full Win32 Debug and Release builds completed at `/W4`. Each CTest suite produced 17 valid outcomes: 16 PASS and one explicit SKIP for direct classic-D3D9 shared-texture capability returning `D3DERR_INVALIDCALL` on this host.
+- Separate OpenVR-only and OpenXR-only Debug configurations each built and produced the same 16 PASS / one SKIP suite while the disabled backend's SDK root was deliberately nonexistent.
+- Native D3D9 tests assert the loaded system `d3d9.dll`; proxy tests execute from unique temporary directories and verify a normal process exit emits structured `run_end`.
+- The classic readback test validates two changing 65x37 asymmetric patterns across complete visible rows and row pitch rather than a single pixel.
+- CI configuration now bootstraps each enabled pinned dependency. Its workflow definition is implemented; a remote CI execution is not claimed as local evidence.
+
+Phase 2 evidence:
+
+- `VtablePatch`/`HookRegistry` use conditional replacement and explicit no-change, applied, protection-failure, conflict and incomplete-rollback results.
+- Host tests cover failure before replacement, failure after replacement, retained ownership, foreign-hook-safe restore, two vtables, identical/conflicting reinstall, integrity loss, partial rollback and a callback reaching its retained original during installation.
+- Factory, device and swapchain hooks share this ownership model, keep per-vtable originals, preserve native HRESULTs and pin the containing module while installed callbacks can remain reachable.
+- The Release hook-conflict test also passes with distinct non-foldable function symbols, preventing linker identical-code folding from weakening the test premise.
+
+Phase 3 evidence:
+
+- The classic proxy returns native `IDirect3D9`; only the explicitly opted-in D3D9Ex laboratory path retains a forwarding wrapper. Classic staging rejects the D3D9Ex environment switch or marker.
+- A native test creates a first device, verifies `GetDirect3D` canonical `IUnknown` identity, and creates a second observed device through the recovered factory. Both native `CreateDevice` HRESULTs remain `D3D_OK`.
+- Factory/device/swapchain IDs and creation thread are assigned without retaining COM references. A successful Reset advances the device generation while preserving a stable swapchain ID when the native swapchain identity is unchanged.
+- Proxy smoke coverage verifies structured native identity, factory/device/swapchain ownership, original/replacement/current hook target module names, implicit-swapchain `Present`, and generation 2 after Reset.
+
+Phase 4 evidence:
+
+- `COJVR_EVENT` JSONL records include run/build identity, PID/TID, monotonic timestamp, factory/device/swapchain/generation, callback/capture/content/upload/submit sequences, duration, HRESULT/runtime result and exact global/per-device counters.
+- Callback and stage detail uses bounded milestone sampling while every observation updates exact counters and active-stage state. A separate observer thread emits per-device periodic summaries and reports any factory/device/swapchain slot whose current target is no longer owned.
+- The flat bridge reports capture, frame publication, upload, `WaitGetPoses`, left submit and right submit separately. RGB hashing ignores the undefined X/alpha byte, so a repeated captured texture advances submit attempts without advancing new-content sequence.
+- Failure counters and last-failed/active stage remain visible in summaries even when a high-frequency detail event is outside the sampling milestones.
+- `tools/read_render_telemetry.ps1` reports exact device activity, generations, hook losses/conflicts, stage progress, repeated content, whether submit counters advanced while capture remained fixed, and the recorded original path for the native factory `CreateDevice` slot. Tests cover complete evidence, incomplete evidence, mixed-run rejection, exact synthetic clock progression and Steam Overlay/native factory-target discrimination.
+- `tools/verify_d3d9_openvr_flat_live_test.ps1` is the prepared post-run gate. It requires matching Phase 0 provenance, native identity, owned hooks, callback/capture/content/upload/balanced-eye progression, no stage/runtime failure, no final active stage and inactive D3D9Ex substitution. A run manifest may additionally require Steam Overlay absence; when set, verification fails unless a factory `CreateDevice` original target was observed and none resolves to `gameoverlayrenderer.dll`. Headset visibility is not part of this first observation gate.
+
+The first run-bound Phase 0-4 manual observation was completed on 2026-09-14 as run
+`20260914T214318Z-fe71b222b664`, bound to build manifest
+`28598DB93EBD1D0A0838445C0DDDCD39BE9B4F32B144BC2DACFF6913E65A8C40`.
+The run completed normally with a unique `run_end`, and provenance/deployed hashes,
+structured core events, native factory/device identity, `GetDirect3D` identity and
+implicit-swapchain identity all passed verification. One factory, one device, one
+implicit swapchain and generation 1 were observed. The device reached exactly three
+`Present`, three `BeginScene` and three `EndScene` callbacks; all three captures reached
+D3D11 upload and balanced left/right OpenVR submission with no capture, upload,
+`WaitGetPoses` or submit failure. Only one unique RGB content hash was observed across
+the three captures.
+
+The observation gate failed because the same device vtable then lost ownership of all
+four instrumented device slots: `Reset`, `Present`, `BeginScene` and `EndScene`. The
+four losses were reported together at approximately 5.0 seconds, after callback counts
+had stopped at 3/3/3. No new device, swapchain generation, hook-install conflict or
+active pipeline stage explained the cutoff. This reproduces the historical three-frame
+failure with the remediated `VtablePatch`/`HookRegistry` ownership model and rules out a
+bridge-stage stall for this run.
+
+The loss records identify concrete current function addresses, but module attribution
+is still ambiguous because both the staged proxy and the Windows runtime have basename
+`d3d9.dll`. The next diagnostic revision therefore records full module paths plus the
+original, replacement and current target addresses so a subsequent run can distinguish
+restoration to the native target from a foreign replacement without relying on basename.
+
+That diagnostic revision was exercised as run `20260914T215121Z-9bac4e22cffd`, bound
+to build manifest `6A0BE68C4C56B5B4ED21D30B4D317A7CC7480FA79F7CB5ECCC430B68FD7E95C3`.
+It reproduced the same 3/3/3 cutoff and four device-hook losses. For `Reset`, `Present`,
+`BeginScene` and `EndScene`, every `current_target` matched its recorded
+`original_target`, and every `current_path` was `C:\WINDOWS\system32\d3d9.dll`.
+The factory `CreateDevice` original target before the project hook was instead in
+`C:\Program Files (x86)\Steam\gameoverlayrenderer.dll`. The factory and swapchain hooks
+remained owned, leaving 2 of 6 installed hook slots owned at the final summary. The run
+ended normally, was packaged successfully, and its evidence package SHA-256 is
+`0FF39018DF5FF9FF6B7AAFC76672B89BD3F84A813B431E5D228A8CC83EE99420`.
+
+There is no production callsite that restores the device `HookRegistry` during the live
+run. The next observation is therefore an A/B test with Steam Overlay disabled. Its
+telemetry must first confirm that the factory `CreateDevice` original target is no longer
+`gameoverlayrenderer.dll`; only then can persistence or disappearance of the three-frame
+restoration be used as evidence about overlay involvement.
+The evidence package for the earlier run `20260914T214318Z-fe71b222b664` has SHA-256
+`C453F3795E30860215F1C5135D4222A825FC56538E5566F7E7AC1F00217C6B5A`.
+
+The A/B verifier was strengthened before the next manual gate. Synthetic provenance and
+telemetry tests pass in Debug and Release, and the parser was also run against historical
+run `20260914T215121Z-9bac4e22cffd`; it recovered exactly
+`C:\Program Files (x86)\Steam\gameoverlayrenderer.dll` as the factory `CreateDevice`
+original path and set `SteamOverlayFactoryIntercepted=true`, while retaining the four
+known hook losses. Debug and Release were rebuilt successfully after these changes.
+
+The earlier staged candidate `20260914T224423Z-3a4527d3e3ab` produced no runtime log and
+was superseded before any game launch so the A/B expectation could be part of the run
+manifest itself. The replacement manual gate is currently staged as run
+`20260914T224904Z-overlay-ab` with `validation.requireSteamOverlayAbsent=true`, build
+manifest ID `054813FAF3446544AC26F25D07D919EE2B893323736885F3701DBD7F877E4A93`
+and staged proxy SHA-256
+`8D5B93665E6E7067EAC02054EE2967ABB0DE6F8E3062386AB2C633B21CB9393B`.
+Its source manifest is intentionally recorded as a dirty snapshot rooted at commit
+`ef27ac7451370e54391534885a1bf8b59e6436d1`; it is not reproducible from that commit
+alone and must not be mistaken for the repository HEAD after the stabilization work is
+committed. No game or SteamVR process was launched while preparing these verifier
+changes. The remaining evidence requires the user to disable Steam Overlay for Call of
+Juarez, launch SteamVR and the game manually, exercise the same DX9 path and exit
+normally before running the prepared verifier.
 
 The user performs all game and SteamVR launches manually. For the D3D9 live gate,
 prepare the run with `tools/stage_d3d9_proxy.ps1`, let the user launch and close the
@@ -173,11 +289,13 @@ Host tests do not promote a game integration to `live-tested`. A live desktop
 test does not promote it to `headset-validated`.
 
 The initial development host passed the Release D3D9 availability probe and
-reported two adapters. The D3D9 proxy smoke test, including the native-vtable
-`Present`/`Reset` observation hook, passes in Debug and Release. The new optional
-`EndScene` callback passes five consecutive real D3D9 scene cycles. The full
-Release host suite currently passes **12/12 CTests**; the new EndScene hook and
-OpenVR flat proxy targets also build successfully in Debug.
+reported two adapters. The D3D9 proxy smoke test, including native factory,
+device and implicit-swapchain observation, passes in Debug and Release. The
+optional `EndScene` callback passes repeated real D3D9 scene cycles. The current
+Debug and Release suites each produce **16 PASS plus one explicit capability
+SKIP out of 17 CTests**; the OpenVR flat proxy builds successfully in both. This
+was revalidated from the current working tree on 2026-09-15 with fresh Debug and
+Release builds followed by both CTest presets.
 
 The exact installed `CoJ.exe` SHA-256 was rechecked as
 `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`.

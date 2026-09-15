@@ -34,6 +34,7 @@ public:
     [[nodiscard]] bool initialized() const noexcept;
     [[nodiscard]] const OpenVrSystemInfo& system_info() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
+    [[nodiscard]] std::int32_t last_result_code() const noexcept;
 
     // Native handles are exposed only to renderer adapters that must bridge
     // runtime-owned tracking/session state to API-specific texture submission.

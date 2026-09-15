@@ -9,24 +9,44 @@ on:
 jobs:
   win32:
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: openvr-only
+            enable_openvr: ON
+            enable_openxr: OFF
+          - name: openxr-only
+            enable_openvr: OFF
+            enable_openxr: ON
     steps:
       - uses: actions/checkout@v4
 
+      - name: Bootstrap pinned OpenVR SDK
+        if: matrix.enable_openvr == 'ON'
+        shell: pwsh
+        run: .\tools\bootstrap_openvr.ps1
+
       - name: Bootstrap pinned OpenXR loader
+        if: matrix.enable_openxr == 'ON'
         shell: pwsh
         run: .\tools\bootstrap_openxr.ps1
 
-      - name: Configure Win32
-        run: cmake --preset win32-debug
+      - name: Configure Win32 (${{ matrix.name }})
+        run: >-
+          cmake -S . -B build/${{ matrix.name }} -A Win32
+          -DCOJVR_BUILD_TESTS=ON
+          -DCOJVR_ENABLE_OPENVR=${{ matrix.enable_openvr }}
+          -DCOJVR_ENABLE_OPENXR=${{ matrix.enable_openxr }}
 
       - name: Build Debug
-        run: cmake --build --preset debug
+        run: cmake --build build/${{ matrix.name }} --config Debug
 
       - name: Test Debug
-        run: ctest --preset debug
+        run: ctest --test-dir build/${{ matrix.name }} -C Debug --output-on-failure
 
       - name: Build Release
-        run: cmake --build --preset release
+        run: cmake --build build/${{ matrix.name }} --config Release
 
       - name: Test Release
-        run: ctest --preset release
+        run: ctest --test-dir build/${{ matrix.name }} -C Release --output-on-failure
