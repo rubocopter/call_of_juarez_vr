@@ -1,0 +1,28 @@
+{
+  "action_manifest_version": 0,
+  "alias_info": {},
+  "bindings": {
+    "/actions/global": {
+      "chords": [],
+      "haptics": [],
+      "poses": [],
+      "skeleton": [],
+      "sources": [
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/recenter"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/left/input/create"
+        }
+      ]
+    }
+  },
+  "controller_type": "playstation_vr2_sense",
+  "description": "Call of Juarez VR global PS VR2 Sense controls",
+  "name": "Call of Juarez VR - PS VR2 Sense",
+  "options": {},
+  "simulated_actions": []
+}

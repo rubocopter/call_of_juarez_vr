@@ -32,8 +32,7 @@ The following facts are currently established:
 - The in-game flat bridge has completed D3D9 readback, D3D11 upload, pose wait and OpenVR submission for captured game frames.
 - A later exact-build diagnostic observed exactly three project callbacks for `Present`, `BeginScene` and `EndScene`, followed by loss of integrity of the installed device-vtable entries while the game continued rendering on the monitor.
 - That hook-integrity loss is a confirmed failure mode of the current interception design. Run `20260914T215121Z-9bac4e22cffd` established that all four lost device slots return exactly to their recorded original targets in `C:\WINDOWS\system32\d3d9.dll`; no foreign replacement target was observed. It still does **not** prove which component performs the restoration, why it occurs, or that hook loss is the only reason the user never sees a stable game image in the headset.
-- No functional game-camera VR, real stereo rendering, 6DOF integration or motion-controller gameplay is implemented yet.
-- Headset-visible in-game presentation is not validated.
+- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission, and the user observed binocular gameplay with correct yaw/pitch direction. Usable stereo fusion/comfort is not yet validated, and positional 6DOF integration and motion-controller gameplay are not implemented yet.
 
 The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` records which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves replacement addresses to owning modules. Preserve it as evidence/baseline; do not let its existence bypass the audit-remediation work below.
 
@@ -114,7 +113,7 @@ The remaining host gap is a controlled-double test of the complete OpenVR flat b
 ### A7 — Live verification is not tied to a unique execution
 
 **Severity:** P1  
-**Status:** live-tested run binding; current A/B gate pending
+**Status:** live-tested run binding; overlay A/B deferred
 
 Phase 0 now supplies a SHA-256 build manifest, staging-assigned `run_id`, run manifest, exact deployed-file identities and a run-evidence package. The proxy records the bound run/build-manifest IDs at startup, and all D3D9 live verifiers reject a log, staging state, build manifest or deployed hash that does not belong to the same run. Host tests cover complete/incomplete evidence, finalization recognition and changed deployed artifacts.
 
@@ -122,7 +121,7 @@ Phase 4 adds the structured runtime side: PID/TID, monotonic timeline, factory/d
 
 Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercised that provenance chain in the exact game. Both produced a unique `run_end`, matched their run/build/staging/deployment identities and were collected into run-specific evidence packages. Physical headset confirmation is intentionally outside provenance acceptance.
 
-**Required action:** preserve the run-bound verifier guarantees for the staged overlay-disabled A/B candidate. Old logs must remain incapable of validating it, and the A/B result must be rejected unless the run manifest, deployed hashes and factory-target evidence all belong to the same `run_id`.
+**Required action:** preserve the run-bound verifier guarantees for every staged candidate. If the deferred overlay-disabled A/B resumes, old logs must remain incapable of validating it, and its result must be rejected unless the run manifest, deployed hashes and factory-target evidence all belong to the same `run_id`.
 
 ### A8 — Deployment is reversible only on the happy path, not transactional
 
@@ -154,17 +153,22 @@ OpenVR/OpenXR ownership, state transitions, move semantics, `noexcept` boundarie
 ### A11 — Neutral math contracts are ambiguous before camera work begins
 
 **Severity:** P2  
-**Status:** open
+**Status:** partially host-tested for the exact CoJ/OpenVR stereo candidate; general neutral contract remains open
 
-`EyeView::pose` is not guaranteed to mean the same space/transform across OpenVR and OpenXR. FOV/projection conventions and matrix validity are not sufficiently proven for asymmetric stereo projection.
+`EyeView::pose` is not guaranteed to mean the same space/transform across OpenVR and OpenXR. The exact CoJ/OpenVR candidate now defines OpenVR `EyeView::pose` as eye-to-head, maps its translation into the native right/up/forward camera basis and maps asymmetric per-eye FOV into the engine's off-center frustum builder. Host tests cover that mapping and reject invalid frusta/bases. OpenXR equivalence and a backend-independent proof across runtimes remain open.
 
-These issues do not explain the current flat bridge because it does not yet construct game stereo cameras, but they would become dangerous immediately afterward.
+These issues predate native stereo and no longer describe the current renderer state. The exact CoJ/OpenVR path now constructs and has live-tested distinct game stereo cameras, which makes the remaining neutral-contract work a portability and hardening requirement rather than a blocker to proving that game-specific path.
 
-The HMD-rotation gate has now narrowed the orientation subset without closing this finding:
+The HMD/native-stereo gate has now narrowed the OpenVR subset without closing this finding:
 the neutral HMD pose convention is explicitly right-handed `+X` right, `+Y` up, `-Z`
 forward with `(x,y,z,w)` quaternions, and base-relative orientation/recenter is host-tested.
-OpenVR supplies this contract through a backend-neutral `PoseSource`. Eye-to-head semantics,
-OpenXR equivalence, asymmetric FOV/projection and stereo matrix validation remain open.
+OpenVR supplies HMD orientation through a backend-neutral `PoseSource`, while
+`CameraStereoRuntimeCallbacks` supplies renderer-neutral per-eye data to the exact game adapter.
+OpenVR eye-to-head semantics and the CoJ asymmetric frustum mapping are host-tested. The first
+physical native-stereo attempt exposed one OpenVR-specific vertical-sign conversion defect:
+`GetProjectionRaw` supplied negative top/positive bottom while neutral `EyeFov` requires
+positive up/negative down. That adapter conversion is now explicit and host-tested. OpenXR
+equivalence and general neutral stereo-matrix validation remain open.
 
 **Required action:** complete remediation Phase 8 before camera/stereo implementation is promoted.
 
@@ -223,22 +227,71 @@ justify a separate functional camera gate. This evidence does not change A1/A2 s
   `+0x1B0` through global renderer pointer RVA `0x00590074`.
 - slot `+0x28` targets RVA `0x001C58E0`; the Java `Camera.SetFOV` path ultimately reaches
   this camera projection boundary.
-- camera basis/position data used by the Java/native bridges are exposed at native camera
-  offsets left `+0xC4`, up `+0xD4`, forward `+0xE4`, position `+0xF4`.
-- RVA `0x0022BB10` constructs/copies view-related matrices and combines them with the
-  projection matrix; projection construction is visible at RVA `0x0022BC50`.
+- the native camera keeps a paired transform: world/camera matrix at `+0x44` and its
+  inverse/view source at `+0x04`. Native setters `0x0022C4D0`/`0x0022C510` update `+0x44`
+  then invoke inverse RVA `0x001F3F80` into `+0x04`.
+- RVA `0x0022BB10` copies `+0x44 -> +0xC4` and `+0x04 -> +0x84`, derives effective view
+  at `+0x104`, world/culling transform at `+0x144`, projection at `+0x184`, and combined
+  view-projection at `+0x204`.
 
 The dedicated `d3d9_camera_probe` therefore hooks only the exact `CBaseCamera` render
-update and FOV slots. It transiently applies yaw/pitch for the render update, restores the
-natural basis immediately afterward, and uses ordinary system-D3D9 forwarding solely as
-the bootstrap. No OpenVR initialization or D3D9 frame-vtable interception is involved.
+update and FOV slots. Transient orientation is now applied to the source basis before the
+render update and restored immediately afterward; the FOV hook is diagnostic FOV only.
+Ordinary system-D3D9 forwarding is used solely as bootstrap. No OpenVR initialization or
+D3D9 frame-vtable interception is involved.
 See `docs/research/COJ_CAMERA_PATH.md` for the complete evidence and live acceptance gate.
 
-The follow-on `d3d9_hmd_camera` candidate is host-tested. It supplies the same transient
-camera path from the neutral pose/recenter boundary, currently using the already-proven
-OpenVR x86 HMD pose acquisition. The proxy still has no D3D9 frame hooks. This does not
-change A1/A2 and does not close A11; the pending evidence is a physical HMD -> monitor
-camera rotation run before any stereo work.
+The first `d3d9_hmd_camera` live attempt showed that a derived `+0xC4` write was overwritten.
+The second attempt, run `20260915T211240Z-7d1c65d07a43`, moved `+0x44` successfully but
+still left the visual camera fixed; the user instead observed HMD-dependent disappearance
+of distant world geometry. This identifies `+0x44/+0xC4/+0x144` as insufficient alone and
+is consistent with a world/frustum-culling path. The current implementation now mirrors the
+native setter contract by recomputing `+0x04 = inverse(+0x44)` before the original render
+update, so `+0x104` view and `+0x204` view-projection can change coherently. Debug/Release
+builds and both full host suites pass after CoJ closed, so this revision is **host-tested**.
+The second failed run is preserved as package SHA-256
+`8E015C2B39326EE2E9C52804E9C6E2E03262088B1B3FFB05E5BC92747B45A5D2`. The proxy still
+has no D3D9 frame hooks.
+This does not change A1/A2 and does not close A11.
+
+Static inspection has also identified the exact engine render-view boundary used by the first
+native-stereo candidate: vtable target RVA `0x00030FB0` and core RVA `0x00030E00`. The
+first implementation rendered the left eye through the original view method and the right eye
+through the core, applying per-eye translation/asymmetric projection at the proven
+`CBaseCamera` boundary. Run `20260916T130852Z-1438628c90c6` later proved that core-only right
+pass insufficient: right RT0 was `D3DFMT_NULL` on every sampled attempt, while the left full
+wrapper pass ended on a color backbuffer. Exact-build disassembly confirms `0x30FB0` owns a
+`view+0xD7` rendered guard and post-core work. Current source therefore replays full `0x30FB0`
+for both eyes and restores the guard transactionally.
+It now keeps the complete per-eye source world/view, frustum and derived state alive across
+the whole render-view pass, then restores source `+0x04/+0x44`, frustum fields and derived
+camera matrices at `+0x84`, `+0xC4`, `+0x104`, `+0x144`, `+0x184` and `+0x204` after each eye.
+The provisional transport captures each eye from classic D3D9, uploads into separate D3D11
+textures and submits them to OpenVR. Run `20260916T113600Z-native-stereo` reached HMD camera
+motion but failed before the first capture because the OpenVR vertical FOV signs were wrong;
+the same observation exposed premature restoration of culling state. After those fixes, run
+`20260916T123049Z-8d977bb5b439` executed both eye camera/projection passes, captured and
+submitted frames, and produced visible gameplay in the headset. Every sampled left/right pair
+had the same RGB hash, however. The transport was reading the swap-chain backbuffer from
+inside ChromeEngine's render-view call, so successful submission did not demonstrate capture
+of distinct engine eye outputs. The run also ended after factory-hook restoration without
+OpenVR shutdown or `run_end`. Current source captures active render target 0, records whether
+it aliases the backbuffer, refuses identical-eye submission, records renderer-camera identity
+at each eye update and performs runtime shutdown before abandoning process-lifetime D3D9
+references. Run `20260916T133322Z-36c287cc43d8` then proved the complete-wrapper capture path:
+both eyes captured real `2560x1440` `D3DFMT_A8R8G8B8` RT0 content, sampled hashes were distinct,
+renderer-camera correlation was true for both eyes and OpenVR submission succeeded. The user
+observed binocular gameplay but reported poor fusion/comfort and mediocre performance; shutdown
+again stopped before `native_stereo_runtime: stopped`/`run_end`.
+
+Subsequent static data inspection identified a concrete stereo-scale defect in that live
+candidate. `Data/Player/PlayerProperties.def` defines movement in `cm/s` and acceleration in
+`cm/s^2`; the runtime pose contract is metres. The candidate had applied eye-to-head metres
+directly as ChromeEngine units, shrinking a 65 mm IPD by 100x. Current source converts metres
+to centimetres in the CoJ adapter, records applied eye positions/frustum and D3D9 viewport,
+and brackets readback/runtime shutdown with stage telemetry. Debug and Release suites pass
+18 tests plus the expected classic-D3D9 shared-texture capability SKIP. These corrections are
+**host-tested only** until a fresh one-process headset run proves visual fusion and teardown.
 
 ## Target component boundaries
 

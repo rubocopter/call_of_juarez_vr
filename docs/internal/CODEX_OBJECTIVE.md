@@ -1,104 +1,65 @@
-# Codex objective — audit-driven stabilization
+# Codex objective — Call of Juarez VR
 
 Use this objective for the current implementation pass.
 
-## Objective
+## Product goal
 
-Stabilize Call of Juarez VR by executing the audit remediation program before adding new VR features.
+Turn Call of Juarez (2006) into a native-feeling PCVR game. The supported end state must provide:
 
-The authoritative engineering sources for this pass are, in order:
+- native stereo rendering from the game/engine render path;
+- full-body IK driven by validated VR tracking anchors;
+- interactions rebuilt for VR, including tracked weapons/hands and motion-controller interaction semantics instead of a direct flat-input remap.
 
-1. `AGENTS.md`
-2. `docs/TECHNICAL_AUDIT.md`
-3. `docs/AUDIT_REMEDIATION_PLAN.md`
-4. `docs/internal/CODEX_HANDOFF.md`
-5. `docs/VALIDATION.md`
-6. `ARCHITECTURE.md`
-7. `ROADMAP.md`
+Call of Juarez (2006) remains the reference implementation. Shared contracts may be promoted only after another game independently demonstrates the same boundary.
 
-Inspect the actual repository state first and do not assume a documented item is still pending if the code has already changed. Conversely, do not mark an audit item resolved merely because code exists; require the acceptance evidence defined in the remediation plan.
+## Current gate
 
-### Primary goal
+The exact `Camera -> View/Projection -> ChromeEngine3 renderer` path is proven. HMD yaw/pitch direction, the native right/up/forward basis, two complete `0x30FB0` eye passes, distinct real-color left/right captures and OpenVR stereo submission are all live-tested in the exact Call of Juarez build. Run `20260916T133322Z-36c287cc43d8` supplied the distinct-eye proof, but binocular fusion/comfort and frame pacing failed acceptance and the process did not emit clean runtime finalization.
 
-Replace the current fragile, hard-to-audit D3D9/OpenVR diagnostic path with a reproducible and observable pipeline in which one execution can identify:
+Static game data subsequently proved that Call of Juarez movement/world units are centimetres while the shared XR runtime uses metres. The live stereo run therefore used an eye baseline 100x too small. Current source fixes that conversion only in the Call of Juarez adapter, records per-eye applied position/frustum/viewport and transport timing, adds shutdown-stage telemetry, and exposes a minimal OpenVR global recenter action bound to left PS VR2 Sense Create. These corrections are host-tested only.
 
-- the exact source/build/deployment/run identity;
-- which D3D9 factory/device/swapchain owns the active render path;
-- whether every installed hook remains owned and valid;
-- how many callbacks, unique captures, uploads and submissions occur;
-- where any stage enters, exits, fails or stalls;
-- whether OpenVR continues presenting when game capture stops;
-- whether repeated submissions contain new game content or merely repeat the last frame.
+The active task is one fresh single-process physical gate proving the corrected `100` game-units-per-metre eye baseline, usable binocular fusion, valid per-eye geometry, left-Sense-Create recenter without Alt-Tab, distinct eye submission and clean runtime shutdown/`run_end`. Positional 6DOF, controller gameplay, full-body IK and rebuilt interactions remain subsequent product milestones.
 
-Do not optimize for "make something appear in the headset" at the expense of evidence quality. The immediate objective is to make the next runtime observation decisive and reproducible.
+## Execution order
 
-### Required execution order
+1. Pass the corrected-scale native-stereo manual gate with usable binocular fusion, valid per-eye geometry, in-headset recenter and clean finalization.
+2. Use the live evidence to harden/optimize per-eye rendering, culling, render-target transport and frame pacing while preserving temporary engine state.
+3. Add positional HMD tracking and room-scale/player-body reconciliation.
+4. Add tracked controller input, weapon/hand ownership and interaction rebuilding.
+5. Add full-body IK after the head/controller/body-anchor contracts are stable.
 
-Follow `docs/AUDIT_REMEDIATION_PLAN.md` in order:
+Keep D3D10 as a later first-class Call of Juarez renderer target. Do not generalize exact Chrome Engine 3 layouts or RVAs to Bound in Blood or Gunslinger without independent proof.
 
-- Phase 0: auditable source/build/run provenance;
-- Phase 1: clean build, CI and host-test validity;
-- Phase 2: safe vtable patch/HookRegistry infrastructure;
-- Phase 3: native COM/factory/device discovery without split identity;
-- Phase 4: structured run/render telemetry.
+## Local manual VR-test workflow
 
-Complete the acceptance criteria of Phases 0-4 before asking for another manual game observation run.
+The user must be able to run the current candidate without waiting for an agent. Use `tools/vr_test.ps1` as the front door:
 
-After that evidence gate, continue with:
+```powershell
+pwsh -File tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez"
+# Start SteamVR and Call of Juarez manually.
+# Normal recenter while wearing the headset: press Create on the left PS VR2 Sense.
+# Terminal fallback for diagnostics only:
+pwsh -File tools/vr_test.ps1 recenter
+pwsh -File tools/vr_test.ps1 disable
+# Close the game normally.
+pwsh -File tools/vr_test.ps1 finish
+```
 
-- Phase 5: separate D3D9 capture from OpenVR presentation;
-- Phase 6: formalize OpenVR state/lifetime/synchronization;
-- Phase 7: transactional staging/verification;
-- Phase 8: neutral VR math contracts before real stereo cameras.
+The first explicit game directory is stored under ignored `work/` state so later commands can omit it. `prepare` must build/test, create exact provenance and stage the current native-stereo candidate. The script must never launch or terminate SteamVR or Call of Juarez.
 
-Phase 8 may be host-tested in parallel where useful, but it must not distract from the critical-path observability and interception work.
+## Engineering constraints
 
-### Non-negotiable constraints
+- Inspect the actual repository/working tree before continuing; do not assume documented work is still pending.
+- Exact binary identity controls game-specific integration. Unknown builds fail closed.
+- Preserve the existing audit-remediation evidence and validation-state vocabulary.
+- Keep OpenVR -> SteamVR as the primary PSVR2 path for the current implementation; keep OpenXR independently selectable and experimental/future.
+- Camera orientation and per-eye state are transient: the game camera remains authoritative, HMD/eye pose is an offset, and source plus derived camera state is restored around the relevant engine/render-view work.
+- The exact source matrix is right/up/forward/position. Never reconstruct the first axis as `forward x up`; reflected or non-rigid camera bases must fail closed.
+- Do not use `Present`, `BeginScene`, `EndScene` or `Reset` as the HMD/native-stereo ownership boundary.
+- Do not use blind periodic re-hooking or reactivate D3D9Ex as the primary path without new evidence.
+- Never launch Call of Juarez or SteamVR automatically.
+- Treat one staged run ID as one game-process execution. Prepare a fresh run before relaunching the game; provenance rejects multiple `run_start` records for the same run ID.
 
-- Do not start camera hooks, stereo camera rendering, 6DOF, UI adaptation or PS VR2 Sense gameplay integration during this pass.
-- Do not reactivate D3D9Ex as the primary game path without new evidence.
-- Do not blame PSVR2 hardware or replace OpenVR without evidence.
-- Do not use a blind periodic re-hook loop as the default solution.
-- Do not introduce a full `IDirect3DDevice9` wrapper simply to avoid hook replacement unless COM identity, `QueryInterface`, `GetDirect3D`, lifetime and device-discovery semantics are explicitly validated and the audit evidence justifies that design.
-- Preserve native D3D9 object identity where possible.
-- Keep OpenXR experimental and independently selectable; OpenVR must not require OpenXR merely to configure/build.
-- Never launch Call of Juarez or SteamVR automatically. The user owns all game/runtime/headset launches.
-- Do not request a manual runtime test until the corresponding gate has an exact built artifact, reversible/transactional staging path, verifier and explicit expected evidence.
-- Do not equate 300 submissions with 300 unique game frames; track capture/content/submission sequences separately.
-- Keep Call of Juarez (2006) as the reference implementation and do not generalize Chrome Engine behavior to Bound in Blood/Gunslinger without evidence from a second game.
+## Evidence discipline
 
-### Existing evidence that must be preserved
-
-Do not discard or reinterpret these established facts:
-
-- classic D3D9 -> CPU readback -> D3D11 upload has worked in the exact game build;
-- OpenVR runtime initialization, valid PSVR2 HMD pose and D3D11 submission have worked against SteamVR;
-- the in-game flat path has completed genuine captured-frame submissions;
-- one diagnostic run observed three project `Present`/`BeginScene`/`EndScene` callbacks followed by loss of integrity of the installed device-vtable entries while monitor rendering continued;
-- that hook-integrity loss is a confirmed failure mode of the current design, but not yet a complete root-cause explanation for the blank headset;
-- the historical candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` can resolve replacement slot owners and should be preserved as baseline evidence rather than treated as the architecture to extend.
-
-### Implementation discipline
-
-For every meaningful change:
-
-1. inspect the current implementation and relevant tests first;
-2. make the smallest coherent change that advances the current remediation phase;
-3. add or strengthen tests for both success and failure paths;
-4. build the relevant Debug/Release targets from current sources;
-5. run the smallest meaningful host suite;
-6. update `docs/TECHNICAL_AUDIT.md` only when evidence changes a finding status;
-7. update `docs/VALIDATION.md` with actual evidence, never intended behavior;
-8. update `docs/internal/CODEX_HANDOFF.md` with the exact continuation point before stopping.
-
-Do not preserve obsolete implementation structure merely because it already exists. Refactor when the audit demonstrates that ownership or testability is fundamentally wrong, but keep changes phase-scoped and evidence-driven rather than performing an unbounded rewrite.
-
-### Completion criterion for this objective
-
-This objective is complete only when:
-
-- Phases 0-4 satisfy their host acceptance criteria;
-- one manual game observation run can unambiguously identify device/factory/generation, hook integrity, callback progression and stage progression from a single run ID;
-- the next implementation decision can be made from that evidence without guessing which frame boundary or subsystem failed.
-
-Do not claim the VR mod itself complete at that point. Flat headset integration, stereo cameras, 6DOF and controllers are later objectives.
+For every meaningful change, inspect the owning code, make the smallest coherent change, run the relevant host tests, build the exact candidate, preserve source/build/deployment/run identity and update `docs/VALIDATION.md` plus `docs/internal/CODEX_HANDOFF.md` with actual evidence. A host-tested candidate is not live-tested until the corresponding manual run passes its visual/physical acceptance gate.

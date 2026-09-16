@@ -154,6 +154,16 @@ int main() {
         return Fail("device generation/swapchain identity did not advance deterministically");
     }
 
+    if (!cojvr::backends::d3d9::RestoreFactoryVtableHook(factory) ||
+        cojvr::backends::d3d9::FactoryVtableHookActive(factory)) {
+        second_device->Release();
+        recovered_factory->Release();
+        first_device->Release();
+        DestroyWindow(window);
+        factory->Release();
+        return Fail("factory CreateDevice hook did not restore explicitly");
+    }
+
     second_device->Release();
     recovered_factory->Release();
     first_device->Release();

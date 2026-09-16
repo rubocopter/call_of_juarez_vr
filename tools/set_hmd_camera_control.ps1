@@ -13,8 +13,9 @@ if (-not (Test-Path -LiteralPath $StageStatePath -PathType Leaf)) {
     throw "No staged CoJ VR diagnostic was found."
 }
 $StageState = Get-Content -LiteralPath $StageStatePath -Raw | ConvertFrom-Json
-if ([string]$StageState.diagnosticMode -ne "d3d9_hmd_camera") {
-    throw "The staged diagnostic is '$($StageState.diagnosticMode)', not d3d9_hmd_camera."
+$SupportedModes = @("d3d9_hmd_camera", "d3d9_native_stereo")
+if ([string]$StageState.diagnosticMode -notin $SupportedModes) {
+    throw "The staged diagnostic '$($StageState.diagnosticMode)' does not support HMD camera control."
 }
 
 $ControlPath = Join-Path $GameDirectory "cojvr-camera-control.json"

@@ -25,13 +25,34 @@ std::string InitializationError(const vr::EVRInitError error_code) {
 
 } // namespace
 
+EyeFov OpenVrProjectionRawToEyeFov(
+    const float left,
+    const float right,
+    const float top,
+    const float bottom) noexcept {
+    return FovFromTangents(left, right, -top, -bottom);
+}
+
 struct OpenVrRuntime::Impl {
     vr::IVRSystem* system = nullptr;
     vr::IVRCompositor* compositor = nullptr;
+    vr::IVRInput* input = nullptr;
+    vr::VRActionSetHandle_t global_action_set = vr::k_ulInvalidActionSetHandle;
+    vr::VRActionHandle_t recenter_action = vr::k_ulInvalidActionHandle;
+    OpenVrDigitalActionEdge recenter_edge{};
     OpenVrSystemInfo system_info{};
     std::string last_error;
     std::int32_t last_result_code = 0;
 };
+
+bool OpenVrDigitalActionEdge::Update(const bool active, const bool pressed) noexcept {
+    const bool current = active && pressed;
+    const bool rising = current && !pressed_;
+    pressed_ = current;
+    return rising;
+}
+
+void OpenVrDigitalActionEdge::Reset() noexcept { pressed_ = false; }
 
 OpenVrRuntime::OpenVrRuntime() : impl_(std::make_unique<Impl>()) {}
 OpenVrRuntime::~OpenVrRuntime() { Shutdown(); }
@@ -87,6 +108,10 @@ void OpenVrRuntime::Shutdown() noexcept {
     vr::VR_Shutdown();
     impl_->system = nullptr;
     impl_->compositor = nullptr;
+    impl_->input = nullptr;
+    impl_->global_action_set = vr::k_ulInvalidActionSetHandle;
+    impl_->recenter_action = vr::k_ulInvalidActionHandle;
+    impl_->recenter_edge.Reset();
     impl_->system_info = {};
 }
 
@@ -110,7 +135,7 @@ bool OpenVrRuntime::ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept 
         EyeView& eye = eyes[index];
         eye.eye = logical_eyes[index];
         eye.pose = PoseFromRigidTransform3x4(Flatten(impl_->system->GetEyeToHeadTransform(native_eyes[index])));
-        eye.fov = FovFromTangents(left, right, top, bottom);
+        eye.fov = OpenVrProjectionRawToEyeFov(left, right, top, bottom);
         eye.width = impl_->system_info.recommended_width;
         eye.height = impl_->system_info.recommended_height;
     }
@@ -143,8 +168,110 @@ bool OpenVrRuntime::WaitForHmdPose(Pose& pose) noexcept {
     return true;
 }
 
+bool OpenVrRuntime::InitializeGlobalActions(
+    const std::string_view absolute_manifest_path) noexcept {
+    impl_->last_error.clear();
+    impl_->last_result_code = 0;
+    impl_->input = nullptr;
+    impl_->global_action_set = vr::k_ulInvalidActionSetHandle;
+    impl_->recenter_action = vr::k_ulInvalidActionHandle;
+    impl_->recenter_edge.Reset();
+    if (!initialized()) {
+        impl_->last_error = "OpenVR is not initialized";
+        impl_->last_result_code = -1;
+        return false;
+    }
+    if (absolute_manifest_path.empty()) {
+        impl_->last_error = "OpenVR action manifest path is empty";
+        impl_->last_result_code = -1;
+        return false;
+    }
+
+    vr::IVRInput* input = vr::VRInput();
+    if (input == nullptr) {
+        impl_->last_error = "OpenVR input interface is unavailable";
+        impl_->last_result_code = -1;
+        return false;
+    }
+
+    const std::string manifest_path(absolute_manifest_path);
+    vr::EVRInputError error = input->SetActionManifestPath(manifest_path.c_str());
+    if (error != vr::VRInputError_None) {
+        impl_->last_result_code = static_cast<std::int32_t>(error);
+        impl_->last_error = "OpenVR SetActionManifestPath failed with code " +
+            std::to_string(static_cast<int>(error));
+        return false;
+    }
+
+    vr::VRActionSetHandle_t global_action_set = vr::k_ulInvalidActionSetHandle;
+    error = input->GetActionSetHandle("/actions/global", &global_action_set);
+    if (error != vr::VRInputError_None ||
+        global_action_set == vr::k_ulInvalidActionSetHandle) {
+        impl_->last_result_code = static_cast<std::int32_t>(error);
+        impl_->last_error = "OpenVR global action set resolution failed with code " +
+            std::to_string(static_cast<int>(error));
+        return false;
+    }
+
+    vr::VRActionHandle_t recenter_action = vr::k_ulInvalidActionHandle;
+    error = input->GetActionHandle("/actions/global/in/recenter", &recenter_action);
+    if (error != vr::VRInputError_None || recenter_action == vr::k_ulInvalidActionHandle) {
+        impl_->last_result_code = static_cast<std::int32_t>(error);
+        impl_->last_error = "OpenVR recenter action resolution failed with code " +
+            std::to_string(static_cast<int>(error));
+        return false;
+    }
+
+    impl_->input = input;
+    impl_->global_action_set = global_action_set;
+    impl_->recenter_action = recenter_action;
+    return true;
+}
+
+bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
+    impl_->last_error.clear();
+    impl_->last_result_code = 0;
+    actions = {};
+    if (!global_actions_initialized()) {
+        impl_->last_error = "OpenVR global actions are not initialized";
+        impl_->last_result_code = -1;
+        return false;
+    }
+
+    vr::VRActiveActionSet_t active_set{};
+    active_set.ulActionSet = impl_->global_action_set;
+    const vr::EVRInputError update_error = impl_->input->UpdateActionState(
+        &active_set, sizeof(active_set), 1);
+    if (update_error != vr::VRInputError_None) {
+        impl_->last_result_code = static_cast<std::int32_t>(update_error);
+        impl_->last_error = "OpenVR UpdateActionState failed with code " +
+            std::to_string(static_cast<int>(update_error));
+        return false;
+    }
+
+    vr::InputDigitalActionData_t data{};
+    const vr::EVRInputError digital_error = impl_->input->GetDigitalActionData(
+        impl_->recenter_action, &data, sizeof(data), vr::k_ulInvalidInputValueHandle);
+    if (digital_error != vr::VRInputError_None) {
+        impl_->last_result_code = static_cast<std::int32_t>(digital_error);
+        impl_->last_error = "OpenVR GetDigitalActionData(recenter) failed with code " +
+            std::to_string(static_cast<int>(digital_error));
+        return false;
+    }
+
+    actions.recenter_active = data.bActive;
+    actions.recenter_requested = impl_->recenter_edge.Update(data.bActive, data.bState);
+    return true;
+}
+
 bool OpenVrRuntime::initialized() const noexcept {
     return impl_ && impl_->system != nullptr && impl_->compositor != nullptr;
+}
+
+bool OpenVrRuntime::global_actions_initialized() const noexcept {
+    return initialized() && impl_->input != nullptr &&
+        impl_->global_action_set != vr::k_ulInvalidActionSetHandle &&
+        impl_->recenter_action != vr::k_ulInvalidActionHandle;
 }
 
 const OpenVrSystemInfo& OpenVrRuntime::system_info() const noexcept { return impl_->system_info; }

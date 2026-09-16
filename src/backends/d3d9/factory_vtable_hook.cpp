@@ -108,6 +108,22 @@ bool FactoryVtableHookActive(IDirect3D9* factory) noexcept {
         slots.front().owned;
 }
 
+bool RestoreFactoryVtableHook(IDirect3D9* factory) noexcept {
+    void** vtable = FactoryVtable(factory);
+    if (!vtable) return false;
+    const HookRegistryOutcome outcome = g_registry.Restore(vtable);
+    const bool restored = outcome.result == HookRegistryResult::Installed ||
+        outcome.result == HookRegistryResult::AlreadyInstalled;
+    if (restored) {
+        try {
+            std::lock_guard lock(g_callbacks_mutex);
+            g_callbacks_by_vtable.erase(vtable);
+        } catch (...) {
+        }
+    }
+    return restored;
+}
+
 HookDiagnostics InspectAllFactoryVtableHooks() noexcept {
     HookDiagnostics diagnostics;
     try {

@@ -27,6 +27,8 @@ struct FactoryHookCallbacks {
 
 [[nodiscard]] bool FactoryVtableHookActive(IDirect3D9* factory) noexcept;
 
+[[nodiscard]] bool RestoreFactoryVtableHook(IDirect3D9* factory) noexcept;
+
 [[nodiscard]] HookDiagnostics InspectAllFactoryVtableHooks() noexcept;
 
 } // namespace cojvr::backends::d3d9

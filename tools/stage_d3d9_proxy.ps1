@@ -30,13 +30,17 @@ $CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
 $CameraControlBackup = Join-Path $GameDirectory "cojvr-camera-control.cojvr-backup.json"
 $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
+$OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
+$OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
 
 $ProxyLeaf = [System.IO.Path]::GetFileName($ProxyPath)
 $IsReadbackDiagnostic = $ProxyLeaf -ieq "d3d9_readback.dll"
 $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
-$IsCameraIntegration = $IsCameraProbe -or $IsHmdCamera
+$IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
+$IsCameraIntegration = $IsCameraProbe -or $IsHmdCamera -or $IsNativeStereo
+$IsOpenVrIntegration = $IsHmdCamera -or $IsNativeStereo
 $DiagnosticMode = if ($IsReadbackDiagnostic) {
     "d3d9_readback"
 } elseif ($IsOpenVrFlatDiagnostic) {
@@ -45,6 +49,8 @@ $DiagnosticMode = if ($IsReadbackDiagnostic) {
     "d3d9_camera_probe"
 } elseif ($IsHmdCamera) {
     "d3d9_hmd_camera"
+} elseif ($IsNativeStereo) {
+    "d3d9_native_stereo"
 } else {
     "d3d9_forwarding"
 }
@@ -91,9 +97,13 @@ if ($ProxyHash -ne ([string]$ProxyArtifact[0].sha256).ToUpperInvariant()) {
 }
 $OpenVrArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_runtime" })
 $OpenVrSource = $null
-if ($IsHmdCamera) {
+$OpenVrActionManifestArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_action_manifest" })
+$OpenVrSenseBindingArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_binding_psvr2_sense" })
+$OpenVrActionManifestSource = $null
+$OpenVrSenseBindingSource = $null
+if ($IsOpenVrIntegration) {
     if ($OpenVrArtifact.Count -ne 1) {
-        throw "HMD camera manifest must contain exactly one OpenVR runtime artifact."
+        throw "OpenVR camera/stereo manifest must contain exactly one OpenVR runtime artifact."
     }
     $OpenVrSource = Join-Path ([System.IO.Path]::GetDirectoryName($ProxyPath)) ([string]$OpenVrArtifact[0].fileName)
     if (-not (Test-Path -LiteralPath $OpenVrSource -PathType Leaf)) {
@@ -102,6 +112,26 @@ if ($IsHmdCamera) {
     $OpenVrHash = (Get-FileHash -LiteralPath $OpenVrSource -Algorithm SHA256).Hash.ToUpperInvariant()
     if ($OpenVrHash -ne ([string]$OpenVrArtifact[0].sha256).ToUpperInvariant()) {
         throw "OpenVR runtime SHA-256 does not match the selected build manifest."
+    }
+}
+if ($IsNativeStereo) {
+    if ($OpenVrActionManifestArtifact.Count -ne 1 -or $OpenVrSenseBindingArtifact.Count -ne 1) {
+        throw "Native-stereo manifest must contain one OpenVR action manifest and one PS VR2 Sense binding artifact."
+    }
+    $ProxyDirectory = [System.IO.Path]::GetDirectoryName($ProxyPath)
+    $OpenVrActionManifestSource = Join-Path $ProxyDirectory ([string]$OpenVrActionManifestArtifact[0].fileName)
+    $OpenVrSenseBindingSource = Join-Path $ProxyDirectory ([string]$OpenVrSenseBindingArtifact[0].fileName)
+    foreach ($Pair in @(
+        @($OpenVrActionManifestSource, [string]$OpenVrActionManifestArtifact[0].sha256, "action manifest"),
+        @($OpenVrSenseBindingSource, [string]$OpenVrSenseBindingArtifact[0].sha256, "PS VR2 Sense binding")
+    )) {
+        if (-not (Test-Path -LiteralPath $Pair[0] -PathType Leaf)) {
+            throw "OpenVR $($Pair[2]) artifact was not found at '$($Pair[0])'."
+        }
+        $InputHash = (Get-FileHash -LiteralPath $Pair[0] -Algorithm SHA256).Hash.ToUpperInvariant()
+        if ($InputHash -ne $Pair[1].ToUpperInvariant()) {
+            throw "OpenVR $($Pair[2]) SHA-256 does not match the selected build manifest."
+        }
     }
 }
 
@@ -130,8 +160,11 @@ if (Test-Path -LiteralPath $State) {
 if ($IsCameraIntegration -and (Test-Path -LiteralPath $CameraControlBackup)) {
     throw "Camera-control backup '$CameraControlBackup' already exists. Restore or remove it before staging the camera probe."
 }
-if ($IsHmdCamera -and (Test-Path -LiteralPath $OpenVrBackup)) {
-    throw "OpenVR backup '$OpenVrBackup' already exists. Restore or remove it before staging the HMD camera candidate."
+if ($IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrBackup)) {
+    throw "OpenVR backup '$OpenVrBackup' already exists. Restore or remove it before staging the OpenVR candidate."
+}
+if ($IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputBackup)) {
+    throw "OpenVR input backup '$OpenVrInputBackup' already exists. Restore or remove it before staging the native-stereo candidate."
 }
 
 if ([string]::IsNullOrWhiteSpace($RunId)) {
@@ -162,7 +195,8 @@ foreach ($HistoricalFile in $HistoricalFiles) {
 
 $HadOriginal = Test-Path -LiteralPath $Destination
 $HadOriginalCameraControl = $IsCameraIntegration -and (Test-Path -LiteralPath $CameraControl -PathType Leaf)
-$HadOriginalOpenVr = $IsHmdCamera -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
+$HadOriginalOpenVr = $IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
+$HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container)
 if ($HadOriginal) {
     Move-Item -LiteralPath $Destination -Destination $Backup
     Write-Host "Backed up existing d3d9.dll to d3d9.cojvr-backup.dll"
@@ -170,11 +204,19 @@ if ($HadOriginal) {
 
 try {
     Copy-Item -LiteralPath $ProxyPath -Destination $Destination
-    if ($IsHmdCamera) {
+    if ($IsOpenVrIntegration) {
         if ($HadOriginalOpenVr) {
             Move-Item -LiteralPath $OpenVrDestination -Destination $OpenVrBackup
         }
         Copy-Item -LiteralPath $OpenVrSource -Destination $OpenVrDestination
+    }
+    if ($IsNativeStereo) {
+        if ($HadOriginalOpenVrInput) {
+            Move-Item -LiteralPath $OpenVrInputDestination -Destination $OpenVrInputBackup
+        }
+        New-Item -ItemType Directory -Path (Join-Path $OpenVrInputDestination "bindings") -Force | Out-Null
+        Copy-Item -LiteralPath $OpenVrActionManifestSource -Destination (Join-Path $OpenVrInputDestination "actions.json")
+        Copy-Item -LiteralPath $OpenVrSenseBindingSource -Destination (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json")
     }
     if ($IsCameraIntegration) {
         if ($HadOriginalCameraControl) {
@@ -195,10 +237,18 @@ try {
         stagedProxySha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
         cameraControlManaged = $IsCameraIntegration
         hadOriginalCameraControl = $HadOriginalCameraControl
-        openVrRuntimeManaged = $IsHmdCamera
+        openVrRuntimeManaged = $IsOpenVrIntegration
         hadOriginalOpenVr = $HadOriginalOpenVr
-        stagedOpenVrSha256 = if ($IsHmdCamera) {
+        stagedOpenVrSha256 = if ($IsOpenVrIntegration) {
             (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
+        } else { $null }
+        openVrInputManaged = $IsNativeStereo
+        hadOriginalOpenVrInput = $HadOriginalOpenVrInput
+        stagedOpenVrActionManifestSha256 = if ($IsNativeStereo) {
+            (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "actions.json") -Algorithm SHA256).Hash.ToUpperInvariant()
+        } else { $null }
+        stagedOpenVrSenseBindingSha256 = if ($IsNativeStereo) {
+            (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json") -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
     } | ConvertTo-Json | Set-Content -LiteralPath $State -Encoding UTF8
 
@@ -209,11 +259,23 @@ try {
             sha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
         }
     )
-    if ($IsHmdCamera) {
+    if ($IsOpenVrIntegration) {
         $Deployment += [ordered]@{
             role = "openvr_runtime"
             destination = "openvr_api.dll"
             sha256 = (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
+        }
+    }
+    if ($IsNativeStereo) {
+        $Deployment += [ordered]@{
+            role = "openvr_action_manifest"
+            destination = "cojvr_openvr_input/actions.json"
+            sha256 = (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "actions.json") -Algorithm SHA256).Hash.ToUpperInvariant()
+        }
+        $Deployment += [ordered]@{
+            role = "openvr_binding_psvr2_sense"
+            destination = "cojvr_openvr_input/bindings/psvr2_sense.json"
+            sha256 = (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json") -Algorithm SHA256).Hash.ToUpperInvariant()
         }
     }
 
@@ -259,7 +321,7 @@ try {
             Move-Item -LiteralPath $CameraControlBackup -Destination $CameraControl
         }
     }
-    if ($IsHmdCamera) {
+    if ($IsOpenVrIntegration) {
         if (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf) {
             $CurrentOpenVrHash = (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
             if ($CurrentOpenVrHash -eq $OpenVrHash) {
@@ -268,6 +330,14 @@ try {
         }
         if ($HadOriginalOpenVr -and (Test-Path -LiteralPath $OpenVrBackup -PathType Leaf)) {
             Move-Item -LiteralPath $OpenVrBackup -Destination $OpenVrDestination
+        }
+    }
+    if ($IsNativeStereo) {
+        if (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container) {
+            Remove-Item -LiteralPath $OpenVrInputDestination -Recurse -Force
+        }
+        if ($HadOriginalOpenVrInput -and (Test-Path -LiteralPath $OpenVrInputBackup -PathType Container)) {
+            Move-Item -LiteralPath $OpenVrInputBackup -Destination $OpenVrInputDestination
         }
     }
     if (Test-Path -LiteralPath $Destination) {
@@ -293,6 +363,8 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Staged exact-build ChromeEngine3 camera-control probe with D3D9 forwarding only."
 } elseif ($IsHmdCamera) {
     Write-Host "Staged exact-build ChromeEngine3 HMD camera candidate with OpenVR pose input and D3D9 forwarding only."
+} elseif ($IsNativeStereo) {
+    Write-Host "Staged exact-build ChromeEngine3 native-stereo candidate with OpenVR pose/optics, PS VR2 Sense recenter and two engine view passes."
 } else {
     Write-Host "Staged CoJ VR D3D9 forwarding proxy with Present/Reset observation hooks."
 }
@@ -316,6 +388,12 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Control file: '$CameraControl'."
     Write-Host "While gameplay is visible, use tools\set_hmd_camera_control.ps1 to enable/recenter/disable tracking."
     Write-Host "After exit run tools\verify_hmd_camera_live_test.ps1 -GameDirectory '$GameDirectory'."
+} elseif ($IsNativeStereo) {
+    Write-Host "Start SteamVR manually before launching the game so the native-stereo runtime can initialize."
+    Write-Host "Control file: '$CameraControl'."
+    Write-Host "In-headset recenter: press Create on the left PS VR2 Sense controller."
+    Write-Host "Terminal recenter remains available through tools\set_hmd_camera_control.ps1 as a diagnostic fallback."
+    Write-Host "After exit run tools\verify_native_stereo_live_test.ps1 -GameDirectory '$GameDirectory'."
 } else {
     Write-Host "After exit run tools\verify_d3d9_live_test.ps1 -GameDirectory '$GameDirectory'."
 }

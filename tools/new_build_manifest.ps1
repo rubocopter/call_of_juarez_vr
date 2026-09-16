@@ -4,7 +4,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
 
-    [ValidateSet("d3d9_forwarding", "d3d9_readback", "d3d9_openvr_flat", "d3d9_camera_probe", "d3d9_hmd_camera")]
+    [ValidateSet("d3d9_forwarding", "d3d9_readback", "d3d9_openvr_flat", "d3d9_camera_probe", "d3d9_hmd_camera", "d3d9_native_stereo")]
     [string]$DiagnosticMode = "d3d9_forwarding",
 
     [string]$ProxyPath = "",
@@ -48,6 +48,7 @@ $DefaultProxyNames = @{
     d3d9_openvr_flat = "d3d9_openvr_flat.dll"
     d3d9_camera_probe = "d3d9_camera_probe.dll"
     d3d9_hmd_camera = "d3d9_hmd_camera.dll"
+    d3d9_native_stereo = "d3d9_native_stereo.dll"
 }
 if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
     $ProxyPath = Join-Path $RepositoryRoot "build\win32-debug\$Configuration\$($DefaultProxyNames[$DiagnosticMode])"
@@ -57,13 +58,26 @@ if (-not (Test-Path -LiteralPath $ProxyPath -PathType Leaf)) {
     throw "Proxy artifact was not found at '$ProxyPath'. Build $Configuration first."
 }
 
-if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera")) {
+if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera", "d3d9_native_stereo")) {
     if ([string]::IsNullOrWhiteSpace($OpenVrDllPath)) {
         $OpenVrDllPath = Join-Path ([System.IO.Path]::GetDirectoryName($ProxyPath)) "openvr_api.dll"
     }
     $OpenVrDllPath = [System.IO.Path]::GetFullPath($OpenVrDllPath)
     if (-not (Test-Path -LiteralPath $OpenVrDllPath -PathType Leaf)) {
         throw "OpenVR runtime artifact was not found at '$OpenVrDllPath'. Build $Configuration first."
+    }
+}
+
+$OpenVrActionManifestPath = $null
+$OpenVrSenseBindingPath = $null
+if ($DiagnosticMode -eq "d3d9_native_stereo") {
+    $ProxyDirectory = [System.IO.Path]::GetDirectoryName($ProxyPath)
+    $OpenVrActionManifestPath = Join-Path $ProxyDirectory "cojvr_openvr_input\actions.json"
+    $OpenVrSenseBindingPath = Join-Path $ProxyDirectory "cojvr_openvr_input\bindings\psvr2_sense.json"
+    foreach ($RequiredInputAsset in @($OpenVrActionManifestPath, $OpenVrSenseBindingPath)) {
+        if (-not (Test-Path -LiteralPath $RequiredInputAsset -PathType Leaf)) {
+            throw "Native-stereo OpenVR input artifact was not found at '$RequiredInputAsset'. Build $Configuration first."
+        }
     }
 }
 
@@ -113,13 +127,29 @@ $Artifacts = @(
         size = (Get-Item -LiteralPath $ProxyPath).Length
     }
 )
-if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera")) {
+if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera", "d3d9_native_stereo")) {
     $Artifacts += [ordered]@{
         role = "openvr_runtime"
         fileName = [System.IO.Path]::GetFileName($OpenVrDllPath)
         sourcePath = $OpenVrDllPath
         sha256 = Get-UpperSha256 $OpenVrDllPath
         size = (Get-Item -LiteralPath $OpenVrDllPath).Length
+    }
+}
+if ($DiagnosticMode -eq "d3d9_native_stereo") {
+    $Artifacts += [ordered]@{
+        role = "openvr_action_manifest"
+        fileName = "cojvr_openvr_input/actions.json"
+        sourcePath = $OpenVrActionManifestPath
+        sha256 = Get-UpperSha256 $OpenVrActionManifestPath
+        size = (Get-Item -LiteralPath $OpenVrActionManifestPath).Length
+    }
+    $Artifacts += [ordered]@{
+        role = "openvr_binding_psvr2_sense"
+        fileName = "cojvr_openvr_input/bindings/psvr2_sense.json"
+        sourcePath = $OpenVrSenseBindingPath
+        sha256 = Get-UpperSha256 $OpenVrSenseBindingPath
+        size = (Get-Item -LiteralPath $OpenVrSenseBindingPath).Length
     }
 }
 

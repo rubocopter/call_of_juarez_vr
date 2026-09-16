@@ -14,6 +14,8 @@ $CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
 $CameraControlBackup = Join-Path $GameDirectory "cojvr-camera-control.cojvr-backup.json"
 $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
+$OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
+$OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
 
 if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
     if (Test-Path -LiteralPath $BridgeMarker -PathType Leaf) {
@@ -27,6 +29,7 @@ if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
 $StageState = Get-Content -LiteralPath $State -Raw | ConvertFrom-Json
 $CameraControlManaged = [bool]$StageState.cameraControlManaged
 $OpenVrRuntimeManaged = [bool]$StageState.openVrRuntimeManaged
+$OpenVrInputManaged = [bool]$StageState.openVrInputManaged
 if ($CameraControlManaged -and [bool]$StageState.hadOriginalCameraControl -and
     -not (Test-Path -LiteralPath $CameraControlBackup -PathType Leaf)) {
     throw "The original camera-control backup is missing. Refusing to unstage incompletely."
@@ -45,6 +48,24 @@ if ($OpenVrRuntimeManaged) {
     if ([bool]$StageState.hadOriginalOpenVr -and
         -not (Test-Path -LiteralPath $OpenVrBackup -PathType Leaf)) {
         throw "The original openvr_api.dll backup is missing. Refusing to unstage incompletely."
+    }
+}
+if ($OpenVrInputManaged) {
+    $ActionManifest = Join-Path $OpenVrInputDestination "actions.json"
+    $SenseBinding = Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json"
+    if (-not (Test-Path -LiteralPath $ActionManifest -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $SenseBinding -PathType Leaf)) {
+        throw "The staged OpenVR input assets are incomplete. Refusing to unstage incompletely."
+    }
+    if ((Get-FileHash -LiteralPath $ActionManifest -Algorithm SHA256).Hash.ToUpperInvariant() -ne
+            ([string]$StageState.stagedOpenVrActionManifestSha256).ToUpperInvariant() -or
+        (Get-FileHash -LiteralPath $SenseBinding -Algorithm SHA256).Hash.ToUpperInvariant() -ne
+            ([string]$StageState.stagedOpenVrSenseBindingSha256).ToUpperInvariant()) {
+        throw "OpenVR input assets changed after staging. Refusing to remove unrecognized files."
+    }
+    if ([bool]$StageState.hadOriginalOpenVrInput -and
+        -not (Test-Path -LiteralPath $OpenVrInputBackup -PathType Container)) {
+        throw "The original OpenVR input backup is missing. Refusing to unstage incompletely."
     }
 }
 
@@ -84,6 +105,15 @@ if ($OpenVrRuntimeManaged) {
         Write-Host "Restored the original openvr_api.dll."
     } else {
         Write-Host "Removed the staged OpenVR runtime."
+    }
+}
+if ($OpenVrInputManaged) {
+    Remove-Item -LiteralPath $OpenVrInputDestination -Recurse -Force
+    if ([bool]$StageState.hadOriginalOpenVrInput) {
+        Move-Item -LiteralPath $OpenVrInputBackup -Destination $OpenVrInputDestination
+        Write-Host "Restored the original OpenVR input directory."
+    } else {
+        Write-Host "Removed the staged OpenVR input assets."
     }
 }
 

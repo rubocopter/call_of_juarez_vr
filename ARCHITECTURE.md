@@ -127,8 +127,8 @@ OpenXR runtime/handle lifetime and neutral pose/FOV semantics must be corrected 
 ## Validation progression
 
 Audit-remediation Phases 0-4 are the established host-tested baseline. The current
-user-directed diagnostic gate moves one level inward, to prove the exact Call of Juarez
-camera/render boundary before more presentation work:
+user-directed gate combines the corrected HMD camera convention with the first exact-build
+native-stereo render-view proof:
 
 1. auditable source/build/run provenance;
 2. valid clean build/CI/tests;
@@ -136,12 +136,16 @@ camera/render boundary before more presentation work:
 4. complete native factory/device discovery;
 5. structured render/run telemetry;
 6. exact-build `CBaseCamera -> view/projection -> renderer` static proof — complete;
-7. one manual, non-headset proof of externally controlled FOV/yaw/pitch with clean restoration — live-tested;
+7. one manual, non-headset proof of the camera/render boundary plus external FOV control and clean restoration — live-tested; orientation requires revalidation at the corrected source-basis injection point;
 8. backend-neutral HMD pose/recenter boundary feeding the same transient camera path — host-tested;
-9. one manual monocular proof that physical HMD rotation drives the monitor camera 1:1 — current gate;
-10. investigate the exact ChromeEngine render-view boundary for independent eye transforms/projections;
-11. complete the remaining stereo projection/culling contracts before headset presentation;
-12. only then promote stereo, positional 6DOF and motion-controller integration.
+9. exact ChromeEngine render-view boundary plus per-eye translation/asymmetric projection — host-tested;
+10. first physical native-stereo attempt — failed before eye capture/submission because of an OpenVR vertical-FOV sign conversion defect and exposed source/frustum restoration occurring before later scene visibility work;
+11. second physical attempt — reached visible in-game OpenVR submission, but all sampled left/right captures were identical and the run did not reach `run_end`; this is live evidence of headset presentation, not native stereo;
+12. third physical attempt — HMD yaw/pitch direction was correct, but right-eye capture ended on `D3DFMT_NULL` because the implementation used core-only `0x30E00` for the second eye while the first eye traversed full wrapper `0x30FB0`; no stereo pair was submitted;
+13. fourth physical attempt — both complete `0x30FB0` passes captured distinct real color RT0 results and submitted them to OpenVR; binocular gameplay was visible, but fusion/comfort and frame pacing were poor and shutdown remained incomplete;
+14. apply the now-proven CoJ world-unit contract (`100` game units per metre), record applied eye positions/frustum/viewport, and prove usable binocular fusion plus clean finalization — current gate;
+15. harden/optimize stereo transport, frame pacing, culling and eye render targets using the live evidence;
+16. only then advance positional 6DOF, controller gameplay, interaction rebuilding and full-body IK.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
@@ -156,6 +160,75 @@ the current producer because its x86 standing-space HMD path already has live ev
 the Call of Juarez integration depends only on `PoseSource`. Recenter computes an absolute
 relative orientation from a captured base (`R_base^T * R_current`), so no per-frame delta
 is accumulated. Invalid/missing pose data immediately produces natural camera passthrough.
+For the exact CoJ build, camera orientation has a paired native representation. The
+world/camera transform begins at `+0x44`; its inverse/view source begins at `+0x04`.
+Native setters keep them synchronized through matrix-inverse RVA `0x001F3F80`, then
+`0x0022BB10` derives `+0x104` view, `+0x144` world/culling and `+0x204` view-projection.
+The first derived-basis attempt was overwritten; the second `+0x44`-only attempt changed
+world visibility/culling but not the visual camera. Synchronized paired-transform runs then
+reached the visible first-person camera but exposed reversed yaw and incomplete environment
+visibility. A later run also showed the right-hand weapon on the left side of the view. Exact
+binary inspection resolved the shared cause: native `FromForwardUpPos` builds the source
+matrix as **right/up/forward**, with `right = up x forward` at `+0x44`; the hook had written
+the opposite left vector there, creating a horizontal reflection. Current source writes the
+native right axis explicitly and keeps the paired world/view update and restoration. Run
+`20260916T104036Z-24b3e3010d4c` then showed that this removes the mirrored character and
+obvious culling/scene corruption, but same-sign HMD yaw still rotates the visible camera in
+the opposite horizontal direction. The game-specific pose adapter therefore negates only
+physical yaw; pitch keeps the direction confirmed by the live attempts and roll remains
+excluded.
+The integration treats a rigid right-handed source basis as a runtime invariant: both source
+world and source view/inverse matrices must preserve the native homogeneous `0/0/0/1`
+layout, and natural/applied bases must remain orthonormal with determinant approximately
+`+1`; otherwise the hook uses natural-camera passthrough.
+
+The native-stereo candidate hooks the exact render-view entry at RVA `0x00030FB0`. Exact-build
+disassembly shows this wrapper tests/sets a rendered-this-frame guard at `view+0xD7`, stores the
+active view at owner `+0x3B8`, calls core RVA `0x00030E00`, then performs additional post-core
+work. A live attempt that used the wrapper for the left eye and core-only `0x00030E00` for the
+right eye left RT0 as `D3DFMT_NULL` after the right pass, so current source replays the complete
+wrapper for both eyes. Before the second pass it clears only `view+0xD7` and restores the
+natural post-left value after the wrapper returns. Per-eye data reaches the game through
+`CameraStereoRuntimeCallbacks`, so the ChromeEngine adapter does not depend on OpenVR types.
+`EyeView::pose` is explicitly eye-to-head; the adapter maps that translation into the native
+right/up/forward camera basis. The neutral runtime stores translation in metres. CoJ gameplay
+data explicitly documents `MoveSpeed` in `cm/s` and acceleration in `cm/s^2`, so this game
+adapter converts eye translation with `100` game units per metre before composing it onto the
+camera basis. OpenVR raw `top/bottom` projection signs are converted into the
+neutral positive-up/negative-down `EyeFov` convention before mapping to engine frustum fields
+at `+0x244..+0x250`. Each eye pass keeps source `+0x04/+0x44`, frustum and derived matrices
+active through the complete render-view call, then restores the full snapshot including
+`+0x84`, `+0xC4`, `+0x104`, `+0x144`, `+0x184` and `+0x204`. This matters because exact
+disassembly shows scene/visibility work continues after the camera virtual update inside
+`0x00030E00`.
+
+For the first proof only, each native eye pass is captured from classic D3D9 by synchronous
+CPU readback, uploaded into a separate D3D11 texture and submitted through the existing
+OpenVR D3D11 compositor path. The first live submission attempt read the swap-chain
+backbuffer while executing inside the render-view boundary; every sampled left/right pair was
+pixel-identical even though the two eye camera/projection passes executed. Current transport
+therefore reads the D3D9 render target currently bound at slot 0, records whether it aliases
+the backbuffer, keys resources to that capture-surface description and rejects identical eye
+hashes before OpenVR submission. `D3DFMT_NULL` is explicitly treated as an auxiliary/wrong
+capture boundary and fails closed. The candidate observes device creation through the factory
+hook and does not install `Present`, `BeginScene`, `EndScene` or `Reset` hooks. Synchronous
+CPU readback and synchronous pose/submission remain proof-only and require frame-pacing work.
+Run `20260916T133322Z-36c287cc43d8` live-tested distinct left/right engine captures and OpenVR
+submission through this path, but the user reported poor fusion/comfort and performance. That
+run used the pre-fix 1:1 metre-to-game-unit eye translation, making the 65 mm physical IPD only
+0.65 mm in CoJ world scale. Current source fixes that adapter scale and logs the D3D9 viewport
+plus applied per-eye position/frustum so the next run can separate geometric correctness from
+transport cost. Sampled transport telemetry also breaks out synchronous D3D9 readback,
+CPU/hash/D3D11 upload, total eye capture and OpenVR submission time.
+
+Recenter now uses a small game-neutral OpenVR action boundary. The runtime owns the action
+manifest, action-set/action handles and press-edge semantics; the current PS VR2 Sense profile
+maps left Create to `/actions/global/in/recenter`. The ChromeEngine adapter receives only a
+logical `recenter_requested` flag and forwards it into the existing `RelativePoseTracker`, so
+controller paths and OpenVR handles do not leak into game camera code. The JSON/terminal command
+remains a diagnostic fallback. This input slice is intentionally limited to recenter while the
+camera/stereo gate is active; tracked hands, gameplay actions and body/IK ownership remain later
+contracts.
 
 ## Primary validation hardware
 

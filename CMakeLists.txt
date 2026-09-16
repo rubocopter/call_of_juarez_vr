@@ -264,6 +264,45 @@ if(COJVR_ENABLE_OPENVR)
             "$<TARGET_FILE_DIR:cojvr_d3d9_hmd_camera_proxy>/openvr_api.dll"
     )
 
+    add_library(cojvr_d3d9_native_stereo_proxy SHARED
+        src/games/call_of_juarez/native_stereo_proxy.cpp
+        src/games/call_of_juarez/d3d9_native_stereo_proxy.def
+        src/backends/d3d9/openvr_stereo_readback.cpp
+        src/backends/d3d9/system_d3d9.cpp
+    )
+    target_include_directories(cojvr_d3d9_native_stereo_proxy PRIVATE src)
+    target_compile_features(cojvr_d3d9_native_stereo_proxy PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d9_native_stereo_proxy
+        PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE
+    )
+    target_link_libraries(
+        cojvr_d3d9_native_stereo_proxy
+        PRIVATE
+            cojvr_coj_camera_probe
+            cojvr_diagnostics
+            cojvr_d3d9_hooks
+            cojvr_openvr_d3d11_backend
+            d3d11
+            dxgi
+            dxguid
+    )
+    set_target_properties(
+        cojvr_d3d9_native_stereo_proxy PROPERTIES OUTPUT_NAME d3d9_native_stereo)
+    add_custom_command(TARGET cojvr_d3d9_native_stereo_proxy POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${COJVR_OPENVR_DLL}"
+            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/openvr_api.dll"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input/bindings"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/openvr/actions.json"
+            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input/actions.json"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/openvr/bindings/psvr2_sense.json"
+            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input/bindings/psvr2_sense.json"
+    )
+
     add_library(cojvr_d3d9_openvr_flat_proxy SHARED
         src/backends/d3d9/classic_readback_bridge.cpp
         src/backends/d3d9/d3d9_proxy.cpp
@@ -307,6 +346,7 @@ if(MSVC)
             cojvr_openvr_d3d11_backend
             cojvr_openvr_probe
             cojvr_d3d9_hmd_camera_proxy
+            cojvr_d3d9_native_stereo_proxy
             cojvr_d3d9_openvr_flat_proxy
         )
     endif()
@@ -502,6 +542,16 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_vr_math_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME vr_math COMMAND cojvr_vr_math_test)
+
+    if(COJVR_ENABLE_OPENVR)
+        add_executable(cojvr_openvr_runtime_test tests/openvr_runtime.cpp)
+        target_link_libraries(cojvr_openvr_runtime_test PRIVATE cojvr_openvr_runtime)
+        target_compile_features(cojvr_openvr_runtime_test PRIVATE cxx_std_20)
+        if(MSVC)
+            target_compile_options(cojvr_openvr_runtime_test PRIVATE /W4 /permissive- /EHsc)
+        endif()
+        add_test(NAME openvr_runtime COMMAND cojvr_openvr_runtime_test)
+    endif()
 
     add_executable(
         cojvr_d3d9_d3d11_shared_texture_test

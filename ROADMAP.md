@@ -3,10 +3,15 @@
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
-boundary proof is now live-tested, and the current engineering priority is the monocular
-HMD-rotation gate: physical HMD rotation must drive the same proven camera path 1:1 on the
-monitor. Stereo, positional 6DOF and controller gameplay remain blocked until that gate and
-the later stereo/math contracts are satisfied.
+boundary and distinct two-eye ChromeEngine render path are live-tested. The current engineering
+priority is stereo correctness/comfort: validate the corrected Call of Juarez metres-to-
+centimetres eye baseline, per-eye viewport/frustum geometry, in-headset Sense recenter and clean runtime teardown before
+optimizing the proof transport. Positional 6DOF, controller gameplay, interaction rebuilding
+and full-body IK remain downstream.
+
+The supported-game end state is native stereo rendering, full-body IK and interactions
+rebuilt around tracked VR input. These remain product milestones and do not bypass the
+current camera, stereo, 6DOF and interaction validation gates.
 
 ## Stabilization track — audit remediation
 
@@ -47,18 +52,30 @@ the later stereo/math contracts are satisfied.
 - Separate process/per-device callback, capture, new-content, upload and per-eye submit sequences: **host-tested**.
 - Periodic/final summaries and explicit incomplete-run state: **host-tested**.
 
-**Manual runtime gate:** Phases 0-4 meet their host acceptance criteria. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` remain authoritative evidence for the three-frame D3D9 hook loss. The Steam-Overlay-disabled A/B remains unresolved and deferred. The separate exact-build camera-boundary gate passed on run `20260915T150554Z-7e0d7da45949`: external FOV plus yaw/pitch visibly changed the gameplay view, telemetry correlated the controlled camera with the ChromeEngine3 renderer, disabling returned to natural passthrough, and both camera hooks restored on normal exit.
+**Manual runtime gate:** Phases 0-4 meet their host acceptance criteria. Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` remain authoritative evidence for the three-frame D3D9 hook loss. The Steam-Overlay-disabled A/B remains unresolved and deferred. The separate exact-build camera-boundary gate passed on run `20260915T150554Z-7e0d7da45949`: external FOV visibly changed the gameplay view, telemetry correlated the controlled camera with the ChromeEngine3 renderer, disabling returned to natural passthrough, and both camera hooks restored on normal exit. Later HMD evidence showed that run did not independently prove its old yaw/pitch injection point.
 
 ### Camera/render boundary probe
 
 - Exact `CoJ.exe` + `ChromeEngine3.dll` identity gate: **host-tested**.
 - `CBaseCamera` vtable/profile validation and safe hook ownership: **host-tested**.
 - Static `Camera -> view/projection matrices -> renderer camera` path: **implemented evidence record** from exact-binary host inspection.
-- External JSON FOV/yaw/pitch control with non-accumulating orientation override: **live-tested**.
+- External JSON FOV control and camera/render correlation: **live-tested**.
+- External yaw/pitch orientation override: **live-tested through the paired world/view-source path with the native right-handed basis and game-specific yaw convention**; run `20260916T104036Z-24b3e3010d4c` isolated the final horizontal inversion and run `20260916T133322Z-36c287cc43d8` subsequently confirmed corrected yaw/pitch direction.
 - Dedicated D3D9-forwarding-only proxy and run verifier: **live-tested**.
 - XR-neutral `PoseSource` plus base-orientation/recenter policy: **host-tested**.
-- OpenVR HMD pose feeding the transient CoJ camera basis through a D3D9-forwarding-only candidate: **host-tested**.
-- Physical HMD -> monocular monitor-camera rotation with run-bound renderer correlation: **manual live gate pending**.
+- OpenVR HMD pose acquisition/recenter through a D3D9-forwarding-only candidate: **live-observed input path**.
+- Physical HMD -> monocular monitor-camera rotation with run-bound renderer correlation: **live-tested direction/basis path** — run `20260916T104036Z-24b3e3010d4c` proved the corrected right-handed basis and isolated the remaining yaw inversion; run `20260916T133322Z-36c287cc43d8` later confirmed corrected yaw/pitch direction while the native-stereo path was active.
+- First native-stereo live attempt: **failed before stereo submission** — run `20260916T113600Z-native-stereo` acquired HMD pose and moved the visual camera, but an OpenVR vertical-FOV sign mismatch rejected every eye projection (`13,558` incomplete frames, `0` captures/submissions). It also exposed premature restoration of eye-specific state before later scene/visibility work. Subsequent candidates corrected both defects.
+- Second native-stereo live attempt: **headset-visible but not native stereo** — run `20260916T123049Z-8d977bb5b439` executed both per-eye camera/projection passes and submitted frames to OpenVR, but every sampled pair had identical left/right pixel hashes because capture still read the swap-chain backbuffer at the render-view boundary. The run also ended without `native_stereo_runtime: stopped`/`run_end`. Subsequent candidates moved capture to active RT0 and reject identical-eye submission.
+- Third native-stereo live attempt: **tracking correct, stereo capture incomplete** — run `20260916T130852Z-1438628c90c6` had correct horizontal/vertical HMD camera direction, but right-eye RT0 was always `D3DFMT_NULL`. Exact-build inspection proved the candidate used full wrapper `0x30FB0` for the left eye and core-only `0x30E00` for the right. The next candidate replayed the complete wrapper for both eyes and transactionally handled `view+0xD7`; the run itself remains diagnostic because its run ID contains three process starts and no clean `run_end`.
+- Fourth native-stereo live attempt: **distinct native eye rendering live-tested; visual acceptance failed** — run `20260916T133322Z-36c287cc43d8` used one process start and the complete `0x30FB0` wrapper for both eyes. Both passes captured real `2560x1440` `D3DFMT_A8R8G8B8` RT0 content, hashes differed for every sampled pair, renderer-camera correlation was true for both eyes and frames were submitted to OpenVR. The user observed binocular gameplay, correct yaw/pitch direction, head-height placement and a complete-looking scene, but fusion/comfort and frame pacing were poor. Evidence is incomplete because shutdown again lacked `native_stereo_runtime: stopped` and `run_end`.
+- Character/body yaw ownership: **planned with body/IK reconciliation**. Head rotation remains intentionally independent of the game-controlled body during the current camera/stereo gate; do not bind body yaw directly to HMD yaw as a substitute for the later body policy.
+- Exact ChromeEngine render-view boundary (`0x30FB0` / core `0x30E00`) for two complete eye passes, including transactional replay of `view+0xD7`: **live-tested**.
+- OpenVR eye-to-head semantics -> native per-eye translation and asymmetric engine frustum mapping: **live-tested structurally; physical baseline scale correction is host-tested**. Game data proves CoJ movement/world units are centimetres, so OpenVR metres are now multiplied by `100` only inside the CoJ adapter.
+- Transactional restoration of derived camera state after each eye (`+0x84/+0xC4/+0x104/+0x144/+0x184/+0x204`): **host-tested**.
+- First native-stereo transport (classic D3D9 active-render-target CPU readback -> separate left/right D3D11 textures -> OpenVR): **distinct-eye submission live-tested; proof-only performance remains unacceptable**.
+- Minimal OpenVR global action contract + PS VR2 Sense left-Create recenter binding: **host-tested**. The press edge feeds the existing XR-neutral `RelativePoseTracker` recenter path; physical controller validation remains pending.
+- Correct physical eye baseline + viewport/frustum telemetry + usable binocular fusion + in-headset recenter + clean shutdown: **current manual gate**.
 
 ### Phase 5 — capture/presenter separation
 
@@ -121,8 +138,8 @@ the later stereo/math contracts are satisfied.
 - Sustained, run-auditable changing game-frame capture and presentation: **blocked by stabilization track**.
 - Sustained game image physically visible in headset: **planned headset gate after flat integration is auditable**.
 - External engine-camera orientation/FOV control: **live-tested exact-build proof**.
-- Rotational HMD tracking / 3DOF camera proof: **host-tested implementation; manual live gate pending**.
-- Stereo eye projection: **planned after stabilization and math-contract gate**.
+- Rotational HMD tracking / 3DOF camera proof: **live-tested direction/basis path** — run `20260916T133322Z-36c287cc43d8` confirmed correct yaw/pitch direction in the headset; positional 6DOF remains separate and planned.
+- Stereo eye transform/projection through the native engine render-view boundary: **live-tested distinct-eye path** — two complete `0x30FB0` passes, distinct real-color captures and OpenVR submission are proven; corrected physical baseline scale, usable fusion and clean finalization remain the current manual gate.
 
 ### Experimental OpenXR track
 
@@ -141,10 +158,12 @@ the later stereo/math contracts are satisfied.
 
 ## Milestone 4 — controllers and interactions
 
-- Logical OpenVR actions and controller profiles: **planned**.
-- PS VR2 Sense OpenVR/SteamVR bindings and controller validation: **planned**.
+- Minimal logical OpenVR global action seam: **host-tested for recenter only**; gameplay actions remain planned.
+- PS VR2 Sense OpenVR/SteamVR binding: **host-tested for left-Create recenter only**; tracked-hand/gameplay binding validation remains planned.
 - Decouple weapon aim from HMD view: **planned**.
+- Full-body IK driven by validated HMD/controller/body anchors: **planned**.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
+- Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.
 - Per-game weapon/player adapters: **planned**.
 
 ## Milestone 5 — additional renderers/games

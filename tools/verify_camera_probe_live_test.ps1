@@ -36,8 +36,8 @@ Assert-LogMatch `
     "camera_probe_event: event=camera_probe_control_loaded result=accepted" `
     "No external camera-control command was accepted."
 Assert-LogMatch `
-    "camera_probe_event: event=camera_probe_orientation_applied result=ok .*restored=true;renderer_camera_match=true" `
-    "No reproducible render-camera orientation override with state restoration was observed."
+    "camera_probe_event: event=camera_probe_orientation_applied result=ok .*render_basis_observed=true.*render_basis_changed=true.*view_matrix_observed=true.*view_matrix_changed=true.*view_projection_changed=true.*restored=true;renderer_camera_match=true" `
+    "No reproducible culling+view camera orientation override with state restoration was observed."
 Assert-LogMatch `
     "camera_probe_event: event=camera_probe_fov_applied result=ok" `
     "No render-camera FOV override was observed."

@@ -4,7 +4,9 @@
 
 Call of Juarez VR targets **Call of Juarez (2006)** and related Chrome Engine titles through a shared VR runtime, renderer backends and narrow per-game integrations.
 
-> **Status: pre-alpha / stabilization.** Call of Juarez (2006) on Direct3D 9 is the reference implementation. D3D9 capture, D3D11 upload, OpenVR/SteamVR initialization, PSVR2 pose acquisition and initial compositor submission have all been demonstrated. A current diagnostic also confirmed loss of integrity of the installed D3D9 device-vtable hooks after three observed frame callbacks while monitor rendering continued. That is a confirmed failure mode of the present interception design, not yet a complete root-cause explanation for the blank headset. The project is now executing an audit-driven stabilization pass before camera, stereo or controller work.
+The target experience for a supported game is **native stereo rendering, full-body IK and interactions rebuilt for VR**. Those are product goals; the current implementation is still progressing through the camera/tracking and renderer gates required to reach them safely.
+
+> **Status: pre-alpha / stabilization.** Call of Juarez (2006) on Direct3D 9 is the reference implementation. D3D9 capture, D3D11 upload, OpenVR/SteamVR initialization, PSVR2 pose acquisition and headset-visible in-game compositor submission have all been demonstrated. The exact `Camera -> View/Projection -> renderer` path is proven, and run `20260916T133322Z-36c287cc43d8` produced two distinct native ChromeEngine eye captures submitted to OpenVR. That run still had poor binocular fusion/frame pacing. The current host-tested candidate fixes the proven metres-to-centimetres eye-baseline error and adds in-headset recenter through the left PS VR2 Sense Create button. Positional 6DOF, full-body IK and rebuilt VR interactions remain later milestones.
 
 [Technical audit](docs/TECHNICAL_AUDIT.md) · [Remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) · [Roadmap](ROADMAP.md) · [Architecture](ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Research notes](docs/RESEARCH_NOTES.md)
 
@@ -26,7 +28,7 @@ The reference game has demonstrated the basic flat transport chain:
 
 The isolated OpenVR runtime initializes against SteamVR, acquires a valid PSVR2 HMD pose and accepts D3D11 eye submissions. The in-game flat bridge has also completed real submissions from captured game frames.
 
-Audit-remediation Phases 0-4 are host-tested and have now been exercised in two run-bound manual observations. Both reproduced the same three-frame loss of the four instrumented device hooks; the second proved that those slots return to their original Windows D3D9 targets while the factory and swapchain hooks remain owned. Because Steam's `gameoverlayrenderer.dll` owned the factory `CreateDevice` target before the project hook, the next evidence gate is an otherwise identical run with Steam Overlay disabled and telemetry confirmation that the overlay factory hook is absent. Headset-visible confirmation is not required for this gate.
+Audit-remediation Phases 0-4 are host-tested and two run-bound observations reproduced the same three-frame loss of the four instrumented D3D9 device hooks. That Steam Overlay A/B remains a deferred renderer investigation. The HMD pose path reaches the visible first-person camera. Run `20260916T133322Z-36c287cc43d8` subsequently proved distinct left/right real-color render-target captures from two complete ChromeEngine view passes and OpenVR submission, while the user observed binocular gameplay with correct yaw/pitch and complete-looking scene geometry. Comfort and frame pacing failed acceptance. Static game data then proved that the live candidate used metres directly in a centimetre-scale world, shrinking the physical stereo baseline by 100x. The current candidate corrects that scale, records per-eye geometry/timing, hardens finalization and exposes recenter as a provenance-bound OpenVR global action on left PS VR2 Sense Create. These latest changes are host-tested pending one fresh headset run.
 
 See the [technical audit](docs/TECHNICAL_AUDIT.md) for the current findings and the [audit remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) for the required execution order.
 
@@ -52,6 +54,21 @@ ctest --preset debug
 ```
 
 Runtime validation is evidence-driven. Successful builds and host tests are distinct from live-game and headset validation. Call of Juarez and SteamVR are launched manually; agents must prepare the exact artifact, deployment path, verifier and expected evidence before requesting a runtime test.
+
+For repeated local HMD/native-stereo testing, the repository provides one front-door command. The first invocation stores the local game directory under ignored `work/` state; later invocations can omit it:
+
+```powershell
+pwsh -File tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez"
+# Start SteamVR and Call of Juarez manually.
+# Recenter while wearing the headset: press Create on the left PS VR2 Sense.
+# Terminal fallback for diagnostics only:
+pwsh -File tools/vr_test.ps1 recenter
+pwsh -File tools/vr_test.ps1 disable   # while the game is still running
+# Close the game normally.
+pwsh -File tools/vr_test.ps1 finish
+```
+
+`prepare` rebuilds Release, runs the host suite, creates an exact dirty-aware build manifest, stages the current `d3d9_native_stereo` candidate, its OpenVR action manifest/PS VR2 Sense binding and enables tracking. It never launches SteamVR or the game.
 
 Every staged diagnostic now requires a build manifest for the exact artifact. For example:
 

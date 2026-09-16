@@ -53,9 +53,46 @@ if ($OrientationLines.Count -lt 2) {
     throw "Too few HMD-driven camera samples were recorded."
 }
 foreach ($Line in $OrientationLines) {
-    if ($Line -notmatch "restored=true;renderer_camera_match=true") {
-        throw "An HMD camera sample did not prove restoration and renderer-camera identity."
+    if ($Line -notmatch "native_homogeneous_layout=true") {
+        throw "An HMD camera sample did not preserve the native homogeneous source-matrix layout."
     }
+    if ($Line -notmatch "source_world_homogeneous_layout=true" -or
+        $Line -notmatch "source_view_homogeneous_layout=true" -or
+        $Line -notmatch "injected_view_homogeneous_layout=true") {
+        throw "An HMD camera sample did not preserve the complete native world/view homogeneous matrix contract."
+    }
+    $NaturalDeterminantMatch = [regex]::Match($Line, "natural_determinant=([-+0-9.eE]+)")
+    if (-not $NaturalDeterminantMatch.Success) {
+        throw "An HMD camera sample did not report its natural source-basis determinant."
+    }
+    $NaturalDeterminant = [double]::Parse(
+        $NaturalDeterminantMatch.Groups[1].Value,
+        [System.Globalization.CultureInfo]::InvariantCulture)
+    if (-not [double]::IsFinite($NaturalDeterminant) -or
+        [Math]::Abs($NaturalDeterminant - 1.0) -gt 0.02) {
+        throw "An HMD camera sample started from a reflected or non-rigid natural source basis (determinant=$NaturalDeterminant)."
+    }
+    $DeterminantMatch = [regex]::Match($Line, "applied_determinant=([-+0-9.eE]+)")
+    if (-not $DeterminantMatch.Success) {
+        throw "An HMD camera sample did not report its applied source-basis determinant."
+    }
+    $AppliedDeterminant = [double]::Parse(
+        $DeterminantMatch.Groups[1].Value,
+        [System.Globalization.CultureInfo]::InvariantCulture)
+    if ([Math]::Abs($AppliedDeterminant - 1.0) -gt 0.02) {
+        throw "An HMD camera sample used a reflected or non-rigid source basis (determinant=$AppliedDeterminant)."
+    }
+    if ($Line -notmatch "render_basis_observed=true.*view_matrix_observed=true.*restored=true;renderer_camera_match=true") {
+        throw "An HMD camera sample did not prove culling/view observation, restoration and renderer-camera identity."
+    }
+}
+if (-not ($OrientationLines | Where-Object { $_ -match "render_basis_changed=true" })) {
+    throw "HMD camera telemetry never observed the engine-derived render basis change after source-basis injection."
+}
+if (-not ($OrientationLines | Where-Object {
+    $_ -match "view_matrix_changed=true" -and $_ -match "view_projection_changed=true"
+})) {
+    throw "HMD camera telemetry never observed both the actual view matrix and view-projection matrix change."
 }
 $Sequences = @($OrientationLines | ForEach-Object {
     if ($_ -match "pose_sequence=([0-9]+)") { [uint64]$Matches[1] }
@@ -106,5 +143,5 @@ Assert-LogMatch "run_end: run_id=$EscapedRunId(?:\s|$)" "The run did not end nor
 
 Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified."
 Write-Host "PASS - HMD pose advanced through recentered XR-neutral camera orientation."
-Write-Host "PASS - renderer camera identity and natural-basis restoration verified."
+Write-Host "PASS - engine-derived render-basis change, renderer identity and source-basis restoration verified."
 Write-Host "PASS - tracking disable, hook restore, XR shutdown and run end verified."

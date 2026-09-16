@@ -67,8 +67,14 @@ foreach ($Deployment in @($Run.deployment)) {
 $Lines = Get-Content -LiteralPath $LogPath
 $EscapedRunId = [Regex]::Escape($RunId)
 $EscapedBuildManifestId = [Regex]::Escape($BuildManifestId)
-if (-not [bool]($Lines -match "run_start: run_id=$EscapedRunId build_manifest_id=$EscapedBuildManifestId(?:\s|$)")) {
+$RunStartLines = @($Lines | Where-Object {
+    $_ -match "run_start: run_id=$EscapedRunId build_manifest_id=$EscapedBuildManifestId(?:\s|$)"
+})
+if ($RunStartLines.Count -eq 0) {
     throw "The log does not belong to the currently staged run/build manifest."
+}
+if ($RunStartLines.Count -ne 1) {
+    throw "The staged run ID was reused across multiple process starts; prepare a fresh run before validation."
 }
 
 Write-Host "PASS - run ID bound to current staging state and log: $RunId"

@@ -1,0 +1,32 @@
+{
+  "actions": [
+    {
+      "name": "/actions/global/in/recenter",
+      "type": "boolean"
+    }
+  ],
+  "action_sets": [
+    {
+      "name": "/actions/global",
+      "usage": "leftright"
+    }
+  ],
+  "default_bindings": [
+    {
+      "controller_type": "playstation_vr2_sense",
+      "binding_url": "bindings/psvr2_sense.json"
+    }
+  ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/global": "Global VR controls",
+      "/actions/global/in/recenter": "Recenter view"
+    },
+    {
+      "language_tag": "es_ES",
+      "/actions/global": "Controles VR globales",
+      "/actions/global/in/recenter": "Recentrar vista"
+    }
+  ]
+}

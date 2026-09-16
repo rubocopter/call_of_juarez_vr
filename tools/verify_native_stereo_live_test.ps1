@@ -1,0 +1,281 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$GameDirectory
+)
+
+$ErrorActionPreference = "Stop"
+$ExpectedCoJHash = "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE"
+$ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
+
+$Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
+    -GameDirectory $GameDirectory `
+    -ExpectedDiagnosticMode "d3d9_native_stereo"
+$Run = $Provenance.Run
+$Lines = @($Provenance.Lines)
+
+if (([string]$Run.game.executable.sha256).ToUpperInvariant() -ne $ExpectedCoJHash -or
+    -not [bool]$Run.game.executable.knownExactBuild) {
+    throw "The run was not bound to the exact inspected CoJ.exe build."
+}
+if (([string]$Run.game.engine.sha256).ToUpperInvariant() -ne $ExpectedChromeEngineHash -or
+    -not [bool]$Run.game.engine.knownInspectedBuild) {
+    throw "The run was not bound to the exact inspected ChromeEngine3.dll build."
+}
+$OpenVrDeployment = @($Run.deployment | Where-Object { [string]$_.role -eq "openvr_runtime" })
+if ($OpenVrDeployment.Count -ne 1 -or [string]$OpenVrDeployment[0].destination -ne "openvr_api.dll") {
+    throw "The run manifest does not bind exactly one staged OpenVR runtime."
+}
+$ActionManifestDeployment = @($Run.deployment | Where-Object { [string]$_.role -eq "openvr_action_manifest" })
+$SenseBindingDeployment = @($Run.deployment | Where-Object { [string]$_.role -eq "openvr_binding_psvr2_sense" })
+if ($ActionManifestDeployment.Count -ne 1 -or
+    [string]$ActionManifestDeployment[0].destination -ne "cojvr_openvr_input/actions.json" -or
+    $SenseBindingDeployment.Count -ne 1 -or
+    [string]$SenseBindingDeployment[0].destination -ne "cojvr_openvr_input/bindings/psvr2_sense.json") {
+    throw "The run manifest does not bind the expected OpenVR action manifest and PS VR2 Sense profile."
+}
+
+function Assert-LogMatch([string]$Pattern, [string]$Failure) {
+    if (-not [bool]($Lines -match $Pattern)) { throw $Failure }
+}
+
+Assert-LogMatch `
+    "native_stereo_runtime: status=started backend=openvr .*pose_semantics=eye_to_head" `
+    "The native-stereo OpenVR runtime/eye configuration did not initialize."
+Assert-LogMatch `
+    "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create" `
+    "The native-stereo OpenVR global input action set did not initialize."
+Assert-LogMatch `
+    "native_stereo_factory_hook: status=installed" `
+    "The candidate did not install its CreateDevice-only D3D9 observation hook."
+Assert-LogMatch `
+    "native_stereo_device: status=observed" `
+    "No native D3D9 device was observed through CreateDevice."
+Assert-LogMatch `
+    "camera_probe_bootstrap: status=(installed|already_installed) system_d3d9=expected" `
+    "The native-stereo candidate did not install over normal system D3D9 forwarding."
+Assert-LogMatch `
+    "camera_probe_event: event=camera_probe_install result=installed .*native_stereo=available" `
+    "The exact ChromeEngine render-view profile was not enabled for native stereo."
+Assert-LogMatch `
+    "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true" `
+    "No command enabled HMD tracking for this run."
+Assert-LogMatch `
+    "camera_probe_event: event=camera_hmd_recentered result=ok .*stereo=true" `
+    "No stereo HMD base orientation/recenter was observed."
+Assert-LogMatch `
+    "openvr_input_event: action=recenter result=pressed source=global_action" `
+    "No PS VR2 Sense/global-action recenter press was observed."
+Assert-LogMatch `
+    "camera_probe_event: event=camera_hmd_recenter_requested result=ok .*source=openvr_global_action" `
+    "The controller recenter press did not reach the XR-neutral camera recenter boundary."
+Assert-LogMatch `
+    "native_stereo_capture: status=source eye=left .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
+    "The left eye did not report a valid D3D9 viewport at its capture boundary."
+Assert-LogMatch `
+    "native_stereo_capture: status=source eye=right .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
+    "The right eye did not report a valid D3D9 viewport at its capture boundary."
+Assert-LogMatch `
+    "native_stereo_capture_timing: status=ok .*eye=left .*gpu_readback_ms=[0-9.]+;copy_upload_ms=[0-9.]+;capture_total_ms=[0-9.]+" `
+    "The left-eye proof transport did not report capture/readback timing."
+Assert-LogMatch `
+    "native_stereo_capture_timing: status=ok .*eye=right .*gpu_readback_ms=[0-9.]+;copy_upload_ms=[0-9.]+;capture_total_ms=[0-9.]+" `
+    "The right-eye proof transport did not report capture/readback timing."
+Assert-LogMatch `
+    "native_stereo_submit_timing: status=ok .*submit_ms=[0-9.]+" `
+    "The proof transport did not report OpenVR submission timing."
+
+$StereoLines = @($Lines | Where-Object {
+    $_ -match "camera_probe_event: event=camera_native_stereo_frame result=ok"
+})
+if ($StereoLines.Count -lt 2) {
+    throw "Too few successfully submitted native-stereo frames were recorded."
+}
+foreach ($Line in $StereoLines) {
+    if ($Line -notmatch "left_camera_applied=true" -or
+        $Line -notmatch "left_projection_applied=true" -or
+        $Line -notmatch "left_captured=true" -or
+        $Line -notmatch "left_state_restored=true" -or
+        $Line -notmatch "right_rendered=true" -or
+        $Line -notmatch "right_full_view_pass=true" -or
+        $Line -notmatch "right_view_guard_restored=true" -or
+        $Line -notmatch "right_captured=true" -or
+        $Line -notmatch "right_state_restored=true" -or
+        $Line -notmatch "submitted=true" -or
+        $Line -notmatch "left_renderer_camera_match=true" -or
+        $Line -notmatch "right_renderer_camera_match=true" -or
+        $Line -notmatch "render_view_rva=0x30fb0" -or
+        $Line -notmatch "render_core_rva=0x30e00") {
+        throw "A submitted stereo frame did not prove two complete ChromeEngine render-view passes/captures and transactional camera/view-guard restoration."
+    }
+
+    $LeftEyeMatch = [regex]::Match($Line, "left_eye_x=([-+0-9.eE]+)")
+    $RightEyeMatch = [regex]::Match($Line, "right_eye_x=([-+0-9.eE]+)")
+    if (-not $LeftEyeMatch.Success -or -not $RightEyeMatch.Success) {
+        throw "A stereo frame did not report both eye-to-head translations."
+    }
+    $LeftEyeX = [double]::Parse(
+        $LeftEyeMatch.Groups[1].Value,
+        [System.Globalization.CultureInfo]::InvariantCulture)
+    $RightEyeX = [double]::Parse(
+        $RightEyeMatch.Groups[1].Value,
+        [System.Globalization.CultureInfo]::InvariantCulture)
+    if (-not [double]::IsFinite($LeftEyeX) -or -not [double]::IsFinite($RightEyeX) -or
+        ($RightEyeX - $LeftEyeX) -lt 0.02) {
+        throw "OpenVR eye separation was missing, reversed or implausibly small."
+    }
+
+    $ScaleMatch = [regex]::Match($Line, "game_units_per_meter=([-+0-9.eE]+)")
+    $LeftEyePositionMatch = [regex]::Match(
+        $Line,
+        "left_eye_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+    $RightEyePositionMatch = [regex]::Match(
+        $Line,
+        "right_eye_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+    $LeftAppliedMatch = [regex]::Match(
+        $Line,
+        "left_applied_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+    $RightAppliedMatch = [regex]::Match(
+        $Line,
+        "right_applied_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+    if (-not $ScaleMatch.Success -or -not $LeftEyePositionMatch.Success -or
+        -not $RightEyePositionMatch.Success -or -not $LeftAppliedMatch.Success -or
+        -not $RightAppliedMatch.Success) {
+        throw "A stereo frame did not report the runtime and applied eye positions needed to verify world scale."
+    }
+
+    $Scale = [double]::Parse(
+        $ScaleMatch.Groups[1].Value,
+        [System.Globalization.CultureInfo]::InvariantCulture)
+    if (-not [double]::IsFinite($Scale) -or [Math]::Abs($Scale - 100.0) -gt 0.001) {
+        throw "The Call of Juarez adapter did not use the proven 100 game-units-per-metre scale."
+    }
+
+    function Parse-VectorMatch([System.Text.RegularExpressions.Match]$Match) {
+        return @(1..3 | ForEach-Object {
+            [double]::Parse(
+                $Match.Groups[$_].Value,
+                [System.Globalization.CultureInfo]::InvariantCulture)
+        })
+    }
+    $LeftRuntime = Parse-VectorMatch $LeftEyePositionMatch
+    $RightRuntime = Parse-VectorMatch $RightEyePositionMatch
+    $LeftApplied = Parse-VectorMatch $LeftAppliedMatch
+    $RightApplied = Parse-VectorMatch $RightAppliedMatch
+    $RuntimeDistance = [Math]::Sqrt(
+        [Math]::Pow($RightRuntime[0] - $LeftRuntime[0], 2) +
+        [Math]::Pow($RightRuntime[1] - $LeftRuntime[1], 2) +
+        [Math]::Pow($RightRuntime[2] - $LeftRuntime[2], 2))
+    $AppliedDistance = [Math]::Sqrt(
+        [Math]::Pow($RightApplied[0] - $LeftApplied[0], 2) +
+        [Math]::Pow($RightApplied[1] - $LeftApplied[1], 2) +
+        [Math]::Pow($RightApplied[2] - $LeftApplied[2], 2))
+    $ExpectedAppliedDistance = $RuntimeDistance * $Scale
+    $DistanceTolerance = [Math]::Max(0.02, $ExpectedAppliedDistance * 0.005)
+    if (-not [double]::IsFinite($RuntimeDistance) -or $RuntimeDistance -lt 0.02 -or
+        -not [double]::IsFinite($AppliedDistance) -or
+        [Math]::Abs($AppliedDistance - $ExpectedAppliedDistance) -gt $DistanceTolerance) {
+        throw "The applied ChromeEngine eye baseline does not match the XR eye baseline converted from metres to centimetres."
+    }
+
+    $LeftFrustumMatch = [regex]::Match(
+        $Line,
+        "left_frustum=([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)")
+    $RightFrustumMatch = [regex]::Match(
+        $Line,
+        "right_frustum=([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)")
+    if (-not $LeftFrustumMatch.Success -or -not $RightFrustumMatch.Success) {
+        throw "A stereo frame did not report both applied off-center frusta."
+    }
+    $LeftFrustum = @(1..6 | ForEach-Object {
+        [double]::Parse($LeftFrustumMatch.Groups[$_].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    })
+    $RightFrustum = @(1..6 | ForEach-Object {
+        [double]::Parse($RightFrustumMatch.Groups[$_].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+    })
+    if ($LeftFrustum[4] -le 0 -or $LeftFrustum[5] -le $LeftFrustum[4] -or
+        [Math]::Abs($LeftFrustum[4] - $RightFrustum[4]) -gt 0.0001 -or
+        [Math]::Abs($LeftFrustum[5] - $RightFrustum[5]) -gt 0.01 -or
+        ([Math]::Abs($LeftFrustum[0] - $RightFrustum[0]) -lt 0.0001 -and
+         [Math]::Abs($LeftFrustum[1] - $RightFrustum[1]) -lt 0.0001)) {
+        throw "The applied per-eye frusta were invalid, inconsistent, or not horizontally asymmetric."
+    }
+}
+if (-not ($StereoLines | Where-Object { $_ -match "distinct_eye_content=true" })) {
+    throw "No submitted frame contained distinct left/right rendered pixels; native stereo was not demonstrated."
+}
+
+$OrientationLines = @($Lines | Where-Object {
+    $_ -match "camera_probe_event: event=camera_hmd_orientation_applied result=ok"
+})
+if ($OrientationLines.Count -lt 2) {
+    throw "Too few HMD-driven camera samples were recorded during native stereo."
+}
+foreach ($Line in $OrientationLines) {
+    if ($Line -notmatch "native_homogeneous_layout=true" -or
+        $Line -notmatch "source_world_homogeneous_layout=true" -or
+        $Line -notmatch "source_view_homogeneous_layout=true" -or
+        $Line -notmatch "injected_view_homogeneous_layout=true" -or
+        $Line -notmatch "restore_deferred=true;stereo=true;renderer_camera_match=true") {
+        throw "An HMD stereo camera sample violated the native matrix/restoration contract."
+    }
+    $DeterminantMatch = [regex]::Match($Line, "applied_determinant=([-+0-9.eE]+)")
+    if (-not $DeterminantMatch.Success) {
+        throw "An HMD stereo sample did not report its applied determinant."
+    }
+    $AppliedDeterminant = [double]::Parse(
+        $DeterminantMatch.Groups[1].Value,
+        [System.Globalization.CultureInfo]::InvariantCulture)
+    if (-not [double]::IsFinite($AppliedDeterminant) -or
+        [Math]::Abs($AppliedDeterminant - 1.0) -gt 0.02) {
+        throw "An HMD stereo sample used a reflected or non-rigid camera basis."
+    }
+}
+if (-not ($OrientationLines | Where-Object {
+    $_ -match "view_matrix_changed=true" -and
+    $_ -match "projection_matrix_changed=true" -and
+    $_ -match "view_projection_changed=true"
+})) {
+    throw "Stereo telemetry never observed view, asymmetric projection and view-projection changes together."
+}
+
+$YawSamples = @($OrientationLines | ForEach-Object {
+    if ($_ -match "yaw_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+})
+$PitchSamples = @($OrientationLines | ForEach-Object {
+    if ($_ -match "pitch_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+})
+if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
+    throw "Telemetry did not capture a meaningful physical yaw movement."
+}
+if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
+    throw "Telemetry did not capture a meaningful physical pitch movement."
+}
+
+Assert-LogMatch `
+    "camera_probe_event: event=camera_probe_passthrough result=disabled" `
+    "Tracking was not explicitly disabled back to natural camera passthrough."
+Assert-LogMatch `
+    "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=false" `
+    "No command explicitly disabled HMD tracking for this run."
+Assert-LogMatch `
+    "camera_probe_event: event=camera_probe_restore result=restored .*view_restored_slots=1" `
+    "The camera/render-view hooks were not cleanly restored on normal exit."
+Assert-LogMatch `
+    "native_stereo_factory_hook: status=restored" `
+    "The CreateDevice observation hook was not cleanly restored."
+Assert-LogMatch `
+    "native_stereo_runtime: status=stopped" `
+    "The native-stereo OpenVR runtime did not shut down cleanly."
+
+if ($Lines -match "d3d9_hook_event:.*(Present|BeginScene|EndScene|Reset)") {
+    throw "Native stereo unexpectedly depended on a D3D9 frame/device hook."
+}
+
+$EscapedRunId = [Regex]::Escape([string]$Provenance.RunId)
+Assert-LogMatch "run_end: run_id=$EscapedRunId(?:\s|$)" "The run did not end normally."
+
+Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified."
+Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
+Write-Host "PASS - two native ChromeEngine eye passes produced distinct captured eye images."
+Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
+Write-Host "PASS - passthrough, render-view/camera/factory hook restoration and XR shutdown verified."

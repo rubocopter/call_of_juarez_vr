@@ -343,9 +343,11 @@ exact CoJ.exe + exact ChromeEngine3.dll
 
 Run `20260915T150554Z-7e0d7da45949` proved visible external FOV/yaw/pitch control,
 renderer-camera correlation, natural-basis restoration, disabled passthrough and clean
-hook restoration. The follow-on HMD-rotation implementation now host-tests an explicit
-neutral pose/recenter boundary and an OpenVR-backed `d3d9_hmd_camera` candidate, but it
-does not promote stereo, positional 6DOF or motion controls. The Steam Overlay A/B remains unresolved evidence for the D3D9 interception
+hook restoration. Follow-on HMD runs refined the native paired world/view camera contract,
+right-handed source basis and game-specific yaw sign. The current host-tested candidate also
+uses the exact ChromeEngine render-view boundary for two per-eye passes with eye-to-head
+translation and asymmetric projection. This does not yet promote stereo, positional 6DOF or
+motion controls. The Steam Overlay A/B remains unresolved evidence for the D3D9 interception
 finding and may be resumed later if presentation work returns to that boundary. Exact
 static/live evidence and constraints are recorded in `docs/research/COJ_CAMERA_PATH.md`.
 
@@ -355,12 +357,12 @@ static/live evidence and constraints are recorded in `docs/research/COJ_CAMERA_P
 | --- | --- | --- |
 | Host | hooks/resources/states/transfer pass controlled and failure-injection tests | none |
 | Camera boundary | exact engine profile, camera-vtable ownership, external FOV/orientation command, renderer-camera correlation and clean restore | one manual game launch; headset/SteamVR unnecessary |
-| Monocular HMD rotation | valid HMD pose, recenter, continuous 1:1 yaw/pitch monitor-camera motion, no accumulation, disable passthrough, renderer-camera correlation and clean restore | manual SteamVR + game + physical HMD motion |
+| HMD rotation + native stereo | valid HMD pose/recenter, corrected continuous yaw/pitch, stable scene, two native eye passes with distinct eye content/asymmetric projection, visible stereo, disable passthrough, renderer-camera correlation and clean restore | manual SteamVR + game + physical HMD motion/headset observation |
 | Game observation | sustained callback/device/generation coverage with structured evidence | manual game launch; headset unnecessary |
 | Game capture | changing images, correct orientation/stride/content | manual game launch; headset unnecessary |
 | Isolated compositor | sustained timing/submission and recognizable visible pattern | manual SteamVR + physical headset confirmation |
 | Flat integration | changing gameplay visible in headset across menus/loading/gameplay | physical test |
-| Stereo/tracking | game-camera projections and tracking ownership validated | later physical phase |
+| Positional tracking / later stereo hardening | positional camera ownership, culling and final render-target transport validated after the current native-stereo gate | later physical phase |
 
 ## Stop conditions for agents
 
