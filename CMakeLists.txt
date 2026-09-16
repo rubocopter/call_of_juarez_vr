@@ -132,6 +132,8 @@ if(COJVR_ENABLE_OPENVR)
     add_library(cojvr_openvr_d3d11_backend STATIC
         src/backends/openvr/d3d11_compositor.cpp
         src/backends/openvr/d3d11_session.cpp
+        src/backends/openvr/stereo_presenter.cpp
+        src/backends/d3d9/frame_mailbox.cpp
     )
     target_include_directories(cojvr_openvr_d3d11_backend PUBLIC src)
     target_compile_features(cojvr_openvr_d3d11_backend PUBLIC cxx_std_20)
@@ -267,7 +269,7 @@ if(COJVR_ENABLE_OPENVR)
     add_library(cojvr_d3d9_native_stereo_proxy SHARED
         src/games/call_of_juarez/native_stereo_proxy.cpp
         src/games/call_of_juarez/d3d9_native_stereo_proxy.def
-        src/backends/d3d9/openvr_stereo_readback.cpp
+        src/backends/d3d9/d3d9_stereo_capture.cpp
         src/backends/d3d9/system_d3d9.cpp
     )
     target_include_directories(cojvr_d3d9_native_stereo_proxy PRIVATE src)
@@ -542,6 +544,36 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_vr_math_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME vr_math COMMAND cojvr_vr_math_test)
+
+    add_executable(
+        cojvr_frame_mailbox_test
+        tests/frame_mailbox.cpp
+        src/backends/d3d9/frame_mailbox.cpp
+    )
+    target_include_directories(cojvr_frame_mailbox_test PRIVATE src)
+    target_compile_features(cojvr_frame_mailbox_test PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(cojvr_frame_mailbox_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME frame_mailbox COMMAND cojvr_frame_mailbox_test)
+
+    add_executable(
+        cojvr_d3d9_stereo_capture_test
+        tests/d3d9_stereo_capture.cpp
+        src/backends/d3d9/d3d9_stereo_capture.cpp
+        src/backends/d3d9/system_d3d9.cpp
+    )
+    target_include_directories(cojvr_d3d9_stereo_capture_test PRIVATE src)
+    target_compile_features(cojvr_d3d9_stereo_capture_test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d9_stereo_capture_test
+        PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE
+    )
+    if(MSVC)
+        target_compile_options(cojvr_d3d9_stereo_capture_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME d3d9_stereo_capture COMMAND cojvr_d3d9_stereo_capture_test)
+    set_tests_properties(d3d9_stereo_capture PROPERTIES SKIP_RETURN_CODE 77)
 
     if(COJVR_ENABLE_OPENVR)
         add_executable(cojvr_openvr_runtime_test tests/openvr_runtime.cpp)

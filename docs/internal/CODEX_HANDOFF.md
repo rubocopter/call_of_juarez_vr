@@ -401,6 +401,103 @@ fallback. `disable`, `status` and `finish` let the user operate and close out a 
 the script never launches or terminates SteamVR/Call of Juarez. The first explicit
 `-GameDirectory` is persisted only under ignored `work/vr-test.json`.
 
+While physical testing was unavailable, a host-only hardening/cleanup pass was completed. The
+neutral rigid-transform converter now fails closed for non-finite, scaled, skewed or reflected
+rotation bases, and OpenVR HMD validity no longer overrides those numeric checks. Stereo readback
+resource reuse now includes MSAA type/quality in its surface identity. Flat and native-stereo
+capture share one packed BGRX content hash that ignores alpha/X and row padding, with tests for
+those semantics; it cuts diagnostic hash-loop work without changing the distinct-eye acceptance
+contract. No live performance claim is made from this host change.
+
+A full Debug MSVC `/analyze` sweep found large 32/64 KiB stack buffers in file/path helpers and
+temporary-string `string_view` telemetry arguments. The buffers were moved to heap-backed
+storage and the telemetry strings now have explicit lifetimes. Rerunning `/analyze` on all
+affected D3D9 proxy/readback/flat/native-stereo and VR-math targets is warning-free. Fresh full
+Debug and Release builds each pass 18 tests plus the expected classic-D3D9 shared-texture SKIP.
+No Call of Juarez, SteamVR or headset process was launched, so the validation state remains
+host-tested for these corrections.
+
+The subsequent physical run is `20260916T153109Z-8976b8f77775`, build manifest
+`65BC08F2024C2FC975DD915E4A752F611F19CE597D8067E6B532FD3AD57648B4`. It physically validates
+the minimal PS VR2 Sense input seam: left Create emitted the OpenVR global recenter action,
+reached `camera_hmd_recenter_requested`, and the user confirmed recenter worked in-headset.
+The corrected `100` game-units-per-metre eye baseline was also live-observed in submitted
+distinct-eye frames (`-0.032/+0.032` m -> approximately `-3.2/+3.2` CoJ units at the neutral
+camera) with valid asymmetric frusta and renderer-camera correlation.
+
+Visual acceptance still failed. The user described image quality/frame pacing as very poor and
+nauseating. Sampled synchronous `copy_upload_ms` is generally in the mid-30 ms range per eye and
+can exceed 40-50 ms, confirming that the classic-D3D9 CPU/readback/upload proof path is not a
+viable final transport. The menu is also outside the current VR presentation path: opening the
+game menu removes it from the headset, while returning to gameplay resumes HMD-driven movement.
+Record this for the later HUD/menu/video milestone; do not expand the present stereo gate into
+full UI work yet.
+
+Shutdown remains unresolved. The log restored camera/factory hooks, completed readback shutdown,
+then stopped at `native_stereo_shutdown: stage=runtime_begin`; the collected evidence marks
+`runtimeEnded=false` and `incomplete=true`. Staging is now clean (`vr_test.ps1 status` reports
+`Staging: none`).
+
+The next manual attempt initially exposed an unrelated baseline crash before the new transport
+was staged: the game directory contained no staged `d3d9.dll`/OpenVR runtime, and the process
+loaded system D3D9. Repeated exact-build launches crashed after the startup movies. Windows/HotSpot
+evidence places the fault in `ogg.dll+0x274e` on the `MovieFinishedNvidia -> PlayIntroMovie`
+path. Static bytecode inspection shows a `NoLogos` argument path, but physical testing on this
+installation did not visibly bypass the startup videos. `NoLogos` is therefore not part of the
+VR test procedure. Treat the intro-codec crash as a separate vanilla/baseline issue unless new
+run-bound evidence ties it to the VR candidate.
+
+The first deferred-presenter headset observations used staged run
+`20260916T215746Z-362752fe6362` for two separate CoJ process starts, so strict provenance rejects it
+as an acceptance run. It nevertheless establishes useful live behavior: both processes reached
+clean presenter/runtime shutdown and `run_end`, distinct-eye frames reached OpenVR with zero submit
+failures, and the longer process recorded 2,589 new plus 5,125 repeated submissions. The user
+reported good camera response, sound and substantially better perceived performance after opening
+and closing the CoJ Escape menu once, but SteamVR's dashboard remained permanently visible over the
+game.
+
+Local SteamVR evidence narrowed that dashboard issue. `vrserver` recognizes CoJ as
+`VRApplication_Scene` with app key `steam.app.3020`; our PS VR2 Sense binding only maps left Create
+to recenter and does not bind the system/dashboard button. `vrclient_CoJ.txt` shows `Capturing Scene
+Focus` immediately after the presenter begins calling `WaitGetPoses`, while the first D3D11 scene
+textures arrive roughly 20-45 seconds later when gameplay becomes renderable. Current source now
+keeps pre-scene HMD tracking on non-blocking `GetDeviceToAbsoluteTrackingPose`, switches to
+`WaitGetPoses` only once the first real stereo frame is ready, explicitly calls
+`PostPresentHandoff` after successful stereo submission, and emits `openvr_scene_state` telemetry at
+initialization, frame-ready and first-submit. Fresh formal run
+`20260916T221254Z-861f3c15abd4` physically validated that correction: SteamVR scene focus moved
+from PID `0` to the CoJ PID on first submit and the dashboard no longer remained stuck over
+gameplay. The evidence package completed cleanly with `runtimeStarted=true`, `runtimeEnded=true`,
+`incomplete=false`, `native_stereo_runtime: status=stopped` and `run_end`. The run recorded 5,139
+collected frames, 5,136 new submissions, 5,439 repeated submissions and one submit failure. The
+user also reported improved perceived performance.
+
+The remaining physical defect in that run is strong head-turn ghosting/elastic reprojection, as
+if the displayed view tries to return toward an older orientation. The asynchronous path is
+`HMD pose -> ChromeEngine stereo render -> D3D9 ring -> CPU mailbox -> D3D11 upload -> OpenVR`.
+Previously the presenter continued advancing `WaitGetPoses` while it could submit an older image
+with `Submit_Default`, so SteamVR had no record of the pose that actually produced that image.
+Current source now carries the exact HMD render pose and its sequence with every `StereoCpuFrame`
+and submits both new and repeated textures through `VRTextureWithPose_t` /
+`Submit_TextureWithPose`. Telemetry records `render_pose_sequence` and
+`pose_mode=explicit_render_pose`, and presentation fails closed if an exact valid render pose is
+missing. Run `20260916T224239Z-e43b46698e5c` physically validated the effect: the user tested slow
+and fast head rotation and mouse rotation and reported that the backward pull/snap-back was gone
+and the sensation improved substantially. The run ended cleanly with `run_end`, collected 3,129
+frames, submitted 3,127 new plus 6,099 repeated frames and recorded one submit failure. Treat the
+explicit-render-pose correction as live-tested for the snap-back defect; remaining work is now
+primarily frame pacing/performance.
+
+Telemetry from that run exposes two large CPU costs on sampled 2560x1440 stereo frames: roughly
+`15-22 ms` for owned CPU copying and `11-14 ms` for full-frame diagnostic hashing, before the
+roughly `1-4 ms` D3D11 upload. Current source removes the hash from the normal presentation path:
+every frame still performs a fail-closed RGB equality comparison that ignores the undefined alpha
+byte, while the expensive full hashes are computed only for the first/sample telemetry frames that
+are logged. Contiguous D3D9 locks also use one bulk `memcpy` rather than per-row copies. The live
+verifier now requires `distinct_check=rgb_compare_every_frame` and
+`hash_mode=sampled_telemetry`. Fresh Debug and Release each pass 20/21 CTests with the one expected
+classic-D3D9 shared-texture capability SKIP. This optimization is host-tested only.
+
 The product target is explicitly native stereo rendering, full-body IK and VR-rebuilt
 interactions. The current combined HMD/native-stereo gate controls progression into positional
 tracking and later interaction/IK work.
@@ -409,14 +506,40 @@ The next candidate must use a fresh automatically generated run ID. `tools/vr_te
 prepare` rebuilds/tests Release, creates a dirty-aware exact manifest, and
 `stage_d3d9_proxy.ps1` generates a timestamp-plus-GUID run ID while rejecting an existing
 evidence directory. Do not reuse `20260916T113600Z-native-stereo`,
-`20260916T123049Z-8d977bb5b439`, `20260916T130852Z-1438628c90c6` or
-`20260916T133322Z-36c287cc43d8`. The next manual gate must use exactly one process start and
-confirm the corrected 100-units-per-metre eye baseline, reported per-eye viewport/frustum
-geometry, distinct real-color eye captures, usable binocular fusion, left-Sense-Create recenter
-without Alt-Tab and a complete runtime
-shutdown/run_end. Synchronous CPU readback plus
-synchronous pose/compositor work is still a proof transport and may have poor frame pacing even
-after eye correctness; optimize that only after the distinct-eye gate is proven.
+`20260916T123049Z-8d977bb5b439`, `20260916T130852Z-1438628c90c6`,
+`20260916T133322Z-36c287cc43d8`, `20260916T153109Z-8976b8f77775`,
+`20260916T221254Z-861f3c15abd4` or `20260916T224239Z-e43b46698e5c`. The corrected
+100-units-per-metre eye baseline, distinct real-color eye captures and left-Sense-Create recenter
+now have live evidence, and clean presenter/runtime shutdown plus SteamVR scene-focus handoff are
+also live-tested. Explicit render-pose submission removed the reported snap-back in the latest
+physical run. The active gate is now comfortable sustained frame pacing with the cheaper
+per-frame distinction path; synchronous D3D9 readback/CPU copying remains the largest known
+transport cost after removing full-frame hashing from nearly every frame.
+
+The next physical candidate must be prepared from the current performance changes. Its decisive
+observation is sustained smoothness during slow/fast head turns and mouse rotation, while
+confirming the snap-back remains absent and stereo geometry/recenter/dashboard behavior do not
+regress. Normal launch is the procedure; `NoLogos` is not required. Recenter remains left PS VR2
+Sense Create. Before closing the game use `tools/vr_test.ps1 disable`; after closing use
+`tools/vr_test.ps1 finish` so the verifier can bind the evidence to that fresh run.
+
+That performance candidate is now staged without launching SteamVR or the game. Run ID
+`20260916T225750Z-b2515c32a135`, build manifest
+`46837519D71BBAB58B5B97EDD26F9D87B8093CD40640BBE2B3E5D513687151A0`, staged proxy SHA-256
+`AAE80D73AC7C77F2F77988FA63B4F345A66323CBF8FE88D46A036BAF6844C229`. Release preparation passed
+20/21 CTests with only the expected classic-D3D9 shared-texture capability SKIP. Use this run for
+exactly one CoJ process start and compare sustained smoothness directly with
+`20260916T224239Z-e43b46698e5c`.
+
+Repository closeout on 2026-09-17 independently rebuilt the full current tree in Debug and Release
+and reran both CTest presets: each produced 20 PASS plus the one expected classic-D3D9
+shared-texture capability SKIP. A clean full-tree Debug build with MSVC
+`RunCodeAnalysis=true` completed without code-analysis warnings. `tools/vr_test.ps1 status`
+confirmed the game was not running and the staged candidate still pointed at run
+`20260916T225750Z-b2515c32a135`. No SteamVR or game process was launched during this closeout.
+Phase 5 is now documented as implemented, host-tested and live-exercised, with explicit
+reset/resize/new-device and controlled paused-producer acceptance coverage still pending; the
+active physical gate remains sustained frame pacing/performance.
 
 ## Constraints
 

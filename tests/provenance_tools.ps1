@@ -431,33 +431,47 @@ try {
 
     $StereoOrientation1 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=2 yaw_degrees=10 pitch_degrees=0 natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
     $StereoOrientation2 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=3 yaw_degrees=0 pitch_degrees=5 natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
-    $StereoFrame1 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=1 pose_sequence=2 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=111 right_hash=222 distinct_eye_content=true left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) game_units_per_meter=100 left_applied_position=(96.8000,200.0000,300.0000) right_applied_position=(103.2000,200.0000,300.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
-    $StereoFrame2 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=2 pose_sequence=3 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=333 right_hash=444 distinct_eye_content=true left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) game_units_per_meter=100 left_applied_position=(46.8000,60.0000,70.0000) right_applied_position=(53.2000,60.0000,70.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
+    $StereoFrame1 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=1 pose_sequence=2 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) game_units_per_meter=100 left_applied_position=(96.8000,200.0000,300.0000) right_applied_position=(103.2000,200.0000,300.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
+    $StereoFrame2 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=2 pose_sequence=3 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) game_units_per_meter=100 left_applied_position=(46.8000,60.0000,70.0000) right_applied_position=(53.2000,60.0000,70.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
     $StereoVerifierLog = @(
         "run_start: run_id=$StereoVerifierRunId build_manifest_id=$($StereoBuildManifest.manifestId) pid=789",
-        "native_stereo_runtime: status=started backend=openvr recommended_eye=2000x2040 left_eye_x=-0.032 right_eye_x=0.032 pose_semantics=eye_to_head",
+        "native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=latest_frame_repeat",
+        "native_stereo_runtime: status=started backend=openvr owner=presenter_thread recommended_eye=2000x2040 left_eye_x=-0.032 right_eye_x=0.032 pose_semantics=eye_to_head",
         "native_stereo_factory_hook: status=installed",
-        "native_stereo_device: status=observed device=0x1234",
+        "native_stereo_device: status=observed device=0x1234 generation=1",
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
         "camera_probe_event: event=camera_probe_install result=installed pose_source=none native_stereo=available",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=1 tracking_enabled=true",
         "camera_probe_event: event=camera_hmd_recentered result=ok generation=1 pose_sequence=1 stereo=true",
-        "native_stereo_capture: status=source eye=left transport=classic_d3d9_cpu_readback;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;msaa=0;feature_level=0xb000",
-        "native_stereo_capture: status=source eye=right transport=classic_d3d9_cpu_readback;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;msaa=0;feature_level=0xb000",
+        "native_stereo_capture: status=source eye=left transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.150",
+        "native_stereo_capture: status=source eye=right transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.160",
         $StereoOrientation1,
         $StereoFrame1,
         $StereoOrientation2,
         $StereoFrame2,
-        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=left transport=classic_d3d9_cpu_readback;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;msaa=0;feature_level=0xb000;gpu_readback_ms=4.000;copy_upload_ms=1.000;capture_total_ms=5.000",
-        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=right transport=classic_d3d9_cpu_readback;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;msaa=0;feature_level=0xb000;gpu_readback_ms=4.100;copy_upload_ms=1.100;capture_total_ms=5.200",
-        "native_stereo_submit_timing: status=ok frame_sequence=2 transport=classic_d3d9_cpu_readback;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;msaa=0;feature_level=0xb000;gpu_readback_ms=4.100;copy_upload_ms=1.100;capture_total_ms=5.200;submit_ms=0.400",
-        "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create",
-        "openvr_input_event: action=recenter result=pressed source=global_action",
+        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=left transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.150",
+        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=right transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.160",
+        "native_stereo_producer_timing: status=published transport=deferred_d3d9_ring_cpu_mailbox;frame_sequence=2;render_pose_sequence=3;generation=1;eye_surface=2560x1440;fence_ready_before_readback=false;fence_poll_ms=0.010;deferred_readback_ms=8.000;cpu_copy_ms=3.000;producer_collect_ms=11.010",
+        "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;left_hash=111;right_hash=222;distinct_eye_content=true;distinct_check=rgb_compare_every_frame;hash_mode=sampled_telemetry;hash_ms=4.000;upload_ms=1.000",
+        "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;left_hash=333;right_hash=444;distinct_eye_content=true;distinct_check=rgb_compare_every_frame;hash_mode=sampled_telemetry;hash_ms=4.100;upload_ms=1.100",
+        "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
+        "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread",
+        "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=2 tracking_enabled=false",
         "camera_probe_event: event=camera_probe_passthrough result=disabled",
         "camera_probe_event: event=camera_probe_restore result=restored camera_restored_slots=2;view_restored_slots=1",
         "native_stereo_factory_hook: status=restored",
+        "native_stereo_shutdown: stage=capture_begin",
+        "native_stereo_shutdown: stage=capture_end",
+        "native_stereo_shutdown: stage=presenter_begin",
+        "native_stereo_presenter_shutdown: stage=d3d11_begin",
+        "native_stereo_presenter_shutdown: stage=d3d11_end",
+        "native_stereo_presenter_shutdown: stage=runtime_begin",
+        "native_stereo_presenter_shutdown: stage=runtime_end",
+        "native_stereo_presenter: status=stopped",
+        "native_stereo_shutdown: stage=presenter_end",
+        "native_stereo_transport_summary: frames_fenced=3;frames_collected=2;capture_ring_drops=0;mailbox_published=2;mailbox_replaced=0;frames_uploaded=2;new_submissions=2;repeat_submissions=4;submit_failures=0",
         "native_stereo_runtime: status=stopped",
         "run_end: run_id=$StereoVerifierRunId"
     )
@@ -465,9 +479,9 @@ try {
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
 
-    $StereoVerifierFlat = @($StereoVerifierLog)
-    $StereoVerifierFlat[11] = $StereoFrame1 -replace "distinct_eye_content=true", "distinct_eye_content=false" -replace "right_hash=222", "right_hash=111"
-    $StereoVerifierFlat[13] = $StereoFrame2 -replace "distinct_eye_content=true", "distinct_eye_content=false" -replace "right_hash=444", "right_hash=333"
+    $StereoVerifierFlat = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace "distinct_eye_content=true", "distinct_eye_content=false"
+    })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierFlat
     $FlatStereoRejected = $false
     try {
@@ -479,8 +493,11 @@ try {
     Assert-True $FlatStereoRejected `
         "Native-stereo verifier accepted identical left/right eye content."
 
-    $StereoVerifierWrongCamera = @($StereoVerifierLog)
-    $StereoVerifierWrongCamera[11] = $StereoFrame1 -replace "right_renderer_camera_match=true", "right_renderer_camera_match=false"
+    $StereoVerifierWrongCamera = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "camera_native_stereo_frame result=ok frame_sequence=1") {
+            $_ -replace "right_renderer_camera_match=true", "right_renderer_camera_match=false"
+        } else { $_ }
+    })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierWrongCamera
     $WrongCameraRejected = $false
     try {
@@ -492,8 +509,11 @@ try {
     Assert-True $WrongCameraRejected `
         "Native-stereo verifier accepted an eye pass without renderer-camera correlation."
 
-    $StereoVerifierCoreOnly = @($StereoVerifierLog)
-    $StereoVerifierCoreOnly[11] = $StereoFrame1 -replace "right_full_view_pass=true", "right_full_view_pass=false"
+    $StereoVerifierCoreOnly = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "camera_native_stereo_frame result=ok frame_sequence=1") {
+            $_ -replace "right_full_view_pass=true", "right_full_view_pass=false"
+        } else { $_ }
+    })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierCoreOnly
     $CoreOnlyRejected = $false
     try {
@@ -505,11 +525,14 @@ try {
     Assert-True $CoreOnlyRejected `
         "Native-stereo verifier accepted a right eye that skipped the complete render-view wrapper."
 
-    $StereoVerifierWrongScale = @($StereoVerifierLog)
-    $StereoVerifierWrongScale[11] = $StereoFrame1 `
-        -replace "game_units_per_meter=100", "game_units_per_meter=1" `
-        -replace "left_applied_position=\(96.8000,200.0000,300.0000\)", "left_applied_position=(99.9680,200.0000,300.0000)" `
-        -replace "right_applied_position=\(103.2000,200.0000,300.0000\)", "right_applied_position=(100.0320,200.0000,300.0000)"
+    $StereoVerifierWrongScale = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "camera_native_stereo_frame result=ok frame_sequence=1") {
+            $_ `
+                -replace "game_units_per_meter=100", "game_units_per_meter=1" `
+                -replace "left_applied_position=\(96.8000,200.0000,300.0000\)", "left_applied_position=(99.9680,200.0000,300.0000)" `
+                -replace "right_applied_position=\(103.2000,200.0000,300.0000\)", "right_applied_position=(100.0320,200.0000,300.0000)"
+        } else { $_ }
+    })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierWrongScale
     $WrongScaleRejected = $false
     try {
@@ -521,8 +544,11 @@ try {
     Assert-True $WrongScaleRejected `
         "Native-stereo verifier accepted the obsolete 1:1 metre-to-game-unit eye scale."
 
-    $StereoVerifierMissingViewport = @($StereoVerifierLog)
-    $StereoVerifierMissingViewport[8] = $StereoVerifierMissingViewport[8] -replace "viewport=0,0,2560,1440,0,1", "viewport=unavailable"
+    $StereoVerifierMissingViewport = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "native_stereo_capture: status=source eye=left") {
+            $_ -replace "viewport=0,0,2560,1440,0,1", "viewport=unavailable"
+        } else { $_ }
+    })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierMissingViewport
     $MissingViewportRejected = $false
     try {

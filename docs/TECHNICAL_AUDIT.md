@@ -6,7 +6,7 @@ This document is the authoritative engineering audit for the current stabilizati
 
 The original audit was performed against commit `76d9bc89541b20e21827acfa12ded7bfc9225ad2` plus the then-current local working tree, which contained the D3D9/OpenVR implementation and tests before they were committed. That code was subsequently committed, and commit `22b40d90e447006ec1eda068e0396721cb2820ab` added stronger D3D9 hook-continuity diagnostics. Documentation was then refreshed without changing the implementation.
 
-The current local and remote repositories are considered aligned for this audit baseline. Before implementing any item below, agents must still inspect `git status`, HEAD and the owning files rather than assuming this document alone describes every line of code.
+This audit remains the historical stabilization baseline, while the current repository extends it with the native-stereo camera proof and the Phase 5 capture/mailbox/presenter path described below. Before implementing any item, agents must still inspect `git status`, HEAD and the owning files rather than assuming this document alone describes every line of code.
 
 ## Evidence policy
 
@@ -32,7 +32,7 @@ The following facts are currently established:
 - The in-game flat bridge has completed D3D9 readback, D3D11 upload, pose wait and OpenVR submission for captured game frames.
 - A later exact-build diagnostic observed exactly three project callbacks for `Present`, `BeginScene` and `EndScene`, followed by loss of integrity of the installed device-vtable entries while the game continued rendering on the monitor.
 - That hook-integrity loss is a confirmed failure mode of the current interception design. Run `20260914T215121Z-9bac4e22cffd` established that all four lost device slots return exactly to their recorded original targets in `C:\WINDOWS\system32\d3d9.dll`; no foreign replacement target was observed. It still does **not** prove which component performs the restoration, why it occurs, or that hook loss is the only reason the user never sees a stable game image in the headset.
-- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission, and the user observed binocular gameplay with correct yaw/pitch direction. Usable stereo fusion/comfort is not yet validated, and positional 6DOF integration and motion-controller gameplay are not implemented yet.
+- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission. Run `20260916T153109Z-8976b8f77775` then live-observed the corrected `100` game-units-per-metre eye translation and physically validated left PS VR2 Sense Create recenter. Run `20260916T221254Z-861f3c15abd4` validated deferred-presenter scene-focus handoff and clean OpenVR/runtime shutdown. Run `20260916T224239Z-e43b46698e5c` validated explicit render-pose submission and removed the reported head-turn snap-back. Frame pacing/performance remains poor, the flat/menu path is not presented in the headset, and positional 6DOF plus motion-controller gameplay are not implemented yet.
 
 The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` records which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves replacement addresses to owning modules. Preserve it as evidence/baseline; do not let its existence bypass the audit-remediation work below.
 
@@ -76,39 +76,39 @@ Run `20260914T215121Z-9bac4e22cffd` again observed one native factory, one devic
 ### A4 — Capture, VR synchronization and compositor submission are coupled inside the game callback
 
 **Severity:** P0  
-**Status:** open
+**Status:** Phase 5 separation implemented/host-tested and live-exercised; acceptance/performance remains open
 
-The flat bridge currently performs D3D9 readback, CPU access, D3D11 upload, pose wait and both eye submissions synchronously from the render callback. This couples the engine render cadence to the VR compositor cadence and makes stage stalls hard to distinguish.
+The original flat/native proof path performed D3D9 readback, CPU access, D3D11 upload, pose wait and both eye submissions synchronously from the render callback. The current native-stereo path separates those responsibilities: `D3D9StereoCapture` queues/copies eye results on the game thread, produces owned `StereoCpuFrame` data, `FrameMailbox` keeps a bounded latest-frame handoff, and `OpenVrStereoPresenter` owns D3D11/OpenVR work on its presenter thread.
 
-Phase 4 now makes that synchronous path observable: every attempt updates active-stage state and exact counters, sampled entry/exit events include duration and result, and the independent summary thread can identify a stage that remains active. That improves diagnosis but does not remove the coupling.
+Runs `20260916T221254Z-861f3c15abd4` and `20260916T224239Z-e43b46698e5c` exercised this separated path in the headset, including separate new/repeated submission counts, scene-focus handoff, explicit render-pose submission and clean presenter/runtime teardown. The latest run also quantified the remaining cost: roughly `15-22 ms` of owned CPU copy on sampled 2560x1440 stereo frames, plus the diagnostic hashing cost that the current source has since removed from almost every frame.
 
-The fact that the first few calls completed does not make the architecture suitable for sustained operation.
+The remediation-plan acceptance matrix is not yet complete: the repository still needs explicit reset/resize/new-device coverage and a controlled paused-producer presenter test. Sustained frame pacing also remains below the product gate.
 
-**Required action:** split D3D9 capture from OpenVR presentation using an owned-frame handoff/mailbox. D3D9 calls remain on the game thread; D3D11/OpenVR presentation has a single explicit owner. Track capture sequence separately from submit sequence so repeated presentation of the last image never counts as new game rendering.
+**Required action:** complete the remaining Phase 5 acceptance coverage and reduce readback/copy overhead while preserving separate capture/submit accounting and presenter ownership.
 
 ### A5 — Renderer resources are keyed by image description rather than device/generation ownership
 
 **Severity:** P1  
-**Status:** open
+**Status:** native-stereo Phase 5 ownership host-tested; reset/recreation acceptance remains open
 
-The current bridge can reuse resources when dimensions/format/MSAA match even if the underlying D3D9 device or generation has changed. Reset/device loss, reentrancy, D3D11-context ownership and teardown are not modeled strongly enough.
+The historical bridge could reuse resources when dimensions/format/MSAA matched even if the underlying D3D9 device or generation changed. The current native-stereo transport keys D3D9 capture resources by device, generation and full surface description including MSAA, carries device/generation identity in each owned frame, resets presenter textures when that identity changes and rejects stale generations/sequences.
 
-Phase 3 now assigns device/generation identity and emits generation changes after successful Reset; the current bridge also invalidates its D3D9/D3D11 resources before Reset. Resource ownership is still not keyed structurally by those IDs, so this finding remains open for Phase 5.
+The presenter has a single D3D11/OpenVR owner and teardown occurs outside `DllMain`. Host tests cover the mailbox and basic owned D3D9 stereo frame path, but the remediation plan's explicit Reset/resize/new-device matrix has not yet been fully exercised.
 
-**Required action:** introduce explicit device/generation identity, resource invalidation on Reset/recreation, bounded ownership, RAII for mapped/locked resources and shutdown outside `DllMain`.
+**Required action:** add the missing reset/resize/new-device acceptance tests before closing this finding.
 
 ### A6 — Host tests do not yet prove the deployed pipeline
 
 **Severity:** P0  
-**Status:** Phase 1 host acceptance complete; full mocked OpenVR path remains open
+**Status:** host acceptance complete through current Phase 5 components; Phase 6 failure-path simulation remains open
 
 Phase 1 acceptance is now host-tested. Neutral runtime, build identity, OpenVR and OpenXR targets are separated; OpenVR-only and OpenXR-only configurations build/test while the disabled SDK root is deliberately absent; CI bootstraps each enabled dependency; integration artifacts require Win32. Native D3D9 tests load and assert the system DLL, proxy smoke tests run in isolated directories, unavailable HAL/capability results use CTest SKIP, scene boundaries are exercised, and classic readback validates full asymmetric frames, row pitch and temporal changes.
 
-Phase 2-4 tests add deterministic patch failures/conflicts/multiple vtables/rollback/reentrancy, native factory recovery/two-device identity, swapchain observation, generation changes, structured stage failures and telemetry parser rejection paths. Fresh Debug and Release suites pass; the classic shared-texture capability is the single explicit SKIP on this host.
+Phase 2-4 tests add deterministic patch failures/conflicts/multiple vtables/rollback/reentrancy, native factory recovery/two-device identity, swapchain observation, generation changes, structured stage failures and telemetry parser rejection paths. Phase 5 adds the bounded mailbox and owned D3D9 stereo-capture tests, while later live runs exercise the dedicated presenter in the exact game. Fresh Debug and Release suites pass 20/21 CTests; the classic shared-texture capability is the single explicit SKIP on this host.
 
-The remaining host gap is a controlled-double test of the complete OpenVR flat bridge. Runtime submission still requires a real OpenVR compositor, so it is not misreported as host evidence.
+The remaining host gap is controlled simulation of the complete presenter/runtime failure matrix described by Phase 6: focus loss, one-eye submit failure, invalid tracking, runtime disconnect and shutdown. Runtime submission evidence from the real compositor remains classified as live/headset evidence rather than host evidence.
 
-**Required action:** keep live and headset promotion separate from these host results; add a controlled OpenVR boundary when Phase 5/6 separates presenter ownership.
+**Required action:** keep live and headset promotion separate from host results and add the Phase 6 controlled runtime/presenter failure-path tests.
 
 ### A7 — Live verification is not tied to a unique execution
 
@@ -162,13 +162,17 @@ These issues predate native stereo and no longer describe the current renderer s
 The HMD/native-stereo gate has now narrowed the OpenVR subset without closing this finding:
 the neutral HMD pose convention is explicitly right-handed `+X` right, `+Y` up, `-Z`
 forward with `(x,y,z,w)` quaternions, and base-relative orientation/recenter is host-tested.
+The OpenVR global-action edge feeding that policy is additionally headset-validated for left
+PS VR2 Sense Create by run `20260916T153109Z-8976b8f77775`.
 OpenVR supplies HMD orientation through a backend-neutral `PoseSource`, while
 `CameraStereoRuntimeCallbacks` supplies renderer-neutral per-eye data to the exact game adapter.
 OpenVR eye-to-head semantics and the CoJ asymmetric frustum mapping are host-tested. The first
 physical native-stereo attempt exposed one OpenVR-specific vertical-sign conversion defect:
 `GetProjectionRaw` supplied negative top/positive bottom while neutral `EyeFov` requires
 positive up/negative down. That adapter conversion is now explicit and host-tested. OpenXR
-equivalence and general neutral stereo-matrix validation remain open.
+equivalence and general neutral stereo-matrix validation remain open. Rigid-transform conversion
+now also rejects non-finite values, scaled/non-orthogonal bases and reflected rotations in host
+tests; that hardening does not by itself close the broader cross-runtime contract.
 
 **Required action:** complete remediation Phase 8 before camera/stereo implementation is promoted.
 
@@ -290,8 +294,13 @@ candidate. `Data/Player/PlayerProperties.def` defines movement in `cm/s` and acc
 directly as ChromeEngine units, shrinking a 65 mm IPD by 100x. Current source converts metres
 to centimetres in the CoJ adapter, records applied eye positions/frustum and D3D9 viewport,
 and brackets readback/runtime shutdown with stage telemetry. Debug and Release suites pass
-18 tests plus the expected classic-D3D9 shared-texture capability SKIP. These corrections are
-**host-tested only** until a fresh one-process headset run proves visual fusion and teardown.
+18 tests plus the expected classic-D3D9 shared-texture capability SKIP. Run
+`20260916T153109Z-8976b8f77775` subsequently live-observed the corrected scale in submitted
+stereo frames: OpenVR eye X offsets of `-0.032/+0.032` m became approximately `-3.2/+3.2`
+game units at the neutral camera before world orientation, with distinct real-color eye hashes
+and valid asymmetric frusta. The user still reported very poor visual quality/frame pacing and
+discomfort, so usable fusion/comfort remains unvalidated. The same run again stopped at
+`native_stereo_shutdown: stage=runtime_begin` without `runtime_end`/`run_end`.
 
 ## Target component boundaries
 

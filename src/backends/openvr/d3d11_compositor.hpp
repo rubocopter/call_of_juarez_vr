@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/vr_types.hpp"
+
 #include <string>
 
 struct ID3D11Texture2D;
@@ -16,6 +18,14 @@ enum class EyeSubmission { Left, Right };
     runtime::OpenVrRuntime& runtime,
     ID3D11Texture2D* texture,
     EyeSubmission eye,
+    int& runtime_result,
+    std::string& error) noexcept;
+
+[[nodiscard]] bool SubmitEyeD3D11WithPose(
+    runtime::OpenVrRuntime& runtime,
+    ID3D11Texture2D* texture,
+    EyeSubmission eye,
+    const runtime::Pose& render_hmd_pose,
     int& runtime_result,
     std::string& error) noexcept;
 

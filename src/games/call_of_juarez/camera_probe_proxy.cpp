@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -136,10 +137,12 @@ OpenVrCameraPoseSource g_hmd_pose_source;
 std::filesystem::path GameDirectory() noexcept {
     try {
         if (!g_game_directory.empty()) return g_game_directory;
-        wchar_t buffer[32768]{};
-        const DWORD length = GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
-        if (length == 0 || length >= std::size(buffer)) return {};
-        g_game_directory = std::filesystem::path(std::wstring_view(buffer, length)).parent_path();
+        std::vector<wchar_t> buffer(32768);
+        const DWORD length = GetModuleFileNameW(
+            nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0 || length >= buffer.size()) return {};
+        g_game_directory = std::filesystem::path(
+            std::wstring_view(buffer.data(), length)).parent_path();
         return g_game_directory;
     } catch (...) {
         return {};

@@ -263,11 +263,12 @@ void EmitHookOutcome(
                 << ";replacement_path=" << ModulePathForAddress(slot.replacement)
                 << ";current_path=" << ModulePathForAddress(slot.current)
                 << ";owned=" << (slot.owned ? "true" : "false");
+            const std::string detail_text = detail.str();
             g_telemetry->Emit({
                 .event = event,
                 .context = context,
                 .runtime_result = HookResultName(outcome.result),
-                .detail = detail.str(),
+                .detail = detail_text,
             });
             emitted = true;
         }
@@ -278,11 +279,12 @@ void EmitHookOutcome(
                 << ";modified_slots=" << outcome.modified_slots
                 << ";ownership_record_retained="
                 << (outcome.ownership_record_retained ? "true" : "false");
+            const std::string detail_text = detail.str();
             g_telemetry->Emit({
                 .event = event,
                 .context = context,
                 .runtime_result = HookResultName(outcome.result),
-                .detail = detail.str(),
+                .detail = detail_text,
             });
         }
     } catch (...) {
@@ -321,12 +323,13 @@ DWORD WINAPI ObserveRunContinuity(LPVOID) noexcept {
                     << ";original_path=" << ModulePathForAddress(slot.original)
                     << ";expected_path=" << ModulePathForAddress(slot.replacement)
                     << ";current_path=" << ModulePathForAddress(slot.current);
+                const std::string detail_text = out.str();
                 const auto emit_loss = [&](const cojvr::runtime::TelemetryContext& context) {
                     g_telemetry->Emit({
                         .event = "hook_integrity_lost",
                         .context = context,
                         .runtime_result = "overwritten",
-                        .detail = out.str(),
+                        .detail = detail_text,
                     });
                 };
                 bool context_emitted = false;
@@ -344,7 +347,7 @@ DWORD WINAPI ObserveRunContinuity(LPVOID) noexcept {
                     }
                 }
                 if (!context_emitted) emit_loss(CurrentTelemetryContext());
-                LogLine("d3d9 hook continuity: overwritten " + out.str());
+                LogLine("d3d9 hook continuity: overwritten " + detail_text);
             }
             if (g_telemetry) {
                 std::ostringstream detail;
@@ -418,11 +421,13 @@ void LogHostIdentityOnce() noexcept {
                     .runtime_result = run_id.empty() || build_manifest_id.empty()
                         ? "unbound" : "bound",
                 });
+                const std::string deployment_detail =
+                    "diagnostic_mode=" + ReadRunManifestField("diagnosticMode");
                 g_telemetry->Emit({
                     .event = "build/deployment_identified",
                     .runtime_result = run_id.empty() || build_manifest_id.empty()
                         ? "unbound" : "verified_by_run_manifest",
-                    .detail = "diagnostic_mode=" + ReadRunManifestField("diagnosticMode"),
+                    .detail = deployment_detail,
                 });
             }
 
@@ -437,12 +442,13 @@ void LogHostIdentityOnce() noexcept {
                 << cojvr::runtime::GameIdName(identity->filename_game)
                 << " sha256=" << identity->sha256
                 << " exact_build=" << (identity->IsKnownExactBuild() ? "known" : "unknown");
-            LogLine(out.str());
+            const std::string host_detail = out.str();
+            LogLine(host_detail);
             if (g_telemetry) {
                 g_telemetry->Emit({
                     .event = "host_identified",
                     .runtime_result = identity->IsKnownExactBuild() ? "known" : "unknown",
-                    .detail = out.str(),
+                    .detail = host_detail,
                 });
             }
         });
@@ -754,13 +760,14 @@ void AfterReset(
                     detail << "reason=Reset"
                         << ";device_vtable=" << PointerText(advanced->device_vtable)
                         << ";swapchain_vtable=" << PointerText(advanced->swapchain_vtable);
+                    const std::string detail_text = detail.str();
                     g_telemetry->Emit({
                         .event = "generation_changed",
                         .context = context,
                         .has_hresult = true,
                         .hresult = result,
                         .runtime_result = "success",
-                        .detail = detail.str(),
+                        .detail = detail_text,
                     });
                 }
                 const auto swapchain_outcome =
@@ -799,6 +806,7 @@ void ObserveCreatedDevice(
                 << ";device_vtable=" << PointerText(diagnostic.device_vtable)
                 << ";swapchain_identity=" << PointerText(diagnostic.swapchain_identity)
                 << ";swapchain_vtable=" << PointerText(diagnostic.swapchain_vtable);
+            const std::string detail_text = detail.str();
             g_telemetry->Emit({
                 .event = "device_created",
                 .context = context,
@@ -806,7 +814,7 @@ void ObserveCreatedDevice(
                 .hresult = result,
                 .runtime_result = diagnostic.factory_identity_matches
                     ? "native_identity_match" : "native_identity_mismatch",
-                .detail = detail.str(),
+                .detail = detail_text,
             });
         }
         const cojvr::backends::d3d9::DeviceHookCallbacks callbacks{
@@ -1071,11 +1079,12 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdk_version) {
         detail << "creation_thread=" << factory_context.creation_thread_id
             << ";factory_identity=" << PointerText(factory_context.identity)
             << ";factory_vtable=" << PointerText(factory_context.vtable);
+        const std::string detail_text = detail.str();
         g_telemetry->Emit({
             .event = "factory_created",
             .context = telemetry_context,
             .runtime_result = "native",
-            .detail = detail.str(),
+            .detail = detail_text,
         });
     }
 

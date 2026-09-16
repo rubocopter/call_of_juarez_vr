@@ -486,6 +486,7 @@ void StructuredRunTelemetry::PeriodicSummary(
         << ";active_stage=" << snapshot.active_stage
         << ";last_failure_stage=" << snapshot.last_failure_stage;
     if (!detail.empty()) summary << ';' << detail;
+    const std::string summary_text = summary.str();
     Emit(TelemetryEvent{
         .event = "periodic_summary",
         .context = context,
@@ -495,7 +496,7 @@ void StructuredRunTelemetry::PeriodicSummary(
         .upload_sequence = snapshot.uploads,
         .submit_sequence = snapshot.submit_left + snapshot.submit_right,
         .stage = snapshot.active_stage,
-        .detail = summary.str(),
+        .detail = summary_text,
     });
 }
 

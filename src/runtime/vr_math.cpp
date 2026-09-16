@@ -4,6 +4,42 @@
 #include <cmath>
 
 namespace cojvr::runtime {
+namespace {
+
+bool IsFiniteVec3(const Vec3 value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+bool IsRigidRotation3x3(const std::array<float, 12>& matrix) noexcept {
+    constexpr float kTolerance = 5.0e-3F;
+    const Vec3 right{matrix[0], matrix[1], matrix[2]};
+    const Vec3 up{matrix[4], matrix[5], matrix[6]};
+    const Vec3 forward{matrix[8], matrix[9], matrix[10]};
+    if (!IsFiniteVec3(right) || !IsFiniteVec3(up) || !IsFiniteVec3(forward)) return false;
+
+    const auto dot = [](const Vec3 a, const Vec3 b) noexcept {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    };
+    const float right_length = dot(right, right);
+    const float up_length = dot(up, up);
+    const float forward_length = dot(forward, forward);
+    if (std::fabs(right_length - 1.0F) > kTolerance ||
+        std::fabs(up_length - 1.0F) > kTolerance ||
+        std::fabs(forward_length - 1.0F) > kTolerance ||
+        std::fabs(dot(right, up)) > kTolerance ||
+        std::fabs(dot(right, forward)) > kTolerance ||
+        std::fabs(dot(up, forward)) > kTolerance) {
+        return false;
+    }
+
+    const float determinant =
+        right.x * (up.y * forward.z - up.z * forward.y) -
+        right.y * (up.x * forward.z - up.z * forward.x) +
+        right.z * (up.x * forward.y - up.y * forward.x);
+    return std::isfinite(determinant) && std::fabs(determinant - 1.0F) <= kTolerance;
+}
+
+} // namespace
 
 Quaternion NormalizeQuaternion(Quaternion value) noexcept {
     const float length = std::sqrt(
@@ -41,6 +77,8 @@ Vec3 RotateVector(const Quaternion rotation, const Vec3 value) noexcept {
 Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
     Pose pose{};
     pose.position = {matrix[3], matrix[7], matrix[11]};
+    pose.position_valid = IsFiniteVec3(pose.position);
+    if (!IsRigidRotation3x3(matrix)) return pose;
 
     const float m00 = matrix[0];
     const float m01 = matrix[1];
@@ -88,10 +126,49 @@ Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
         }
     }
 
+    const float quaternion_length_squared =
+        q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+    if (!std::isfinite(quaternion_length_squared) ||
+        quaternion_length_squared <= 1.0e-12F) {
+        return pose;
+    }
     pose.orientation = NormalizeQuaternion(q);
     pose.orientation_valid = true;
-    pose.position_valid = true;
     return pose;
+}
+
+bool RigidTransform3x4FromPose(
+    const Pose& pose,
+    std::array<float, 12>& matrix) noexcept {
+    matrix = {};
+    if (!pose.orientation_valid || !pose.position_valid || !IsFiniteVec3(pose.position)) {
+        return false;
+    }
+
+    const float length_squared =
+        pose.orientation.x * pose.orientation.x +
+        pose.orientation.y * pose.orientation.y +
+        pose.orientation.z * pose.orientation.z +
+        pose.orientation.w * pose.orientation.w;
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-12F) return false;
+
+    const Quaternion q = NormalizeQuaternion(pose.orientation);
+    const float xx = q.x * q.x;
+    const float yy = q.y * q.y;
+    const float zz = q.z * q.z;
+    const float xy = q.x * q.y;
+    const float xz = q.x * q.z;
+    const float yz = q.y * q.z;
+    const float xw = q.x * q.w;
+    const float yw = q.y * q.w;
+    const float zw = q.z * q.w;
+
+    matrix = {
+        1.0F - 2.0F * (yy + zz), 2.0F * (xy - zw), 2.0F * (xz + yw), pose.position.x,
+        2.0F * (xy + zw), 1.0F - 2.0F * (xx + zz), 2.0F * (yz - xw), pose.position.y,
+        2.0F * (xz - yw), 2.0F * (yz + xw), 1.0F - 2.0F * (xx + yy), pose.position.z,
+    };
+    return IsRigidRotation3x3(matrix);
 }
 
 EyeFov FovFromTangents(

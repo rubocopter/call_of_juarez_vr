@@ -102,7 +102,10 @@ struct CameraStereoRuntimeCallbacks {
         cojvr::runtime::Eye eye,
         std::uint64_t frame_sequence,
         std::uint64_t* content_hash) noexcept = nullptr;
-    bool (*submit_frame)(void* context, std::uint64_t frame_sequence) noexcept = nullptr;
+    bool (*submit_frame)(
+        void* context,
+        std::uint64_t frame_sequence,
+        const cojvr::runtime::PoseSample& render_hmd_pose) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

@@ -1,10 +1,10 @@
 #include "games/call_of_juarez/camera_probe.hpp"
 
+#include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
-#include "backends/d3d9/openvr_stereo_readback.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
+#include "backends/openvr/stereo_presenter.hpp"
 #include "runtime/log.hpp"
-#include "runtime/openvr_runtime.hpp"
 
 #include <windows.h>
 
@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -26,18 +27,16 @@ std::filesystem::path g_game_directory{};
 std::string g_run_id{"unbound"};
 
 struct NativeStereoState {
-    cojvr::runtime::OpenVrRuntime runtime;
-    cojvr::backends::d3d9::OpenVrStereoReadback readback;
+    cojvr::backends::d3d9::D3D9StereoCapture capture;
+    cojvr::backends::openvr::OpenVrStereoPresenter presenter;
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     std::mutex device_mutex;
     IDirect3D9* factory = nullptr;
     IDirect3DDevice9* device = nullptr;
-    std::atomic_uint64_t pose_sequence{0};
+    std::atomic_uint64_t device_generation{0};
     std::atomic_uint64_t last_error_frame{0};
     std::array<bool, 2> capture_source_logged{};
     bool runtime_ready = false;
-    bool input_ready = false;
-    bool input_poll_error_logged = false;
 };
 
 NativeStereoState g_stereo;
@@ -45,12 +44,12 @@ NativeStereoState g_stereo;
 std::filesystem::path GameDirectory() noexcept {
     try {
         if (!g_game_directory.empty()) return g_game_directory;
-        wchar_t buffer[32768]{};
+        std::vector<wchar_t> buffer(32768);
         const DWORD length = GetModuleFileNameW(
-            nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
-        if (length == 0 || length >= std::size(buffer)) return {};
+            nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0 || length >= buffer.size()) return {};
         g_game_directory = std::filesystem::path(
-            std::wstring_view(buffer, length)).parent_path();
+            std::wstring_view(buffer.data(), length)).parent_path();
         return g_game_directory;
     } catch (...) {
         return {};
@@ -66,6 +65,8 @@ void LogLine(const std::string_view line) noexcept {
     const auto path = LogPath();
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
 }
+
+void PresenterLog(void*, const std::string_view line) noexcept { LogLine(line); }
 
 bool ShouldLogStereoTiming(const std::uint64_t frame_sequence) noexcept {
     return frame_sequence > 0 && (frame_sequence <= 8 || (frame_sequence % 90) == 0);
@@ -156,10 +157,13 @@ void AfterCreateDevice(
             previous = g_stereo.device;
             g_stereo.device = replacement;
         }
+        const std::uint64_t generation =
+            g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
         if (previous) previous->Release();
         std::ostringstream line;
         line << "native_stereo_device: status=observed device=0x" << std::hex
-             << reinterpret_cast<std::uintptr_t>(replacement);
+             << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
+             << " generation=" << generation;
         LogLine(line.str());
     } catch (...) {
     }
@@ -171,26 +175,33 @@ bool BeginStereoFrame(
     sample = {};
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state || !state->runtime_ready) return false;
-    cojvr::runtime::Pose pose{};
-    if (!state->runtime.WaitForHmdPose(pose) || !pose.orientation_valid) return false;
-    if (state->input_ready) {
-        cojvr::runtime::OpenVrGlobalActions actions{};
-        if (state->runtime.PollGlobalActions(actions)) {
-            state->input_poll_error_logged = false;
-            sample.recenter_requested = actions.recenter_requested;
-            if (actions.recenter_requested) {
-                LogLine("openvr_input_event: action=recenter result=pressed source=global_action");
+
+    cojvr::backends::d3d9::StereoCpuFrame completed{};
+    if (state->capture.TryCollectReady(completed)) {
+        const std::uint64_t sequence = completed.capture_sequence;
+        if (state->presenter.Publish(std::move(completed))) {
+            if (ShouldLogStereoTiming(sequence)) {
+                LogLine(
+                    "native_stereo_producer_timing: status=published " +
+                    std::string(state->capture.collect_description()));
             }
-        } else if (!state->input_poll_error_logged) {
-            state->input_poll_error_logged = true;
-            LogLine(
-                "openvr_input: status=poll_failed error=" +
-                std::string(state->runtime.last_error()));
+        } else {
+            LogTransportFailure(
+                sequence, "publish", "presenter mailbox rejected completed CPU frame");
         }
     }
-    sample.hmd_pose.pose = pose;
-    sample.hmd_pose.sequence =
-        state->pose_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+
+    cojvr::backends::openvr::OpenVrTrackingSample tracking{};
+    if (!state->presenter.LatestTracking(tracking) ||
+        !tracking.pose.orientation_valid || tracking.sequence == 0) {
+        return false;
+    }
+    sample.hmd_pose.pose = tracking.pose;
+    sample.hmd_pose.sequence = tracking.sequence;
+    sample.recenter_requested = tracking.recenter_requested;
+    if (tracking.recenter_requested) {
+        LogLine("openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread");
+    }
     sample.eyes = state->eyes;
     return true;
 }
@@ -208,8 +219,10 @@ bool CaptureStereoEye(
         LogTransportFailure(frame_sequence, "capture", "D3D9 device unavailable");
         return false;
     }
-    const bool captured = state->readback.CaptureEye(
-        device, eye, frame_sequence, *content_hash);
+    const std::uint64_t generation =
+        state->device_generation.load(std::memory_order_acquire);
+    const bool captured = state->capture.CaptureEye(
+        device, eye, frame_sequence, generation);
     device->Release();
     if (captured) {
         const std::size_t eye_index = eye == cojvr::runtime::Eye::left ? 0U : 1U;
@@ -218,84 +231,67 @@ bool CaptureStereoEye(
             LogLine(
                 std::string("native_stereo_capture: status=source eye=") +
                 (eye == cojvr::runtime::Eye::left ? "left " : "right ") +
-                std::string(state->readback.description()));
+                std::string(state->capture.capture_description()));
         }
         if (ShouldLogStereoTiming(frame_sequence)) {
             std::ostringstream line;
             line << "native_stereo_capture_timing: status=ok frame_sequence="
                  << frame_sequence << " eye="
                  << (eye == cojvr::runtime::Eye::left ? "left " : "right ")
-                 << state->readback.description();
+                 << state->capture.capture_description();
             LogLine(line.str());
         }
     }
     if (!captured) {
-        LogTransportFailure(frame_sequence, "capture", state->readback.last_error());
+        LogTransportFailure(frame_sequence, "capture", state->capture.last_error());
     }
     return captured;
 }
 
-bool SubmitStereoFrame(void* context, const std::uint64_t frame_sequence) noexcept {
+bool SubmitStereoFrame(
+    void* context,
+    const std::uint64_t frame_sequence,
+    const cojvr::runtime::PoseSample& render_hmd_pose) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return false;
-    const bool submitted = state->readback.Submit(state->runtime, frame_sequence);
-    if (!submitted) {
-        LogTransportFailure(frame_sequence, "submit", state->readback.last_error());
+    const bool accepted = state->capture.EndFrame(
+        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence);
+    if (!accepted) {
+        LogTransportFailure(frame_sequence, "fence", state->capture.last_error());
     } else if (ShouldLogStereoTiming(frame_sequence)) {
         std::ostringstream line;
-        line << "native_stereo_submit_timing: status=ok frame_sequence="
-             << frame_sequence << ' ' << state->readback.description();
+        line << "native_stereo_frame_queue: status=ok frame_sequence="
+             << frame_sequence << " transport=deferred_d3d9_ring_cpu_mailbox";
         LogLine(line.str());
     }
-    return submitted;
+    return accepted;
 }
 
 bool StartStereoRuntime() noexcept {
-    if (!g_stereo.runtime.Initialize("Call of Juarez VR native stereo")) {
-        std::ostringstream line;
-        line << "native_stereo_runtime: status=unavailable result_code="
-             << g_stereo.runtime.last_result_code()
-             << " error=" << g_stereo.runtime.last_error();
-        LogLine(line.str());
-        return false;
-    }
-    if (!g_stereo.runtime.ReadEyeConfiguration(g_stereo.eyes)) {
-        LogLine(
-            "native_stereo_runtime: status=eye_config_failed error=" +
-            std::string(g_stereo.runtime.last_error()));
-        g_stereo.runtime.Shutdown();
-        return false;
-    }
+    std::string manifest_path;
     try {
         const auto manifest = GameDirectory() / L"cojvr_openvr_input" / L"actions.json";
         const std::u8string manifest_utf8 = manifest.u8string();
-        const std::string manifest_path(
+        manifest_path.assign(
             reinterpret_cast<const char*>(manifest_utf8.data()), manifest_utf8.size());
-        g_stereo.input_ready = g_stereo.runtime.InitializeGlobalActions(manifest_path);
-        if (g_stereo.input_ready) {
-            LogLine(
-                "openvr_input: status=started action_set=/actions/global "
-                "recenter=/actions/global/in/recenter binding=psvr2_sense_create");
-        } else {
-            LogLine(
-                "openvr_input: status=unavailable error=" +
-                std::string(g_stereo.runtime.last_error()));
-        }
     } catch (...) {
-        g_stereo.input_ready = false;
         LogLine("openvr_input: status=unavailable error=manifest_path_exception");
     }
-    if (!g_stereo.readback.Initialize(g_stereo.runtime)) {
+    if (!g_stereo.presenter.Start(manifest_path, &PresenterLog, nullptr)) {
         LogLine(
-            "native_stereo_runtime: status=transport_failed error=" +
-            std::string(g_stereo.readback.last_error()));
-        g_stereo.runtime.Shutdown();
+            "native_stereo_runtime: status=unavailable owner=presenter_thread error=" +
+            g_stereo.presenter.last_error());
+        return false;
+    }
+    if (!g_stereo.presenter.EyeViews(g_stereo.eyes)) {
+        LogLine("native_stereo_runtime: status=eye_config_failed owner=presenter_thread");
+        g_stereo.presenter.Stop();
         return false;
     }
     g_stereo.runtime_ready = true;
     try {
         std::ostringstream line;
-        line << "native_stereo_runtime: status=started backend=openvr"
+        line << "native_stereo_runtime: status=started backend=openvr owner=presenter_thread"
              << " recommended_eye=" << g_stereo.eyes[0].width << 'x'
              << g_stereo.eyes[0].height
              << " left_eye_x=" << g_stereo.eyes[0].pose.position.x
@@ -315,15 +311,30 @@ void Finalize() noexcept {
         LogLine(std::string("native_stereo_factory_hook: status=") +
             (restored ? "restored" : "incomplete"));
     }
-    LogLine("native_stereo_shutdown: stage=readback_begin");
-    g_stereo.readback.Shutdown();
-    LogLine("native_stereo_shutdown: stage=readback_end");
-    LogLine("native_stereo_shutdown: stage=runtime_begin");
-    g_stereo.runtime.Shutdown();
-    LogLine("native_stereo_shutdown: stage=runtime_end");
+    LogLine("native_stereo_shutdown: stage=capture_begin");
+    g_stereo.capture.Shutdown();
+    LogLine("native_stereo_shutdown: stage=capture_end");
+    LogLine("native_stereo_shutdown: stage=presenter_begin");
+    g_stereo.presenter.Stop();
+    LogLine("native_stereo_shutdown: stage=presenter_end");
     g_stereo.runtime_ready = false;
-    g_stereo.input_ready = false;
-    g_stereo.input_poll_error_logged = false;
+    try {
+        const auto capture_stats = g_stereo.capture.stats();
+        const auto presenter_stats = g_stereo.presenter.stats();
+        std::ostringstream line;
+        line << "native_stereo_transport_summary: frames_fenced="
+             << capture_stats.frames_fenced
+             << ";frames_collected=" << capture_stats.frames_collected
+             << ";capture_ring_drops=" << capture_stats.frames_dropped_no_slot
+             << ";mailbox_published=" << presenter_stats.mailbox.published
+             << ";mailbox_replaced=" << presenter_stats.mailbox.replaced_pending
+             << ";frames_uploaded=" << presenter_stats.frames_uploaded
+             << ";new_submissions=" << presenter_stats.new_frame_submissions
+             << ";repeat_submissions=" << presenter_stats.repeated_frame_submissions
+             << ";submit_failures=" << presenter_stats.submit_failures;
+        LogLine(line.str());
+    } catch (...) {
+    }
     LogLine("native_stereo_runtime: status=stopped");
     // These COM references are deliberately process-lifetime. The live game has shown
     // that releasing the retained D3D9 device during CRT teardown can terminate finalization

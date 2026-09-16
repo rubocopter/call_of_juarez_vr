@@ -1,5 +1,6 @@
 #include "backends/d3d9/openvr_stereo_readback.hpp"
 
+#include "backends/d3d9/content_hash.hpp"
 #include "backends/openvr/d3d11_compositor.hpp"
 #include "backends/openvr/d3d11_session.hpp"
 #include "runtime/openvr_runtime.hpp"
@@ -38,34 +39,15 @@ std::string Failure(const char* stage, const HRESULT result) {
 
 bool SameDescription(const D3DSURFACE_DESC& lhs, const D3DSURFACE_DESC& rhs) noexcept {
     return lhs.Width == rhs.Width && lhs.Height == rhs.Height &&
-        lhs.Format == rhs.Format;
+        lhs.Format == rhs.Format &&
+        lhs.MultiSampleType == rhs.MultiSampleType &&
+        lhs.MultiSampleQuality == rhs.MultiSampleQuality;
 }
 
 double MillisecondsBetween(
     const std::chrono::steady_clock::time_point begin,
     const std::chrono::steady_clock::time_point end) noexcept {
     return std::chrono::duration<double, std::milli>(end - begin).count();
-}
-
-std::uint64_t HashSurface(
-    const D3DLOCKED_RECT& locked,
-    const UINT width,
-    const UINT height) noexcept {
-    constexpr std::uint64_t kOffset = 14695981039346656037ULL;
-    constexpr std::uint64_t kPrime = 1099511628211ULL;
-    std::uint64_t hash = kOffset;
-    const auto* row = static_cast<const std::uint8_t*>(locked.pBits);
-    for (UINT y = 0; y < height; ++y) {
-        for (UINT x = 0; x < width; ++x) {
-            const auto* pixel = row + static_cast<std::size_t>(x) * 4;
-            for (std::size_t channel = 0; channel < 3; ++channel) {
-                hash ^= pixel[channel];
-                hash *= kPrime;
-            }
-        }
-        row += locked.Pitch;
-    }
-    return hash;
 }
 
 std::size_t EyeIndex(const runtime::Eye eye) noexcept {
@@ -307,8 +289,17 @@ bool OpenVrStereoReadback::CaptureEye(
             impl_->ReleaseResources();
             return false;
         }
-        content_hash = HashSurface(
-            locked, impl_->surface_desc.Width, impl_->surface_desc.Height);
+        content_hash = HashBgrxSurfaceIgnoringAlpha(
+            locked.pBits,
+            static_cast<std::size_t>(locked.Pitch),
+            impl_->surface_desc.Width,
+            impl_->surface_desc.Height);
+        if (content_hash == 0) {
+            (void)impl_->system_memory->UnlockRect();
+            impl_->last_error = "invalid locked surface layout for content hashing";
+            impl_->ReleaseResources();
+            return false;
+        }
         const std::size_t index = EyeIndex(eye);
         impl_->d3d11.context()->UpdateSubresource(
             impl_->eye_textures[index].Get(), 0, nullptr, locked.pBits,

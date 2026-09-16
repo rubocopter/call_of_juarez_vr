@@ -136,16 +136,18 @@ native-stereo render-view proof:
 4. complete native factory/device discovery;
 5. structured render/run telemetry;
 6. exact-build `CBaseCamera -> view/projection -> renderer` static proof — complete;
-7. one manual, non-headset proof of the camera/render boundary plus external FOV control and clean restoration — live-tested; orientation requires revalidation at the corrected source-basis injection point;
+7. one manual, non-headset proof of the camera/render boundary plus external FOV control and clean restoration — live-tested;
 8. backend-neutral HMD pose/recenter boundary feeding the same transient camera path — host-tested;
 9. exact ChromeEngine render-view boundary plus per-eye translation/asymmetric projection — host-tested;
 10. first physical native-stereo attempt — failed before eye capture/submission because of an OpenVR vertical-FOV sign conversion defect and exposed source/frustum restoration occurring before later scene visibility work;
 11. second physical attempt — reached visible in-game OpenVR submission, but all sampled left/right captures were identical and the run did not reach `run_end`; this is live evidence of headset presentation, not native stereo;
 12. third physical attempt — HMD yaw/pitch direction was correct, but right-eye capture ended on `D3DFMT_NULL` because the implementation used core-only `0x30E00` for the second eye while the first eye traversed full wrapper `0x30FB0`; no stereo pair was submitted;
 13. fourth physical attempt — both complete `0x30FB0` passes captured distinct real color RT0 results and submitted them to OpenVR; binocular gameplay was visible, but fusion/comfort and frame pacing were poor and shutdown remained incomplete;
-14. apply the now-proven CoJ world-unit contract (`100` game units per metre), record applied eye positions/frustum/viewport, and prove usable binocular fusion plus clean finalization — current gate;
-15. harden/optimize stereo transport, frame pacing, culling and eye render targets using the live evidence;
-16. only then advance positional 6DOF, controller gameplay, interaction rebuilding and full-body IK.
+14. corrected CoJ world scale, Sense recenter, scene-focus handoff and clean finalization — live-tested;
+15. preserve the exact render HMD pose through the asynchronous capture/mailbox path and submit new/repeated frames with OpenVR explicit render-pose metadata — live-tested by `20260916T224239Z-e43b46698e5c`, which removed the reported head-turn snap-back;
+16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — current physical gate;
+17. complete the remaining Phase 5 reset/resize/new-device and paused-producer acceptance coverage, then continue transport/culling/eye-target hardening as evidence requires;
+18. only then advance positional 6DOF, controller gameplay, interaction rebuilding and full-body IK.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
@@ -202,24 +204,44 @@ active through the complete render-view call, then restores the full snapshot in
 disassembly shows scene/visibility work continues after the camera virtual update inside
 `0x00030E00`.
 
-For the first proof only, each native eye pass is captured from classic D3D9 by synchronous
-CPU readback, uploaded into a separate D3D11 texture and submitted through the existing
-OpenVR D3D11 compositor path. The first live submission attempt read the swap-chain
+For the first proof only, each native eye pass is captured from classic D3D9 into a small
+GPU-copy ring, collected into owned CPU frames when ready, published through a bounded latest-frame
+mailbox, uploaded by the presenter into separate D3D11 textures and submitted to OpenVR. The first
+live submission attempt read the swap-chain
 backbuffer while executing inside the render-view boundary; every sampled left/right pair was
 pixel-identical even though the two eye camera/projection passes executed. Current transport
 therefore reads the D3D9 render target currently bound at slot 0, records whether it aliases
 the backbuffer, keys resources to that capture-surface description and rejects identical eye
 hashes before OpenVR submission. `D3DFMT_NULL` is explicitly treated as an auxiliary/wrong
 capture boundary and fails closed. The candidate observes device creation through the factory
-hook and does not install `Present`, `BeginScene`, `EndScene` or `Reset` hooks. Synchronous
-CPU readback and synchronous pose/submission remain proof-only and require frame-pacing work.
+hook and does not install `Present`, `BeginScene`, `EndScene` or `Reset` hooks. CPU readback,
+full-frame diagnostic hashing and upload remain proof-only costs that require frame-pacing work.
 Run `20260916T133322Z-36c287cc43d8` live-tested distinct left/right engine captures and OpenVR
 submission through this path, but the user reported poor fusion/comfort and performance. That
 run used the pre-fix 1:1 metre-to-game-unit eye translation, making the 65 mm physical IPD only
 0.65 mm in CoJ world scale. Current source fixes that adapter scale and logs the D3D9 viewport
 plus applied per-eye position/frustum so the next run can separate geometric correctness from
-transport cost. Sampled transport telemetry also breaks out synchronous D3D9 readback,
-CPU/hash/D3D11 upload, total eye capture and OpenVR submission time.
+transport cost. Sampled transport telemetry breaks out deferred D3D9 readback, CPU/hash/D3D11
+upload, total eye capture and OpenVR submission time.
+
+Run `20260916T221254Z-861f3c15abd4` subsequently proved clean presenter/runtime shutdown and
+SteamVR scene-focus handoff, but exposed strong head-turn ghosting/elastic reprojection. The
+presenter can submit an image substantially later than the HMD pose used to render it, and may
+repeat that image while newer compositor poses continue to arrive. Current transport therefore
+carries the exact raw HMD render pose and pose sequence with each `StereoCpuFrame`; the presenter
+retains that metadata with the uploaded textures and submits both new and repeated frames using
+OpenVR `VRTextureWithPose_t` / `Submit_TextureWithPose`. A missing or invalid render pose fails
+closed before submission. This preserves the compositor's ability to reproject from the actual
+pose associated with the image instead of implicitly treating the texture as if it were rendered
+at the newest `WaitGetPoses` result.
+
+Run `20260916T224239Z-e43b46698e5c` then physically confirmed that explicit render-pose metadata
+removes the reported snap-back during slow/fast head turns and mouse rotation. The remaining
+presentation problem is throughput. Telemetry showed approximately `15-22 ms` of owned CPU copy
+and `11-14 ms` of full diagnostic hashing on sampled 2560x1440 stereo frames. The hot path now
+checks left/right RGB inequality directly on every frame and computes full hashes only on the
+telemetry samples that are logged; contiguous D3D9 locks use one bulk `memcpy`. This preserves the
+fail-closed distinct-eye contract while removing diagnostic work from almost every frame.
 
 Recenter now uses a small game-neutral OpenVR action boundary. The runtime owns the action
 manifest, action-set/action handles and press-edge semantics; the current PS VR2 Sense profile
@@ -229,6 +251,14 @@ controller paths and OpenVR handles do not leak into game camera code. The JSON/
 remains a diagnostic fallback. This input slice is intentionally limited to recenter while the
 camera/stereo gate is active; tracked hands, gameplay actions and body/IK ownership remain later
 contracts.
+
+Run `20260916T153109Z-8976b8f77775` also demonstrates that modal/flat UI is a separate
+presentation boundary: the game menu was not visible through the current native gameplay stereo
+path, while returning to gameplay resumed HMD-driven rendering. Do not solve that by forcing the
+menu through the exact gameplay camera hook. The later UI layer should treat flat menus/videos as
+explicit VR presentation content (for example a compositor/scene quad or equivalent game-owned
+surface) and may evaluate suppressing unnecessary 3D scene work while a fully modal flat surface
+is active. That policy is not implemented or validated yet.
 
 ## Primary validation hardware
 

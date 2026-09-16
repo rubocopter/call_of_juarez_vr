@@ -3,6 +3,7 @@
 #include <array>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace cojvr::backends::d3d9 {
 namespace {
@@ -50,7 +51,7 @@ std::filesystem::path SystemD3D9ModulePath() noexcept {
     try {
         HMODULE module = SystemD3D9Module();
         if (!module) return {};
-        std::array<wchar_t, 32768> path{};
+        std::vector<wchar_t> path(32768);
         const DWORD length = GetModuleFileNameW(
             module, path.data(), static_cast<DWORD>(path.size()));
         if (length == 0 || length >= path.size()) return {};
@@ -62,7 +63,7 @@ std::filesystem::path SystemD3D9ModulePath() noexcept {
 
 bool IsExpectedSystemD3D9Module() noexcept {
     try {
-        std::array<wchar_t, 32768> system_directory{};
+        std::vector<wchar_t> system_directory(32768);
         const UINT length = GetSystemDirectoryW(
             system_directory.data(), static_cast<UINT>(system_directory.size()));
         if (length == 0 || length >= system_directory.size()) return false;

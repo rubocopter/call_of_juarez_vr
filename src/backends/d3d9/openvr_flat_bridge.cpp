@@ -1,5 +1,6 @@
 #include "backends/d3d9/openvr_flat_bridge.hpp"
 
+#include "backends/d3d9/content_hash.hpp"
 #include "backends/openvr/d3d11_compositor.hpp"
 #include "backends/openvr/d3d11_session.hpp"
 #include "runtime/openvr_runtime.hpp"
@@ -36,27 +37,6 @@ bool SameSurfaceDescription(const D3DSURFACE_DESC& left, const D3DSURFACE_DESC& 
     return left.Width == right.Width && left.Height == right.Height &&
         left.Format == right.Format && left.MultiSampleType == right.MultiSampleType &&
         left.MultiSampleQuality == right.MultiSampleQuality;
-}
-
-std::uint64_t HashSurface(
-    const D3DLOCKED_RECT& locked, const UINT width, const UINT height) noexcept {
-    constexpr std::uint64_t offset = 14695981039346656037ULL;
-    constexpr std::uint64_t prime = 1099511628211ULL;
-    std::uint64_t hash = offset;
-    const auto* row = static_cast<const std::uint8_t*>(locked.pBits);
-    for (UINT y = 0; y < height; ++y) {
-        for (UINT x = 0; x < width; ++x) {
-            const auto* pixel = row + static_cast<std::size_t>(x) * 4;
-            // Both supported formats are B8G8R8X8/A8. Ignore the fourth byte so
-            // undefined X or presentation alpha cannot masquerade as new content.
-            for (std::size_t channel = 0; channel < 3; ++channel) {
-                hash ^= pixel[channel];
-                hash *= prime;
-            }
-        }
-        row += locked.Pitch;
-    }
-    return hash;
 }
 
 void Report(
@@ -232,8 +212,17 @@ bool OpenVrFlatBridge::CaptureAndSubmit(
             return false;
         }
 
-        const std::uint64_t content_hash = HashSurface(
-            locked, impl_->surface_desc.Width, impl_->surface_desc.Height);
+        const std::uint64_t content_hash = HashBgrxSurfaceIgnoringAlpha(
+            locked.pBits,
+            static_cast<std::size_t>(locked.Pitch),
+            impl_->surface_desc.Width,
+            impl_->surface_desc.Height);
+        if (content_hash == 0) {
+            (void)impl_->system_memory->UnlockRect();
+            Report(phase_callback, OpenVrFlatBridgePhase::AfterUpload, E_FAIL);
+            impl_->last_error = "invalid locked surface layout for content hashing";
+            return false;
+        }
         Report(phase_callback, OpenVrFlatBridgePhase::FramePublished, S_OK, 0, content_hash);
 
         impl_->d3d11.context()->UpdateSubresource(

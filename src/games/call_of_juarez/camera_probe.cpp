@@ -24,6 +24,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace cojvr::games::call_of_juarez {
 namespace {
@@ -1074,7 +1075,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     if (left_captured && right_captured && left_state_restored && right_state_restored) {
         submitted = g_stereo_callbacks.submit_frame(
-            g_stereo_callbacks.context, frame_sequence);
+            g_stereo_callbacks.context, frame_sequence, sample.hmd_pose);
     }
 
     g_stereo_eye_override = {};
@@ -1099,6 +1100,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                    << ";right_captured=" << (right_captured ? "true" : "false")
                    << ";right_state_restored=" << (right_state_restored ? "true" : "false")
                    << ";submitted=" << (submitted ? "true" : "false")
+                   << ";transport_accepted=" << (submitted ? "true" : "false")
+                   << ";content_hash_deferred="
+                   << ((left_hash == 0 && right_hash == 0) ? "true" : "false")
                    << ";left_renderer_camera_match="
                    << (left_renderer_camera_match ? "true" : "false")
                    << ";right_renderer_camera_match="
@@ -1412,7 +1416,7 @@ CameraProbeInstallStatus InitializeCameraProbe(
             EmitEvent("camera_probe_install", "engine_missing", "ChromeEngine3.dll is not loaded");
             return CameraProbeInstallStatus::engine_missing;
         }
-        std::array<wchar_t, 32768> engine_path_buffer{};
+        std::vector<wchar_t> engine_path_buffer(32768);
         const DWORD engine_path_length = GetModuleFileNameW(
             engine, engine_path_buffer.data(), static_cast<DWORD>(engine_path_buffer.size()));
         if (engine_path_length == 0 || engine_path_length >= engine_path_buffer.size()) {

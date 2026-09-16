@@ -3,11 +3,13 @@
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
-boundary and distinct two-eye ChromeEngine render path are live-tested. The current engineering
-priority is stereo correctness/comfort: validate the corrected Call of Juarez metres-to-
-centimetres eye baseline, per-eye viewport/frustum geometry, in-headset Sense recenter and clean runtime teardown before
-optimizing the proof transport. Positional 6DOF, controller gameplay, interaction rebuilding
-and full-body IK remain downstream.
+boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,
+in-headset Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit
+render-pose submission now have live evidence; the latter removed the reported head-turn
+snap-back in run `20260916T224239Z-e43b46698e5c`. The current engineering priority is sustained
+frame pacing/performance with the lower-overhead distinction/copy path while preserving those
+validated contracts. Positional 6DOF, controller gameplay, interaction rebuilding and full-body
+IK remain downstream.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the
@@ -69,20 +71,26 @@ current camera, stereo, 6DOF and interaction validation gates.
 - Second native-stereo live attempt: **headset-visible but not native stereo** — run `20260916T123049Z-8d977bb5b439` executed both per-eye camera/projection passes and submitted frames to OpenVR, but every sampled pair had identical left/right pixel hashes because capture still read the swap-chain backbuffer at the render-view boundary. The run also ended without `native_stereo_runtime: stopped`/`run_end`. Subsequent candidates moved capture to active RT0 and reject identical-eye submission.
 - Third native-stereo live attempt: **tracking correct, stereo capture incomplete** — run `20260916T130852Z-1438628c90c6` had correct horizontal/vertical HMD camera direction, but right-eye RT0 was always `D3DFMT_NULL`. Exact-build inspection proved the candidate used full wrapper `0x30FB0` for the left eye and core-only `0x30E00` for the right. The next candidate replayed the complete wrapper for both eyes and transactionally handled `view+0xD7`; the run itself remains diagnostic because its run ID contains three process starts and no clean `run_end`.
 - Fourth native-stereo live attempt: **distinct native eye rendering live-tested; visual acceptance failed** — run `20260916T133322Z-36c287cc43d8` used one process start and the complete `0x30FB0` wrapper for both eyes. Both passes captured real `2560x1440` `D3DFMT_A8R8G8B8` RT0 content, hashes differed for every sampled pair, renderer-camera correlation was true for both eyes and frames were submitted to OpenVR. The user observed binocular gameplay, correct yaw/pitch direction, head-height placement and a complete-looking scene, but fusion/comfort and frame pacing were poor. Evidence is incomplete because shutdown again lacked `native_stereo_runtime: stopped` and `run_end`.
+- Fifth native-stereo live attempt: **corrected scale and Sense recenter live-observed; performance/UI acceptance failed** — run `20260916T153109Z-8976b8f77775` applied the OpenVR eye baseline at `100` CoJ units/metre, kept distinct real-color eye submissions and physically validated left-Sense-Create recenter. The user reported very poor visual quality/frame pacing with discomfort. Opening the game menu did not present that menu in the headset; returning to gameplay resumed VR movement. Shutdown again stopped at `native_stereo_shutdown: stage=runtime_begin`, so the run is incomplete.
+- Sixth native-stereo live attempt: **scene-focus/shutdown fixed; reprojection comfort failed** — run `20260916T221254Z-861f3c15abd4` completed with `runtimeEnded=true`, `incomplete=false`, `native_stereo_runtime: status=stopped` and `run_end`. SteamVR scene focus transferred to the CoJ PID on first submit and the dashboard no longer remained stuck over gameplay. The user reported better perceived performance, but strong head-turn ghosting/elastic snap-back remained. The run collected 5,139 frames, submitted 5,136 new frames plus 5,439 repeats and recorded one submit failure.
+- Seventh native-stereo live attempt: **explicit render pose fixed snap-back; performance remains** — run `20260916T224239Z-e43b46698e5c` ended cleanly and the user tested slow/fast head turns plus mouse rotation. The previous backward pull/snap-back was no longer present and comfort improved substantially. The run collected 3,129 frames, submitted 3,127 new frames plus 6,099 repeats and recorded one submit failure. Remaining work is frame pacing/performance.
 - Character/body yaw ownership: **planned with body/IK reconciliation**. Head rotation remains intentionally independent of the game-controlled body during the current camera/stereo gate; do not bind body yaw directly to HMD yaw as a substitute for the later body policy.
 - Exact ChromeEngine render-view boundary (`0x30FB0` / core `0x30E00`) for two complete eye passes, including transactional replay of `view+0xD7`: **live-tested**.
-- OpenVR eye-to-head semantics -> native per-eye translation and asymmetric engine frustum mapping: **live-tested structurally; physical baseline scale correction is host-tested**. Game data proves CoJ movement/world units are centimetres, so OpenVR metres are now multiplied by `100` only inside the CoJ adapter.
+- OpenVR eye-to-head semantics -> native per-eye translation and asymmetric engine frustum mapping: **live-tested structurally, including the corrected physical baseline scale**. Run `20260916T153109Z-8976b8f77775` observed `-0.032/+0.032` m as approximately `-3.2/+3.2` CoJ units at the neutral camera.
 - Transactional restoration of derived camera state after each eye (`+0x84/+0xC4/+0x104/+0x144/+0x184/+0x204`): **host-tested**.
 - First native-stereo transport (classic D3D9 active-render-target CPU readback -> separate left/right D3D11 textures -> OpenVR): **distinct-eye submission live-tested; proof-only performance remains unacceptable**.
-- Minimal OpenVR global action contract + PS VR2 Sense left-Create recenter binding: **host-tested**. The press edge feeds the existing XR-neutral `RelativePoseTracker` recenter path; physical controller validation remains pending.
-- Correct physical eye baseline + viewport/frustum telemetry + usable binocular fusion + in-headset recenter + clean shutdown: **current manual gate**.
+- Minimal OpenVR global action contract + PS VR2 Sense left-Create recenter binding: **headset-validated for recenter**. Run `20260916T153109Z-8976b8f77775` proved the physical press reaches the existing XR-neutral `RelativePoseTracker` recenter path.
+- Explicit render-pose submission for new and repeated frames: **live-tested** for the reported snap-back defect. Each transported stereo frame carries the exact HMD render pose/sequence and OpenVR submission uses `VRTextureWithPose_t` / `Submit_TextureWithPose`; invalid/missing render poses fail closed.
+- Sampled diagnostic hashing with per-frame RGB distinction and contiguous CPU-copy fast path: **host-tested**. Full hashes no longer consume roughly `11-14 ms` on every new stereo frame; every eye pair still fails closed if its RGB content is identical.
+- Usable binocular presentation/frame pacing: **current manual gate**. Clean shutdown, scene-focus handoff and snap-back correction are live-tested; remaining work is sustained performance/comfort.
 
 ### Phase 5 — capture/presenter separation
 
-- Game-thread `D3D9Capture` producing owned CPU frames: **planned**.
-- Bounded `FrameMailbox`: **planned**.
-- `OpenVrPresenter` with exclusive D3D11/OpenVR ownership: **planned**.
-- Device/generation-aware resource lifetime and stale-frame rejection: **planned**.
+- Game-thread `D3D9StereoCapture` producing owned CPU frames: **host-tested**.
+- Bounded `FrameMailbox`: **host-tested**.
+- `OpenVrStereoPresenter` with exclusive D3D11/OpenVR ownership: **host-tested**.
+- Device/generation-aware resource lifetime and stale-frame rejection: **host-tested**.
+- The separated path is **live-exercised** by the later native-stereo runs, including repeated-frame presentation, scene-focus handoff and clean teardown. Full remediation-plan acceptance still needs explicit resize/Reset/new-device coverage and a controlled paused-producer presenter test.
 
 ### Phase 6 — OpenVR state/lifetime/synchronization
 
@@ -135,11 +143,11 @@ current camera, stereo, 6DOF and interaction validation gates.
 - In-game classic-D3D9 -> CPU -> D3D11 -> OpenVR flat submission: **live-tested for initial genuine captured frames**.
 - Current native device-vtable hook integrity: **live-tested failure mode** — the Phase 0-4 run-bound candidate reproduced three project frame callbacks followed by simultaneous loss of the four instrumented device hooks; the exact-target run proved that every lost slot returned to its recorded original function in `C:\\WINDOWS\\system32\\d3d9.dll`. The external actor remains unresolved; the Steam Overlay A/B is preserved as a deferred controlled experiment.
 - Historical replacement-owner diagnostic `369754A6...A14A6AF`: **implemented / host-tested baseline artifact**; not the first action of the stabilization pass.
-- Sustained, run-auditable changing game-frame capture and presentation: **blocked by stabilization track**.
-- Sustained game image physically visible in headset: **planned headset gate after flat integration is auditable**.
+- Sustained, run-auditable changing game-frame capture and presentation: **live-tested through the deferred Phase 5 path; performance remains the active gate**.
+- Sustained game image physically visible in headset: **live-tested; frame pacing/comfort remain below the supported threshold**.
 - External engine-camera orientation/FOV control: **live-tested exact-build proof**.
 - Rotational HMD tracking / 3DOF camera proof: **live-tested direction/basis path** — run `20260916T133322Z-36c287cc43d8` confirmed correct yaw/pitch direction in the headset; positional 6DOF remains separate and planned.
-- Stereo eye transform/projection through the native engine render-view boundary: **live-tested distinct-eye path** — two complete `0x30FB0` passes, distinct real-color captures and OpenVR submission are proven; corrected physical baseline scale, usable fusion and clean finalization remain the current manual gate.
+- Stereo eye transform/projection through the native engine render-view boundary: **live-tested distinct-eye path** — two complete `0x30FB0` passes, distinct real-color captures, corrected physical baseline scale, OpenVR submission, clean finalization and explicit render-pose reprojection are proven. Sustained frame pacing/performance remains the current manual gate.
 
 ### Experimental OpenXR track
 
@@ -152,14 +160,14 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 - Positional tracking and room-scale reconciliation: **planned**.
 - Culling/visibility corrections: **planned**.
-- HUD/menu strategy: **planned**.
+- HUD/menu strategy: **planned; live-observed gap** — run `20260916T153109Z-8976b8f77775` showed that the flat game menu is not presented through the current native gameplay stereo path.
 - Cinematic and post-process handling: **planned**.
 - Head/body/camera ownership and comfort validation: **planned**.
 
 ## Milestone 4 — controllers and interactions
 
-- Minimal logical OpenVR global action seam: **host-tested for recenter only**; gameplay actions remain planned.
-- PS VR2 Sense OpenVR/SteamVR binding: **host-tested for left-Create recenter only**; tracked-hand/gameplay binding validation remains planned.
+- Minimal logical OpenVR global action seam: **headset-validated for recenter only**; gameplay actions remain planned.
+- PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter only**; tracked-hand/gameplay binding validation remains planned.
 - Decouple weapon aim from HMD view: **planned**.
 - Full-body IK driven by validated HMD/controller/body anchors: **planned**.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.

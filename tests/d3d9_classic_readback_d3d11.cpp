@@ -1,4 +1,5 @@
 #include "backends/d3d9/classic_readback_bridge.hpp"
+#include "backends/d3d9/content_hash.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
 
 #include <windows.h>
@@ -6,6 +7,8 @@
 #include <d3d9.h>
 #include <wrl/client.h>
 
+#include <array>
+#include <cstdint>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -27,9 +30,73 @@ int Fail(const char* message, const HRESULT hr = S_OK) {
     return 1;
 }
 
+bool PixelHashContractPasses() {
+    constexpr std::uint32_t width = 3;
+    constexpr std::uint32_t height = 2;
+    constexpr std::size_t pitch = 16;
+    std::array<std::uint8_t, pitch * height> first{};
+    for (std::uint32_t y = 0; y < height; ++y) {
+        for (std::uint32_t x = 0; x < width; ++x) {
+            const std::size_t offset = static_cast<std::size_t>(y) * pitch + x * 4U;
+            first[offset + 0] = static_cast<std::uint8_t>(0x10U + x + y);
+            first[offset + 1] = static_cast<std::uint8_t>(0x40U + x * 3U);
+            first[offset + 2] = static_cast<std::uint8_t>(0x80U + y * 5U);
+            first[offset + 3] = static_cast<std::uint8_t>(0x20U + x + y * 7U);
+        }
+    }
+
+    const std::uint64_t baseline = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+        first.data(), pitch, width, height);
+    if (baseline == 0) return false;
+
+    auto alpha_only = first;
+    for (std::uint32_t y = 0; y < height; ++y) {
+        for (std::uint32_t x = 0; x < width; ++x) {
+            alpha_only[static_cast<std::size_t>(y) * pitch + x * 4U + 3U] ^= 0xFFU;
+        }
+    }
+    if (cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+            alpha_only.data(), pitch, width, height) != baseline) {
+        return false;
+    }
+    if (!cojvr::backends::d3d9::BgrxSurfacesEqualIgnoringAlpha(
+            first.data(), pitch, alpha_only.data(), pitch, width, height)) {
+        return false;
+    }
+
+    auto padding_only = first;
+    padding_only[12] = 0xAAU;
+    padding_only[13] = 0x55U;
+    padding_only[28] = 0xCCU;
+    if (cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+            padding_only.data(), pitch, width, height) != baseline) {
+        return false;
+    }
+
+    auto changed_rgb = first;
+    changed_rgb[4] ^= 0x01U;
+    if (cojvr::backends::d3d9::BgrxSurfacesEqualIgnoringAlpha(
+            first.data(), pitch, changed_rgb.data(), pitch, width, height)) {
+        return false;
+    }
+    if (cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+            changed_rgb.data(), pitch, width, height) == baseline) {
+        return false;
+    }
+
+    return cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+               nullptr, pitch, width, height) == 0 &&
+        cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+               first.data(), width * 4U - 1U, width, height) == 0;
+}
+
 } // namespace
 
 int main() {
+    if (!PixelHashContractPasses()) {
+        return Fail("BGRX diagnostic content-hash contract failed");
+    }
+
     const auto create_d3d9 = cojvr::backends::d3d9::SystemDirect3DCreate9();
     if (create_d3d9 == nullptr) return Fail("System d3d9.dll has no Direct3DCreate9");
     if (!cojvr::backends::d3d9::IsExpectedSystemD3D9Module()) {

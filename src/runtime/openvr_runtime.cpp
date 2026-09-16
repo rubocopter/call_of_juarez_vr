@@ -5,6 +5,7 @@
 #include <array>
 #include <string>
 #include <utility>
+#include <windows.h>
 
 namespace cojvr::runtime {
 namespace {
@@ -163,8 +164,53 @@ bool OpenVrRuntime::WaitForHmdPose(Pose& pose) noexcept {
 
     const vr::TrackedDevicePose_t& hmd = poses[vr::k_unTrackedDeviceIndex_Hmd];
     pose = PoseFromRigidTransform3x4(Flatten(hmd.mDeviceToAbsoluteTracking));
-    pose.orientation_valid = hmd.bPoseIsValid;
-    pose.position_valid = hmd.bPoseIsValid;
+    pose.orientation_valid = hmd.bPoseIsValid && pose.orientation_valid;
+    pose.position_valid = hmd.bPoseIsValid && pose.position_valid;
+    return true;
+}
+
+bool OpenVrRuntime::ReadHmdPose(Pose& pose) noexcept {
+    impl_->last_error.clear();
+    impl_->last_result_code = 0;
+    pose = {};
+    if (!initialized()) {
+        impl_->last_error = "OpenVR is not initialized";
+        impl_->last_result_code = -1;
+        return false;
+    }
+
+    std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> poses{};
+    impl_->system->GetDeviceToAbsoluteTrackingPose(
+        vr::TrackingUniverseStanding,
+        0.0F,
+        poses.data(),
+        static_cast<std::uint32_t>(poses.size()));
+
+    const vr::TrackedDevicePose_t& hmd = poses[vr::k_unTrackedDeviceIndex_Hmd];
+    pose = PoseFromRigidTransform3x4(Flatten(hmd.mDeviceToAbsoluteTracking));
+    pose.orientation_valid = hmd.bPoseIsValid && pose.orientation_valid;
+    pose.position_valid = hmd.bPoseIsValid && pose.position_valid;
+    return true;
+}
+
+void OpenVrRuntime::PostPresentHandoff() noexcept {
+    if (!initialized()) return;
+    impl_->compositor->PostPresentHandoff();
+}
+
+bool OpenVrRuntime::ReadPresentationState(OpenVrPresentationState& state) noexcept {
+    state = {};
+    if (!initialized()) return false;
+
+    state.process_id = static_cast<std::uint32_t>(GetCurrentProcessId());
+    state.scene_focus_process_id = impl_->compositor->GetCurrentSceneFocusProcess();
+    state.can_render_scene = impl_->compositor->CanRenderScene();
+    state.input_available = impl_->system->IsInputAvailable();
+    state.should_pause = impl_->system->ShouldApplicationPause();
+    state.should_reduce_rendering_work = impl_->system->ShouldApplicationReduceRenderingWork();
+    if (vr::IVROverlay* overlay = vr::VROverlay(); overlay != nullptr) {
+        state.dashboard_visible = overlay->IsDashboardVisible();
+    }
     return true;
 }
 

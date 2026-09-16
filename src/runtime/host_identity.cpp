@@ -5,7 +5,7 @@
 
 #include <windows.h>
 
-#include <array>
+#include <vector>
 
 namespace cojvr::runtime {
 
@@ -23,7 +23,7 @@ std::optional<HostIdentity> InspectHost(const std::filesystem::path& executable)
 
 std::optional<HostIdentity> InspectCurrentHost() noexcept {
     try {
-        std::array<wchar_t, 32768> buffer{};
+        std::vector<wchar_t> buffer(32768);
         const DWORD count = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
         if (count == 0 || count >= buffer.size()) return std::nullopt;
         return InspectHost(std::filesystem::path(std::wstring_view(buffer.data(), count)));

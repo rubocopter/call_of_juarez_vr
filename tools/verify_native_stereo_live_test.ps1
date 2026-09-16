@@ -39,10 +39,13 @@ function Assert-LogMatch([string]$Pattern, [string]$Failure) {
 }
 
 Assert-LogMatch `
-    "native_stereo_runtime: status=started backend=openvr .*pose_semantics=eye_to_head" `
+    "native_stereo_runtime: status=started backend=openvr owner=presenter_thread .*pose_semantics=eye_to_head" `
     "The native-stereo OpenVR runtime/eye configuration did not initialize."
 Assert-LogMatch `
-    "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create" `
+    "native_stereo_presenter: status=started owner_thread=openvr\+d3d11 mode=latest_frame_repeat" `
+    "The dedicated OpenVR/D3D11 presenter thread did not initialize."
+Assert-LogMatch `
+    "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread" `
     "The native-stereo OpenVR global input action set did not initialize."
 Assert-LogMatch `
     "native_stereo_factory_hook: status=installed" `
@@ -75,14 +78,17 @@ Assert-LogMatch `
     "native_stereo_capture: status=source eye=right .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
     "The right eye did not report a valid D3D9 viewport at its capture boundary."
 Assert-LogMatch `
-    "native_stereo_capture_timing: status=ok .*eye=left .*gpu_readback_ms=[0-9.]+;copy_upload_ms=[0-9.]+;capture_total_ms=[0-9.]+" `
-    "The left-eye proof transport did not report capture/readback timing."
+    "native_stereo_capture_timing: status=ok .*eye=left .*transport=deferred_d3d9_ring_cpu_mailbox.*gpu_copy_queue_ms=[0-9.]+" `
+    "The left-eye deferred transport did not report GPU-copy queue timing."
 Assert-LogMatch `
-    "native_stereo_capture_timing: status=ok .*eye=right .*gpu_readback_ms=[0-9.]+;copy_upload_ms=[0-9.]+;capture_total_ms=[0-9.]+" `
-    "The right-eye proof transport did not report capture/readback timing."
+    "native_stereo_capture_timing: status=ok .*eye=right .*transport=deferred_d3d9_ring_cpu_mailbox.*gpu_copy_queue_ms=[0-9.]+" `
+    "The right-eye deferred transport did not report GPU-copy queue timing."
 Assert-LogMatch `
-    "native_stereo_submit_timing: status=ok .*submit_ms=[0-9.]+" `
-    "The proof transport did not report OpenVR submission timing."
+    "native_stereo_producer_timing: status=published .*transport=deferred_d3d9_ring_cpu_mailbox.*deferred_readback_ms=[0-9.]+;cpu_copy_ms=[0-9.]+;producer_collect_ms=[0-9.]+" `
+    "The producer did not report deferred readback/copy timing."
+Assert-LogMatch `
+    "native_stereo_presenter_timing: status=ok .*render_pose_sequence=[1-9][0-9]*;pose_mode=explicit_render_pose;content=new.*left_result=0;right_result=0.*wait_pose_ms=[0-9.]+;submit_ms=[0-9.]+" `
+    "The presenter did not report a successful new-frame OpenVR submission bound to its exact render pose."
 
 $StereoLines = @($Lines | Where-Object {
     $_ -match "camera_probe_event: event=camera_native_stereo_frame result=ok"
@@ -101,6 +107,8 @@ foreach ($Line in $StereoLines) {
         $Line -notmatch "right_captured=true" -or
         $Line -notmatch "right_state_restored=true" -or
         $Line -notmatch "submitted=true" -or
+        $Line -notmatch "transport_accepted=true" -or
+        $Line -notmatch "content_hash_deferred=true" -or
         $Line -notmatch "left_renderer_camera_match=true" -or
         $Line -notmatch "right_renderer_camera_match=true" -or
         $Line -notmatch "render_view_rva=0x30fb0" -or
@@ -200,8 +208,23 @@ foreach ($Line in $StereoLines) {
         throw "The applied per-eye frusta were invalid, inconsistent, or not horizontally asymmetric."
     }
 }
-if (-not ($StereoLines | Where-Object { $_ -match "distinct_eye_content=true" })) {
-    throw "No submitted frame contained distinct left/right rendered pixels; native stereo was not demonstrated."
+
+$PresentedStereoLines = @($Lines | Where-Object {
+    $_ -match "native_stereo_presenter_frame: status=new" -and
+    $_ -match "distinct_eye_content=true"
+})
+if ($PresentedStereoLines.Count -lt 2) {
+    throw "Too few distinct native-stereo frames reached the OpenVR presenter."
+}
+foreach ($Line in $PresentedStereoLines) {
+    if ($Line -notmatch "left_hash=[1-9][0-9]*" -or
+        $Line -notmatch "right_hash=[1-9][0-9]*" -or
+        $Line -notmatch "distinct_check=rgb_compare_every_frame" -or
+        $Line -notmatch "hash_mode=sampled_telemetry" -or
+        $Line -notmatch "hash_ms=[0-9.]+" -or
+        $Line -notmatch "upload_ms=[0-9.]+") {
+        throw "A sampled presenter frame did not prove per-frame RGB distinction, diagnostic hashing and D3D11 upload timing."
+    }
 }
 
 $OrientationLines = @($Lines | Where-Object {
@@ -264,6 +287,18 @@ Assert-LogMatch `
     "native_stereo_factory_hook: status=restored" `
     "The CreateDevice observation hook was not cleanly restored."
 Assert-LogMatch `
+    "native_stereo_presenter_shutdown: stage=runtime_end" `
+    "The OpenVR runtime did not finish shutdown on its owning presenter thread."
+Assert-LogMatch `
+    "native_stereo_presenter: status=stopped" `
+    "The OpenVR/D3D11 presenter thread did not stop cleanly."
+Assert-LogMatch `
+    "native_stereo_shutdown: stage=presenter_end" `
+    "The proxy did not join the presenter during finalization."
+Assert-LogMatch `
+    "native_stereo_transport_summary: .*frames_collected=[1-9][0-9]*.*frames_uploaded=[1-9][0-9]*.*new_submissions=[1-9][0-9]*.*repeat_submissions=[0-9]+.*submit_failures=0" `
+    "The deferred transport summary did not prove captured/uploaded/submitted content with zero submit failures."
+Assert-LogMatch `
     "native_stereo_runtime: status=stopped" `
     "The native-stereo OpenVR runtime did not shut down cleanly."
 
@@ -276,6 +311,6 @@ Assert-LogMatch "run_end: run_id=$EscapedRunId(?:\s|$)" "The run did not end nor
 
 Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified."
 Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
-Write-Host "PASS - two native ChromeEngine eye passes produced distinct captured eye images."
+Write-Host "PASS - ChromeEngine eye passes were queued through the deferred D3D9 ring and distinct frames reached the presenter."
 Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
-Write-Host "PASS - passthrough, render-view/camera/factory hook restoration and XR shutdown verified."
+Write-Host "PASS - dedicated presenter submission, passthrough, hook restoration and same-owner XR shutdown verified."

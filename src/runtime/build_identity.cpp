@@ -68,7 +68,7 @@ std::optional<std::string> Sha256File(const std::filesystem::path& path) noexcep
         std::ifstream input(path, std::ios::binary);
         if (!input) return std::nullopt;
 
-        std::array<char, 64 * 1024> buffer{};
+        std::vector<char> buffer(64 * 1024);
         while (input) {
             input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
             const std::streamsize count = input.gcount();
