@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$GameDirectory,
 
-    [ValidateSet("enable", "recenter", "disable")]
+    [ValidateSet("enable", "recenter", "disable", "body-enable", "body-disable")]
     [string]$Mode = "enable"
 )
 
@@ -20,11 +20,37 @@ if ([string]$StageState.diagnosticMode -notin $SupportedModes) {
 
 $ControlPath = Join-Path $GameDirectory "cojvr-camera-control.json"
 $TemporaryPath = "$ControlPath.tmp-$([Guid]::NewGuid().ToString('N'))"
-$TrackingEnabled = $Mode -ne "disable"
+$ExistingControl = if (Test-Path -LiteralPath $ControlPath -PathType Leaf) {
+    Get-Content -LiteralPath $ControlPath -Raw | ConvertFrom-Json
+} else {
+    $null
+}
+$ExistingTracking = if ($null -ne $ExistingControl -and
+    $null -ne $ExistingControl.PSObject.Properties['trackingEnabled']) {
+    [bool]$ExistingControl.trackingEnabled
+} else {
+    $false
+}
+$ExistingBodyIk = if ($null -ne $ExistingControl -and
+    $null -ne $ExistingControl.PSObject.Properties['bodyIkEnabled']) {
+    [bool]$ExistingControl.bodyIkEnabled
+} else {
+    $false
+}
+$BodyMode = $Mode -in @("body-enable", "body-disable")
+$TrackingEnabled = if ($BodyMode) { $ExistingTracking } else { $Mode -ne "disable" }
+$BodyIkEnabled = if ($Mode -eq "body-enable") {
+    $true
+} elseif ($Mode -eq "body-disable") {
+    $false
+} else {
+    $ExistingBodyIk
+}
 $Control = [ordered]@{
     enabled = $false
     trackingEnabled = $TrackingEnabled
-    recenter = $Mode -in @("enable", "recenter")
+    bodyIkEnabled = $BodyIkEnabled
+    recenter = (-not $BodyMode) -and ($Mode -in @("enable", "recenter"))
     yawDegrees = 0.0
     pitchDegrees = 0.0
 }
@@ -43,3 +69,4 @@ try {
 
 Write-Host "HMD camera control updated: $ControlPath"
 Write-Host "Mode: $Mode"
+Write-Host "Body IK enabled: $($BodyIkEnabled.ToString().ToLowerInvariant())"

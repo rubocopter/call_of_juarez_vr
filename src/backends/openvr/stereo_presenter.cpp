@@ -58,6 +58,11 @@ bool SameRuntimeState(
         left.shutdown_requested == right.shutdown_requested;
 }
 
+double PoseAgeMilliseconds(const std::chrono::steady_clock::time_point capture_time) noexcept {
+    if (capture_time == std::chrono::steady_clock::time_point{}) return 0.0;
+    return MillisecondsBetween(capture_time, std::chrono::steady_clock::now());
+}
+
 } // namespace
 
 struct OpenVrStereoPresenter::Impl {
@@ -75,6 +80,8 @@ struct OpenVrStereoPresenter::Impl {
 
     mutable std::mutex tracking_mutex;
     runtime::Pose latest_pose{};
+    runtime::Pose latest_left_controller{};
+    runtime::Pose latest_right_controller{};
     std::uint64_t pose_sequence = 0;
     bool recenter_pending = false;
 
@@ -87,6 +94,7 @@ struct OpenVrStereoPresenter::Impl {
     std::atomic_uint64_t repeated_frame_submissions{0};
     std::atomic_uint64_t rejected_frames{0};
     std::atomic_uint64_t submit_failures{0};
+    std::atomic_bool shutdown_complete{false};
 
     std::string action_manifest_path;
     PresenterLogCallback log_callback = nullptr;
@@ -105,10 +113,8 @@ struct OpenVrStereoPresenter::Impl {
     }
 
     void LogPresentationState(
-        runtime::OpenVrRuntime& runtime,
+        const runtime::OpenVrPresentationState& state,
         const std::string_view phase) const noexcept {
-        runtime::OpenVrPresentationState state{};
-        if (!runtime.ReadPresentationState(state)) return;
         std::ostringstream line;
         line << "openvr_scene_state: phase=" << phase
              << ";process_id=" << state.process_id
@@ -120,6 +126,14 @@ struct OpenVrStereoPresenter::Impl {
              << ";should_reduce_rendering_work="
              << (state.should_reduce_rendering_work ? "true" : "false");
         Log(line.str());
+    }
+
+    void LogPresentationState(
+        runtime::OpenVrRuntime& runtime,
+        const std::string_view phase) const noexcept {
+        runtime::OpenVrPresentationState state{};
+        if (!runtime.ReadPresentationState(state)) return;
+        LogPresentationState(state, phase);
     }
 
     void LogRuntimeState(
@@ -255,7 +269,9 @@ struct OpenVrStereoPresenter::Impl {
         const runtime::Pose& render_hmd_pose,
         int& left_result,
         int& right_result,
-        double& submit_ms) noexcept {
+        double& submit_ms,
+        bool& scene_focus_pending) noexcept {
+        scene_focus_pending = false;
         const auto submit_begin = std::chrono::steady_clock::now();
         std::string submit_error;
         if (!SubmitEyeD3D11WithPose(
@@ -263,6 +279,10 @@ struct OpenVrStereoPresenter::Impl {
                 render_hmd_pose,
                 left_result, submit_error)) {
             SetError(submit_error);
+            if (IsOpenVrSceneFocusPending(left_result)) {
+                scene_focus_pending = true;
+                return false;
+            }
             ++submit_failures;
             return false;
         }
@@ -271,6 +291,10 @@ struct OpenVrStereoPresenter::Impl {
                 render_hmd_pose,
                 right_result, submit_error)) {
             SetError(submit_error);
+            if (IsOpenVrSceneFocusPending(right_result)) {
+                scene_focus_pending = true;
+                return false;
+            }
             ++submit_failures;
             return false;
         }
@@ -289,10 +313,14 @@ struct OpenVrStereoPresenter::Impl {
         std::uint64_t active_generation = 0;
         std::uint64_t active_capture_sequence = 0;
         std::uint64_t active_render_pose_sequence = 0;
+        std::chrono::steady_clock::time_point active_capture_time{};
         runtime::Pose active_render_hmd_pose{};
         PresentationCadence cadence;
         runtime::OpenVrRuntimeState previous_runtime_state{};
         bool have_previous_runtime_state = false;
+        runtime::OpenVrPresentationState previous_presentation_state{};
+        bool have_previous_presentation_state = false;
+        std::uint64_t presentation_poll_sequence = 0;
 
         try {
             if (!runtime.Initialize("Call of Juarez VR native stereo presenter")) {
@@ -332,22 +360,27 @@ struct OpenVrStereoPresenter::Impl {
             SignalInitialization(true);
             Log("native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=latest_frame_repeat");
             Log("openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff");
-            LogPresentationState(runtime, "initialized");
+            if (runtime.ReadPresentationState(previous_presentation_state)) {
+                have_previous_presentation_state = true;
+                LogPresentationState(previous_presentation_state, "initialized");
+            }
             previous_runtime_state = runtime.state();
             have_previous_runtime_state = true;
             LogRuntimeState(previous_runtime_state, "initialized");
 
             while (!stop_requested.load(std::memory_order_acquire)) {
                 const auto pose_begin = std::chrono::steady_clock::now();
-                runtime::Pose pose{};
+                runtime::OpenVrTrackedPoses tracked_poses{};
                 // Do not enter WaitGetPoses until there is actual scene content
                 // to submit. WaitGetPoses captures SteamVR scene focus; doing so
                 // during CoJ's flat intro/menu transition can leave the dashboard
                 // owning the visible system layer while the game has no VR frame.
                 const bool compositor_pacing = cadence.presentable();
                 const bool pose_ok =
-                    (compositor_pacing ? runtime.WaitForHmdPose(pose) : runtime.ReadHmdPose(pose)) &&
-                    pose.orientation_valid;
+                    (compositor_pacing
+                         ? runtime.WaitForTrackedPoses(tracked_poses)
+                         : runtime.ReadTrackedPoses(tracked_poses)) &&
+                    tracked_poses.hmd.orientation_valid;
                 const auto pose_end = std::chrono::steady_clock::now();
                 const runtime::OpenVrRuntimeState runtime_state = runtime.state();
                 if (!have_previous_runtime_state ||
@@ -362,6 +395,23 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     previous_runtime_state = runtime_state;
                     have_previous_runtime_state = true;
+                }
+                ++presentation_poll_sequence;
+                if (!have_previous_presentation_state || (presentation_poll_sequence % 8U) == 0U) {
+                    runtime::OpenVrPresentationState presentation_state{};
+                    if (runtime.ReadPresentationState(presentation_state)) {
+                        if (have_previous_presentation_state &&
+                            presentation_state.dashboard_visible !=
+                                previous_presentation_state.dashboard_visible) {
+                            LogPresentationState(
+                                presentation_state,
+                                presentation_state.dashboard_visible
+                                    ? "dashboard_opened"
+                                    : "dashboard_closed");
+                        }
+                        previous_presentation_state = presentation_state;
+                        have_previous_presentation_state = true;
+                    }
                 }
                 if (runtime_state.shutdown_requested) {
                     Log("native_stereo_presenter_transition: status=runtime_shutdown_requested action=stop_presenter");
@@ -378,7 +428,9 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     {
                         std::lock_guard lock(tracking_mutex);
-                        latest_pose = pose;
+                        latest_pose = tracked_poses.hmd;
+                        latest_left_controller = tracked_poses.left_controller;
+                        latest_right_controller = tracked_poses.right_controller;
                         ++pose_sequence;
                         if (recenter) recenter_pending = true;
                     }
@@ -418,6 +470,7 @@ struct OpenVrStereoPresenter::Impl {
                                 left_hash, right_hash, hash_ms, upload_ms)) {
                             const bool first_presentable_frame = !cadence.presentable();
                             active_capture_sequence = frame.capture_sequence;
+                            active_capture_time = frame.capture_time;
                             active_render_pose_sequence = frame.render_pose_sequence;
                             active_render_hmd_pose = frame.render_hmd_pose;
                             cadence.FrameUploaded();
@@ -460,6 +513,7 @@ struct OpenVrStereoPresenter::Impl {
                 int left_result = 0;
                 int right_result = 0;
                 double submit_ms = 0.0;
+                bool scene_focus_pending = false;
                 if (active_render_pose_sequence == 0 ||
                     !active_render_hmd_pose.orientation_valid ||
                     !active_render_hmd_pose.position_valid) {
@@ -473,9 +527,15 @@ struct OpenVrStereoPresenter::Impl {
                 const PresentationContent pending_content = cadence.pending_content();
                 if (!SubmitEyes(
                         runtime, textures, active_render_hmd_pose,
-                        left_result, right_result, submit_ms)) {
-                    Log("native_stereo_presenter_submit: status=failed frame_sequence=" +
-                        std::to_string(active_capture_sequence) + ";error=" + ErrorCopy());
+                        left_result, right_result, submit_ms, scene_focus_pending)) {
+                    if (scene_focus_pending) {
+                        Log("native_stereo_presenter_submit: status=deferred reason=scene_focus_pending frame_sequence=" +
+                            std::to_string(active_capture_sequence) + ";runtime_result=" +
+                            std::to_string(left_result != 0 ? left_result : right_result));
+                    } else {
+                        Log("native_stereo_presenter_submit: status=failed frame_sequence=" +
+                            std::to_string(active_capture_sequence) + ";error=" + ErrorCopy());
+                    }
                     continue;
                 }
                 cadence.SubmissionSucceeded();
@@ -510,6 +570,20 @@ struct OpenVrStereoPresenter::Impl {
                          << ";wait_pose_ms=" << MillisecondsBetween(pose_begin, pose_end)
                          << ";submit_ms=" << submit_ms;
                     Log(line.str());
+
+                    std::ostringstream pose_line;
+                    pose_line << "native_stereo_pose_telemetry: status=ok"
+                              << ";frame_sequence=" << active_capture_sequence
+                              << ";render_pose_sequence=" << active_render_pose_sequence
+                              << std::fixed << std::setprecision(3)
+                              << ";pose_age_ms=" << PoseAgeMilliseconds(active_capture_time)
+                              << ";position_x_m=" << active_render_hmd_pose.position.x
+                              << ";position_y_m=" << active_render_hmd_pose.position.y
+                              << ";position_z_m=" << active_render_hmd_pose.position.z
+                              << ";capture_time_valid="
+                              << (active_capture_time != std::chrono::steady_clock::time_point{}
+                                  ? "true" : "false");
+                    Log(pose_line.str());
                 }
             }
         } catch (...) {
@@ -524,6 +598,9 @@ struct OpenVrStereoPresenter::Impl {
         Log("native_stereo_presenter_shutdown: stage=d3d11_end");
         Log("native_stereo_presenter_shutdown: stage=runtime_begin");
         runtime.Shutdown();
+        shutdown_complete.store(
+            runtime.state().lifecycle == runtime::OpenVrLifecycleState::shutdown_complete,
+            std::memory_order_release);
         LogRuntimeState(runtime.state(), "shutdown_complete");
         Log("native_stereo_presenter_shutdown: stage=runtime_end");
         input_ready.store(false, std::memory_order_release);
@@ -565,6 +642,8 @@ bool OpenVrStereoPresenter::Start(
         {
             std::lock_guard lock(impl_->tracking_mutex);
             impl_->latest_pose = {};
+            impl_->latest_left_controller = {};
+            impl_->latest_right_controller = {};
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;
         }
@@ -574,6 +653,7 @@ bool OpenVrStereoPresenter::Start(
         impl_->repeated_frame_submissions.store(0, std::memory_order_release);
         impl_->rejected_frames.store(0, std::memory_order_release);
         impl_->submit_failures.store(0, std::memory_order_release);
+        impl_->shutdown_complete.store(false, std::memory_order_release);
         impl_->worker = std::thread([state = impl_.get()] { state->Worker(); });
 
         std::unique_lock lock(impl_->init_mutex);
@@ -621,6 +701,8 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         std::lock_guard lock(impl_->tracking_mutex);
         if (impl_->pose_sequence == 0 || !impl_->latest_pose.orientation_valid) return false;
         sample.pose = impl_->latest_pose;
+        sample.left_controller = impl_->latest_left_controller;
+        sample.right_controller = impl_->latest_right_controller;
         sample.sequence = impl_->pose_sequence;
         sample.recenter_requested = impl_->recenter_pending;
         impl_->recenter_pending = false;
@@ -659,6 +741,7 @@ OpenVrPresenterStats OpenVrStereoPresenter::stats() const noexcept {
         impl_->repeated_frame_submissions.load(std::memory_order_acquire);
     result.rejected_frames = impl_->rejected_frames.load(std::memory_order_acquire);
     result.submit_failures = impl_->submit_failures.load(std::memory_order_acquire);
+    result.shutdown_complete = impl_->shutdown_complete.load(std::memory_order_acquire);
     result.mailbox = impl_->mailbox.stats();
     return result;
 }

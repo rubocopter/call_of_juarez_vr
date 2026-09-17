@@ -6,10 +6,18 @@ The audit-driven stabilization track remains authoritative. The exact-build came
 boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,
 in-headset Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit
 render-pose submission now have live evidence; the latter removed the reported head-turn
-snap-back in run `20260916T224239Z-e43b46698e5c`. The current engineering priority is sustained
-frame pacing/performance with the lower-overhead distinction/copy path while preserving those
-validated contracts. Positional 6DOF, controller gameplay, interaction rebuilding and full-body
-IK remain downstream.
+snap-back in run `20260916T224239Z-e43b46698e5c`. Sustained frame pacing/performance remains the
+active presentation gate. Positional 6DOF and body/IK preflight were pulled forward as isolated
+host-tested work: HMD translation can be reconciled
+into player space, both Sense poses share the same recentered sample, exact CoJ skeleton reads are
+available through the existing JVM and a measured two-bone arm overlay is implemented behind a
+runtime toggle. Read-only lower-body preflight now measures pelvis/thigh/shin/foot geometry and
+solves both leg chains with the animated knee plane, reach clamping and native foot basis. These
+additions do not have live/headset promotion. Run `20260917T161917Z-909b63e114af` proved valid,
+changing Sense poses but also proved that the campaign actor is absent from both current Session
+discovery routes, so body promotion is parked. While unresolved, physical HMD translation now fails
+closed to rotation-only rendering instead of leaving the native body behind. Controller gameplay,
+interaction rebuilding and lower-body writes remain downstream of the physical body gate.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the
@@ -150,7 +158,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 - Sustained, run-auditable changing game-frame capture and presentation: **live-tested through the deferred Phase 5 path; performance remains the active gate**.
 - Sustained game image physically visible in headset: **live-tested; frame pacing/comfort remain below the supported threshold**.
 - External engine-camera orientation/FOV control: **live-tested exact-build proof**.
-- Rotational HMD tracking / 3DOF camera proof: **live-tested direction/basis path** — run `20260916T133322Z-36c287cc43d8` confirmed correct yaw/pitch direction in the headset; positional 6DOF remains separate and planned.
+- Rotational HMD tracking / 3DOF camera proof: **live-tested direction/basis path** — run `20260916T133322Z-36c287cc43d8` confirmed correct yaw/pitch direction in the headset. The current positional extension is **host-tested**: horizontal room-scale translation is reconciled into the native actor while vertical translation remains camera/body-only, with previous accepted offsets removed to avoid double movement.
 - Stereo eye transform/projection through the native engine render-view boundary: **live-tested distinct-eye path** — two complete `0x30FB0` passes, distinct real-color captures, corrected physical baseline scale, OpenVR submission, clean finalization and explicit render-pose reprojection are proven. Sustained frame pacing/performance remains the current manual gate.
 
 ### Experimental OpenXR track
@@ -162,18 +170,18 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 ## Milestone 3 — full 6DOF and comfort
 
-- Positional tracking and room-scale reconciliation: **planned**.
+- Positional tracking and room-scale reconciliation: **implemented / host-tested, physical promotion parked**. HMD and both Sense poses share one OpenVR sample/recenter basis; when a native actor is resolved, horizontal HMD displacement is absorbed at `100` CoJ units/metre while vertical displacement remains camera/body-owned. If actor discovery/reconciliation fails, physical head translation is suppressed while HMD rotation and stereo eye offsets remain active. Run `20260917T161917Z-909b63e114af` showed the current campaign Session paths contain no actor.
 - Culling/visibility corrections: **planned**.
 - HUD/menu strategy: **planned; live-observed gap** — run `20260916T153109Z-8976b8f77775` showed that the flat game menu is not presented through the current native gameplay stereo path.
 - Cinematic and post-process handling: **planned**.
-- Head/body/camera ownership and comfort validation: **planned**.
+- Head/body/camera ownership: **implemented / host-tested first slice**. HMD remains camera authority; actor translation, native torso/head rotation and tracked arm overlay have separate owners. Comfort validation remains pending.
 
 ## Milestone 4 — controllers and interactions
 
 - Minimal logical OpenVR global action seam: **headset-validated for recenter only**; gameplay actions remain planned.
 - PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter only**; tracked-hand/gameplay binding validation remains planned.
 - Decouple weapon aim from HMD view: **planned**.
-- Full-body IK driven by validated HMD/controller/body anchors: **planned**.
+- Full-body IK driven by validated HMD/controller/body anchors: **implemented / host-tested, actor discovery blocked in campaign**. Exact shipped bone IDs, JNI `GetBoneJointPos`/`GetBoneDirVector`/`GetBonePerpVector`, measured two-bone shoulder/elbow/wrist solving and exact native `FromUpForwardPosElementWorld` arm writes are wired behind `bodyIkEnabled`. Run `20260917T161917Z-909b63e114af` proved both Sense poses are valid and changing, but no actor was exposed by `sm_LocalPlayer` or `sm_Players`, so no arm writer was reached. Pelvis/thigh/shin/foot solving remains read-only and lower-body writes stay disabled.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
 - Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.
 - Per-game weapon/player adapters: **planned**.

@@ -56,6 +56,29 @@ function Get-IntegerField([string]$Line, [string]$Field) {
     return [uint64]::Parse($Match.Groups[1].Value, $InvariantCulture)
 }
 
+function Get-VectorMagnitudes(
+    [string[]]$Lines,
+    [string]$LinePattern,
+    [string]$Field) {
+    $Values = [System.Collections.Generic.List[double]]::new()
+    $VectorPattern = [Regex]::Escape($Field) +
+        "=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)"
+    foreach ($Line in $Lines) {
+        if ($Line -notmatch $LinePattern -or $Line -notmatch "head_position_valid=true") { continue }
+        $Match = [regex]::Match($Line, $VectorPattern)
+        if (-not $Match.Success) { continue }
+        $Components = @(1..3 | ForEach-Object {
+            [double]::Parse($Match.Groups[$_].Value, $InvariantCulture)
+        })
+        $Magnitude = [Math]::Sqrt(
+            $Components[0] * $Components[0] +
+            $Components[1] * $Components[1] +
+            $Components[2] * $Components[2])
+        if ([double]::IsFinite($Magnitude)) { $Values.Add($Magnitude) }
+    }
+    return @($Values)
+}
+
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
     -GameDirectory $GameDirectory `
@@ -88,6 +111,24 @@ for ($Index = 0; $Index -lt $RuntimeStateLines.Count; ++$Index) {
     }
 }
 
+$DashboardCycleObserved = $false
+$DashboardOpened = $false
+foreach ($Line in $Lines) {
+    if (-not $DashboardOpened -and
+        $Line -match "^openvr_scene_state: phase=dashboard_opened;.*dashboard_visible=true") {
+        $DashboardOpened = $true
+        continue
+    }
+    if ($DashboardOpened -and
+        $Line -match "^openvr_scene_state: phase=dashboard_closed;.*dashboard_visible=false") {
+        $DashboardCycleObserved = $true
+        break
+    }
+}
+$ShutdownCompleteObserved = [bool](
+    ($RuntimeStateLines -match ";lifecycle=shutdown_complete;") -or
+    ($Lines -match "^native_stereo_presenter_stop: shutdown_complete=true"))
+
 $TransportLine = @($Lines | Where-Object {
     $_ -match "^native_stereo_transport_summary:"
 } | Select-Object -Last 1)
@@ -110,6 +151,11 @@ $Report = [ordered]@{
         waitPose = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_timing: status=ok" "wait_pose_ms")
         submit = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_timing: status=ok" "submit_ms")
     }
+    motion = [ordered]@{
+        headTranslationMetres = Get-Stats (Get-VectorMagnitudes `
+            $Lines "camera_probe_event: event=camera_hmd_orientation_applied result=ok" `
+            "relative_head_position")
+    }
     transport = [ordered]@{
         framesFenced = Get-IntegerField $TransportText "frames_fenced"
         framesCollected = Get-IntegerField $TransportText "frames_collected"
@@ -126,7 +172,8 @@ $Report = [ordered]@{
         trackingValidObserved = $TrackingObserved
         presentingObserved = $PresentingObserved
         focusCycleObserved = $FocusCycleObserved
-        shutdownCompleteObserved = [bool]($RuntimeStateLines -match ";lifecycle=shutdown_complete;")
+        dashboardCycleObserved = $DashboardCycleObserved
+        shutdownCompleteObserved = $ShutdownCompleteObserved
     }
 }
 
@@ -147,4 +194,5 @@ foreach ($MetricName in @("deferredReadback", "cpuCopy", "producerCollect", "d3d
         $MetricName, $Stats.count, $Stats.average, $Stats.p50, $Stats.p95, $Stats.max)
 }
 Write-Host "OpenVR focus cycle observed: $($FocusCycleObserved.ToString().ToLowerInvariant())"
+Write-Host "SteamVR dashboard cycle observed: $($DashboardCycleObserved.ToString().ToLowerInvariant())"
 Write-Host "OpenVR shutdown-complete state observed: $($Report.runtime.shutdownCompleteObserved.ToString().ToLowerInvariant())"

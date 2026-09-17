@@ -76,6 +76,36 @@ bool FailNoThrow(
     return false;
 }
 
+Pose PoseFromTrackedDevice(const vr::TrackedDevicePose_t& tracked) noexcept {
+    Pose pose = PoseFromRigidTransform3x4(Flatten(tracked.mDeviceToAbsoluteTracking));
+    const bool valid = tracked.bDeviceIsConnected && tracked.bPoseIsValid;
+    pose.orientation_valid = valid && pose.orientation_valid;
+    pose.position_valid = valid && pose.position_valid;
+    return pose;
+}
+
+void PopulateControllerRolePoses(
+    vr::IVRSystem* system,
+    const std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount>& device_poses,
+    OpenVrTrackedPoses& poses) noexcept {
+    if (!system) return;
+
+    const auto populate = [&](const vr::ETrackedControllerRole role, Pose& target, bool& connected) {
+        const vr::TrackedDeviceIndex_t index = system->GetTrackedDeviceIndexForControllerRole(role);
+        connected = index != vr::k_unTrackedDeviceIndexInvalid &&
+            index < device_poses.size() && system->IsTrackedDeviceConnected(index);
+        if (!connected) {
+            target = {};
+            return;
+        }
+        target = PoseFromTrackedDevice(device_poses[index]);
+    };
+    populate(vr::TrackedControllerRole_LeftHand, poses.left_controller,
+             poses.left_controller_connected);
+    populate(vr::TrackedControllerRole_RightHand, poses.right_controller,
+             poses.right_controller_connected);
+}
+
 bool OpenVrDigitalActionEdge::Update(const bool active, const bool pressed) noexcept {
     const bool current = active && pressed;
     const bool rising = current && !pressed_;
@@ -215,7 +245,7 @@ bool OpenVrRuntime::ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept 
 
             EyeView& eye = eyes[index];
             eye.eye = logical_eyes[index];
-            eye.pose = PoseFromRigidTransform3x4(
+            eye.eye_to_head = PoseFromRigidTransform3x4(
                 Flatten(impl_->system->GetEyeToHeadTransform(native_eyes[index])));
             eye.fov = OpenVrProjectionRawToEyeFov(left, right, top, bottom);
             eye.width = impl_->system_info.recommended_width;
@@ -228,7 +258,21 @@ bool OpenVrRuntime::ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept 
 }
 
 bool OpenVrRuntime::WaitForHmdPose(Pose& pose) noexcept {
-    pose = {};
+    OpenVrTrackedPoses poses{};
+    const bool result = WaitForTrackedPoses(poses);
+    pose = poses.hmd;
+    return result;
+}
+
+bool OpenVrRuntime::ReadHmdPose(Pose& pose) noexcept {
+    OpenVrTrackedPoses poses{};
+    const bool result = ReadTrackedPoses(poses);
+    pose = poses.hmd;
+    return result;
+}
+
+bool OpenVrRuntime::WaitForTrackedPoses(OpenVrTrackedPoses& poses) noexcept {
+    poses = {};
     if (!impl_) return false;
     try {
         impl_->last_error.clear();
@@ -245,29 +289,28 @@ bool OpenVrRuntime::WaitForHmdPose(Pose& pose) noexcept {
                     : "OpenVR HMD is disconnected");
         }
 
-        std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> poses{};
+        std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> device_poses{};
         const vr::EVRCompositorError error = impl_->compositor->WaitGetPoses(
-            poses.data(), static_cast<std::uint32_t>(poses.size()), nullptr, 0);
+            device_poses.data(), static_cast<std::uint32_t>(device_poses.size()), nullptr, 0);
         if (error != vr::VRCompositorError_None) {
             impl_->state_tracker.TrackingChanged(false);
             return FailNoThrow(
                 impl_.get(), "OpenVR WaitGetPoses failed", static_cast<std::int32_t>(error));
         }
 
-        const vr::TrackedDevicePose_t& hmd = poses[vr::k_unTrackedDeviceIndex_Hmd];
-        pose = PoseFromRigidTransform3x4(Flatten(hmd.mDeviceToAbsoluteTracking));
-        pose.orientation_valid = hmd.bPoseIsValid && pose.orientation_valid;
-        pose.position_valid = hmd.bPoseIsValid && pose.position_valid;
-        impl_->state_tracker.TrackingChanged(pose.orientation_valid && pose.position_valid);
+        poses.hmd = PoseFromTrackedDevice(device_poses[vr::k_unTrackedDeviceIndex_Hmd]);
+        PopulateControllerRolePoses(impl_->system, device_poses, poses);
+        impl_->state_tracker.TrackingChanged(
+            poses.hmd.orientation_valid && poses.hmd.position_valid);
         return true;
     } catch (...) {
         impl_->state_tracker.TrackingChanged(false);
-        return FailNoThrow(impl_.get(), "OpenVR pose wait raised an exception");
+        return FailNoThrow(impl_.get(), "OpenVR tracked-pose wait raised an exception");
     }
 }
 
-bool OpenVrRuntime::ReadHmdPose(Pose& pose) noexcept {
-    pose = {};
+bool OpenVrRuntime::ReadTrackedPoses(OpenVrTrackedPoses& poses) noexcept {
+    poses = {};
     if (!impl_) return false;
     try {
         impl_->last_error.clear();
@@ -284,22 +327,20 @@ bool OpenVrRuntime::ReadHmdPose(Pose& pose) noexcept {
                     : "OpenVR HMD is disconnected");
         }
 
-        std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> poses{};
+        std::array<vr::TrackedDevicePose_t, vr::k_unMaxTrackedDeviceCount> device_poses{};
         impl_->system->GetDeviceToAbsoluteTrackingPose(
             vr::TrackingUniverseStanding,
             0.0F,
-            poses.data(),
-            static_cast<std::uint32_t>(poses.size()));
-
-        const vr::TrackedDevicePose_t& hmd = poses[vr::k_unTrackedDeviceIndex_Hmd];
-        pose = PoseFromRigidTransform3x4(Flatten(hmd.mDeviceToAbsoluteTracking));
-        pose.orientation_valid = hmd.bPoseIsValid && pose.orientation_valid;
-        pose.position_valid = hmd.bPoseIsValid && pose.position_valid;
-        impl_->state_tracker.TrackingChanged(pose.orientation_valid && pose.position_valid);
+            device_poses.data(),
+            static_cast<std::uint32_t>(device_poses.size()));
+        poses.hmd = PoseFromTrackedDevice(device_poses[vr::k_unTrackedDeviceIndex_Hmd]);
+        PopulateControllerRolePoses(impl_->system, device_poses, poses);
+        impl_->state_tracker.TrackingChanged(
+            poses.hmd.orientation_valid && poses.hmd.position_valid);
         return true;
     } catch (...) {
         impl_->state_tracker.TrackingChanged(false);
-        return FailNoThrow(impl_.get(), "OpenVR pose read raised an exception");
+        return FailNoThrow(impl_.get(), "OpenVR tracked-pose read raised an exception");
     }
 }
 

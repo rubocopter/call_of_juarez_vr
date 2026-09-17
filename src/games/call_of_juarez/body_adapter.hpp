@@ -1,0 +1,205 @@
+#pragma once
+
+#include "runtime/body_ik.hpp"
+
+namespace cojvr::games::call_of_juarez {
+
+struct BodySkeletonState {
+    bool available = false;
+    void* actor = nullptr;
+};
+
+// Chrome Engine specific discovery stays behind this boundary. The runtime
+// supplies IK targets; this layer owns the mapping from those targets to the
+// game's actor joints once the native skeleton layout is identified.
+struct SkeletonBinding {
+    int pelvis = -1;
+    int spine = -1;
+    int spine1 = -1;
+    int chest = -1;
+    int neck = -1;
+    int head = -1;
+    int left_upper_arm = -1;
+    int left_forearm = -1;
+    int left_hand = -1;
+    int right_upper_arm = -1;
+    int right_forearm = -1;
+    int right_hand = -1;
+    int left_thigh = -1;
+    int left_shin = -1;
+    int left_foot = -1;
+    int right_thigh = -1;
+    int right_shin = -1;
+    int right_foot = -1;
+};
+
+// HMD-relative offsets expressed in the angle convention consumed by
+// ArmedPlayerBeing.UpdateBodyRotation. The game owns the final distribution
+// across its animated elements; these values only describe the temporary
+// field offsets needed to feed that native body path.
+struct UpperBodyTrackingOffsets {
+    float head_horizontal_degrees = 0.0F;
+    float spine_horizontal_degrees = 0.0F;
+    float head_vertical_degrees = 0.0F;
+    bool valid = false;
+};
+
+struct PlayerSpaceReconciliation {
+    cojvr::runtime::Vec3 desired_actor_position{};
+    cojvr::runtime::Vec3 applied_world_offset{};
+    cojvr::runtime::Vec3 applied_tracking_offset{};
+    cojvr::runtime::Vec3 render_head_position{};
+    bool valid = false;
+};
+
+struct ArmGeometrySample {
+    cojvr::runtime::Vec3 shoulder{};
+    cojvr::runtime::Vec3 elbow{};
+    cojvr::runtime::Vec3 wrist{};
+    cojvr::runtime::Vec3 upper_up{};
+    cojvr::runtime::Vec3 upper_forward{};
+    cojvr::runtime::Vec3 forearm_up{};
+    cojvr::runtime::Vec3 forearm_forward{};
+};
+
+struct PelvisLocomotionAnchor {
+    cojvr::runtime::Vec3 actor_position{};
+    cojvr::runtime::Vec3 pelvis_offset{};
+    cojvr::runtime::Vec3 world_target{};
+    bool valid = false;
+};
+
+struct LegGeometrySample {
+    cojvr::runtime::Vec3 hip{};
+    cojvr::runtime::Vec3 knee{};
+    cojvr::runtime::Vec3 ankle{};
+    cojvr::runtime::Vec3 thigh_up{};
+    cojvr::runtime::Vec3 thigh_forward{};
+    cojvr::runtime::Vec3 shin_up{};
+    cojvr::runtime::Vec3 shin_forward{};
+    cojvr::runtime::Vec3 foot_up{};
+    cojvr::runtime::Vec3 foot_forward{};
+};
+
+struct ElementWorldBasisTarget {
+    cojvr::runtime::Vec3 position{};
+    cojvr::runtime::Vec3 up{};
+    cojvr::runtime::Vec3 forward{};
+    bool valid = false;
+};
+
+struct ArmIkPlan {
+    ElementWorldBasisTarget upper_arm{};
+    ElementWorldBasisTarget forearm{};
+    cojvr::runtime::Vec3 wrist_target{};
+    float upper_length = 0.0F;
+    float lower_length = 0.0F;
+    bool target_clamped = false;
+    bool valid = false;
+};
+
+struct LegIkPlan {
+    ElementWorldBasisTarget thigh{};
+    ElementWorldBasisTarget shin{};
+    ElementWorldBasisTarget foot{};
+    cojvr::runtime::Vec3 ankle_target{};
+    float thigh_length = 0.0F;
+    float shin_length = 0.0F;
+    bool target_clamped = false;
+    bool knee_plane_valid = false;
+    bool valid = false;
+};
+
+// Builds a world-space arm overlay from the current animated skeleton. The
+// current bone bases provide twist/roll; the solver only rotates each segment
+// enough to place the elbow and wrist at the IK solution.
+[[nodiscard]] ArmIkPlan BuildArmIkPlan(
+    const ArmGeometrySample& geometry,
+    cojvr::runtime::Vec3 controller_target) noexcept;
+
+// Keeps the pelvis rooted in the native locomotion owner while exposing the
+// animated pelvis offset separately. The first lower-body pass is observation
+// only; this anchor does not write the skeleton.
+[[nodiscard]] PelvisLocomotionAnchor BuildPelvisLocomotionAnchor(
+    cojvr::runtime::Vec3 actor_position,
+    cojvr::runtime::Vec3 pelvis_joint) noexcept;
+
+// Maps an estimated tracking-space foot anchor around the locomotion-rooted
+// native pelvis. Tracking uses +X right/+Y up/-Z forward in metres; the exact
+// CoJ camera basis is right/up/+forward in game units.
+[[nodiscard]] cojvr::runtime::Vec3 BuildTrackedFootTarget(
+    cojvr::runtime::Vec3 pelvis_world_target,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 tracked_pelvis,
+    cojvr::runtime::Vec3 tracked_foot,
+    float game_units_per_meter,
+    bool& valid) noexcept;
+
+// Builds a measured two-bone leg plan from the live animated chain. The knee
+// bend plane comes from the current animation and the target is clamped to the
+// measured thigh+shin reach. Foot orientation remains the current native basis
+// until controller-free foot-placement evidence justifies a stronger policy.
+[[nodiscard]] LegIkPlan BuildLegIkPlan(
+    const LegGeometrySample& geometry,
+    cojvr::runtime::Vec3 foot_target) noexcept;
+
+// Reconciles room-scale HMD translation with game locomotion. The actor absorbs
+// horizontal tracking displacement while the current render keeps only the
+// portion not already represented by the actor on the previous game frame.
+// World positions/offsets use game units; tracking inputs use metres.
+[[nodiscard]] PlayerSpaceReconciliation ReconcilePlayerSpace(
+    cojvr::runtime::Vec3 current_actor_position,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 relative_head_position,
+    cojvr::runtime::Vec3 player_space_position,
+    cojvr::runtime::Vec3 previous_world_offset,
+    cojvr::runtime::Vec3 previous_tracking_offset,
+    bool previous_applied,
+    bool recentered,
+    float game_units_per_meter) noexcept;
+
+// Exact IDs recovered from the shipped code.pak EBones.class. Keep this data
+// game-specific: these ordinals are evidence for Call of Juarez (2006), not a
+// reusable Chrome Engine skeleton contract.
+[[nodiscard]] SkeletonBinding ExactGameSkeletonBinding() noexcept;
+
+// Maps the neutral XR head pose onto the exact Call of Juarez look/body angle
+// convention. Live camera evidence established that CoJ needs the physical HMD
+// yaw sign inverted while pitch keeps its tracking-space sign. Shipped
+// ArmedPlayerBeing bytecode drives the spine toward 2/3 of horizontal look
+// angle and leaves the remaining 1/3 to the neck/head chain.
+[[nodiscard]] UpperBodyTrackingOffsets UpperBodyOffsetsFromHeadPose(
+    const cojvr::runtime::Pose& relative_head_pose) noexcept;
+
+// Discovery remains engine-specific. The adapter can start without a known
+// skeleton and later accept bindings discovered from the live actor.
+using SkeletonDiscovery = bool(*)(void* actor, SkeletonBinding& binding) noexcept;
+
+using BoneTransformWriter = void(*)(void* actor, int bone, const cojvr::runtime::Pose& pose) noexcept;
+using PlayerCapsuleWriter = void(*)(void* actor, const cojvr::runtime::Pose& player_space) noexcept;
+
+class BodyAdapter final {
+public:
+    void SetSkeletonState(const BodySkeletonState& state) noexcept;
+    void SetSkeletonBinding(const SkeletonBinding& binding) noexcept;
+    void SetTransformWriter(BoneTransformWriter writer) noexcept;
+    void SetPlayerCapsuleWriter(PlayerCapsuleWriter writer) noexcept;
+    void SetSkeletonDiscovery(SkeletonDiscovery discovery) noexcept;
+    [[nodiscard]] bool DiscoverSkeleton() noexcept;
+    void Apply(const cojvr::runtime::IKBodyPose& pose) noexcept;
+    void ApplyPlayerSpace(const cojvr::runtime::Pose& player_space) noexcept;
+
+    [[nodiscard]] const SkeletonBinding& Binding() const noexcept { return binding_; }
+
+private:
+    BodySkeletonState state_{};
+    SkeletonBinding binding_ = ExactGameSkeletonBinding();
+    BoneTransformWriter writer_ = nullptr;
+    PlayerCapsuleWriter player_capsule_writer_ = nullptr;
+    SkeletonDiscovery discovery_ = nullptr;
+};
+
+} // namespace cojvr::games::call_of_juarez

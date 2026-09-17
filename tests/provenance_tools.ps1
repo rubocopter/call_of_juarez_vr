@@ -36,7 +36,9 @@ try {
         "new_build_manifest.ps1",
         "collect_run_evidence.ps1",
         "get_run_provenance.ps1",
+        "deployment_transaction.ps1",
         "stage_d3d9_proxy.ps1",
+        "unstage_d3d9_proxy.ps1",
         "stage_d3d9_openvr_flat.ps1",
         "set_camera_probe_control.ps1",
         "verify_camera_probe_live_test.ps1",
@@ -55,6 +57,106 @@ try {
             [ref]$Errors)
         Assert-True ($Errors.Count -eq 0) "$Script has PowerShell syntax errors."
     }
+
+    . (Join-Path $SourceDirectory "tools\deployment_transaction.ps1")
+    $TransactionRoot = Join-Path $TestRoot "deployment-transaction"
+    New-Item -ItemType Directory -Path $TransactionRoot -Force | Out-Null
+
+    $CleanGame = Join-Path $TransactionRoot "clean"
+    New-Item -ItemType Directory -Path $CleanGame -Force | Out-Null
+    $CleanStaged = Join-Path $CleanGame "d3d9.dll"
+    [System.IO.File]::WriteAllBytes($CleanStaged, [byte[]](1, 2, 3, 4))
+    $CleanStagedHash = Get-CojvrFileSha256 $CleanStaged
+    [void](Write-CojvrDeploymentJournal $CleanGame "stage" "clean-run" "d3d9_forwarding" @(
+        [ordered]@{
+            role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
+            hadOriginal = $false; originalSha256 = $null; stagedSha256 = $CleanStagedHash
+        }
+    ))
+    Assert-True (Complete-CojvrDeploymentRecovery $CleanGame) `
+        "Clean interrupted deployment was not recovered."
+    Assert-True (-not (Test-Path -LiteralPath $CleanStaged)) `
+        "Clean recovery did not remove the staged proxy."
+    Assert-True (-not (Complete-CojvrDeploymentRecovery $CleanGame)) `
+        "Repeated recovery did not become a no-op."
+
+    $OriginalGame = Join-Path $TransactionRoot "original"
+    New-Item -ItemType Directory -Path $OriginalGame -Force | Out-Null
+    $OriginalDestination = Join-Path $OriginalGame "d3d9.dll"
+    $OriginalBackup = Join-Path $OriginalGame "d3d9.cojvr-backup.dll"
+    [System.IO.File]::WriteAllBytes($OriginalDestination, [byte[]](5, 6, 7, 8))
+    $OriginalHash = Get-CojvrFileSha256 $OriginalDestination
+    $CandidatePath = Join-Path $OriginalGame "candidate.bin"
+    [System.IO.File]::WriteAllBytes($CandidatePath, [byte[]](9, 10, 11, 12))
+    $CandidateHash = Get-CojvrFileSha256 $CandidatePath
+    [void](Write-CojvrDeploymentJournal $OriginalGame "stage" "original-run" "d3d9_forwarding" @(
+        [ordered]@{
+            role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
+            hadOriginal = $true; originalSha256 = $OriginalHash; stagedSha256 = $CandidateHash
+        }
+    ))
+    Move-Item -LiteralPath $OriginalDestination -Destination $OriginalBackup
+    Copy-Item -LiteralPath $CandidatePath -Destination $OriginalDestination
+    [void](Complete-CojvrDeploymentRecovery $OriginalGame)
+    Assert-True ((Get-CojvrFileSha256 $OriginalDestination) -eq $OriginalHash -and
+        -not (Test-Path -LiteralPath $OriginalBackup)) `
+        "Interrupted deployment did not restore the original proxy."
+
+    $DirectoryGame = Join-Path $TransactionRoot "directory"
+    $InputDirectory = Join-Path $DirectoryGame "cojvr_openvr_input"
+    $InputBackup = Join-Path $DirectoryGame "cojvr_openvr_input.cojvr-backup"
+    New-Item -ItemType Directory -Path (Join-Path $InputDirectory "bindings") -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $InputDirectory "custom.json") -Encoding UTF8 -Value "original"
+    $OriginalInputManifest = @(Get-CojvrDirectoryManifest $InputDirectory)
+    $StagedActionBytes = [byte[]](20, 21, 22)
+    $StagedBindingBytes = [byte[]](23, 24, 25)
+    $ActionTemp = Join-Path $DirectoryGame "action.tmp"
+    $BindingTemp = Join-Path $DirectoryGame "binding.tmp"
+    [System.IO.File]::WriteAllBytes($ActionTemp, $StagedActionBytes)
+    [System.IO.File]::WriteAllBytes($BindingTemp, $StagedBindingBytes)
+    $StagedInputManifest = @(
+        [ordered]@{ path = "actions.json"; sha256 = Get-CojvrFileSha256 $ActionTemp },
+        [ordered]@{ path = "bindings/psvr2_sense.json"; sha256 = Get-CojvrFileSha256 $BindingTemp }
+    )
+    [void](Write-CojvrDeploymentJournal $DirectoryGame "stage" "directory-run" "d3d9_native_stereo" @(
+        [ordered]@{
+            role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
+            hadOriginal = $true; originalManifest = $OriginalInputManifest; stagedManifest = $StagedInputManifest
+        }
+    ))
+    Move-Item -LiteralPath $InputDirectory -Destination $InputBackup
+    New-Item -ItemType Directory -Path (Join-Path $InputDirectory "bindings") -Force | Out-Null
+    [System.IO.File]::WriteAllBytes((Join-Path $InputDirectory "actions.json"), $StagedActionBytes)
+    [void](Complete-CojvrDeploymentRecovery $DirectoryGame)
+    Assert-True (Test-CojvrDirectoryMatchesManifest $InputDirectory $OriginalInputManifest) `
+        "Interrupted directory deployment did not restore the original OpenVR input directory."
+
+    $ChangedGame = Join-Path $TransactionRoot "changed"
+    New-Item -ItemType Directory -Path $ChangedGame -Force | Out-Null
+    $ChangedDestination = Join-Path $ChangedGame "d3d9.dll"
+    $ChangedBackup = Join-Path $ChangedGame "d3d9.cojvr-backup.dll"
+    [System.IO.File]::WriteAllBytes($ChangedDestination, [byte[]](30, 31, 32))
+    $ChangedOriginalHash = Get-CojvrFileSha256 $ChangedDestination
+    [System.IO.File]::WriteAllBytes((Join-Path $ChangedGame "candidate.tmp"), [byte[]](33, 34, 35))
+    $ChangedCandidateHash = Get-CojvrFileSha256 (Join-Path $ChangedGame "candidate.tmp")
+    [void](Write-CojvrDeploymentJournal $ChangedGame "stage" "changed-run" "d3d9_forwarding" @(
+        [ordered]@{
+            role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
+            hadOriginal = $true; originalSha256 = $ChangedOriginalHash; stagedSha256 = $ChangedCandidateHash
+        }
+    ))
+    Move-Item -LiteralPath $ChangedDestination -Destination $ChangedBackup
+    [System.IO.File]::WriteAllBytes($ChangedDestination, [byte[]](99, 98, 97))
+    $ExternalChangeRejected = $false
+    try {
+        [void](Complete-CojvrDeploymentRecovery $ChangedGame)
+    } catch {
+        $ExternalChangeRejected = $true
+    }
+    Assert-True $ExternalChangeRejected `
+        "Deployment recovery overwrote an externally changed destination."
+    Assert-True (Test-Path -LiteralPath (Join-Path $ChangedGame ".cojvr-deployment-transaction.json")) `
+        "Failed recovery removed the journal needed for manual diagnosis."
     $WrapperTokens = $null
     $WrapperErrors = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile(
@@ -419,10 +521,13 @@ try {
         validation = [ordered]@{
             requireExactChromeEngine = $true
             requireOpenVrRuntimeState = $true
-            requireOpenVrFocusCycle = $true
+            requireOpenVrFocusCycle = $false
+            requireOpenVrDashboardCycle = $true
             requireProductionGpuSyncNone = $true
             requirePerformanceSummary = $true
             requireRepeatedPresentation = $true
+            requirePositional6Dof = $true
+            requireBodyIk = $true
         }
         deployment = @(
             [ordered]@{ role = "proxy"; destination = "d3d9.dll"; sha256 = $StereoVerifierProxyHash },
@@ -438,10 +543,15 @@ try {
         diagnosticMode = "d3d9_native_stereo"
     })
 
-    $StereoOrientation1 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=2 yaw_degrees=10 pitch_degrees=0 natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
-    $StereoOrientation2 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=3 yaw_degrees=0 pitch_degrees=5 natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
-    $StereoFrame1 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=1 pose_sequence=2 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) game_units_per_meter=100 left_applied_position=(96.8000,200.0000,300.0000) right_applied_position=(103.2000,200.0000,300.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
-    $StereoFrame2 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=2 pose_sequence=3 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) game_units_per_meter=100 left_applied_position=(46.8000,60.0000,70.0000) right_applied_position=(53.2000,60.0000,70.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
+    $StereoOrientation1 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=2 yaw_degrees=10 pitch_degrees=0 relative_head_position=(0.060000,0.000000,0.000000) head_position_valid=true tracked_head_position=(106.0000,200.0000,300.0000) natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
+    $StereoOrientation2 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=3 yaw_degrees=0 pitch_degrees=5 relative_head_position=(0.000000,-0.100000,-0.040000) head_position_valid=true tracked_head_position=(50.0000,50.0000,74.0000) natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
+    $StereoFrame1 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=1 pose_sequence=2 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) relative_head_position=(0.060000,0.000000,0.000000) head_position_valid=true positional_6dof=true game_units_per_meter=100 left_applied_position=(96.8000,200.0000,300.0000) right_applied_position=(103.2000,200.0000,300.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
+    $StereoFrame2 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=2 pose_sequence=3 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) relative_head_position=(0.000000,-0.100000,-0.040000) head_position_valid=true positional_6dof=true game_units_per_meter=100 left_applied_position=(46.8000,60.0000,70.0000) right_applied_position=(53.2000,60.0000,70.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
+    $StereoTrackingInput = "camera_probe_event: event=body_tracking_input result=observed detail=frame_sequence=2;left_position_valid=true;left_orientation_valid=true;left_position=(-0.200000,1.200000,-0.300000);right_position_valid=true;right_orientation_valid=true;right_position=(0.200000,1.200000,-0.300000)"
+    $StereoLeftArm = "camera_probe_event: event=body_arm_tracking result=applied detail=frame_sequence=2;being_generation=1;side=left;controller_target=(10.000000,20.000000,30.000000);shoulder=(1.000000,2.000000,3.000000);elbow=(4.000000,5.000000,6.000000);wrist=(7.000000,8.000000,9.000000);upper_length=30;lower_length=28;plan_valid=true;target_clamped=false;write_enabled=true;write_allowed=true;write_ok=true;hand_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=FromUpForwardPosElementWorld"
+    $StereoRightArm = "camera_probe_event: event=body_arm_tracking result=applied detail=frame_sequence=2;being_generation=1;side=right;controller_target=(-10.000000,20.000000,30.000000);shoulder=(-1.000000,2.000000,3.000000);elbow=(-4.000000,5.000000,6.000000);wrist=(-7.000000,8.000000,9.000000);upper_length=30;lower_length=28;plan_valid=true;target_clamped=false;write_enabled=true;write_allowed=true;write_ok=true;hand_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=FromUpForwardPosElementWorld"
+    $StereoLeftLeg = "camera_probe_event: event=body_lower_tracking result=observed detail=frame_sequence=2;being_generation=1;side=left;actor_position=(0.000000,0.000000,0.000000);pelvis_offset=(0.000000,90.000000,0.000000);pelvis_target=(0.000000,90.000000,0.000000);hip=(-10.000000,90.000000,0.000000);knee=(-10.000000,50.000000,5.000000);ankle=(-10.000000,10.000000,0.000000);foot_target=(-10.000000,10.000000,0.000000);thigh_length=40.3;shin_length=40.3;plan_valid=true;target_clamped=false;knee_plane_valid=true;write_enabled=false;foot_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=disabled_preflight"
+    $StereoRightLeg = "camera_probe_event: event=body_lower_tracking result=observed detail=frame_sequence=2;being_generation=1;side=right;actor_position=(0.000000,0.000000,0.000000);pelvis_offset=(0.000000,90.000000,0.000000);pelvis_target=(0.000000,90.000000,0.000000);hip=(10.000000,90.000000,0.000000);knee=(10.000000,50.000000,5.000000);ankle=(10.000000,10.000000,0.000000);foot_target=(10.000000,10.000000,0.000000);thigh_length=40.3;shin_length=40.3;plan_valid=true;target_clamped=false;knee_plane_valid=true;write_enabled=false;foot_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=disabled_preflight"
     $StereoVerifierLog = @(
         "run_start: run_id=$StereoVerifierRunId build_manifest_id=$($StereoBuildManifest.manifestId) pid=789",
         "native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=latest_frame_repeat",
@@ -453,6 +563,12 @@ try {
         "native_stereo_device: status=observed device=0x1234 generation=1",
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
         "camera_probe_event: event=camera_probe_install result=installed pose_source=none native_stereo=available",
+        "camera_probe_event: event=camera_probe_control_loaded result=accepted detail=generation=2;enabled=false;fov=natural;yaw=0;pitch=0;tracking_enabled=true;body_ik_enabled=true;recenter=false",
+        $StereoTrackingInput,
+        $StereoLeftArm,
+        $StereoRightArm,
+        $StereoLeftLeg,
+        $StereoRightLeg,
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=1 tracking_enabled=true",
         "camera_probe_event: event=camera_hmd_recentered result=ok generation=1 pose_sequence=1 stereo=true",
         "native_stereo_capture: status=source eye=left transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.150",
@@ -469,10 +585,9 @@ try {
         "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
         "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
         "openvr_scene_state: phase=first_submit;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
-        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=true;presenting=true;shutdown_requested=false",
-        "openvr_scene_state: phase=focus_lost;process_id=789;scene_focus_process_id=456;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
-        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
-        "openvr_scene_state: phase=focus_gained;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
+        "openvr_scene_state: phase=dashboard_opened;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
+        "openvr_scene_state: phase=dashboard_closed;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
+        "native_stereo_presenter_timing: status=ok submit_sequence=3;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=repeated;left_result=0;right_result=0;wait_pose_ms=5.100;submit_ms=0.300",
         "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
@@ -489,6 +604,7 @@ try {
         "openvr_runtime_state: phase=shutdown_complete;lifecycle=shutdown_complete;initialized=false;connected=false;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_shutdown: stage=runtime_end",
         "native_stereo_presenter: status=stopped",
+        "native_stereo_presenter_stop: shutdown_complete=true",
         "native_stereo_shutdown: stage=presenter_end",
         "native_stereo_transport_summary: frames_fenced=3;frames_collected=2;capture_ring_drops=0;mailbox_published=2;mailbox_replaced=0;frames_uploaded=2;new_submissions=2;repeat_submissions=4;submit_failures=0",
         "native_stereo_runtime: status=stopped",
@@ -508,8 +624,13 @@ try {
     Assert-True ([int]$StereoSummary.metricsMs.cpuCopy.count -eq 1 -and
         [double]$StereoSummary.metricsMs.cpuCopy.p50 -eq 3.0) `
         "Native-stereo summary did not preserve CPU-copy timing."
-    Assert-True ([bool]$StereoSummary.runtime.focusCycleObserved) `
-        "Native-stereo summary did not recognize the focus cycle."
+    Assert-True ([int]$StereoSummary.motion.headTranslationMetres.count -eq 2 -and
+        [double]$StereoSummary.motion.headTranslationMetres.max -gt 0.10) `
+        "Native-stereo summary did not preserve physical head-translation evidence."
+    Assert-True (-not [bool]$StereoSummary.runtime.focusCycleObserved) `
+        "Native-stereo summary conflated the dashboard cycle with a scene-focus cycle."
+    Assert-True ([bool]$StereoSummary.runtime.dashboardCycleObserved) `
+        "Native-stereo summary did not recognize the dashboard cycle."
     Assert-True ([bool]$StereoSummary.runtime.shutdownCompleteObserved) `
         "Native-stereo summary did not recognize shutdown completion."
     Assert-True ([uint64]$StereoSummary.transport.framesCollected -eq 2) `
@@ -528,19 +649,19 @@ try {
         (Join-Path $StereoVerifierRunDirectory "analysis\native-stereo-summary.json") -PathType Leaf) `
         "Native-stereo summary was not copied into the run evidence package."
 
-    $StereoVerifierNoFocusCycle = @($StereoVerifierLog | Where-Object {
-        $_ -notmatch "focused=false;tracking_valid=true;presenting=true"
+    $StereoVerifierNoDashboardCycle = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "^openvr_scene_state: phase=dashboard_opened;"
     })
-    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoFocusCycle
-    $MissingFocusCycleRejected = $false
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoDashboardCycle
+    $MissingDashboardCycleRejected = $false
     try {
         & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
             -GameDirectory $StereoVerifierGame | Out-Null
     } catch {
-        $MissingFocusCycleRejected = $true
+        $MissingDashboardCycleRejected = $true
     }
-    Assert-True $MissingFocusCycleRejected `
-        "Native-stereo verifier accepted a run without the required OpenVR focus cycle."
+    Assert-True $MissingDashboardCycleRejected `
+        "Native-stereo verifier accepted a run without the required SteamVR dashboard cycle."
 
     $StereoVerifierNoGpuHandoff = @($StereoVerifierLog | Where-Object {
         $_ -notmatch "^openvr_gpu_handoff:"
@@ -570,24 +691,23 @@ try {
     Assert-True $MissingRepeatedPresentationRejected `
         "Native-stereo verifier accepted a run without repeated-frame presentation."
 
-    $StereoVerifierNoDashboardEvidence = @($StereoVerifierLog | ForEach-Object {
-        if ($_ -match "openvr_scene_state: phase=focus_lost") {
-            $_ -replace "dashboard_visible=true", "dashboard_visible=false"
-        } else { $_ }
+    $StereoVerifierNoDashboardResume = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "submit_sequence=3;"
     })
-    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoDashboardEvidence
-    $MissingDashboardEvidenceRejected = $false
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoDashboardResume
+    $MissingDashboardResumeRejected = $false
     try {
         & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
             -GameDirectory $StereoVerifierGame | Out-Null
     } catch {
-        $MissingDashboardEvidenceRejected = $true
+        $MissingDashboardResumeRejected = $true
     }
-    Assert-True $MissingDashboardEvidenceRejected `
-        "Native-stereo verifier accepted a focus cycle without visible SteamVR dashboard evidence."
+    Assert-True $MissingDashboardResumeRejected `
+        "Native-stereo verifier accepted a dashboard close without resumed presentation."
 
     $StereoVerifierNoShutdownComplete = @($StereoVerifierLog | Where-Object {
-        $_ -notmatch "^openvr_runtime_state: phase=shutdown_complete;"
+        $_ -notmatch "^openvr_runtime_state: phase=shutdown_complete;" -and
+        $_ -notmatch "^native_stereo_presenter_stop: shutdown_complete=true"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoShutdownComplete
     $MissingShutdownCompleteRejected = $false
@@ -599,6 +719,22 @@ try {
     }
     Assert-True $MissingShutdownCompleteRejected `
         "Native-stereo verifier accepted a run without the final OpenVR shutdown-complete state."
+
+    $StereoVerifierNoPosition = @($StereoVerifierLog | ForEach-Object {
+        $_ `
+            -replace "head_position_valid=true", "head_position_valid=false" `
+            -replace "relative_head_position=\([-+0-9.,]+\)", "relative_head_position=(0.000000,0.000000,0.000000)"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoPosition
+    $MissingPositionRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingPositionRejected = $true
+    }
+    Assert-True $MissingPositionRejected `
+        "Native-stereo verifier accepted a run without valid physical 6DOF translation."
 
     $StereoVerifierFlat = @($StereoVerifierLog | ForEach-Object {
         $_ -replace "distinct_eye_content=true", "distinct_eye_content=false"

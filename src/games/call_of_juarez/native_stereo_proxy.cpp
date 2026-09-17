@@ -193,11 +193,14 @@ bool BeginStereoFrame(
 
     cojvr::backends::openvr::OpenVrTrackingSample tracking{};
     if (!state->presenter.LatestTracking(tracking) ||
-        !tracking.pose.orientation_valid || tracking.sequence == 0) {
+        !tracking.pose.orientation_valid || !tracking.pose.position_valid ||
+        tracking.sequence == 0) {
         return false;
     }
     sample.hmd_pose.pose = tracking.pose;
     sample.hmd_pose.sequence = tracking.sequence;
+    sample.left_controller = tracking.left_controller;
+    sample.right_controller = tracking.right_controller;
     sample.recenter_requested = tracking.recenter_requested;
     if (tracking.recenter_requested) {
         LogLine("openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread");
@@ -294,8 +297,8 @@ bool StartStereoRuntime() noexcept {
         line << "native_stereo_runtime: status=started backend=openvr owner=presenter_thread"
              << " recommended_eye=" << g_stereo.eyes[0].width << 'x'
              << g_stereo.eyes[0].height
-             << " left_eye_x=" << g_stereo.eyes[0].pose.position.x
-             << " right_eye_x=" << g_stereo.eyes[1].pose.position.x
+             << " left_eye_x=" << g_stereo.eyes[0].eye_to_head.position.x
+             << " right_eye_x=" << g_stereo.eyes[1].eye_to_head.position.x
              << " pose_semantics=eye_to_head";
         LogLine(line.str());
     } catch (...) {
@@ -316,6 +319,9 @@ void Finalize() noexcept {
     LogLine("native_stereo_shutdown: stage=capture_end");
     LogLine("native_stereo_shutdown: stage=presenter_begin");
     g_stereo.presenter.Stop();
+    const auto presenter_stop_stats = g_stereo.presenter.stats();
+    LogLine(std::string("native_stereo_presenter_stop: shutdown_complete=") +
+        (presenter_stop_stats.shutdown_complete ? "true" : "false"));
     LogLine("native_stereo_shutdown: stage=presenter_end");
     g_stereo.runtime_ready = false;
     try {

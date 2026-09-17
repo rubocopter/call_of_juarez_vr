@@ -18,6 +18,10 @@ runtime::Eye RuntimeEye(const EyeSubmission eye) noexcept {
 
 } // namespace
 
+bool IsOpenVrSceneFocusPending(const int runtime_result) noexcept {
+    return runtime_result == static_cast<int>(vr::VRCompositorError_DoNotHaveFocus);
+}
+
 bool SubmitEyeD3D11(
     runtime::OpenVrRuntime& runtime,
     ID3D11Texture2D* texture,

@@ -1,12 +1,12 @@
 # Call of Juarez VR
 
-**Experimental PCVR framework for Techland's Call of Juarez games.**
+**Experimental PCVR conversion project for Techland's Call of Juarez games.**
 
-Call of Juarez VR targets **Call of Juarez (2006)** and related Chrome Engine titles through a shared VR runtime, renderer backends and narrow per-game integrations.
+The project currently focuses on **Call of Juarez (2006)** as the reference game, with the longer-term goal of supporting other games in the series through shared VR systems and game-specific integrations.
 
-The target experience for a supported game is **native stereo rendering, full-body IK and interactions rebuilt for VR**. Those are product goals; the current implementation is still progressing through the camera/tracking and renderer gates required to reach them safely.
+The target experience is **native stereo rendering, tracked head and hands, full-body IK and interactions rebuilt for VR**. This is still a development project rather than a finished, user-ready mod.
 
-> **Status: pre-alpha / stabilization.** Call of Juarez (2006) on Direct3D 9 is the reference implementation. Native ChromeEngine stereo, corrected centimetre-scale eye separation, PSVR2 head tracking and left-Sense-Create recenter are physically validated. The deferred capture/mailbox/presenter path hands SteamVR scene focus over only when a real stereo frame exists, shuts down cleanly, and submits each new or repeated texture with the exact HMD render pose; run `20260916T224239Z-e43b46698e5c` removed the previous head-turn snap-back. Phase 5 capture/presenter acceptance and Phase 6 OpenVR state/ownership/synchronization are host-tested. The current blocker is sustained frame pacing/performance. The flat menu still needs a separate VR presentation path, while positional 6DOF, full-body IK and rebuilt VR interactions remain later milestones.
+> **Status: pre-alpha / stabilization.** Native stereo gameplay is visible in PSVR2 with working head rotation, correct eye separation, SteamVR scene handoff, render-pose submission and left-Sense-Create recenter. The main blocker is still frame pacing/performance. Both Sense controllers are tracked, and positional/body IK groundwork is implemented and host-tested, but campaign player discovery currently prevents the body/arm path from being validated in-game. Flat menus and VR-native gameplay interactions are also still unfinished.
 
 [Technical audit](docs/TECHNICAL_AUDIT.md) · [Remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) · [Roadmap](ROADMAP.md) · [Architecture](ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Research notes](docs/RESEARCH_NOTES.md)
 
@@ -14,23 +14,30 @@ The target experience for a supported game is **native stereo rendering, full-bo
 
 | Game | Engine | Renderer focus | State |
 | --- | --- | --- | --- |
-| **Call of Juarez (2006)** | Chrome Engine 3 | D3D9 first; D3D10 retained | Active reference implementation |
+| **Call of Juarez (2006)** | Chrome Engine 3 | D3D9 first; D3D10 retained | Active pre-alpha reference implementation |
 | **Call of Juarez: Bound in Blood** | Chrome Engine 4 | D3D9 | Planned |
 | **Call of Juarez: Gunslinger** | Later Chrome Engine branch | D3D9 | Planned |
 
 Shared contracts are promoted only when evidence from more than one game supports them. Camera, player, weapon and exact-build behavior remain game-specific until proven otherwise.
 
-## Current checkpoint
+## Current state
 
-The reference game has demonstrated the basic flat transport chain:
+What already works in the reference game:
 
-`D3D9 backbuffer -> CPU readback -> D3D11 texture -> OpenVR -> SteamVR`
+- Native left/right ChromeEngine rendering reaches SteamVR and produces visible binocular gameplay in PSVR2.
+- Head yaw/pitch, physical eye separation and render-pose reprojection are validated in-headset.
+- Left PS VR2 Sense Create recenters the VR view without using the keyboard.
+- SteamVR scene focus can hand over correctly to the game and the runtime has completed clean shutdown in validated runs.
+- Both Sense controller poses are available to the body-tracking layer.
 
-The isolated OpenVR runtime initializes against SteamVR, acquires a valid PSVR2 HMD pose and accepts D3D11 eye submissions. The in-game flat bridge has also completed real submissions from captured game frames.
+What still prevents a usable release:
 
-Audit-remediation Phases 0-4 are host-tested and two run-bound observations reproduced the same three-frame loss of the four instrumented D3D9 device hooks. That Steam Overlay A/B remains a deferred renderer investigation. The HMD pose path reaches the visible first-person camera. Runs through `20260916T224239Z-e43b46698e5c` prove two complete ChromeEngine eye passes, distinct real-color capture, corrected metre-to-centimetre eye separation, physical Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit render-pose submission. The active transport uses a game-thread D3D9 capture ring, owned CPU stereo frames, a bounded mailbox and a dedicated D3D11/OpenVR presenter. Phase 5 and Phase 6 host acceptance are complete; fresh Debug and Release suites each produce 23 PASS plus the expected classic-D3D9 shared-texture capability SKIP. The next physical run is deliberately consolidated around sustained frame pacing/performance while rechecking runtime state, repeated presentation, one SteamVR dashboard focus-loss/reacquisition cycle, recenter and clean shutdown in the same process. Flat menu presentation is a separate later UI boundary.
+- The current classic-D3D9 transport is too expensive for consistently comfortable frame pacing. The active performance candidate temporarily tests the game at `1920x1080` with FSAA disabled and restores the user's original settings afterwards.
+- Campaign player discovery currently exposes no usable actor through the known Java session paths, so positional body reconciliation and arm IK cannot yet be promoted from host-tested code to a working in-game feature. When the actor cannot be resolved, physical head translation is suppressed instead of allowing the VR camera to drift away from the character body.
+- The flat game menu is not yet presented through the native-stereo gameplay path.
+- Motion-controlled weapons, reloads and other VR-native interactions are still planned.
 
-See the [technical audit](docs/TECHNICAL_AUDIT.md) for the current findings and the [audit remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) for the required execution order.
+Fresh Debug and Release validation each report **24 PASS plus one expected classic-D3D9 shared-texture capability SKIP out of 25 CTests**. Detailed run evidence and validation levels are tracked in [Validation](docs/VALIDATION.md); the [Roadmap](ROADMAP.md) gives the product-level status.
 
 ## Architecture
 

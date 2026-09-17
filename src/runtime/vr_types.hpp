@@ -37,7 +37,19 @@ enum class Eye : std::uint8_t { left, right };
 
 struct EyeView {
     Eye eye = Eye::left;
-    Pose pose{};
+    // Static optical transform from the eye to the HMD/head origin.
+    Pose eye_to_head{};
+    EyeFov fov{};
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
+
+// A time-located eye pose in the runtime tracking/reference space. This is
+// intentionally distinct from EyeView: eye-to-head optics and a located
+// tracking-space pose have different ownership and lifetime semantics.
+struct LocatedEyeView {
+    Eye eye = Eye::left;
+    Pose tracking_from_eye{};
     EyeFov fov{};
     std::uint32_t width = 0;
     std::uint32_t height = 0;

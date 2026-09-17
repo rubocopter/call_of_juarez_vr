@@ -156,7 +156,8 @@ native-stereo render-view proof:
 16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — current physical gate;
 17. Phase 5 resize/Reset/new-device and paused-producer acceptance coverage — host-tested;
 18. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization — host-tested; one consolidated physical run now checks those contracts together with the active performance gate;
-19. only then advance positional 6DOF, controller gameplay, interaction rebuilding and full-body IK.
+19. positional 6DOF and body/IK preflight are implemented at host level, including read-only pelvis/leg geometry plus measured two-bone leg solving; run `20260917T161917Z-909b63e114af` proved Sense tracking but showed that campaign actor discovery remains empty, so body promotion is parked while the performance gate proceeds independently;
+20. unresolved/invalid actor reconciliation now fails closed to HMD rotation plus native stereo eye offsets: room-scale head translation is suppressed until the actor can absorb it, preventing the render camera from walking away from the character body — host-tested.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
@@ -262,9 +263,38 @@ manifest, action-set/action handles and press-edge semantics; the current PS VR2
 maps left Create to `/actions/global/in/recenter`. The ChromeEngine adapter receives only a
 logical `recenter_requested` flag and forwards it into the existing `RelativePoseTracker`, so
 controller paths and OpenVR handles do not leak into game camera code. The JSON/terminal command
-remains a diagnostic fallback. This input slice is intentionally limited to recenter while the
-camera/stereo gate is active; tracked hands, gameplay actions and body/IK ownership remain later
-contracts.
+remains a diagnostic fallback. The same OpenVR sample now also carries both controller-role poses.
+`RelativePoseTracker::TransformPose()` maps those poses into the exact HMD recenter space without
+mutating tracker state, and the neutral `BodyTracker` receives only XR-neutral poses. Gameplay
+actions remain separate from this tracked-pose path.
+
+The first exact-build body adapter keeps ChromeEngine ownership game-specific. It attaches to the
+existing Java 1.4 VM through `JNI_GetCreatedJavaVMs` and resolves the current `NetPlayer.m_Being`.
+`Session.sm_LocalPlayer` remains the primary source. Shipped `Session.class` shows that field is set
+only when `NetPlayer.GetNetIsOwner()` is true, so campaign may leave it null; in that case the
+adapter accepts `Session.sm_Players[0]` only when the session contains exactly one player. Any
+zero-player or multi-player ambiguity fails closed. When that happens, the camera/body composition
+also fails closed: HMD orientation and stereo eye offsets remain active, but physical tracking
+translation is neutralized until a native actor can be proven and reconciled. The adapter uses
+shipped `MeshObject` methods rather than
+hard-coded bone-memory offsets. The current skeleton read contract is `GetBoneJointPos`, `GetBoneDirVector` and
+`GetBonePerpVector`; shipped `ArmedPlayerBeing.UpdateLookPointDead` confirms the latter two are the
+native up/forward basis used with a bone joint position. Arm lengths therefore come from the live
+animated skeleton. A game-neutral two-bone solver places elbow/wrist targets, while the CoJ
+adapter shortest-arc rotates each current upper-arm/forearm basis so existing animation twist is
+preserved. Exact native `FromUpForwardPosElementWorld` performs the element-world write. The path
+is disabled by default and can be toggled during one staged run. It is host-tested only; hand
+orientation remains natural and pelvis/leg writers are deliberately deferred until this world-basis
+composition is physically proven.
+
+The lower-body preflight uses the same exact skeleton readers without writing any lower-body
+element. The game-specific adapter records the native actor position plus animated pelvis offset,
+reads hip/knee/ankle and current thigh/shin/foot bases, and runs the same measured two-bone solver
+with reach clamping. The knee pole comes from the live animated knee plane, falling back only when
+that plane degenerates, while foot orientation remains the native animated basis. Sampled
+`body_lower_tracking` telemetry exposes both sides, measured lengths, pelvis target, clamp state and
+knee-plane validity. This is host-tested observation/preflight only until the arm composition gate
+passes physically.
 
 Run `20260916T153109Z-8976b8f77775` also demonstrates that modal/flat UI is a separate
 presentation boundary: the game menu was not visible through the current native gameplay stereo

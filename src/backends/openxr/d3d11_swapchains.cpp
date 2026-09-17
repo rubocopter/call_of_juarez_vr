@@ -196,12 +196,12 @@ bool D3D11StereoSwapchains::Release(runtime::Eye eye) noexcept {
 }
 
 runtime::OpenXrCompositionLayer D3D11StereoSwapchains::BuildProjectionLayer(
-    const std::array<runtime::EyeView, 2>& views) noexcept {
+    const std::array<runtime::LocatedEyeView, 2>& views) noexcept {
     if (!impl_ || !impl_->runtime) return {};
 
     for (std::size_t eye = 0; eye < impl_->projection_views.size(); ++eye) {
         auto& projection = impl_->projection_views[eye];
-        projection.pose = ToXrPose(views[eye].pose);
+        projection.pose = ToXrPose(views[eye].tracking_from_eye);
         projection.fov = ToXrFov(views[eye].fov);
         projection.subImage.swapchain =
             reinterpret_cast<XrSwapchain>(impl_->swapchains[eye].native);

@@ -21,6 +21,14 @@ struct OpenVrGlobalActions {
     bool recenter_active = false;
 };
 
+struct OpenVrTrackedPoses {
+    Pose hmd{};
+    Pose left_controller{};
+    Pose right_controller{};
+    bool left_controller_connected = false;
+    bool right_controller_connected = false;
+};
+
 struct OpenVrPresentationState {
     std::uint32_t process_id = 0;
     std::uint32_t scene_focus_process_id = 0;
@@ -64,7 +72,7 @@ public:
     [[nodiscard]] bool Initialize(
         std::string_view application_name = "Call of Juarez VR") noexcept;
     void Shutdown() noexcept;
-    // OpenVR-specific static optics. EyeView::pose is the eye-to-head transform
+    // OpenVR-specific static optics. EyeView::eye_to_head is the eye-to-head transform
     // returned by GetEyeToHeadTransform; it is not an absolute tracking pose.
     [[nodiscard]] bool ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept;
     // Non-blocking tracking sample that does not enter the compositor frame
@@ -72,6 +80,11 @@ public:
     // submit so merely polling the HMD does not claim scene focus early.
     [[nodiscard]] bool ReadHmdPose(Pose& pose) noexcept;
     [[nodiscard]] bool WaitForHmdPose(Pose& pose) noexcept;
+    // HMD and controller-role poses from one OpenVR tracking sample. Controller
+    // poses remain neutral runtime poses; game integrations decide how they map
+    // onto hands, weapons or other body anchors.
+    [[nodiscard]] bool ReadTrackedPoses(OpenVrTrackedPoses& poses) noexcept;
+    [[nodiscard]] bool WaitForTrackedPoses(OpenVrTrackedPoses& poses) noexcept;
     // Drain runtime events and refresh connection/focus state. A runtime quit
     // request is represented in state() and left to the owning thread to tear
     // down outside loader-lock-sensitive contexts.

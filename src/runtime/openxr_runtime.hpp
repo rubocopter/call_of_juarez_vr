@@ -82,7 +82,7 @@ public:
     bool ReleaseSwapchainImage(OpenXrSwapchainHandle swapchain) noexcept;
     bool WaitBeginFrame(OpenXrFrameState& frame) noexcept;
     bool LocateStereoViews(
-        const OpenXrFrameState& frame, std::array<EyeView, 2>& views) noexcept;
+        const OpenXrFrameState& frame, std::array<LocatedEyeView, 2>& views) noexcept;
     bool EndFrame(
         const OpenXrFrameState& frame,
         std::span<const OpenXrCompositionLayer> layers = {}) noexcept;

@@ -879,3 +879,135 @@ common D3D9 bootstrap export names checked during host inspection.
 
 The intended physical validation hardware is PlayStation VR2 on PC with both PS
 VR2 Sense controllers. A passing desktop/live test does not imply PSVR2 validation.
+
+### Positional 6DOF and body/IK preflight — 2026-09-17
+
+The user explicitly advanced positional/body work after the native-stereo camera path became
+usable. Current source keeps the HMD as render authority while reconciling horizontal recentered
+HMD translation into the native player actor at `100` CoJ units/metre. The adapter removes the
+previously accepted room-scale component before applying the next one so normal locomotion is not
+accumulated twice; vertical HMD translation remains camera/body-only. HMD and both controller-role
+poses now originate from one OpenVR tracking sample and both Sense poses are transformed through
+the same `RelativePoseTracker` recenter basis. This positional path is **host-tested only**.
+
+Exact-build body discovery now attaches to the already-created Java 1.4 VM and resolves the local
+player/being without creating a second JVM. The bridge exposes fail-closed JNI wrappers for shipped
+`GetBoneJointPos(BLVector;)Z`, `GetBoneDirVector(BLVector;)Z`,
+`GetBonePerpVector(BLVector;)Z`, `GetMeshElemFromBoneID(B)I` and
+`FromUpForwardPosElementWorld(ILVector;LVector;LVector;)V`. Static shipped-bytecode inspection of
+`ArmedPlayerBeing.UpdateLookPointDead(F)V` independently shows `GetBoneJointPos(5)`,
+`GetBoneDirVector(5)` and `GetBonePerpVector(5)` being combined as joint/up/forward geometry.
+The inspected `ChromeEngine3.dll` registration/disassembly resolves the world-basis writer to the
+exact native handler around RVA `0x0009A350`; production code still calls it through the Java
+method instead of embedding native object offsets.
+
+The runtime now contains a unit-agnostic two-bone solver with reach clamping and pole-vector
+control. The CoJ adapter measures shoulder/elbow/wrist segment lengths from the animated skeleton,
+derives the bend plane from the current elbow, and rotates the current upper-arm/forearm up/forward
+bases by the shortest arc toward the tracked controller target. This preserves current animation
+twist while solving the chain. Controller world targets use the natural camera basis and subtract
+the room-scale world offset already absorbed by the actor before applying the controller's
+recentered metre position. The exact arm writer is guarded by `bodyIkEnabled`; disabled mode still
+emits sampled observation telemetry. Hand orientation remains game-natural, and pelvis/leg writes
+are intentionally not promoted before the arm world-basis composition has physical evidence.
+
+The lower-body preflight is now host-tested without enabling a pelvis/leg writer. Sampled frames
+read the exact pelvis/thigh/shin/foot joints plus direction/perpendicular bases from the actor
+contract, preserve the native actor-to-pelvis offset as the locomotion-rooted pelvis anchor, and run
+both legs through the measured two-bone solver. Reach is clamped, the knee plane is derived from the
+current animated chain, and foot orientation remains native. `body_lower_tracking` records the
+pelvis target, hip/knee/ankle positions, measured segment lengths, clamp state and knee-plane
+validity with `write_enabled=false`.
+
+The native-stereo run manifest/verifier now includes `requireBodyIk`. One staged process can keep
+body IK off for the established performance checks, enable it with `tools/vr_test.ps1 body-enable`,
+exercise both Sense controllers, and disable it again without restarting. The verifier requires at
+least one successful `body_arm_tracking result=applied` sample for each side with
+`plan_valid=true`, `write_ok=true`, the measured bone basis and the exact world-basis writer. The
+same body gate also requires one valid read-only `body_lower_tracking result=observed` sample for
+each leg with `plan_valid=true`, `knee_plane_valid=true` and `write_enabled=false`. This gathers the
+lower-body geometry/solver evidence in the same process without promoting a lower-body writer. The
+same run continues to require positional 6DOF, recenter, dashboard focus cycling, repeated-frame
+presentation, production `gpu_sync=none` and clean shutdown.
+
+Fresh Release on 2026-09-17 builds the complete tree including `d3d9_native_stereo.dll`; all **25
+CTest outcomes complete with 24 PASS and the one expected classic-D3D9 shared-texture capability
+SKIP**, with zero failures. Debug `camera_probe`, `body_adapter`, `openvr_runtime` and provenance
+coverage also pass. No Call of Juarez, SteamVR or headset process was launched for this increment,
+so arm application and positional/body comfort remain **host-tested**, not live/headset-validated.
+
+Run `20260917T153051Z-ac6a4be37d85` is diagnostic evidence for the next physical workflow, not a
+body/IK promotion. The process produced sustained stereo submission and multiple dashboard
+open/close transitions. The `body-enable` control update was accepted (`body_ik_enabled=true`), but
+after that update the producer emitted no new game captures and the presenter only repeated the
+last `capture_sequence=3455`; no valid arm application was therefore possible. The user reported
+that returning through Alt+Tab commonly crashes or stalls the game, matching the observed loss of
+new game frames. The run also ended with `native_stereo_presenter_stop: shutdown_complete=false`
+even though the proxy reached `native_stereo_runtime: status=stopped` and `run_end`, so it does not
+promote the shutdown-complete gate. Its evidence package SHA-256 is
+`27C389D1801F79F5F8AEF6C365CAF4A1D45B25B16768489289987403F2536AB1`.
+
+For the next body run, `tools/vr_test.ps1 prepare -BodyIkAtStart` enables the guarded arm overlay
+before SteamVR/CoJ are launched. This avoids using Alt+Tab merely to toggle body IK while preserving
+the existing `body-enable` / `body-disable` actions for runs where an in-process toggle is safe.
+
+Run `20260917T154759Z-211723af9dc8` exercised that start-enabled path. The SteamVR interface was
+usable and stereo/6DOF/recenter continued to run, but the user saw no body or Sense-driven arm
+movement. Telemetry identified the blocker before any skeleton/write stage: every sampled body
+update reported `stage=player;detail=local player is unavailable`. The body control itself was
+accepted from frame 1, so this was not another toggle/Alt+Tab failure. The run was finalized and
+packaged as SHA-256 `8431C07F85B96F9A9339680C90F76788902710ECE434174A96C7A45C50D9DC82`.
+It again ended with `native_stereo_presenter_stop: shutdown_complete=false`, so shutdown remains a
+separate failed gate.
+
+Static inspection of shipped `Session.class` explains the discovery failure: `sm_LocalPlayer` is
+assigned in `Session.PlayerCreated` only when `NetPlayer.GetNetIsOwner()` returns true, while all
+players are independently retained in `sm_Players`. Current host source therefore keeps
+`sm_LocalPlayer` as the primary exact-game route and falls back to the sole `sm_Players` entry only
+when the vector size is exactly one. Zero or multiple players remain fail-closed. The next candidate
+also emits sampled `body_tracking_input` telemetry containing left/right Sense position/orientation
+validity before player/skeleton processing, and the live verifier requires both poses to be valid
+for the body gate. Release builds successfully and the complete 25-test suite still reports 24 PASS
+plus the expected classic-D3D9 shared-texture capability SKIP; focused provenance/camera/body tests
+also pass after the verifier change. These discovery changes remain **host-tested only**.
+
+Run `20260917T161917Z-909b63e114af` exercised that fallback. Sampled `body_tracking_input` proves
+both Sense controllers delivered valid position and orientation and their positions changed as the
+user moved them. Body processing still stopped before skeleton access because campaign discovery
+reported `local player is unavailable and the session player list is empty`. The user's observation
+that neither arm followed either Sense therefore matches the telemetry: tracked input is present,
+but no native actor exists at the current Java discovery boundary.
+
+The same run kept the active comfort failure visible. Sampled `native_stereo_producer_timing`
+reported approximately `15-25 ms` of `cpu_copy_ms` per stereo frame at the user's `2560x1440`,
+`FSAA(8)` settings, before the cost of the two Chrome Engine eye passes. The user also confirmed that
+small physical HMD translation could move the render camera away from the stationary character body,
+forcing frequent recenter. Current host source now treats unresolved actor reconciliation as a
+rotation-only fallback: physical HMD translation is zeroed while orientation validity and per-eye
+IPD translation remain active. `camera_native_stereo_frame` reports the real
+`positional_6dof` state plus `translation_mode` instead of unconditionally claiming 6DOF.
+
+The next physical gate is therefore performance-focused. `tools/vr_test.ps1 prepare` uses a
+`performance` validation profile unless `-BodyIkAtStart` is explicitly requested; that profile does
+not require positional-6DOF/body promotion. It also applies a reversible `Video.scr` profile of
+`1920x1080` and `FSAA(0)` while preserving every other setting, records the original/applied hashes
+in the run manifest and restores the original file on `finish` or prepare rollback. `-KeepVideoSettings`
+is available for diagnostics that must retain the user's native configuration. Fresh Release build
+and CTest after these changes complete with **24 PASS plus the one expected capability SKIP out of
+25, zero failures**. DLSS is deferred at this stage because the measured dominant cost is still the
+classic-D3D9 CPU transport/double-render path; an upscaler would not remove that copy.
+
+The resulting performance candidate is staged as run `20260917T163732Z-03df947b8d50` with
+build-manifest ID `52C4B1822E798CE84BBC8F878E80760AB97DCB729C5C22860BB99E044B935FFC` and proxy SHA-256
+`287CC00832F64227DE4912BD7F945573355F0EE04A5A99A3E4B36850831957E3`. Its run manifest records
+`profile=performance`, `requirePositional6Dof=false`, `requireBodyIk=false` and the active
+`1920x1080`/FSAA0 video profile. The exact original `Video.scr` SHA-256 is
+`9C7C51A2E46C60B775DDF1FB27022CD5179D53A039D1A8F64EB30C0286426191`; the temporary staged file is
+`72A92EBCD87FF68D8E63AE138D6528AE5F215AA0B23A420CE2D3EC76CE0D4D49`. Preparation reran all 25
+Release CTest outcomes with 24 PASS plus the expected capability SKIP and did not launch SteamVR or
+Call of Juarez. Physical comfort/timing evidence remains pending.
+
+Final repository verification before committing this state rebuilt both Debug and Release from the
+current tree and reran both complete CTest configurations. Each produced **24 PASS plus the one
+expected classic-D3D9 shared-texture capability SKIP out of 25**, with zero failures. No game or
+SteamVR process was launched during this verification.

@@ -30,10 +30,10 @@ Read in order before continuing:
 - Run `20260914T214318Z-fe71b222b664` reproduced that cutoff with the remediated Phase 0-4 ownership/telemetry candidate: 3/3/3 device callbacks, three successful capture/upload/balanced-eye submissions, then simultaneous loss of `Reset`, `Present`, `BeginScene` and `EndScene` ownership on the same device vtable.
 - Run `20260914T215121Z-9bac4e22cffd` resolved the target ambiguity: all four lost device slots returned exactly to their recorded original addresses in `C:\WINDOWS\system32\d3d9.dll`. The factory and swapchain hooks remained owned. The factory `CreateDevice` entry was already intercepted by `C:\Program Files (x86)\Steam\gameoverlayrenderer.dll` before the project installed its factory hook.
 - Historical replacement-owner candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` remains baseline evidence only.
-- HMD orientation injection is live-observed through the exact camera path; the remaining
-  horizontal sign correction is host-tested. The first native-stereo render-view candidate is
-  also host-tested. Positional 6DOF, full-body IK and motion-controller gameplay are not yet
-  implemented.
+- HMD orientation injection and native stereo are live-observed through the exact camera/render
+  path. Positional 6DOF plus body/IK preflight are implemented and host-tested: tracked hands and
+  upper-body writes are wired, while pelvis/leg geometry and two-bone solving are currently
+  read-only. Physical body validation and motion-controller gameplay remain pending.
 
 ## Phase 0 — host-tested
 
@@ -590,13 +590,140 @@ ChromeEngine PE before mutation. Unstaging now refuses to remove the staged prox
 original `d3d9.dll` backup is missing. The full journal-before-mutation/interrupted-recovery matrix
 is still pending and must not be described as Phase 7 complete.
 
+The user then explicitly advanced the positional 6DOF/full-body direction. Current host source now
+reconciles horizontal recentered HMD translation into `NetPlayer.m_Being` at the proven `100`
+CoJ-units/metre scale while leaving vertical head movement camera/body-owned. The actor update
+removes the previously absorbed physical offset first, preserving native locomotion and preventing
+the model from being left behind when the user walks physically. HMD plus both Sense role poses
+come from the same OpenVR sample; controller poses pass through the same recenter transform and are
+stored only as neutral body anchors.
+
+Exact shipped skeleton IDs remain game-specific. `JavaPlayerBridge` now has working fail-closed JNI
+readers for `GetBoneJointPos`, `GetBoneDirVector` and `GetBonePerpVector`, plus the exact native
+element writer `FromUpForwardPosElementWorld`. It attaches to the existing Java 1.4 VM and never
+creates a second VM. `ArmedPlayerBeing.UpdateLookPointDead` bytecode confirms the engine uses bone
+joint + direction + perpendicular as position/up/forward geometry; the world-basis native handler
+was independently found around ChromeEngine RVA `0x0009A350`. No speculative object/bone offsets
+were added to the runtime.
+
+`SolveTwoBoneIK` is now a game-neutral measured-length solver with reach clamping. `BuildArmIkPlan`
+uses the current animated shoulder/elbow/wrist positions and current upper-arm/forearm bases,
+derives the bend plane from the live elbow and shortest-arc rotates the existing bases to the solved
+segments so animation twist is retained. The CoJ target mapping removes the room-scale world offset
+already absorbed by the actor before mapping the recentered Sense position through the natural
+camera basis. `bodyIkEnabled` gates writes; observation remains available while disabled. Arm writes
+set only upper-arm and forearm world bases; the hand follows the native chain and keeps its current
+orientation. Pelvis/leg writes remain deferred until this composition is physically validated.
+
+The host-only lower-body preflight now reads pelvis, thigh, shin and foot joint/basis data through
+the same JNI contract. `BuildPelvisLocomotionAnchor` preserves the native actor/animated-pelvis
+relationship; `BuildLegIkPlan` measures hip-knee-ankle lengths, derives the knee pole from the live
+animated plane, clamps unreachable targets and preserves the native foot basis. Sampled
+`body_lower_tracking` events record both sides with `write_enabled=false`. The consolidated
+verifier now requires those read-only observations alongside successful left/right arm writes when
+`requireBodyIk=true`, so the next physical run can collect lower-body evidence without adding a
+second headset run. Lower-body element writers remain prohibited until the arm composition is
+physically proven.
+
+The next run stays one process and now includes the body gate. `tools/vr_test.ps1 body-enable` and
+`body-disable` toggle the overlay without recentering or restarting. The native-stereo run manifest
+sets `requireBodyIk=true`; `finish` requires at least one successful left and right
+`body_arm_tracking result=applied` sample using the measured basis and exact writer, plus one
+read-only `body_lower_tracking result=observed` sample for each leg with a valid measured plan, in
+addition to the existing performance/6DOF/dashboard/recenter/shutdown requirements. Fresh Release builds all
+current targets and runs 25 CTests with **24 PASS plus the expected classic-D3D9 shared-texture
+capability SKIP**. No game/SteamVR/headset process was launched for this body increment.
+
+Physical run `20260917T153051Z-ac6a4be37d85` did not validate the body writer. The user reported
+that the SteamVR interface was again effectively stuck and that Alt+Tab commonly crashes or stalls
+CoJ. Telemetry shows the live `body-enable` command was accepted, but from that point onward no new
+game capture was produced: the presenter repeated `capture_sequence=3455` until shutdown, so there
+was no frame on which either arm writer could be observed. The verifier failed specifically on the
+missing left-arm application, while the dashboard cycle was observed. Finalization preserved the
+evidence and restored staging; package SHA-256:
+`27C389D1801F79F5F8AEF6C365CAF4A1D45B25B16768489289987403F2536AB1`. The presenter also reported
+`shutdown_complete=false`, despite the outer proxy reaching `native_stereo_runtime: status=stopped`
+and `run_end`; keep that as a failed shutdown-complete signal rather than promoting it.
+
+To remove the Alt+Tab dependency from the next physical body gate, `tools/vr_test.ps1 prepare`
+accepts `-BodyIkAtStart`. It writes the same guarded `bodyIkEnabled=true` control before SteamVR and
+the game are launched. Prefer that option for the next body run; retain the live toggle only as an
+optional diagnostic when switching windows is known to be safe.
+
+Run `20260917T154759Z-211723af9dc8` has now been executed and finalized. Body IK was enabled before
+launch, the SteamVR interface was usable, and the user completed the requested steps but observed no
+body/Sense effect beyond the already-established recenter action. Telemetry shows why: every sampled
+body update stopped at `body_player_reconciliation result=unavailable` with `stage=player;detail=local
+player is unavailable`. This happened while fresh stereo frames continued, so it is a genuine JNI
+player-discovery failure rather than the previous Alt+Tab/frame-stall failure. The evidence package
+SHA-256 is `8431C07F85B96F9A9339680C90F76788902710ECE434174A96C7A45C50D9DC82`. Presenter shutdown again
+reported `shutdown_complete=false` before outer `native_stereo_runtime: status=stopped` and `run_end`.
+
+Shipped `Session.class` provides the correction basis. `Session.PlayerCreated` always appends to
+`sm_Players`, but assigns `sm_LocalPlayer` only when `NetPlayer.GetNetIsOwner()` is true. Current
+source therefore tries `sm_LocalPlayer` first and, when it is null, accepts the sole `sm_Players`
+entry only if the vector contains exactly one player; zero or multiple entries fail closed. This is
+exact-build campaign fallback, not a generalized Chrome Engine rule. Sampled `body_tracking_input`
+telemetry now records validity/position for both transformed Sense poses, and the body verifier
+requires valid position+orientation for both controllers before accepting arm evidence. Release
+builds and the full 25-test suite pass with 24 PASS plus the expected capability SKIP; focused
+`provenance_tools`, `camera_probe` and `body_adapter` tests also pass. This correction still needs a
+fresh physical run.
+
+Run `20260917T161917Z-909b63e114af` has now been physically exercised. Sense tracking itself is
+good: sampled `body_tracking_input` has valid left/right position+orientation and changing controller
+positions. The fallback did not resolve the actor; every body sample still stops at
+`local player is unavailable and the session player list is empty`. The user observed no arm motion,
+so body IK remains unvalidated and should be parked until actor discovery has a concrete fix.
+
+That run also confirms the active comfort problem is still performance/frame pacing. Sampled
+`cpu_copy_ms` remains roughly `15-25 ms` per stereo frame at `2560x1440` with `FSAA(8)`, before the
+two Chrome Engine eye renders. Presenter submit time is comparatively small. The user also observed
+that physical head translation leaves the native body behind. Current host source now suppresses
+room-scale HMD translation whenever actor reconciliation is unavailable/invalid/write-failed while
+preserving HMD rotation and per-eye IPD. Telemetry records `positional_6dof=false` and a precise
+`translation_mode` in that fallback instead of claiming full 6DOF.
+
+`tools/vr_test.ps1 prepare` now defaults to a performance validation profile when
+`-BodyIkAtStart` is absent. It keeps the established stereo/runtime/dashboard/recenter/shutdown and
+timing gates, but does not require body IK or positional-6DOF promotion. It also backs up the user's
+`Documents\call of juarez\out\Settings\Video.scr`, changes only `Resolution` to `1920x1080` and
+`FSAA` to `0`, records original/applied hashes in the run manifest and restores the exact original
+file on `finish` or prepare rollback. `-KeepVideoSettings` skips that temporary profile. Fresh
+Release build and all 25 CTest outcomes complete with 24 PASS plus the expected capability SKIP.
+
+Do not prioritize DLSS yet. The measured hot path is still classic-D3D9 readback/owned CPU copy plus
+two complete engine eye renders, which DLSS would not remove. Use the next performance run to compare
+copy/frame pacing and subjective comfort at the lighter reversible profile. If that remains
+insufficient, investigate removal of the CPU transport (or the later D3D10 path) before selecting an
+upscaler insertion point.
+
+The prepared candidate for that comparison is run `20260917T163732Z-03df947b8d50`, build-manifest
+ID `52C4B1822E798CE84BBC8F878E80760AB97DCB729C5C22860BB99E044B935FFC`, proxy SHA-256
+`287CC00832F64227DE4912BD7F945573355F0EE04A5A99A3E4B36850831957E3`. It is currently staged with
+tracking/stereo enabled, Body IK disabled, `validation.profile=performance`,
+`requirePositional6Dof=false`, `requireBodyIk=false`, and the reversible `1920x1080`/FSAA0 video
+profile active. Original `Video.scr` SHA-256:
+`9C7C51A2E46C60B775DDF1FB27022CD5179D53A039D1A8F64EB30C0286426191`; temporary profile SHA-256:
+`72A92EBCD87FF68D8E63AE138D6528AE5F215AA0B23A420CE2D3EC76CE0D4D49`. Preparation reran Release
+build/CTest with 24 PASS plus the expected classic-D3D9 shared-texture SKIP. No game or SteamVR
+process was launched. After the user's one-process physical run, `tools/vr_test.ps1 finish` must be
+used to collect evidence and restore both staging and the original video settings.
+
+Final pre-commit verification rebuilt the complete current tree in both Debug and Release and ran
+all 25 CTests in each configuration. Both produced 24 PASS plus the expected classic-D3D9
+shared-texture capability SKIP, with zero failures. This verification did not launch Call of Juarez
+or SteamVR and does not promote the pending physical performance gate.
+
 ## Constraints
 
 - Never launch Call of Juarez or SteamVR automatically.
 - Do not use blind periodic re-hooking.
 - Do not reactivate D3D9Ex as the main path.
-- Keep work limited to the current HMD/native-stereo gate; do not add positional 6DOF, UI,
-  full-body IK or controller gameplay yet.
+- Positional 6DOF and the isolated body/arm IK preflight remain in scope, but their physical gate is
+  parked while the campaign actor cannot be resolved. Keep body semantics exact-build-first and
+  fail closed; do not extend the unvalidated arm writer into pelvis/legs or gameplay interactions.
+- UI and controller gameplay remain outside the current gate.
 - Do not equate submit count with new game content.
 - Preserve the validation-state boundary: host-only Phase 5/6 changes remain `host-tested` until a
   fresh run supplies the specific live/headset evidence required by the consolidated verifier.

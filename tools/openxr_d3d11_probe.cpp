@@ -135,7 +135,7 @@ int main() {
             waiting_for_renderable_session_reported = true;
         }
 
-        std::array<EyeView, 2> views{};
+        std::array<LocatedEyeView, 2> views{};
         bool submit_projection = frame.should_render && runtime.LocateStereoViews(frame, views);
         if (frame.should_render && !submit_projection) {
             std::cerr << "OpenXR view location failed: " << runtime.last_error() << '\n';

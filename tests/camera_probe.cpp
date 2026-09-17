@@ -76,10 +76,18 @@ int main() {
     }
 
     if (!ParseCameraProbeCommand(
-            R"({"enabled":false,"trackingEnabled":true,"recenter":true})",
+            R"({"enabled":false,"trackingEnabled":true,"bodyIkEnabled":true,"recenter":true})",
             command, &error) ||
-        command.enabled || !command.tracking_enabled || !command.recenter) {
+        command.enabled || !command.tracking_enabled || !command.body_ik_enabled ||
+        !command.recenter) {
         std::cerr << "tracking control command was not parsed: " << error << '\n';
+        return 1;
+    }
+
+    if (ParseCameraProbeCommand(
+            R"({"enabled":false,"trackingEnabled":true,"bodyIkEnabled":1})",
+            command, &error)) {
+        std::cerr << "invalid body IK control value was accepted\n";
         return 1;
     }
 
@@ -169,11 +177,32 @@ int main() {
         head_position, native_identity, {0.032F, 0.0F, 0.0F});
     const CameraProbeVector forward_eye = ApplyCameraEyeOffset(
         head_position, native_identity, {0.0F, 0.0F, -0.01F});
+    const CameraProbeVector tracked_head = ApplyCameraTrackingOffset(
+        head_position, native_identity, {0.10F, 0.20F, -0.30F});
     if (!Near(kGameUnitsPerMeter, 100.0F) ||
         !NearVector(left_eye, {6.8F, 20.0F, 30.0F}) ||
         !NearVector(right_eye, {13.2F, 20.0F, 30.0F}) ||
-        !NearVector(forward_eye, {10.0F, 20.0F, 31.0F})) {
-        std::cerr << "metre eye-to-head translation did not map into CoJ centimetres\n";
+        !NearVector(forward_eye, {10.0F, 20.0F, 31.0F}) ||
+        !NearVector(tracked_head, {20.0F, 40.0F, 60.0F})) {
+        std::cerr << "metre eye/head translation did not map into CoJ centimetres\n";
+        return 1;
+    }
+
+    cojvr::runtime::Pose unresolved_actor_pose{};
+    unresolved_actor_pose.orientation = AxisAngle(0.0F, 1.0F, 0.0F, 25.0F);
+    unresolved_actor_pose.orientation_valid = true;
+    unresolved_actor_pose.position = {0.12F, -0.04F, 0.33F};
+    unresolved_actor_pose.position_valid = true;
+    const auto rotation_only_pose = SuppressPhysicalTrackingTranslation(unresolved_actor_pose);
+    if (!rotation_only_pose.orientation_valid || !rotation_only_pose.position_valid ||
+        !Near(rotation_only_pose.orientation.x, unresolved_actor_pose.orientation.x) ||
+        !Near(rotation_only_pose.orientation.y, unresolved_actor_pose.orientation.y) ||
+        !Near(rotation_only_pose.orientation.z, unresolved_actor_pose.orientation.z) ||
+        !Near(rotation_only_pose.orientation.w, unresolved_actor_pose.orientation.w) ||
+        !Near(rotation_only_pose.position.x, 0.0F) ||
+        !Near(rotation_only_pose.position.y, 0.0F) ||
+        !Near(rotation_only_pose.position.z, 0.0F)) {
+        std::cerr << "rotation-only fallback did not suppress physical translation cleanly\n";
         return 1;
     }
 
@@ -201,14 +230,32 @@ int main() {
     base.sequence = 1;
     base.pose.orientation = {};
     base.pose.orientation_valid = true;
+    base.pose.position = {1.0F, 2.0F, 3.0F};
+    base.pose.position_valid = true;
     if (!tracker.Update(base) || tracker.last_recenter_sequence() != 1) {
         std::cerr << "initial HMD pose was not captured as recenter base\n";
         return 1;
     }
 
     cojvr::runtime::Pose relative{};
-    if (!tracker.CurrentPose(relative)) {
+    if (!tracker.CurrentPose(relative) || !relative.position_valid ||
+        !Near(relative.position.x, 0.0F) || !Near(relative.position.y, 0.0F) ||
+        !Near(relative.position.z, 0.0F)) {
         std::cerr << "recentered pose was not available\n";
+        return 1;
+    }
+    cojvr::runtime::Pose absolute_controller{};
+    absolute_controller.orientation = {};
+    absolute_controller.orientation_valid = true;
+    absolute_controller.position = {1.30F, 1.80F, 2.60F};
+    absolute_controller.position_valid = true;
+    cojvr::runtime::Pose relative_controller{};
+    if (!tracker.TransformPose(absolute_controller, relative_controller) ||
+        !relative_controller.orientation_valid || !relative_controller.position_valid ||
+        !Near(relative_controller.position.x, 0.30F) ||
+        !Near(relative_controller.position.y, -0.20F) ||
+        !Near(relative_controller.position.z, -0.40F)) {
+        std::cerr << "controller pose did not share the HMD recenter space\n";
         return 1;
     }
     const CameraProbeBasis centered = ApplyCameraPoseOrientation(
@@ -222,10 +269,19 @@ int main() {
         return 1;
     }
 
-    cojvr::runtime::PoseSample yaw_sample{};
-    yaw_sample.sequence = 2;
+    cojvr::runtime::PoseSample translated_sample = base;
+    translated_sample.sequence = 2;
+    translated_sample.pose.position = {1.10F, 2.20F, 2.70F};
+    if (!tracker.Update(translated_sample) || !tracker.CurrentPose(relative) ||
+        !relative.position_valid || !Near(relative.position.x, 0.10F) ||
+        !Near(relative.position.y, 0.20F) || !Near(relative.position.z, -0.30F)) {
+        std::cerr << "relative HMD position did not preserve recentered metre axes\n";
+        return 1;
+    }
+
+    cojvr::runtime::PoseSample yaw_sample = base;
+    yaw_sample.sequence = 3;
     yaw_sample.pose.orientation = AxisAngle(0.0F, 1.0F, 0.0F, -20.0F);
-    yaw_sample.pose.orientation_valid = true;
     if (!tracker.Update(yaw_sample) || !tracker.CurrentPose(relative)) {
         std::cerr << "yaw HMD pose was rejected\n";
         return 1;
@@ -242,10 +298,9 @@ int main() {
         return 1;
     }
 
-    cojvr::runtime::PoseSample pitch_sample{};
-    pitch_sample.sequence = 3;
+    cojvr::runtime::PoseSample pitch_sample = base;
+    pitch_sample.sequence = 4;
     pitch_sample.pose.orientation = AxisAngle(1.0F, 0.0F, 0.0F, 10.0F);
-    pitch_sample.pose.orientation_valid = true;
     if (!tracker.Update(pitch_sample) || !tracker.CurrentPose(relative)) {
         std::cerr << "pitch HMD pose was rejected\n";
         return 1;
@@ -259,10 +314,9 @@ int main() {
         return 1;
     }
 
-    cojvr::runtime::PoseSample roll_sample{};
-    roll_sample.sequence = 4;
+    cojvr::runtime::PoseSample roll_sample = base;
+    roll_sample.sequence = 5;
     roll_sample.pose.orientation = AxisAngle(0.0F, 0.0F, -1.0F, 15.0F);
-    roll_sample.pose.orientation_valid = true;
     if (!tracker.Update(roll_sample) || !tracker.CurrentPose(relative)) return 1;
     const CameraProbeBasis hmd_roll = ApplyCameraPoseOrientation(
         {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, relative.orientation);
@@ -274,7 +328,7 @@ int main() {
     }
 
     cojvr::runtime::PoseSample origin_again = base;
-    origin_again.sequence = 5;
+    origin_again.sequence = 6;
     if (!tracker.Update(origin_again) || !tracker.CurrentPose(relative)) return 1;
     const CameraProbeBasis returned = ApplyCameraPoseOrientation(
         {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, relative.orientation);
@@ -285,18 +339,18 @@ int main() {
     }
 
     tracker.RequestRecenter();
-    yaw_sample.sequence = 6;
+    yaw_sample.sequence = 7;
     if (!tracker.Update(yaw_sample) || !tracker.CurrentPose(relative)) return 1;
     const CameraProbeBasis recentered = ApplyCameraPoseOrientation(
         {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, relative.orientation);
     if (!Near(recentered.forward.x, 0.0F) || !Near(recentered.forward.z, 1.0F) ||
-        tracker.last_recenter_sequence() != 6) {
+        !relative.position_valid || tracker.last_recenter_sequence() != 7) {
         std::cerr << "explicit recenter did not reset relative orientation\n";
         return 1;
     }
 
     cojvr::runtime::PoseSample invalid{};
-    invalid.sequence = 7;
+    invalid.sequence = 8;
     if (tracker.Update(invalid) || tracker.CurrentPose(relative)) {
         std::cerr << "invalid tracking pose did not force passthrough\n";
         return 1;
@@ -307,6 +361,6 @@ int main() {
         return 1;
     }
 
-    std::cout << "PASS - camera controls, stereo frustum/eye mapping, HMD recenter and orientation\n";
+    std::cout << "PASS - camera controls, stereo frustum/eye mapping, HMD 6DOF and recenter\n";
     return 0;
 }

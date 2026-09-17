@@ -45,6 +45,7 @@ struct CameraProbeCommand {
     float yaw_degrees = 0.0F;
     float pitch_degrees = 0.0F;
     bool tracking_enabled = false;
+    bool body_ik_enabled = false;
     bool recenter = false;
 };
 
@@ -79,6 +80,17 @@ struct CameraProbeCommand {
     CameraProbeBasis head_basis,
     cojvr::runtime::Vec3 eye_to_head_position) noexcept;
 
+[[nodiscard]] CameraProbeVector ApplyCameraTrackingOffset(
+    CameraProbeVector camera_position,
+    CameraProbeBasis recenter_basis,
+    cojvr::runtime::Vec3 relative_head_position) noexcept;
+
+// When the native actor cannot be proven/reconciled, keep HMD orientation and
+// pose validity but suppress room-scale translation. Stereo eye-to-head
+// translation is applied later and remains active.
+[[nodiscard]] cojvr::runtime::Pose SuppressPhysicalTrackingTranslation(
+    cojvr::runtime::Pose pose) noexcept;
+
 [[nodiscard]] bool IsSupportedChromeEngineHash(std::string_view sha256) noexcept;
 
 using CameraProbeEventCallback = void (*)(
@@ -88,12 +100,14 @@ using CameraProbeEventCallback = void (*)(
 
 struct CameraStereoFrameSample {
     cojvr::runtime::PoseSample hmd_pose{};
+    cojvr::runtime::Pose left_controller{};
+    cojvr::runtime::Pose right_controller{};
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     bool recenter_requested = false;
 };
 
 // Runtime/transport boundary for the exact-build Chrome Engine integration.
-// EyeView::pose is eye-to-head here; the game adapter never depends on an XR API.
+// EyeView::eye_to_head is static optics; the game adapter never depends on an XR API.
 struct CameraStereoRuntimeCallbacks {
     void* context = nullptr;
     bool (*begin_frame)(void* context, CameraStereoFrameSample& sample) noexcept = nullptr;

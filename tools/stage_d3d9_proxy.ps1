@@ -4,10 +4,14 @@ param(
 
     [string]$ProxyPath = "",
     [string]$BuildManifestPath = "",
-    [string]$RunId = ""
+    [string]$RunId = "",
+
+    [ValidateSet("full", "performance")]
+    [string]$ValidationProfile = "full"
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "deployment_transaction.ps1")
 
 function Get-PeMachine([string]$Path) {
     $Stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -66,9 +70,14 @@ $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
 $OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
+$TransactionJournal = Join-Path $GameDirectory ".cojvr-deployment-transaction.json"
 
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
     throw "Call of Juarez is running. Close it before staging a candidate."
+}
+if (Test-Path -LiteralPath $TransactionJournal -PathType Leaf) {
+    [void](Complete-CojvrDeploymentRecovery $GameDirectory)
+    Write-Host "Recovered the previous interrupted CoJ VR deployment transaction."
 }
 
 $ProxyLeaf = [System.IO.Path]::GetFileName($ProxyPath)
@@ -227,6 +236,55 @@ $RunDirectory = Join-Path (Join-Path $EvidenceRoot "runs") $RunId
 if (Test-Path -LiteralPath $RunDirectory) {
     throw "Run evidence directory '$RunDirectory' already exists. Choose a unique RunId."
 }
+$HadOriginal = Test-Path -LiteralPath $Destination -PathType Leaf
+$HadOriginalCameraControl = $IsCameraIntegration -and (Test-Path -LiteralPath $CameraControl -PathType Leaf)
+$HadOriginalOpenVr = $IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
+$HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container)
+$CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"bodyIkEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0`n}`n"
+$CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+$CameraControlHashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($CameraControlBytes)
+$CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.ToString("X2") })
+$JournalAssets = @(
+    [ordered]@{
+        role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
+        hadOriginal = $HadOriginal
+        originalSha256 = if ($HadOriginal) { Get-CojvrFileSha256 $Destination } else { $null }
+        stagedSha256 = $ProxyHash
+    }
+)
+if ($IsCameraIntegration) {
+    $JournalAssets += [ordered]@{
+        role = "camera_control"; kind = "file"; destination = "cojvr-camera-control.json"; backup = "cojvr-camera-control.cojvr-backup.json"
+        hadOriginal = $HadOriginalCameraControl
+        originalSha256 = if ($HadOriginalCameraControl) { Get-CojvrFileSha256 $CameraControl } else { $null }
+        stagedSha256 = $CameraControlStagedHash
+    }
+}
+if ($IsOpenVrIntegration) {
+    $JournalAssets += [ordered]@{
+        role = "openvr_runtime"; kind = "file"; destination = "openvr_api.dll"; backup = "openvr_api.cojvr-backup.dll"
+        hadOriginal = $HadOriginalOpenVr
+        originalSha256 = if ($HadOriginalOpenVr) { Get-CojvrFileSha256 $OpenVrDestination } else { $null }
+        stagedSha256 = $OpenVrHash
+    }
+}
+if ($IsNativeStereo) {
+    $OriginalInputManifest = if ($HadOriginalOpenVrInput) {
+        @(Get-CojvrDirectoryManifest $OpenVrInputDestination)
+    } else { @() }
+    $JournalAssets += [ordered]@{
+        role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
+        hadOriginal = $HadOriginalOpenVrInput
+        originalManifest = @($OriginalInputManifest)
+        stagedManifest = @(
+            [ordered]@{ path = "actions.json"; sha256 = ([string]$OpenVrActionManifestArtifact[0].sha256).ToUpperInvariant() },
+            [ordered]@{ path = "bindings/psvr2_sense.json"; sha256 = ([string]$OpenVrSenseBindingArtifact[0].sha256).ToUpperInvariant() }
+        )
+    }
+}
+[void](Write-CojvrDeploymentJournal $GameDirectory "stage" $RunId $DiagnosticMode $JournalAssets)
+
+try {
 $HistoricalDirectory = Join-Path `
     (Join-Path $EvidenceRoot "historical") `
     ("{0}-{1}" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), ([Guid]::NewGuid().ToString("N").Substring(0, 8)))
@@ -247,16 +305,11 @@ foreach ($HistoricalFile in $HistoricalFiles) {
     }
 }
 
-$HadOriginal = Test-Path -LiteralPath $Destination
-$HadOriginalCameraControl = $IsCameraIntegration -and (Test-Path -LiteralPath $CameraControl -PathType Leaf)
-$HadOriginalOpenVr = $IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
-$HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container)
 if ($HadOriginal) {
     Move-Item -LiteralPath $Destination -Destination $Backup
     Write-Host "Backed up existing d3d9.dll to d3d9.cojvr-backup.dll"
 }
 
-try {
     Copy-Item -LiteralPath $ProxyPath -Destination $Destination
     if ($IsOpenVrIntegration) {
         if ($HadOriginalOpenVr) {
@@ -278,7 +331,7 @@ try {
         }
         [System.IO.File]::WriteAllText(
             $CameraControl,
-            "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0`n}`n",
+            $CameraControlText,
             [System.Text.UTF8Encoding]::new($false))
     }
     @{
@@ -333,6 +386,7 @@ try {
         }
     }
 
+    $RequireBodyValidation = $IsNativeStereo -and $ValidationProfile -eq "full"
     $RunManifest = [ordered]@{
         schemaVersion = 1
         manifestType = "cojvr-run"
@@ -356,12 +410,16 @@ try {
             }
         }
         validation = [ordered]@{
+            profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
             requireExactChromeEngine = $IsCameraIntegration
             requireOpenVrRuntimeState = $IsNativeStereo
-            requireOpenVrFocusCycle = $IsNativeStereo
+            requireOpenVrFocusCycle = $false
+            requireOpenVrDashboardCycle = $IsNativeStereo
             requireProductionGpuSyncNone = $IsNativeStereo
             requirePerformanceSummary = $IsNativeStereo
             requireRepeatedPresentation = $IsNativeStereo
+            requirePositional6Dof = $RequireBodyValidation
+            requireBodyIk = $RequireBodyValidation
         }
         deployment = @($Deployment)
     }
@@ -371,45 +429,13 @@ try {
         $RunJson + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath $CurrentRun -Destination (Join-Path $RunDirectory "run-manifest.json") -Force
+    Remove-Item -LiteralPath $TransactionJournal -Force
 } catch {
-    if ($IsCameraIntegration) {
-        if (Test-Path -LiteralPath $CameraControl -PathType Leaf) {
-            Remove-Item -LiteralPath $CameraControl -Force
-        }
-        if ($HadOriginalCameraControl -and (Test-Path -LiteralPath $CameraControlBackup -PathType Leaf)) {
-            Move-Item -LiteralPath $CameraControlBackup -Destination $CameraControl
-        }
-    }
-    if ($IsOpenVrIntegration) {
-        if (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf) {
-            $CurrentOpenVrHash = (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
-            if ($CurrentOpenVrHash -eq $OpenVrHash) {
-                Remove-Item -LiteralPath $OpenVrDestination -Force
-            }
-        }
-        if ($HadOriginalOpenVr -and (Test-Path -LiteralPath $OpenVrBackup -PathType Leaf)) {
-            Move-Item -LiteralPath $OpenVrBackup -Destination $OpenVrDestination
-        }
-    }
-    if ($IsNativeStereo) {
-        if (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container) {
-            Remove-Item -LiteralPath $OpenVrInputDestination -Recurse -Force
-        }
-        if ($HadOriginalOpenVrInput -and (Test-Path -LiteralPath $OpenVrInputBackup -PathType Container)) {
-            Move-Item -LiteralPath $OpenVrInputBackup -Destination $OpenVrInputDestination
-        }
-    }
-    if (Test-Path -LiteralPath $Destination) {
-        Remove-Item -LiteralPath $Destination -Force
-    }
-    if (Test-Path -LiteralPath $Backup) {
-        Move-Item -LiteralPath $Backup -Destination $Destination
-    }
-    if (Test-Path -LiteralPath $State) {
-        Remove-Item -LiteralPath $State -Force
-    }
     if (Test-Path -LiteralPath $CurrentRun) {
         Remove-Item -LiteralPath $CurrentRun -Force
+    }
+    if (Test-Path -LiteralPath $TransactionJournal -PathType Leaf) {
+        [void](Complete-CojvrDeploymentRecovery $GameDirectory)
     }
     throw
 }

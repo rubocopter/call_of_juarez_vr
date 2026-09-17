@@ -467,7 +467,7 @@ bool OpenXrRuntime::WaitBeginFrame(OpenXrFrameState& frame) noexcept {
 }
 
 bool OpenXrRuntime::LocateStereoViews(
-    const OpenXrFrameState& frame, std::array<EyeView, 2>& views) noexcept {
+    const OpenXrFrameState& frame, std::array<LocatedEyeView, 2>& views) noexcept {
     if (!impl_ || !impl_->frame_active || impl_->local_space == XR_NULL_HANDLE) {
         if (impl_) impl_->last_error = "OpenXR frame/reference space is not ready for view location";
         return false;
@@ -499,21 +499,25 @@ bool OpenXrRuntime::LocateStereoViews(
         (view_state.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0;
 
     for (std::size_t index = 0; index < xr_views.size(); ++index) {
-        EyeView view = impl_->recommended_views[index];
+        const EyeView& recommendation = impl_->recommended_views[index];
+        LocatedEyeView view{};
+        view.eye = recommendation.eye;
+        view.width = recommendation.width;
+        view.height = recommendation.height;
         const auto& xr_view = xr_views[index];
-        view.pose.orientation = Quaternion{
+        view.tracking_from_eye.orientation = Quaternion{
             xr_view.pose.orientation.x,
             xr_view.pose.orientation.y,
             xr_view.pose.orientation.z,
             xr_view.pose.orientation.w,
         };
-        view.pose.position = Vec3{
+        view.tracking_from_eye.position = Vec3{
             xr_view.pose.position.x,
             xr_view.pose.position.y,
             xr_view.pose.position.z,
         };
-        view.pose.orientation_valid = orientation_valid;
-        view.pose.position_valid = position_valid;
+        view.tracking_from_eye.orientation_valid = orientation_valid;
+        view.tracking_from_eye.position_valid = position_valid;
         view.fov = EyeFov{
             xr_view.fov.angleLeft,
             xr_view.fov.angleRight,

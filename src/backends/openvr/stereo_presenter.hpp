@@ -15,6 +15,8 @@ using PresenterLogCallback = void (*)(void* context, std::string_view line) noex
 
 struct OpenVrTrackingSample {
     runtime::Pose pose{};
+    runtime::Pose left_controller{};
+    runtime::Pose right_controller{};
     std::uint64_t sequence = 0;
     bool recenter_requested = false;
 };
@@ -26,6 +28,7 @@ struct OpenVrPresenterStats {
     std::uint64_t repeated_frame_submissions = 0;
     std::uint64_t rejected_frames = 0;
     std::uint64_t submit_failures = 0;
+    bool shutdown_complete = false;
     d3d9::FrameMailboxStats mailbox{};
 };
 

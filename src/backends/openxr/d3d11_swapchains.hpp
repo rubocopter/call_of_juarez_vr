@@ -34,7 +34,7 @@ public:
     bool Acquire(runtime::Eye eye, AcquiredEyeImage& image) noexcept;
     bool Release(runtime::Eye eye) noexcept;
     runtime::OpenXrCompositionLayer BuildProjectionLayer(
-        const std::array<runtime::EyeView, 2>& views) noexcept;
+        const std::array<runtime::LocatedEyeView, 2>& views) noexcept;
 
     [[nodiscard]] std::int64_t format() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;

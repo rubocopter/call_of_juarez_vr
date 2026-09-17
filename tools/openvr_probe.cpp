@@ -96,8 +96,8 @@ int wmain(const int argc, wchar_t** argv) {
     std::cout << std::fixed << std::setprecision(6);
     for (const EyeView& eye : eyes) {
         std::cout << EyeName(eye.eye)
-                  << " eye_to_head_pos=(" << eye.pose.position.x << ','
-                  << eye.pose.position.y << ',' << eye.pose.position.z << ")"
+                  << " eye_to_head_pos=(" << eye.eye_to_head.position.x << ','
+                  << eye.eye_to_head.position.y << ',' << eye.eye_to_head.position.z << ")"
                   << " fov=(" << eye.fov.angle_left << ',' << eye.fov.angle_right
                   << ',' << eye.fov.angle_up << ',' << eye.fov.angle_down << ")\n";
     }

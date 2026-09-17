@@ -10,6 +10,8 @@ The game provides first-party D3D9 and D3D10 launch paths. The D3D9 engine binar
 
 `code.pak` and the inspected `Data*.pak` archives use ZIP signatures. `code.pak` contains Java bytecode with relevant classes including `Camera`, `BaseCamera`, `CamerasManager`, `GameInputController`, `PlayerBeing`, `ArmedPlayerBeing`, `WeaponHands` and `Weapon`. `game.ini` declares `LawmanGame` and Java source/class paths, making this game the best initial reference for game-layer research once the renderer/runtime gate is stable.
 
+Static inspection of the shipped `code.pak` also identifies `EBones.class` as an explicit human-skeleton ordinal contract: pelvis `0`, spine/spine1/spine2 `1/2/3`, neck/head `4/5`, left upper-arm/forearm/hand `7/8/10`, right upper-arm/forearm/hand `12/13/15`, thighs `16/17`, calves `20/21` and feet `22/23`. `PlayerBeing.class` references `GetMeshElemFromBoneID`, while `ArmedPlayerBeing.class` exposes head, spine and hand rotation state plus body/hand animation nodes. These are static game-data facts; the native actor pointer and writable native bone-transform boundary still require live/exact-binary evidence before writes are enabled.
+
 Observed executable identities:
 
 - `CoJ.exe`: `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`

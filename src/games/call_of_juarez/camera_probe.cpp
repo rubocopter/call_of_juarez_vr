@@ -1,4 +1,7 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/body_adapter.hpp"
+#include "games/call_of_juarez/java_player_bridge.hpp"
+#include "runtime/body_tracking.hpp"
 
 #include "backends/d3d9/hook_registry.hpp"
 #include "runtime/build_identity.hpp"
@@ -98,6 +101,21 @@ RenderViewFn g_original_render_view = nullptr;
 SetFovFn g_original_set_fov = nullptr;
 CameraProbeEventCallback g_event_callback = nullptr;
 cojvr::runtime::PoseSource* g_pose_source = nullptr;
+cojvr::runtime::BodyTracker g_body_tracker;
+JavaPlayerBridge g_java_player_bridge;
+cojvr::runtime::Vec3 g_body_applied_world_offset{};
+cojvr::runtime::Vec3 g_body_applied_tracking_offset{};
+std::uint64_t g_body_player_generation = 0;
+bool g_body_player_space_applied = false;
+struct ArmElementCache {
+    std::uint64_t being_generation = 0;
+    int left_upper_arm = -1;
+    int left_forearm = -1;
+    int right_upper_arm = -1;
+    int right_forearm = -1;
+    bool valid = false;
+};
+ArmElementCache g_arm_element_cache{};
 CameraStereoRuntimeCallbacks g_stereo_callbacks{};
 cojvr::runtime::RelativePoseTracker g_pose_tracker;
 std::filesystem::path g_control_path{};
@@ -438,6 +456,7 @@ void RefreshCommandLocked() noexcept {
         detail << ";yaw=" << parsed.yaw_degrees
                << ";pitch=" << parsed.pitch_degrees
                << ";tracking_enabled=" << (parsed.tracking_enabled ? "true" : "false")
+               << ";body_ik_enabled=" << (parsed.body_ik_enabled ? "true" : "false")
                << ";recenter=" << (parsed.recenter ? "true" : "false");
         EmitEvent("camera_probe_control_loaded", "accepted", detail.str());
     } catch (...) {
@@ -605,6 +624,8 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
         if (g_pose_source->TryGetLatestPose(sample)) {
             const std::uint64_t prior_recenter = g_pose_tracker.last_recenter_sequence();
             if (g_pose_tracker.Update(sample) && g_pose_tracker.CurrentPose(relative_pose)) {
+                g_body_tracker.SetHeadPose(relative_pose);
+                g_body_tracker.UpdatePlayerSpace(relative_pose);
                 tracking_active = true;
                 pose_sequence = sample.sequence;
                 recentered = g_pose_tracker.last_recenter_sequence() != 0 &&
@@ -700,12 +721,20 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
         return;
     }
     const CameraProbeVector applied_right = Normalize(applied.right, natural_right);
+    const CameraProbeVector tracked_head_position = stereo_active
+        ? ApplyCameraTrackingOffset(natural_position, natural_basis, relative_pose.position)
+        : natural_position;
     const CameraProbeVector applied_position = stereo_active
         ? ApplyCameraEyeOffset(
-            natural_position, applied, g_stereo_eye_override.eye->pose.position)
+            tracked_head_position, applied,
+            g_stereo_eye_override.eye->eye_to_head.position)
         : natural_position;
     if (stereo_active &&
-        (!g_stereo_eye_override.eye->pose.position_valid ||
+        (!relative_pose.position_valid ||
+         !g_stereo_eye_override.eye->eye_to_head.position_valid ||
+         !std::isfinite(tracked_head_position.x) ||
+         !std::isfinite(tracked_head_position.y) ||
+         !std::isfinite(tracked_head_position.z) ||
          !std::isfinite(applied_position.x) || !std::isfinite(applied_position.y) ||
          !std::isfinite(applied_position.z))) {
         original(camera);
@@ -806,6 +835,10 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
                        << ";yaw_degrees=" << angles.yaw_degrees
                        << ";pitch_degrees=" << angles.pitch_degrees
                        << ";position=" << VectorText(natural_position)
+                       << ";relative_head_position=" << RuntimeVectorText(relative_pose.position)
+                       << ";head_position_valid="
+                       << (relative_pose.position_valid ? "true" : "false")
+                       << ";tracked_head_position=" << VectorText(tracked_head_position)
                        << (stereo_active ? ";applied_position=" : ";applied_position=natural")
                        << (stereo_active ? VectorText(applied_position) : std::string{})
                        << (stereo_active ? ";game_units_per_meter=100" : "")
@@ -940,6 +973,674 @@ bool ShouldLogStereoFrame(const std::uint64_t frame_sequence) noexcept {
     return count <= 8 || (count % 90) == 0;
 }
 
+bool ShouldObserveBodyFrame(const std::uint64_t frame_sequence) noexcept {
+    return frame_sequence != 0 && (frame_sequence <= 8 || (frame_sequence % 90) == 0);
+}
+
+void ObservePlayerSkeleton(
+    const std::uint64_t frame_sequence,
+    const JavaPlayerPosition position) noexcept {
+    if (!ShouldObserveBodyFrame(frame_sequence)) return;
+
+    try {
+        std::string error;
+        const SkeletonBinding binding = ExactGameSkeletonBinding();
+        const std::array<std::pair<const char*, int>, 16> required_bones{{
+            {"pelvis", binding.pelvis},
+            {"spine", binding.spine},
+            {"chest", binding.chest},
+            {"head", binding.head},
+            {"left_upper_arm", binding.left_upper_arm},
+            {"left_forearm", binding.left_forearm},
+            {"left_hand", binding.left_hand},
+            {"right_upper_arm", binding.right_upper_arm},
+            {"right_forearm", binding.right_forearm},
+            {"right_hand", binding.right_hand},
+            {"left_thigh", binding.left_thigh},
+            {"left_shin", binding.left_shin},
+            {"left_foot", binding.left_foot},
+            {"right_thigh", binding.right_thigh},
+            {"right_shin", binding.right_shin},
+            {"right_foot", binding.right_foot},
+        }};
+
+        std::ostringstream elements;
+        bool complete = true;
+        for (std::size_t index = 0; index < required_bones.size(); ++index) {
+            int element = -1;
+            const auto [name, bone] = required_bones[index];
+            if (!g_java_player_bridge.TryGetMeshElement(
+                    static_cast<std::int8_t>(bone), element, &error)) {
+                complete = false;
+                elements << (index == 0 ? "" : ",") << name << ":missing";
+                continue;
+            }
+            elements << (index == 0 ? "" : ",") << name << ':' << element;
+        }
+
+        std::ostringstream detail;
+        detail << "frame_sequence=" << frame_sequence
+               << ";player_position=(" << position.x << ',' << position.y << ',' << position.z << ')'
+               << ";player_source="
+               << (g_java_player_bridge.single_player_fallback_used()
+                       ? "single_session_player"
+                       : "session_local_player")
+               << ";required_bones=" << elements.str()
+               << ";binding_source=code.pak/EBones.class"
+               << ";access=read_only";
+        EmitEvent("body_player_discovery", complete ? "ok" : "partial", detail.str());
+    } catch (...) {
+        EmitEvent(
+            "body_player_discovery", "exception",
+            "frame_sequence=" + std::to_string(frame_sequence));
+    }
+}
+
+cojvr::runtime::Vec3 RuntimeVector(const JavaPlayerPosition value) noexcept {
+    return {value.x, value.y, value.z};
+}
+
+JavaPlayerPosition JavaVector(const cojvr::runtime::Vec3 value) noexcept {
+    return {value.x, value.y, value.z};
+}
+
+bool ReadNaturalCameraFrame(
+    const CameraRenderStateSnapshot& natural_render_state,
+    CameraProbeBasis& basis,
+    CameraProbeVector& position) noexcept {
+    static_assert(kCameraSourceUpOffset - kCameraSourceRightOffset == sizeof(float) * 4);
+    static_assert(kCameraSourceForwardOffset - kCameraSourceRightOffset == sizeof(float) * 8);
+    static_assert(kCameraSourcePositionOffset - kCameraSourceRightOffset == sizeof(float) * 12);
+    std::memcpy(&basis.right, natural_render_state.source_world.data(), sizeof(basis.right));
+    std::memcpy(
+        &basis.up,
+        natural_render_state.source_world.data() +
+            (kCameraSourceUpOffset - kCameraSourceRightOffset),
+        sizeof(basis.up));
+    std::memcpy(
+        &basis.forward,
+        natural_render_state.source_world.data() +
+            (kCameraSourceForwardOffset - kCameraSourceRightOffset),
+        sizeof(basis.forward));
+    std::memcpy(
+        &position,
+        natural_render_state.source_world.data() +
+            (kCameraSourcePositionOffset - kCameraSourceRightOffset),
+        sizeof(position));
+    return IsCameraProbeBasisRigidRightHanded(basis) &&
+        std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z);
+}
+
+bool ResolveArmElements(const std::uint64_t generation, std::string* error) noexcept {
+    if (g_arm_element_cache.being_generation == generation && g_arm_element_cache.valid) {
+        return true;
+    }
+    g_arm_element_cache = {};
+    g_arm_element_cache.being_generation = generation;
+    const SkeletonBinding binding = ExactGameSkeletonBinding();
+    const bool complete =
+        g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.left_upper_arm),
+            g_arm_element_cache.left_upper_arm, error) &&
+        g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.left_forearm),
+            g_arm_element_cache.left_forearm, error) &&
+        g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.right_upper_arm),
+            g_arm_element_cache.right_upper_arm, error) &&
+        g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.right_forearm),
+            g_arm_element_cache.right_forearm, error);
+    g_arm_element_cache.valid = complete;
+    return complete;
+}
+
+bool ReadArmGeometry(
+    const bool left,
+    ArmGeometrySample& geometry,
+    std::string* error) noexcept {
+    geometry = {};
+    const SkeletonBinding binding = ExactGameSkeletonBinding();
+    const int upper = left ? binding.left_upper_arm : binding.right_upper_arm;
+    const int forearm = left ? binding.left_forearm : binding.right_forearm;
+    const int hand = left ? binding.left_hand : binding.right_hand;
+    JavaPlayerPosition shoulder{};
+    JavaPlayerPosition elbow{};
+    JavaPlayerPosition wrist{};
+    JavaPlayerPosition upper_up{};
+    JavaPlayerPosition upper_forward{};
+    JavaPlayerPosition forearm_up{};
+    JavaPlayerPosition forearm_forward{};
+    if (!g_java_player_bridge.TryGetBoneJointPosition(
+            static_cast<std::int8_t>(upper), shoulder, error) ||
+        !g_java_player_bridge.TryGetBoneJointPosition(
+            static_cast<std::int8_t>(forearm), elbow, error) ||
+        !g_java_player_bridge.TryGetBoneJointPosition(
+            static_cast<std::int8_t>(hand), wrist, error) ||
+        !g_java_player_bridge.TryGetBoneDirection(
+            static_cast<std::int8_t>(upper), upper_up, error) ||
+        !g_java_player_bridge.TryGetBonePerpendicular(
+            static_cast<std::int8_t>(upper), upper_forward, error) ||
+        !g_java_player_bridge.TryGetBoneDirection(
+            static_cast<std::int8_t>(forearm), forearm_up, error) ||
+        !g_java_player_bridge.TryGetBonePerpendicular(
+            static_cast<std::int8_t>(forearm), forearm_forward, error)) {
+        return false;
+    }
+    geometry.shoulder = RuntimeVector(shoulder);
+    geometry.elbow = RuntimeVector(elbow);
+    geometry.wrist = RuntimeVector(wrist);
+    geometry.upper_up = RuntimeVector(upper_up);
+    geometry.upper_forward = RuntimeVector(upper_forward);
+    geometry.forearm_up = RuntimeVector(forearm_up);
+    geometry.forearm_forward = RuntimeVector(forearm_forward);
+    return true;
+}
+
+cojvr::runtime::Vec3 TrackingWorldTarget(
+    const CameraProbeBasis& basis,
+    CameraProbeVector camera_position,
+    const cojvr::runtime::Vec3 previous_world_offset,
+    const cojvr::runtime::Pose& tracked_pose) noexcept {
+    camera_position.x -= previous_world_offset.x;
+    camera_position.y -= previous_world_offset.y;
+    camera_position.z -= previous_world_offset.z;
+    const CameraProbeVector target =
+        ApplyCameraTrackingOffset(camera_position, basis, tracked_pose.position);
+    return {target.x, target.y, target.z};
+}
+
+bool ReadLegGeometry(
+    const bool left,
+    LegGeometrySample& geometry,
+    std::string* error) noexcept {
+    geometry = {};
+    const SkeletonBinding binding = ExactGameSkeletonBinding();
+    const int thigh = left ? binding.left_thigh : binding.right_thigh;
+    const int shin = left ? binding.left_shin : binding.right_shin;
+    const int foot = left ? binding.left_foot : binding.right_foot;
+    JavaPlayerPosition hip{};
+    JavaPlayerPosition knee{};
+    JavaPlayerPosition ankle{};
+    JavaPlayerPosition thigh_up{};
+    JavaPlayerPosition thigh_forward{};
+    JavaPlayerPosition shin_up{};
+    JavaPlayerPosition shin_forward{};
+    JavaPlayerPosition foot_up{};
+    JavaPlayerPosition foot_forward{};
+    if (!g_java_player_bridge.TryGetBoneJointPosition(
+            static_cast<std::int8_t>(thigh), hip, error) ||
+        !g_java_player_bridge.TryGetBoneJointPosition(
+            static_cast<std::int8_t>(shin), knee, error) ||
+        !g_java_player_bridge.TryGetBoneJointPosition(
+            static_cast<std::int8_t>(foot), ankle, error) ||
+        !g_java_player_bridge.TryGetBoneDirection(
+            static_cast<std::int8_t>(thigh), thigh_up, error) ||
+        !g_java_player_bridge.TryGetBonePerpendicular(
+            static_cast<std::int8_t>(thigh), thigh_forward, error) ||
+        !g_java_player_bridge.TryGetBoneDirection(
+            static_cast<std::int8_t>(shin), shin_up, error) ||
+        !g_java_player_bridge.TryGetBonePerpendicular(
+            static_cast<std::int8_t>(shin), shin_forward, error) ||
+        !g_java_player_bridge.TryGetBoneDirection(
+            static_cast<std::int8_t>(foot), foot_up, error) ||
+        !g_java_player_bridge.TryGetBonePerpendicular(
+            static_cast<std::int8_t>(foot), foot_forward, error)) {
+        return false;
+    }
+    geometry.hip = RuntimeVector(hip);
+    geometry.knee = RuntimeVector(knee);
+    geometry.ankle = RuntimeVector(ankle);
+    geometry.thigh_up = RuntimeVector(thigh_up);
+    geometry.thigh_forward = RuntimeVector(thigh_forward);
+    geometry.shin_up = RuntimeVector(shin_up);
+    geometry.shin_forward = RuntimeVector(shin_forward);
+    geometry.foot_up = RuntimeVector(foot_up);
+    geometry.foot_forward = RuntimeVector(foot_forward);
+    return true;
+}
+
+bool ApplyArmPlan(
+    const bool left,
+    const ArmIkPlan& plan,
+    std::string* error) noexcept {
+    if (!plan.valid || !g_arm_element_cache.valid) return false;
+    const int upper = left
+        ? g_arm_element_cache.left_upper_arm
+        : g_arm_element_cache.right_upper_arm;
+    const int forearm = left
+        ? g_arm_element_cache.left_forearm
+        : g_arm_element_cache.right_forearm;
+    return g_java_player_bridge.TrySetElementWorldBasis(
+               upper,
+               JavaVector(plan.upper_arm.up),
+               JavaVector(plan.upper_arm.forward),
+               JavaVector(plan.upper_arm.position),
+               error) &&
+        g_java_player_bridge.TrySetElementWorldBasis(
+               forearm,
+               JavaVector(plan.forearm.up),
+               JavaVector(plan.forearm.forward),
+               JavaVector(plan.forearm.position),
+               error);
+}
+
+void UpdatePlayerArmTracking(
+    const CameraRenderStateSnapshot& natural_render_state,
+    const cojvr::runtime::Vec3 previous_world_offset,
+    const bool body_ik_enabled,
+    const bool allow_write,
+    const std::uint64_t frame_sequence) noexcept {
+    const bool observe = ShouldObserveBodyFrame(frame_sequence);
+    if (!observe && !body_ik_enabled) return;
+
+    const auto& tracked_body = g_body_tracker.pose();
+    CameraProbeBasis basis{};
+    CameraProbeVector camera_position{};
+    if (!ReadNaturalCameraFrame(natural_render_state, basis, camera_position)) {
+        if (observe) {
+            EmitEvent(
+                "body_arm_tracking", "unavailable",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";stage=camera_basis");
+        }
+        return;
+    }
+
+    const std::uint64_t generation = g_java_player_bridge.being_generation();
+    std::string element_error;
+    const bool elements_ready = body_ik_enabled && allow_write
+        ? ResolveArmElements(generation, &element_error)
+        : false;
+    const auto update_arm = [&](const bool left, const cojvr::runtime::Pose& controller) noexcept {
+        const char* side = left ? "left" : "right";
+        if (!controller.position_valid) {
+            if (observe) {
+                EmitEvent(
+                    "body_arm_tracking", "unavailable",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";side=" + side + ";stage=controller_pose");
+            }
+            return;
+        }
+        try {
+            std::string error;
+            ArmGeometrySample geometry{};
+            if (!ReadArmGeometry(left, geometry, &error)) {
+                if (observe || body_ik_enabled) {
+                    EmitEvent(
+                        "body_arm_tracking", "unavailable",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=skeleton;detail=" + error);
+                }
+                return;
+            }
+            const cojvr::runtime::Vec3 target =
+                TrackingWorldTarget(basis, camera_position, previous_world_offset, controller);
+            const ArmIkPlan plan = BuildArmIkPlan(geometry, target);
+            bool write_ok = false;
+            std::string write_error;
+            if (body_ik_enabled && allow_write && elements_ready && plan.valid) {
+                write_ok = ApplyArmPlan(left, plan, &write_error);
+            }
+
+            if (observe || body_ik_enabled) {
+                std::ostringstream detail;
+                detail << "frame_sequence=" << frame_sequence
+                       << ";being_generation=" << generation
+                       << ";side=" << side
+                       << ";controller_target=" << RuntimeVectorText(target)
+                       << ";shoulder=" << RuntimeVectorText(geometry.shoulder)
+                       << ";elbow=" << RuntimeVectorText(geometry.elbow)
+                       << ";wrist=" << RuntimeVectorText(geometry.wrist)
+                       << ";upper_length=" << plan.upper_length
+                       << ";lower_length=" << plan.lower_length
+                       << ";plan_valid=" << (plan.valid ? "true" : "false")
+                       << ";target_clamped=" << (plan.target_clamped ? "true" : "false")
+                       << ";write_enabled=" << (body_ik_enabled ? "true" : "false")
+                       << ";write_allowed=" << (allow_write ? "true" : "false")
+                       << ";write_ok=" << (write_ok ? "true" : "false")
+                       << ";hand_orientation=natural"
+                       << ";basis_source=GetBoneDirVector/GetBonePerpVector"
+                       << ";writer=FromUpForwardPosElementWorld";
+                if (body_ik_enabled && allow_write && !elements_ready) {
+                    detail << ";detail=" << element_error;
+                } else if (body_ik_enabled && allow_write && plan.valid && !write_ok) {
+                    detail << ";detail=" << write_error;
+                }
+                const char* result = "observed";
+                if (body_ik_enabled && allow_write) {
+                    result = write_ok ? "applied" : "write_failed";
+                }
+                EmitEvent("body_arm_tracking", result, detail.str());
+            }
+        } catch (...) {
+            EmitEvent(
+                "body_arm_tracking", "exception",
+                "frame_sequence=" + std::to_string(frame_sequence) + ";side=" + side);
+        }
+    };
+
+    update_arm(true, tracked_body.left_hand);
+    update_arm(false, tracked_body.right_hand);
+}
+
+void UpdatePlayerLowerBodyObservation(
+    const CameraRenderStateSnapshot& natural_render_state,
+    const JavaPlayerPosition player_position,
+    const std::uint64_t frame_sequence) noexcept {
+    if (!ShouldObserveBodyFrame(frame_sequence)) return;
+
+    try {
+        CameraProbeBasis basis{};
+        CameraProbeVector camera_position{};
+        if (!ReadNaturalCameraFrame(natural_render_state, basis, camera_position)) {
+            EmitEvent(
+                "body_lower_tracking", "unavailable",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";stage=camera_basis;write_enabled=false");
+            return;
+        }
+        (void)camera_position;
+
+        const SkeletonBinding binding = ExactGameSkeletonBinding();
+        JavaPlayerPosition pelvis_joint{};
+        std::string pelvis_error;
+        if (!g_java_player_bridge.TryGetBoneJointPosition(
+                static_cast<std::int8_t>(binding.pelvis), pelvis_joint, &pelvis_error)) {
+            EmitEvent(
+                "body_lower_tracking", "unavailable",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";stage=pelvis;detail=" + pelvis_error + ";write_enabled=false");
+            return;
+        }
+
+        const PelvisLocomotionAnchor pelvis_anchor = BuildPelvisLocomotionAnchor(
+            RuntimeVector(player_position), RuntimeVector(pelvis_joint));
+        if (!pelvis_anchor.valid) {
+            EmitEvent(
+                "body_lower_tracking", "invalid",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";stage=pelvis_anchor;write_enabled=false");
+            return;
+        }
+
+        const auto& tracked_body = g_body_tracker.pose();
+        const auto observe_leg = [&](const bool left, const cojvr::runtime::Pose& foot_pose) noexcept {
+            const char* side = left ? "left" : "right";
+            if (!foot_pose.position_valid) {
+                EmitEvent(
+                    "body_lower_tracking", "unavailable",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";side=" + side + ";stage=foot_target;write_enabled=false");
+                return;
+            }
+            try {
+                std::string error;
+                LegGeometrySample geometry{};
+                if (!ReadLegGeometry(left, geometry, &error)) {
+                    EmitEvent(
+                        "body_lower_tracking", "unavailable",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=skeleton;detail=" + error +
+                            ";write_enabled=false");
+                    return;
+                }
+
+                bool foot_target_valid = false;
+                const cojvr::runtime::Vec3 foot_target = BuildTrackedFootTarget(
+                    pelvis_anchor.world_target,
+                    {basis.right.x, basis.right.y, basis.right.z},
+                    {basis.up.x, basis.up.y, basis.up.z},
+                    {basis.forward.x, basis.forward.y, basis.forward.z},
+                    tracked_body.pelvis.position,
+                    foot_pose.position,
+                    kGameUnitsPerMeter,
+                    foot_target_valid);
+                if (!foot_target_valid) {
+                    EmitEvent(
+                        "body_lower_tracking", "invalid",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=foot_target_mapping;write_enabled=false");
+                    return;
+                }
+                const LegIkPlan plan = BuildLegIkPlan(geometry, foot_target);
+                std::ostringstream detail;
+                detail << "frame_sequence=" << frame_sequence
+                       << ";being_generation=" << g_java_player_bridge.being_generation()
+                       << ";side=" << side
+                       << ";actor_position=" << RuntimeVectorText(pelvis_anchor.actor_position)
+                       << ";pelvis_offset=" << RuntimeVectorText(pelvis_anchor.pelvis_offset)
+                       << ";pelvis_target=" << RuntimeVectorText(pelvis_anchor.world_target)
+                       << ";hip=" << RuntimeVectorText(geometry.hip)
+                       << ";knee=" << RuntimeVectorText(geometry.knee)
+                       << ";ankle=" << RuntimeVectorText(geometry.ankle)
+                       << ";foot_target=" << RuntimeVectorText(foot_target)
+                       << ";thigh_length=" << plan.thigh_length
+                       << ";shin_length=" << plan.shin_length
+                       << ";plan_valid=" << (plan.valid ? "true" : "false")
+                       << ";target_clamped=" << (plan.target_clamped ? "true" : "false")
+                       << ";knee_plane_valid=" << (plan.knee_plane_valid ? "true" : "false")
+                       << ";write_enabled=false"
+                       << ";foot_orientation=natural"
+                       << ";basis_source=GetBoneDirVector/GetBonePerpVector"
+                       << ";writer=disabled_preflight";
+                EmitEvent("body_lower_tracking", plan.valid ? "observed" : "invalid", detail.str());
+            } catch (...) {
+                EmitEvent(
+                    "body_lower_tracking", "exception",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";side=" + side + ";write_enabled=false");
+            }
+        };
+
+        observe_leg(true, tracked_body.left_foot);
+        observe_leg(false, tracked_body.right_foot);
+    } catch (...) {
+        EmitEvent(
+            "body_lower_tracking", "exception",
+            "frame_sequence=" + std::to_string(frame_sequence) + ";write_enabled=false");
+    }
+}
+
+struct PlayerBodyPositionUpdate {
+    cojvr::runtime::Pose render_head_pose{};
+    bool positional_6dof = false;
+    const char* translation_mode = "rotation_only_actor_unresolved";
+};
+
+PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
+    const CameraRenderStateSnapshot& natural_render_state,
+    const cojvr::runtime::Pose& relative_head_pose,
+    const bool recentered,
+    const std::uint64_t frame_sequence) noexcept {
+    PlayerBodyPositionUpdate result{};
+    result.render_head_pose = SuppressPhysicalTrackingTranslation(relative_head_pose);
+    auto& render_head_pose = result.render_head_pose;
+    if (!relative_head_pose.position_valid ||
+        !g_body_tracker.PlayerSpace().position_valid) {
+        result.translation_mode = relative_head_pose.position_valid
+            ? "rotation_only_player_space_unavailable"
+            : "tracking_position_invalid";
+        return result;
+    }
+
+    try {
+        std::string error;
+        if (!g_java_player_bridge.Refresh(&error)) {
+            g_body_player_space_applied = false;
+            g_body_player_generation = 0;
+            if (ShouldObserveBodyFrame(frame_sequence)) {
+                EmitEvent(
+                    "body_player_reconciliation", "unavailable",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";stage=player;detail=" + error);
+            }
+            result.translation_mode = "rotation_only_actor_unresolved";
+            return result;
+        }
+
+        JavaPlayerPosition player_position{};
+        if (!g_java_player_bridge.TryGetPosition(player_position, &error)) {
+            g_body_player_space_applied = false;
+            if (ShouldObserveBodyFrame(frame_sequence)) {
+                EmitEvent(
+                    "body_player_reconciliation", "unavailable",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";stage=position;detail=" + error);
+            }
+            result.translation_mode = "rotation_only_actor_position_unavailable";
+            return result;
+        }
+
+        ObservePlayerSkeleton(frame_sequence, player_position);
+
+        const UpperBodyTrackingOffsets upper_body =
+            UpperBodyOffsetsFromHeadPose(relative_head_pose);
+        bool upper_body_write_ok = false;
+        std::string upper_body_error;
+        if (upper_body.valid) {
+            upper_body_write_ok = g_java_player_bridge.TryApplyUpperBodyTracking(
+                upper_body.head_horizontal_degrees,
+                upper_body.spine_horizontal_degrees,
+                upper_body.head_vertical_degrees,
+                &upper_body_error);
+        } else {
+            upper_body_error = "relative HMD orientation is invalid";
+        }
+        if (ShouldObserveBodyFrame(frame_sequence) || !upper_body_write_ok) {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";being_generation=" << g_java_player_bridge.being_generation()
+                   << ";head_yaw_offset=" << upper_body.head_horizontal_degrees
+                   << ";spine_yaw_offset=" << upper_body.spine_horizontal_degrees
+                   << ";head_pitch_offset=" << upper_body.head_vertical_degrees
+                   << ";source=ArmedPlayerBeing.UpdateBodyRotation(FZZ)"
+                   << ";recompute_angles=false"
+                   << ";state_restored=true";
+            if (!upper_body_write_ok) detail << ";detail=" << upper_body_error;
+            EmitEvent(
+                "body_upper_tracking",
+                upper_body_write_ok ? "ok" : (upper_body.valid ? "write_failed" : "invalid"),
+                detail.str());
+        }
+
+        CameraProbeVector camera_right{};
+        CameraProbeVector camera_forward{};
+        static_assert(kCameraSourceForwardOffset - kCameraSourceRightOffset == sizeof(float) * 8);
+        std::memcpy(
+            &camera_right,
+            natural_render_state.source_world.data(),
+            sizeof(camera_right));
+        std::memcpy(
+            &camera_forward,
+            natural_render_state.source_world.data() +
+                (kCameraSourceForwardOffset - kCameraSourceRightOffset),
+            sizeof(camera_forward));
+
+        const std::uint64_t generation = g_java_player_bridge.being_generation();
+        const bool same_player = g_body_player_space_applied &&
+            g_body_player_generation == generation;
+        const cojvr::runtime::Vec3 previous_world_offset_for_tracking =
+            same_player && !recentered ? g_body_applied_world_offset : cojvr::runtime::Vec3{};
+        const auto reconciliation = ReconcilePlayerSpace(
+            {player_position.x, player_position.y, player_position.z},
+            {camera_right.x, camera_right.y, camera_right.z},
+            {camera_forward.x, camera_forward.y, camera_forward.z},
+            relative_head_pose.position,
+            g_body_tracker.PlayerSpace().position,
+            g_body_applied_world_offset,
+            g_body_applied_tracking_offset,
+            same_player,
+            recentered,
+            kGameUnitsPerMeter);
+        if (!reconciliation.valid) {
+            if (ShouldObserveBodyFrame(frame_sequence)) {
+                EmitEvent(
+                    "body_player_reconciliation", "invalid",
+                    "frame_sequence=" + std::to_string(frame_sequence));
+            }
+            result.translation_mode = "rotation_only_reconciliation_invalid";
+            return result;
+        }
+
+        const float dx = reconciliation.desired_actor_position.x - player_position.x;
+        const float dy = reconciliation.desired_actor_position.y - player_position.y;
+        const float dz = reconciliation.desired_actor_position.z - player_position.z;
+        constexpr float kPositionWriteEpsilonSquared = 0.0001F;
+        const bool position_write_needed = dx * dx + dy * dy + dz * dz >
+            kPositionWriteEpsilonSquared;
+        bool position_write_ok = true;
+        if (position_write_needed) {
+            position_write_ok = g_java_player_bridge.TrySetPosition(
+                {
+                    reconciliation.desired_actor_position.x,
+                    reconciliation.desired_actor_position.y,
+                    reconciliation.desired_actor_position.z,
+                },
+                &error);
+        }
+
+        if (position_write_ok) {
+            render_head_pose.position = reconciliation.render_head_position;
+            g_body_applied_world_offset = reconciliation.applied_world_offset;
+            g_body_applied_tracking_offset = reconciliation.applied_tracking_offset;
+            g_body_player_generation = generation;
+            g_body_player_space_applied = true;
+            result.positional_6dof = true;
+            result.translation_mode = "actor_reconciled";
+        } else {
+            render_head_pose = SuppressPhysicalTrackingTranslation(relative_head_pose);
+            result.translation_mode = "rotation_only_actor_write_failed";
+        }
+
+        const bool body_ik_enabled = CurrentCommand().command.body_ik_enabled;
+        UpdatePlayerArmTracking(
+            natural_render_state,
+            previous_world_offset_for_tracking,
+            body_ik_enabled,
+            position_write_ok && upper_body_write_ok,
+            frame_sequence);
+        UpdatePlayerLowerBodyObservation(
+            natural_render_state,
+            player_position,
+            frame_sequence);
+
+        if (ShouldObserveBodyFrame(frame_sequence) || !position_write_ok) {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";being_generation=" << generation
+                   << ";same_player=" << (same_player ? "true" : "false")
+                   << ";recentered=" << (recentered ? "true" : "false")
+                   << ";write_needed=" << (position_write_needed ? "true" : "false")
+                   << ";write_ok=" << (position_write_ok ? "true" : "false")
+                   << ";player_before=(" << player_position.x << ',' << player_position.y << ','
+                   << player_position.z << ')'
+                   << ";player_desired=(" << reconciliation.desired_actor_position.x << ','
+                   << reconciliation.desired_actor_position.y << ','
+                   << reconciliation.desired_actor_position.z << ')'
+                   << ";tracking_offset="
+                   << RuntimeVectorText(reconciliation.applied_tracking_offset)
+                   << ";world_offset=" << RuntimeVectorText(reconciliation.applied_world_offset)
+                   << ";render_head_position=" << RuntimeVectorText(render_head_pose.position)
+                   << ";game_units_per_meter=" << kGameUnitsPerMeter;
+            if (!position_write_ok) detail << ";detail=" << error;
+            EmitEvent(
+                "body_player_reconciliation",
+                position_write_ok ? "ok" : "write_failed",
+                detail.str());
+        }
+    } catch (...) {
+        EmitEvent(
+            "body_player_reconciliation", "exception",
+            "frame_sequence=" + std::to_string(frame_sequence));
+        result.render_head_pose = SuppressPhysicalTrackingTranslation(relative_head_pose);
+        result.positional_6dof = false;
+        result.translation_mode = "rotation_only_reconciliation_exception";
+    }
+    return result;
+}
+
 void ConfigureStereoEyeOverride(
     void* camera,
     const cojvr::runtime::Pose& relative_head_pose,
@@ -1015,6 +1716,13 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         original(owner, view);
         return;
     }
+    g_body_tracker.SetHeadPose(relative_head_pose);
+    g_body_tracker.UpdatePlayerSpace(relative_head_pose);
+    cojvr::runtime::Pose relative_left_controller{};
+    cojvr::runtime::Pose relative_right_controller{};
+    (void)g_pose_tracker.TransformPose(sample.left_controller, relative_left_controller);
+    (void)g_pose_tracker.TransformPose(sample.right_controller, relative_right_controller);
+    g_body_tracker.SetHandPoses(relative_left_controller, relative_right_controller);
     if (g_pose_tracker.last_recenter_sequence() != 0 &&
         g_pose_tracker.last_recenter_sequence() != prior_recenter) {
         EmitEvent(
@@ -1026,6 +1734,30 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     const std::uint64_t frame_sequence =
         g_stereo_frame_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            std::ostringstream body_input;
+            body_input << "frame_sequence=" << frame_sequence
+                       << ";left_position_valid="
+                       << (relative_left_controller.position_valid ? "true" : "false")
+                       << ";left_orientation_valid="
+                       << (relative_left_controller.orientation_valid ? "true" : "false")
+                       << ";left_position=" << RuntimeVectorText(relative_left_controller.position)
+                       << ";right_position_valid="
+                       << (relative_right_controller.position_valid ? "true" : "false")
+                       << ";right_orientation_valid="
+                       << (relative_right_controller.orientation_valid ? "true" : "false")
+                       << ";right_position=" << RuntimeVectorText(relative_right_controller.position);
+            EmitEvent("body_tracking_input", "observed", body_input.str());
+        } catch (...) {
+        }
+    }
+    const PlayerBodyPositionUpdate body_position_update = UpdatePlayerBodyPosition(
+        natural_render_state, relative_head_pose,
+        g_pose_tracker.last_recenter_sequence() != 0 &&
+            g_pose_tracker.last_recenter_sequence() != prior_recenter,
+        frame_sequence);
+    const cojvr::runtime::Pose& render_head_pose = body_position_update.render_head_pose;
     std::uint64_t left_hash = 0;
     std::uint64_t right_hash = 0;
     bool left_captured = false;
@@ -1036,7 +1768,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     bool right_view_guard_restored = false;
 
     ConfigureStereoEyeOverride(
-        camera, relative_head_pose, sample.eyes[0], frame_sequence, sample.hmd_pose.sequence);
+        camera, render_head_pose, sample.eyes[0], frame_sequence, sample.hmd_pose.sequence);
     original(owner, view);
     const bool left_camera_applied = g_stereo_eye_override.camera_applied;
     const bool left_projection_applied = g_stereo_eye_override.projection_applied;
@@ -1056,7 +1788,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     CameraProbeFrustum right_applied_frustum{};
     if (left_captured && left_state_restored && RenderOwnerStillUsesView(owner, view)) {
         ConfigureStereoEyeOverride(
-            camera, relative_head_pose, sample.eyes[1], frame_sequence, sample.hmd_pose.sequence);
+            camera, render_head_pose, sample.eyes[1], frame_sequence, sample.hmd_pose.sequence);
         right_full_view_pass = ReplayFullRenderViewForStereoEye(
             original, owner, view, right_view_guard_restored);
         right_rendered = right_full_view_pass &&
@@ -1111,10 +1843,19 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                    << ";right_hash=" << right_hash
                    << ";distinct_eye_content="
                    << ((left_hash != 0 && right_hash != 0 && left_hash != right_hash) ? "true" : "false")
-                   << ";left_eye_x=" << left_eye.pose.position.x
-                   << ";right_eye_x=" << right_eye.pose.position.x
-                   << ";left_eye_position=" << RuntimeVectorText(left_eye.pose.position)
-                   << ";right_eye_position=" << RuntimeVectorText(right_eye.pose.position)
+                   << ";left_eye_x=" << left_eye.eye_to_head.position.x
+                   << ";right_eye_x=" << right_eye.eye_to_head.position.x
+                   << ";left_eye_position=" << RuntimeVectorText(left_eye.eye_to_head.position)
+                   << ";right_eye_position=" << RuntimeVectorText(right_eye.eye_to_head.position)
+                   << ";relative_head_position="
+                   << RuntimeVectorText(relative_head_pose.position)
+                   << ";render_head_position="
+                   << RuntimeVectorText(render_head_pose.position)
+                   << ";head_position_valid="
+                   << (relative_head_pose.position_valid ? "true" : "false")
+                   << ";positional_6dof="
+                   << (body_position_update.positional_6dof ? "true" : "false")
+                   << ";translation_mode=" << body_position_update.translation_mode
                    << ";game_units_per_meter=" << kGameUnitsPerMeter
                    << ";left_applied_position=" << VectorText(left_applied_position)
                    << ";right_applied_position=" << VectorText(right_applied_position)
@@ -1231,6 +1972,11 @@ bool ParseCameraProbeCommand(
         SetError(error, "trackingEnabled must be true or false");
         return false;
     }
+    bool body_ik_present = false;
+    if (!ReadBool(text, "bodyIkEnabled", parsed.body_ik_enabled, body_ik_present)) {
+        SetError(error, "bodyIkEnabled must be true or false");
+        return false;
+    }
     bool recenter_present = false;
     if (!ReadBool(text, "recenter", parsed.recenter, recenter_present)) {
         SetError(error, "recenter must be true or false");
@@ -1239,6 +1985,7 @@ bool ParseCameraProbeCommand(
     (void)yaw_present;
     (void)pitch_present;
     (void)tracking_present;
+    (void)body_ik_present;
     (void)recenter_present;
 
     if (parsed.override_fov &&
@@ -1375,6 +2122,25 @@ CameraProbeVector ApplyCameraEyeOffset(
         head_position.z + head_basis.right.z * game_offset.x +
             head_basis.up.z * game_offset.y - head_basis.forward.z * game_offset.z,
     };
+}
+
+CameraProbeVector ApplyCameraTrackingOffset(
+    const CameraProbeVector camera_position,
+    const CameraProbeBasis recenter_basis,
+    const cojvr::runtime::Vec3 relative_head_position) noexcept {
+    // Relative tracking positions use the same neutral +X right, +Y up,
+    // -Z forward convention as eye-to-head offsets, but remain anchored to
+    // the natural/recentered game-camera basis rather than rotating with the
+    // current head orientation.
+    return ApplyCameraEyeOffset(camera_position, recenter_basis, relative_head_position);
+}
+
+cojvr::runtime::Pose SuppressPhysicalTrackingTranslation(
+    cojvr::runtime::Pose pose) noexcept {
+    if (pose.position_valid) {
+        pose.position = {};
+    }
+    return pose;
 }
 
 bool IsSupportedChromeEngineHash(const std::string_view sha256) noexcept {
@@ -1582,6 +2348,12 @@ void ShutdownCameraProbe() noexcept {
     g_render_update_override = {};
     g_stereo_eye_override = {};
     g_pose_tracker.SetEnabled(false);
+    g_java_player_bridge.Reset();
+    g_body_applied_world_offset = {};
+    g_body_applied_tracking_offset = {};
+    g_body_player_generation = 0;
+    g_body_player_space_applied = false;
+    g_arm_element_cache = {};
     g_pose_source = nullptr;
     g_stereo_callbacks = {};
     g_recenter_command_generation.store(0, std::memory_order_release);

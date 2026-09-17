@@ -73,6 +73,8 @@ if(COJVR_ENABLE_OPENXR)
 endif()
 
 add_library(cojvr_runtime STATIC
+    src/runtime/body_ik.cpp
+    src/runtime/body_tracking.cpp
     src/runtime/pose_source.cpp
     src/runtime/vr_math.cpp
 )
@@ -100,6 +102,8 @@ add_library(cojvr_d3d9_hooks STATIC
 
 add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/camera_probe.cpp
+    src/games/call_of_juarez/body_adapter.cpp
+    src/games/call_of_juarez/java_player_bridge.cpp
 )
 
 target_include_directories(cojvr_runtime PUBLIC src)
@@ -481,6 +485,14 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_camera_probe_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME camera_probe COMMAND cojvr_camera_probe_test)
+
+    add_executable(cojvr_body_adapter_test tests/body_adapter.cpp)
+    target_link_libraries(cojvr_body_adapter_test PRIVATE cojvr_coj_camera_probe)
+    target_compile_features(cojvr_body_adapter_test PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(cojvr_body_adapter_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME body_adapter COMMAND cojvr_body_adapter_test)
 
     add_executable(
         cojvr_d3d9_factory_hook_test

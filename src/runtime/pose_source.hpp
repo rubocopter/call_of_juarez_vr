@@ -18,13 +18,16 @@ public:
 };
 
 // Game-neutral recenter policy. Pose sources remain absolute; consumers receive
-// a relative orientation whose identity is the captured physical forward pose.
+// orientation and position relative to the captured physical head pose.
 class RelativePoseTracker final {
 public:
     void SetEnabled(bool enabled) noexcept;
     void RequestRecenter() noexcept;
     [[nodiscard]] bool Update(const PoseSample& sample) noexcept;
     [[nodiscard]] bool CurrentPose(Pose& pose) const noexcept;
+    // Convert another absolute pose sampled in the same tracking space into
+    // the current HMD-recentered space without changing tracker state.
+    [[nodiscard]] bool TransformPose(const Pose& absolute, Pose& relative) const noexcept;
 
     [[nodiscard]] bool enabled() const noexcept { return enabled_; }
     [[nodiscard]] std::uint64_t last_sample_sequence() const noexcept {
@@ -41,6 +44,8 @@ private:
     Vec3 base_x_{1.0F, 0.0F, 0.0F};
     Vec3 base_y_{0.0F, 1.0F, 0.0F};
     Vec3 base_z_{0.0F, 0.0F, 1.0F};
+    Vec3 base_position_{};
+    bool base_position_valid_ = false;
     Pose relative_pose_{};
     std::uint64_t last_sample_sequence_ = 0;
     std::uint64_t last_recenter_sequence_ = 0;

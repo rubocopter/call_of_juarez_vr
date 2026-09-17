@@ -47,8 +47,17 @@ Assert-LogMatch `
 
 $RequireOpenVrRuntimeState = [bool]$Run.validation.requireOpenVrRuntimeState
 $RequireOpenVrFocusCycle = [bool]$Run.validation.requireOpenVrFocusCycle
+$RequireOpenVrDashboardCycle = if ($null -ne $Run.validation.requireOpenVrDashboardCycle) {
+    [bool]$Run.validation.requireOpenVrDashboardCycle
+} else {
+    # Backward compatibility for manifests created before dashboard visibility
+    # was separated from scene-focus ownership.
+    $RequireOpenVrFocusCycle
+}
 $RequireProductionGpuSyncNone = [bool]$Run.validation.requireProductionGpuSyncNone
 $RequireRepeatedPresentation = [bool]$Run.validation.requireRepeatedPresentation
+$RequirePositional6Dof = [bool]$Run.validation.requirePositional6Dof
+$RequireBodyIk = [bool]$Run.validation.requireBodyIk
 if ($RequireProductionGpuSyncNone) {
     Assert-LogMatch `
         "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff" `
@@ -135,6 +144,8 @@ foreach ($Line in $StereoLines) {
         $Line -notmatch "content_hash_deferred=true" -or
         $Line -notmatch "left_renderer_camera_match=true" -or
         $Line -notmatch "right_renderer_camera_match=true" -or
+        ($RequirePositional6Dof -and $Line -notmatch "head_position_valid=true") -or
+        ($RequirePositional6Dof -and $Line -notmatch "positional_6dof=true") -or
         $Line -notmatch "render_view_rva=0x30fb0" -or
         $Line -notmatch "render_core_rva=0x30e00") {
         throw "A submitted stereo frame did not prove two complete ChromeEngine render-view passes/captures and transactional camera/view-guard restoration."
@@ -297,6 +308,74 @@ if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
 if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
     throw "Telemetry did not capture a meaningful physical pitch movement."
 }
+if ($RequirePositional6Dof) {
+    $MeaningfulPositionObserved = $false
+    foreach ($Line in $OrientationLines) {
+        $PositionMatch = [regex]::Match(
+            $Line,
+            "relative_head_position=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+        if (-not $PositionMatch.Success -or $Line -notmatch "head_position_valid=true") {
+            continue
+        }
+        $X = [double]::Parse($PositionMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        $Y = [double]::Parse($PositionMatch.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        $Z = [double]::Parse($PositionMatch.Groups[3].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        $Magnitude = [Math]::Sqrt($X * $X + $Y * $Y + $Z * $Z)
+        if ([double]::IsFinite($Magnitude) -and $Magnitude -ge 0.03) {
+            $MeaningfulPositionObserved = $true
+            break
+        }
+    }
+    if (-not $MeaningfulPositionObserved) {
+        throw "Telemetry did not capture at least 3 cm of valid physical HMD translation for the 6DOF gate."
+    }
+}
+
+if ($RequireBodyIk) {
+    Assert-LogMatch `
+        "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true;body_ik_enabled=true" `
+        "The run never enabled the controller-driven body IK overlay."
+    Assert-LogMatch `
+        "camera_probe_event: event=body_tracking_input result=observed detail=.*left_position_valid=true;left_orientation_valid=true;.*right_position_valid=true;right_orientation_valid=true;" `
+        "The body IK gate never observed valid tracked poses for both Sense controllers."
+    $BodyIkLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_arm_tracking result=applied"
+    })
+    foreach ($Side in @("left", "right")) {
+        $SideLines = @($BodyIkLines | Where-Object { $_ -match ";side=$Side;" })
+        if ($SideLines.Count -lt 1) {
+            throw "The body IK gate did not apply a valid $Side arm from the tracked Sense pose."
+        }
+        foreach ($Line in $SideLines) {
+            if ($Line -notmatch ";plan_valid=true;" -or
+                $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
+                $Line -notmatch ";hand_orientation=natural;" -or
+                $Line -notmatch ";basis_source=GetBoneDirVector/GetBonePerpVector;writer=FromUpForwardPosElementWorld") {
+                throw "A $Side arm IK application did not prove the measured-skeleton/native-writer contract."
+            }
+        }
+    }
+
+    $LowerBodyLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_lower_tracking result=observed"
+    })
+    foreach ($Side in @("left", "right")) {
+        $SideLines = @($LowerBodyLines | Where-Object { $_ -match ";side=$Side;" })
+        if ($SideLines.Count -lt 1) {
+            throw "The body IK gate did not observe a valid $Side lower-body chain."
+        }
+        foreach ($Line in $SideLines) {
+            if ($Line -notmatch ";pelvis_target=\(" -or
+                $Line -notmatch ";plan_valid=true;" -or
+                $Line -notmatch ";knee_plane_valid=true;" -or
+                $Line -notmatch ";write_enabled=false;" -or
+                $Line -notmatch ";foot_orientation=natural;" -or
+                $Line -notmatch ";basis_source=GetBoneDirVector/GetBonePerpVector;writer=disabled_preflight") {
+                throw "A $Side lower-body observation did not prove the measured pelvis/leg preflight contract."
+            }
+        }
+    }
+}
 
 Assert-LogMatch `
     "camera_probe_event: event=camera_probe_passthrough result=disabled" `
@@ -311,11 +390,8 @@ Assert-LogMatch `
     "native_stereo_factory_hook: status=restored" `
     "The CreateDevice observation hook was not cleanly restored."
 Assert-LogMatch `
-    "native_stereo_presenter_shutdown: stage=runtime_end" `
-    "The OpenVR runtime did not finish shutdown on its owning presenter thread."
-Assert-LogMatch `
-    "native_stereo_presenter: status=stopped" `
-    "The OpenVR/D3D11 presenter thread did not stop cleanly."
+    "native_stereo_presenter_stop: shutdown_complete=true" `
+    "The joined presenter did not prove that its owning OpenVR runtime completed shutdown."
 Assert-LogMatch `
     "native_stereo_shutdown: stage=presenter_end" `
     "The proxy did not join the presenter during finalization."
@@ -332,43 +408,47 @@ Assert-LogMatch `
     "The native-stereo OpenVR runtime did not shut down cleanly."
 
 if ($RequireOpenVrRuntimeState) {
-    Assert-LogMatch `
-        "openvr_runtime_state: phase=shutdown_complete;lifecycle=shutdown_complete;initialized=false;connected=false;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false" `
-        "The OpenVR runtime did not report a complete final shutdown state."
+    $RuntimeShutdownState = [bool]($Lines -match
+        "openvr_runtime_state: phase=shutdown_complete;lifecycle=shutdown_complete;initialized=false;connected=false;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false")
+    $JoinedShutdownState = [bool]($Lines -match
+        "native_stereo_presenter_stop: shutdown_complete=true")
+    if (-not $RuntimeShutdownState -and -not $JoinedShutdownState) {
+        throw "The OpenVR presenter did not prove a complete final shutdown state."
+    }
 }
 
-if ($RequireOpenVrFocusCycle) {
-    $RuntimeStateLines = @($Lines | Where-Object { $_ -match "^openvr_runtime_state:" })
+if ($RequireOpenVrDashboardCycle) {
     $ActiveIndex = -1
-    $FocusLostIndex = -1
-    $FocusRegained = $false
-    for ($Index = 0; $Index -lt $RuntimeStateLines.Count; ++$Index) {
-        $Line = $RuntimeStateLines[$Index]
+    $DashboardOpenedIndex = -1
+    $DashboardClosedIndex = -1
+    $PresentationResumed = $false
+    for ($Index = 0; $Index -lt $Lines.Count; ++$Index) {
+        $Line = $Lines[$Index]
         if ($ActiveIndex -lt 0 -and
-            $Line -match ";focused=true;tracking_valid=true;presenting=true;") {
+            $Line -match "^openvr_runtime_state:.*;focused=true;tracking_valid=true;presenting=true;") {
             $ActiveIndex = $Index
             continue
         }
-        if ($ActiveIndex -ge 0 -and $FocusLostIndex -lt 0 -and
-            $Line -match ";focused=false;") {
-            $FocusLostIndex = $Index
+        if ($ActiveIndex -ge 0 -and $DashboardOpenedIndex -lt 0 -and
+            $Line -match "^openvr_scene_state: phase=dashboard_opened;.*dashboard_visible=true") {
+            $DashboardOpenedIndex = $Index
             continue
         }
-        if ($FocusLostIndex -ge 0 -and
-            $Line -match ";focused=true;tracking_valid=true;") {
-            $FocusRegained = $true
+        if ($DashboardOpenedIndex -ge 0 -and $DashboardClosedIndex -lt 0 -and
+            $Line -match "^openvr_scene_state: phase=dashboard_closed;.*dashboard_visible=false") {
+            $DashboardClosedIndex = $Index
+            continue
+        }
+        if ($DashboardClosedIndex -ge 0 -and
+            $Line -match "^native_stereo_presenter_timing: status=ok ") {
+            $PresentationResumed = $true
             break
         }
     }
-    if ($ActiveIndex -lt 0 -or $FocusLostIndex -lt 0 -or -not $FocusRegained) {
-        throw "The run did not prove a post-presentation OpenVR focus loss and reacquisition. Open/close the SteamVR dashboard once during stable gameplay."
+    if ($ActiveIndex -lt 0 -or $DashboardOpenedIndex -lt 0 -or
+        $DashboardClosedIndex -lt 0 -or -not $PresentationResumed) {
+        throw "The run did not prove a SteamVR dashboard open/close cycle followed by resumed stereo presentation."
     }
-    Assert-LogMatch `
-        "openvr_scene_state: phase=focus_lost;.*dashboard_visible=true" `
-        "The focus-loss cycle did not prove that the SteamVR dashboard became visible."
-    Assert-LogMatch `
-        "openvr_scene_state: phase=focus_gained;.*can_render_scene=true" `
-        "The focus-loss cycle did not prove that scene rendering was reacquired."
 }
 
 if ($Lines -match "d3d9_hook_event:.*(Present|BeginScene|EndScene|Reset)") {
@@ -382,10 +462,17 @@ Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified.
 Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
 Write-Host "PASS - ChromeEngine eye passes were queued through the deferred D3D9 ring and distinct frames reached the presenter."
 Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
+if ($RequirePositional6Dof) {
+    Write-Host "PASS - valid recentered HMD translation and at least 3 cm of physical 6DOF movement verified."
+}
+if ($RequireBodyIk) {
+    Write-Host "PASS - both tracked Sense poses drove measured two-bone arm IK through the exact native element-basis writer."
+    Write-Host "PASS - pelvis plus both measured leg chains produced read-only lower-body IK preflight telemetry with no lower-body writes."
+}
 Write-Host "PASS - dedicated presenter submission, passthrough, hook restoration and same-owner XR shutdown verified."
 if ($RequireOpenVrRuntimeState) {
-    Write-Host "PASS - OpenVR connected/tracking/presenting state and final shutdown-complete state verified."
+    Write-Host "PASS - OpenVR connected/tracking/presenting state and joined shutdown-complete state verified."
 }
-if ($RequireOpenVrFocusCycle) {
-    Write-Host "PASS - OpenVR focus loss/reacquisition cycle verified in the same physical run."
+if ($RequireOpenVrDashboardCycle) {
+    Write-Host "PASS - SteamVR dashboard open/close and resumed presentation verified in the same physical run."
 }

@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "deployment_transaction.ps1")
 
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $Destination = Join-Path $GameDirectory "d3d9.dll"
@@ -16,9 +17,14 @@ $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
 $OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
+$TransactionJournal = Join-Path $GameDirectory ".cojvr-deployment-transaction.json"
 
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
     throw "Call of Juarez is running. Close it before unstaging the candidate."
+}
+if (Test-Path -LiteralPath $TransactionJournal -PathType Leaf) {
+    [void](Complete-CojvrDeploymentRecovery $GameDirectory)
+    Write-Host "Recovered the previous interrupted CoJ VR deployment transaction."
 }
 
 if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
@@ -82,6 +88,46 @@ if ($CurrentHash -ne [string]$StageState.stagedProxySha256) {
     throw "d3d9.dll changed after staging. Refusing to remove an unrecognized file."
 }
 
+$JournalAssets = @(
+    [ordered]@{
+        role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
+        hadOriginal = [bool]$StageState.hadOriginalD3D9
+        originalSha256 = if ([bool]$StageState.hadOriginalD3D9) { Get-CojvrFileSha256 $Backup } else { $null }
+        stagedSha256 = ([string]$StageState.stagedProxySha256).ToUpperInvariant()
+    }
+)
+if ($CameraControlManaged) {
+    $JournalAssets += [ordered]@{
+        role = "camera_control"; kind = "file"; destination = "cojvr-camera-control.json"; backup = "cojvr-camera-control.cojvr-backup.json"
+        hadOriginal = [bool]$StageState.hadOriginalCameraControl
+        originalSha256 = if ([bool]$StageState.hadOriginalCameraControl) { Get-CojvrFileSha256 $CameraControlBackup } else { $null }
+        stagedSha256 = if (Test-Path -LiteralPath $CameraControl -PathType Leaf) { Get-CojvrFileSha256 $CameraControl } else { $null }
+    }
+}
+if ($OpenVrRuntimeManaged) {
+    $JournalAssets += [ordered]@{
+        role = "openvr_runtime"; kind = "file"; destination = "openvr_api.dll"; backup = "openvr_api.cojvr-backup.dll"
+        hadOriginal = [bool]$StageState.hadOriginalOpenVr
+        originalSha256 = if ([bool]$StageState.hadOriginalOpenVr) { Get-CojvrFileSha256 $OpenVrBackup } else { $null }
+        stagedSha256 = ([string]$StageState.stagedOpenVrSha256).ToUpperInvariant()
+    }
+}
+if ($OpenVrInputManaged) {
+    $OriginalInputManifest = if ([bool]$StageState.hadOriginalOpenVrInput) {
+        @(Get-CojvrDirectoryManifest $OpenVrInputBackup)
+    } else { @() }
+    $JournalAssets += [ordered]@{
+        role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
+        hadOriginal = [bool]$StageState.hadOriginalOpenVrInput
+        originalManifest = @($OriginalInputManifest)
+        stagedManifest = @(
+            [ordered]@{ path = "actions.json"; sha256 = ([string]$StageState.stagedOpenVrActionManifestSha256).ToUpperInvariant() },
+            [ordered]@{ path = "bindings/psvr2_sense.json"; sha256 = ([string]$StageState.stagedOpenVrSenseBindingSha256).ToUpperInvariant() }
+        )
+    }
+}
+[void](Write-CojvrDeploymentJournal $GameDirectory "unstage" ([string]$StageState.runId) ([string]$StageState.diagnosticMode) $JournalAssets)
+
 Remove-Item -LiteralPath $Destination -Force
 
 if ([bool]$StageState.hadOriginalD3D9) {
@@ -123,6 +169,7 @@ if ($OpenVrInputManaged) {
 }
 
 Remove-Item -LiteralPath $State -Force
+Remove-Item -LiteralPath $TransactionJournal -Force
 if (Test-Path -LiteralPath $BridgeMarker -PathType Leaf) {
     Remove-Item -LiteralPath $BridgeMarker -Force
     Write-Host "Removed the CoJ VR D3D9Ex bridge marker."
