@@ -110,6 +110,3 @@ Developer workflow is documented in [AGENTS.md](AGENTS.md). The detailed continu
 - [Codex handoff](docs/internal/CODEX_HANDOFF.md) — immediate continuation checkpoint.
 - [Codex objective](docs/internal/CODEX_OBJECTIVE.md) — current audit-driven implementation objective.
 
-## Support
-
-If you want to support continued development, see [Ko-fi](https://ko-fi.com/onitaku).
