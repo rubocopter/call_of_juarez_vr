@@ -1,5 +1,12 @@
 # Call of Juarez VR
 
+<p align="center">
+  <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square">
+</p>
+<p align="center">
+  <a href="https://ko-fi.com/onitaku"><img alt="Support me on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
+</p>
+
 **Experimental PCVR conversion project for Techland's Call of Juarez games.**
 
 The project currently focuses on **Call of Juarez (2006)** as the reference game, with the longer-term goal of supporting other games in the series through shared VR systems and game-specific integrations.
