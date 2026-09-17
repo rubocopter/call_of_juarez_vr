@@ -103,6 +103,8 @@ switch ($Action) {
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
         Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller."
+        Write-Host "During stable gameplay, open the SteamVR dashboard once, leave it visible briefly, then close it and confirm VR presentation resumes."
+        Write-Host "For the performance gate, include slow head turns, fast head turns and mouse rotation after the dashboard cycle."
         Write-Host "Diagnostic fallback: pwsh -File tools\vr_test.ps1 recenter"
         Write-Host "Before closing the game: pwsh -File tools\vr_test.ps1 disable"
         Write-Host "After closing the game: pwsh -File tools\vr_test.ps1 finish"
@@ -150,6 +152,15 @@ switch ($Action) {
             Write-Warning "Native-stereo verifier failed: $VerificationError"
         }
 
+        $SummaryError = $null
+        try {
+            & (Join-Path $PSScriptRoot "summarize_native_stereo_run.ps1") `
+                -GameDirectory $ResolvedGameDirectory
+        } catch {
+            $SummaryError = $_.Exception.Message
+            Write-Warning "Native-stereo summary failed: $SummaryError"
+        }
+
         $CollectionError = $null
         try {
             & (Join-Path $PSScriptRoot "collect_run_evidence.ps1") `
@@ -162,8 +173,16 @@ switch ($Action) {
         & (Join-Path $PSScriptRoot "unstage_d3d9_proxy.ps1") `
             -GameDirectory $ResolvedGameDirectory
 
+        $SummaryPath = Join-Path $ResolvedGameDirectory "cojvr-native-stereo-summary.json"
+        if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $SummaryPath -Force
+        }
+
         if ($CollectionError) {
             throw "Candidate was unstaged, but evidence collection failed: $CollectionError"
+        }
+        if ($SummaryError) {
+            throw "Candidate evidence was collected and the game directory was restored, but the performance/state summary failed: $SummaryError"
         }
         if ($VerificationError) {
             throw "Candidate evidence was collected and the game directory was restored, but the live verifier failed: $VerificationError"

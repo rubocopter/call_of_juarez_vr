@@ -30,6 +30,44 @@ int Fail(const char* message, const HRESULT hr = S_OK) {
     return 1;
 }
 
+cojvr::runtime::Pose TestRenderPose() {
+    cojvr::runtime::Pose pose{};
+    pose.position = {0.10F, 1.65F, -0.25F};
+    pose.position_valid = true;
+    pose.orientation = {0.0F, 0.08715574F, 0.0F, 0.9961947F};
+    pose.orientation_valid = true;
+    return pose;
+}
+
+bool CaptureAndCollect(
+    cojvr::backends::d3d9::D3D9StereoCapture& capture,
+    IDirect3DDevice9* device,
+    IDirect3DSurface9* target,
+    const std::uint64_t frame_sequence,
+    const std::uint64_t generation,
+    cojvr::backends::d3d9::StereoCpuFrame& frame) {
+    HRESULT hr = device->ColorFill(target, nullptr, D3DCOLOR_ARGB(0xFF, 0x20, 0x40, 0x80));
+    if (FAILED(hr) ||
+        !capture.CaptureEye(device, cojvr::runtime::Eye::left, frame_sequence, generation)) {
+        return false;
+    }
+    hr = device->ColorFill(target, nullptr, D3DCOLOR_ARGB(0xFF, 0xD0, 0x50, 0x10));
+    if (FAILED(hr) ||
+        !capture.CaptureEye(device, cojvr::runtime::Eye::right, frame_sequence, generation) ||
+        !capture.EndFrame(frame_sequence, TestRenderPose(), frame_sequence + 41)) {
+        return false;
+    }
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        if (SUCCEEDED(device->BeginScene())) {
+            (void)device->EndScene();
+        }
+        (void)device->Present(nullptr, nullptr, nullptr, nullptr);
+        if (capture.TryCollectReady(frame)) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -83,37 +121,8 @@ int main() {
     if (FAILED(hr)) return Fail("GetBackBuffer failed", hr);
 
     cojvr::backends::d3d9::D3D9StereoCapture capture;
-    hr = device->ColorFill(back_buffer.Get(), nullptr, D3DCOLOR_ARGB(0xFF, 0x20, 0x40, 0x80));
-    if (FAILED(hr)) return Fail("left-eye ColorFill failed", hr);
-    if (!capture.CaptureEye(device.Get(), cojvr::runtime::Eye::left, 1, 1)) {
-        std::cerr << capture.last_error() << '\n';
-        return 1;
-    }
-
-    hr = device->ColorFill(back_buffer.Get(), nullptr, D3DCOLOR_ARGB(0xFF, 0xD0, 0x50, 0x10));
-    if (FAILED(hr)) return Fail("right-eye ColorFill failed", hr);
-    cojvr::runtime::Pose render_pose{};
-    render_pose.position = {0.10F, 1.65F, -0.25F};
-    render_pose.position_valid = true;
-    render_pose.orientation = {0.0F, 0.08715574F, 0.0F, 0.9961947F};
-    render_pose.orientation_valid = true;
-    if (!capture.CaptureEye(device.Get(), cojvr::runtime::Eye::right, 1, 1) ||
-        !capture.EndFrame(1, render_pose, 42)) {
-        std::cerr << capture.last_error() << '\n';
-        return 1;
-    }
-
     cojvr::backends::d3d9::StereoCpuFrame frame{};
-    bool collected = false;
-    for (int attempt = 0; attempt < 100 && !collected; ++attempt) {
-        if (SUCCEEDED(device->BeginScene())) {
-            (void)device->EndScene();
-        }
-        (void)device->Present(nullptr, nullptr, nullptr, nullptr);
-        collected = capture.TryCollectReady(frame);
-        if (!collected) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    if (!collected) {
+    if (!CaptureAndCollect(capture, device.Get(), back_buffer.Get(), 1, 1, frame)) {
         std::cerr << "Deferred capture never became ready: " << capture.last_error() << '\n';
         return 1;
     }
@@ -134,8 +143,69 @@ int main() {
     if (left_hash == 0 || right_hash == 0 || left_hash == right_hash) {
         return Fail("Deferred capture did not preserve distinct left/right pixels");
     }
+
+    // A source-size change on the same device/generation must rebuild capture
+    // resources rather than reusing surfaces with stale dimensions.
+    ComPtr<IDirect3DSurface9> resized_target;
+    hr = device->CreateRenderTarget(
+        71, 39, D3DFMT_X8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE,
+        &resized_target, nullptr);
+    if (FAILED(hr) || !resized_target) return Fail("resized render target creation failed", hr);
+    hr = device->SetRenderTarget(0, resized_target.Get());
+    if (FAILED(hr)) return Fail("SetRenderTarget for resize coverage failed", hr);
+    frame = {};
+    if (!CaptureAndCollect(capture, device.Get(), resized_target.Get(), 2, 1, frame) ||
+        frame.eyes[0].width != 71 || frame.eyes[0].height != 39 ||
+        frame.generation != 1) {
+        std::cerr << capture.last_error() << '\n';
+        return Fail("capture did not rebuild resources after a source resize");
+    }
+    hr = device->SetRenderTarget(0, back_buffer.Get());
+    if (FAILED(hr)) return Fail("failed to restore original render target", hr);
+    resized_target.Reset();
+
+    // The owner must invalidate capture resources before a classic D3D9 Reset;
+    // after Reset a new generation must rebuild all default-pool resources.
+    capture.InvalidateResources();
+    back_buffer.Reset();
+    present.BackBufferWidth = 83;
+    present.BackBufferHeight = 41;
+    hr = device->Reset(&present);
+    if (FAILED(hr)) return Fail("D3D9 Reset failed after capture invalidation", hr);
+    hr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
+    if (FAILED(hr) || !back_buffer) return Fail("post-Reset GetBackBuffer failed", hr);
+    frame = {};
+    if (!CaptureAndCollect(capture, device.Get(), back_buffer.Get(), 3, 2, frame) ||
+        frame.eyes[0].width != 83 || frame.eyes[0].height != 41 ||
+        frame.generation != 2) {
+        std::cerr << capture.last_error() << '\n';
+        return Fail("capture did not recover on the post-Reset generation");
+    }
+
+    // An entirely new device with the same dimensions/format must not reuse the
+    // old device's D3D9 resources merely because the surface description matches.
+    ComPtr<IDirect3DDevice9> second_device;
+    hr = d3d9->CreateDevice(
+        D3DADAPTER_DEFAULT,
+        D3DDEVTYPE_HAL,
+        window,
+        D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
+        &present,
+        &second_device);
+    if (FAILED(hr) || !second_device) return Fail("second classic D3D9 device creation failed", hr);
+    ComPtr<IDirect3DSurface9> second_back_buffer;
+    hr = second_device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &second_back_buffer);
+    if (FAILED(hr) || !second_back_buffer) return Fail("second-device GetBackBuffer failed", hr);
+    frame = {};
+    if (!CaptureAndCollect(capture, second_device.Get(), second_back_buffer.Get(), 4, 3, frame) ||
+        frame.device_id != reinterpret_cast<std::uintptr_t>(second_device.Get()) ||
+        frame.generation != 3 || frame.eyes[0].width != 83 || frame.eyes[0].height != 41) {
+        std::cerr << capture.last_error() << '\n';
+        return Fail("capture reused stale resources across an identical new device");
+    }
+
     const auto stats = capture.stats();
-    if (stats.frames_fenced != 1 || stats.frames_collected != 1 ||
+    if (stats.frames_fenced != 4 || stats.frames_collected != 4 ||
         stats.frames_dropped_no_slot != 0) {
         return Fail("Deferred capture accounting is inconsistent");
     }

@@ -42,6 +42,11 @@ public:
         const runtime::Pose& render_hmd_pose,
         std::uint64_t render_pose_sequence) noexcept;
     [[nodiscard]] bool TryCollectReady(StereoCpuFrame& frame) noexcept;
+    // Releases device/default-pool resources while keeping the capture object
+    // reusable. Owners with an explicit D3D9 lifecycle signal call this before
+    // Reset/recreation; the exact CoJ native-stereo proof does not depend on a
+    // Reset hook.
+    void InvalidateResources() noexcept;
     void Shutdown() noexcept;
 
     [[nodiscard]] D3D9StereoCaptureStats stats() const noexcept;

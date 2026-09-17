@@ -493,10 +493,39 @@ Telemetry from that run exposes two large CPU costs on sampled 2560x1440 stereo 
 roughly `1-4 ms` D3D11 upload. Current source removes the hash from the normal presentation path:
 every frame still performs a fail-closed RGB equality comparison that ignores the undefined alpha
 byte, while the expensive full hashes are computed only for the first/sample telemetry frames that
-are logged. Contiguous D3D9 locks also use one bulk `memcpy` rather than per-row copies. The live
+are logged. Contiguous D3D9 locks now construct the owned byte vector directly from the locked
+range instead of value-initializing the full destination and immediately overwriting it; padded
+locks reserve once and append only real pixel rows. The live
 verifier now requires `distinct_check=rgb_compare_every_frame` and
-`hash_mode=sampled_telemetry`. Fresh Debug and Release each pass 20/21 CTests with the one expected
-classic-D3D9 shared-texture capability SKIP. This optimization is host-tested only.
+`hash_mode=sampled_telemetry`. This optimization is host-tested only.
+
+Phase 5 host acceptance is now complete at the component/policy boundary. The D3D9 capture test
+exercises same-device source resize, explicit `InvalidateResources()` before classic D3D9 Reset
+plus post-Reset generation recovery, and a second device with identical dimensions/format. The
+exact CoJ candidate still does not depend on a Reset hook. A production `PresentationCadence`
+state machine preserves the last valid frame across a controlled producer pause, classifies
+subsequent successful submits as repeated, preserves `new` across a failed submit, returns to
+`new` when the producer resumes and invalidates stale presentable content explicitly. Fresh full
+Debug and Release suites each pass 21/22 CTests with only the expected classic-D3D9 shared-texture
+capability SKIP.
+
+Phase 6 host/simulated acceptance is now complete. `OpenVrRuntime` carries explicit lifecycle,
+connection, focus, tracking-valid, presenting and shutdown state, processes relevant OpenVR
+events and uses a process-level owner gate so a competing runtime fails closed. Move-assignment
+now shuts down an existing owned runtime before taking another implementation. The presenter logs
+runtime-state transitions, refuses submission while tracking/HMD connection is invalid, and
+per-eye submit outcomes feed the presenting state. Host simulation covers focus loss, one-eye
+submit failure, invalid tracking, disconnect, shutdown and owner conflict/release. The retained
+`noexcept` runtime surface now contains allocation-capable error/reporting work behind failure
+guards, and moved-from objects fail closed rather than dereferencing an empty implementation.
+
+The D3D11 presentation order is explicitly `UpdateSubresource -> gpu_sync=none ->
+Submit_TextureWithPose -> PostPresentHandoff`. A diagnostic seam and host test compare `none`,
+`Flush` and a bounded D3D11 event-query fence without introducing a production-wide wait. The
+isolated OpenVR visible probe now supports `--frames N`, an animated/distinct eye pattern and
+`--gpu-sync none|flush|event` for later manual A/B evidence. That probe has not been rerun against
+SteamVR/HMD, so no new live/headset claim is made. Fresh full Debug and Release suites each pass
+23/24 CTests with only the expected classic-D3D9 shared-texture capability SKIP.
 
 The product target is explicitly native stereo rendering, full-body IK and VR-rebuilt
 interactions. The current combined HMD/native-stereo gate controls progression into positional
@@ -523,23 +552,43 @@ regress. Normal launch is the procedure; `NoLogos` is not required. Recenter rem
 Sense Create. Before closing the game use `tools/vr_test.ps1 disable`; after closing use
 `tools/vr_test.ps1 finish` so the verifier can bind the evidence to that fresh run.
 
-That performance candidate is now staged without launching SteamVR or the game. Run ID
-`20260916T225750Z-b2515c32a135`, build manifest
-`46837519D71BBAB58B5B97EDD26F9D87B8093CD40640BBE2B3E5D513687151A0`, staged proxy SHA-256
-`AAE80D73AC7C77F2F77988FA63B4F345A66323CBF8FE88D46A036BAF6844C229`. Release preparation passed
-20/21 CTests with only the expected classic-D3D9 shared-texture capability SKIP. Use this run for
-exactly one CoJ process start and compare sustained smoothness directly with
-`20260916T224239Z-e43b46698e5c`.
+The previously staged performance candidate `20260916T225750Z-b2515c32a135` was confirmed never
+to have started: only its stage/run manifests existed and no matching process log/evidence was
+present. It was transactionally unstaged before the current Phase 5 acceptance/copy work. Do not
+reuse it. A fresh candidate must be prepared from the current tree and compared for sustained
+smoothness directly with `20260916T224239Z-e43b46698e5c`; the authoritative candidate identity is
+the game-directory stage/run manifest created by `tools/vr_test.ps1 prepare`.
 
-Repository closeout on 2026-09-17 independently rebuilt the full current tree in Debug and Release
-and reran both CTest presets: each produced 20 PASS plus the one expected classic-D3D9
-shared-texture capability SKIP. A clean full-tree Debug build with MSVC
-`RunCodeAnalysis=true` completed without code-analysis warnings. `tools/vr_test.ps1 status`
-confirmed the game was not running and the staged candidate still pointed at run
-`20260916T225750Z-b2515c32a135`. No SteamVR or game process was launched during this closeout.
-Phase 5 is now documented as implemented, host-tested and live-exercised, with explicit
-reset/resize/new-device and controlled paused-producer acceptance coverage still pending; the
-active physical gate remains sustained frame pacing/performance.
+Repository closeout on 2026-09-17 now reflects the complete Phase 5/6 tree: fresh Debug and Release
+builds each run all 24 CTests with 23 PASS plus the one expected classic-D3D9 shared-texture
+capability SKIP. An earlier clean Debug `RunCodeAnalysis=true` pass completed without warnings
+before the final Phase 5/6 expansion; do not treat that older analysis pass as stronger evidence
+than the current build/CTest results. No SteamVR or game process was launched for these host-only
+passes. Phase 5 is implemented, host-tested and live-exercised; Phase 6 runtime
+state/ownership/failure simulation and controlled D3D11 synchronization are host-tested. The
+animated physical OpenVR probe remains unexecuted for this increment. The active native-stereo
+product gate remains sustained frame pacing/performance and must use a fresh run ID if resumed.
+
+The next physical run has been deliberately consolidated so it can close more than the raw
+performance observation. Native-stereo run manifests now require the production
+`UpdateSubresource -> gpu_sync=none -> Submit_TextureWithPose -> PostPresentHandoff` policy,
+connected/tracking/presenting OpenVR state, at least one repeated-frame submission, a deliberate
+post-presentation focus-loss/reacquisition cycle and final `shutdown_complete` state. During stable
+gameplay the user should open the SteamVR dashboard once, leave it visible briefly, then return to
+the game; the same run should also include slow/fast head turns, mouse rotation and left-Sense
+Create recenter. `tools/vr_test.ps1 finish` verifies those contracts, generates
+`cojvr-native-stereo-summary.json`, packages it as `analysis/native-stereo-summary.json` with the
+run evidence, and then restores staging. The summary records count/average/p50/p95/max timing for
+the available capture/readback/CPU-copy/producer/upload/pose/submit samples plus transport counters,
+focus-cycle observation and shutdown completion. Debug and Release still produce 23 PASS plus the
+single expected capability SKIP after these changes. No game, SteamVR or headset process was
+launched while preparing this consolidated gate.
+
+Basic Phase 7 preflight has also been pulled forward without changing the current product gate:
+staging rejects a running CoJ process, a non-Win32 build manifest or non-x86 game/proxy/OpenVR/
+ChromeEngine PE before mutation. Unstaging now refuses to remove the staged proxy when a required
+original `d3d9.dll` backup is missing. The full journal-before-mutation/interrupted-recovery matrix
+is still pending and must not be described as Phase 7 complete.
 
 ## Constraints
 
@@ -549,4 +598,5 @@ active physical gate remains sustained frame pacing/performance.
 - Keep work limited to the current HMD/native-stereo gate; do not add positional 6DOF, UI,
   full-body IK or controller gameplay yet.
 - Do not equate submit count with new game content.
-- Do not promote any Phase 0-4 result above `host-tested` until the exact manual run supplies live evidence.
+- Preserve the validation-state boundary: host-only Phase 5/6 changes remain `host-tested` until a
+  fresh run supplies the specific live/headset evidence required by the consolidated verifier.

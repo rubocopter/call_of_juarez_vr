@@ -74,9 +74,16 @@ foreach ($StageStatePath in $StageStatePaths) {
 $RuntimeLog = Join-Path $GameDirectory "cojvr.log"
 $Callstack = Join-Path $GameDirectory "callstack.txt"
 $CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
+$NativeStereoSummary = Join-Path $GameDirectory "cojvr-native-stereo-summary.json"
+$RequirePerformanceSummary = [bool]$CurrentRun.validation.requirePerformanceSummary
+if ($RequirePerformanceSummary -and
+    -not (Test-Path -LiteralPath $NativeStereoSummary -PathType Leaf)) {
+    throw "This run requires a native-stereo performance/state summary before evidence collection."
+}
 Copy-EvidenceFile $RuntimeLog (Join-Path $RunDirectory "runtime\cojvr.log") $Inventory
 Copy-EvidenceFile $Callstack (Join-Path $RunDirectory "runtime\callstack.txt") $Inventory
 Copy-EvidenceFile $CameraControl (Join-Path $RunDirectory "runtime\cojvr-camera-control.json") $Inventory
+Copy-EvidenceFile $NativeStereoSummary (Join-Path $RunDirectory "analysis\native-stereo-summary.json") $Inventory
 
 $RuntimeStarted = $false
 $RuntimeEnded = $false
@@ -126,6 +133,10 @@ $EvidenceManifest = [ordered]@{
     runtimeStarted = $RuntimeStarted
     runtimeEnded = $RuntimeEnded
     incomplete = -not $RuntimeEnded
+    analysis = [ordered]@{
+        nativeStereoSummaryRequired = $RequirePerformanceSummary
+        nativeStereoSummaryCollected = Test-Path -LiteralPath $NativeStereoSummary -PathType Leaf
+    }
     deploymentChecks = @($DeploymentChecks)
     files = @($Inventory)
 }

@@ -6,7 +6,7 @@ Call of Juarez VR targets **Call of Juarez (2006)** and related Chrome Engine ti
 
 The target experience for a supported game is **native stereo rendering, full-body IK and interactions rebuilt for VR**. Those are product goals; the current implementation is still progressing through the camera/tracking and renderer gates required to reach them safely.
 
-> **Status: pre-alpha / stabilization.** Call of Juarez (2006) on Direct3D 9 is the reference implementation. Native ChromeEngine stereo, corrected centimetre-scale eye separation, PSVR2 head tracking and left-Sense-Create recenter are physically validated. The deferred capture/mailbox/presenter path now hands SteamVR scene focus over only when a real stereo frame exists, shuts down cleanly, and submits each new or repeated texture with the exact HMD render pose; run `20260916T224239Z-e43b46698e5c` removed the previous head-turn snap-back. The current blocker is sustained frame pacing/performance. The flat menu still needs a separate VR presentation path, while positional 6DOF, full-body IK and rebuilt VR interactions remain later milestones.
+> **Status: pre-alpha / stabilization.** Call of Juarez (2006) on Direct3D 9 is the reference implementation. Native ChromeEngine stereo, corrected centimetre-scale eye separation, PSVR2 head tracking and left-Sense-Create recenter are physically validated. The deferred capture/mailbox/presenter path hands SteamVR scene focus over only when a real stereo frame exists, shuts down cleanly, and submits each new or repeated texture with the exact HMD render pose; run `20260916T224239Z-e43b46698e5c` removed the previous head-turn snap-back. Phase 5 capture/presenter acceptance and Phase 6 OpenVR state/ownership/synchronization are host-tested. The current blocker is sustained frame pacing/performance. The flat menu still needs a separate VR presentation path, while positional 6DOF, full-body IK and rebuilt VR interactions remain later milestones.
 
 [Technical audit](docs/TECHNICAL_AUDIT.md) · [Remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) · [Roadmap](ROADMAP.md) · [Architecture](ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Research notes](docs/RESEARCH_NOTES.md)
 
@@ -28,7 +28,7 @@ The reference game has demonstrated the basic flat transport chain:
 
 The isolated OpenVR runtime initializes against SteamVR, acquires a valid PSVR2 HMD pose and accepts D3D11 eye submissions. The in-game flat bridge has also completed real submissions from captured game frames.
 
-Audit-remediation Phases 0-4 are host-tested and two run-bound observations reproduced the same three-frame loss of the four instrumented D3D9 device hooks. That Steam Overlay A/B remains a deferred renderer investigation. The HMD pose path reaches the visible first-person camera. Runs through `20260916T224239Z-e43b46698e5c` prove two complete ChromeEngine eye passes, distinct real-color capture, corrected metre-to-centimetre eye separation, physical Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit render-pose submission. The active transport uses a game-thread D3D9 capture ring, owned CPU stereo frames, a bounded mailbox and a dedicated D3D11/OpenVR presenter. The remaining blocking work is sustained frame pacing/performance; flat menu presentation is a separate later UI boundary.
+Audit-remediation Phases 0-4 are host-tested and two run-bound observations reproduced the same three-frame loss of the four instrumented D3D9 device hooks. That Steam Overlay A/B remains a deferred renderer investigation. The HMD pose path reaches the visible first-person camera. Runs through `20260916T224239Z-e43b46698e5c` prove two complete ChromeEngine eye passes, distinct real-color capture, corrected metre-to-centimetre eye separation, physical Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit render-pose submission. The active transport uses a game-thread D3D9 capture ring, owned CPU stereo frames, a bounded mailbox and a dedicated D3D11/OpenVR presenter. Phase 5 and Phase 6 host acceptance are complete; fresh Debug and Release suites each produce 23 PASS plus the expected classic-D3D9 shared-texture capability SKIP. The next physical run is deliberately consolidated around sustained frame pacing/performance while rechecking runtime state, repeated presentation, one SteamVR dashboard focus-loss/reacquisition cycle, recenter and clean shutdown in the same process. Flat menu presentation is a separate later UI boundary.
 
 See the [technical audit](docs/TECHNICAL_AUDIT.md) for the current findings and the [audit remediation plan](docs/AUDIT_REMEDIATION_PLAN.md) for the required execution order.
 
@@ -61,6 +61,8 @@ For repeated local HMD/native-stereo testing, the repository provides one front-
 pwsh -File tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez"
 # Start SteamVR and Call of Juarez manually.
 # Recenter while wearing the headset: press Create on the left PS VR2 Sense.
+# During stable gameplay, open and close the SteamVR dashboard once.
+# Exercise slow/fast head turns and mouse rotation for the performance/comfort gate.
 # Terminal fallback for diagnostics only:
 pwsh -File tools/vr_test.ps1 recenter
 pwsh -File tools/vr_test.ps1 disable   # while the game is still running

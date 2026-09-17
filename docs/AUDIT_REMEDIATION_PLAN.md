@@ -192,6 +192,11 @@ Only after this phase should another manual game observation run be requested.
 
 **Goal:** decouple the Chrome Engine render clock from the SteamVR compositor clock while preserving correct D3D9 thread ownership.
 
+**Current status:** host acceptance complete and live-exercised by the later native-stereo runs.
+Resize, explicit pre-Reset invalidation/post-Reset generation recovery, identical-format new-device
+ownership and controlled paused-producer repeat classification are covered by host tests. Sustained
+frame pacing remains a product/runtime gate rather than an unfinished Phase 5 acceptance item.
+
 ### Components
 
 - `D3D9Capture`
@@ -246,6 +251,12 @@ The presenter can remain alive and measurable when capture pauses, while logs cl
 
 **Goal:** make sustained compositor behavior and failure recovery observable and deterministic.
 
+**Current status:** host/simulated acceptance complete. The runtime has explicit lifecycle,
+connection, focus, tracking, presenting and shutdown state; process-owner conflict/release,
+move-safety, failure simulation and controlled `none`/`Flush`/event-query D3D11 synchronization are
+host-tested. The animated physical probe has not been rerun, so these changes have not received a
+new live/headset promotion.
+
 ### Work
 
 - separate runtime initialized/connected/focused/tracking-valid/presenting/shutdown states;
@@ -265,6 +276,10 @@ Host/simulated tests cover focus loss, one-eye submit failure, invalid tracking,
 ## Phase 7 — Make deployment and verification transactional
 
 **Goal:** guarantee recoverability and prevent stale evidence from validating a new build.
+
+**Current status:** partially implemented. Active-game rejection, Win32/x86 preflight and
+run-bound stale-evidence rejection exist for the current native-stereo path. Journal-before-mutation
+and interrupted stage/unstage recovery remain open and control completion of this phase.
 
 ### Work
 
@@ -310,7 +325,7 @@ The same neutral field has one documented semantic meaning for every producer an
 
 ## Execution order
 
-Default critical path:
+Historical default critical path:
 
 ```text
 Phase 0
@@ -325,7 +340,23 @@ Phase 0
   -> camera/stereo work
 ```
 
-Phase 8 may progress through host tests in parallel but must be complete before real stereo camera work is promoted.
+The project has already advanced beyond the historical flat/camera ordering through exact-build
+live evidence. The current continuation is:
+
+```text
+Phases 0-4 host baseline
+  -> exact CoJ camera/native-stereo live proof
+  -> Phase 5 host acceptance complete / live-exercised
+  -> Phase 6 host acceptance complete
+  -> one consolidated native-stereo performance/state/focus physical run
+  -> Phase 7 transactional deployment completion
+  -> Phase 8/general portability hardening before promoting broader runtime/game reuse
+  -> positional 6DOF / gameplay controllers / interactions / full-body IK
+```
+
+Phase 8 may progress through host tests in parallel. Its remaining backend-neutral/OpenXR work is
+a portability/hardening requirement; it no longer retroactively blocks the already-proven exact
+Call of Juarez/OpenVR stereo path.
 
 ### Camera/render boundary proof — live-tested
 

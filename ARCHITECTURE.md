@@ -79,18 +79,20 @@ A complete `IDirect3DDevice9` forwarding wrapper is not the default remedy for c
 
 Do not use blind periodic re-hooking as the normal ownership model.
 
-## Flat capture/presentation target
+## Capture/presentation separation
 
-The current diagnostic bridge performs capture, D3D11 upload, pose wait and OpenVR submission synchronously from the game callback. This proved transport but is not the intended sustained architecture.
+The historical flat diagnostic bridge performed capture, D3D11 upload, pose wait and OpenVR
+submission synchronously from the game callback. That path proved transport but is no longer the
+current sustained architecture.
 
-The target flat path is:
+The implemented native-stereo path is:
 
 ```text
-verified D3D9 callback
-  -> D3D9Capture on the game/render thread
-  -> owned CPU Frame
+ChromeEngine per-eye render-view boundary
+  -> D3D9StereoCapture on the game/render thread
+  -> owned CPU StereoCpuFrame
   -> bounded FrameMailbox
-  -> OpenVrPresenter with exclusive D3D11/OpenVR ownership
+  -> OpenVrStereoPresenter with exclusive D3D11/OpenVR ownership
   -> compositor
 ```
 
@@ -114,9 +116,15 @@ A successful OpenVR submission does not prove a unique new game frame. A missing
 
 OpenVR -> SteamVR remains the initial PSVR2 runtime path.
 
-The OpenVR adapter should own and expose explicit lifecycle/state transitions rather than leaking them into renderer callbacks. One process-level owner controls OpenVR initialization. D3D11 immediate-context ownership and GPU handoff are explicit.
+The OpenVR adapter owns explicit lifecycle state (`initialized`, HMD `connected`, scene `focused`, `tracking_valid`, stereo `presenting`, shutdown requested/completed) and processes relevant OpenVR events instead of inferring runtime health from submit count. One process-level owner gate controls OpenVR initialization; competing owners fail closed, and ownership is released by normal runtime teardown outside `DllMain`.
 
-The isolated OpenVR path has demonstrated runtime initialization, eye configuration, valid HMD pose acquisition and accepted D3D11 submissions. Sustained, physically visible compositor behavior remains a separate validation gate.
+The presenter owns the D3D11 immediate context. Its normal handoff is explicit: CPU frame upload through `UpdateSubresource`, no unconditional GPU-wide wait, left/right `Submit_TextureWithPose`, then `PostPresentHandoff`. `none`, `Flush` and bounded D3D11 event-query synchronization exist as controlled diagnostic strategies; the production presenter remains on `none` unless evidence justifies a narrower change.
+
+The isolated OpenVR path has demonstrated runtime initialization, eye configuration, valid HMD
+pose acquisition and accepted D3D11 submissions. The exact Call of Juarez path has additionally
+demonstrated sustained physically visible stereo submission, scene-focus handoff, repeated-frame
+presentation, explicit render-pose submission and clean runtime teardown. Frame pacing/performance
+remains the active physical gate.
 
 ## OpenXR direction
 
@@ -137,8 +145,8 @@ native-stereo render-view proof:
 5. structured render/run telemetry;
 6. exact-build `CBaseCamera -> view/projection -> renderer` static proof — complete;
 7. one manual, non-headset proof of the camera/render boundary plus external FOV control and clean restoration — live-tested;
-8. backend-neutral HMD pose/recenter boundary feeding the same transient camera path — host-tested;
-9. exact ChromeEngine render-view boundary plus per-eye translation/asymmetric projection — host-tested;
+8. backend-neutral HMD pose/recenter boundary feeding the same transient camera path — headset/live-tested for the current OpenVR/CoJ path;
+9. exact ChromeEngine render-view boundary plus per-eye translation/asymmetric projection — live-tested for the exact CoJ build;
 10. first physical native-stereo attempt — failed before eye capture/submission because of an OpenVR vertical-FOV sign conversion defect and exposed source/frustum restoration occurring before later scene visibility work;
 11. second physical attempt — reached visible in-game OpenVR submission, but all sampled left/right captures were identical and the run did not reach `run_end`; this is live evidence of headset presentation, not native stereo;
 12. third physical attempt — HMD yaw/pitch direction was correct, but right-eye capture ended on `D3DFMT_NULL` because the implementation used core-only `0x30E00` for the second eye while the first eye traversed full wrapper `0x30FB0`; no stereo pair was submitted;
@@ -146,8 +154,9 @@ native-stereo render-view proof:
 14. corrected CoJ world scale, Sense recenter, scene-focus handoff and clean finalization — live-tested;
 15. preserve the exact render HMD pose through the asynchronous capture/mailbox path and submit new/repeated frames with OpenVR explicit render-pose metadata — live-tested by `20260916T224239Z-e43b46698e5c`, which removed the reported head-turn snap-back;
 16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — current physical gate;
-17. complete the remaining Phase 5 reset/resize/new-device and paused-producer acceptance coverage, then continue transport/culling/eye-target hardening as evidence requires;
-18. only then advance positional 6DOF, controller gameplay, interaction rebuilding and full-body IK.
+17. Phase 5 resize/Reset/new-device and paused-producer acceptance coverage — host-tested;
+18. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization — host-tested; one consolidated physical run now checks those contracts together with the active performance gate;
+19. only then advance positional 6DOF, controller gameplay, interaction rebuilding and full-body IK.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
@@ -215,7 +224,12 @@ the backbuffer, keys resources to that capture-surface description and rejects i
 hashes before OpenVR submission. `D3DFMT_NULL` is explicitly treated as an auxiliary/wrong
 capture boundary and fails closed. The candidate observes device creation through the factory
 hook and does not install `Present`, `BeginScene`, `EndScene` or `Reset` hooks. CPU readback,
-full-frame diagnostic hashing and upload remain proof-only costs that require frame-pacing work.
+owned CPU copying and upload remain proof-only costs that require frame-pacing work. Full-frame
+diagnostic hashes are sampled telemetry only; every frame still performs fail-closed RGB eye
+comparison. Contiguous D3D9 locks construct the owned byte range directly instead of first
+value-initializing and then overwriting a same-sized destination vector. The capture component also
+exposes explicit resource invalidation for owners with a real Reset/recreation lifecycle signal;
+the exact CoJ proof does not depend on a Reset hook.
 Run `20260916T133322Z-36c287cc43d8` live-tested distinct left/right engine captures and OpenVR
 submission through this path, but the user reported poor fusion/comfort and performance. That
 run used the pre-fix 1:1 metre-to-game-unit eye translation, making the 65 mm physical IPD only

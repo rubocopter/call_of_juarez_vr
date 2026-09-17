@@ -81,7 +81,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 - First native-stereo transport (classic D3D9 active-render-target CPU readback -> separate left/right D3D11 textures -> OpenVR): **distinct-eye submission live-tested; proof-only performance remains unacceptable**.
 - Minimal OpenVR global action contract + PS VR2 Sense left-Create recenter binding: **headset-validated for recenter**. Run `20260916T153109Z-8976b8f77775` proved the physical press reaches the existing XR-neutral `RelativePoseTracker` recenter path.
 - Explicit render-pose submission for new and repeated frames: **live-tested** for the reported snap-back defect. Each transported stereo frame carries the exact HMD render pose/sequence and OpenVR submission uses `VRTextureWithPose_t` / `Submit_TextureWithPose`; invalid/missing render poses fail closed.
-- Sampled diagnostic hashing with per-frame RGB distinction and contiguous CPU-copy fast path: **host-tested**. Full hashes no longer consume roughly `11-14 ms` on every new stereo frame; every eye pair still fails closed if its RGB content is identical.
+- Sampled diagnostic hashing with per-frame RGB distinction and direct owned-buffer construction: **host-tested**. Full hashes no longer consume roughly `11-14 ms` on every new stereo frame; contiguous locks no longer value-initialize the destination byte vector before copying the real pixels, and every eye pair still fails closed if its RGB content is identical.
 - Usable binocular presentation/frame pacing: **current manual gate**. Clean shutdown, scene-focus handoff and snap-back correction are live-tested; remaining work is sustained performance/comfort.
 
 ### Phase 5 — capture/presenter separation
@@ -90,21 +90,25 @@ current camera, stereo, 6DOF and interaction validation gates.
 - Bounded `FrameMailbox`: **host-tested**.
 - `OpenVrStereoPresenter` with exclusive D3D11/OpenVR ownership: **host-tested**.
 - Device/generation-aware resource lifetime and stale-frame rejection: **host-tested**.
-- The separated path is **live-exercised** by the later native-stereo runs, including repeated-frame presentation, scene-focus handoff and clean teardown. Full remediation-plan acceptance still needs explicit resize/Reset/new-device coverage and a controlled paused-producer presenter test.
+- Resize, explicit pre-Reset invalidation/post-Reset generation recovery and identical-format new-device resource rebuild: **host-tested**.
+- Controlled paused-producer new/repeated presentation policy: **host-tested**; live telemetry already distinguishes new and repeated submissions.
+- The separated path is **live-exercised** by the later native-stereo runs, including repeated-frame presentation, scene-focus handoff and clean teardown. Phase 5 host acceptance is complete; the active product gate remains sustained frame pacing/performance.
 
 ### Phase 6 — OpenVR state/lifetime/synchronization
 
-- Explicit runtime/focus/tracking/presenting states: **planned**.
-- One process-level OpenVR owner and safe teardown: **planned**.
-- Per-eye submit/timing evidence and controlled GPU synchronization tests: **planned**.
-- Configurable animated visible probe: **planned**.
+- Explicit runtime/focus/tracking/presenting/shutdown states and relevant runtime-event processing: **host-tested**.
+- One process-level OpenVR owner, conflict/release policy, move-assignment safety and teardown outside `DllMain`: **host-tested**.
+- Per-eye submit-state integration, sampled submit/timing evidence and controlled `none`/`Flush`/event-query GPU synchronization strategies: **host-tested**. Production presentation keeps `gpu_sync=none`; no unconditional global wait was introduced.
+- Configurable animated visible probe with recognizable per-eye animation, frame count and diagnostic GPU-sync selection: **implemented / host-built**; fresh physical probe evidence remains pending.
+- The next native-stereo physical run is now a consolidated Phase 6/performance gate: the verifier requires connected/tracking/presenting state, a deliberate SteamVR-dashboard focus loss/reacquisition, repeated-frame presentation, the production `gpu_sync=none` handoff, and complete OpenVR shutdown in the same run. `finish` also generates and packages a run-bound timing/state summary with p50/p95/max values for the capture/readback/copy/upload/pose/submit stages.
+- Phase 6 host/simulated acceptance: **complete**. No Call of Juarez or SteamVR process was launched for this increment; live/headset promotion remains separate and the active product gate is still sustained frame pacing/performance.
 
 ### Phase 7 — transactional deployment
 
-- Preflight and active-process rejection: **planned**.
+- Basic preflight before mutation (game-process rejection plus Win32/x86 checks for the game/proxy/OpenVR/ChromeEngine artifacts): **implemented**. Full Phase 7 transaction acceptance remains pending.
 - Journal-before-mutation staging: **planned**.
 - Recoverable interrupted stage/unstage: **planned**.
-- Run-bound verification that cannot consume stale logs: **planned**.
+- Run-bound verification that cannot consume stale logs: **implemented for the current native-stereo path**; the broader Phase 7 recovery matrix remains planned.
 
 ### Phase 8 — neutral VR math contracts
 
@@ -132,8 +136,8 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 ## Milestone 2 — OpenVR/SteamVR and first HMD proof
 
-- Pinned OpenVR SDK 2.15.6 bootstrap/build integration: **host-tested**, build/CI ownership cleanup pending.
-- OpenVR runtime lifecycle, standing tracking space and neutral eye/HMD conversion: **live-tested initial evidence**, lifecycle hardening pending.
+- Pinned OpenVR SDK 2.15.6 bootstrap/build integration: **host-tested**, with backend-independent build ownership established.
+- OpenVR runtime lifecycle, standing tracking space and neutral eye/HMD conversion: **live-tested**, with lifecycle/ownership hardening **host-tested** under Phase 6.
 - OpenVR-selected D3D11 device and stereo compositor submission backend: **live-tested for isolated synthetic submission**.
 - Isolated OpenVR runtime/eye/pose/submission probe: **live-tested technical submission**; headset-visible confirmation remains separate.
 - D3D9Ex -> D3D11 shared render-target transport: **host-tested**.
@@ -154,7 +158,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 - Pinned OpenXR.Loader 1.1.63 bootstrap/build integration: **host-tested**.
 - OpenXR instance/system/session, frame timing, D3D11 binding and stereo swapchains: **implemented**.
 - SteamVR runtime/session/swapchain creation plus one projection-frame submission: **live-tested runtime evidence only**.
-- Independent build ownership/lifetime cleanup: **planned under stabilization**.
+- Independent build ownership: **host-tested**. OpenXR-specific runtime/handle lifetime semantics remain **planned** before promotion of that backend.
 
 ## Milestone 3 — full 6DOF and comfort
 

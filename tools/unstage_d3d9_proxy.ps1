@@ -17,6 +17,10 @@ $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
 $OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
 
+if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
+    throw "Call of Juarez is running. Close it before unstaging the candidate."
+}
+
 if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
     if (Test-Path -LiteralPath $BridgeMarker -PathType Leaf) {
         Remove-Item -LiteralPath $BridgeMarker -Force
@@ -30,6 +34,10 @@ $StageState = Get-Content -LiteralPath $State -Raw | ConvertFrom-Json
 $CameraControlManaged = [bool]$StageState.cameraControlManaged
 $OpenVrRuntimeManaged = [bool]$StageState.openVrRuntimeManaged
 $OpenVrInputManaged = [bool]$StageState.openVrInputManaged
+if ([bool]$StageState.hadOriginalD3D9 -and
+    -not (Test-Path -LiteralPath $Backup -PathType Leaf)) {
+    throw "The original d3d9.dll backup is missing. Refusing to remove the staged proxy."
+}
 if ($CameraControlManaged -and [bool]$StageState.hadOriginalCameraControl -and
     -not (Test-Path -LiteralPath $CameraControlBackup -PathType Leaf)) {
     throw "The original camera-control backup is missing. Refusing to unstage incompletely."
@@ -77,9 +85,6 @@ if ($CurrentHash -ne [string]$StageState.stagedProxySha256) {
 Remove-Item -LiteralPath $Destination -Force
 
 if ([bool]$StageState.hadOriginalD3D9) {
-    if (-not (Test-Path -LiteralPath $Backup -PathType Leaf)) {
-        throw "The original d3d9.dll backup is missing."
-    }
     Move-Item -LiteralPath $Backup -Destination $Destination
     Write-Host "Restored the original d3d9.dll."
 } else {

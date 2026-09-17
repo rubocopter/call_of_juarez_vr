@@ -43,6 +43,7 @@ try {
         "set_hmd_camera_control.ps1",
         "verify_hmd_camera_live_test.ps1",
         "verify_native_stereo_live_test.ps1",
+        "summarize_native_stereo_run.ps1",
         "vr_test.ps1"
     )
     foreach ($Script in $Scripts) {
@@ -415,6 +416,14 @@ try {
                 knownInspectedBuild = $true
             }
         }
+        validation = [ordered]@{
+            requireExactChromeEngine = $true
+            requireOpenVrRuntimeState = $true
+            requireOpenVrFocusCycle = $true
+            requireProductionGpuSyncNone = $true
+            requirePerformanceSummary = $true
+            requireRepeatedPresentation = $true
+        }
         deployment = @(
             [ordered]@{ role = "proxy"; destination = "d3d9.dll"; sha256 = $StereoVerifierProxyHash },
             [ordered]@{ role = "openvr_runtime"; destination = "openvr_api.dll"; sha256 = $StereoVerifierOpenVrHash },
@@ -437,6 +446,9 @@ try {
         "run_start: run_id=$StereoVerifierRunId build_manifest_id=$($StereoBuildManifest.manifestId) pid=789",
         "native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=latest_frame_repeat",
         "native_stereo_runtime: status=started backend=openvr owner=presenter_thread recommended_eye=2000x2040 left_eye_x=-0.032 right_eye_x=0.032 pose_semantics=eye_to_head",
+        "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff",
+        "openvr_scene_state: phase=initialized;process_id=789;scene_focus_process_id=0;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=false;should_reduce_rendering_work=false",
+        "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_factory_hook: status=installed",
         "native_stereo_device: status=observed device=0x1234 generation=1",
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
@@ -455,6 +467,12 @@ try {
         "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;left_hash=111;right_hash=222;distinct_eye_content=true;distinct_check=rgb_compare_every_frame;hash_mode=sampled_telemetry;hash_ms=4.000;upload_ms=1.000",
         "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;left_hash=333;right_hash=444;distinct_eye_content=true;distinct_check=rgb_compare_every_frame;hash_mode=sampled_telemetry;hash_ms=4.100;upload_ms=1.100",
         "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
+        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
+        "openvr_scene_state: phase=first_submit;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
+        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=true;presenting=true;shutdown_requested=false",
+        "openvr_scene_state: phase=focus_lost;process_id=789;scene_focus_process_id=456;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
+        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
+        "openvr_scene_state: phase=focus_gained;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
         "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
@@ -468,6 +486,7 @@ try {
         "native_stereo_presenter_shutdown: stage=d3d11_begin",
         "native_stereo_presenter_shutdown: stage=d3d11_end",
         "native_stereo_presenter_shutdown: stage=runtime_begin",
+        "openvr_runtime_state: phase=shutdown_complete;lifecycle=shutdown_complete;initialized=false;connected=false;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_shutdown: stage=runtime_end",
         "native_stereo_presenter: status=stopped",
         "native_stereo_shutdown: stage=presenter_end",
@@ -478,6 +497,108 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
+
+    $StereoSummaryPath = Join-Path $StereoVerifierGame "cojvr-native-stereo-summary.json"
+    & (Join-Path $SourceDirectory "tools\summarize_native_stereo_run.ps1") `
+        -GameDirectory $StereoVerifierGame `
+        -OutputPath $StereoSummaryPath | Out-Null
+    $StereoSummary = Get-Content -LiteralPath $StereoSummaryPath -Raw | ConvertFrom-Json
+    Assert-True ([string]$StereoSummary.runId -eq $StereoVerifierRunId) `
+        "Native-stereo summary was not bound to the current run."
+    Assert-True ([int]$StereoSummary.metricsMs.cpuCopy.count -eq 1 -and
+        [double]$StereoSummary.metricsMs.cpuCopy.p50 -eq 3.0) `
+        "Native-stereo summary did not preserve CPU-copy timing."
+    Assert-True ([bool]$StereoSummary.runtime.focusCycleObserved) `
+        "Native-stereo summary did not recognize the focus cycle."
+    Assert-True ([bool]$StereoSummary.runtime.shutdownCompleteObserved) `
+        "Native-stereo summary did not recognize shutdown completion."
+    Assert-True ([uint64]$StereoSummary.transport.framesCollected -eq 2) `
+        "Native-stereo summary did not preserve transport counters."
+
+    $StereoPackagePath = Join-Path $TestRoot "$StereoVerifierRunId.zip"
+    & (Join-Path $SourceDirectory "tools\collect_run_evidence.ps1") `
+        -GameDirectory $StereoVerifierGame `
+        -OutputPath $StereoPackagePath | Out-Null
+    $StereoEvidenceManifest = Get-Content -LiteralPath `
+        (Join-Path $StereoVerifierRunDirectory "evidence-manifest.json") -Raw | ConvertFrom-Json
+    Assert-True ([bool]$StereoEvidenceManifest.analysis.nativeStereoSummaryRequired -and
+        [bool]$StereoEvidenceManifest.analysis.nativeStereoSummaryCollected) `
+        "Required native-stereo summary was not bound into the run evidence manifest."
+    Assert-True (Test-Path -LiteralPath `
+        (Join-Path $StereoVerifierRunDirectory "analysis\native-stereo-summary.json") -PathType Leaf) `
+        "Native-stereo summary was not copied into the run evidence package."
+
+    $StereoVerifierNoFocusCycle = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "focused=false;tracking_valid=true;presenting=true"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoFocusCycle
+    $MissingFocusCycleRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingFocusCycleRejected = $true
+    }
+    Assert-True $MissingFocusCycleRejected `
+        "Native-stereo verifier accepted a run without the required OpenVR focus cycle."
+
+    $StereoVerifierNoGpuHandoff = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "^openvr_gpu_handoff:"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoGpuHandoff
+    $MissingGpuHandoffRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingGpuHandoffRejected = $true
+    }
+    Assert-True $MissingGpuHandoffRejected `
+        "Native-stereo verifier accepted a run without the bound production GPU handoff policy."
+
+    $StereoVerifierNoRepeatedPresentation = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace "repeat_submissions=4", "repeat_submissions=0"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoRepeatedPresentation
+    $MissingRepeatedPresentationRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingRepeatedPresentationRejected = $true
+    }
+    Assert-True $MissingRepeatedPresentationRejected `
+        "Native-stereo verifier accepted a run without repeated-frame presentation."
+
+    $StereoVerifierNoDashboardEvidence = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "openvr_scene_state: phase=focus_lost") {
+            $_ -replace "dashboard_visible=true", "dashboard_visible=false"
+        } else { $_ }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoDashboardEvidence
+    $MissingDashboardEvidenceRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingDashboardEvidenceRejected = $true
+    }
+    Assert-True $MissingDashboardEvidenceRejected `
+        "Native-stereo verifier accepted a focus cycle without visible SteamVR dashboard evidence."
+
+    $StereoVerifierNoShutdownComplete = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "^openvr_runtime_state: phase=shutdown_complete;"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoShutdownComplete
+    $MissingShutdownCompleteRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingShutdownCompleteRejected = $true
+    }
+    Assert-True $MissingShutdownCompleteRejected `
+        "Native-stereo verifier accepted a run without the final OpenVR shutdown-complete state."
 
     $StereoVerifierFlat = @($StereoVerifierLog | ForEach-Object {
         $_ -replace "distinct_eye_content=true", "distinct_eye_content=false"

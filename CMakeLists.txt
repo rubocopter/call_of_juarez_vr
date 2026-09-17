@@ -131,6 +131,7 @@ if(COJVR_ENABLE_OPENVR)
 
     add_library(cojvr_openvr_d3d11_backend STATIC
         src/backends/openvr/d3d11_compositor.cpp
+        src/backends/openvr/d3d11_sync.cpp
         src/backends/openvr/d3d11_session.cpp
         src/backends/openvr/stereo_presenter.cpp
         src/backends/d3d9/frame_mailbox.cpp
@@ -556,6 +557,40 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_frame_mailbox_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME frame_mailbox COMMAND cojvr_frame_mailbox_test)
+
+    add_executable(
+        cojvr_presentation_cadence_test
+        tests/presentation_cadence.cpp
+    )
+    target_include_directories(cojvr_presentation_cadence_test PRIVATE src)
+    target_compile_features(cojvr_presentation_cadence_test PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(cojvr_presentation_cadence_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME presentation_cadence COMMAND cojvr_presentation_cadence_test)
+
+    add_executable(cojvr_openvr_state_test tests/openvr_state.cpp)
+    target_include_directories(cojvr_openvr_state_test PRIVATE src)
+    target_compile_features(cojvr_openvr_state_test PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(cojvr_openvr_state_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME openvr_state COMMAND cojvr_openvr_state_test)
+
+    add_executable(
+        cojvr_d3d11_sync_test
+        tests/d3d11_sync.cpp
+        src/backends/openvr/d3d11_sync.cpp
+    )
+    target_include_directories(cojvr_d3d11_sync_test PRIVATE src)
+    target_compile_features(cojvr_d3d11_sync_test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d11_sync_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_link_libraries(cojvr_d3d11_sync_test PRIVATE d3d11)
+    if(MSVC)
+        target_compile_options(cojvr_d3d11_sync_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME d3d11_sync COMMAND cojvr_d3d11_sync_test)
 
     add_executable(
         cojvr_d3d9_stereo_capture_test

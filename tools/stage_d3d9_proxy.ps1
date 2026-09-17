@@ -9,6 +9,39 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Get-PeMachine([string]$Path) {
+    $Stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $Reader = [System.IO.BinaryReader]::new($Stream)
+        try {
+            if ($Stream.Length -lt 64 -or $Reader.ReadUInt16() -ne 0x5A4D) {
+                throw "'$Path' is not a valid PE image (missing MZ header)."
+            }
+            $Stream.Position = 0x3C
+            $PeOffset = $Reader.ReadUInt32()
+            if ($PeOffset -gt ($Stream.Length - 6)) {
+                throw "'$Path' has an invalid PE header offset."
+            }
+            $Stream.Position = $PeOffset
+            if ($Reader.ReadUInt32() -ne 0x00004550) {
+                throw "'$Path' is not a valid PE image (missing PE signature)."
+            }
+            return $Reader.ReadUInt16()
+        } finally {
+            $Reader.Dispose()
+        }
+    } finally {
+        $Stream.Dispose()
+    }
+}
+
+function Assert-Win32Pe([string]$Path, [string]$Role) {
+    $Machine = Get-PeMachine $Path
+    if ($Machine -ne 0x014C) {
+        throw "$Role '$Path' is not Win32/x86 PE (machine=0x$($Machine.ToString('X4')))."
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
     $ProxyPath = Join-Path $PSScriptRoot "..\build\win32-debug\Release\d3d9.dll"
 }
@@ -28,10 +61,15 @@ $EvidenceRoot = Join-Path $GameDirectory ".cojvr-evidence"
 $D3D9ExMarker = Join-Path $GameDirectory ".cojvr-d3d9-ex-bridge"
 $CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
 $CameraControlBackup = Join-Path $GameDirectory "cojvr-camera-control.cojvr-backup.json"
+$NativeStereoSummary = Join-Path $GameDirectory "cojvr-native-stereo-summary.json"
 $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
 $OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
+
+if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
+    throw "Call of Juarez is running. Close it before staging a candidate."
+}
 
 $ProxyLeaf = [System.IO.Path]::GetFileName($ProxyPath)
 $IsReadbackDiagnostic = $ProxyLeaf -ieq "d3d9_readback.dll"
@@ -83,6 +121,9 @@ $BuildManifest = Get-Content -LiteralPath $BuildManifestPath -Raw | ConvertFrom-
 if ([string]$BuildManifest.manifestType -ne "cojvr-build" -or
     [int]$BuildManifest.schemaVersion -ne 1) {
     throw "Build manifest '$BuildManifestPath' has an unsupported schema."
+}
+if ([string]$BuildManifest.build.platform -ne "Win32") {
+    throw "Build manifest platform '$($BuildManifest.build.platform)' is not the required Win32 target."
 }
 if ([string]$BuildManifest.build.diagnosticMode -ne $DiagnosticMode) {
     throw "Build manifest diagnostic mode '$($BuildManifest.build.diagnosticMode)' does not match '$DiagnosticMode'."
@@ -139,6 +180,11 @@ $ActualHash = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToU
 if ($ActualHash -ne $ExpectedCoJHash) {
     throw "CoJ.exe SHA-256 is not the known exact build. Expected $ExpectedCoJHash, got $ActualHash."
 }
+Assert-Win32Pe $Executable "Game executable"
+Assert-Win32Pe $ProxyPath "Proxy artifact"
+if ($IsOpenVrIntegration) {
+    Assert-Win32Pe $OpenVrSource "OpenVR runtime artifact"
+}
 
 $ChromeEngineHash = if (Test-Path -LiteralPath $ChromeEngine -PathType Leaf) {
     (Get-FileHash -LiteralPath $ChromeEngine -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -148,6 +194,9 @@ $ChromeEngineHash = if (Test-Path -LiteralPath $ChromeEngine -PathType Leaf) {
 
 if ($IsCameraIntegration -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
     throw "Camera probe requires the exact inspected ChromeEngine3.dll. Expected $ExpectedChromeEngineHash, got '$ChromeEngineHash'."
+}
+if ($IsCameraIntegration) {
+    Assert-Win32Pe $ChromeEngine "ChromeEngine3.dll"
 }
 
 if (Test-Path -LiteralPath $Backup) {
@@ -184,7 +233,12 @@ $HistoricalDirectory = Join-Path `
 New-Item -ItemType Directory -Path $RunDirectory -Force | Out-Null
 Copy-Item -LiteralPath $BuildManifestPath -Destination (Join-Path $RunDirectory "build-manifest.json")
 
-$HistoricalFiles = @($Log, (Join-Path $GameDirectory "callstack.txt"), $CurrentRun)
+$HistoricalFiles = @(
+    $Log,
+    (Join-Path $GameDirectory "callstack.txt"),
+    $CurrentRun,
+    $NativeStereoSummary
+)
 foreach ($HistoricalFile in $HistoricalFiles) {
     if (Test-Path -LiteralPath $HistoricalFile -PathType Leaf) {
         New-Item -ItemType Directory -Path $HistoricalDirectory -Force | Out-Null
@@ -303,6 +357,11 @@ try {
         }
         validation = [ordered]@{
             requireExactChromeEngine = $IsCameraIntegration
+            requireOpenVrRuntimeState = $IsNativeStereo
+            requireOpenVrFocusCycle = $IsNativeStereo
+            requireProductionGpuSyncNone = $IsNativeStereo
+            requirePerformanceSummary = $IsNativeStereo
+            requireRepeatedPresentation = $IsNativeStereo
         }
         deployment = @($Deployment)
     }

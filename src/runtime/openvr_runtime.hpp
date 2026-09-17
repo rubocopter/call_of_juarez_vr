@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/openvr_state.hpp"
 #include "runtime/vr_types.hpp"
 
 #include <array>
@@ -71,14 +72,20 @@ public:
     // submit so merely polling the HMD does not claim scene focus early.
     [[nodiscard]] bool ReadHmdPose(Pose& pose) noexcept;
     [[nodiscard]] bool WaitForHmdPose(Pose& pose) noexcept;
+    // Drain runtime events and refresh connection/focus state. A runtime quit
+    // request is represented in state() and left to the owning thread to tear
+    // down outside loader-lock-sensitive contexts.
+    [[nodiscard]] bool ProcessEvents() noexcept;
     void PostPresentHandoff() noexcept;
     [[nodiscard]] bool ReadPresentationState(OpenVrPresentationState& state) noexcept;
     [[nodiscard]] bool InitializeGlobalActions(
         std::string_view absolute_manifest_path) noexcept;
     [[nodiscard]] bool PollGlobalActions(OpenVrGlobalActions& actions) noexcept;
     [[nodiscard]] bool global_actions_initialized() const noexcept;
+    void RecordEyeSubmission(Eye eye, bool succeeded) noexcept;
 
     [[nodiscard]] bool initialized() const noexcept;
+    [[nodiscard]] OpenVrRuntimeState state() const noexcept;
     [[nodiscard]] const OpenVrSystemInfo& system_info() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
     [[nodiscard]] std::int32_t last_result_code() const noexcept;

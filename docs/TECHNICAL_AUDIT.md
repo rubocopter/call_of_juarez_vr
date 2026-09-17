@@ -76,39 +76,39 @@ Run `20260914T215121Z-9bac4e22cffd` again observed one native factory, one devic
 ### A4 — Capture, VR synchronization and compositor submission are coupled inside the game callback
 
 **Severity:** P0  
-**Status:** Phase 5 separation implemented/host-tested and live-exercised; acceptance/performance remains open
+**Status:** Phase 5 separation and acceptance host-tested and live-exercised; performance remains open
 
 The original flat/native proof path performed D3D9 readback, CPU access, D3D11 upload, pose wait and both eye submissions synchronously from the render callback. The current native-stereo path separates those responsibilities: `D3D9StereoCapture` queues/copies eye results on the game thread, produces owned `StereoCpuFrame` data, `FrameMailbox` keeps a bounded latest-frame handoff, and `OpenVrStereoPresenter` owns D3D11/OpenVR work on its presenter thread.
 
 Runs `20260916T221254Z-861f3c15abd4` and `20260916T224239Z-e43b46698e5c` exercised this separated path in the headset, including separate new/repeated submission counts, scene-focus handoff, explicit render-pose submission and clean presenter/runtime teardown. The latest run also quantified the remaining cost: roughly `15-22 ms` of owned CPU copy on sampled 2560x1440 stereo frames, plus the diagnostic hashing cost that the current source has since removed from almost every frame.
 
-The remediation-plan acceptance matrix is not yet complete: the repository still needs explicit reset/resize/new-device coverage and a controlled paused-producer presenter test. Sustained frame pacing also remains below the product gate.
+The Phase 5 host acceptance matrix now includes explicit source resize, pre-Reset resource invalidation/post-Reset generation recovery, a second device with identical dimensions/format, and a controlled paused-producer presentation policy. `PresentationCadence` keeps the last valid frame presentable and labels subsequent successful submissions as repetitions until a new upload arrives; a failed submit does not consume the pending-new classification. Sustained frame pacing still remains below the product gate.
 
-**Required action:** complete the remaining Phase 5 acceptance coverage and reduce readback/copy overhead while preserving separate capture/submit accounting and presenter ownership.
+**Required action:** reduce readback/copy overhead while preserving separate capture/submit accounting, presenter ownership and the now-host-tested pause/reset/recreation contracts.
 
 ### A5 — Renderer resources are keyed by image description rather than device/generation ownership
 
 **Severity:** P1  
-**Status:** native-stereo Phase 5 ownership host-tested; reset/recreation acceptance remains open
+**Status:** native-stereo Phase 5 ownership and reset/resize/recreation seams host-tested
 
 The historical bridge could reuse resources when dimensions/format/MSAA matched even if the underlying D3D9 device or generation changed. The current native-stereo transport keys D3D9 capture resources by device, generation and full surface description including MSAA, carries device/generation identity in each owned frame, resets presenter textures when that identity changes and rejects stale generations/sequences.
 
-The presenter has a single D3D11/OpenVR owner and teardown occurs outside `DllMain`. Host tests cover the mailbox and basic owned D3D9 stereo frame path, but the remediation plan's explicit Reset/resize/new-device matrix has not yet been fully exercised.
+The presenter has a single D3D11/OpenVR owner and teardown occurs outside `DllMain`. The owned D3D9 stereo-capture test now exercises a source resize on the same device/generation, explicit `InvalidateResources()` before a classic D3D9 Reset followed by recovery on a new generation, and migration to a second device with the same dimensions/format. The exact Call of Juarez proof still does not depend on a `Reset` hook; the invalidation seam exists for owners that have an explicit lifecycle signal.
 
-**Required action:** add the missing reset/resize/new-device acceptance tests before closing this finding.
+**Required action:** preserve the device/generation ownership contract and only wire `InvalidateResources()` where an explicit lifecycle boundary is available; do not reintroduce a `Reset`-hook dependency into the exact CoJ proof merely to exercise this seam live.
 
 ### A6 — Host tests do not yet prove the deployed pipeline
 
 **Severity:** P0  
-**Status:** host acceptance complete through current Phase 5 components; Phase 6 failure-path simulation remains open
+**Status:** host acceptance complete through current Phase 6 components; live/runtime evidence remains separate
 
 Phase 1 acceptance is now host-tested. Neutral runtime, build identity, OpenVR and OpenXR targets are separated; OpenVR-only and OpenXR-only configurations build/test while the disabled SDK root is deliberately absent; CI bootstraps each enabled dependency; integration artifacts require Win32. Native D3D9 tests load and assert the system DLL, proxy smoke tests run in isolated directories, unavailable HAL/capability results use CTest SKIP, scene boundaries are exercised, and classic readback validates full asymmetric frames, row pitch and temporal changes.
 
-Phase 2-4 tests add deterministic patch failures/conflicts/multiple vtables/rollback/reentrancy, native factory recovery/two-device identity, swapchain observation, generation changes, structured stage failures and telemetry parser rejection paths. Phase 5 adds the bounded mailbox and owned D3D9 stereo-capture tests, while later live runs exercise the dedicated presenter in the exact game. Fresh Debug and Release suites pass 20/21 CTests; the classic shared-texture capability is the single explicit SKIP on this host.
+Phase 2-4 tests add deterministic patch failures/conflicts/multiple vtables/rollback/reentrancy, native factory recovery/two-device identity, swapchain observation, generation changes, structured stage failures and telemetry parser rejection paths. Phase 5 adds the bounded mailbox, resize/Reset/new-device owned D3D9 stereo-capture coverage and a controlled presentation-cadence pause/repeat test, while later live runs exercise the dedicated presenter in the exact game. Phase 6 now adds deterministic OpenVR state-policy coverage for focus loss, one-eye submit failure, invalid tracking, runtime disconnect and shutdown, plus process-owner conflict/release semantics, move-assignment safety and controlled D3D11 synchronization strategies. Fresh Debug and Release suites pass 23/24 CTests; the classic shared-texture capability is the single explicit SKIP on this host.
 
-The remaining host gap is controlled simulation of the complete presenter/runtime failure matrix described by Phase 6: focus loss, one-eye submit failure, invalid tracking, runtime disconnect and shutdown. Runtime submission evidence from the real compositor remains classified as live/headset evidence rather than host evidence.
+Runtime submission/state-transition evidence from the real compositor remains classified as live/headset evidence rather than host evidence. The configurable animated OpenVR probe is built but has not been physically rerun for this Phase 6 increment.
 
-**Required action:** keep live and headset promotion separate from host results and add the Phase 6 controlled runtime/presenter failure-path tests.
+**Required action:** keep live/headset promotion separate from host results and collect fresh run-bound runtime-state/probe evidence only when a manual SteamVR/HMD gate is actually requested.
 
 ### A7 — Live verification is not tied to a unique execution
 
@@ -126,11 +126,18 @@ Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercis
 ### A8 — Deployment is reversible only on the happy path, not transactional
 
 **Severity:** P1  
-**Status:** open
+**Status:** partially remediated; basic preflight host-tested, full transaction/recovery open
 
-Current staging/unstaging does not provide a complete journal-before-mutation transaction. It can mutate files before all validation is complete, removes/rotates evidence ad hoc, does not consistently reject active game processes, and does not fully prove the architecture/mode of an arbitrary supplied proxy.
+Current staging/unstaging still does not provide a complete journal-before-mutation transaction.
+However, the current preflight now rejects a running `CoJ.exe`, rejects a non-Win32 build manifest,
+validates x86 PE machine type for the exact game/proxy/OpenVR/ChromeEngine artifacts before
+mutation, and refuses unsafe unstaging when required staged/original files are missing or changed.
+Run-bound manifests and verifiers already prevent stale logs from validating a new native-stereo
+candidate. The remaining gap is transactionality: journal-before-mutation, controlled temporary
+installation/replacement, failure recovery after each mutation step and the full repeated
+stage/unstage recovery matrix.
 
-**Required action:** implement preflight, journal, temporary install, hash verification, controlled replacement, recoverable partial failure and evidence preservation as described in remediation Phase 7.
+**Required action:** preserve the completed preflight/run-binding checks and implement the remaining journal, temporary install, controlled replacement and recoverable partial-failure work described in remediation Phase 7.
 
 ### A9 — Declared architectural separation does not match current build dependencies
 
@@ -144,11 +151,15 @@ The neutral runtime now contains only neutral math. Build/game identity, diagnos
 ### A10 — Runtime/lifetime/error contracts are not yet recovery-safe
 
 **Severity:** P1  
-**Status:** open
+**Status:** OpenVR host contract substantially resolved; OpenXR/general lifetime work remains open
 
-OpenVR/OpenXR ownership, state transitions, move semantics, `noexcept` boundaries, global runtime ownership and error reporting are not modeled robustly enough for sustained/recoverable operation.
+The OpenVR path now has explicit initialized/connected/focused/tracking-valid/presenting/shutdown state, drains relevant runtime events, fails presentation closed when tracking/connection is invalid, and records state transitions in the presenter. A process-owner gate rejects competing `OpenVrRuntime` owners, teardown releases ownership outside `DllMain`, and move-assignment now shuts down an existing owned runtime before taking another `Impl`. Host tests cover owner conflict/release and moved-from runtime queries. Allocation-capable reporting paths inside `noexcept` runtime methods are contained by failure guards so error formatting/allocation failure cannot escape those boundaries and terminate the process.
 
-**Required action:** formalize runtime states, focus/tracking/connection state, one-process ownership, event handling, error propagation, teardown and move/lifetime rules in remediation Phase 6.
+Per-eye submit outcomes feed the runtime state model; the presenter already records sampled left/right compositor results, pose wait and submit timing. The D3D11 handoff order is explicit as `UpdateSubresource -> no forced GPU wait -> Submit_TextureWithPose -> PostPresentHandoff`. A bounded diagnostic seam compares `none`, `Flush` and event-query synchronization on the host without changing the production default to a global wait. The visible probe now supports a configurable frame count and recognizable animated left/right pattern plus selectable diagnostic GPU-sync strategy.
+
+This does not resolve the equivalent OpenXR ownership/lifetime contract, nor does host simulation prove SteamVR disconnect/focus behavior in a physical session.
+
+**Required action:** preserve the OpenVR ownership/state contract, collect live state-transition/probe evidence when physically exercised, and address OpenXR lifetime/state semantics independently before promoting that backend.
 
 ### A11 — Neutral math contracts are ambiguous before camera work begins
 

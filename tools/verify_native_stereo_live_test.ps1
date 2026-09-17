@@ -44,6 +44,30 @@ Assert-LogMatch `
 Assert-LogMatch `
     "native_stereo_presenter: status=started owner_thread=openvr\+d3d11 mode=latest_frame_repeat" `
     "The dedicated OpenVR/D3D11 presenter thread did not initialize."
+
+$RequireOpenVrRuntimeState = [bool]$Run.validation.requireOpenVrRuntimeState
+$RequireOpenVrFocusCycle = [bool]$Run.validation.requireOpenVrFocusCycle
+$RequireProductionGpuSyncNone = [bool]$Run.validation.requireProductionGpuSyncNone
+$RequireRepeatedPresentation = [bool]$Run.validation.requireRepeatedPresentation
+if ($RequireProductionGpuSyncNone) {
+    Assert-LogMatch `
+        "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff" `
+        "The production presenter did not report the expected no-global-wait D3D11/OpenVR handoff."
+}
+if ($RequireOpenVrRuntimeState) {
+    Assert-LogMatch `
+        "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=(true|false);tracking_valid=false;presenting=false;shutdown_requested=false" `
+        "The OpenVR runtime did not report a connected initialized state."
+    Assert-LogMatch `
+        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=(true|false);tracking_valid=true;presenting=(true|false);shutdown_requested=false" `
+        "The OpenVR runtime never reported valid tracking."
+    Assert-LogMatch `
+        "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false" `
+        "The OpenVR runtime never reported a focused, tracking-valid presenting state."
+    Assert-LogMatch `
+        "openvr_scene_state: phase=first_submit;process_id=([0-9]+);scene_focus_process_id=\1;can_render_scene=true" `
+        "The first successful stereo submission did not prove scene focus belonged to the game process."
+}
 Assert-LogMatch `
     "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread" `
     "The native-stereo OpenVR global input action set did not initialize."
@@ -298,9 +322,54 @@ Assert-LogMatch `
 Assert-LogMatch `
     "native_stereo_transport_summary: .*frames_collected=[1-9][0-9]*.*frames_uploaded=[1-9][0-9]*.*new_submissions=[1-9][0-9]*.*repeat_submissions=[0-9]+.*submit_failures=0" `
     "The deferred transport summary did not prove captured/uploaded/submitted content with zero submit failures."
+if ($RequireRepeatedPresentation) {
+    Assert-LogMatch `
+        "native_stereo_transport_summary: .*repeat_submissions=[1-9][0-9]*" `
+        "The run did not physically exercise repeated-frame presentation while waiting for new game content."
+}
 Assert-LogMatch `
     "native_stereo_runtime: status=stopped" `
     "The native-stereo OpenVR runtime did not shut down cleanly."
+
+if ($RequireOpenVrRuntimeState) {
+    Assert-LogMatch `
+        "openvr_runtime_state: phase=shutdown_complete;lifecycle=shutdown_complete;initialized=false;connected=false;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false" `
+        "The OpenVR runtime did not report a complete final shutdown state."
+}
+
+if ($RequireOpenVrFocusCycle) {
+    $RuntimeStateLines = @($Lines | Where-Object { $_ -match "^openvr_runtime_state:" })
+    $ActiveIndex = -1
+    $FocusLostIndex = -1
+    $FocusRegained = $false
+    for ($Index = 0; $Index -lt $RuntimeStateLines.Count; ++$Index) {
+        $Line = $RuntimeStateLines[$Index]
+        if ($ActiveIndex -lt 0 -and
+            $Line -match ";focused=true;tracking_valid=true;presenting=true;") {
+            $ActiveIndex = $Index
+            continue
+        }
+        if ($ActiveIndex -ge 0 -and $FocusLostIndex -lt 0 -and
+            $Line -match ";focused=false;") {
+            $FocusLostIndex = $Index
+            continue
+        }
+        if ($FocusLostIndex -ge 0 -and
+            $Line -match ";focused=true;tracking_valid=true;") {
+            $FocusRegained = $true
+            break
+        }
+    }
+    if ($ActiveIndex -lt 0 -or $FocusLostIndex -lt 0 -or -not $FocusRegained) {
+        throw "The run did not prove a post-presentation OpenVR focus loss and reacquisition. Open/close the SteamVR dashboard once during stable gameplay."
+    }
+    Assert-LogMatch `
+        "openvr_scene_state: phase=focus_lost;.*dashboard_visible=true" `
+        "The focus-loss cycle did not prove that the SteamVR dashboard became visible."
+    Assert-LogMatch `
+        "openvr_scene_state: phase=focus_gained;.*can_render_scene=true" `
+        "The focus-loss cycle did not prove that scene rendering was reacquired."
+}
 
 if ($Lines -match "d3d9_hook_event:.*(Present|BeginScene|EndScene|Reset)") {
     throw "Native stereo unexpectedly depended on a D3D9 frame/device hook."
@@ -314,3 +383,9 @@ Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose b
 Write-Host "PASS - ChromeEngine eye passes were queued through the deferred D3D9 ring and distinct frames reached the presenter."
 Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
 Write-Host "PASS - dedicated presenter submission, passthrough, hook restoration and same-owner XR shutdown verified."
+if ($RequireOpenVrRuntimeState) {
+    Write-Host "PASS - OpenVR connected/tracking/presenting state and final shutdown-complete state verified."
+}
+if ($RequireOpenVrFocusCycle) {
+    Write-Host "PASS - OpenVR focus loss/reacquisition cycle verified in the same physical run."
+}

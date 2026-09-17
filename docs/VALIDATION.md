@@ -790,26 +790,87 @@ That run also quantified an avoidable hot-path cost. Sampled frames spent roughl
 the owned CPU copy and another `11-14 ms` computing full-frame diagnostic hashes before the D3D11
 upload. Current source therefore keeps a fail-closed RGB equality check on every eye pair but only
 computes the expensive full-frame hashes for the telemetry samples that are actually logged. When
-the locked D3D9 surface pitch is already contiguous, CPU extraction now uses one bulk `memcpy`
-instead of one copy call per row. The verifier records `distinct_check=rgb_compare_every_frame`
+the locked D3D9 surface pitch is already contiguous, CPU extraction now constructs the owned byte
+range directly from the locked surface instead of first value-initializing the full destination
+vector and then overwriting it. Padded surfaces reserve the final size and append only real pixel
+rows. The verifier records `distinct_check=rgb_compare_every_frame`
 and `hash_mode=sampled_telemetry` so the reduced diagnostic cost cannot be mistaken for weaker
-stereo validation. Fresh Debug and Release suites pass 20/21 CTests with the expected capability
-SKIP. These performance changes are host-tested only until another headset run measures them.
+stereo validation. These performance changes are host-tested only until another headset run
+measures them.
+
+The subsequent Phase 5 acceptance pass adds explicit host coverage for the remaining lifecycle
+matrix. `d3d9_stereo_capture` now proves: source-size change on one device/generation rebuilds
+capture resources; `InvalidateResources()` releases default-pool ownership before a classic D3D9
+Reset and capture resumes on the post-Reset generation; and a second device with identical
+dimensions/format receives newly owned resources rather than reusing the first device's objects.
+`presentation_cadence` drives a controlled producer pause: after the first successful new-frame
+submission, repeated presentation stays available without inventing a new capture; a failed submit
+does not consume the pending-new state; producer resumption becomes `new` again; explicit
+invalidation removes stale presentable content. Fresh full Debug and Release suites each produce
+**21 PASS plus the one expected classic-D3D9 shared-texture capability SKIP out of 22 CTests**.
+No Call of Juarez or SteamVR process was launched for this host validation.
+
+The subsequent Phase 6 host pass formalizes OpenVR lifecycle/ownership without requiring a live
+runtime. `openvr_state` simulates focus loss, one-eye submit failure, invalid tracking, runtime/HMD
+disconnect and shutdown, and also proves that a second process-level owner is rejected until the
+current owner releases the gate. `openvr_runtime` covers safe move construction/assignment for
+uninitialized runtime objects, while production move-assignment now shuts down any currently owned
+runtime before adopting another `Impl`. The real adapter drains relevant OpenVR events, tracks
+initialized/connected/focused/tracking-valid/presenting/shutdown state, and the presenter stops
+submitting while connection/tracking is invalid. State transitions are emitted as
+`openvr_runtime_state` telemetry. Runtime methods that retain `noexcept` now contain
+allocation-capable error/reporting paths and fail closed if reporting itself raises; moved-from
+objects are also safe for non-live state/pose/eye queries.
+
+The D3D11 upload/handoff policy is now explicit. Production remains
+`UpdateSubresource -> gpu_sync=none -> Submit_TextureWithPose -> PostPresentHandoff`; no global GPU
+wait was added. `d3d11_sync` exercises controlled `none`, `Flush` and bounded event-query fence
+strategies on a WARP D3D11 device, including failure on invalid inputs. The isolated OpenVR probe
+now accepts a configurable frame count, renders a recognizable animated/distinct eye pattern and
+can select those synchronization strategies for later manual A/B evidence. This probe change is
+implemented/host-built only; it was not launched against SteamVR or a headset in this pass.
+
+Fresh full Debug and Release builds after the final Phase 6 owner-policy change each pass
+**23 tests plus the one expected classic-D3D9 shared-texture capability SKIP out of 24 CTests**.
+No Call of Juarez or SteamVR process was launched, so these Phase 6 changes remain host-tested.
+
+The native-stereo verifier/evidence path now batches the next physical observations into one fresh
+run. A run staged after this change requires: the production `gpu_sync=none` D3D11/OpenVR handoff;
+connected, tracking-valid and presenting runtime state; at least one repeated-frame submission;
+one deliberate SteamVR-dashboard focus loss followed by scene-focus reacquisition; and a final
+`shutdown_complete` runtime state. The user should perform that dashboard cycle during stable
+gameplay, then include slow and fast head turns, mouse rotation and the already established left
+PS VR2 Sense Create recenter before disabling the candidate.
+
+`tools/vr_test.ps1 finish` now performs the live verifier, generates a run-bound
+`cojvr-native-stereo-summary.json`, collects the evidence package and restores the staged files.
+The summary reports count/average/p50/p95/max for available GPU-copy queue, fence/readback,
+CPU-copy, producer, diagnostic-hash, D3D11-upload, pose-wait and submit timing samples; it also
+records transport counters, the OpenVR focus cycle and shutdown completion. Evidence collection
+requires and copies that summary for native-stereo runs, preventing the next expensive physical
+session from ending with only qualitative performance observations. These additions are
+host-tested only until that fresh headset run occurs.
 
 The initial development host passed the Release D3D9 availability probe and
 reported two adapters. The D3D9 proxy smoke test, including native factory,
 device and implicit-swapchain observation, passes in Debug and Release. The
 optional `EndScene` callback passes repeated real D3D9 scene cycles. The current Debug and Release
-suites each produce **20 PASS plus one explicit capability SKIP out of 21 CTests**; the OpenVR
+suites each produce **23 PASS plus one explicit capability SKIP out of 24 CTests**; the OpenVR
 flat, camera-probe and native-stereo proxies build successfully in both.
 
-Repository closeout verification on 2026-09-17 rebuilt the complete current tree in Debug and
-Release and reran both CTest presets. Each configuration again produced **20 PASS plus the one
-expected classic-D3D9 shared-texture capability SKIP out of 21 CTests**. No manual game or SteamVR
-launch was performed. A full clean Debug rebuild with MSVC `RunCodeAnalysis=true` also completed
-without code-analysis warnings. The staged performance candidate remained run
-`20260916T225750Z-b2515c32a135`; this verification does not promote its host-only performance
-changes to live/headset status.
+Final repository verification on 2026-09-17 rebuilt the complete current Phase 5/6 tree in Debug
+and Release and reran both CTest presets. Each configuration produced **23 PASS plus the one
+expected classic-D3D9 shared-texture capability SKIP out of 24 CTests**, with zero failures. No
+manual game, SteamVR or headset launch was performed, so the performance/cadence and Phase 6
+runtime-state changes remain host-tested. An earlier clean Debug rebuild with MSVC
+`RunCodeAnalysis=true` completed without warnings before the final Phase 5/6 expansion; it is
+retained as historical static-analysis evidence rather than claimed as a fresh analysis of the
+final 24-test tree.
+
+That staged run was later confirmed never to have started: only its stage/run manifests existed,
+with no matching process log or evidence payload. It was transactionally unstaged before the
+Phase 5 acceptance/copy changes above so that a later `vr_test.ps1 prepare` cannot accidentally
+reuse the obsolete artifact.
 
 The exact installed `CoJ.exe` SHA-256 was rechecked as
 `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`.

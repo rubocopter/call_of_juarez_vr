@@ -10,6 +10,14 @@
 
 namespace cojvr::backends::openvr {
 
+namespace {
+
+runtime::Eye RuntimeEye(const EyeSubmission eye) noexcept {
+    return eye == EyeSubmission::Left ? runtime::Eye::left : runtime::Eye::right;
+}
+
+} // namespace
+
 bool SubmitEyeD3D11(
     runtime::OpenVrRuntime& runtime,
     ID3D11Texture2D* texture,
@@ -26,12 +34,14 @@ bool SubmitEyeD3D11(
     if (!texture) {
         error = "OpenVR D3D11 submission requires an eye texture";
         runtime_result = -1;
+        runtime.RecordEyeSubmission(RuntimeEye(eye), false);
         return false;
     }
     auto* compositor = static_cast<vr::IVRCompositor*>(runtime.native_compositor());
     if (!compositor) {
         error = "OpenVR compositor interface is unavailable";
         runtime_result = -1;
+        runtime.RecordEyeSubmission(RuntimeEye(eye), false);
         return false;
     }
 
@@ -40,6 +50,7 @@ bool SubmitEyeD3D11(
         eye == EyeSubmission::Left ? vr::Eye_Left : vr::Eye_Right,
         &native_texture, nullptr, vr::Submit_Default);
     runtime_result = static_cast<int>(result);
+    runtime.RecordEyeSubmission(RuntimeEye(eye), result == vr::VRCompositorError_None);
     if (result != vr::VRCompositorError_None) {
         error = std::string(eye == EyeSubmission::Left ? "Left" : "Right") +
             " eye OpenVR submission failed with code " + std::to_string(runtime_result);
@@ -65,12 +76,14 @@ bool SubmitEyeD3D11WithPose(
     if (!texture) {
         error = "OpenVR D3D11 submission requires an eye texture";
         runtime_result = -1;
+        runtime.RecordEyeSubmission(RuntimeEye(eye), false);
         return false;
     }
     auto* compositor = static_cast<vr::IVRCompositor*>(runtime.native_compositor());
     if (!compositor) {
         error = "OpenVR compositor interface is unavailable";
         runtime_result = -1;
+        runtime.RecordEyeSubmission(RuntimeEye(eye), false);
         return false;
     }
 
@@ -78,6 +91,7 @@ bool SubmitEyeD3D11WithPose(
     if (!runtime::RigidTransform3x4FromPose(render_hmd_pose, render_transform)) {
         error = "OpenVR explicit-pose submission requires a valid rigid HMD render pose";
         runtime_result = -1;
+        runtime.RecordEyeSubmission(RuntimeEye(eye), false);
         return false;
     }
 
@@ -96,6 +110,7 @@ bool SubmitEyeD3D11WithPose(
         eye == EyeSubmission::Left ? vr::Eye_Left : vr::Eye_Right,
         &native_texture, nullptr, vr::Submit_TextureWithPose);
     runtime_result = static_cast<int>(result);
+    runtime.RecordEyeSubmission(RuntimeEye(eye), result == vr::VRCompositorError_None);
     if (result != vr::VRCompositorError_None) {
         error = std::string(eye == EyeSubmission::Left ? "Left" : "Right") +
             " eye explicit-pose OpenVR submission failed with code " +

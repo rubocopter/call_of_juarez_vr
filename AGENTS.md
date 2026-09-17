@@ -114,7 +114,10 @@ path: slow/fast head turns and mouse rotation no longer produced the previous ba
 snap-back, and perceived comfort improved substantially. Remaining work is frame pacing. That run
 showed roughly `15-22 ms` of CPU copy plus `11-14 ms` of diagnostic hashing on sampled new frames.
 Current source keeps RGB eye-distinction fail-closed on every frame, moves full hashes to sampled
-telemetry only and uses a bulk memcpy for contiguous D3D9 locks. Those performance corrections are
+telemetry only and constructs contiguous owned eye buffers directly from the locked D3D9 bytes,
+avoiding a redundant full-vector initialization before overwrite. Phase 5 host acceptance also
+covers resize, explicit pre-Reset resource invalidation/recovery, identical-format new-device
+ownership and controlled paused-producer repeat classification. Those performance corrections are
 host-tested only; positional 6DOF remains downstream of this presentation gate.
 The proof remains game/build-specific and must not be generalized to another Chrome Engine
 title without independent evidence.
@@ -127,7 +130,16 @@ Already established evidence includes:
 - the in-game flat bridge has completed genuine captured-frame submissions;
 - one later diagnostic observed exactly three project `Present`, `BeginScene` and `EndScene` callbacks followed by loss of integrity of the installed D3D9 device-vtable entries while monitor rendering continued.
 
-Treat that last point as a confirmed failure mode of the historical frame-hook interception design, not as a complete root-cause explanation for the blank headset. Audit-remediation Phases 0-4 now provide host-tested run provenance, device/generation coverage, safe hook ownership and structured render telemetry. Two run-bound manual observations reproduced the three-frame device-hook loss; the second proved that all four lost slots return to their recorded Windows D3D9 originals. Phase 5 capture/presentation decoupling is implemented, host-tested and exercised by later live native-stereo runs. Its remaining plan-level work is acceptance coverage for reset/resize/new-device and controlled paused-producer behavior, plus the active frame-pacing gate.
+Treat that last point as a confirmed failure mode of the historical frame-hook interception design, not as a complete root-cause explanation for the blank headset. Audit-remediation Phases 0-4 now provide host-tested run provenance, device/generation coverage, safe hook ownership and structured render telemetry. Two run-bound manual observations reproduced the three-frame device-hook loss; the second proved that all four lost slots return to their recorded Windows D3D9 originals. Phase 5 capture/presentation decoupling and its host acceptance matrix are now host-tested and the separated path is exercised by later live native-stereo runs. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization are also host-tested; its animated physical probe has not been rerun, so no new live/headset promotion follows from that work. The remaining active gate is sustained frame pacing/performance; the exact CoJ proof still must not depend on `Present`, `BeginScene`, `EndScene` or `Reset` hooks.
+
+The next fresh `d3d9_native_stereo` run is intentionally consolidated. In addition to the active
+performance/comfort gate, its manifest/verifier requires production `gpu_sync=none`, valid
+connected/tracking/presenting OpenVR state, repeated-frame presentation, one deliberate SteamVR
+dashboard focus-loss/reacquisition cycle and complete runtime shutdown. The user should also repeat
+slow/fast head turns, mouse rotation and left-Sense-Create recenter in that same process. `vr_test
+finish` produces and packages a quantitative native-stereo timing/state summary before restoring
+the staged files. Do not request separate headset runs for those checks unless the consolidated
+run fails to produce a specific required signal.
 
 ## Required execution order
 

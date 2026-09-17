@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <utility>
 
 namespace {
 
@@ -35,6 +36,28 @@ int main() {
     edge.Reset();
     if (!edge.Update(true, true)) {
         std::cerr << "OpenVR digital action edge reset did not allow a fresh press\n";
+        return 1;
+    }
+
+    // Move construction/assignment must leave the source safely destructible
+    // and queryable even when no live OpenVR session exists.
+    cojvr::runtime::OpenVrRuntime first;
+    cojvr::runtime::OpenVrRuntime second(std::move(first));
+    if (first.initialized() || second.initialized()) {
+        std::cerr << "OpenVR move construction invented initialized state\n";
+        return 1;
+    }
+    cojvr::runtime::Pose moved_pose{};
+    std::array<cojvr::runtime::EyeView, 2> moved_eyes{};
+    if (first.ReadHmdPose(moved_pose) || first.ReadEyeConfiguration(moved_eyes)) {
+        std::cerr << "moved-from OpenVR runtime accepted live-state reads\n";
+        return 1;
+    }
+    cojvr::runtime::OpenVrRuntime third;
+    third = std::move(second);
+    if (second.initialized() || third.initialized() ||
+        second.global_actions_initialized() || third.global_actions_initialized()) {
+        std::cerr << "OpenVR move assignment retained invalid ownership state\n";
         return 1;
     }
 

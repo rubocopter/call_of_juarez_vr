@@ -221,16 +221,19 @@ struct D3D9StereoCapture::Impl {
         output.height = source_desc.Height;
         output.stride = static_cast<std::uint32_t>(row_bytes);
         output.format = CpuPixelFormat::bgrx8_unorm;
-        output.pixels.resize(total_bytes);
         const auto* source_row = static_cast<const std::uint8_t*>(locked.pBits);
-        auto* destination_row = output.pixels.data();
         if (source_pitch == row_bytes) {
-            std::memcpy(destination_row, source_row, total_bytes);
+            // Copy directly into newly constructed vector elements. resize() on a
+            // fresh byte vector value-initializes the entire eye first, adding a
+            // second full-frame write before memcpy on the hot path.
+            output.pixels.assign(source_row, source_row + total_bytes);
         } else {
+            output.pixels.clear();
+            output.pixels.reserve(total_bytes);
             for (UINT row = 0; row < source_desc.Height; ++row) {
-                std::memcpy(destination_row, source_row, row_bytes);
+                output.pixels.insert(
+                    output.pixels.end(), source_row, source_row + row_bytes);
                 source_row += source_pitch;
-                destination_row += row_bytes;
             }
         }
         hr = system_memory->UnlockRect();
@@ -437,10 +440,12 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
     }
 }
 
-void D3D9StereoCapture::Shutdown() noexcept {
+void D3D9StereoCapture::InvalidateResources() noexcept {
     if (!impl_) return;
     impl_->ReleaseResources();
 }
+
+void D3D9StereoCapture::Shutdown() noexcept { InvalidateResources(); }
 
 D3D9StereoCaptureStats D3D9StereoCapture::stats() const noexcept { return impl_->stats; }
 std::string_view D3D9StereoCapture::last_error() const noexcept { return impl_->last_error; }

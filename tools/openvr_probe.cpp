@@ -1,13 +1,18 @@
 #include "backends/openvr/d3d11_compositor.hpp"
 #include "backends/openvr/d3d11_session.hpp"
+#include "backends/openvr/d3d11_sync.hpp"
 #include "runtime/openvr_runtime.hpp"
 
 #include <d3d11.h>
 #include <wrl/client.h>
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
+#include <limits>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -21,6 +26,40 @@ bool HasArgument(const int argc, wchar_t** argv, const std::wstring_view expecte
         if (std::wstring_view(argv[index]) == expected) return true;
     }
     return false;
+}
+
+int IntegerArgument(
+    const int argc,
+    wchar_t** argv,
+    const std::wstring_view name,
+    const int fallback) {
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::wstring_view(argv[index]) != name) continue;
+        try {
+            const long parsed = std::stol(argv[index + 1]);
+            if (parsed <= 0 || parsed > std::numeric_limits<int>::max()) return fallback;
+            return static_cast<int>(parsed);
+        } catch (...) {
+            return fallback;
+        }
+    }
+    return fallback;
+}
+
+cojvr::backends::openvr::D3D11SyncStrategy SyncStrategyArgument(
+    const int argc,
+    wchar_t** argv) {
+    using cojvr::backends::openvr::D3D11SyncStrategy;
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::wstring_view(argv[index]) != L"--gpu-sync") continue;
+        const std::wstring_view value(argv[index + 1]);
+        if (value == L"flush") return D3D11SyncStrategy::flush;
+        if (value == L"event" || value == L"event_query") {
+            return D3D11SyncStrategy::event_query;
+        }
+        return D3D11SyncStrategy::none;
+    }
+    return D3D11SyncStrategy::none;
 }
 
 } // namespace
@@ -107,12 +146,17 @@ int wmain(const int argc, wchar_t** argv) {
             }
         }
 
-        constexpr std::array<float, 4> left_color{0.05F, 0.10F, 0.25F, 1.0F};
-        constexpr std::array<float, 4> right_color{0.25F, 0.10F, 0.05F, 1.0F};
-        d3d11.context()->ClearRenderTargetView(render_targets[0].Get(), left_color.data());
-        d3d11.context()->ClearRenderTargetView(render_targets[1].Get(), right_color.data());
-
-        const int frame_count = request_visible_submit ? 1800 : 1;
+        const int frame_count = request_visible_submit
+            ? IntegerArgument(argc, argv, L"--frames", 1800)
+            : 1;
+        const auto gpu_sync = SyncStrategyArgument(argc, argv);
+        double gpu_sync_total_ms = 0.0;
+        if (request_visible_submit) {
+            std::cout << "visible_probe_pattern=animated_counter"
+                      << " requested_frames=" << frame_count
+                      << " gpu_sync="
+                      << cojvr::backends::openvr::D3D11SyncStrategyName(gpu_sync) << '\n';
+        }
         for (int frame = 0; frame < frame_count; ++frame) {
             if (frame > 0) {
                 Pose frame_pose{};
@@ -121,6 +165,31 @@ int wmain(const int argc, wchar_t** argv) {
                     return 1;
                 }
             }
+
+            // Deliberately recognizable animation: the two eyes remain visibly
+            // distinct while a shared counter pulse changes every submitted
+            // frame. This makes a frozen/repeated compositor result obvious.
+            const float phase = static_cast<float>(frame % 240) / 239.0F;
+            const float pulse = 0.15F + 0.65F *
+                (0.5F - 0.5F * std::cos(phase * 6.28318530718F));
+            const std::array<float, 4> left_color{
+                0.04F + pulse * 0.20F, 0.08F, 0.25F + pulse * 0.45F, 1.0F};
+            const std::array<float, 4> right_color{
+                0.25F + pulse * 0.45F, 0.08F, 0.04F + pulse * 0.20F, 1.0F};
+            d3d11.context()->ClearRenderTargetView(
+                render_targets[0].Get(), left_color.data());
+            d3d11.context()->ClearRenderTargetView(
+                render_targets[1].Get(), right_color.data());
+
+            cojvr::backends::openvr::D3D11SyncResult sync_result{};
+            std::string sync_error;
+            if (!cojvr::backends::openvr::SynchronizeD3D11(
+                    d3d11.device(), d3d11.context(), gpu_sync, 1000,
+                    sync_result, sync_error)) {
+                std::cerr << sync_error << '\n';
+                return 1;
+            }
+            gpu_sync_total_ms += sync_result.elapsed_ms;
 
             std::string submit_error;
             if (!cojvr::backends::openvr::SubmitStereoD3D11(
@@ -131,7 +200,9 @@ int wmain(const int argc, wchar_t** argv) {
         }
 
         if (request_visible_submit) {
-            std::cout << "submitted_stereo_d3d11_frames=" << frame_count << '\n';
+            std::cout << "submitted_stereo_d3d11_frames=" << frame_count
+                      << " gpu_sync_total_ms=" << gpu_sync_total_ms
+                      << " gpu_sync_avg_ms=" << (gpu_sync_total_ms / frame_count) << '\n';
         } else {
             std::cout << "submitted_one_stereo_d3d11_frame=true\n";
         }
