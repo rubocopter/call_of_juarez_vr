@@ -277,9 +277,12 @@ Host/simulated tests cover focus loss, one-eye submit failure, invalid tracking,
 
 **Goal:** guarantee recoverability and prevent stale evidence from validating a new build.
 
-**Current status:** partially implemented. Active-game rejection, Win32/x86 preflight and
-run-bound stale-evidence rejection exist for the current native-stereo path. Journal-before-mutation
-and interrupted stage/unstage recovery remain open and control completion of this phase.
+**Current status:** substantially implemented and host-tested at the transaction-helper level.
+Active-game rejection, Win32/x86 preflight, run-bound stale-evidence rejection,
+journal-before-mutation, verified temporary installation and interrupted stage/unstage recovery are
+implemented. Helper-level tests cover clean/original/temporary/partial-directory/missing-backup and
+external-change recovery paths. Completion still requires end-to-end failure injection after each
+script mutation, repeated real stage/unstage cycles and an active-process integration test.
 
 ### Work
 

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -150,20 +151,217 @@ int main() {
     const ArmGeometrySample arm_geometry{
         .shoulder = {0.0F, 0.0F, 0.0F},
         .elbow = {1.0F, 0.0F, 0.0F},
-        .wrist = {2.0F, 0.0F, 0.0F},
-        .upper_up = {0.0F, 1.0F, 0.0F},
-        .upper_forward = {0.0F, 0.0F, 1.0F},
-        .forearm_up = {0.0F, 1.0F, 0.0F},
-        .forearm_forward = {0.0F, 0.0F, 1.0F},
+        .wrist = {1.5F, 0.8660254F, 0.0F},
+        .upper_element_position = {0.15F, 0.20F, -0.10F},
+        .upper_element_up = {0.0F, 1.0F, 0.0F},
+        .upper_element_forward = {0.0F, 0.0F, 1.0F},
+        .forearm_element_position = {1.20F, -0.10F, 0.05F},
+        .forearm_element_up = {0.0F, 1.0F, 0.0F},
+        .forearm_element_forward = {0.0F, 0.0F, 1.0F},
     };
     const ArmIkPlan arm_plan = BuildArmIkPlan(arm_geometry, {1.2F, 0.8F, 0.2F});
     if (!arm_plan.valid || arm_plan.target_clamped ||
-        !Near(Distance(arm_plan.upper_arm.position, arm_plan.forearm.position), 1.0F) ||
-        !Near(Distance(arm_plan.forearm.position, arm_plan.wrist_target), 1.0F) ||
+        !Near(
+            Distance(arm_plan.upper_arm.position, arm_geometry.shoulder),
+            Distance(arm_geometry.upper_element_position, arm_geometry.shoulder)) ||
+        !Near(
+            Distance(arm_plan.forearm.position, arm_plan.elbow_target),
+            Distance(arm_geometry.forearm_element_position, arm_geometry.elbow)) ||
         !Near(Distance(arm_plan.wrist_target, {1.2F, 0.8F, 0.2F}), 0.0F) ||
         !Near(Distance(arm_plan.upper_arm.up, {}), 1.0F) ||
         !Near(Distance(arm_plan.upper_arm.forward, {}), 1.0F)) {
-        std::cerr << "CoJ arm plan did not preserve segment lengths/basis toward controller\n";
+        std::cerr << "CoJ arm plan did not preserve native element pivots/basis toward controller\n";
+        return 1;
+    }
+
+    const ArmIkPlan natural_arm_plan = BuildArmIkPlan(arm_geometry, arm_geometry.wrist);
+    if (!natural_arm_plan.valid || natural_arm_plan.target_clamped ||
+        !Near(Distance(natural_arm_plan.elbow_target, arm_geometry.elbow), 0.0F) ||
+        !Near(
+            Distance(natural_arm_plan.upper_arm.position, arm_geometry.upper_element_position),
+            0.0F) ||
+        !Near(
+            Distance(
+                natural_arm_plan.forearm.position,
+                arm_geometry.forearm_element_position),
+            0.0F) ||
+        !Near(Distance(natural_arm_plan.upper_arm.up, arm_geometry.upper_element_up), 0.0F) ||
+        !Near(
+            Distance(
+                natural_arm_plan.upper_arm.forward,
+                arm_geometry.upper_element_forward),
+            0.0F) ||
+        !Near(
+            Distance(natural_arm_plan.forearm.up, arm_geometry.forearm_element_up),
+            0.0F) ||
+        !Near(
+            Distance(
+                natural_arm_plan.forearm.forward,
+                arm_geometry.forearm_element_forward),
+            0.0F)) {
+        std::cerr << "CoJ arm plan changed the native element frame for a no-op IK target\n";
+        return 1;
+    }
+
+    const ArmBoneRotationPlan natural_rotations =
+        BuildArmBoneRotationPlan(arm_geometry, natural_arm_plan);
+    if (!natural_rotations.valid || !natural_rotations.upper_arm.no_op ||
+        !natural_rotations.forearm.no_op ||
+        !Near(natural_rotations.upper_arm.angle_degrees, 0.0F) ||
+        !Near(natural_rotations.forearm.angle_degrees, 0.0F)) {
+        std::cerr << "natural arm pose produced a non-zero render-element delta\n";
+        return 1;
+    }
+
+    // Parent rotation must be accounted for before deriving the forearm delta.
+    // A straight +X chain rotated as a whole to +Y needs only the upper-arm
+    // rotation; applying another +90 degrees to the forearm would reproduce
+    // the reverse/contorted hierarchy seen in the headset.
+    const ArmGeometrySample hierarchy_geometry{
+        .shoulder = {0.0F, 0.0F, 0.0F},
+        .elbow = {1.0F, 0.0F, 0.0F},
+        .wrist = {2.0F, 0.0F, 0.0F},
+        .upper_element_forward = {0.0F, 0.0F, 1.0F},
+        .forearm_element_forward = {0.0F, 0.0F, 1.0F},
+    };
+    ArmIkPlan hierarchy_plan{};
+    hierarchy_plan.elbow_target = {0.0F, 1.0F, 0.0F};
+    hierarchy_plan.wrist_target = {0.0F, 2.0F, 0.0F};
+    hierarchy_plan.valid = true;
+    const ArmBoneRotationPlan hierarchy_rotations =
+        BuildArmBoneRotationPlan(hierarchy_geometry, hierarchy_plan);
+    if (!hierarchy_rotations.valid || hierarchy_rotations.upper_arm.no_op ||
+        !Near(hierarchy_rotations.upper_arm.angle_degrees, 90.0F) ||
+        !Near(hierarchy_rotations.upper_arm.axis.x, 0.0F) ||
+        !Near(hierarchy_rotations.upper_arm.axis.y, 0.0F) ||
+        !Near(hierarchy_rotations.upper_arm.axis.z, 1.0F) ||
+        !hierarchy_rotations.forearm.no_op ||
+        !Near(hierarchy_rotations.forearm.angle_degrees, 0.0F)) {
+        std::cerr << "arm hierarchy rotation double-applied the parent delta\n";
+        return 1;
+    }
+
+    // Run 20260918T165754Z-845101e7557b proved that the native handler
+    // post-multiplies the element matrix: its Java axis is element-local, not
+    // world-space. This exact left-upper-arm sample must map the recorded
+    // shortest-arc world axis into the recorded live element frame.
+    BoneRotationDelta live_world_rotation{};
+    live_world_rotation.axis = {-0.967098F, -0.108973F, -0.229883F};
+    live_world_rotation.angle_degrees = 110.533F;
+    live_world_rotation.valid = true;
+    const BoneRotationDelta live_local_rotation =
+        ConvertWorldRotationToElementLocal(
+            live_world_rotation,
+            {0.947983F, 0.289677F, -0.131965F},
+            {0.244177F, -0.395781F, 0.885288F});
+    if (!live_local_rotation.valid || live_local_rotation.no_op ||
+        !Near(live_local_rotation.axis.x, 0.0F, 0.001F) ||
+        !Near(live_local_rotation.axis.y, -0.918023F, 0.001F) ||
+        !Near(live_local_rotation.axis.z, -0.396526F, 0.001F) ||
+        !Near(live_local_rotation.angle_degrees, 110.533F, 0.001F) ||
+        Distance(live_local_rotation.axis, live_world_rotation.axis) < 0.5F) {
+        std::cerr << "world arm axis was not converted into the live element-local frame\n";
+        return 1;
+    }
+
+    const BoneRotationDelta invalid_local_rotation =
+        ConvertWorldRotationToElementLocal(
+            live_world_rotation,
+            {0.0F, 1.0F, 0.0F},
+            {0.0F, 2.0F, 0.0F});
+    if (invalid_local_rotation.valid) {
+        std::cerr << "degenerate element basis produced a native arm rotation\n";
+        return 1;
+    }
+
+    // Around the live campaign's ~39,700-unit world coordinates, adjacent
+    // float values are about 0.0039 game units apart. A one-ULP inverse-restore
+    // discrepancy must not permanently disable the writer, while a residual
+    // visible transform still must fail closed.
+    ArmGeometrySample large_world_natural = arm_geometry;
+    large_world_natural.elbow = {39700.0F, 3600.0F, 29400.0F};
+    large_world_natural.wrist = {39725.0F, 3605.0F, 29410.0F};
+    large_world_natural.upper_element_position = {39695.0F, 3602.0F, 29401.0F};
+    large_world_natural.forearm_element_position = {39712.0F, 3604.0F, 29406.0F};
+    ArmGeometrySample one_ulp_restored = large_world_natural;
+    one_ulp_restored.elbow.x = std::nextafter(
+        one_ulp_restored.elbow.x, std::numeric_limits<float>::infinity());
+    one_ulp_restored.wrist.z = std::nextafter(
+        one_ulp_restored.wrist.z, std::numeric_limits<float>::infinity());
+    one_ulp_restored.upper_element_position.x = std::nextafter(
+        one_ulp_restored.upper_element_position.x,
+        std::numeric_limits<float>::infinity());
+    one_ulp_restored.forearm_element_up.x += 0.0002F;
+    const ArmGeometryRestoreCheck one_ulp_check = CheckArmGeometryRestored(
+        large_world_natural, one_ulp_restored);
+    if (!one_ulp_check.matches || one_ulp_check.max_joint_position_error <= 0.001F ||
+        one_ulp_check.max_element_position_error <= 0.001F) {
+        std::cerr << "float-ULP arm restoration drift was rejected\n";
+        return 1;
+    }
+    ArmGeometrySample residual_rotation = large_world_natural;
+    residual_rotation.forearm_element_up.x += 0.01F;
+    const ArmGeometryRestoreCheck residual_check = CheckArmGeometryRestored(
+        large_world_natural, residual_rotation);
+    if (residual_check.matches || residual_check.max_axis_error < 0.009F) {
+        std::cerr << "visible residual arm rotation passed restoration validation\n";
+        return 1;
+    }
+
+    // Mirrored T-pose arms must remain mirrored without introducing an
+    // opposite-side correction when the solved target already matches each
+    // natural chain.
+    ArmGeometrySample left_t_pose = hierarchy_geometry;
+    ArmIkPlan left_t_plan{};
+    left_t_plan.elbow_target = left_t_pose.elbow;
+    left_t_plan.wrist_target = left_t_pose.wrist;
+    left_t_plan.valid = true;
+    ArmGeometrySample right_t_pose = hierarchy_geometry;
+    right_t_pose.elbow = {-1.0F, 0.0F, 0.0F};
+    right_t_pose.wrist = {-2.0F, 0.0F, 0.0F};
+    ArmIkPlan right_t_plan{};
+    right_t_plan.elbow_target = right_t_pose.elbow;
+    right_t_plan.wrist_target = right_t_pose.wrist;
+    right_t_plan.valid = true;
+    const ArmBoneRotationPlan left_t_rotations =
+        BuildArmBoneRotationPlan(left_t_pose, left_t_plan);
+    const ArmBoneRotationPlan right_t_rotations =
+        BuildArmBoneRotationPlan(right_t_pose, right_t_plan);
+    if (!left_t_rotations.valid || !right_t_rotations.valid ||
+        !left_t_rotations.upper_arm.no_op || !left_t_rotations.forearm.no_op ||
+        !right_t_rotations.upper_arm.no_op || !right_t_rotations.forearm.no_op) {
+        std::cerr << "mirrored T-pose introduced an unintended arm rotation\n";
+        return 1;
+    }
+
+    bool hand_target_valid = false;
+    const Vec3 tracked_hand_target = BuildTrackedHandTarget(
+        {100.0F, 200.0F, 300.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.10F, 0.20F, -0.30F},
+        {0.40F, 0.00F, -0.80F},
+        100.0F,
+        hand_target_valid);
+    if (!hand_target_valid ||
+        !Near(Distance(tracked_hand_target, {130.0F, 180.0F, 250.0F}), 0.0F)) {
+        std::cerr << "tracked forward hand did not map to negative native forward\n";
+        return 1;
+    }
+
+    const Vec3 tracked_hand_behind = BuildTrackedHandTarget(
+        {100.0F, 200.0F, 300.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.10F, 0.20F, -0.30F},
+        {0.40F, 0.00F, 0.20F},
+        100.0F,
+        hand_target_valid);
+    if (!hand_target_valid ||
+        !Near(Distance(tracked_hand_behind, {130.0F, 180.0F, 350.0F}), 0.0F)) {
+        std::cerr << "tracked backward hand did not map to positive native forward\n";
         return 1;
     }
 
@@ -302,15 +500,25 @@ int main() {
     JavaPlayerPosition joint{};
     JavaPlayerPosition direction{};
     JavaPlayerPosition perpendicular{};
+    JavaPlayerPosition element_position{};
+    JavaPlayerPosition element_up{};
+    JavaPlayerPosition element_forward{};
+    bool game_timer_frozen = false;
     int element = -1;
-    if (bridge.Refresh(&error) || bridge.player_available() || error.empty() ||
+    if (bridge.Refresh(&error) || bridge.player_available() ||
+        bridge.single_player_fallback_used() || bridge.campaign_module_fallback_used() ||
+        error.empty() ||
         bridge.TryGetPosition(position) ||
         bridge.TrySetPosition(position) ||
         bridge.TryGetMeshElement(0, element) ||
         bridge.TryGetBoneJointPosition(0, joint) ||
         bridge.TryGetBoneDirection(0, direction) ||
         bridge.TryGetBonePerpendicular(0, perpendicular) ||
+        bridge.TryGetElementWorldBasis(
+            0, element_position, element_up, element_forward) ||
         bridge.TrySetElementWorldBasis(0, {}, {}, {}) ||
+        bridge.TryRotateElementWithChildren(0, {0.0F, 1.0F, 0.0F}, 10.0F) ||
+        bridge.TryGetActiveGameTimerFrozen(game_timer_frozen) ||
         bridge.TryApplyUpperBodyTracking(0.0F, 0.0F, 0.0F)) {
         std::cerr << "Java player bridge did not fail closed without the game JVM\n";
         return 1;

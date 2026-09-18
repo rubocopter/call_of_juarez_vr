@@ -146,6 +146,7 @@ $ResolvedGameDirectory = Resolve-GameDirectory
 $StageStatePath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-stage.json"
 $CurrentRunPath = Join-Path $ResolvedGameDirectory ".cojvr-run.json"
 $ControlPath = Join-Path $ResolvedGameDirectory "cojvr-camera-control.json"
+$ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 
 switch ($Action) {
     "prepare" {
@@ -160,14 +161,16 @@ switch ($Action) {
 
         Push-Location $RepositoryRoot
         try {
-            Invoke-Checked { cmake --build --preset release } "Release build failed."
-            Invoke-Checked { ctest --preset release } "Release host tests failed."
+            Invoke-Checked { cmake --build build-win32 --config Release } "Release build failed."
+            Invoke-Checked { ctest --test-dir build-win32 --output-on-failure -C Release } "Release host tests failed."
         } finally {
             Pop-Location
         }
 
-        $ProxyPath = Join-Path $RepositoryRoot "build\win32-debug\Release\d3d9_native_stereo.dll"
-        $ManifestPath = Join-Path $RepositoryRoot "build\win32-debug\Release\d3d9_native_stereo.build-manifest.json"
+        # Provenance must bind the exact artifact produced by the build/test tree
+        # above. Do not stage a similarly named DLL from another build directory.
+        $ProxyPath = Join-Path $RepositoryRoot "build-win32\Release\d3d9_native_stereo.dll"
+        $ManifestPath = Join-Path $RepositoryRoot "build-win32\Release\d3d9_native_stereo.build-manifest.json"
         & (Join-Path $PSScriptRoot "new_build_manifest.ps1") `
             -RepositoryRoot $RepositoryRoot `
             -Configuration Release `
@@ -211,6 +214,14 @@ switch ($Action) {
                     ($RunForProfile | ConvertTo-Json -Depth 10) + [Environment]::NewLine,
                     [System.Text.UTF8Encoding]::new($false))
             }
+
+            # Native stereo remains on the live-proven classic-D3D9 CPU path.
+            # D3D9Ex substitution previously crashed the exact game build and is
+            # not part of this physical gate.
+            if (Test-Path -LiteralPath $ExBridgeMarkerPath -PathType Leaf) {
+                Remove-Item -LiteralPath $ExBridgeMarkerPath -Force
+            }
+            Write-Host "D3D9Ex bridge: disabled (classic-D3D9 native-stereo path)"
         } catch {
             $PrepareError = $_.Exception.Message
             try { [void](Restore-VrVideoProfile) } catch { $PrepareError += " Video profile rollback failed: $($_.Exception.Message)" }
@@ -235,12 +246,13 @@ switch ($Action) {
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
         Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller."
-        Write-Host "During stable gameplay, open the SteamVR dashboard once, leave it visible briefly, then close it and confirm VR presentation resumes."
-        Write-Host "For the performance gate, include slow head turns, fast head turns and mouse rotation after the dashboard cycle."
         if ($BodyIkAtStart) {
-            Write-Host "This run also requires the experimental arm/body gate."
+            Write-Host "Body/full-profile run: do not open the SteamVR dashboard for this gate; keep focus on CoJ and exercise both Sense controllers plus physical HMD translation."
+            Write-Host "Body IK is already enabled, so no Alt+Tab or terminal toggle is required while the game is running."
         } else {
-            Write-Host "Body IK/positional-6DOF promotion is parked for this performance run while campaign actor discovery remains unresolved."
+            Write-Host "Performance-profile run: during stable gameplay, open the SteamVR dashboard once, leave it visible briefly, then close it and confirm VR presentation resumes."
+            Write-Host "Include slow head turns, fast head turns and mouse rotation after the dashboard cycle."
+            Write-Host "Body IK/positional-6DOF promotion is not part of this performance gate."
         }
         Write-Host "Diagnostic fallback: pwsh -File tools\vr_test.ps1 recenter"
         Write-Host "If switching windows is stable, disable before closing to satisfy the live passthrough gate: pwsh -File tools\vr_test.ps1 disable"
@@ -322,6 +334,11 @@ switch ($Action) {
         } catch {
             $UnstageError = $_.Exception.Message
             Write-Warning "Candidate restore failed: $UnstageError"
+        }
+
+        # Remove D3D9Ex bridge marker file
+        if (Test-Path -LiteralPath $ExBridgeMarkerPath -PathType Leaf) {
+            Remove-Item -LiteralPath $ExBridgeMarkerPath -Force -ErrorAction SilentlyContinue
         }
 
         $VideoRestoreError = $null

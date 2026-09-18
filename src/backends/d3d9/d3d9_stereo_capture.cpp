@@ -71,8 +71,8 @@ struct D3D9StereoCapture::Impl {
 
     std::array<Slot, kCaptureRingSize> slots{};
     ComPtr<IDirect3DSurface9> system_memory;
+    ComPtr<IDirect3DDevice9> resource_device;
     D3DSURFACE_DESC source_desc{};
-    IDirect3DDevice9* resource_device = nullptr;
     std::uintptr_t device_id = 0;
     std::uint64_t generation = 0;
     std::size_t current_slot = kCaptureRingSize;
@@ -91,8 +91,8 @@ struct D3D9StereoCapture::Impl {
             slot.ResetState();
         }
         system_memory.Reset();
+        resource_device.Reset();
         source_desc = {};
-        resource_device = nullptr;
         device_id = 0;
         generation = 0;
         current_slot = kCaptureRingSize;
@@ -119,7 +119,7 @@ struct D3D9StereoCapture::Impl {
                 std::to_string(static_cast<unsigned>(desc.Format));
             return false;
         }
-        if (resources_initialized && resource_device == device &&
+        if (resources_initialized && resource_device.Get() == device &&
             generation == resource_generation && SameDescription(desc, source_desc)) {
             return true;
         }
@@ -163,7 +163,7 @@ struct D3D9StereoCapture::Impl {
         }
 
         source_desc = desc;
-        resource_device = device;
+        resource_device = device; // ComPtr takes ownership (AddRef)
         device_id = reinterpret_cast<std::uintptr_t>(device);
         generation = resource_generation;
         resources_initialized = true;
@@ -223,10 +223,9 @@ struct D3D9StereoCapture::Impl {
         output.format = CpuPixelFormat::bgrx8_unorm;
         const auto* source_row = static_cast<const std::uint8_t*>(locked.pBits);
         if (source_pitch == row_bytes) {
-            // Copy directly into newly constructed vector elements. resize() on a
-            // fresh byte vector value-initializes the entire eye first, adding a
-            // second full-frame write before memcpy on the hot path.
-            output.pixels.assign(source_row, source_row + total_bytes);
+            // Use resize + memcpy to avoid value-initialization overhead of assign().
+            output.pixels.resize(total_bytes);
+            std::memcpy(output.pixels.data(), source_row, total_bytes);
         } else {
             output.pixels.clear();
             output.pixels.reserve(total_bytes);
@@ -367,7 +366,7 @@ bool D3D9StereoCapture::EndFrame(
 bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
     frame = {};
     try {
-        if (!impl_->resources_initialized || !impl_->resource_device) return false;
+        if (!impl_->resources_initialized || !impl_->resource_device.Get()) return false;
         Impl::Slot* slot = impl_->OldestPending();
         if (!slot) return false;
         const auto poll_begin = std::chrono::steady_clock::now();
@@ -414,6 +413,9 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
             const auto copy_end = std::chrono::steady_clock::now();
             cpu_copy_ms += MillisecondsBetween(copy_begin, copy_end);
         }
+        // Note: Each eye is read back sequentially into the same system memory surface,
+        // but CopyCpuEye is called immediately after each GetRenderTargetData to copy
+        // the data to the output frame before the next eye overwrites the staging surface.
         const auto collect_end = std::chrono::steady_clock::now();
 
         std::ostringstream out;

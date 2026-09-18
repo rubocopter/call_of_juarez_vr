@@ -118,21 +118,160 @@ telemetry only and constructs contiguous owned eye buffers directly from the loc
 avoiding a redundant full-vector initialization before overwrite. Phase 5 host acceptance also
 covers resize, explicit pre-Reset resource invalidation/recovery, identical-format new-device
 ownership and controlled paused-producer repeat classification. Those performance corrections are
-host-tested only. Positional/body work has host coverage, but physical body promotion is parked
-while the exact campaign actor cannot be discovered. The active physical gate is presentation
-comfort/performance.
+host-tested only. Positional/body work has host coverage. The Session-based actor route is empty in
+campaign, but shipped bytecode provides the exact single-player path
+`LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer()`; run
+`20260917T172007Z-e6232c4778d2` live-proved that route, actor reconciliation, valid changing Sense
+poses and successful left/right arm writer calls. The user also observed that both arms moved with
+the controllers, but they contorted sharply behind/over the body and produced severe graphical
+corruption. Treat that run as a failed arm-composition gate, not as body-IK promotion. Presentation
+comfort and clean presenter finalization also remain active physical concerns.
 The proof remains game/build-specific and must not be generalized to another Chrome Engine
 title without independent evidence.
 
 Current host-tested body work reconciles horizontal HMD translation into the native actor, keeps
 vertical translation camera/body-owned, carries both Sense poses in the same OpenVR sample/recenter
 space, reads the exact CoJ skeleton through the existing JVM and contains a measured two-bone arm
-overlay using the native `FromUpForwardPosElementWorld` method. The lower-body preflight also reads
+overlay using the native `FromUpForwardPosElementWorld` method. Exact binary inspection after the
+failed physical arm run established that this writer consumes a complete element world transform.
+Current source therefore reads each upper-arm/forearm element's natural world position/up/+X frame,
+reconstructs forward from the paired +X/up axes, and shortest-arc rotates that complete frame around
+the measured shoulder/elbow pivot while preserving the native element-origin offset. The lower-body preflight also reads
 pelvis/thigh/shin/foot geometry, derives a locomotion-rooted pelvis anchor and solves both measured
 leg chains with reach clamping and the current animated knee plane, but remains read-only.
-`bodyIkEnabled` is a runtime gate; the next physical run must prove both arms before any pelvis/leg
+`bodyIkEnabled` is a runtime gate; the corrected arm composition is host-tested and the next
+physical run must prove both arms before any pelvis/leg
 writer is promoted. This remains exact-build Call of Juarez integration and must not be generalized
 as Chrome Engine policy.
+
+Run `20260917T222204Z-28ac69c31c56` physically confirmed that both arm writers now follow the Sense
+controllers without the previous catastrophic element-origin corruption, but exposed a different
+target-space bug. The user observed forward/back motion inverted. Telemetry showed why: recentered
+controller positions were converted to centimetres around `(0,0,0)`, while the animated skeleton
+was around `(39700,3600,29400)`. The solver was therefore clamping both arms toward the global origin.
+Current source anchors each hand to live head bone 5 and maps `(tracked_hand - tracked_head)` through
+the exact CoJ camera basis. Debug/Release host suites pass 24 tests plus the expected capability SKIP.
+This world-anchor correction requires one fresh `-BodyIkAtStart` physical run before body promotion.
+
+Run `20260917T223157Z-8061a216a065` physically exercised that world-anchor correction. Telemetry
+confirmed that hand targets now stay in the live skeleton neighborhood and preserve left/right plus
+front/back controller motion, but the physical arm gate still failed: in a T-pose both rendered arms
+continued to point backward/contort. The user also observed the SteamVR interface stuck over the game
+again. Treat the remaining arm defect as native pose-application failure, not target-space failure,
+and treat the dashboard recurrence as a separate presentation/focus failure.
+
+Exact-build inspection after that run rejected `SetBoneOrientation` and initially selected
+`BoneRotate(BLVector;FZ)V`. Run `20260917T230423Z-e63b9146cea7` then recorded thousands of successful
+left/right JNI applications and inverse restores without clear Sense-driven body motion. The later
+run `20260918T160300Z-cd4137a48fca` resolved that ambiguity: all 96 sampled immediate
+`body_arm_write_probe` records and all 192 per-eye `body_arm_render_probe` records stayed equal to
+the natural geometry. `BoneRotate` is therefore rejected as the active visible-mesh writer for this
+build unless new native evidence contradicts those measurements.
+
+Run `20260918T165754Z-845101e7557b` physically proved that exact-build
+`RotateElementWithChildren(ILVector;F)V` at RVA
+`0x0009A070`. Disassembly shows that it composes a relative rotation onto the element's existing
+world transform and refreshes descendants/attached children, preserving the animated element origin
+and base frame rather than rebuilding an absolute transform. Both arms visibly followed the Sense
+controllers for a short interval and telemetry proved natural -> changed -> changed during both eye
+renders. The physical gate nevertheless failed: the user saw wrong orientation/deformation, and at
+frame 470 the right inverse calls succeeded but exact geometry restoration failed. Frame 471 then
+fail-closed both writers, explaining the observed return to the game's fixed native arm pose. The
+game was already out of foreground focus at frame 450 while arm writes continued, so focus loss was
+not itself the reset mechanism. Evidence package SHA-256:
+`02A6D8EA4DBEF452A01142AC66100F88B982C5B4D4BFB2022F86A2466360DFE4`.
+
+Exact helper disassembly at RVA `0x001F5700` shows why orientation was wrong: the handler
+post-multiplies the current element matrix and consumes an element-local axis, while the failed
+candidate supplied the solver's world-space axis directly. Current host source converts the upper
+axis through the live upper-element frame, applies it, re-reads the parent-adjusted forearm frame
+and converts the child axis there. It now requires elbow/wrist agreement with the solved targets
+within `0.5` game units, not merely a geometry change. Inverse restoration remains child-before-
+parent; if floating-point drift misses the captured natural sample, the bridge reapplies the exact
+complete natural element frames and verifies them. Failure of both paths disables further writes.
+The live verifier requires local-axis telemetry, target agreement, both-eye persistence and exact
+natural restoration for both arms.
+
+Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` physically exercised the
+element-local correction. They recorded 832 and 1228 successful left/right arm applications
+respectively, with `targets_reached=true`, before one restore comparison failed at frame 416/right
+and frame 614/left and fail-closed all later writes. The user consequently saw only the native fixed
+arms during normal gameplay. Both inverse JNI calls and exact-frame fallback had reported success;
+the actual defect was the validator's `0.001`-unit threshold, smaller than one float ULP (about
+`0.0039` units) around the live ~39,700-unit skeleton coordinates. Current source keeps strict
+mutation detection but validates restoration separately at `0.02` game units for positions and
+`0.001` for unit axes, emitting each maximum error. Run `20260918T210713Z-99d292bd2c94` used the
+performance profile without `-BodyIkAtStart`; its manifest correctly set `requireBodyIk=false` and
+no arm write was attempted. All three runs are finalized; do not reuse their IDs.
+
+The user also reported severe discomfort specifically on physical head tilt. Those artifacts
+rendered the CoJ camera without roll while submitting the full raw HMD pose through
+`Submit_TextureWithPose`, so image orientation and compositor render-pose semantics diverged.
+Current host source extracts physical roll and applies it to the exact native right/up/forward basis
+with the sign required by tracking `-Z` -> CoJ `+Z`; the verifier requires meaningful roll telemetry.
+This comfort correction needs physical validation. The reported poor resolution is expected from
+the reversible `1920x1080`/FSAA0 performance profile used by all three runs; higher resolution is
+still constrained by classic-D3D9 CPU readback cost.
+
+The first `prepare -BodyIkAtStart` attempt with SteamVR still active was rejected before
+manifest/deployment because eight classic-D3D9 device-creation tests returned
+`D3DERR_NOTAVAILABLE`; status remained `Staging: none` with no video-profile state. After the user
+closed SteamVR, the complete Release suite passed 24 tests plus the expected capability SKIP and a
+fresh full/body candidate was staged as run `20260918T213453Z-a789ac61ac91`, build-manifest ID
+`C2FB43FC65A9CD0F0A848A64584322D1D5C70A49F3E3B4E10BE958F1A7B11C90`, proxy SHA-256
+`ACF278F40C2C959BD40A8BE016E4F8B73C4DDA8BCC3DAC51845F61191DEDA5FC`. Body IK and tracking are
+enabled from process start, D3D9Ex is disabled and the reversible `1920x1080`/FSAA0 profile was
+active. The run is now finalized. It recorded 13,860 successful arm applications and 13,860 clean
+restorations with zero writer/restore failures; measured restore maxima were `0.00390625` game
+units for joints/elements and `4.05355e-7` for axes. Physical roll ranged from `-27.286` to
+`+40.762` degrees and the user reported that the previous head-tilt nausea was gone, promoting the
+native-camera roll correction. The arms remained visibly malformed and front/back was reversed:
+moving both hands physically behind the head made the arms visible in front. This physically
+rejects the old hand-target mapping despite its valid target/recovery telemetry. Current source
+therefore maps tracking-space `-Z` forward to negative native camera-forward while preserving the
+live-working X/Y mappings. Hand orientation is still natural/uncontrolled and the photographed
+wrist/hand twist remains a separate unpromoted problem. Evidence package SHA-256:
+`A8CE0C3BDDAD405FDC8EADA5CDF3C27E8D5B76AE8E2FDDFE1329ECB145E1B477`.
+
+Fresh Debug and Release suites from the corrected-Z source each pass 24 tests plus the expected
+capability SKIP. Full/body run `20260918T215118Z-c46320012ff0`, build-manifest ID
+`C3679E1866C80B388E557C8B5B76B6E144945469E8154DB16C5BECE3DB5476B4` and proxy SHA-256
+`337EB29BE4000E4C85B0B2EAD30FC9843B84ED35E2DF1691BFAB3645EF824C34`, is now finalized and
+unstaged. The corrected tracking-Z mapping is physically validated: the user confirmed that moving
+both Sense controllers forward now moves the arms forward. Telemetry recorded 9,296 successful arm
+applications and 9,296 successful restores, zero restore failures, and the corrected
+`tracking_forward=-z_to_negative_native_forward` marker on every application. The body gate still
+fails visual acceptance because both arms remain severely deformed/twisted. Controller orientation
+is still intentionally absent (`hand_orientation=natural`), so the next arm task is explicit
+controller/hand orientation plus forearm/wrist roll/twist composition, not another positional-axis
+change. Evidence package SHA-256:
+`CA3F758168AAE782E727EFCF0A24B6F46E821297538BB1A78883AA2CBA93DA74`.
+
+The same source adds non-invasive `post_load_liveness` telemetry for the separately reported
+post-load freeze: it observes real input changes, foreground/focus/GUI-thread state, pending
+keyboard/mouse input through `GetInputState`, natural camera/frame progress and the inherited
+read-only `Module.IsTimerFreezed()` state on the already-proven active `LawmanModuleSingle`.
+It does not consume Win32 messages or synthesize input. Before the physical run, Debug and Release
+each passed all 25 CTest outcomes with 24 PASS plus the expected classic-D3D9 shared-texture
+capability SKIP. The earlier
+candidate `20260918T164932Z-1daf676be48e` predates the timer-state probe and must not be used for the
+next physical run. Full/body run `20260918T165754Z-845101e7557b` is finalized and unstaged; do not
+reuse it. Its build-manifest ID was
+`51EE466E23FFE5DC16DA502DF5078FFCAC9B3F7C56ED9EBF23CC6997E72B8670`, proxy SHA-256
+`15AFB4220800DE7C0AF8F5743CB2C291D58A520926AF169525D076214929287E`, tracking enabled and Body IK
+enabled from process start. The corrected local-axis source is host-tested: fresh Debug and Release
+suites each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. A fresh
+`-BodyIkAtStart` candidate remains required.
+
+Prepare run `20260918T204452Z-d196ba97e34c` was rejected before launch and unstaged because
+`vr_test.ps1` built `build-win32` but selected the stale DLL from `build/win32-debug`; it also
+recreated the prohibited D3D9Ex marker. Current tooling binds build, manifest and staging to the
+same `build-win32/Release` artifact, keeps the marker absent, and tests both contracts. Do not use
+or reuse that run ID.
+
+Corrected candidate `20260918T204701Z-f561e493f4ab` is finalized and unstaged; do not reuse it.
+Its build-manifest ID was `E7AE926955FEFDC24A66B77ECC719FD35D3E02E4EA4F3C9729EF48C84ED8D697`
+and proxy SHA-256 was `561CE9FFDCB97E174440FD265F56088AA23EA5383D2A0822A4B128EE4F12ADE3`.
 
 Run `20260917T153051Z-ac6a4be37d85` is diagnostic only. The live `body-enable` control was accepted,
 but after the user's Alt+Tab the game stopped producing new capture frames and the presenter only
@@ -162,6 +301,38 @@ behind and that presentation remained uncomfortable. Sampled producer timings st
 `15-25 ms` per stereo frame in the classic-D3D9 CPU copy before accounting for the two engine eye
 passes. Treat actor discovery and transport/frame pacing as separate problems.
 
+Run `20260917T163732Z-03df947b8d50` then exercised the performance profile at temporary
+`1920x1080`/FSAA0 with body IK deliberately disabled. The user confirmed that physical movement no
+longer leaves the body behind; telemetry proves this is the intended unresolved-actor fallback,
+`positional_6dof=false;translation_mode=rotation_only_actor_unresolved`, rather than successful
+actor reconciliation. Both Sense poses remained valid/changing. The run reduced sampled CPU copy
+to `10.246 ms` average, `9.982 ms` p50 and `12.937 ms` p95, with zero ring drops/submit failures,
+but presenter shutdown still reported `shutdown_complete=false`. Evidence package SHA-256:
+`C16C889C155F9B1A7C09D7D06DEA6FF9D3B600A97C3D65C49BE46F026935C4CE`.
+
+Run `20260917T220704Z-b57a36497e54` is the latest performance-profile observation from the current
+tree. Its run manifest explicitly sets `requireBodyIk=false` and `requirePositional6Dof=false`; arm
+telemetry remained observation-only with `write_enabled=false`, so it carries no body-IK promotion.
+At `1920x1080`/FSAA0 it collected 4,471 frames, submitted 4,469 new plus 2,075 repeated frames, and
+recorded zero capture-ring drops or submit failures. Sampled CPU copy improved to `9.412 ms`
+average / `8.888 ms` p50, while p95 rose to `14.808 ms` (max `17.313 ms`). Distinct-eye content,
+explicit render-pose submission, recenter and an active focused/tracking-valid presenting state were
+observed. The run is diagnostic only: the only dashboard open/close events occurred before active
+presentation, no explicit disable-to-natural-passthrough command was recorded, and presenter
+shutdown again emitted `shutdown_complete=false` despite outer `native_stereo_runtime: status=stopped`
+and `run_end`. Evidence package SHA-256:
+`0078E0700F7177A361A2D8C95A051741B7D099AA9EA535E85D68D542B865B04A`.
+
+Static inspection after that run found the campaign player outside `Session`: `LawmanGame.class`
+holds static `sm_cActiveGameModule : LawmanModule`, and `LawmanModuleSingle.class` exposes
+`GetMainPlayer() : Being` backed by `MainPlayer : PlayerBeing`. Current source keeps the Session
+routes primary, then uses this campaign route only when the Session player vector is empty and only
+after JNI `IsInstanceOf` proves the module is `LawmanModuleSingle`; ambiguous/non-single-player
+states fail closed. Fresh Debug and Release builds each pass 24 tests plus the one expected
+classic-D3D9 shared-texture capability SKIP out of 25. Run `20260917T172007Z-e6232c4778d2`
+subsequently live-proved this actor route; the remaining body blocker is corrected arm-element
+composition, not player discovery.
+
 Current host source therefore fails closed to HMD rotation plus native stereo eye offsets whenever
 the actor cannot be proven/reconciled: room-scale head translation is suppressed instead of letting
 the camera leave the body, and telemetry reports `positional_6dof=false` with an explicit
@@ -180,27 +351,34 @@ Already established evidence includes:
 
 Treat that last point as a confirmed failure mode of the historical frame-hook interception design, not as a complete root-cause explanation for the blank headset. Audit-remediation Phases 0-4 now provide host-tested run provenance, device/generation coverage, safe hook ownership and structured render telemetry. Two run-bound manual observations reproduced the three-frame device-hook loss; the second proved that all four lost slots return to their recorded Windows D3D9 originals. Phase 5 capture/presentation decoupling and its host acceptance matrix are now host-tested and the separated path is exercised by later live native-stereo runs. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization are also host-tested; its animated physical probe has not been rerun, so no new live/headset promotion follows from that work. The remaining active gate is sustained frame pacing/performance; the exact CoJ proof still must not depend on `Present`, `BeginScene`, `EndScene` or `Reset` hooks.
 
-The next fresh `d3d9_native_stereo` run is intentionally a performance/comfort run. Its
-manifest/verifier requires production `gpu_sync=none`, valid
-connected/tracking/presenting OpenVR state, repeated-frame presentation, one deliberate SteamVR
-dashboard focus-loss/reacquisition cycle and complete runtime shutdown. The user should also repeat
-slow/fast head turns, mouse rotation and left-Sense-Create recenter in that same process. `vr_test
-finish` produces and packages a quantitative native-stereo timing/state summary before restoring
-the staged files and original `Video.scr`. Default `prepare` keeps body/positional promotion out of
-this run while campaign actor discovery is unresolved. A later explicit `-BodyIkAtStart` run may
-restore the full body gate once there is a concrete actor-discovery fix; do not spend another
-headset run on speculative body writes. Do not request separate headset runs for checks that can be
-collected in this performance run.
+The next fresh `d3d9_native_stereo` physical body run uses `tools/vr_test.ps1 prepare -BodyIkAtStart`.
+Do not require a SteamVR dashboard cycle in that body-composition run: dashboard/focus remains a
+separate performance-profile gate because the system overlay can make CoJ non-interactive and
+contaminate the IK test. Keep the stereo/recenter/shutdown checks and require valid
+left/right `body_tracking_input`, `player_source=lawman_module_single_main_player`, successful
+skeleton discovery and left/right `body_arm_tracking result=applied` with the element-frame
+telemetry before promoting body/6DOF. Visual confirmation must show the arms following the Sense
+controllers without the previous reverse/overhead contortion or mesh corruption.
+Do not request separate headset runs for checks that can be collected in this combined run.
 
-That candidate is now staged as run `20260917T163732Z-03df947b8d50`, build-manifest ID
-`52C4B1822E798CE84BBC8F878E80760AB97DCB729C5C22860BB99E044B935FFC`, proxy SHA-256
-`287CC00832F64227DE4912BD7F945573355F0EE04A5A99A3E4B36850831957E3`. Its manifest records
-`profile=performance`, `requirePositional6Dof=false`, `requireBodyIk=false`; the reversible video
-profile records original `Video.scr` SHA-256
-`9C7C51A2E46C60B775DDF1FB27022CD5179D53A039D1A8F64EB30C0286426191` and staged SHA-256
-`72A92EBCD87FF68D8E63AE138D6528AE5F215AA0B23A420CE2D3EC76CE0D4D49`. Preparation reran the
-full Release suite with 24 PASS plus the one expected capability SKIP. Use this candidate before
-preparing another one.
+Candidate `20260917T163732Z-03df947b8d50` is finalized and unstaged. Its performance evidence is
+described above; do not reuse its run ID. The next candidate must be built from the current
+campaign-module actor fallback and receive a fresh run ID.
+
+Run `20260917T172007Z-e6232c4778d2` is finalized and unstaged. Its evidence package SHA-256 is
+`86CC35F6EAE2D8EB0C88C97D24723ACE10EE637D93A4368F55F18D09A7339EFB`. It live-proved the campaign
+actor route and native arm write path, but physically failed arm composition because the previous
+implementation replaced each mesh element's real world origin with the bone joint position.
+
+Corrected candidate `20260917T175054Z-386939a46734` was prepared with build-manifest ID
+`FFF7B749D0DCF1147CB1951F533973D3E7E7B6D92DEA13B24DD339FEB11511C8` and proxy SHA-256
+`9BEFBFB2A7E91BF43ECC7E6635FBA21FC56A9F7C4D0C210112591D882BE678B5`, but it never produced a
+`cojvr.log` and was later unstaged. The original `Video.scr` was restored. Do not reuse that run ID.
+The next full/body candidate must be prepared fresh from the current tree with `-BodyIkAtStart`,
+the full validation profile and a new run ID.
+
+Run `20260917T230423Z-e63b9146cea7` is finalized and unstaged; evidence package SHA-256
+`1371671F7D9F5310A430D583D769AD91EEDBCF7B9896FC3274CBDD86BABC9D95`. Do not reuse that run ID.
 
 ## Required execution order
 
@@ -236,7 +414,9 @@ at `+0x44`; never reconstruct that first axis as `forward x up` (left). Run
 `20260916T104036Z-24b3e3010d4c` proved that the corrected right-handed basis fixes the
 mirrored character/scene failure but same-sign HMD yaw still moves the visible camera in the
 opposite horizontal direction. The exact game adapter therefore negates physical yaw while
-keeping the live-confirmed pitch direction; roll remains excluded. Stereo passes keep source
+keeping the live-confirmed pitch direction. Current source also applies physical roll to the native
+camera basis so rendered orientation matches the full HMD pose submitted for reprojection; this
+tilt-comfort correction is host-tested only. Stereo passes keep source
 world/view, frustum and derived camera state active for the complete render-view pass and
 restore the complete natural snapshot transactionally after each eye. The first proof may use
 the provisional classic-D3D9 CPU readback -> two D3D11 textures transport. The candidate

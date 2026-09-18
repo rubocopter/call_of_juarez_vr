@@ -321,9 +321,12 @@ int main() {
     const CameraProbeBasis hmd_roll = ApplyCameraPoseOrientation(
         {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, relative.orientation);
     if (!Near(hmd_roll.forward.x, 0.0F) || !Near(hmd_roll.forward.y, 0.0F) ||
-        !Near(hmd_roll.forward.z, 1.0F) || !Near(hmd_roll.up.x, 0.0F) ||
-        !Near(Dot(hmd_roll.forward, hmd_roll.up), 0.0F)) {
-        std::cerr << "HMD roll must remain excluded from the current camera gate\n";
+        !Near(hmd_roll.forward.z, 1.0F) || hmd_roll.up.x < 0.25F ||
+        !Near(hmd_roll.up.y, 0.9659258F) ||
+        !Near(hmd_roll.right.x, 0.9659258F) || hmd_roll.right.y > -0.25F ||
+        !Near(CameraProbeBasisDeterminant(hmd_roll), 1.0F) ||
+        !IsCameraProbeBasisRigidRightHanded(hmd_roll)) {
+        std::cerr << "HMD roll did not rotate the native camera basis consistently\n";
         return 1;
     }
 

@@ -70,6 +70,10 @@ $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
 $OpenVrInputBackup = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-backup"
+$ProxyTemporary = Join-Path $GameDirectory "d3d9.cojvr-installing.dll"
+$CameraControlTemporary = Join-Path $GameDirectory "cojvr-camera-control.cojvr-installing.json"
+$OpenVrTemporary = Join-Path $GameDirectory "openvr_api.cojvr-installing.dll"
+$OpenVrInputTemporary = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-installing"
 $TransactionJournal = Join-Path $GameDirectory ".cojvr-deployment-transaction.json"
 
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
@@ -224,6 +228,11 @@ if ($IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrBackup)) {
 if ($IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputBackup)) {
     throw "OpenVR input backup '$OpenVrInputBackup' already exists. Restore or remove it before staging the native-stereo candidate."
 }
+foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary)) {
+    if (Test-Path -LiteralPath $TemporaryPath) {
+        throw "Temporary deployment path '$TemporaryPath' already exists without a recovery journal. Refusing to overwrite it."
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($RunId)) {
     $RunId = "{0}-{1}" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), ([Guid]::NewGuid().ToString("N").Substring(0, 12))
@@ -247,6 +256,7 @@ $CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.
 $JournalAssets = @(
     [ordered]@{
         role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
+        temporary = "d3d9.cojvr-installing.dll"
         hadOriginal = $HadOriginal
         originalSha256 = if ($HadOriginal) { Get-CojvrFileSha256 $Destination } else { $null }
         stagedSha256 = $ProxyHash
@@ -255,6 +265,7 @@ $JournalAssets = @(
 if ($IsCameraIntegration) {
     $JournalAssets += [ordered]@{
         role = "camera_control"; kind = "file"; destination = "cojvr-camera-control.json"; backup = "cojvr-camera-control.cojvr-backup.json"
+        temporary = "cojvr-camera-control.cojvr-installing.json"
         hadOriginal = $HadOriginalCameraControl
         originalSha256 = if ($HadOriginalCameraControl) { Get-CojvrFileSha256 $CameraControl } else { $null }
         stagedSha256 = $CameraControlStagedHash
@@ -263,6 +274,7 @@ if ($IsCameraIntegration) {
 if ($IsOpenVrIntegration) {
     $JournalAssets += [ordered]@{
         role = "openvr_runtime"; kind = "file"; destination = "openvr_api.dll"; backup = "openvr_api.cojvr-backup.dll"
+        temporary = "openvr_api.cojvr-installing.dll"
         hadOriginal = $HadOriginalOpenVr
         originalSha256 = if ($HadOriginalOpenVr) { Get-CojvrFileSha256 $OpenVrDestination } else { $null }
         stagedSha256 = $OpenVrHash
@@ -274,6 +286,7 @@ if ($IsNativeStereo) {
     } else { @() }
     $JournalAssets += [ordered]@{
         role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
+        temporary = "cojvr_openvr_input.cojvr-installing"
         hadOriginal = $HadOriginalOpenVrInput
         originalManifest = @($OriginalInputManifest)
         stagedManifest = @(
@@ -310,29 +323,40 @@ if ($HadOriginal) {
     Write-Host "Backed up existing d3d9.dll to d3d9.cojvr-backup.dll"
 }
 
-    Copy-Item -LiteralPath $ProxyPath -Destination $Destination
+    Install-CojvrVerifiedFile $ProxyPath $Destination $ProxyTemporary $ProxyHash
     if ($IsOpenVrIntegration) {
         if ($HadOriginalOpenVr) {
             Move-Item -LiteralPath $OpenVrDestination -Destination $OpenVrBackup
         }
-        Copy-Item -LiteralPath $OpenVrSource -Destination $OpenVrDestination
+        Install-CojvrVerifiedFile $OpenVrSource $OpenVrDestination $OpenVrTemporary $OpenVrHash
     }
     if ($IsNativeStereo) {
         if ($HadOriginalOpenVrInput) {
             Move-Item -LiteralPath $OpenVrInputDestination -Destination $OpenVrInputBackup
         }
-        New-Item -ItemType Directory -Path (Join-Path $OpenVrInputDestination "bindings") -Force | Out-Null
-        Copy-Item -LiteralPath $OpenVrActionManifestSource -Destination (Join-Path $OpenVrInputDestination "actions.json")
-        Copy-Item -LiteralPath $OpenVrSenseBindingSource -Destination (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json")
+        New-Item -ItemType Directory -Path (Join-Path $OpenVrInputTemporary "bindings") -Force | Out-Null
+        Copy-Item -LiteralPath $OpenVrActionManifestSource -Destination (Join-Path $OpenVrInputTemporary "actions.json")
+        Copy-Item -LiteralPath $OpenVrSenseBindingSource -Destination (Join-Path $OpenVrInputTemporary "bindings\psvr2_sense.json")
+        $OpenVrInputAssets = @(
+            $JournalAssets | Where-Object { [string]$_.role -eq "openvr_input" }
+        )
+        if ($OpenVrInputAssets.Count -ne 1) {
+            throw "Deployment journal does not contain exactly one OpenVR input asset."
+        }
+        $ExpectedInputManifest = @($OpenVrInputAssets[0].stagedManifest)
+        if (-not (Test-CojvrDirectoryMatchesManifest $OpenVrInputTemporary $ExpectedInputManifest)) {
+            throw "Temporary OpenVR input deployment failed manifest verification."
+        }
+        Move-Item -LiteralPath $OpenVrInputTemporary -Destination $OpenVrInputDestination
+        if (-not (Test-CojvrDirectoryMatchesManifest $OpenVrInputDestination $ExpectedInputManifest)) {
+            throw "Installed OpenVR input deployment failed manifest verification."
+        }
     }
     if ($IsCameraIntegration) {
         if ($HadOriginalCameraControl) {
             Move-Item -LiteralPath $CameraControl -Destination $CameraControlBackup
         }
-        [System.IO.File]::WriteAllText(
-            $CameraControl,
-            $CameraControlText,
-            [System.Text.UTF8Encoding]::new($false))
+        Install-CojvrVerifiedBytes $CameraControlBytes $CameraControl $CameraControlTemporary $CameraControlStagedHash
     }
     @{
         schemaVersion = 1
@@ -414,7 +438,12 @@ if ($HadOriginal) {
             requireExactChromeEngine = $IsCameraIntegration
             requireOpenVrRuntimeState = $IsNativeStereo
             requireOpenVrFocusCycle = $false
-            requireOpenVrDashboardCycle = $IsNativeStereo
+            # The full/body profile is intentionally isolated from the SteamVR
+            # dashboard. Dashboard focus is a presentation/lifecycle gate and
+            # has already been exercised independently; requiring it during a
+            # body-composition run can make the scene non-interactive and
+            # contaminate the IK evidence. Keep it on the performance profile.
+            requireOpenVrDashboardCycle = $IsNativeStereo -and $ValidationProfile -eq "performance"
             requireProductionGpuSyncNone = $IsNativeStereo
             requirePerformanceSummary = $IsNativeStereo
             requireRepeatedPresentation = $IsNativeStereo

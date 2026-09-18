@@ -12,6 +12,11 @@ cojvr::backends::d3d9::StereoCpuFrame MakeFrame(const std::uint64_t sequence) {
     frame.device_id = 0x1234;
     frame.generation = 7;
     frame.capture_sequence = sequence;
+    frame.render_pose_sequence = sequence;
+    frame.render_hmd_pose.orientation = {0.0F, 0.0F, 0.0F, 1.0F};
+    frame.render_hmd_pose.orientation_valid = true;
+    frame.render_hmd_pose.position = {0.0F, 0.0F, 0.0F};
+    frame.render_hmd_pose.position_valid = true;
     frame.capture_time = std::chrono::steady_clock::now();
     for (auto& eye : frame.eyes) {
         eye.width = 2;

@@ -56,6 +56,7 @@ struct OpenVrRuntime::Impl {
     bool owns_process_runtime = false;
     std::string last_error;
     std::int32_t last_result_code = 0;
+    mutable std::mutex events_mutex; // Serializes ProcessEvents calls
 };
 
 template <typename ImplT>
@@ -117,11 +118,17 @@ void OpenVrDigitalActionEdge::Reset() noexcept { pressed_ = false; }
 
 OpenVrRuntime::OpenVrRuntime() : impl_(std::make_unique<Impl>()) {}
 OpenVrRuntime::~OpenVrRuntime() { Shutdown(); }
-OpenVrRuntime::OpenVrRuntime(OpenVrRuntime&&) noexcept = default;
+OpenVrRuntime::OpenVrRuntime(OpenVrRuntime&& other) noexcept
+    : impl_(std::move(other.impl_)) {}
+
 OpenVrRuntime& OpenVrRuntime::operator=(OpenVrRuntime&& other) noexcept {
     if (this == &other) return *this;
     Shutdown();
     impl_ = std::move(other.impl_);
+    // Invalidate ownership in moved-from object to prevent double shutdown
+    if (other.impl_) {
+        other.impl_->owns_process_runtime = false;
+    }
     return *this;
 }
 
@@ -347,6 +354,7 @@ bool OpenVrRuntime::ReadTrackedPoses(OpenVrTrackedPoses& poses) noexcept {
 bool OpenVrRuntime::ProcessEvents() noexcept {
     if (!initialized()) return false;
     try {
+        std::lock_guard lock(impl_->events_mutex);
         vr::VREvent_t event{};
         while (impl_->system->PollNextEvent(&event, sizeof(event))) {
             switch (event.eventType) {

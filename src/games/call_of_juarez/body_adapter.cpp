@@ -82,6 +82,44 @@ cojvr::runtime::Vec3 RotateFromTo(
         Scale(axis, Dot(axis, value) * (1.0F - cosine)));
 }
 
+BoneRotationDelta BuildRotationDelta(
+    const cojvr::runtime::Vec3 from,
+    const cojvr::runtime::Vec3 to,
+    const cojvr::runtime::Vec3 preferred_axis) noexcept {
+    BoneRotationDelta result{};
+    const cojvr::runtime::Vec3 source = Normalize(from);
+    const cojvr::runtime::Vec3 target = Normalize(to);
+    if (Length(source) <= 1.0e-5F || Length(target) <= 1.0e-5F) return result;
+
+    const float cosine = std::clamp(Dot(source, target), -1.0F, 1.0F);
+    cojvr::runtime::Vec3 axis = Cross(source, target);
+    const float sine = Length(axis);
+    constexpr float kRadiansToDegrees = 57.29577951308232F;
+    if (sine <= 1.0e-5F) {
+        if (cosine > 0.99999F) {
+            result.axis = Normalize(preferred_axis, StablePerpendicular(source));
+            result.angle_degrees = 0.0F;
+            result.no_op = true;
+            result.valid = Finite(result.axis) && Length(result.axis) > 0.99F;
+            return result;
+        }
+        axis = Subtract(preferred_axis, Scale(source, Dot(preferred_axis, source)));
+        axis = Normalize(axis, StablePerpendicular(source));
+        result.axis = axis;
+        result.angle_degrees = 180.0F;
+        result.valid = Finite(axis) && Length(axis) > 0.99F;
+        return result;
+    }
+
+    axis = Scale(axis, 1.0F / sine);
+    result.axis = axis;
+    result.angle_degrees = std::atan2(sine, cosine) * kRadiansToDegrees;
+    result.valid = Finite(axis) && std::isfinite(result.angle_degrees) &&
+        Length(axis) > 0.99F && result.angle_degrees >= 0.0F &&
+        result.angle_degrees <= 180.0001F;
+    return result;
+}
+
 ElementWorldBasisTarget BuildBasisTarget(
     const cojvr::runtime::Vec3 position,
     const cojvr::runtime::Vec3 current_segment,
@@ -105,7 +143,70 @@ ElementWorldBasisTarget BuildBasisTarget(
     return result;
 }
 
+ElementWorldBasisTarget BuildPivotedBasisTarget(
+    const cojvr::runtime::Vec3 source_pivot,
+    const cojvr::runtime::Vec3 target_pivot,
+    const cojvr::runtime::Vec3 element_position,
+    const cojvr::runtime::Vec3 current_segment,
+    const cojvr::runtime::Vec3 desired_segment,
+    const cojvr::runtime::Vec3 current_up,
+    const cojvr::runtime::Vec3 current_forward) noexcept {
+    ElementWorldBasisTarget result{};
+    if (!Finite(source_pivot) || !Finite(target_pivot) || !Finite(element_position) ||
+        !Finite(current_segment) || !Finite(desired_segment) || !Finite(current_up) ||
+        !Finite(current_forward)) {
+        return result;
+    }
+
+    const cojvr::runtime::Vec3 native_offset = Subtract(element_position, source_pivot);
+    result.position = Add(
+        target_pivot,
+        RotateFromTo(native_offset, current_segment, desired_segment));
+    result.up = Normalize(RotateFromTo(current_up, current_segment, desired_segment));
+    cojvr::runtime::Vec3 forward =
+        RotateFromTo(current_forward, current_segment, desired_segment);
+    forward = Subtract(forward, Scale(result.up, Dot(forward, result.up)));
+    result.forward = Normalize(forward, StablePerpendicular(result.up));
+    result.valid = Finite(result.position) && Finite(result.up) && Finite(result.forward) &&
+        Length(result.up) > 0.99F && Length(result.forward) > 0.99F &&
+        std::fabs(Dot(result.up, result.forward)) < 0.01F;
+    return result;
+}
+
 } // namespace
+
+ArmGeometryRestoreCheck CheckArmGeometryRestored(
+    const ArmGeometrySample& natural,
+    const ArmGeometrySample& restored) noexcept {
+    ArmGeometryRestoreCheck result{};
+    const auto distance = [](const cojvr::runtime::Vec3 left,
+                             const cojvr::runtime::Vec3 right) noexcept {
+        return Length(Subtract(left, right));
+    };
+    result.max_joint_position_error = std::max(
+        distance(natural.elbow, restored.elbow),
+        distance(natural.wrist, restored.wrist));
+    result.max_element_position_error = std::max(
+        distance(natural.upper_element_position, restored.upper_element_position),
+        distance(natural.forearm_element_position, restored.forearm_element_position));
+    result.max_axis_error = std::max({
+        distance(natural.upper_element_up, restored.upper_element_up),
+        distance(natural.upper_element_forward, restored.upper_element_forward),
+        distance(natural.forearm_element_up, restored.forearm_element_up),
+        distance(natural.forearm_element_forward, restored.forearm_element_forward),
+    });
+
+    constexpr float kPositionToleranceGameUnits = 0.02F;
+    constexpr float kUnitAxisTolerance = 0.001F;
+    result.matches =
+        std::isfinite(result.max_joint_position_error) &&
+        std::isfinite(result.max_element_position_error) &&
+        std::isfinite(result.max_axis_error) &&
+        result.max_joint_position_error <= kPositionToleranceGameUnits &&
+        result.max_element_position_error <= kPositionToleranceGameUnits &&
+        result.max_axis_error <= kUnitAxisTolerance;
+    return result;
+}
 
 SkeletonBinding ExactGameSkeletonBinding() noexcept {
     // EBones.class constants in the shipped code.pak:
@@ -251,8 +352,9 @@ ArmIkPlan BuildArmIkPlan(
     const cojvr::runtime::Vec3 controller_target) noexcept {
     ArmIkPlan result{};
     if (!Finite(geometry.shoulder) || !Finite(geometry.elbow) || !Finite(geometry.wrist) ||
-        !Finite(geometry.upper_up) || !Finite(geometry.upper_forward) ||
-        !Finite(geometry.forearm_up) || !Finite(geometry.forearm_forward) ||
+        !Finite(geometry.upper_element_position) || !Finite(geometry.upper_element_up) ||
+        !Finite(geometry.upper_element_forward) || !Finite(geometry.forearm_element_position) ||
+        !Finite(geometry.forearm_element_up) || !Finite(geometry.forearm_element_forward) ||
         !Finite(controller_target)) {
         return result;
     }
@@ -275,7 +377,7 @@ ArmIkPlan BuildArmIkPlan(
         Subtract(geometry.elbow, geometry.shoulder);
     cojvr::runtime::Vec3 pole =
         Subtract(current_elbow, Scale(target_axis, Dot(current_elbow, target_axis)));
-    if (Length(pole) <= 1.0e-4F) pole = geometry.upper_forward;
+    if (Length(pole) <= 1.0e-4F) pole = geometry.upper_element_forward;
 
     const auto solved = cojvr::runtime::SolveTwoBoneIK(
         geometry.shoulder,
@@ -288,22 +390,136 @@ ArmIkPlan BuildArmIkPlan(
     const cojvr::runtime::Vec3 desired_upper =
         Subtract(solved.joint, geometry.shoulder);
     const cojvr::runtime::Vec3 desired_lower = Subtract(solved.end, solved.joint);
-    result.upper_arm = BuildBasisTarget(
+    result.upper_arm = BuildPivotedBasisTarget(
         geometry.shoulder,
+        geometry.shoulder,
+        geometry.upper_element_position,
         upper_segment,
         desired_upper,
-        geometry.upper_up,
-        geometry.upper_forward);
-    result.forearm = BuildBasisTarget(
+        geometry.upper_element_up,
+        geometry.upper_element_forward);
+    result.forearm = BuildPivotedBasisTarget(
+        geometry.elbow,
         solved.joint,
+        geometry.forearm_element_position,
         lower_segment,
         desired_lower,
-        geometry.forearm_up,
-        geometry.forearm_forward);
+        geometry.forearm_element_up,
+        geometry.forearm_element_forward);
+    result.elbow_target = solved.joint;
     result.wrist_target = solved.end;
     result.target_clamped = solved.target_clamped;
     result.valid = result.upper_arm.valid && result.forearm.valid;
     return result;
+}
+
+ArmBoneRotationPlan BuildArmBoneRotationPlan(
+    const ArmGeometrySample& geometry,
+    const ArmIkPlan& plan) noexcept {
+    ArmBoneRotationPlan result{};
+    if (!plan.valid || !Finite(geometry.shoulder) || !Finite(geometry.elbow) ||
+        !Finite(geometry.wrist) || !Finite(geometry.upper_element_forward) ||
+        !Finite(geometry.forearm_element_forward) || !Finite(plan.elbow_target) ||
+        !Finite(plan.wrist_target)) {
+        return result;
+    }
+
+    const cojvr::runtime::Vec3 natural_upper =
+        Subtract(geometry.elbow, geometry.shoulder);
+    const cojvr::runtime::Vec3 desired_upper =
+        Subtract(plan.elbow_target, geometry.shoulder);
+    const cojvr::runtime::Vec3 natural_lower =
+        Subtract(geometry.wrist, geometry.elbow);
+    const cojvr::runtime::Vec3 desired_lower =
+        Subtract(plan.wrist_target, plan.elbow_target);
+    if (Length(natural_upper) <= 0.1F || Length(desired_upper) <= 0.1F ||
+        Length(natural_lower) <= 0.1F || Length(desired_lower) <= 0.1F) {
+        return result;
+    }
+
+    result.upper_arm = BuildRotationDelta(
+        natural_upper, desired_upper, geometry.upper_element_forward);
+    if (!result.upper_arm.valid) return result;
+
+    const cojvr::runtime::Vec3 lower_after_parent = result.upper_arm.no_op
+        ? natural_lower
+        : RotateFromTo(natural_lower, natural_upper, desired_upper);
+    result.forearm = BuildRotationDelta(
+        lower_after_parent, desired_lower, geometry.forearm_element_forward);
+    result.valid = result.forearm.valid;
+    return result;
+}
+
+BoneRotationDelta ConvertWorldRotationToElementLocal(
+    const BoneRotationDelta& world_rotation,
+    const cojvr::runtime::Vec3 element_up,
+    const cojvr::runtime::Vec3 element_forward) noexcept {
+    BoneRotationDelta result{};
+    if (!world_rotation.valid || !Finite(world_rotation.axis) ||
+        !std::isfinite(world_rotation.angle_degrees) || !Finite(element_up) ||
+        !Finite(element_forward)) {
+        return result;
+    }
+
+    const cojvr::runtime::Vec3 up = Normalize(element_up);
+    cojvr::runtime::Vec3 forward = Subtract(
+        element_forward, Scale(up, Dot(element_forward, up)));
+    forward = Normalize(forward);
+    const cojvr::runtime::Vec3 element_x = Normalize(Cross(up, forward));
+    forward = Normalize(Cross(element_x, up));
+    if (Length(up) <= 0.99F || Length(forward) <= 0.99F ||
+        Length(element_x) <= 0.99F) {
+        return result;
+    }
+
+    result = world_rotation;
+    result.axis = Normalize({
+        Dot(world_rotation.axis, element_x),
+        Dot(world_rotation.axis, up),
+        Dot(world_rotation.axis, forward),
+    });
+    result.valid = Finite(result.axis) && Length(result.axis) > 0.99F &&
+        std::fabs(result.angle_degrees) <= 180.0001F;
+    return result;
+}
+
+cojvr::runtime::Vec3 BuildTrackedHandTarget(
+    const cojvr::runtime::Vec3 head_world_target,
+    const cojvr::runtime::Vec3 camera_right,
+    const cojvr::runtime::Vec3 camera_up,
+    const cojvr::runtime::Vec3 camera_forward,
+    const cojvr::runtime::Vec3 tracked_head,
+    const cojvr::runtime::Vec3 tracked_hand,
+    const float game_units_per_meter,
+    bool& valid) noexcept {
+    valid = false;
+    if (!Finite(head_world_target) || !Finite(camera_right) || !Finite(camera_up) ||
+        !Finite(camera_forward) || !Finite(tracked_head) || !Finite(tracked_hand) ||
+        !std::isfinite(game_units_per_meter) || game_units_per_meter <= 0.0F) {
+        return {};
+    }
+
+    const cojvr::runtime::Vec3 right = Normalize(camera_right);
+    const cojvr::runtime::Vec3 up = Normalize(camera_up);
+    const cojvr::runtime::Vec3 forward = Normalize(camera_forward);
+    if (Length(right) <= 0.99F || Length(up) <= 0.99F || Length(forward) <= 0.99F ||
+        std::fabs(Dot(right, up)) > 0.01F || std::fabs(Dot(right, forward)) > 0.01F ||
+        std::fabs(Dot(up, forward)) > 0.01F) {
+        return {};
+    }
+
+    const cojvr::runtime::Vec3 tracking_offset = Subtract(tracked_hand, tracked_head);
+    const cojvr::runtime::Vec3 game_offset = Scale(tracking_offset, game_units_per_meter);
+    const cojvr::runtime::Vec3 target{
+        head_world_target.x + right.x * game_offset.x + up.x * game_offset.y +
+            forward.x * game_offset.z,
+        head_world_target.y + right.y * game_offset.x + up.y * game_offset.y +
+            forward.y * game_offset.z,
+        head_world_target.z + right.z * game_offset.x + up.z * game_offset.y +
+            forward.z * game_offset.z,
+    };
+    valid = Finite(target);
+    return target;
 }
 
 PelvisLocomotionAnchor BuildPelvisLocomotionAnchor(
@@ -464,9 +680,10 @@ bool BodyAdapter::DiscoverSkeleton() noexcept {
 void BodyAdapter::Apply(const cojvr::runtime::IKBodyPose& pose) noexcept {
     if (!state_.available || state_.actor == nullptr || writer_ == nullptr) return;
 
-    // Keep the game-specific memory write behind the adapter. Invalid bone
-    // indices are ignored so partial discoveries can be tested safely while
-    // the Chrome Engine skeleton layout is being mapped.
+    // CONFLICT WARNING: This method writes the SAME absolute pose to upper_arm,
+    // forearm, and hand bones. This conflicts with the BoneRotate-based IK system
+    // in camera_probe.cpp which applies relative hierarchical rotations.
+    // Only ONE system should be enabled at a time. See body_adapter.hpp for details.
     const auto write = [this](int bone, const cojvr::runtime::Pose& target) noexcept {
         if (bone >= 0) writer_(state_.actor, bone, target);
     };

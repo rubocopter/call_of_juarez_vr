@@ -270,6 +270,7 @@ if ($OrientationLines.Count -lt 2) {
 }
 foreach ($Line in $OrientationLines) {
     if ($Line -notmatch "native_homogeneous_layout=true" -or
+        $Line -notmatch "roll_mode=native_camera_basis" -or
         $Line -notmatch "source_world_homogeneous_layout=true" -or
         $Line -notmatch "source_view_homogeneous_layout=true" -or
         $Line -notmatch "injected_view_homogeneous_layout=true" -or
@@ -302,11 +303,17 @@ $YawSamples = @($OrientationLines | ForEach-Object {
 $PitchSamples = @($OrientationLines | ForEach-Object {
     if ($_ -match "pitch_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
 })
+$RollSamples = @($OrientationLines | ForEach-Object {
+    if ($_ -match "roll_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+})
 if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
     throw "Telemetry did not capture a meaningful physical yaw movement."
 }
 if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
     throw "Telemetry did not capture a meaningful physical pitch movement."
+}
+if (-not ($RollSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
+    throw "Telemetry did not capture a meaningful physical head tilt through the native camera roll path."
 }
 if ($RequirePositional6Dof) {
     $MeaningfulPositionObserved = $false
@@ -348,12 +355,95 @@ if ($RequireBodyIk) {
         }
         foreach ($Line in $SideLines) {
             if ($Line -notmatch ";plan_valid=true;" -or
+                $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
                 $Line -notmatch ";hand_orientation=natural;" -or
-                $Line -notmatch ";basis_source=GetBoneDirVector/GetBonePerpVector;writer=FromUpForwardPosElementWorld") {
+                $Line -notmatch ";upper_element_position=\(" -or
+                $Line -notmatch ";forearm_element_position=\(" -or
+                $Line -notmatch ";upper_target_position=\(" -or
+                $Line -notmatch ";forearm_target_position=\(" -or
+                $Line -notmatch ";upper_rotation_axis=\(" -or
+                $Line -notmatch ";forearm_rotation_axis=\(" -or
+                $Line -notmatch ";upper_native_axis=\(" -or
+                $Line -notmatch ";forearm_native_axis=\(" -or
+                $Line -notmatch ";native_axis_space=element_local;" -or
+                $Line -notmatch ";targets_reached=true;" -or
+                $Line -notmatch ";rollback_attempted=false;rollback_ok=true;" -or
+                $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
+                $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=RotateElementWithChildren") {
                 throw "A $Side arm IK application did not prove the measured-skeleton/native-writer contract."
             }
         }
+    }
+    $BodyWriteProbes = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_arm_write_probe"
+    })
+    $BodyRenderProbes = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_arm_render_probe"
+    })
+    foreach ($Side in @("left", "right")) {
+        if (-not ($BodyWriteProbes | Where-Object {
+            $_ -match "result=natural .*;side=$Side;phase=before_write;" -and
+            $_ -match ";writer=RotateElementWithChildren"
+        })) {
+            throw "The body IK gate did not capture the natural $Side arm immediately before the element overlay."
+        }
+        if (-not ($BodyWriteProbes | Where-Object {
+            $_ -match "result=changed .*;side=$Side;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;" -and
+            $_ -match ";writer=RotateElementWithChildren"
+        })) {
+            throw "The body IK gate did not prove that the $Side element writer changed visible arm geometry."
+        }
+        foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
+            if (-not ($BodyRenderProbes | Where-Object {
+                $_ -match "result=changed .*;side=$Side;phase=$Phase;changed_from_natural=true;" -and
+                $_ -match ";post_write_geometry_valid=true;matches_post_write=true;" -and
+                $_ -match ";writer=RotateElementWithChildren"
+            })) {
+                throw "The body IK gate did not preserve the changed $Side arm through $Phase."
+            }
+        }
+    }
+    if ($BodyWriteProbes | Where-Object {
+        $_ -match ";phase=after_write;expects_change=true;" -and
+        $_ -notmatch "result=changed"
+    }) {
+        throw "The body IK gate recorded a non-mutating element write for a non-zero arm rotation."
+    }
+    $BodyRestoreLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_arm_restore result=ok"
+    })
+    foreach ($Side in @("left", "right")) {
+        $RestoreLines = @($BodyRestoreLines | Where-Object { $_ -match ";side=$Side;" })
+        if ($RestoreLines.Count -lt 1 -or
+            -not ($RestoreLines | Where-Object {
+                $_ -match ";forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;" -and
+                $_ -match ";restore_joint_error=[-+0-9.eE]+;restore_element_position_error=[-+0-9.eE]+;restore_axis_error=[-+0-9.eE]+"
+            })) {
+            throw "The body IK gate did not restore the natural $Side element hierarchy after stereo capture."
+        }
+        foreach ($Line in $RestoreLines) {
+            $JointMatch = [regex]::Match($Line, "restore_joint_error=([-+0-9.eE]+)")
+            $PositionMatch = [regex]::Match($Line, "restore_element_position_error=([-+0-9.eE]+)")
+            $AxisMatch = [regex]::Match($Line, "restore_axis_error=([-+0-9.eE]+)")
+            if (-not $JointMatch.Success -or -not $PositionMatch.Success -or
+                -not $AxisMatch.Success) {
+                throw "A $Side arm restore omitted its measured geometry error."
+            }
+            $JointError = [double]::Parse($JointMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            $PositionError = [double]::Parse($PositionMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            $AxisError = [double]::Parse($AxisMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            if (-not [double]::IsFinite($JointError) -or $JointError -gt 0.02 -or
+                -not [double]::IsFinite($PositionError) -or $PositionError -gt 0.02 -or
+                -not [double]::IsFinite($AxisError) -or $AxisError -gt 0.001) {
+                throw "A $Side arm restore exceeded the float-aware natural-geometry tolerance."
+            }
+        }
+    }
+    if ($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_arm_restore result=failed"
+    }) {
+        throw "The body IK gate recorded a failed element-hierarchy restore."
     }
 
     $LowerBodyLines = @($Lines | Where-Object {

@@ -8,16 +8,62 @@ in-headset Sense recenter, SteamVR scene-focus handoff, clean runtime teardown a
 render-pose submission now have live evidence; the latter removed the reported head-turn
 snap-back in run `20260916T224239Z-e43b46698e5c`. Sustained frame pacing/performance remains the
 active presentation gate. Positional 6DOF and body/IK preflight were pulled forward as isolated
-host-tested work: HMD translation can be reconciled
+work: HMD translation can be reconciled
 into player space, both Sense poses share the same recentered sample, exact CoJ skeleton reads are
 available through the existing JVM and a measured two-bone arm overlay is implemented behind a
 runtime toggle. Read-only lower-body preflight now measures pelvis/thigh/shin/foot geometry and
-solves both leg chains with the animated knee plane, reach clamping and native foot basis. These
-additions do not have live/headset promotion. Run `20260917T161917Z-909b63e114af` proved valid,
-changing Sense poses but also proved that the campaign actor is absent from both current Session
-discovery routes, so body promotion is parked. While unresolved, physical HMD translation now fails
-closed to rotation-only rendering instead of leaving the native body behind. Controller gameplay,
+solves both leg chains with the animated knee plane, reach clamping and native foot basis. Run
+`20260917T172007Z-e6232c4778d2` live-proved the exact single-player fallback
+`LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer()`, actor reconciliation,
+changing Sense tracking and successful left/right native arm writes. The user saw both arms follow
+the controllers, but the mesh contorted behind/over the body. Static native inspection identified
+the composition error: the writer consumes a complete element world transform, while the old path
+replaced each element origin with its bone joint. Later run `20260918T165754Z-845101e7557b`
+proved the replacement `RotateElementWithChildren` path reaches the visible mesh through both eye
+draws, but physically failed because its solver world axes were interpreted by the native handler
+as element-local axes; a restoration mismatch then fail-closed the overlay and returned control to
+the game animation. Current host source preserves the native origins, converts each world axis
+through the live parent-adjusted element frame, requires the elbow/wrist to reach their solved
+targets and verifies natural-frame recovery. Runs `20260918T204701Z-f561e493f4ab` and
+`20260918T210459Z-b59448961f3c` then proved that corrected local-axis math reaches both solved
+targets for hundreds of frames, but each run eventually fail-closed on a nominal restore mismatch.
+The comparison threshold was below one representable world-position float step at the live
+~39,700-unit coordinates. Current source keeps strict mutation detection but uses a separate
+float-aware sub-millimetre restore tolerance and reports the measured joint/element/axis errors.
+Run `20260918T215118Z-c46320012ff0` physically validates the corrected tracked-Z mapping: moving
+both Sense controllers forward now moves both arms forward. The run sustained 9,296 arm
+applications/restores with no restore failure, but the arms remain severely deformed/twisted.
+Position mapping is therefore no longer the active body blocker; controller orientation and
+forearm/wrist roll/twist composition are. Until actor reconciliation
+succeeds, physical HMD translation still fails closed to
+rotation-only rendering instead of leaving the native body behind.
+Run `20260917T163732Z-03df947b8d50` physically confirmed that visible fallback and reduced sampled
+CPU copy to `10.246 ms` average / `12.937 ms` p95 at `1920x1080` FSAA0. Controller gameplay,
 interaction rebuilding and lower-body writes remain downstream of the physical body gate.
+Run `20260917T220704Z-b57a36497e54` then exercised the same performance profile from the current
+tree with Body IK excluded by the manifest. It collected 4,471 frames with zero ring drops/submit
+failures and reduced sampled CPU copy to `9.412 ms` average / `8.888 ms` p50, but p95 was
+`14.808 ms`. The run does not promote the gate because its dashboard cycle happened before active
+presentation, explicit disable-to-passthrough was absent, and presenter shutdown remained
+`shutdown_complete=false`.
+
+The same three 2026-09-18 runs identify two presentation facts. Their reversible test manifests
+forced `1920x1080`/FSAA0, directly explaining the reported soft/low-resolution image; that profile
+trades image quality for a sampled CPU-copy cost around `9.7-10.7 ms` instead of the earlier
+`15-25 ms` at `2560x1440`. More importantly, head roll was omitted from the native camera while the
+full HMD pose was submitted to SteamVR. Full native-basis roll is now host-tested and the live
+verifier requires a meaningful tilt sample. Resolution and sustained frame pacing remain open
+because raising the backbuffer resolution increases the provisional CPU-readback cost.
+
+Run `20260918T213453Z-a789ac61ac91` physically validated the native-camera roll correction: the
+user no longer experienced the head-tilt nausea, across telemetry samples from `-27.286` to
+`+40.762` degrees. It also proved the float-aware arm restoration over all 6,930 frames: 13,860
+left/right applications and restorations completed with no fail-close. The remaining body failure
+is spatial/visual. Both arms move and reach the solver targets, but physical forward/back is
+reversed; the arms become visible in front only when the controllers move behind the user. Current
+host source flips only tracked Z at the CoJ camera-basis boundary. The screenshot also shows wrist/
+hand twist; controller orientation is not yet applied (`hand_orientation=natural`), so deformation
+is not promoted as solved by the positional sign correction.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the
@@ -108,15 +154,16 @@ current camera, stereo, 6DOF and interaction validation gates.
 - One process-level OpenVR owner, conflict/release policy, move-assignment safety and teardown outside `DllMain`: **host-tested**.
 - Per-eye submit-state integration, sampled submit/timing evidence and controlled `none`/`Flush`/event-query GPU synchronization strategies: **host-tested**. Production presentation keeps `gpu_sync=none`; no unconditional global wait was introduced.
 - Configurable animated visible probe with recognizable per-eye animation, frame count and diagnostic GPU-sync selection: **implemented / host-built**; fresh physical probe evidence remains pending.
-- The next native-stereo physical run is now a consolidated Phase 6/performance gate: the verifier requires connected/tracking/presenting state, a deliberate SteamVR-dashboard focus loss/reacquisition, repeated-frame presentation, the production `gpu_sync=none` handoff, and complete OpenVR shutdown in the same run. `finish` also generates and packages a run-bound timing/state summary with p50/p95/max values for the capture/readback/copy/upload/pose/submit stages.
+- Run `20260917T220704Z-b57a36497e54` exercised the consolidated Phase 6/performance profile and produced useful transport/timing evidence, but it did not satisfy the full verifier: the dashboard open/close occurred before active presentation, explicit disable-to-passthrough was absent, and joined presenter shutdown did not report completion. A fresh performance run must exercise those remaining checks after presentation is active while preserving connected/tracking/presenting state, repeated-frame presentation and the production `gpu_sync=none` handoff. `finish` generates and packages a run-bound timing/state summary with p50/p95/max values for the capture/readback/copy/upload/pose/submit stages.
 - Phase 6 host/simulated acceptance: **complete**. No Call of Juarez or SteamVR process was launched for this increment; live/headset promotion remains separate and the active product gate is still sustained frame pacing/performance.
 
 ### Phase 7 — transactional deployment
 
-- Basic preflight before mutation (game-process rejection plus Win32/x86 checks for the game/proxy/OpenVR/ChromeEngine artifacts): **implemented**. Full Phase 7 transaction acceptance remains pending.
-- Journal-before-mutation staging: **planned**.
-- Recoverable interrupted stage/unstage: **planned**.
-- Run-bound verification that cannot consume stale logs: **implemented for the current native-stereo path**; the broader Phase 7 recovery matrix remains planned.
+- Basic preflight before mutation (game-process rejection plus Win32/x86 checks for the game/proxy/OpenVR/ChromeEngine artifacts): **implemented**.
+- Journal-before-mutation staging plus verified temporary file/directory installation before final replacement: **host-tested**.
+- Recoverable interrupted stage/unstage with fail-closed handling of missing backups and externally changed destinations/temporaries: **host-tested at helper level**.
+- Run-bound verification that cannot consume stale logs: **implemented for the current native-stereo path**.
+- End-to-end failure injection after every script mutation, repeated real stage/unstage cycles and active-process integration coverage: **remaining before full Phase 7 acceptance**.
 
 ### Phase 8 — neutral VR math contracts
 
@@ -170,7 +217,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 ## Milestone 3 — full 6DOF and comfort
 
-- Positional tracking and room-scale reconciliation: **implemented / host-tested, physical promotion parked**. HMD and both Sense poses share one OpenVR sample/recenter basis; when a native actor is resolved, horizontal HMD displacement is absorbed at `100` CoJ units/metre while vertical displacement remains camera/body-owned. If actor discovery/reconciliation fails, physical head translation is suppressed while HMD rotation and stereo eye offsets remain active. Run `20260917T161917Z-909b63e114af` showed the current campaign Session paths contain no actor.
+- Positional tracking and room-scale reconciliation: **implemented / live-tested exact-game path; broader comfort promotion pending**. HMD and both Sense poses share one OpenVR sample/recenter basis; run `20260917T172007Z-e6232c4778d2` live-proved campaign actor discovery through `LawmanModuleSingle.GetMainPlayer()` and successful player reconciliation. When a native actor is resolved, horizontal HMD displacement is absorbed at `100` CoJ units/metre while vertical displacement remains camera/body-owned. If actor discovery/reconciliation fails, physical head translation is suppressed while HMD rotation and stereo eye offsets remain active.
 - Culling/visibility corrections: **planned**.
 - HUD/menu strategy: **planned; live-observed gap** — run `20260916T153109Z-8976b8f77775` showed that the flat game menu is not presented through the current native gameplay stereo path.
 - Cinematic and post-process handling: **planned**.
@@ -181,7 +228,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 - Minimal logical OpenVR global action seam: **headset-validated for recenter only**; gameplay actions remain planned.
 - PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter only**; tracked-hand/gameplay binding validation remains planned.
 - Decouple weapon aim from HMD view: **planned**.
-- Full-body IK driven by validated HMD/controller/body anchors: **implemented / host-tested, actor discovery blocked in campaign**. Exact shipped bone IDs, JNI `GetBoneJointPos`/`GetBoneDirVector`/`GetBonePerpVector`, measured two-bone shoulder/elbow/wrist solving and exact native `FromUpForwardPosElementWorld` arm writes are wired behind `bodyIkEnabled`. Run `20260917T161917Z-909b63e114af` proved both Sense poses are valid and changing, but no actor was exposed by `sm_LocalPlayer` or `sm_Players`, so no arm writer was reached. Pelvis/thigh/shin/foot solving remains read-only and lower-body writes stay disabled.
+- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual arm composition still rejected**. Exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260918T160300Z-cd4137a48fca` rejected `BoneRotate` as a non-mutating writer. Run `20260918T165754Z-845101e7557b` proved that exact-build `RotateElementWithChildren` changes the visible mesh. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` identified an over-strict restore comparison. Run `20260918T213453Z-a789ac61ac91` then sustained 13,860 applications/restores without fault and physically validated the roll comfort fix, but exposed reversed tracked front/back. Run `20260918T215118Z-c46320012ff0` physically validates the corrected Z mapping: forward Sense motion now produces forward arm motion, with 9,296 successful applications/restores and no restore failure. Both arms remain severely deformed/twisted, and `hand_orientation=natural` confirms controller orientation is still unapplied. The next body slice is controller/hand orientation and forearm/wrist roll/twist; pelvis/thigh/shin/foot writes remain disabled.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
 - Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.
 - Per-game weapon/player adapters: **planned**.

@@ -375,7 +375,11 @@ struct OpenVrStereoPresenter::Impl {
                 // to submit. WaitGetPoses captures SteamVR scene focus; doing so
                 // during CoJ's flat intro/menu transition can leave the dashboard
                 // owning the visible system layer while the game has no VR frame.
-                const bool compositor_pacing = cadence.presentable();
+                const bool dashboard_visible_before_poll =
+                    have_previous_presentation_state &&
+                    previous_presentation_state.dashboard_visible;
+                const bool compositor_pacing =
+                    cadence.scene_submission_allowed(dashboard_visible_before_poll);
                 const bool pose_ok =
                     (compositor_pacing
                          ? runtime.WaitForTrackedPoses(tracked_poses)
@@ -408,11 +412,19 @@ struct OpenVrStereoPresenter::Impl {
                                 presentation_state.dashboard_visible
                                     ? "dashboard_opened"
                                     : "dashboard_closed");
+                            Log(std::string(
+                                    "native_stereo_presenter_transition: status=") +
+                                (presentation_state.dashboard_visible
+                                     ? "dashboard_visible action=pause_scene_submission"
+                                     : "dashboard_hidden action=resume_scene_submission"));
                         }
                         previous_presentation_state = presentation_state;
                         have_previous_presentation_state = true;
                     }
                 }
+                const bool dashboard_visible =
+                    have_previous_presentation_state &&
+                    previous_presentation_state.dashboard_visible;
                 if (runtime_state.shutdown_requested) {
                     Log("native_stereo_presenter_transition: status=runtime_shutdown_requested action=stop_presenter");
                     break;
@@ -420,7 +432,8 @@ struct OpenVrStereoPresenter::Impl {
                 if (stop_requested.load(std::memory_order_acquire)) break;
                 if (pose_ok) {
                     bool recenter = false;
-                    if (input_ready.load(std::memory_order_acquire)) {
+                    if (!dashboard_visible &&
+                        input_ready.load(std::memory_order_acquire)) {
                         runtime::OpenVrGlobalActions actions{};
                         if (runtime.PollGlobalActions(actions)) {
                             recenter = actions.recenter_requested;
@@ -439,7 +452,7 @@ struct OpenVrStereoPresenter::Impl {
 
                 d3d9::StereoCpuFrame frame{};
                 const bool have_new_frame = mailbox.WaitConsumeLatest(
-                    frame, cadence.presentable() ? 0U : 2U);
+                    frame, cadence.scene_submission_allowed(dashboard_visible) ? 0U : 2U);
                 std::uint64_t left_hash = 0;
                 std::uint64_t right_hash = 0;
                 double hash_ms = 0.0;
@@ -504,6 +517,11 @@ struct OpenVrStereoPresenter::Impl {
                 }
 
                 if (!cadence.presentable()) continue;
+                // Do not permanently gate scene submission on the dashboard flag.
+                // SteamVR can report the overlay state while transitioning between
+                // compositor layers, and dropping all submits here can leave the
+                // application stuck on the dashboard when gameplay starts. The
+                // runtime owns overlay composition; keep feeding valid scene frames.
                 if (!pose_ok || !runtime_state.connected || !runtime_state.tracking_valid) {
                     // Preserve the last valid textures/cadence, but do not submit
                     // them while tracking is invalid or the HMD is disconnected.

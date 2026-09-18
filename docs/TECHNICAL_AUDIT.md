@@ -32,8 +32,9 @@ The following facts are currently established:
 - The in-game flat bridge has completed D3D9 readback, D3D11 upload, pose wait and OpenVR submission for captured game frames.
 - A later exact-build diagnostic observed exactly three project callbacks for `Present`, `BeginScene` and `EndScene`, followed by loss of integrity of the installed device-vtable entries while the game continued rendering on the monitor.
 - That hook-integrity loss is a confirmed failure mode of the current interception design. Run `20260914T215121Z-9bac4e22cffd` established that all four lost device slots return exactly to their recorded original targets in `C:\WINDOWS\system32\d3d9.dll`; no foreign replacement target was observed. It still does **not** prove which component performs the restoration, why it occurs, or that hook loss is the only reason the user never sees a stable game image in the headset.
-- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission. Run `20260916T153109Z-8976b8f77775` then live-observed the corrected `100` game-units-per-metre eye translation and physically validated left PS VR2 Sense Create recenter. Run `20260916T221254Z-861f3c15abd4` validated deferred-presenter scene-focus handoff and clean OpenVR/runtime shutdown. Run `20260916T224239Z-e43b46698e5c` validated explicit render-pose submission and removed the reported head-turn snap-back. Frame pacing/performance remains poor and the flat/menu path is not presented in the headset. Positional 6DOF plus the body/IK preflight are implemented and host-tested: tracked Sense anchors, actor reconciliation and upper-body arm writes exist, while lower-body geometry/leg solving remains read-only and motion-controller gameplay remains unimplemented. Run `20260917T161917Z-909b63e114af` physically proved both Sense poses but also showed that the campaign exposes no actor through the currently known `sm_LocalPlayer`/`sm_Players` routes, so body promotion is parked. Current host source suppresses room-scale head translation whenever actor reconciliation cannot be proven, preserving rotation and stereo eye offsets without letting the camera leave the native body.
-- The active physical gate is presentation performance/comfort. Run `20260917T161917Z-909b63e114af` still measured roughly `15-25 ms` of classic-D3D9 CPU copy per stereo frame at `2560x1440`/FSAA8 before the two engine eye passes. Candidate `20260917T163732Z-03df947b8d50` is staged with the performance validation profile, temporary `1920x1080`/FSAA0 settings, body/positional promotion disabled, and a fresh Release suite of 24 PASS plus the one expected capability SKIP out of 25.
+- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission. Run `20260916T153109Z-8976b8f77775` then live-observed the corrected `100` game-units-per-metre eye translation and physically validated left PS VR2 Sense Create recenter. Run `20260916T221254Z-861f3c15abd4` validated deferred-presenter scene-focus handoff and clean OpenVR/runtime shutdown. Run `20260916T224239Z-e43b46698e5c` validated explicit render-pose submission and removed the reported head-turn snap-back. Frame pacing/performance remains poor and the flat/menu path is not presented in the headset. Positional 6DOF plus the body/IK preflight are implemented: tracked Sense anchors, campaign actor reconciliation and the visible render-element writer are live-proven, while corrected arm composition remains host-tested, lower-body geometry/leg solving remains read-only and motion-controller gameplay remains unimplemented. Run `20260918T165754Z-845101e7557b` proved `RotateElementWithChildren` changes both arms through both eye renders, but physically failed because world-space solver axes were passed to an element-local native rotation. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` then exercised the corrected element-local path and reached both solved targets for hundreds of frames before fail-closing at frames 416 and 614. The restore criterion was tighter than one float ULP at the live world coordinates; current host source uses separate measured restore tolerances while retaining strict mutation detection.
+- The active physical gate is presentation performance/comfort. Run `20260917T161917Z-909b63e114af` measured roughly `15-25 ms` of classic-D3D9 CPU copy per stereo frame at `2560x1440`/FSAA8. The three 2026-09-18 runs all used the reversible `1920x1080`/FSAA0 profile and reduced sampled copy averages to `9.7-10.7 ms`, but the user reported visibly poor resolution. They also exposed a head-tilt comfort defect: the native camera omitted roll while OpenVR received the full HMD pose. Current source applies roll to the native camera basis and the live verifier requires a meaningful tilt sample; this is host-tested only. Resolution remains coupled to the provisional CPU-readback cost, and all three runs still reported `shutdown_complete=false`.
+- Run `20260918T213453Z-a789ac61ac91` physically validated native-camera roll: the previous tilt-induced nausea was absent while telemetry covered `-27.286` to `+40.762` degrees. It also sustained 13,860 successful arm applications/restorations with no fail-close, validating the float-aware restore threshold. The body gate still failed visually. Controller front/back was reversed even though elbow/wrist targets were reached, and the wrist/hand remained twisted with `hand_orientation=natural`. Current host source flips only tracked Z at the exact-game hand-target boundary; hand-orientation ownership remains unresolved.
 
 The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` records which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves replacement addresses to owning modules. Preserve it as evidence/baseline; do not let its existence bypass the audit-remediation work below.
 
@@ -127,18 +128,25 @@ Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercis
 ### A8 — Deployment is reversible only on the happy path, not transactional
 
 **Severity:** P1  
-**Status:** partially remediated; basic preflight host-tested, full transaction/recovery open
+**Status:** substantially remediated at host level; full script-level interruption matrix open
 
-Current staging/unstaging still does not provide a complete journal-before-mutation transaction.
-However, the current preflight now rejects a running `CoJ.exe`, rejects a non-Win32 build manifest,
-validates x86 PE machine type for the exact game/proxy/OpenVR/ChromeEngine artifacts before
-mutation, and refuses unsafe unstaging when required staged/original files are missing or changed.
-Run-bound manifests and verifiers already prevent stale logs from validating a new native-stereo
-candidate. The remaining gap is transactionality: journal-before-mutation, controlled temporary
-installation/replacement, failure recovery after each mutation step and the full repeated
-stage/unstage recovery matrix.
+Current staging/unstaging writes a recovery journal before mutating managed game assets and
+automatically resolves an interrupted journal before a later stage/unstage attempt. Staging rejects
+a running `CoJ.exe`, rejects a non-Win32 build manifest, validates x86 PE machine type for the exact
+game/proxy/OpenVR/ChromeEngine artifacts, prepares managed files/directories under deterministic
+temporary names, verifies SHA-256/manifests there, and only then moves them to their final names.
+Recovery restores a proven original or removes only recognized staged/temporary content; changed
+destinations, backups or temporary artifacts fail closed and preserve the journal for diagnosis.
+Run-bound manifests and verifiers prevent stale logs from validating a new native-stereo candidate.
 
-**Required action:** preserve the completed preflight/run-binding checks and implement the remaining journal, temporary install, controlled replacement and recoverable partial-failure work described in remediation Phase 7.
+Host coverage now includes clean/no-original recovery, a pre-existing original DLL, verified
+temporary file installation, interrupted temporary-file cleanup, partial temporary-directory
+cleanup, interrupted managed-directory restoration, missing-backup rejection, external-change
+rejection and idempotent no-journal recovery. The remaining gap is the full end-to-end script matrix:
+failure injection after every staging/unstaging mutation, repeated real stage/unstage cycles and an
+active-process integration case.
+
+**Required action:** preserve the current journal/verified-temporary/recovery contract and complete the remaining end-to-end failure/repetition/process test matrix described in remediation Phase 7.
 
 ### A9 — Declared architectural separation does not match current build dependencies
 

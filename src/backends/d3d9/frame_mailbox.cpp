@@ -8,14 +8,26 @@ namespace cojvr::backends::d3d9 {
 bool FrameMailbox::Publish(StereoCpuFrame frame) noexcept {
     try {
         if (frame.capture_sequence == 0) return false;
+        // Validate render pose before accepting frame to fail fast
+        if (frame.render_pose_sequence == 0 ||
+            !frame.render_hmd_pose.orientation_valid ||
+            !frame.render_hmd_pose.position_valid) {
+            return false;
+        }
         std::lock_guard lock(mutex_);
         if (stopped_) return false;
-        if (frame.capture_sequence <= last_published_sequence_) {
+        std::uint64_t expected = last_published_sequence_.load(std::memory_order_relaxed);
+        while (frame.capture_sequence <= expected) {
+            ++stats_.rejected_stale;
+            return false;
+        }
+        if (!last_published_sequence_.compare_exchange_weak(
+                expected, frame.capture_sequence,
+                std::memory_order_acq_rel, std::memory_order_relaxed)) {
             ++stats_.rejected_stale;
             return false;
         }
         if (has_pending_) ++stats_.replaced_pending;
-        last_published_sequence_ = frame.capture_sequence;
         pending_ = std::move(frame);
         has_pending_ = true;
         ++stats_.published;

@@ -1,5 +1,12 @@
 $ErrorActionPreference = "Stop"
 
+function Invoke-CojvrDeploymentCheckpoint([string]$Name) {
+    $Requested = [string]$env:COJVR_DEPLOYMENT_FAIL_AFTER
+    if (-not [string]::IsNullOrWhiteSpace($Requested) -and $Requested -eq $Name) {
+        throw "Injected deployment failure after checkpoint '$Name'."
+    }
+}
+
 function Get-CojvrFileSha256([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -49,6 +56,48 @@ function Test-CojvrDirectoryIsKnownStagedSubset([string]$Path, [object[]]$Manife
     return $true
 }
 
+function Install-CojvrVerifiedFile(
+    [string]$Source,
+    [string]$Destination,
+    [string]$Temporary,
+    [string]$ExpectedSha256) {
+    if (Test-Path -LiteralPath $Temporary) {
+        throw "Temporary deployment path '$Temporary' already exists."
+    }
+    Copy-Item -LiteralPath $Source -Destination $Temporary
+    $Expected = $ExpectedSha256.ToUpperInvariant()
+    if ((Get-CojvrFileSha256 $Temporary) -ne $Expected) {
+        Remove-Item -LiteralPath $Temporary -Force
+        throw "Temporary deployment copy '$Temporary' failed SHA-256 verification."
+    }
+    Move-Item -LiteralPath $Temporary -Destination $Destination
+    Invoke-CojvrDeploymentCheckpoint "file_published"
+    if ((Get-CojvrFileSha256 $Destination) -ne $Expected) {
+        throw "Installed deployment file '$Destination' failed SHA-256 verification."
+    }
+}
+
+function Install-CojvrVerifiedBytes(
+    [byte[]]$Bytes,
+    [string]$Destination,
+    [string]$Temporary,
+    [string]$ExpectedSha256) {
+    if (Test-Path -LiteralPath $Temporary) {
+        throw "Temporary deployment path '$Temporary' already exists."
+    }
+    [System.IO.File]::WriteAllBytes($Temporary, $Bytes)
+    $Expected = $ExpectedSha256.ToUpperInvariant()
+    if ((Get-CojvrFileSha256 $Temporary) -ne $Expected) {
+        Remove-Item -LiteralPath $Temporary -Force
+        throw "Temporary deployment content '$Temporary' failed SHA-256 verification."
+    }
+    Move-Item -LiteralPath $Temporary -Destination $Destination
+    Invoke-CojvrDeploymentCheckpoint "bytes_published"
+    if ((Get-CojvrFileSha256 $Destination) -ne $Expected) {
+        throw "Installed deployment file '$Destination' failed SHA-256 verification."
+    }
+}
+
 function Write-CojvrDeploymentJournal(
     [string]$GameDirectory,
     [string]$Operation,
@@ -73,6 +122,7 @@ function Write-CojvrDeploymentJournal(
         $JournalPath,
         ($Journal | ConvertTo-Json -Depth 12) + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
+    Invoke-CojvrDeploymentCheckpoint "journal_written"
     return $JournalPath
 }
 
@@ -95,12 +145,24 @@ function Complete-CojvrDeploymentRecovery([string]$GameDirectory) {
         } else {
             Join-Path $GameDirectory ([string]$Asset.backup)
         }
+        $Temporary = if ([string]::IsNullOrWhiteSpace([string]$Asset.temporary)) {
+            $null
+        } else {
+            Join-Path $GameDirectory ([string]$Asset.temporary)
+        }
         $HadOriginal = [bool]$Asset.hadOriginal
         $Kind = [string]$Asset.kind
 
         if ($Kind -eq "file") {
             $OriginalHash = ([string]$Asset.originalSha256).ToUpperInvariant()
             $StagedHash = ([string]$Asset.stagedSha256).ToUpperInvariant()
+            if ($Temporary -and (Test-Path -LiteralPath $Temporary)) {
+                if (-not (Test-Path -LiteralPath $Temporary -PathType Leaf) -or
+                    (Get-CojvrFileSha256 $Temporary) -ne $StagedHash) {
+                    throw "Recovery temporary file '$Temporary' changed externally; refusing to remove it."
+                }
+                Remove-Item -LiteralPath $Temporary -Force
+            }
             $BackupExists = $Backup -and (Test-Path -LiteralPath $Backup -PathType Leaf)
             if ($BackupExists -and $HadOriginal) {
                 if ((Get-CojvrFileSha256 $Backup) -ne $OriginalHash) {
@@ -146,6 +208,13 @@ function Complete-CojvrDeploymentRecovery([string]$GameDirectory) {
         if ($Kind -eq "directory") {
             $OriginalManifest = @($Asset.originalManifest)
             $StagedManifest = @($Asset.stagedManifest)
+            if ($Temporary -and (Test-Path -LiteralPath $Temporary)) {
+                if (-not (Test-Path -LiteralPath $Temporary -PathType Container) -or
+                    -not (Test-CojvrDirectoryIsKnownStagedSubset $Temporary $StagedManifest)) {
+                    throw "Recovery temporary directory '$Temporary' changed externally; refusing to remove it."
+                }
+                Remove-Item -LiteralPath $Temporary -Recurse -Force
+            }
             $BackupExists = $Backup -and (Test-Path -LiteralPath $Backup -PathType Container)
             if ($BackupExists -and $HadOriginal -and
                 -not (Test-CojvrDirectoryMatchesManifest $Backup $OriginalManifest)) {

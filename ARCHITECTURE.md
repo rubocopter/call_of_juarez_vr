@@ -156,8 +156,9 @@ native-stereo render-view proof:
 16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — current physical gate;
 17. Phase 5 resize/Reset/new-device and paused-producer acceptance coverage — host-tested;
 18. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization — host-tested; one consolidated physical run now checks those contracts together with the active performance gate;
-19. positional 6DOF and body/IK preflight are implemented at host level, including read-only pelvis/leg geometry plus measured two-bone leg solving; run `20260917T161917Z-909b63e114af` proved Sense tracking but showed that campaign actor discovery remains empty, so body promotion is parked while the performance gate proceeds independently;
-20. unresolved/invalid actor reconciliation now fails closed to HMD rotation plus native stereo eye offsets: room-scale head translation is suppressed until the actor can absorb it, preventing the render camera from walking away from the character body — host-tested.
+19. positional 6DOF and body/IK preflight are implemented at host level, including read-only pelvis/leg geometry plus measured two-bone leg solving; run `20260917T161917Z-909b63e114af` proved Sense tracking and showed Session-based campaign actor discovery is empty;
+20. shipped bytecode supplies the exact campaign ownership route `LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer()`; the JNI bridge verifies the active module type and uses that fallback only for the empty-Session single-player case — live-tested by `20260917T172007Z-e6232c4778d2` together with successful actor reconciliation and arm-writer invocation, while visual arm composition failed and remains under correction;
+21. unresolved/invalid actor reconciliation fails closed to HMD rotation plus native stereo eye offsets: room-scale head translation is suppressed until the actor can absorb it, preventing the render camera from walking away from the character body; run `20260917T163732Z-03df947b8d50` physically confirmed that visible-body fallback while body IK itself was disabled.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
@@ -187,8 +188,13 @@ native right axis explicitly and keeps the paired world/view update and restorat
 `20260916T104036Z-24b3e3010d4c` then showed that this removes the mirrored character and
 obvious culling/scene corruption, but same-sign HMD yaw still rotates the visible camera in
 the opposite horizontal direction. The game-specific pose adapter therefore negates only
-physical yaw; pitch keeps the direction confirmed by the live attempts and roll remains
-excluded.
+physical yaw; pitch keeps the direction confirmed by the live attempts. Runs on 2026-09-18 then
+exposed a comfort defect on physical head tilt: the camera basis excluded roll while the compositor
+received the full HMD render pose. Current host source extracts roll around the tracked forward axis
+and applies it around the native forward axis with the sign inversion required by the tracking
+`-Z` -> CoJ `+Z` reflection. The rendered right/up/forward basis and the pose used by
+`Submit_TextureWithPose` now describe the same full head orientation; physical comfort remains
+pending a fresh headset run.
 The integration treats a rigid right-handed source basis as a runtime invariant: both source
 world and source view/inverse matrices must preserve the native homogeneous `0/0/0/1`
 layout, and natural/applied bases must remain orthonormal with determinant approximately
@@ -276,16 +282,60 @@ adapter accepts `Session.sm_Players[0]` only when the session contains exactly o
 zero-player or multi-player ambiguity fails closed. When that happens, the camera/body composition
 also fails closed: HMD orientation and stereo eye offsets remain active, but physical tracking
 translation is neutralized until a native actor can be proven and reconciled. The adapter uses
-shipped `MeshObject` methods rather than
-hard-coded bone-memory offsets. The current skeleton read contract is `GetBoneJointPos`, `GetBoneDirVector` and
-`GetBonePerpVector`; shipped `ArmedPlayerBeing.UpdateLookPointDead` confirms the latter two are the
-native up/forward basis used with a bone joint position. Arm lengths therefore come from the live
-animated skeleton. A game-neutral two-bone solver places elbow/wrist targets, while the CoJ
-adapter shortest-arc rotates each current upper-arm/forearm basis so existing animation twist is
-preserved. Exact native `FromUpForwardPosElementWorld` performs the element-world write. The path
-is disabled by default and can be toggled during one staged run. It is host-tested only; hand
-orientation remains natural and pelvis/leg writers are deliberately deferred until this world-basis
-composition is physically proven.
+shipped `MeshObject` methods rather than hard-coded bone-memory offsets. Joint geometry still comes
+from `GetBoneJointPos`, while arm write composition now reads the exact mesh-element world frame
+with `GetElementPos`, `GetElementLeftVector` and `GetElementUpVector`.
+`ChromeEngine3.dll` disassembly shows that `GetElementForwardVector` writes its output vector but
+returns false unconditionally, so production reconstructs forward from the paired stored +X/up
+axes instead of treating that return value as success. The same disassembly shows
+`FromUpForwardPosElementWorld` normalizes forward, derives the first axis as `up x forward`, rebuilds
+up and stores the complete element world position/orientation.
+
+Arm lengths therefore come from the live animated shoulder/elbow/wrist joints, while native element
+origins and axes remain separate mesh/bind state. A game-neutral two-bone solver places the
+elbow/wrist targets. Runs through `20260917T223157Z-8061a216a065` established that correct
+world-space targets are still insufficient when solved poses are written as absolute mesh-element
+world transforms: both arms can track the Sense controllers yet remain reversed/contorted.
+
+Run `20260918T160300Z-cd4137a48fca` closed the `BoneRotate(BLVector;FZ)V` question: 96 sampled
+`body_arm_write_probe` records and 192 sampled `body_arm_render_probe` records all remained equal to
+the natural arm geometry even though the JNI calls and inverse restores returned success. Tracking,
+head-anchored targets and the two-bone solution remained valid. `BoneRotate` is therefore not an
+active visible-mesh writer for this build and must not be retried without contradictory native
+evidence.
+
+The current exact-game candidate instead uses the shipped
+`RotateElementWithChildren(ILVector;F)V` path at RVA `0x0009A070`. Exact-build disassembly shows that
+it reads the element's existing world matrix, composes an axis/angle rotation onto that matrix,
+invalidates the element/descendant matrix chain and refreshes attached child objects. It does not
+replace the native element origin with a bone joint and does not rebuild the base animation pose.
+The related `RotateElement` handler performs the same relative matrix composition without the final
+child-object refresh; `RotateElementWithAnim` changes the animation-side transform, while
+`CopyXformAnimToElement` copies an animation transform back into an element. Those latter routes are
+kept as research evidence rather than mixed into the first render-element candidate.
+
+The CoJ adapter still derives the shortest-arc upper-arm delta from natural shoulder->elbow to the
+solved segment, applies that parent delta mathematically before deriving the forearm delta, and then
+writes upper element before forearm element. Run `20260918T165754Z-845101e7557b` proved that the
+writer reaches the visible mesh but rejected the initial axis convention: the native handler
+post-multiplies its matrix and consumes an element-local axis, while the failed candidate supplied
+world-space axes. Current source converts the upper axis through its live element frame, applies the
+parent, re-reads the resulting forearm frame and converts the child axis there. The overlay is
+transactional around the two stereo eye draws and is undone forearm-before-upper after capture.
+Runtime validation now requires four
+observable geometry stages: natural immediately before write, changed immediately after a non-zero
+write, the same changed geometry after each complete eye render, and the original natural geometry
+after restore. It also requires elbow/wrist agreement with the solved targets, preventing an
+arbitrarily changed but misoriented mesh from passing. Inverse drift is corrected from the captured
+complete natural element frames and verified; failure of both restore paths fail-closes the writer.
+Hand orientation remains natural and pelvis/leg writers remain disabled until this corrected exact
+element path passes a fresh physical run.
+
+The OpenVR presenter treats SteamVR's dashboard as a system-owned layer. A visible dashboard gates
+scene submission and compositor-paced `WaitGetPoses`, while the latest valid game frame remains
+retained for immediate resumption. Global game-action polling is also suspended while the dashboard
+owns presentation. This policy is backend/presenter state handling; it does not change the CoJ
+camera or body contracts.
 
 The lower-body preflight uses the same exact skeleton readers without writing any lower-body
 element. The game-specific adapter records the native actor position plus animated pelvis offset,

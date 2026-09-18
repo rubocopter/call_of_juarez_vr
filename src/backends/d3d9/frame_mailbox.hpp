@@ -2,6 +2,7 @@
 
 #include "backends/d3d9/stereo_frame.hpp"
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -35,7 +36,7 @@ private:
     StereoCpuFrame pending_{};
     bool has_pending_ = false;
     bool stopped_ = false;
-    std::uint64_t last_published_sequence_ = 0;
+    std::atomic_uint64_t last_published_sequence_{0};
     FrameMailboxStats stats_{};
 };
 

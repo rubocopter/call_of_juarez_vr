@@ -27,6 +27,7 @@ constexpr std::size_t kDeleteLocalRef = 23;
 constexpr std::size_t kIsSameObject = 24;
 constexpr std::size_t kNewObjectA = 30;
 constexpr std::size_t kGetObjectClass = 31;
+constexpr std::size_t kIsInstanceOf = 32;
 constexpr std::size_t kGetMethodId = 33;
 constexpr std::size_t kCallObjectMethodA = 36;
 constexpr std::size_t kCallBooleanMethodA = 39;
@@ -41,12 +42,16 @@ constexpr std::size_t kGetStaticObjectField = 145;
 
 constexpr std::size_t kVmAttachCurrentThreadAsDaemon = 7;
 constexpr std::size_t kVmGetEnv = 6;
+constexpr std::size_t kVmDetachCurrentThread = 5;
 
 #if defined(_WIN32)
 #define COJVR_JNICALL __stdcall
 #else
 #define COJVR_JNICALL
 #endif
+
+// Thread-local flag to track if this thread was attached by the bridge.
+static thread_local bool g_jni_thread_attached = false;
 
 union JValue {
     std::uint8_t z;
@@ -81,6 +86,7 @@ Function VmFunction(void* vm, const std::size_t index) noexcept {
 using GetCreatedJavaVmsFn = std::int32_t(COJVR_JNICALL*)(void**, std::int32_t, std::int32_t*);
 using GetEnvFn = std::int32_t(COJVR_JNICALL*)(void*, void**, std::int32_t);
 using AttachCurrentThreadFn = std::int32_t(COJVR_JNICALL*)(void*, void**, void*);
+using DetachCurrentThreadFn = std::int32_t(COJVR_JNICALL*)(void*);
 using FindClassFn = void*(COJVR_JNICALL*)(void*, const char*);
 using ExceptionOccurredFn = void*(COJVR_JNICALL*)(void*);
 using ExceptionClearFn = void(COJVR_JNICALL*)(void*);
@@ -90,6 +96,7 @@ using DeleteLocalRefFn = void(COJVR_JNICALL*)(void*, void*);
 using IsSameObjectFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*);
 using NewObjectAFn = void*(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using GetObjectClassFn = void*(COJVR_JNICALL*)(void*, void*);
+using IsInstanceOfFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetMethodIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using CallObjectMethodAFn = void*(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using CallBooleanMethodAFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
@@ -157,6 +164,16 @@ void JavaPlayerBridge::Reset() noexcept {
                 delete_global(env, session_class_);
             }
         }
+        if (lawman_module_single_class_) {
+            if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+                delete_global(env, lawman_module_single_class_);
+            }
+        }
+        if (lawman_game_class_) {
+            if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+                delete_global(env, lawman_game_class_);
+            }
+        }
     } else {
         being_ = nullptr;
     }
@@ -166,11 +183,20 @@ void JavaPlayerBridge::Reset() noexcept {
     vector_size_method_ = nullptr;
     vector_get_method_ = nullptr;
     net_player_being_field_ = nullptr;
+    lawman_game_class_ = nullptr;
+    lawman_module_single_class_ = nullptr;
+    active_game_module_field_ = nullptr;
+    is_timer_freezed_method_ = nullptr;
     get_mesh_element_method_ = nullptr;
     get_bone_joint_method_ = nullptr;
     get_bone_direction_method_ = nullptr;
     get_bone_perpendicular_method_ = nullptr;
+    get_element_position_method_ = nullptr;
+    get_element_left_method_ = nullptr;
+    get_element_up_method_ = nullptr;
     set_element_world_basis_method_ = nullptr;
+    rotate_element_with_children_method_ = nullptr;
+    bone_rotate_method_ = nullptr;
     get_position_vector_method_ = nullptr;
     set_position_method_ = nullptr;
     update_body_rotation_method_ = nullptr;
@@ -185,10 +211,16 @@ void JavaPlayerBridge::Reset() noexcept {
     vector_class_ = nullptr;
     vector_constructor_ = nullptr;
     bone_read_lookup_attempted_ = false;
+    element_world_read_lookup_attempted_ = false;
     element_world_basis_lookup_attempted_ = false;
+    element_rotation_lookup_attempted_ = false;
+    bone_rotation_lookup_attempted_ = false;
     single_player_fallback_used_ = false;
+    campaign_module_fallback_used_ = false;
     vm_ = nullptr;
     being_generation_ = 0;
+    // Detach current thread if it was attached by this bridge
+    DetachCurrentThread();
 }
 
 void* JavaPlayerBridge::Environment(std::string* error) noexcept {
@@ -213,7 +245,17 @@ void* JavaPlayerBridge::Environment(std::string* error) noexcept {
         SetError(error, "AttachCurrentThreadAsDaemon failed");
         return nullptr;
     }
+    g_jni_thread_attached = true;
     return env;
+}
+
+void JavaPlayerBridge::DetachCurrentThread() noexcept {
+    if (!vm_ || !g_jni_thread_attached) return;
+    const auto detach = VmFunction<DetachCurrentThreadFn>(vm_, kVmDetachCurrentThread);
+    if (detach) {
+        detach(vm_);
+        g_jni_thread_attached = false;
+    }
 }
 
 bool JavaPlayerBridge::ClearException(
@@ -292,6 +334,174 @@ bool JavaPlayerBridge::EnsureSession(void* env, std::string* error) noexcept {
     return true;
 }
 
+bool JavaPlayerBridge::EnsureCampaignAccess(void* env, std::string* error) noexcept {
+    if (lawman_game_class_ && lawman_module_single_class_ && active_game_module_field_) {
+        return true;
+    }
+
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto new_global = EnvFunction<NewGlobalRefFn>(env, kNewGlobalRef);
+    const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
+    if (!find_class || !new_global || !get_static_field) {
+        SetError(error, "required JNI campaign lookup functions are unavailable");
+        return false;
+    }
+
+    void* local_game_class = find_class(env, "LawmanGame");
+    if (!local_game_class || ClearException(env, error, "FindClass(LawmanGame) failed")) {
+        DeleteLocal(env, local_game_class);
+        return false;
+    }
+    void* global_game_class = new_global(env, local_game_class);
+    DeleteLocal(env, local_game_class);
+    if (!global_game_class || ClearException(env, error, "NewGlobalRef(LawmanGame) failed")) {
+        return false;
+    }
+
+    void* active_module_field = get_static_field(
+        env, global_game_class, "sm_cActiveGameModule", "LLawmanModule;");
+    if (!active_module_field ||
+        ClearException(env, error, "LawmanGame.sm_cActiveGameModule lookup failed")) {
+        if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+            delete_global(env, global_game_class);
+        }
+        return false;
+    }
+
+    void* local_single_class = find_class(env, "LawmanModuleSingle");
+    if (!local_single_class ||
+        ClearException(env, error, "FindClass(LawmanModuleSingle) failed")) {
+        DeleteLocal(env, local_single_class);
+        if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+            delete_global(env, global_game_class);
+        }
+        return false;
+    }
+    void* global_single_class = new_global(env, local_single_class);
+    DeleteLocal(env, local_single_class);
+    if (!global_single_class ||
+        ClearException(env, error, "NewGlobalRef(LawmanModuleSingle) failed")) {
+        if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+            delete_global(env, global_game_class);
+        }
+        return false;
+    }
+
+    lawman_game_class_ = global_game_class;
+    lawman_module_single_class_ = global_single_class;
+    active_game_module_field_ = active_module_field;
+    return true;
+}
+
+bool JavaPlayerBridge::TryResolveCampaignBeing(void* env, std::string* error) noexcept {
+    if (!EnsureCampaignAccess(env, error)) return false;
+
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+    const auto is_same = EnvFunction<IsSameObjectFn>(env, kIsSameObject);
+    if (!get_static_object || !is_instance || !get_class || !get_method || !call_object ||
+        !is_same) {
+        SetError(error, "required JNI campaign player discovery functions are unavailable");
+        return false;
+    }
+
+    void* module = get_static_object(env, lawman_game_class_, active_game_module_field_);
+    if (ClearException(env, error, "LawmanGame.sm_cActiveGameModule read failed") || !module) {
+        DeleteLocal(env, module);
+        SetError(error, "single-player active game module is unavailable");
+        return false;
+    }
+    if (is_instance(env, module, lawman_module_single_class_) == 0 ||
+        ClearException(env, error, "LawmanModuleSingle type check failed")) {
+        DeleteLocal(env, module);
+        SetError(error, "active game module is not LawmanModuleSingle");
+        return false;
+    }
+
+    void* module_class = get_class(env, module);
+    if (!module_class || ClearException(env, error, "GetObjectClass(active game module) failed")) {
+        DeleteLocal(env, module_class);
+        DeleteLocal(env, module);
+        return false;
+    }
+    void* get_main_player = get_method(env, module_class, "GetMainPlayer", "()LBeing;");
+    const bool method_failed =
+        ClearException(env, error, "LawmanModuleSingle.GetMainPlayer lookup failed");
+    DeleteLocal(env, module_class);
+    if (method_failed || !get_main_player) {
+        DeleteLocal(env, module);
+        return false;
+    }
+
+    void* local_being = call_object(env, module, get_main_player, nullptr);
+    DeleteLocal(env, module);
+    if (ClearException(env, error, "LawmanModuleSingle.GetMainPlayer call failed") ||
+        !local_being) {
+        DeleteLocal(env, local_being);
+        SetError(error, "single-player main player is unavailable");
+        return false;
+    }
+
+    const bool same = being_ && is_same(env, being_, local_being) != 0;
+    if (!same && !ResolveBeingMethods(env, local_being, error)) {
+        DeleteLocal(env, local_being);
+        return false;
+    }
+    DeleteLocal(env, local_being);
+    campaign_module_fallback_used_ = true;
+    single_player_fallback_used_ = false;
+    return being_ != nullptr;
+}
+
+bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
+    bool& frozen, std::string* error) noexcept {
+    frozen = false;
+    void* env = Environment(error);
+    if (!env || !EnsureCampaignAccess(env, error)) return false;
+
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!get_static_object || !is_instance || !get_method || !call_boolean) {
+        SetError(error, "required JNI game-timer observation functions are unavailable");
+        return false;
+    }
+
+    if (!is_timer_freezed_method_) {
+        is_timer_freezed_method_ =
+            get_method(env, lawman_module_single_class_, "IsTimerFreezed", "()Z");
+        if (!is_timer_freezed_method_ ||
+            ClearException(env, error, "Module.IsTimerFreezed lookup failed")) {
+            is_timer_freezed_method_ = nullptr;
+            return false;
+        }
+    }
+
+    void* module = get_static_object(env, lawman_game_class_, active_game_module_field_);
+    if (ClearException(env, error, "LawmanGame.sm_cActiveGameModule timer read failed") ||
+        !module) {
+        DeleteLocal(env, module);
+        SetError(error, "active game module is unavailable for timer observation");
+        return false;
+    }
+    if (is_instance(env, module, lawman_module_single_class_) == 0 ||
+        ClearException(env, error, "LawmanModuleSingle timer type check failed")) {
+        DeleteLocal(env, module);
+        SetError(error, "active game module is not LawmanModuleSingle for timer observation");
+        return false;
+    }
+
+    const std::uint8_t value = call_boolean(env, module, is_timer_freezed_method_, nullptr);
+    DeleteLocal(env, module);
+    if (ClearException(env, error, "Module.IsTimerFreezed call failed")) return false;
+    frozen = value != 0;
+    return true;
+}
+
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     if (being_ && env) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
@@ -303,7 +513,12 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     get_bone_joint_method_ = nullptr;
     get_bone_direction_method_ = nullptr;
     get_bone_perpendicular_method_ = nullptr;
+    get_element_position_method_ = nullptr;
+    get_element_left_method_ = nullptr;
+    get_element_up_method_ = nullptr;
     set_element_world_basis_method_ = nullptr;
+    rotate_element_with_children_method_ = nullptr;
+    bone_rotate_method_ = nullptr;
     get_position_vector_method_ = nullptr;
     set_position_method_ = nullptr;
     update_body_rotation_method_ = nullptr;
@@ -313,7 +528,10 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     current_spine_horizontal_field_ = nullptr;
     body_rotation_lookup_attempted_ = false;
     bone_read_lookup_attempted_ = false;
+    element_world_read_lookup_attempted_ = false;
     element_world_basis_lookup_attempted_ = false;
+    element_rotation_lookup_attempted_ = false;
+    bone_rotation_lookup_attempted_ = false;
 }
 
 bool JavaPlayerBridge::ResolveBeingMethods(
@@ -439,6 +657,45 @@ bool JavaPlayerBridge::EnsureBoneReadAccess(void* env, std::string* error) noexc
     return EnsureVectorAccess(env, error);
 }
 
+bool JavaPlayerBridge::EnsureElementWorldReadAccess(void* env, std::string* error) noexcept {
+    if (element_world_read_lookup_attempted_) {
+        if (get_element_position_method_ && get_element_left_method_ && get_element_up_method_) {
+            return EnsureVectorAccess(env, error);
+        }
+        SetError(error, "player element world-read path is unavailable");
+        return false;
+    }
+    element_world_read_lookup_attempted_ = true;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    if (!get_class || !get_method) {
+        SetError(error, "required JNI element world-read lookup functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (!player_class || ClearException(env, error, "GetObjectClass(element reader) failed")) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    get_element_position_method_ =
+        get_method(env, player_class, "GetElementPos", "(ILVector;)Z");
+    get_element_left_method_ =
+        get_method(env, player_class, "GetElementLeftVector", "(ILVector;)Z");
+    get_element_up_method_ =
+        get_method(env, player_class, "GetElementUpVector", "(ILVector;)Z");
+    const bool failed =
+        ClearException(env, error, "player element world-read method lookup failed");
+    DeleteLocal(env, player_class);
+    if (failed || !get_element_position_method_ || !get_element_left_method_ ||
+        !get_element_up_method_) {
+        get_element_position_method_ = nullptr;
+        get_element_left_method_ = nullptr;
+        get_element_up_method_ = nullptr;
+        return false;
+    }
+    return EnsureVectorAccess(env, error);
+}
+
 bool JavaPlayerBridge::EnsureElementWorldBasisAccess(void* env, std::string* error) noexcept {
     if (element_world_basis_lookup_attempted_) {
         if (set_element_world_basis_method_) return EnsureVectorAccess(env, error);
@@ -465,6 +722,64 @@ bool JavaPlayerBridge::EnsureElementWorldBasisAccess(void* env, std::string* err
     DeleteLocal(env, player_class);
     if (failed || !set_element_world_basis_method_) {
         set_element_world_basis_method_ = nullptr;
+        return false;
+    }
+    return EnsureVectorAccess(env, error);
+}
+
+bool JavaPlayerBridge::EnsureElementRotationAccess(void* env, std::string* error) noexcept {
+    if (element_rotation_lookup_attempted_) {
+        if (rotate_element_with_children_method_) return EnsureVectorAccess(env, error);
+        SetError(error, "player element hierarchy-rotation path is unavailable");
+        return false;
+    }
+    element_rotation_lookup_attempted_ = true;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    if (!get_class || !get_method) {
+        SetError(error, "required JNI element rotation lookup functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (!player_class || ClearException(env, error, "GetObjectClass(element rotation) failed")) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    rotate_element_with_children_method_ = get_method(
+        env, player_class, "RotateElementWithChildren", "(ILVector;F)V");
+    const bool failed = ClearException(env, error, "RotateElementWithChildren method lookup failed");
+    DeleteLocal(env, player_class);
+    if (failed || !rotate_element_with_children_method_) {
+        rotate_element_with_children_method_ = nullptr;
+        return false;
+    }
+    return EnsureVectorAccess(env, error);
+}
+
+bool JavaPlayerBridge::EnsureBoneRotationAccess(void* env, std::string* error) noexcept {
+    if (bone_rotation_lookup_attempted_) {
+        if (bone_rotate_method_) return EnsureVectorAccess(env, error);
+        SetError(error, "player BoneRotate path is unavailable");
+        return false;
+    }
+    bone_rotation_lookup_attempted_ = true;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    if (!get_class || !get_method) {
+        SetError(error, "required JNI BoneRotate lookup functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (!player_class || ClearException(env, error, "GetObjectClass(BoneRotate) failed")) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    bone_rotate_method_ =
+        get_method(env, player_class, "BoneRotate", "(BLVector;FZ)V");
+    const bool failed = ClearException(env, error, "BoneRotate method lookup failed");
+    DeleteLocal(env, player_class);
+    if (failed || !bone_rotate_method_) {
+        bone_rotate_method_ = nullptr;
         return false;
     }
     return EnsureVectorAccess(env, error);
@@ -578,6 +893,7 @@ bool JavaPlayerBridge::Refresh(std::string* error) noexcept {
         return false;
     }
     single_player_fallback_used_ = false;
+    campaign_module_fallback_used_ = false;
     if (!local_player) {
         void* players = get_static_object(env, session_class_, session_players_field_);
         if (ClearException(env, error, "Session.sm_Players read failed") || !players) {
@@ -588,12 +904,21 @@ bool JavaPlayerBridge::Refresh(std::string* error) noexcept {
         }
 
         const std::int32_t player_count = call_int(env, players, vector_size_method_, nullptr);
-        if (ClearException(env, error, "Session.sm_Players size read failed") || player_count != 1) {
+        if (ClearException(env, error, "Session.sm_Players size read failed")) {
             DeleteLocal(env, players);
             ClearBeing(env);
-            SetError(error, player_count == 0
-                ? "local player is unavailable and the session player list is empty"
-                : "local player is unavailable and the session player list is ambiguous");
+            return false;
+        }
+        if (player_count == 0) {
+            DeleteLocal(env, players);
+            if (TryResolveCampaignBeing(env, error)) return true;
+            ClearBeing(env);
+            return false;
+        }
+        if (player_count != 1) {
+            DeleteLocal(env, players);
+            ClearBeing(env);
+            SetError(error, "local player is unavailable and the session player list is ambiguous");
             return false;
         }
 
@@ -780,6 +1105,117 @@ bool JavaPlayerBridge::TryGetBonePerpendicular(
     return read;
 }
 
+bool JavaPlayerBridge::TryGetElementWorldBasis(
+    const int element,
+    JavaPlayerPosition& position,
+    JavaPlayerPosition& up,
+    JavaPlayerPosition& forward,
+    std::string* error) noexcept {
+    position = {};
+    up = {};
+    forward = {};
+    if (element < 0) {
+        SetError(error, "mesh element is invalid");
+        return false;
+    }
+    void* env = Environment(error);
+    if (!env || !being_) {
+        SetError(error, "player being is not resolved");
+        return false;
+    }
+    if (!EnsureElementWorldReadAccess(env, error)) return false;
+
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!new_object || !call_boolean) {
+        SetError(error, "required JNI element world-read functions are unavailable");
+        return false;
+    }
+    void* vector = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (!vector || ClearException(env, error, "Vector construction for element frame failed")) {
+        DeleteLocal(env, vector);
+        return false;
+    }
+
+    const auto read_element_vector = [&](
+                                         void* method,
+                                         const char* call_error,
+                                         const char* unavailable_error,
+                                         JavaPlayerPosition& value) noexcept {
+        JValue args[2]{};
+        args[0].i = element;
+        args[1].l = vector;
+        const bool available = call_boolean(env, being_, method, args) != 0;
+        if (ClearException(env, error, call_error) || !available) {
+            if (!available) SetError(error, unavailable_error);
+            return false;
+        }
+        return ReadVector(env, vector, value, error);
+    };
+
+    JavaPlayerPosition element_x_axis{};
+    const bool read =
+        read_element_vector(
+            get_element_position_method_, "GetElementPos call failed",
+            "element world position is unavailable", position) &&
+        read_element_vector(
+            get_element_left_method_, "GetElementLeftVector call failed",
+            "element world X axis is unavailable", element_x_axis) &&
+        read_element_vector(
+            get_element_up_method_, "GetElementUpVector call failed",
+            "element world up axis is unavailable", up);
+    DeleteLocal(env, vector);
+    if (!read) return false;
+
+    // Exact ChromeEngine3 disassembly shows GetElementLeftVector transforms local
+    // +X by the element world matrix. FromUpForwardPosElementWorld stores that same
+    // +X row as up x forward, so rebuild forward from the paired X/up getters instead
+    // of using GetElementForwardVector (whose shipped native handler writes the
+    // vector but incorrectly returns false).
+    const auto length = [](const JavaPlayerPosition value) noexcept {
+        return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
+    };
+    const auto scale = [](const JavaPlayerPosition value, const float factor) noexcept {
+        return JavaPlayerPosition{value.x * factor, value.y * factor, value.z * factor};
+    };
+    const auto dot = [](const JavaPlayerPosition left, const JavaPlayerPosition right) noexcept {
+        return left.x * right.x + left.y * right.y + left.z * right.z;
+    };
+    const auto cross = [](const JavaPlayerPosition left, const JavaPlayerPosition right) noexcept {
+        return JavaPlayerPosition{
+            left.y * right.z - left.z * right.y,
+            left.z * right.x - left.x * right.z,
+            left.x * right.y - left.y * right.x,
+        };
+    };
+
+    const float up_length = length(up);
+    if (!std::isfinite(up_length) || up_length <= 1.0e-5F) {
+        SetError(error, "element world up axis is degenerate");
+        return false;
+    }
+    up = scale(up, 1.0F / up_length);
+    element_x_axis = {
+        element_x_axis.x - up.x * dot(element_x_axis, up),
+        element_x_axis.y - up.y * dot(element_x_axis, up),
+        element_x_axis.z - up.z * dot(element_x_axis, up),
+    };
+    const float x_length = length(element_x_axis);
+    if (!std::isfinite(x_length) || x_length <= 1.0e-5F) {
+        SetError(error, "element world X axis is degenerate");
+        return false;
+    }
+    element_x_axis = scale(element_x_axis, 1.0F / x_length);
+    forward = cross(element_x_axis, up);
+    const float forward_length = length(forward);
+    if (!std::isfinite(forward_length) || forward_length <= 1.0e-5F) {
+        SetError(error, "element world forward axis is degenerate");
+        return false;
+    }
+    forward = scale(forward, 1.0F / forward_length);
+    return true;
+}
+
 bool JavaPlayerBridge::TrySetElementWorldBasis(
     const int element,
     const JavaPlayerPosition& up,
@@ -832,6 +1268,119 @@ bool JavaPlayerBridge::TrySetElementWorldBasis(
     DeleteLocal(env, up_vector);
     DeleteLocal(env, forward_vector);
     DeleteLocal(env, position_vector);
+    return !failed;
+}
+
+bool JavaPlayerBridge::TryRotateElementWithChildren(
+    const int element,
+    const JavaPlayerPosition& axis,
+    const float angle_degrees,
+    std::string* error) noexcept {
+    if (element < 0 || !std::isfinite(axis.x) || !std::isfinite(axis.y) ||
+        !std::isfinite(axis.z) || !std::isfinite(angle_degrees)) {
+        SetError(error, "element rotation input is invalid");
+        return false;
+    }
+    const float axis_length =
+        std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+    if (axis_length <= 1.0e-5F || std::fabs(angle_degrees) > 180.0001F) {
+        SetError(error, "element rotation axis/angle is degenerate");
+        return false;
+    }
+
+    void* env = Environment(error);
+    if (!env || !being_) {
+        SetError(error, "player being is not resolved");
+        return false;
+    }
+    if (!EnsureElementRotationAccess(env, error)) return false;
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    if (!new_object || !call_void) {
+        SetError(error, "required JNI RotateElementWithChildren functions are unavailable");
+        return false;
+    }
+
+    void* axis_vector = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (!axis_vector ||
+        ClearException(env, error, "Vector construction for RotateElementWithChildren failed")) {
+        DeleteLocal(env, axis_vector);
+        return false;
+    }
+    const JavaPlayerPosition normalized_axis{
+        axis.x / axis_length,
+        axis.y / axis_length,
+        axis.z / axis_length,
+    };
+    if (!WriteVector(env, axis_vector, normalized_axis, error)) {
+        DeleteLocal(env, axis_vector);
+        return false;
+    }
+
+    JValue args[3]{};
+    args[0].i = element;
+    args[1].l = axis_vector;
+    args[2].f = angle_degrees;
+    call_void(env, being_, rotate_element_with_children_method_, args);
+    const bool failed = ClearException(env, error, "RotateElementWithChildren call failed");
+    DeleteLocal(env, axis_vector);
+    return !failed;
+}
+
+bool JavaPlayerBridge::TryRotateBone(
+    const std::int8_t bone,
+    const JavaPlayerPosition& axis,
+    const float angle_degrees,
+    const bool update_hierarchy,
+    std::string* error) noexcept {
+    if (bone < 0 || !std::isfinite(axis.x) || !std::isfinite(axis.y) ||
+        !std::isfinite(axis.z) || !std::isfinite(angle_degrees)) {
+        SetError(error, "bone rotation input is invalid");
+        return false;
+    }
+    const float axis_length =
+        std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+    if (axis_length <= 1.0e-5F || std::fabs(angle_degrees) > 180.0001F) {
+        SetError(error, "bone rotation axis/angle is degenerate");
+        return false;
+    }
+
+    void* env = Environment(error);
+    if (!env || !being_) {
+        SetError(error, "player being is not resolved");
+        return false;
+    }
+    if (!EnsureBoneRotationAccess(env, error)) return false;
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    if (!new_object || !call_void) {
+        SetError(error, "required JNI BoneRotate functions are unavailable");
+        return false;
+    }
+
+    void* axis_vector = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (!axis_vector || ClearException(env, error, "Vector construction for BoneRotate failed")) {
+        DeleteLocal(env, axis_vector);
+        return false;
+    }
+    const JavaPlayerPosition normalized_axis{
+        axis.x / axis_length,
+        axis.y / axis_length,
+        axis.z / axis_length,
+    };
+    if (!WriteVector(env, axis_vector, normalized_axis, error)) {
+        DeleteLocal(env, axis_vector);
+        return false;
+    }
+
+    JValue args[4]{};
+    args[0].b = bone;
+    args[1].l = axis_vector;
+    args[2].f = angle_degrees;
+    args[3].z = update_hierarchy ? 1 : 0;
+    call_void(env, being_, bone_rotate_method_, args);
+    const bool failed = ClearException(env, error, "BoneRotate call failed");
+    DeleteLocal(env, axis_vector);
     return !failed;
 }
 

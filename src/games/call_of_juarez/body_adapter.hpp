@@ -4,6 +4,17 @@
 
 namespace cojvr::games::call_of_juarez {
 
+// CONFLICT NOTE: BodyAdapter::Apply() writes absolute poses to upper arm, forearm,
+// and hand bones simultaneously via BoneTransformWriter. Meanwhile, the IK system
+// in camera_probe.cpp uses relative render-element rotations on the same bones.
+// These two systems CONFLICT if both are enabled:
+//   - BodyAdapter::Apply() overwrites the hierarchical render-element overlay
+//   - RotateElementWithChildren expects to be the sole writer to these elements
+// Only ONE of these systems should be active at a time. The render-element path
+// is preferred for VR body tracking because it preserves animation twist/roll and
+// respects the native hierarchy. BodyAdapter::Apply() is kept for
+// potential future use with different game integrations that lack BoneRotate.
+
 struct BodySkeletonState {
     bool available = false;
     void* actor = nullptr;
@@ -56,11 +67,30 @@ struct ArmGeometrySample {
     cojvr::runtime::Vec3 shoulder{};
     cojvr::runtime::Vec3 elbow{};
     cojvr::runtime::Vec3 wrist{};
-    cojvr::runtime::Vec3 upper_up{};
-    cojvr::runtime::Vec3 upper_forward{};
-    cojvr::runtime::Vec3 forearm_up{};
-    cojvr::runtime::Vec3 forearm_forward{};
+    cojvr::runtime::Vec3 upper_element_position{};
+    cojvr::runtime::Vec3 upper_element_up{};
+    cojvr::runtime::Vec3 upper_element_forward{};
+    cojvr::runtime::Vec3 forearm_element_position{};
+    cojvr::runtime::Vec3 forearm_element_up{};
+    cojvr::runtime::Vec3 forearm_element_forward{};
 };
+
+struct ArmGeometryRestoreCheck {
+    float max_joint_position_error = 0.0F;
+    float max_element_position_error = 0.0F;
+    float max_axis_error = 0.0F;
+    bool matches = false;
+};
+
+// Native element transforms use single-precision world coordinates around
+// 40,000 game units in the inspected campaign. At that magnitude one float
+// ULP is already about 0.0039 game units, so exact/inverse composition cannot
+// be judged with the much smaller mutation threshold. This restore-specific
+// comparison accepts only sub-millimetre positional drift and a small unit-axis
+// round-off while still rejecting a visible residual arm rotation.
+[[nodiscard]] ArmGeometryRestoreCheck CheckArmGeometryRestored(
+    const ArmGeometrySample& natural,
+    const ArmGeometrySample& restored) noexcept;
 
 struct PelvisLocomotionAnchor {
     cojvr::runtime::Vec3 actor_position{};
@@ -91,10 +121,24 @@ struct ElementWorldBasisTarget {
 struct ArmIkPlan {
     ElementWorldBasisTarget upper_arm{};
     ElementWorldBasisTarget forearm{};
+    cojvr::runtime::Vec3 elbow_target{};
     cojvr::runtime::Vec3 wrist_target{};
     float upper_length = 0.0F;
     float lower_length = 0.0F;
     bool target_clamped = false;
+    bool valid = false;
+};
+
+struct BoneRotationDelta {
+    cojvr::runtime::Vec3 axis{};
+    float angle_degrees = 0.0F;
+    bool no_op = false;
+    bool valid = false;
+};
+
+struct ArmBoneRotationPlan {
+    BoneRotationDelta upper_arm{};
+    BoneRotationDelta forearm{};
     bool valid = false;
 };
 
@@ -111,11 +155,41 @@ struct LegIkPlan {
 };
 
 // Builds a world-space arm overlay from the current animated skeleton. The
-// current bone bases provide twist/roll; the solver only rotates each segment
-// enough to place the elbow and wrist at the IK solution.
+// native element frames preserve mesh/bind pivots and twist/roll; the solver
+// rotates those frames around the measured shoulder/elbow joints.
 [[nodiscard]] ArmIkPlan BuildArmIkPlan(
     const ArmGeometrySample& geometry,
     cojvr::runtime::Vec3 controller_target) noexcept;
+
+// Converts the solved world-space arm chain into the relative hierarchy
+// rotations consumed by Call of Juarez's native BoneRotate path. The forearm
+// delta is computed after applying the upper-arm delta to the natural lower
+// segment so parent motion is not applied twice.
+[[nodiscard]] ArmBoneRotationPlan BuildArmBoneRotationPlan(
+    const ArmGeometrySample& geometry,
+    const ArmIkPlan& plan) noexcept;
+
+// RotateElementWithChildren post-multiplies the element world matrix, so the
+// Java axis argument is expressed in the element's current local frame. Convert
+// the solver's world-space shortest-arc axis using the exact live element basis.
+[[nodiscard]] BoneRotationDelta ConvertWorldRotationToElementLocal(
+    const BoneRotationDelta& world_rotation,
+    cojvr::runtime::Vec3 element_up,
+    cojvr::runtime::Vec3 element_forward) noexcept;
+
+// Maps a recentered tracked hand around the native animated head joint. The
+// controller and HMD positions are in the same tracking space; subtracting the
+// tracked head removes the recenter-space origin before the offset is mapped
+// through the exact CoJ camera basis into the skeleton's world space.
+[[nodiscard]] cojvr::runtime::Vec3 BuildTrackedHandTarget(
+    cojvr::runtime::Vec3 head_world_target,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 tracked_head,
+    cojvr::runtime::Vec3 tracked_hand,
+    float game_units_per_meter,
+    bool& valid) noexcept;
 
 // Keeps the pelvis rooted in the native locomotion owner while exposing the
 // animated pelvis offset separately. The first lower-body pass is observation

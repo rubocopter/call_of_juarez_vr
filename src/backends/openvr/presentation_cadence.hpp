@@ -13,6 +13,7 @@ enum class PresentationContent : std::uint8_t {
 // Small state machine for compositor cadence. A newly uploaded texture pair
 // remains presentable while the game producer is paused; successful submits
 // after the first are explicitly repetitions until another upload arrives.
+// Dashboard visibility is handled by the presenter, not by the cadence.
 class PresentationCadence final {
 public:
     void FrameUploaded() noexcept {
@@ -26,6 +27,11 @@ public:
     }
 
     [[nodiscard]] bool presentable() const noexcept { return presentable_; }
+
+    [[nodiscard]] bool scene_submission_allowed(
+        const bool /*system_overlay_visible*/) const noexcept {
+        return presentable_;
+    }
 
     [[nodiscard]] PresentationContent pending_content() const noexcept {
         if (!presentable_) return PresentationContent::none;

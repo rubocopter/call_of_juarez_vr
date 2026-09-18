@@ -25,6 +25,14 @@ int main() {
         cadence.pending_content() != PresentationContent::new_frame) {
         return Fail("first uploaded frame was not classified as new");
     }
+    // Dashboard visibility gating is now handled by the presenter, not the cadence.
+    // The cadence only tracks presentable state.
+    if (!cadence.scene_submission_allowed(false) || !cadence.scene_submission_allowed(true)) {
+        return Fail("scene submission should be allowed when presentable, regardless of overlay");
+    }
+    if (cadence.pending_content() != PresentationContent::new_frame) {
+        return Fail("pending content should remain new_frame");
+    }
 
     // A failed compositor submit must not consume the new-frame classification.
     if (cadence.pending_content() != PresentationContent::new_frame) {
