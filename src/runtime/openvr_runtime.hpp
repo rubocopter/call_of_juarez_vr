@@ -94,6 +94,9 @@ public:
     [[nodiscard]] bool InitializeGlobalActions(
         std::string_view absolute_manifest_path) noexcept;
     [[nodiscard]] bool PollGlobalActions(OpenVrGlobalActions& actions) noexcept;
+    [[nodiscard]] bool PollActions(
+        OpenVrGlobalActions& global_actions,
+        GameplayInputState& gameplay_actions) noexcept;
     [[nodiscard]] bool global_actions_initialized() const noexcept;
     void RecordEyeSubmission(Eye eye, bool succeeded) noexcept;
 

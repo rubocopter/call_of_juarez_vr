@@ -1,15 +1,22 @@
 {
   "actions": [
-    {
-      "name": "/actions/global/in/recenter",
-      "type": "boolean"
-    }
+    { "name": "/actions/global/in/recenter", "type": "boolean" },
+    { "name": "/actions/gameplay/in/move", "type": "vector2" },
+    { "name": "/actions/gameplay/in/turn", "type": "vector2" },
+    { "name": "/actions/gameplay/in/fire_left", "type": "boolean" },
+    { "name": "/actions/gameplay/in/fire_right", "type": "boolean" },
+    { "name": "/actions/gameplay/in/jump", "type": "boolean" },
+    { "name": "/actions/gameplay/in/reload", "type": "boolean" },
+    { "name": "/actions/gameplay/in/run", "type": "boolean" },
+    { "name": "/actions/gameplay/in/crouch", "type": "boolean" },
+    { "name": "/actions/gameplay/in/interact", "type": "boolean" },
+    { "name": "/actions/gameplay/in/weapon_next", "type": "boolean" },
+    { "name": "/actions/gameplay/in/weapon_previous", "type": "boolean" },
+    { "name": "/actions/gameplay/in/kick", "type": "boolean" }
   ],
   "action_sets": [
-    {
-      "name": "/actions/global",
-      "usage": "leftright"
-    }
+    { "name": "/actions/global", "usage": "leftright" },
+    { "name": "/actions/gameplay", "usage": "leftright" }
   ],
   "default_bindings": [
     {
@@ -21,12 +28,38 @@
     {
       "language_tag": "en_US",
       "/actions/global": "Global VR controls",
-      "/actions/global/in/recenter": "Recenter view"
+      "/actions/global/in/recenter": "Recenter view",
+      "/actions/gameplay": "Gameplay",
+      "/actions/gameplay/in/move": "Move",
+      "/actions/gameplay/in/turn": "Turn",
+      "/actions/gameplay/in/fire_left": "Fire left weapon",
+      "/actions/gameplay/in/fire_right": "Fire right weapon",
+      "/actions/gameplay/in/jump": "Jump",
+      "/actions/gameplay/in/reload": "Reload",
+      "/actions/gameplay/in/run": "Run",
+      "/actions/gameplay/in/crouch": "Crouch",
+      "/actions/gameplay/in/interact": "Interact",
+      "/actions/gameplay/in/weapon_next": "Next weapon",
+      "/actions/gameplay/in/weapon_previous": "Previous weapon",
+      "/actions/gameplay/in/kick": "Kick"
     },
     {
       "language_tag": "es_ES",
       "/actions/global": "Controles VR globales",
-      "/actions/global/in/recenter": "Recentrar vista"
+      "/actions/global/in/recenter": "Recentrar vista",
+      "/actions/gameplay": "Juego",
+      "/actions/gameplay/in/move": "Moverse",
+      "/actions/gameplay/in/turn": "Girar",
+      "/actions/gameplay/in/fire_left": "Disparar arma izquierda",
+      "/actions/gameplay/in/fire_right": "Disparar arma derecha",
+      "/actions/gameplay/in/jump": "Saltar",
+      "/actions/gameplay/in/reload": "Recargar",
+      "/actions/gameplay/in/run": "Correr",
+      "/actions/gameplay/in/crouch": "Agacharse",
+      "/actions/gameplay/in/interact": "Interactuar",
+      "/actions/gameplay/in/weapon_next": "Arma siguiente",
+      "/actions/gameplay/in/weapon_previous": "Arma anterior",
+      "/actions/gameplay/in/kick": "Patada"
     }
   ]
 }

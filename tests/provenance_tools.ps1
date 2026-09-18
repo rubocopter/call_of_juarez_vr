@@ -313,6 +313,46 @@ try {
         -Destination (Join-Path $StereoInputDirectory "actions.json")
     Copy-Item -LiteralPath (Join-Path $SourceDirectory "assets\openvr\bindings\psvr2_sense.json") `
         -Destination (Join-Path $StereoInputDirectory "bindings\psvr2_sense.json")
+    $OpenVrActions = Get-Content -LiteralPath (Join-Path $StereoInputDirectory "actions.json") -Raw | ConvertFrom-Json
+    $OpenVrSenseBinding = Get-Content -LiteralPath (Join-Path $StereoInputDirectory "bindings\psvr2_sense.json") -Raw | ConvertFrom-Json
+    $ActionNames = @($OpenVrActions.actions | ForEach-Object { [string]$_.name })
+    foreach ($RequiredAction in @(
+        "/actions/global/in/recenter",
+        "/actions/gameplay/in/move",
+        "/actions/gameplay/in/turn",
+        "/actions/gameplay/in/fire_left",
+        "/actions/gameplay/in/fire_right",
+        "/actions/gameplay/in/jump",
+        "/actions/gameplay/in/reload",
+        "/actions/gameplay/in/run",
+        "/actions/gameplay/in/crouch",
+        "/actions/gameplay/in/interact",
+        "/actions/gameplay/in/weapon_next",
+        "/actions/gameplay/in/weapon_previous",
+        "/actions/gameplay/in/kick")) {
+        Assert-True ($ActionNames -contains $RequiredAction) `
+            "OpenVR action manifest is missing required action '$RequiredAction'."
+    }
+    $GameplayBinding = $OpenVrSenseBinding.bindings.PSObject.Properties["/actions/gameplay"].Value
+    $GlobalBinding = $OpenVrSenseBinding.bindings.PSObject.Properties["/actions/global"].Value
+    $GameplaySources = @($GameplayBinding.sources)
+    $GlobalSources = @($GlobalBinding.sources)
+    function Assert-SenseBinding([string]$Path, [string]$InputName, [string]$Output) {
+        $Matches = @(($GameplaySources + $GlobalSources) | Where-Object {
+            [string]$_.path -eq $Path -and
+            $null -ne $_.inputs.PSObject.Properties[$InputName] -and
+            [string]$_.inputs.PSObject.Properties[$InputName].Value.output -eq $Output
+        })
+        Assert-True ($Matches.Count -eq 1) `
+            "PS VR2 Sense binding '$($Path)/$InputName' does not map exactly once to '$Output'."
+    }
+    Assert-SenseBinding "/user/hand/left/input/create" "click" "/actions/global/in/recenter"
+    Assert-SenseBinding "/user/hand/left/input/left_stick" "position" "/actions/gameplay/in/move"
+    Assert-SenseBinding "/user/hand/right/input/right_stick" "position" "/actions/gameplay/in/turn"
+    Assert-SenseBinding "/user/hand/left/input/l2" "click" "/actions/gameplay/in/fire_left"
+    Assert-SenseBinding "/user/hand/right/input/r2" "click" "/actions/gameplay/in/fire_right"
+    Assert-SenseBinding "/user/hand/right/input/cross" "click" "/actions/gameplay/in/jump"
+    Assert-SenseBinding "/user/hand/left/input/square" "click" "/actions/gameplay/in/reload"
     $StereoBuildManifestPath = Join-Path $ArtifactDirectory "d3d9_native_stereo.build-manifest.json"
     & (Join-Path $SourceDirectory "tools\new_build_manifest.ps1") `
         -RepositoryRoot $SourceDirectory `
@@ -627,6 +667,7 @@ try {
             requireRepeatedPresentation = $true
             requirePositional6Dof = $true
             requireBodyIk = $true
+            requireGameplayInput = $true
         }
         deployment = @(
             [ordered]@{ role = "proxy"; destination = "d3d9.dll"; sha256 = $StereoVerifierProxyHash },
@@ -651,20 +692,22 @@ try {
     $StereoRightArm = "camera_probe_event: event=body_arm_tracking result=applied detail=frame_sequence=2;being_generation=1;side=right;controller_target=(-10.000000,20.000000,30.000000);shoulder=(-1.000000,2.000000,3.000000);elbow=(-4.000000,5.000000,6.000000);wrist=(-7.000000,8.000000,9.000000);upper_element_position=(-1.500000,2.000000,3.000000);upper_element_up=(0.000000,1.000000,0.000000);upper_element_forward=(0.000000,0.000000,1.000000);forearm_element_position=(-4.500000,5.000000,6.000000);forearm_element_up=(0.000000,1.000000,0.000000);forearm_element_forward=(0.000000,0.000000,1.000000);elbow_target=(-4.000000,5.000000,6.000000);upper_target_position=(-1.500000,2.000000,3.000000);upper_target_up=(0.000000,1.000000,0.000000);upper_target_forward=(0.000000,0.000000,1.000000);forearm_target_position=(-4.500000,5.000000,6.000000);forearm_target_up=(0.000000,1.000000,0.000000);forearm_target_forward=(0.000000,0.000000,1.000000);upper_rotation_axis=(0.000000,0.000000,1.000000);upper_rotation_degrees=0;upper_rotation_no_op=true;forearm_rotation_axis=(0.000000,0.000000,1.000000);forearm_rotation_degrees=0;forearm_rotation_no_op=true;rotation_plan_valid=true;upper_length=30;lower_length=28;plan_valid=true;target_clamped=false;write_enabled=true;write_allowed=true;write_ok=true;rollback_attempted=false;rollback_ok=true;hand_orientation=natural;basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=BoneRotate"
     $StereoLeftArm = $StereoLeftArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
     $StereoRightArm = $StereoRightArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
-    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;rotation_plan_valid=true;"
-    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;rotation_plan_valid=true;"
-    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=natural;"
-    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=natural;"
+    $StereoLeftArm = $StereoLeftArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
+    $StereoRightArm = $StereoRightArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(-7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
+    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta;"
+    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta;"
     $StereoLeftArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=left;phase=before_write;writer=RotateElementWithChildren"
     $StereoRightArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=right;phase=before_write;writer=RotateElementWithChildren"
-    $StereoLeftArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=left;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;writer=RotateElementWithChildren"
-    $StereoRightArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=right;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;writer=RotateElementWithChildren"
+    $StereoLeftArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=left;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=true;hand_up_error=0;hand_forward_error=0;writer=RotateElementWithChildren"
+    $StereoRightArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=right;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=true;hand_up_error=0;hand_forward_error=0;writer=RotateElementWithChildren"
     $StereoLeftArmRenderLeft = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=left;phase=left_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
     $StereoLeftArmRenderRight = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=left;phase=right_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
     $StereoRightArmRenderLeft = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=right;phase=left_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
     $StereoRightArmRenderRight = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=right;phase=right_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
-    $StereoLeftArmRestore = "camera_probe_event: event=body_arm_restore result=ok detail=frame_sequence=2;side=left;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;inverse_geometry_restored=true;exact_restore_attempted=false;exact_restore_ok=false;restore_joint_error=0.00390625;restore_element_position_error=0.00390625;restore_axis_error=0.0002"
-    $StereoRightArmRestore = "camera_probe_event: event=body_arm_restore result=ok detail=frame_sequence=2;side=right;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;inverse_geometry_restored=true;exact_restore_attempted=false;exact_restore_ok=false;restore_joint_error=0.00390625;restore_element_position_error=0.00390625;restore_axis_error=0.0002"
+    $StereoLeftArmRestore = "camera_probe_event: event=body_arm_restore result=ok detail=frame_sequence=2;side=left;hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;inverse_geometry_restored=true;exact_restore_attempted=false;exact_restore_ok=false;restore_joint_error=0.00390625;restore_element_position_error=0.00390625;restore_axis_error=0.0002"
+    $StereoRightArmRestore = "camera_probe_event: event=body_arm_restore result=ok detail=frame_sequence=2;side=right;hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;inverse_geometry_restored=true;exact_restore_attempted=false;exact_restore_ok=false;restore_joint_error=0.00390625;restore_element_position_error=0.00390625;restore_axis_error=0.0002"
     $StereoLeftLeg = "camera_probe_event: event=body_lower_tracking result=observed detail=frame_sequence=2;being_generation=1;side=left;actor_position=(0.000000,0.000000,0.000000);pelvis_offset=(0.000000,90.000000,0.000000);pelvis_target=(0.000000,90.000000,0.000000);hip=(-10.000000,90.000000,0.000000);knee=(-10.000000,50.000000,5.000000);ankle=(-10.000000,10.000000,0.000000);foot_target=(-10.000000,10.000000,0.000000);thigh_length=40.3;shin_length=40.3;plan_valid=true;target_clamped=false;knee_plane_valid=true;write_enabled=false;foot_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=disabled_preflight"
     $StereoRightLeg = "camera_probe_event: event=body_lower_tracking result=observed detail=frame_sequence=2;being_generation=1;side=right;actor_position=(0.000000,0.000000,0.000000);pelvis_offset=(0.000000,90.000000,0.000000);pelvis_target=(0.000000,90.000000,0.000000);hip=(10.000000,90.000000,0.000000);knee=(10.000000,50.000000,5.000000);ankle=(10.000000,10.000000,0.000000);foot_target=(10.000000,10.000000,0.000000);thigh_length=40.3;shin_length=40.3;plan_valid=true;target_clamped=false;knee_plane_valid=true;write_enabled=false;foot_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=disabled_preflight"
     $StereoVerifierLog = @(
@@ -713,7 +756,8 @@ try {
         "openvr_scene_state: phase=dashboard_opened;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
         "openvr_scene_state: phase=dashboard_closed;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
         "native_stereo_presenter_timing: status=ok submit_sequence=3;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=repeated;left_result=0;right_result=0;wait_pose_ms=5.100;submit_ms=0.300",
-        "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread",
+        "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter gameplay=semantic_sense_profile owner=presenter_thread",
+        "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;interact=false;weapon_next=false;weapon_previous=false;kick=false;route=GameInputController.InputAction.Translate",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=2 tracking_enabled=false",
@@ -771,6 +815,42 @@ try {
         "Native-stereo verifier accepted the physically rejected arm front/back mapping."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
+    $StereoVerifierNaturalHandOrientation = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace `
+            "hand_orientation=calibrated_controller_delta", `
+            "hand_orientation=natural"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNaturalHandOrientation
+    $NaturalHandOrientationRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $NaturalHandOrientationRejected = $true
+    }
+    Assert-True $NaturalHandOrientationRejected `
+        "Native-stereo verifier accepted the old natural-only hand orientation contract."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierNeutralGameplay = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "event=gameplay_input result=applied") {
+            "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0,0;turn=0,0;fire_left=false;fire_right=false;jump=false;reload=false;run=false;crouch=false;interact=false;weapon_next=false;weapon_previous=false;kick=false;route=GameInputController.InputAction.Translate"
+        } else {
+            $_
+        }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNeutralGameplay
+    $NeutralGameplayRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $NeutralGameplayRejected = $true
+    }
+    Assert-True $NeutralGameplayRejected `
+        "Native-stereo verifier accepted a gameplay-input gate with no non-neutral Sense action."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
     $StereoVerifierNonMutatingWriter = @($StereoVerifierLog | ForEach-Object {
         $_ -replace `
             "event=body_arm_write_probe result=changed detail=frame_sequence=2;side=left;phase=after_write;expects_change=true;changed_from_natural=true", `
@@ -804,6 +884,25 @@ try {
     }
     Assert-True $BadRestoreRejected `
         "Native-stereo verifier accepted an arm restore that did not return to natural geometry."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierMissingHandRestore = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "event=body_arm_restore result=ok .*;side=left;") {
+            $_ -replace "hand_restored=true", "hand_restored=false"
+        } else {
+            $_
+        }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierMissingHandRestore
+    $MissingHandRestoreRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingHandRestoreRejected = $true
+    }
+    Assert-True $MissingHandRestoreRejected `
+        "Native-stereo verifier accepted a restore that omitted the hand element."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoSummaryPath = Join-Path $StereoVerifierGame "cojvr-native-stereo-summary.json"

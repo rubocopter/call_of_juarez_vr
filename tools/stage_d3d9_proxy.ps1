@@ -449,6 +449,7 @@ if ($HadOriginal) {
             requireRepeatedPresentation = $IsNativeStereo
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
+            requireGameplayInput = $RequireBodyValidation
         }
         deployment = @($Deployment)
     }

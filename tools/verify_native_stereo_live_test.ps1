@@ -58,6 +58,7 @@ $RequireProductionGpuSyncNone = [bool]$Run.validation.requireProductionGpuSyncNo
 $RequireRepeatedPresentation = [bool]$Run.validation.requireRepeatedPresentation
 $RequirePositional6Dof = [bool]$Run.validation.requirePositional6Dof
 $RequireBodyIk = [bool]$Run.validation.requireBodyIk
+$RequireGameplayInput = [bool]$Run.validation.requireGameplayInput
 if ($RequireProductionGpuSyncNone) {
     Assert-LogMatch `
         "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff" `
@@ -78,8 +79,8 @@ if ($RequireOpenVrRuntimeState) {
         "The first successful stereo submission did not prove scene focus belonged to the game process."
 }
 Assert-LogMatch `
-    "openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread" `
-    "The native-stereo OpenVR global input action set did not initialize."
+    "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter gameplay=semantic_sense_profile owner=presenter_thread" `
+    "The native-stereo OpenVR global/gameplay input action sets did not initialize."
 Assert-LogMatch `
     "native_stereo_factory_hook: status=installed" `
     "The candidate did not install its CreateDevice-only D3D9 observation hook."
@@ -357,17 +358,25 @@ if ($RequireBodyIk) {
             if ($Line -notmatch ";plan_valid=true;" -or
                 $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
-                $Line -notmatch ";hand_orientation=natural;" -or
+                $Line -notmatch ";hand_orientation=calibrated_controller_delta;" -or
+                $Line -notmatch ";controller_orientation_valid=true;" -or
+                $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
                 $Line -notmatch ";upper_element_position=\(" -or
                 $Line -notmatch ";forearm_element_position=\(" -or
+                $Line -notmatch ";hand_element_position=\(" -or
+                $Line -notmatch ";hand_target_up=\(" -or
+                $Line -notmatch ";hand_target_forward=\(" -or
                 $Line -notmatch ";upper_target_position=\(" -or
                 $Line -notmatch ";forearm_target_position=\(" -or
                 $Line -notmatch ";upper_rotation_axis=\(" -or
                 $Line -notmatch ";forearm_rotation_axis=\(" -or
                 $Line -notmatch ";upper_native_axis=\(" -or
                 $Line -notmatch ";forearm_native_axis=\(" -or
+                $Line -notmatch ";forearm_twist_native_axis=\(" -or
+                $Line -notmatch ";hand_native_axis=\(" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or
+                $Line -notmatch ";hand_orientation_reached=true;" -or
                 $Line -notmatch ";rollback_attempted=false;rollback_ok=true;" -or
                 $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
                 $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=RotateElementWithChildren") {
@@ -389,10 +398,10 @@ if ($RequireBodyIk) {
             throw "The body IK gate did not capture the natural $Side arm immediately before the element overlay."
         }
         if (-not ($BodyWriteProbes | Where-Object {
-            $_ -match "result=changed .*;side=$Side;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;" -and
+            $_ -match "result=changed .*;side=$Side;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;.*;hand_orientation_reached=true;" -and
             $_ -match ";writer=RotateElementWithChildren"
         })) {
-            throw "The body IK gate did not prove that the $Side element writer changed visible arm geometry."
+            throw "The body IK gate did not prove that the $Side element writer reached both arm position and calibrated hand orientation."
         }
         foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
             if (-not ($BodyRenderProbes | Where-Object {
@@ -417,7 +426,7 @@ if ($RequireBodyIk) {
         $RestoreLines = @($BodyRestoreLines | Where-Object { $_ -match ";side=$Side;" })
         if ($RestoreLines.Count -lt 1 -or
             -not ($RestoreLines | Where-Object {
-                $_ -match ";forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;" -and
+                $_ -match ";hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;" -and
                 $_ -match ";restore_joint_error=[-+0-9.eE]+;restore_element_position_error=[-+0-9.eE]+;restore_axis_error=[-+0-9.eE]+"
             })) {
             throw "The body IK gate did not restore the natural $Side element hierarchy after stereo capture."
@@ -464,6 +473,39 @@ if ($RequireBodyIk) {
                 throw "A $Side lower-body observation did not prove the measured pelvis/leg preflight contract."
             }
         }
+    }
+}
+
+if ($RequireGameplayInput) {
+    $GameplayLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=gameplay_input result=applied"
+    })
+    if ($GameplayLines.Count -lt 1) {
+        throw "The gameplay-input gate did not reach the exact-game InputAction.Translate route."
+    }
+    $MeaningfulGameplayInput = $false
+    foreach ($Line in $GameplayLines) {
+        if ($Line -notmatch ";active=true;" -or
+            $Line -notmatch ";route=GameInputController.InputAction.Translate") {
+            continue
+        }
+        $MoveMatch = [regex]::Match($Line, ";move=([-+0-9.eE]+),([-+0-9.eE]+)")
+        $TurnMatch = [regex]::Match($Line, ";turn=([-+0-9.eE]+),([-+0-9.eE]+)")
+        $DigitalPressed = $Line -match ";(fire_left|fire_right|jump|reload|run|crouch|interact|weapon_next|weapon_previous|kick)=true;"
+        $AxisActive = $false
+        foreach ($Match in @($MoveMatch, $TurnMatch)) {
+            if (-not $Match.Success) { continue }
+            $First = [Math]::Abs([double]::Parse($Match.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture))
+            $Second = [Math]::Abs([double]::Parse($Match.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture))
+            if ($First -ge 0.15 -or $Second -ge 0.15) { $AxisActive = $true }
+        }
+        if ($AxisActive -or $DigitalPressed) {
+            $MeaningfulGameplayInput = $true
+            break
+        }
+    }
+    if (-not $MeaningfulGameplayInput) {
+        throw "The gameplay-input gate did not observe any non-neutral Sense gameplay action."
     }
 }
 

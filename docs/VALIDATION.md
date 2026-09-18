@@ -1434,6 +1434,46 @@ orientation, forearm roll and wrist/hand twist are not yet composed into the nat
 Do not revisit the now validated tracking-Z sign without contradictory evidence, and do not promote
 full Body IK to headset-validated until the deformation is corrected physically.
 
+### Controller orientation and Sense gameplay host increment — 2026-09-19
+
+The next arm-composition slice is now **host-tested**. It preserves the physically validated
+`tracking_forward=-z_to_negative_native_forward` position mapping and the live-proven
+`RotateElementWithChildren` visible-mesh writer. Each side now captures a controller-orientation
+reference together with the current animated hand basis, then maps subsequent Sense orientation as
+a calibration-relative delta. The resulting hand target is decomposed into forearm twist around the
+solved lower-arm axis plus a residual hand rotation, avoiding any hard-coded assumption about a
+PS VR2 controller-local palm axis. The transaction now covers upper arm -> forearm -> forearm twist
+-> hand and restores hand -> twist -> forearm -> upper arm after stereo capture. Natural-geometry
+verification includes the hand element position/up/forward frame. Invalid controller orientation or
+failed mutation/orientation/restore checks fail closed.
+
+The live verifier now requires `hand_orientation=calibrated_controller_delta`, valid controller
+orientation, calibration/recenter identity, `hand_orientation_reached=true`, element-local native
+axes for both forearm twist and hand rotation, persistence through both eye renders, and successful
+hand/twist/forearm/upper restoration. This is not a physical promotion: the last headset evidence is
+still run `20260918T215118Z-c46320012ff0`, where the arms remained visibly deformed. A fresh
+`-BodyIkAtStart` run must visually prove controller orientation, palm-up/palm-down motion and natural
+forearm/wrist twist before Body IK can advance.
+
+The same host increment adds a PS VR2 Sense gameplay profile without synthesizing Windows keyboard
+or mouse input. The shared runtime exposes neutral move/turn/fire/jump/reload/run/crouch/interact/
+weapon-cycle/kick state through `/actions/gameplay`; the exact CoJ bridge resolves the shipped
+`GameInputController` action objects and calls their `InputAction.Translate` path using the game's
+configured device/code/sign metadata. Current Sense layout is: left stick move + click run, right
+stick turn + click crouch, L2/R2 left/right fire, L1/R1 previous/next weapon, Square reload,
+Triangle interact/execute trigger, Cross jump, Circle kick; left Create remains global recenter.
+Gameplay state is neutralized whenever dashboard/focus/tracking does not permit normal scene input,
+preventing a held movement/fire state from sticking across focus loss.
+
+The full/body run manifest now sets `requireGameplayInput=true`; its verifier requires an applied
+`GameInputController.InputAction.Translate` sample plus at least one non-neutral Sense gameplay
+action. Debug and Release each complete all 25 CTest outcomes with **24 PASS plus the expected
+classic-D3D9 shared-texture capability SKIP**, zero failures. `body_adapter` covers calibrated
+90-degree controller roll, invalid orientation, exact CoJ gameplay action mapping, stick deadzone
+and neutral release; provenance coverage binds the critical Sense action paths and rejects the old
+`hand_orientation=natural` body evidence for a new full/body candidate. No Call of Juarez, SteamVR
+or headset process was launched for this increment.
+
 ### Phase 7 transactional deployment host increment — 2026-09-18
 
 The deployment path now writes its recovery journal before managed game-file mutation and stages

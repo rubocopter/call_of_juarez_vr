@@ -2,6 +2,7 @@
 #include "runtime/vr_math.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace cojvr::games::call_of_juarez {
@@ -58,6 +59,205 @@ cojvr::runtime::Vec3 StablePerpendicular(const cojvr::runtime::Vec3 direction) n
         ? cojvr::runtime::Vec3{0.0F, 1.0F, 0.0F}
         : cojvr::runtime::Vec3{1.0F, 0.0F, 0.0F};
     return Normalize(Cross(direction, axis), {0.0F, 0.0F, 1.0F});
+}
+
+bool NormalizeBasis(
+    cojvr::runtime::Vec3& up,
+    cojvr::runtime::Vec3& forward) noexcept {
+    up = Normalize(up);
+    if (Length(up) <= 0.99F) return false;
+    forward = Subtract(forward, Scale(up, Dot(forward, up)));
+    forward = Normalize(forward);
+    if (Length(forward) <= 0.99F) return false;
+    const cojvr::runtime::Vec3 x_axis = Normalize(Cross(up, forward));
+    if (Length(x_axis) <= 0.99F) return false;
+    forward = Normalize(Cross(x_axis, up));
+    return Finite(up) && Finite(forward) &&
+        std::fabs(Dot(up, forward)) <= 0.001F;
+}
+
+bool NormalizeCameraBasis(
+    cojvr::runtime::Vec3& right,
+    cojvr::runtime::Vec3& up,
+    cojvr::runtime::Vec3& forward) noexcept {
+    right = Normalize(right);
+    up = Normalize(up);
+    forward = Normalize(forward);
+    return Finite(right) && Finite(up) && Finite(forward) &&
+        Length(right) > 0.99F && Length(up) > 0.99F && Length(forward) > 0.99F &&
+        std::fabs(Dot(right, up)) < 0.01F &&
+        std::fabs(Dot(right, forward)) < 0.01F &&
+        std::fabs(Dot(up, forward)) < 0.01F;
+}
+
+bool NormalizeQuaternionChecked(
+    const cojvr::runtime::Quaternion input,
+    cojvr::runtime::Quaternion& output) noexcept {
+    const float length_squared = input.x * input.x + input.y * input.y +
+        input.z * input.z + input.w * input.w;
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-10F) return false;
+    output = cojvr::runtime::NormalizeQuaternion(input);
+    return std::isfinite(output.x) && std::isfinite(output.y) &&
+        std::isfinite(output.z) && std::isfinite(output.w);
+}
+
+cojvr::runtime::Quaternion Conjugate(
+    const cojvr::runtime::Quaternion value) noexcept {
+    return {-value.x, -value.y, -value.z, value.w};
+}
+
+cojvr::runtime::Quaternion Multiply(
+    const cojvr::runtime::Quaternion left,
+    const cojvr::runtime::Quaternion right) noexcept {
+    return {
+        left.w * right.x + left.x * right.w + left.y * right.z - left.z * right.y,
+        left.w * right.y - left.x * right.z + left.y * right.w + left.z * right.x,
+        left.w * right.z + left.x * right.y - left.y * right.x + left.z * right.w,
+        left.w * right.w - left.x * right.x - left.y * right.y - left.z * right.z,
+    };
+}
+
+cojvr::runtime::Vec3 WorldToBasis(
+    const cojvr::runtime::Vec3 value,
+    const cojvr::runtime::Vec3 right,
+    const cojvr::runtime::Vec3 up,
+    const cojvr::runtime::Vec3 forward) noexcept {
+    return {Dot(value, right), Dot(value, up), Dot(value, forward)};
+}
+
+cojvr::runtime::Vec3 BasisToWorld(
+    const cojvr::runtime::Vec3 value,
+    const cojvr::runtime::Vec3 right,
+    const cojvr::runtime::Vec3 up,
+    const cojvr::runtime::Vec3 forward) noexcept {
+    return Add(Add(Scale(right, value.x), Scale(up, value.y)), Scale(forward, value.z));
+}
+
+cojvr::runtime::Vec3 RotateAroundAxis(
+    const cojvr::runtime::Vec3 value,
+    cojvr::runtime::Vec3 axis,
+    const float angle_degrees) noexcept {
+    axis = Normalize(axis);
+    if (Length(axis) <= 0.99F || !std::isfinite(angle_degrees)) return value;
+    constexpr float kDegreesToRadians = 0.017453292519943295F;
+    const float radians = angle_degrees * kDegreesToRadians;
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    return Add(
+        Add(Scale(value, cosine), Scale(Cross(axis, value), sine)),
+        Scale(axis, Dot(axis, value) * (1.0F - cosine)));
+}
+
+BoneRotationDelta BuildBasisRotationDelta(
+    cojvr::runtime::Vec3 source_up,
+    cojvr::runtime::Vec3 source_forward,
+    cojvr::runtime::Vec3 target_up,
+    cojvr::runtime::Vec3 target_forward) noexcept {
+    BoneRotationDelta result{};
+    if (!NormalizeBasis(source_up, source_forward) ||
+        !NormalizeBasis(target_up, target_forward)) {
+        return result;
+    }
+
+    const cojvr::runtime::Vec3 source_x = Normalize(Cross(source_up, source_forward));
+    const cojvr::runtime::Vec3 target_x = Normalize(Cross(target_up, target_forward));
+    const std::array<float, 12> matrix{
+        target_x.x * source_x.x + target_up.x * source_up.x +
+            target_forward.x * source_forward.x,
+        target_x.x * source_x.y + target_up.x * source_up.y +
+            target_forward.x * source_forward.y,
+        target_x.x * source_x.z + target_up.x * source_up.z +
+            target_forward.x * source_forward.z,
+        0.0F,
+        target_x.y * source_x.x + target_up.y * source_up.x +
+            target_forward.y * source_forward.x,
+        target_x.y * source_x.y + target_up.y * source_up.y +
+            target_forward.y * source_forward.y,
+        target_x.y * source_x.z + target_up.y * source_up.z +
+            target_forward.y * source_forward.z,
+        0.0F,
+        target_x.z * source_x.x + target_up.z * source_up.x +
+            target_forward.z * source_forward.x,
+        target_x.z * source_x.y + target_up.z * source_up.y +
+            target_forward.z * source_forward.y,
+        target_x.z * source_x.z + target_up.z * source_up.z +
+            target_forward.z * source_forward.z,
+        0.0F,
+    };
+    const cojvr::runtime::Pose rotation_pose =
+        cojvr::runtime::PoseFromRigidTransform3x4(matrix);
+    if (!rotation_pose.orientation_valid) return result;
+
+    cojvr::runtime::Quaternion rotation{};
+    if (!NormalizeQuaternionChecked(rotation_pose.orientation, rotation)) return result;
+    if (rotation.w < 0.0F) {
+        rotation.x = -rotation.x;
+        rotation.y = -rotation.y;
+        rotation.z = -rotation.z;
+        rotation.w = -rotation.w;
+    }
+    constexpr float kRadiansToDegrees = 57.29577951308232F;
+    const float half_sine = std::sqrt(std::max(0.0F, 1.0F - rotation.w * rotation.w));
+    const float angle = 2.0F * std::acos(std::clamp(rotation.w, -1.0F, 1.0F));
+    if (angle <= 1.0e-5F || half_sine <= 1.0e-5F) {
+        result.axis = target_forward;
+        result.angle_degrees = 0.0F;
+        result.no_op = true;
+        result.valid = true;
+        return result;
+    }
+    result.axis = Normalize({
+        rotation.x / half_sine,
+        rotation.y / half_sine,
+        rotation.z / half_sine,
+    });
+    result.angle_degrees = angle * kRadiansToDegrees;
+    result.valid = Finite(result.axis) && Length(result.axis) > 0.99F &&
+        std::isfinite(result.angle_degrees) && result.angle_degrees <= 180.0001F;
+    return result;
+}
+
+BoneRotationDelta BuildTwistDelta(
+    cojvr::runtime::Vec3 axis,
+    cojvr::runtime::Vec3 current_reference,
+    cojvr::runtime::Vec3 target_reference,
+    cojvr::runtime::Vec3 current_fallback,
+    cojvr::runtime::Vec3 target_fallback) noexcept {
+    BoneRotationDelta result{};
+    axis = Normalize(axis);
+    if (Length(axis) <= 0.99F) return result;
+    const auto projected = [&](const cojvr::runtime::Vec3 value) noexcept {
+        return Normalize(Subtract(value, Scale(axis, Dot(value, axis))));
+    };
+    current_reference = projected(current_reference);
+    target_reference = projected(target_reference);
+    if (Length(current_reference) <= 0.99F || Length(target_reference) <= 0.99F) {
+        current_reference = projected(current_fallback);
+        target_reference = projected(target_fallback);
+    }
+    if (Length(current_reference) <= 0.99F || Length(target_reference) <= 0.99F) {
+        return result;
+    }
+    const float cosine = std::clamp(Dot(current_reference, target_reference), -1.0F, 1.0F);
+    const float sine = Dot(axis, Cross(current_reference, target_reference));
+    constexpr float kRadiansToDegrees = 57.29577951308232F;
+    float angle = std::atan2(sine, cosine) * kRadiansToDegrees;
+    if (!std::isfinite(angle)) return result;
+    if (std::fabs(angle) <= 0.001F) {
+        result.axis = axis;
+        result.angle_degrees = 0.0F;
+        result.no_op = true;
+        result.valid = true;
+        return result;
+    }
+    if (angle < 0.0F) {
+        axis = Scale(axis, -1.0F);
+        angle = -angle;
+    }
+    result.axis = axis;
+    result.angle_degrees = angle;
+    result.valid = angle <= 180.0001F;
+    return result;
 }
 
 cojvr::runtime::Vec3 RotateFromTo(
@@ -187,13 +387,17 @@ ArmGeometryRestoreCheck CheckArmGeometryRestored(
         distance(natural.elbow, restored.elbow),
         distance(natural.wrist, restored.wrist));
     result.max_element_position_error = std::max(
-        distance(natural.upper_element_position, restored.upper_element_position),
-        distance(natural.forearm_element_position, restored.forearm_element_position));
+        std::max(
+            distance(natural.upper_element_position, restored.upper_element_position),
+            distance(natural.forearm_element_position, restored.forearm_element_position)),
+        distance(natural.hand_element_position, restored.hand_element_position));
     result.max_axis_error = std::max({
         distance(natural.upper_element_up, restored.upper_element_up),
         distance(natural.upper_element_forward, restored.upper_element_forward),
         distance(natural.forearm_element_up, restored.forearm_element_up),
         distance(natural.forearm_element_forward, restored.forearm_element_forward),
+        distance(natural.hand_element_up, restored.hand_element_up),
+        distance(natural.hand_element_forward, restored.hand_element_forward),
     });
 
     constexpr float kPositionToleranceGameUnits = 0.02F;
@@ -480,6 +684,105 @@ BoneRotationDelta ConvertWorldRotationToElementLocal(
     });
     result.valid = Finite(result.axis) && Length(result.axis) > 0.99F &&
         std::fabs(result.angle_degrees) <= 180.0001F;
+    return result;
+}
+
+HandOrientationReference BuildHandOrientationReference(
+    const cojvr::runtime::Quaternion controller_orientation,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 hand_up_world,
+    cojvr::runtime::Vec3 hand_forward_world) noexcept {
+    HandOrientationReference result{};
+    cojvr::runtime::Quaternion normalized_controller{};
+    if (!NormalizeQuaternionChecked(controller_orientation, normalized_controller) ||
+        !NormalizeCameraBasis(camera_right, camera_up, camera_forward) ||
+        !NormalizeBasis(hand_up_world, hand_forward_world)) {
+        return result;
+    }
+
+    result.controller_orientation = normalized_controller;
+    result.hand_up_camera = WorldToBasis(
+        hand_up_world, camera_right, camera_up, camera_forward);
+    result.hand_forward_camera = WorldToBasis(
+        hand_forward_world, camera_right, camera_up, camera_forward);
+    if (!NormalizeBasis(result.hand_up_camera, result.hand_forward_camera)) return {};
+    result.valid = true;
+    return result;
+}
+
+HandOrientationTarget BuildTrackedHandOrientationTarget(
+    const HandOrientationReference& reference,
+    const cojvr::runtime::Quaternion controller_orientation,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward) noexcept {
+    HandOrientationTarget result{};
+    cojvr::runtime::Quaternion current{};
+    cojvr::runtime::Quaternion reference_orientation{};
+    if (!reference.valid ||
+        !NormalizeQuaternionChecked(controller_orientation, current) ||
+        !NormalizeQuaternionChecked(reference.controller_orientation, reference_orientation) ||
+        !NormalizeCameraBasis(camera_right, camera_up, camera_forward)) {
+        return result;
+    }
+
+    cojvr::runtime::Quaternion delta = Multiply(current, Conjugate(reference_orientation));
+    if (!NormalizeQuaternionChecked(delta, delta)) return result;
+    cojvr::runtime::Vec3 target_up_camera = cojvr::runtime::RotateVector(
+        delta, reference.hand_up_camera);
+    cojvr::runtime::Vec3 target_forward_camera = cojvr::runtime::RotateVector(
+        delta, reference.hand_forward_camera);
+    result.up = BasisToWorld(
+        target_up_camera, camera_right, camera_up, camera_forward);
+    result.forward = BasisToWorld(
+        target_forward_camera, camera_right, camera_up, camera_forward);
+    if (!NormalizeBasis(result.up, result.forward)) return {};
+    result.valid = true;
+    return result;
+}
+
+HandOrientationRotationPlan BuildHandOrientationRotationPlan(
+    const cojvr::runtime::Vec3 lower_arm_axis,
+    cojvr::runtime::Vec3 current_hand_up,
+    cojvr::runtime::Vec3 current_hand_forward,
+    const HandOrientationTarget& target) noexcept {
+    HandOrientationRotationPlan result{};
+    cojvr::runtime::Vec3 target_up = target.up;
+    cojvr::runtime::Vec3 target_forward = target.forward;
+    if (!target.valid || !Finite(lower_arm_axis) ||
+        !NormalizeBasis(current_hand_up, current_hand_forward) ||
+        !NormalizeBasis(target_up, target_forward)) {
+        return result;
+    }
+
+    result.forearm_twist = BuildTwistDelta(
+        lower_arm_axis,
+        current_hand_up,
+        target_up,
+        current_hand_forward,
+        target_forward);
+    if (!result.forearm_twist.valid) return result;
+
+    const cojvr::runtime::Vec3 hand_up_after_twist = result.forearm_twist.no_op
+        ? current_hand_up
+        : RotateAroundAxis(
+              current_hand_up,
+              result.forearm_twist.axis,
+              result.forearm_twist.angle_degrees);
+    const cojvr::runtime::Vec3 hand_forward_after_twist = result.forearm_twist.no_op
+        ? current_hand_forward
+        : RotateAroundAxis(
+              current_hand_forward,
+              result.forearm_twist.axis,
+              result.forearm_twist.angle_degrees);
+    result.hand = BuildBasisRotationDelta(
+        hand_up_after_twist,
+        hand_forward_after_twist,
+        target_up,
+        target_forward);
+    result.valid = result.hand.valid;
     return result;
 }
 

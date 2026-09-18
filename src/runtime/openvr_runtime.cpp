@@ -49,7 +49,9 @@ struct OpenVrRuntime::Impl {
     vr::IVRCompositor* compositor = nullptr;
     vr::IVRInput* input = nullptr;
     vr::VRActionSetHandle_t global_action_set = vr::k_ulInvalidActionSetHandle;
+    vr::VRActionSetHandle_t gameplay_action_set = vr::k_ulInvalidActionSetHandle;
     vr::VRActionHandle_t recenter_action = vr::k_ulInvalidActionHandle;
+    std::array<vr::VRActionHandle_t, 12> gameplay_actions{};
     OpenVrDigitalActionEdge recenter_edge{};
     OpenVrSystemInfo system_info{};
     OpenVrStateTracker state_tracker{};
@@ -225,7 +227,9 @@ void OpenVrRuntime::Shutdown() noexcept {
     impl_->compositor = nullptr;
     impl_->input = nullptr;
     impl_->global_action_set = vr::k_ulInvalidActionSetHandle;
+    impl_->gameplay_action_set = vr::k_ulInvalidActionSetHandle;
     impl_->recenter_action = vr::k_ulInvalidActionHandle;
+    impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
     impl_->recenter_edge.Reset();
     impl_->system_info = {};
     impl_->owns_process_runtime = false;
@@ -433,7 +437,9 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->last_result_code = 0;
         impl_->input = nullptr;
         impl_->global_action_set = vr::k_ulInvalidActionSetHandle;
+        impl_->gameplay_action_set = vr::k_ulInvalidActionSetHandle;
         impl_->recenter_action = vr::k_ulInvalidActionHandle;
+        impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
         impl_->recenter_edge.Reset();
         if (!initialized()) return FailNoThrow(impl_.get(), "OpenVR is not initialized");
         if (absolute_manifest_path.empty()) {
@@ -470,9 +476,45 @@ bool OpenVrRuntime::InitializeGlobalActions(
                 static_cast<std::int32_t>(error));
         }
 
+        vr::VRActionSetHandle_t gameplay_action_set = vr::k_ulInvalidActionSetHandle;
+        error = input->GetActionSetHandle("/actions/gameplay", &gameplay_action_set);
+        if (error != vr::VRInputError_None ||
+            gameplay_action_set == vr::k_ulInvalidActionSetHandle) {
+            return FailNoThrow(
+                impl_.get(), "OpenVR gameplay action set resolution failed",
+                static_cast<std::int32_t>(error));
+        }
+        static constexpr std::array<const char*, 12> kGameplayActionNames{
+            "/actions/gameplay/in/move",
+            "/actions/gameplay/in/turn",
+            "/actions/gameplay/in/fire_left",
+            "/actions/gameplay/in/fire_right",
+            "/actions/gameplay/in/jump",
+            "/actions/gameplay/in/reload",
+            "/actions/gameplay/in/run",
+            "/actions/gameplay/in/crouch",
+            "/actions/gameplay/in/interact",
+            "/actions/gameplay/in/weapon_next",
+            "/actions/gameplay/in/weapon_previous",
+            "/actions/gameplay/in/kick",
+        };
+        std::array<vr::VRActionHandle_t, 12> gameplay_actions{};
+        gameplay_actions.fill(vr::k_ulInvalidActionHandle);
+        for (std::size_t index = 0; index < gameplay_actions.size(); ++index) {
+            error = input->GetActionHandle(kGameplayActionNames[index], &gameplay_actions[index]);
+            if (error != vr::VRInputError_None ||
+                gameplay_actions[index] == vr::k_ulInvalidActionHandle) {
+                return FailNoThrow(
+                    impl_.get(), "OpenVR gameplay action resolution failed",
+                    static_cast<std::int32_t>(error));
+            }
+        }
+
         impl_->input = input;
         impl_->global_action_set = global_action_set;
+        impl_->gameplay_action_set = gameplay_action_set;
         impl_->recenter_action = recenter_action;
+        impl_->gameplay_actions = gameplay_actions;
         return true;
     } catch (...) {
         return FailNoThrow(impl_.get(), "OpenVR global-action initialization raised an exception");
@@ -517,6 +559,92 @@ bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
     }
 }
 
+bool OpenVrRuntime::PollActions(
+    OpenVrGlobalActions& global_actions,
+    GameplayInputState& gameplay_actions) noexcept {
+    global_actions = {};
+    gameplay_actions = {};
+    if (!impl_) return false;
+    try {
+        impl_->last_error.clear();
+        impl_->last_result_code = 0;
+        if (!global_actions_initialized()) {
+            return FailNoThrow(impl_.get(), "OpenVR input actions are not initialized");
+        }
+
+        std::array<vr::VRActiveActionSet_t, 2> active_sets{};
+        active_sets[0].ulActionSet = impl_->global_action_set;
+        active_sets[1].ulActionSet = impl_->gameplay_action_set;
+        const vr::EVRInputError update_error = impl_->input->UpdateActionState(
+            active_sets.data(), sizeof(vr::VRActiveActionSet_t),
+            static_cast<std::uint32_t>(active_sets.size()));
+        if (update_error != vr::VRInputError_None) {
+            return FailNoThrow(
+                impl_.get(), "OpenVR UpdateActionState failed",
+                static_cast<std::int32_t>(update_error));
+        }
+
+        vr::InputDigitalActionData_t recenter{};
+        vr::EVRInputError error = impl_->input->GetDigitalActionData(
+            impl_->recenter_action,
+            &recenter,
+            sizeof(recenter),
+            vr::k_ulInvalidInputValueHandle);
+        if (error != vr::VRInputError_None) {
+            return FailNoThrow(
+                impl_.get(), "OpenVR GetDigitalActionData(recenter) failed",
+                static_cast<std::int32_t>(error));
+        }
+        global_actions.recenter_active = recenter.bActive;
+        global_actions.recenter_requested =
+            impl_->recenter_edge.Update(recenter.bActive, recenter.bState);
+
+        const auto read_analog = [&](const std::size_t index, Vec2& value) noexcept {
+            vr::InputAnalogActionData_t data{};
+            const vr::EVRInputError analog_error = impl_->input->GetAnalogActionData(
+                impl_->gameplay_actions[index],
+                &data,
+                sizeof(data),
+                vr::k_ulInvalidInputValueHandle);
+            if (analog_error != vr::VRInputError_None) return false;
+            if (data.bActive) value = {data.x, data.y};
+            return true;
+        };
+        const auto read_digital = [&](const std::size_t index, bool& value) noexcept {
+            vr::InputDigitalActionData_t data{};
+            const vr::EVRInputError digital_error = impl_->input->GetDigitalActionData(
+                impl_->gameplay_actions[index],
+                &data,
+                sizeof(data),
+                vr::k_ulInvalidInputValueHandle);
+            if (digital_error != vr::VRInputError_None) return false;
+            value = data.bActive && data.bState;
+            return true;
+        };
+        if (!read_analog(0, gameplay_actions.move) ||
+            !read_analog(1, gameplay_actions.turn) ||
+            !read_digital(2, gameplay_actions.fire_left) ||
+            !read_digital(3, gameplay_actions.fire_right) ||
+            !read_digital(4, gameplay_actions.jump) ||
+            !read_digital(5, gameplay_actions.reload) ||
+            !read_digital(6, gameplay_actions.run) ||
+            !read_digital(7, gameplay_actions.crouch) ||
+            !read_digital(8, gameplay_actions.interact) ||
+            !read_digital(9, gameplay_actions.weapon_next) ||
+            !read_digital(10, gameplay_actions.weapon_previous) ||
+            !read_digital(11, gameplay_actions.kick)) {
+            gameplay_actions = {};
+            return FailNoThrow(impl_.get(), "OpenVR gameplay action read failed");
+        }
+        gameplay_actions.active = true;
+        return true;
+    } catch (...) {
+        global_actions = {};
+        gameplay_actions = {};
+        return FailNoThrow(impl_.get(), "OpenVR input action poll raised an exception");
+    }
+}
+
 bool OpenVrRuntime::initialized() const noexcept {
     return impl_ && impl_->system != nullptr && impl_->compositor != nullptr;
 }
@@ -528,6 +656,7 @@ OpenVrRuntimeState OpenVrRuntime::state() const noexcept {
 bool OpenVrRuntime::global_actions_initialized() const noexcept {
     return impl_ && initialized() && impl_->input != nullptr &&
         impl_->global_action_set != vr::k_ulInvalidActionSetHandle &&
+        impl_->gameplay_action_set != vr::k_ulInvalidActionSetHandle &&
         impl_->recenter_action != vr::k_ulInvalidActionHandle;
 }
 

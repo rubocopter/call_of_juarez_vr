@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -35,10 +36,13 @@ constexpr std::size_t kCallIntMethodA = 51;
 constexpr std::size_t kCallVoidMethodA = 63;
 constexpr std::size_t kGetFieldId = 94;
 constexpr std::size_t kGetObjectField = 95;
+constexpr std::size_t kGetIntField = 100;
 constexpr std::size_t kGetFloatField = 102;
 constexpr std::size_t kSetFloatField = 111;
 constexpr std::size_t kGetStaticFieldId = 144;
 constexpr std::size_t kGetStaticObjectField = 145;
+constexpr std::size_t kGetArrayLength = 171;
+constexpr std::size_t kGetObjectArrayElement = 173;
 
 constexpr std::size_t kVmAttachCurrentThreadAsDaemon = 7;
 constexpr std::size_t kVmGetEnv = 6;
@@ -104,10 +108,13 @@ using CallIntMethodAFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*, const
 using CallVoidMethodAFn = void(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using GetFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
+using GetIntFieldFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetFloatFieldFn = float(COJVR_JNICALL*)(void*, void*, void*);
 using SetFloatFieldFn = void(COJVR_JNICALL*)(void*, void*, void*, float);
 using GetStaticFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetStaticObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
+using GetArrayLengthFn = std::int32_t(COJVR_JNICALL*)(void*, void*);
+using GetObjectArrayElementFn = void*(COJVR_JNICALL*)(void*, void*, std::int32_t);
 
 void SetError(std::string* error, const char* value) noexcept {
     if (!error) return;
@@ -123,6 +130,38 @@ void DeleteLocal(void* env, void* value) noexcept {
 }
 
 } // namespace
+
+std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
+    const cojvr::runtime::GameplayInputState& state) noexcept {
+    const auto normalize_axis = [](const float value) noexcept {
+        if (!std::isfinite(value) || std::fabs(value) < 0.15F) return 0.0F;
+        return std::clamp(value, -1.0F, 1.0F);
+    };
+    const auto positive = [](const float value) noexcept {
+        return std::max(value, 0.0F);
+    };
+    const float move_x = state.active ? normalize_axis(state.move.x) : 0.0F;
+    const float move_y = state.active ? normalize_axis(state.move.y) : 0.0F;
+    const float turn_x = state.active ? normalize_axis(state.turn.x) : 0.0F;
+    return {{
+        {2, positive(-turn_x)},
+        {3, positive(turn_x)},
+        {4, positive(move_y)},
+        {5, positive(-move_y)},
+        {6, positive(move_x)},
+        {7, positive(-move_x)},
+        {9, state.active && state.fire_left ? 1.0F : 0.0F},
+        {10, state.active && state.fire_right ? 1.0F : 0.0F},
+        {11, state.active && state.jump ? 1.0F : 0.0F},
+        {16, state.active && state.crouch ? 1.0F : 0.0F},
+        {18, state.active && state.run ? 1.0F : 0.0F},
+        {30, state.active && state.interact ? 1.0F : 0.0F},
+        {31, state.active && state.reload ? 1.0F : 0.0F},
+        {39, state.active && state.kick ? 1.0F : 0.0F},
+        {46, state.active && state.weapon_next ? 1.0F : 0.0F},
+        {47, state.active && state.weapon_previous ? 1.0F : 0.0F},
+    }};
+}
 
 bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
     if (vm_) return true;
@@ -174,6 +213,16 @@ void JavaPlayerBridge::Reset() noexcept {
                 delete_global(env, lawman_game_class_);
             }
         }
+        if (input_digital_class_) {
+            if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+                delete_global(env, input_digital_class_);
+            }
+        }
+        if (input_analog_class_) {
+            if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+                delete_global(env, input_analog_class_);
+            }
+        }
     } else {
         being_ = nullptr;
     }
@@ -210,6 +259,18 @@ void JavaPlayerBridge::Reset() noexcept {
     vector_z_field_ = nullptr;
     vector_class_ = nullptr;
     vector_constructor_ = nullptr;
+    input_controller_field_ = nullptr;
+    controller_actions_field_ = nullptr;
+    controller_targets_field_ = nullptr;
+    input_digital_class_ = nullptr;
+    input_analog_class_ = nullptr;
+    digital_device_field_ = nullptr;
+    digital_button_field_ = nullptr;
+    digital_translate_method_ = nullptr;
+    analog_device_field_ = nullptr;
+    analog_axis_field_ = nullptr;
+    analog_axis_sign_field_ = nullptr;
+    analog_translate_method_ = nullptr;
     bone_read_lookup_attempted_ = false;
     element_world_read_lookup_attempted_ = false;
     element_world_basis_lookup_attempted_ = false;
@@ -219,6 +280,8 @@ void JavaPlayerBridge::Reset() noexcept {
     campaign_module_fallback_used_ = false;
     vm_ = nullptr;
     being_generation_ = 0;
+    last_gameplay_input_ = {};
+    gameplay_input_applied_ = false;
     // Detach current thread if it was attached by this bridge
     DetachCurrentThread();
 }
@@ -393,6 +456,96 @@ bool JavaPlayerBridge::EnsureCampaignAccess(void* env, std::string* error) noexc
     return true;
 }
 
+bool JavaPlayerBridge::EnsureGameplayInputAccess(void* env, std::string* error) noexcept {
+    if (input_controller_field_ && controller_actions_field_ && controller_targets_field_ &&
+        input_digital_class_ && input_analog_class_ && digital_device_field_ &&
+        digital_button_field_ && digital_translate_method_ && analog_device_field_ &&
+        analog_axis_field_ && analog_axis_sign_field_ && analog_translate_method_) {
+        return true;
+    }
+    if (!EnsureCampaignAccess(env, error)) return false;
+
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto new_global = EnvFunction<NewGlobalRefFn>(env, kNewGlobalRef);
+    const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    if (!find_class || !new_global || !get_static_field || !get_static_object ||
+        !get_class || !get_field || !get_method) {
+        SetError(error, "required JNI gameplay-input lookup functions are unavailable");
+        return false;
+    }
+
+    input_controller_field_ = get_static_field(
+        env, lawman_game_class_, "sm_cInputController", "LGameInputController;");
+    if (!input_controller_field_ ||
+        ClearException(env, error, "LawmanGame.sm_cInputController lookup failed")) {
+        input_controller_field_ = nullptr;
+        return false;
+    }
+    void* controller = get_static_object(env, lawman_game_class_, input_controller_field_);
+    if (!controller ||
+        ClearException(env, error, "LawmanGame.sm_cInputController read failed")) {
+        DeleteLocal(env, controller);
+        SetError(error, "game input controller is unavailable");
+        return false;
+    }
+    void* controller_class = get_class(env, controller);
+    if (!controller_class || ClearException(env, error, "GameInputController class read failed")) {
+        DeleteLocal(env, controller_class);
+        DeleteLocal(env, controller);
+        return false;
+    }
+    controller_actions_field_ = get_field(
+        env, controller_class, "m_Actions", "[LInputAction;");
+    controller_targets_field_ = get_field(
+        env, controller_class, "m_Targets", "[LEInputTargetItem;");
+    DeleteLocal(env, controller_class);
+    DeleteLocal(env, controller);
+    if (!controller_actions_field_ || !controller_targets_field_ ||
+        ClearException(env, error, "GameInputController action/target lookup failed")) {
+        controller_actions_field_ = nullptr;
+        controller_targets_field_ = nullptr;
+        return false;
+    }
+
+    void* digital_local = find_class(env, "InputDigital");
+    void* analog_local = find_class(env, "InputAnalog");
+    if (!digital_local || !analog_local ||
+        ClearException(env, error, "InputDigital/InputAnalog class lookup failed")) {
+        DeleteLocal(env, digital_local);
+        DeleteLocal(env, analog_local);
+        return false;
+    }
+    input_digital_class_ = new_global(env, digital_local);
+    input_analog_class_ = new_global(env, analog_local);
+    DeleteLocal(env, digital_local);
+    DeleteLocal(env, analog_local);
+    if (!input_digital_class_ || !input_analog_class_ ||
+        ClearException(env, error, "gameplay input class global-ref creation failed")) {
+        return false;
+    }
+
+    digital_device_field_ = get_field(env, input_digital_class_, "m_iDevice", "I");
+    digital_button_field_ = get_field(env, input_digital_class_, "m_iButtonID", "I");
+    digital_translate_method_ = get_method(
+        env, input_digital_class_, "Translate", "(LEInputTargetItem;IIZ)Z");
+    analog_device_field_ = get_field(env, input_analog_class_, "m_iDevice", "I");
+    analog_axis_field_ = get_field(env, input_analog_class_, "m_iAxis", "I");
+    analog_axis_sign_field_ = get_field(env, input_analog_class_, "m_iAxisSign", "I");
+    analog_translate_method_ = get_method(
+        env, input_analog_class_, "Translate", "(LEInputTargetItem;IIF)Z");
+    if (!digital_device_field_ || !digital_button_field_ || !digital_translate_method_ ||
+        !analog_device_field_ || !analog_axis_field_ || !analog_axis_sign_field_ ||
+        !analog_translate_method_ ||
+        ClearException(env, error, "InputAction translation member lookup failed")) {
+        return false;
+    }
+    return true;
+}
+
 bool JavaPlayerBridge::TryResolveCampaignBeing(void* env, std::string* error) noexcept {
     if (!EnsureCampaignAccess(env, error)) return false;
 
@@ -499,6 +652,163 @@ bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
     DeleteLocal(env, module);
     if (ClearException(env, error, "Module.IsTimerFreezed call failed")) return false;
     frozen = value != 0;
+    return true;
+}
+
+bool JavaPlayerBridge::TryApplyGameplayInput(
+    const cojvr::runtime::GameplayInputState& state,
+    std::string* error) noexcept {
+    if (!state.active && !gameplay_input_applied_) return true;
+
+    void* env = Environment(error);
+    if (!env || !EnsureGameplayInputAccess(env, error)) return false;
+
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto get_object_field = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    const auto get_length = EnvFunction<GetArrayLengthFn>(env, kGetArrayLength);
+    const auto get_element = EnvFunction<GetObjectArrayElementFn>(env, kGetObjectArrayElement);
+    const auto get_int = EnvFunction<GetIntFieldFn>(env, kGetIntField);
+    const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!get_static_object || !get_object_field || !get_length || !get_element || !get_int ||
+        !is_instance || !call_boolean) {
+        SetError(error, "required JNI gameplay-input functions are unavailable");
+        return false;
+    }
+
+    void* controller = get_static_object(env, lawman_game_class_, input_controller_field_);
+    if (!controller ||
+        ClearException(env, error, "LawmanGame.sm_cInputController gameplay read failed")) {
+        DeleteLocal(env, controller);
+        SetError(error, "game input controller is unavailable");
+        return false;
+    }
+    void* actions = get_object_field(env, controller, controller_actions_field_);
+    void* targets = get_object_field(env, controller, controller_targets_field_);
+    if (!actions || !targets ||
+        ClearException(env, error, "GameInputController action/target array read failed")) {
+        DeleteLocal(env, actions);
+        DeleteLocal(env, targets);
+        DeleteLocal(env, controller);
+        return false;
+    }
+    const std::int32_t action_count = get_length(env, actions);
+    const std::int32_t target_count = get_length(env, targets);
+    if (action_count <= 47 || target_count <= 0 ||
+        ClearException(env, error, "GameInputController array length read failed")) {
+        DeleteLocal(env, actions);
+        DeleteLocal(env, targets);
+        DeleteLocal(env, controller);
+        SetError(error, "game input action/target arrays are incomplete");
+        return false;
+    }
+
+    const auto values = BuildCoJGameplayActionValues(state);
+    const auto previous_values = gameplay_input_applied_
+        ? BuildCoJGameplayActionValues(last_gameplay_input_)
+        : BuildCoJGameplayActionValues({});
+
+    const auto apply_value = [&](const CoJGameplayActionValue& item,
+                                 const CoJGameplayActionValue& previous_item) noexcept {
+        void* action = get_element(env, actions, item.action);
+        if (!action || ClearException(env, error, "InputAction array access failed")) {
+            DeleteLocal(env, action);
+            return false;
+        }
+        const bool digital = is_instance(env, action, input_digital_class_) != 0;
+        const bool analog = !digital && is_instance(env, action, input_analog_class_) != 0;
+        if (ClearException(env, error, "InputAction type check failed")) {
+            DeleteLocal(env, action);
+            return false;
+        }
+
+        constexpr float kDigitalThreshold = 0.35F;
+        const bool current_pressed = item.value > kDigitalThreshold;
+        const bool previous_pressed = previous_item.value > kDigitalThreshold;
+        const bool needs_digital_update = !gameplay_input_applied_ ||
+            current_pressed != previous_pressed;
+        const bool needs_analog_update = !gameplay_input_applied_ ||
+            std::fabs(item.value - previous_item.value) > 0.005F;
+        if ((digital && !needs_digital_update) || (analog && !needs_analog_update)) {
+            DeleteLocal(env, action);
+            return true;
+        }
+        if (!digital && !analog) {
+            DeleteLocal(env, action);
+            if (item.value == 0.0F && previous_item.value == 0.0F) return true;
+            SetError(error, "configured CoJ action uses an unsupported POV input binding");
+            return false;
+        }
+
+        const std::int32_t device = get_int(
+            env, action, digital ? digital_device_field_ : analog_device_field_);
+        const std::int32_t code = get_int(
+            env, action, digital ? digital_button_field_ : analog_axis_field_);
+        const std::int32_t axis_sign = analog
+            ? get_int(env, action, analog_axis_sign_field_)
+            : 1;
+        if (ClearException(env, error, "configured CoJ action binding read failed")) {
+            DeleteLocal(env, action);
+            return false;
+        }
+
+        bool invoked = false;
+        for (std::int32_t index = 0; index < target_count; ++index) {
+            void* target = get_element(env, targets, index);
+            if (ClearException(env, error, "InputTarget array access failed")) {
+                DeleteLocal(env, target);
+                DeleteLocal(env, action);
+                return false;
+            }
+            if (!target) continue;
+            if (digital) {
+                const JValue args[3]{
+                    {.l = target},
+                    {.i = device},
+                    {.i = code},
+                };
+                JValue digital_args[4]{};
+                digital_args[0] = args[0];
+                digital_args[1] = args[1];
+                digital_args[2] = args[2];
+                digital_args[3].z = current_pressed ? 1U : 0U;
+                (void)call_boolean(
+                    env, action, digital_translate_method_, digital_args);
+            } else {
+                JValue analog_args[4]{};
+                analog_args[0].l = target;
+                analog_args[1].i = device;
+                analog_args[2].i = code;
+                analog_args[3].f = item.value * (axis_sign < 0 ? -1.0F : 1.0F);
+                (void)call_boolean(
+                    env, action, analog_translate_method_, analog_args);
+            }
+            DeleteLocal(env, target);
+            if (ClearException(env, error, "InputAction.Translate failed")) {
+                DeleteLocal(env, action);
+                return false;
+            }
+            invoked = true;
+        }
+        DeleteLocal(env, action);
+        return invoked;
+    };
+
+    bool ok = true;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (values[index].action != previous_values[index].action ||
+            !apply_value(values[index], previous_values[index])) {
+            ok = false;
+            break;
+        }
+    }
+
+    DeleteLocal(env, actions);
+    DeleteLocal(env, targets);
+    DeleteLocal(env, controller);
+    if (!ok) return false;
+    last_gameplay_input_ = state.active ? state : cojvr::runtime::GameplayInputState{};
+    gameplay_input_applied_ = state.active;
     return true;
 }
 

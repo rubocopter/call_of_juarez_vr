@@ -10,6 +10,11 @@ struct Vec3 {
     float z = 0.0F;
 };
 
+struct Vec2 {
+    float x = 0.0F;
+    float y = 0.0F;
+};
+
 struct Quaternion {
     float x = 0.0F;
     float y = 0.0F;
@@ -24,6 +29,27 @@ struct Pose {
     Quaternion orientation{};
     bool orientation_valid = false;
     bool position_valid = false;
+};
+
+// XR-backend-neutral gameplay intent. Physical controller paths belong to the
+// runtime binding profile; numeric game action IDs belong to the game adapter.
+// Keeping this semantic state between them lets a presenter zero all held
+// inputs on focus/dashboard loss without synthesizing OS-global keyboard or
+// mouse events.
+struct GameplayInputState {
+    Vec2 move{};
+    Vec2 turn{};
+    bool fire_left = false;
+    bool fire_right = false;
+    bool jump = false;
+    bool reload = false;
+    bool run = false;
+    bool crouch = false;
+    bool interact = false;
+    bool weapon_next = false;
+    bool weapon_previous = false;
+    bool kick = false;
+    bool active = false;
 };
 
 struct EyeFov {

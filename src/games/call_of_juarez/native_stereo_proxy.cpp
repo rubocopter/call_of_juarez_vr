@@ -201,6 +201,7 @@ bool BeginStereoFrame(
     sample.hmd_pose.sequence = tracking.sequence;
     sample.left_controller = tracking.left_controller;
     sample.right_controller = tracking.right_controller;
+    sample.gameplay = tracking.gameplay;
     sample.recenter_requested = tracking.recenter_requested;
     if (tracking.recenter_requested) {
         LogLine("openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread");

@@ -73,6 +73,9 @@ struct ArmGeometrySample {
     cojvr::runtime::Vec3 forearm_element_position{};
     cojvr::runtime::Vec3 forearm_element_up{};
     cojvr::runtime::Vec3 forearm_element_forward{};
+    cojvr::runtime::Vec3 hand_element_position{};
+    cojvr::runtime::Vec3 hand_element_up{};
+    cojvr::runtime::Vec3 hand_element_forward{};
 };
 
 struct ArmGeometryRestoreCheck {
@@ -136,6 +139,30 @@ struct BoneRotationDelta {
     bool valid = false;
 };
 
+// The Sense model/grip axes are runtime/device details and do not line up with
+// the shipped hand mesh axes. Capture their relationship from one live frame
+// and only apply subsequent controller-orientation deltas. The hand basis is
+// stored in the natural camera frame so game yaw can continue to own world
+// orientation independently from HMD/controller tracking.
+struct HandOrientationReference {
+    cojvr::runtime::Quaternion controller_orientation{};
+    cojvr::runtime::Vec3 hand_up_camera{};
+    cojvr::runtime::Vec3 hand_forward_camera{};
+    bool valid = false;
+};
+
+struct HandOrientationTarget {
+    cojvr::runtime::Vec3 up{};
+    cojvr::runtime::Vec3 forward{};
+    bool valid = false;
+};
+
+struct HandOrientationRotationPlan {
+    BoneRotationDelta forearm_twist{};
+    BoneRotationDelta hand{};
+    bool valid = false;
+};
+
 struct ArmBoneRotationPlan {
     BoneRotationDelta upper_arm{};
     BoneRotationDelta forearm{};
@@ -176,6 +203,35 @@ struct LegIkPlan {
     const BoneRotationDelta& world_rotation,
     cojvr::runtime::Vec3 element_up,
     cojvr::runtime::Vec3 element_forward) noexcept;
+
+// Calibrate the current animated hand against a recentered controller pose
+// without assuming any PS VR2 Sense local-axis convention.
+[[nodiscard]] HandOrientationReference BuildHandOrientationReference(
+    cojvr::runtime::Quaternion controller_orientation,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 hand_up_world,
+    cojvr::runtime::Vec3 hand_forward_world) noexcept;
+
+// Apply the controller delta relative to the calibration frame and map the
+// resulting hand basis through the current natural CoJ camera basis.
+[[nodiscard]] HandOrientationTarget BuildTrackedHandOrientationTarget(
+    const HandOrientationReference& reference,
+    cojvr::runtime::Quaternion controller_orientation,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward) noexcept;
+
+// Split hand orientation into a forearm roll/twist around the solved lower-arm
+// axis plus a residual hand-element rotation. This keeps controller roll from
+// leaving the forearm mesh corkscrewed while still allowing the wrist/hand to
+// reach the complete calibrated Sense orientation.
+[[nodiscard]] HandOrientationRotationPlan BuildHandOrientationRotationPlan(
+    cojvr::runtime::Vec3 lower_arm_axis,
+    cojvr::runtime::Vec3 current_hand_up,
+    cojvr::runtime::Vec3 current_hand_forward,
+    const HandOrientationTarget& target) noexcept;
 
 // Maps a recentered tracked hand around the native animated head joint. The
 // controller and HMD positions are in the same tracking space; subtracting the

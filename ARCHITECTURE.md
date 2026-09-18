@@ -271,8 +271,16 @@ logical `recenter_requested` flag and forwards it into the existing `RelativePos
 controller paths and OpenVR handles do not leak into game camera code. The JSON/terminal command
 remains a diagnostic fallback. The same OpenVR sample now also carries both controller-role poses.
 `RelativePoseTracker::TransformPose()` maps those poses into the exact HMD recenter space without
-mutating tracker state, and the neutral `BodyTracker` receives only XR-neutral poses. Gameplay
-actions remain separate from this tracked-pose path.
+mutating tracker state, and the neutral `BodyTracker` receives only XR-neutral poses.
+
+Gameplay input is a separate logical state carried beside those tracked poses. The OpenVR adapter
+owns `/actions/gameplay` and converts the current controller binding into a neutral
+`GameplayInputState`; it does not expose OpenVR handles or PS VR2-specific paths to the game layer.
+The exact Call of Juarez adapter then maps that semantic state to shipped action IDs and invokes the
+existing `GameInputController.InputAction.Translate` route, preserving the game's configured target
+device/code/sign contract instead of synthesizing process-global keyboard/mouse input. Loss of scene
+focus, dashboard ownership or invalid tracking produces a neutral state so prior actions are
+released. The CoJ action IDs/JVM route remain game-specific and are not a Chrome Engine contract.
 
 The first exact-build body adapter keeps ChromeEngine ownership game-specific. It attaches to the
 existing Java 1.4 VM through `JNI_GetCreatedJavaVMs` and resolves the current `NetPlayer.m_Being`.
@@ -328,8 +336,14 @@ write, the same changed geometry after each complete eye render, and the origina
 after restore. It also requires elbow/wrist agreement with the solved targets, preventing an
 arbitrarily changed but misoriented mesh from passing. Inverse drift is corrected from the captured
 complete natural element frames and verified; failure of both restore paths fail-closes the writer.
-Hand orientation remains natural and pelvis/leg writers remain disabled until this corrected exact
-element path passes a fresh physical run.
+The current host-only orientation extension also reads the native hand element and calibrates the
+animated hand basis against the controller orientation at the current recenter/actor generation.
+Subsequent controller orientation is applied as a relative delta, decomposed into twist about the
+solved forearm axis plus residual hand rotation, then written through the same element-relative
+`RotateElementWithChildren` contract. Restoration runs hand -> forearm twist -> forearm -> upper and
+verifies the complete natural hand/arm geometry. This avoids hard-coding a controller-local palm
+axis before physical evidence. Pelvis/leg writers remain disabled until this corrected exact arm/
+hand path passes a fresh physical run.
 
 The OpenVR presenter treats SteamVR's dashboard as a system-owned layer. A visible dashboard gates
 scene submission and compositor-paced `WaitGetPoses`, while the latest valid game frame remains

@@ -1030,10 +1030,11 @@ The physical arm gate still failed. Arms moved and vertical motion behaved corre
 back was reversed: moving the controllers behind produced arms visible in front. The user screenshot
 also shows forearm/wrist deformation. Because target reach, both-eye persistence and restoration all
 passed for the complete run, the remaining position defect is the hand-target camera-basis Z sign,
-not the native writer. Current host source changes only `BuildTrackedHandTarget` from `-forward*z`
-to `+forward*z`, i.e. tracking `-Z` forward -> negative native forward; X/Y stay untouched. Host
-tests and the verifier bind this exact mapping. Hand orientation remains natural/uncontrolled and
-must not be claimed fixed by the sign change. The user closed SteamVR; fresh complete Debug and
+not the native writer. The corrected-Z source for that run changed only `BuildTrackedHandTarget`
+from `-forward*z` to `+forward*z`, i.e. tracking `-Z` forward -> negative native forward; X/Y stayed
+untouched. Host tests and the verifier bound that exact mapping. Hand orientation remained
+natural/uncontrolled in that artifact and was not claimed fixed by the sign change. The user closed
+SteamVR; fresh complete Debug and
 Release suites each passed 24 tests plus the expected capability SKIP. Full/body candidate
 `20260918T215118Z-c46320012ff0` was staged with build-manifest ID
 `C3679E1866C80B388E557C8B5B76B6E144945469E8154DB16C5BECE3DB5476B4` and proxy SHA-256
@@ -1051,11 +1052,45 @@ drops or submit failures; sampled CPU copy was `9.092 ms` average / `11.433 ms` 
 the controller position Z sign unless new physical evidence contradicts this run.
 
 The body gate still fails visually. The user reports both arms are now directionally correct but
-"deformadísimos"; this is consistent with the still-explicit `hand_orientation=natural`. The next
-body task is therefore to carry Sense orientation into the exact CoJ arm composition and resolve
-forearm roll plus wrist/hand twist while preserving the already-live-proven writer, target reach,
-both-eye persistence and exact post-capture restoration. Do not extend into pelvis/legs or gameplay
-interactions before that arm-composition gate passes.
+"deformadísimos"; this is consistent with the `hand_orientation=natural` contract in that live
+artifact. That failure defined the next body task: carry Sense orientation into the exact CoJ arm
+composition and resolve forearm roll plus wrist/hand twist while preserving the already-live-proven
+writer, target reach, both-eye persistence and exact post-capture restoration.
+
+That next slice is now implemented and **host-tested only**. `BuildHandOrientationReference`
+calibrates the current Sense quaternion against the animated native hand basis in camera space;
+`BuildTrackedHandOrientationTarget` applies later controller orientation as a relative delta; and
+`BuildHandOrientationRotationPlan` decomposes the target into forearm twist around the solved lower-
+arm axis plus residual hand rotation. The arm transaction now applies upper arm -> forearm -> twist
+-> hand with `RotateElementWithChildren`, then restores hand -> twist -> forearm -> upper after both
+eye captures. Natural geometry and restore checks include the hand element, and telemetry/verifier
+require `hand_orientation=calibrated_controller_delta`, valid controller orientation,
+`hand_orientation_reached=true`, element-local twist/hand axes and clean hand/twist restoration.
+Invalid orientation fails closed. No physical claim is made from this host work.
+
+The requested PS VR2 Sense gameplay profile is also implemented and **host-tested only**. It adds
+`/actions/gameplay` alongside the existing global recenter set and carries neutral move/turn/fire/
+jump/reload/run/crouch/interact/weapon-cycle/kick state through the presenter. The exact CoJ bridge
+does not call `SendInput`; it resolves `LawmanGame.sm_cInputController`, the shipped action/target
+objects and their digital/analog `Translate` methods so the game's configured device/code/sign
+contract remains authoritative. The binding is left stick move + click run, right stick turn +
+click crouch, L2/R2 fire left/right, L1/R1 weapon previous/next, Square reload, Triangle interact,
+Cross jump and Circle kick; left Create remains global recenter. Gameplay input is neutralized when
+dashboard/focus/tracking is unavailable. Full/body manifests now require at least one applied,
+non-neutral `gameplay_input` sample through `GameInputController.InputAction.Translate`.
+
+Fresh Debug and Release builds/tests from this orientation/gameplay tree complete all 25 CTest
+outcomes with **24 PASS plus the expected classic-D3D9 shared-texture capability SKIP**, zero
+failures. Focused body/OpenVR/provenance coverage also passes. The next candidate must be committed
+first, then prepared once with `tools/vr_test.ps1 prepare -BodyIkAtStart`; preparation must not
+launch SteamVR or CoJ.
+
+The next physical run remains one process and one run ID. Do not require a dashboard cycle. Visually
+test T-pose plus forward/back/up/down, then controller roll and palm-up/palm-down on both hands; the
+arms must follow position and orientation without the photographed deformation, and natural forearm
+twist must be plausible. In the same run exercise the Sense gameplay profile (move, turn, both fire
+actions, jump, reload, run/crouch, interact, kick, weapon cycle) and left-Create recenter. Gameplay
+input evidence does not promote Body IK by itself. Pelvis/leg writes remain disabled.
 
 ## Constraints
 
@@ -1065,10 +1100,12 @@ interactions before that arm-composition gate passes.
 - Positional 6DOF and the isolated body/arm IK preflight remain in scope. Campaign actor discovery,
   controller tracking and actor reconciliation are live-proven for the exact build. `BoneRotate` is
   physically rejected as a visible writer; `RotateElementWithChildren` is now live-proven to mutate
-  the mesh, while its failed world/local-axis composition is corrected and host-tested for the next
-  physical body gate. Keep body semantics exact-build-first and fail closed; do not extend
-  the unvalidated arm writer into pelvis/legs or gameplay interactions.
-- UI and controller gameplay remain outside the current gate.
+  the mesh, while controller-orientation/forearm-twist/hand composition is host-tested for the next
+  physical body gate. Keep body semantics exact-build-first and fail closed; do not extend the
+  unvalidated arm writer into pelvis/legs.
+- UI rebuilding, weapon-aim ownership and interaction redesign remain outside the current gate.
+  The exact-game Sense gameplay mapping is host-tested and may be physically co-validated in the
+  same body run without implying those later interaction milestones are complete.
 - Do not equate submit count with new game content.
 - Preserve the validation-state boundary: host-only Phase 5/6 changes remain `host-tested` until a
   fresh run supplies the specific live/headset evidence required by the consolidated verifier.

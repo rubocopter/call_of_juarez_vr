@@ -334,6 +334,97 @@ int main() {
         return 1;
     }
 
+    const HandOrientationReference hand_reference = BuildHandOrientationReference(
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F});
+    const float half_sqrt = std::sqrt(0.5F);
+    const HandOrientationTarget hand_orientation_target =
+        BuildTrackedHandOrientationTarget(
+            hand_reference,
+            {half_sqrt, 0.0F, 0.0F, half_sqrt},
+            {1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F});
+    if (!hand_reference.valid || !hand_orientation_target.valid ||
+        !Near(Distance(hand_orientation_target.up, {0.0F, 0.0F, 1.0F}), 0.0F) ||
+        !Near(Distance(hand_orientation_target.forward, {0.0F, -1.0F, 0.0F}), 0.0F)) {
+        std::cerr << "controller orientation delta did not rotate the calibrated hand basis\n";
+        return 1;
+    }
+    const HandOrientationRotationPlan hand_rotation_plan =
+        BuildHandOrientationRotationPlan(
+            {1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F},
+            hand_orientation_target);
+    if (!hand_rotation_plan.valid || hand_rotation_plan.forearm_twist.no_op ||
+        !Near(hand_rotation_plan.forearm_twist.angle_degrees, 90.0F) ||
+        !Near(std::fabs(hand_rotation_plan.forearm_twist.axis.x), 1.0F) ||
+        !hand_rotation_plan.hand.no_op ||
+        !Near(hand_rotation_plan.hand.angle_degrees, 0.0F)) {
+        std::cerr << "controller roll was not split into forearm twist plus residual hand rotation\n";
+        return 1;
+    }
+    const HandOrientationReference invalid_hand_reference = BuildHandOrientationReference(
+        {0.0F, 0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F});
+    if (invalid_hand_reference.valid) {
+        std::cerr << "invalid controller orientation produced a hand calibration\n";
+        return 1;
+    }
+
+    GameplayInputState gameplay{};
+    gameplay.active = true;
+    gameplay.move = {0.8F, -0.6F};
+    gameplay.turn = {-0.5F, 0.0F};
+    gameplay.fire_left = true;
+    gameplay.fire_right = true;
+    gameplay.jump = true;
+    gameplay.reload = true;
+    gameplay.interact = true;
+    gameplay.weapon_previous = true;
+    const auto gameplay_actions = BuildCoJGameplayActionValues(gameplay);
+    const auto action_value = [&](const int action) {
+        for (const auto& item : gameplay_actions) {
+            if (item.action == action) return item.value;
+        }
+        return -1.0F;
+    };
+    if (!Near(action_value(2), 0.5F) || !Near(action_value(3), 0.0F) ||
+        !Near(action_value(4), 0.0F) || !Near(action_value(5), 0.6F) ||
+        !Near(action_value(6), 0.8F) || !Near(action_value(7), 0.0F) ||
+        !Near(action_value(9), 1.0F) || !Near(action_value(10), 1.0F) ||
+        !Near(action_value(11), 1.0F) || !Near(action_value(30), 1.0F) ||
+        !Near(action_value(31), 1.0F) || !Near(action_value(47), 1.0F)) {
+        std::cerr << "VR gameplay semantics did not map to the exact CoJ action IDs\n";
+        return 1;
+    }
+    GameplayInputState deadzone_gameplay{};
+    deadzone_gameplay.active = true;
+    deadzone_gameplay.move = {0.1F, -0.1F};
+    for (const auto& item : BuildCoJGameplayActionValues(deadzone_gameplay)) {
+        if (!Near(item.value, 0.0F)) {
+            std::cerr << "VR gameplay stick deadzone leaked into a CoJ action\n";
+            return 1;
+        }
+    }
+    GameplayInputState inactive_gameplay = gameplay;
+    inactive_gameplay.active = false;
+    for (const auto& item : BuildCoJGameplayActionValues(inactive_gameplay)) {
+        if (!Near(item.value, 0.0F)) {
+            std::cerr << "inactive VR gameplay state did not release every CoJ action\n";
+            return 1;
+        }
+    }
+
     bool hand_target_valid = false;
     const Vec3 tracked_hand_target = BuildTrackedHandTarget(
         {100.0F, 200.0F, 300.0F},

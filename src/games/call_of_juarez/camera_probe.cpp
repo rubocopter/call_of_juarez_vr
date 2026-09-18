@@ -111,13 +111,25 @@ struct ArmElementCache {
     std::uint64_t being_generation = 0;
     int left_upper_arm = -1;
     int left_forearm = -1;
+    int left_hand = -1;
     int right_upper_arm = -1;
     int right_forearm = -1;
+    int right_hand = -1;
     bool valid = false;
 };
 ArmElementCache g_arm_element_cache{};
+struct HandOrientationCalibrationState {
+    std::uint64_t being_generation = 0;
+    std::uint64_t recenter_sequence = 0;
+    HandOrientationReference reference{};
+};
+HandOrientationCalibrationState g_left_hand_orientation{};
+HandOrientationCalibrationState g_right_hand_orientation{};
 struct AppliedArmElementRotation {
     ArmBoneRotationPlan rotations{};
+    BoneRotationDelta forearm_twist{};
+    BoneRotationDelta hand_rotation{};
+    HandOrientationTarget hand_target{};
     ArmGeometrySample natural_geometry{};
     ArmGeometrySample post_write_geometry{};
     bool post_write_geometry_valid = false;
@@ -126,6 +138,8 @@ struct AppliedArmElementRotation {
 AppliedArmElementRotation g_left_arm_rotation{};
 AppliedArmElementRotation g_right_arm_rotation{};
 bool g_arm_rotation_faulted = false;
+cojvr::runtime::GameplayInputState g_last_gameplay_telemetry{};
+bool g_gameplay_telemetry_initialized = false;
 CameraStereoRuntimeCallbacks g_stereo_callbacks{};
 cojvr::runtime::RelativePoseTracker g_pose_tracker;
 std::filesystem::path g_control_path{};
@@ -155,6 +169,27 @@ struct RenderUpdateOverride {
 };
 
 thread_local RenderUpdateOverride g_render_update_override{};
+
+bool GameplayInputChanged(
+    const cojvr::runtime::GameplayInputState& left,
+    const cojvr::runtime::GameplayInputState& right) noexcept {
+    constexpr float kAxisChange = 0.005F;
+    return left.active != right.active ||
+        std::fabs(left.move.x - right.move.x) > kAxisChange ||
+        std::fabs(left.move.y - right.move.y) > kAxisChange ||
+        std::fabs(left.turn.x - right.turn.x) > kAxisChange ||
+        std::fabs(left.turn.y - right.turn.y) > kAxisChange ||
+        left.fire_left != right.fire_left ||
+        left.fire_right != right.fire_right ||
+        left.jump != right.jump ||
+        left.reload != right.reload ||
+        left.run != right.run ||
+        left.crouch != right.crouch ||
+        left.interact != right.interact ||
+        left.weapon_next != right.weapon_next ||
+        left.weapon_previous != right.weapon_previous ||
+        left.kick != right.kick;
+}
 
 struct StereoEyeOverride {
     bool active = false;
@@ -1249,11 +1284,17 @@ bool ResolveArmElements(const std::uint64_t generation, std::string* error) noex
             static_cast<std::int8_t>(binding.left_forearm),
             g_arm_element_cache.left_forearm, error) &&
         g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.left_hand),
+            g_arm_element_cache.left_hand, error) &&
+        g_java_player_bridge.TryGetMeshElement(
             static_cast<std::int8_t>(binding.right_upper_arm),
             g_arm_element_cache.right_upper_arm, error) &&
         g_java_player_bridge.TryGetMeshElement(
             static_cast<std::int8_t>(binding.right_forearm),
-            g_arm_element_cache.right_forearm, error);
+            g_arm_element_cache.right_forearm, error) &&
+        g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.right_hand),
+            g_arm_element_cache.right_hand, error);
     g_arm_element_cache.valid = complete;
     return complete;
 }
@@ -1276,12 +1317,18 @@ bool ReadArmGeometry(
     JavaPlayerPosition forearm_element_position{};
     JavaPlayerPosition forearm_element_up{};
     JavaPlayerPosition forearm_element_forward{};
+    JavaPlayerPosition hand_element_position{};
+    JavaPlayerPosition hand_element_up{};
+    JavaPlayerPosition hand_element_forward{};
     const int upper_element = left
         ? g_arm_element_cache.left_upper_arm
         : g_arm_element_cache.right_upper_arm;
     const int forearm_element = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int hand_element = left
+        ? g_arm_element_cache.left_hand
+        : g_arm_element_cache.right_hand;
     if (!g_java_player_bridge.TryGetBoneJointPosition(
             static_cast<std::int8_t>(upper), shoulder, error) ||
         !g_java_player_bridge.TryGetBoneJointPosition(
@@ -1299,6 +1346,12 @@ bool ReadArmGeometry(
             forearm_element_position,
             forearm_element_up,
             forearm_element_forward,
+            error) ||
+        !g_java_player_bridge.TryGetElementWorldBasis(
+            hand_element,
+            hand_element_position,
+            hand_element_up,
+            hand_element_forward,
             error)) {
         return false;
     }
@@ -1311,6 +1364,9 @@ bool ReadArmGeometry(
     geometry.forearm_element_position = RuntimeVector(forearm_element_position);
     geometry.forearm_element_up = RuntimeVector(forearm_element_up);
     geometry.forearm_element_forward = RuntimeVector(forearm_element_forward);
+    geometry.hand_element_position = RuntimeVector(hand_element_position);
+    geometry.hand_element_up = RuntimeVector(hand_element_up);
+    geometry.hand_element_forward = RuntimeVector(hand_element_forward);
     return true;
 }
 
@@ -1332,7 +1388,13 @@ bool ArmGeometryChanged(
         RuntimeVectorDistanceSquared(
             lhs.forearm_element_up, rhs.forearm_element_up) > kDifferenceSquared ||
         RuntimeVectorDistanceSquared(
-            lhs.forearm_element_forward, rhs.forearm_element_forward) > kDifferenceSquared;
+            lhs.forearm_element_forward, rhs.forearm_element_forward) > kDifferenceSquared ||
+        RuntimeVectorDistanceSquared(
+            lhs.hand_element_position, rhs.hand_element_position) > kDifferenceSquared ||
+        RuntimeVectorDistanceSquared(
+            lhs.hand_element_up, rhs.hand_element_up) > kDifferenceSquared ||
+        RuntimeVectorDistanceSquared(
+            lhs.hand_element_forward, rhs.hand_element_forward) > kDifferenceSquared;
 }
 
 void ObserveAppliedArmRenderState(
@@ -1372,6 +1434,9 @@ void ObserveAppliedArmRenderState(
            << ";forearm_element_up=" << RuntimeVectorText(rendered.forearm_element_up)
            << ";forearm_element_forward="
            << RuntimeVectorText(rendered.forearm_element_forward)
+           << ";hand_element_up=" << RuntimeVectorText(rendered.hand_element_up)
+           << ";hand_element_forward="
+           << RuntimeVectorText(rendered.hand_element_forward)
            << ";writer=RotateElementWithChildren";
     EmitEvent(
         "body_arm_render_probe",
@@ -1433,16 +1498,21 @@ bool ApplyArmPlan(
     const bool left,
     const ArmIkPlan& plan,
     const ArmBoneRotationPlan& rotations,
+    const HandOrientationTarget& hand_target,
     const ArmGeometrySample& natural_geometry,
     ArmBoneRotationPlan& applied_rotations,
+    BoneRotationDelta& applied_forearm_twist,
+    BoneRotationDelta& applied_hand_rotation,
     bool& rollback_attempted,
     bool& rollback_ok,
     std::string* error) noexcept {
     rollback_attempted = false;
     rollback_ok = true;
     applied_rotations = {};
-    if (!plan.valid || !rotations.valid) {
-        if (error) *error = "arm element-rotation plan is invalid";
+    applied_forearm_twist = {};
+    applied_hand_rotation = {};
+    if (!plan.valid || !rotations.valid || !hand_target.valid) {
+        if (error) *error = "arm element/orientation rotation plan is invalid";
         return false;
     }
 
@@ -1452,6 +1522,9 @@ bool ApplyArmPlan(
     const int forearm = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int hand = left
+        ? g_arm_element_cache.left_hand
+        : g_arm_element_cache.right_hand;
     applied_rotations.upper_arm = ConvertWorldRotationToElementLocal(
         rotations.upper_arm,
         natural_geometry.upper_element_up,
@@ -1461,6 +1534,8 @@ bool ApplyArmPlan(
         return false;
     }
     bool upper_applied = false;
+    bool forearm_applied = false;
+    bool twist_applied = false;
 
     const auto rotate = [&](const int element,
                             const BoneRotationDelta& rotation,
@@ -1473,16 +1548,25 @@ bool ApplyArmPlan(
             rotation.angle_degrees * sign,
             rotate_error);
     };
-    const auto rollback_upper = [&]() noexcept {
-        if (!upper_applied) return;
+    const auto rollback_chain = [&]() noexcept {
+        if (!upper_applied && !forearm_applied && !twist_applied) return;
         rollback_attempted = true;
-        std::string rollback_error;
-        rollback_ok = rotate(
-            upper, applied_rotations.upper_arm, -1.0F, &rollback_error);
+        std::string twist_error;
+        std::string forearm_error;
+        std::string upper_error;
+        const bool twist_ok = !twist_applied || rotate(
+            forearm, applied_forearm_twist, -1.0F, &twist_error);
+        const bool forearm_ok = !forearm_applied || rotate(
+            forearm, applied_rotations.forearm, -1.0F, &forearm_error);
+        const bool upper_ok = !upper_applied || rotate(
+            upper, applied_rotations.upper_arm, -1.0F, &upper_error);
+        rollback_ok = twist_ok && forearm_ok && upper_ok;
         if (!rollback_ok && error) {
             if (!error->empty()) *error += "; ";
-            *error += "upper-arm RotateElementWithChildren rollback failed";
-            if (!rollback_error.empty()) *error += "; rollback=" + rollback_error;
+            *error += "arm RotateElementWithChildren rollback failed";
+            if (!twist_error.empty()) *error += "; twist_rollback=" + twist_error;
+            if (!forearm_error.empty()) *error += "; forearm_rollback=" + forearm_error;
+            if (!upper_error.empty()) *error += "; upper_rollback=" + upper_error;
         }
     };
 
@@ -1506,7 +1590,7 @@ bool ApplyArmPlan(
             *error = "post-parent forearm basis read failed";
             if (!write_error.empty()) *error += ": " + write_error;
         }
-        rollback_upper();
+        rollback_chain();
         return false;
     }
     applied_rotations.forearm = ConvertWorldRotationToElementLocal(
@@ -1517,12 +1601,99 @@ bool ApplyArmPlan(
         applied_rotations.forearm.valid;
     if (!applied_rotations.forearm.valid) {
         if (error) *error = "forearm world-to-element-local rotation conversion failed";
-        rollback_upper();
+        rollback_chain();
         return false;
     }
     if (!rotate(forearm, applied_rotations.forearm, 1.0F, &write_error)) {
         if (error) *error = write_error;
-        rollback_upper();
+        rollback_chain();
+        return false;
+    }
+    forearm_applied = !applied_rotations.forearm.no_op;
+
+    JavaPlayerPosition post_forearm_position{};
+    JavaPlayerPosition post_forearm_up{};
+    JavaPlayerPosition post_forearm_forward{};
+    JavaPlayerPosition hand_position{};
+    JavaPlayerPosition hand_up{};
+    JavaPlayerPosition hand_forward{};
+    if (!g_java_player_bridge.TryGetElementWorldBasis(
+            forearm,
+            post_forearm_position,
+            post_forearm_up,
+            post_forearm_forward,
+            &write_error) ||
+        !g_java_player_bridge.TryGetElementWorldBasis(
+            hand,
+            hand_position,
+            hand_up,
+            hand_forward,
+            &write_error)) {
+        if (error) {
+            *error = "post-IK forearm/hand basis read failed";
+            if (!write_error.empty()) *error += ": " + write_error;
+        }
+        rollback_chain();
+        return false;
+    }
+
+    const HandOrientationRotationPlan orientation_plan =
+        BuildHandOrientationRotationPlan(
+            {
+                plan.wrist_target.x - plan.elbow_target.x,
+                plan.wrist_target.y - plan.elbow_target.y,
+                plan.wrist_target.z - plan.elbow_target.z,
+            },
+            RuntimeVector(hand_up),
+            RuntimeVector(hand_forward),
+            hand_target);
+    if (!orientation_plan.valid) {
+        if (error) *error = "controller-driven hand orientation plan is invalid";
+        rollback_chain();
+        return false;
+    }
+
+    applied_forearm_twist = ConvertWorldRotationToElementLocal(
+        orientation_plan.forearm_twist,
+        RuntimeVector(post_forearm_up),
+        RuntimeVector(post_forearm_forward));
+    if (!applied_forearm_twist.valid) {
+        if (error) *error = "forearm twist world-to-element-local conversion failed";
+        rollback_chain();
+        return false;
+    }
+    if (!rotate(forearm, applied_forearm_twist, 1.0F, &write_error)) {
+        if (error) *error = write_error;
+        rollback_chain();
+        return false;
+    }
+    twist_applied = !applied_forearm_twist.no_op;
+
+    if (!g_java_player_bridge.TryGetElementWorldBasis(
+            hand,
+            hand_position,
+            hand_up,
+            hand_forward,
+            &write_error)) {
+        if (error) {
+            *error = "post-forearm-twist hand basis read failed";
+            if (!write_error.empty()) *error += ": " + write_error;
+        }
+        rollback_chain();
+        return false;
+    }
+    applied_hand_rotation = ConvertWorldRotationToElementLocal(
+        orientation_plan.hand,
+        RuntimeVector(hand_up),
+        RuntimeVector(hand_forward));
+    if (!applied_hand_rotation.valid) {
+        if (error) *error = "hand world-to-element-local rotation conversion failed";
+        rollback_chain();
+        return false;
+    }
+    if (!rotate(hand, applied_hand_rotation, 1.0F, &write_error)) {
+        if (error) *error = write_error;
+        rollback_chain();
         return false;
     }
     return true;
@@ -1538,6 +1709,9 @@ bool RestoreNaturalArmElementFrames(
     const int forearm = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int hand = left
+        ? g_arm_element_cache.left_hand
+        : g_arm_element_cache.right_hand;
     std::string upper_error;
     if (!g_java_player_bridge.TrySetElementWorldBasis(
             upper,
@@ -1558,6 +1732,16 @@ bool RestoreNaturalArmElementFrames(
         if (error) *error = "exact forearm frame restore failed: " + forearm_error;
         return false;
     }
+    std::string hand_error;
+    if (!g_java_player_bridge.TrySetElementWorldBasis(
+            hand,
+            JavaVector(natural.hand_element_up),
+            JavaVector(natural.hand_element_forward),
+            JavaVector(natural.hand_element_position),
+            &hand_error)) {
+        if (error) *error = "exact hand frame restore failed: " + hand_error;
+        return false;
+    }
     return true;
 }
 
@@ -1573,6 +1757,9 @@ bool RestoreAppliedArmRotation(
     const int forearm = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int hand = left
+        ? g_arm_element_cache.left_hand
+        : g_arm_element_cache.right_hand;
     const auto inverse = [&](const int element,
                              const BoneRotationDelta& rotation,
                              std::string* restore_error) noexcept {
@@ -1584,13 +1771,17 @@ bool RestoreAppliedArmRotation(
             restore_error);
     };
 
+    std::string hand_error;
+    std::string twist_error;
     std::string forearm_error;
     std::string upper_error;
+    const bool hand_ok = inverse(hand, applied.hand_rotation, &hand_error);
+    const bool twist_ok = inverse(forearm, applied.forearm_twist, &twist_error);
     const bool forearm_ok = inverse(forearm, applied.rotations.forearm, &forearm_error);
     const bool upper_ok = inverse(upper, applied.rotations.upper_arm, &upper_error);
     ArmGeometrySample restored_geometry{};
     std::string geometry_error;
-    bool geometry_read = forearm_ok && upper_ok &&
+    bool geometry_read = hand_ok && twist_ok && forearm_ok && upper_ok &&
         ReadArmGeometry(left, restored_geometry, &geometry_error);
     ArmGeometryRestoreCheck restore_check{};
     if (geometry_read) {
@@ -1625,6 +1816,8 @@ bool RestoreAppliedArmRotation(
         std::ostringstream detail;
         detail << "frame_sequence=" << frame_sequence
                << ";side=" << (left ? "left" : "right")
+               << ";hand_restored=" << (hand_ok ? "true" : "false")
+               << ";forearm_twist_restored=" << (twist_ok ? "true" : "false")
                << ";forearm_restored=" << (forearm_ok ? "true" : "false")
                << ";upper_restored=" << (upper_ok ? "true" : "false")
                << ";geometry_read=" << (geometry_read ? "true" : "false")
@@ -1640,6 +1833,8 @@ bool RestoreAppliedArmRotation(
                << ";restore_element_position_error="
                << restore_check.max_element_position_error
                << ";restore_axis_error=" << restore_check.max_axis_error;
+        if (!hand_error.empty()) detail << ";hand_detail=" << hand_error;
+        if (!twist_error.empty()) detail << ";forearm_twist_detail=" << twist_error;
         if (!forearm_error.empty()) detail << ";forearm_detail=" << forearm_error;
         if (!upper_error.empty()) detail << ";upper_detail=" << upper_error;
         if (!geometry_error.empty()) detail << ";geometry_detail=" << geometry_error;
@@ -1734,12 +1929,61 @@ void UpdatePlayerArmTracking(
                 }
                 return;
             }
+            if (!controller.orientation_valid) {
+                if (observe || body_ik_enabled) {
+                    EmitEvent(
+                        "body_arm_tracking", "unavailable",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=controller_orientation");
+                }
+                return;
+            }
+            const cojvr::runtime::Vec3 camera_right{
+                basis.right.x, basis.right.y, basis.right.z};
+            const cojvr::runtime::Vec3 camera_up{
+                basis.up.x, basis.up.y, basis.up.z};
+            const cojvr::runtime::Vec3 camera_forward{
+                basis.forward.x, basis.forward.y, basis.forward.z};
+            auto& orientation_calibration = left
+                ? g_left_hand_orientation
+                : g_right_hand_orientation;
+            const std::uint64_t recenter_sequence =
+                g_pose_tracker.last_recenter_sequence();
+            if (!orientation_calibration.reference.valid ||
+                orientation_calibration.being_generation != generation ||
+                orientation_calibration.recenter_sequence != recenter_sequence) {
+                orientation_calibration.reference = BuildHandOrientationReference(
+                    controller.orientation,
+                    camera_right,
+                    camera_up,
+                    camera_forward,
+                    geometry.hand_element_up,
+                    geometry.hand_element_forward);
+                orientation_calibration.being_generation = generation;
+                orientation_calibration.recenter_sequence = recenter_sequence;
+            }
+            const HandOrientationTarget hand_target =
+                BuildTrackedHandOrientationTarget(
+                    orientation_calibration.reference,
+                    controller.orientation,
+                    camera_right,
+                    camera_up,
+                    camera_forward);
+            if (!orientation_calibration.reference.valid || !hand_target.valid) {
+                if (observe || body_ik_enabled) {
+                    EmitEvent(
+                        "body_arm_tracking", "invalid",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=controller_orientation_mapping");
+                }
+                return;
+            }
             bool target_valid = false;
             const cojvr::runtime::Vec3 target = BuildTrackedHandTarget(
                 RuntimeVector(head_joint),
-                {basis.right.x, basis.right.y, basis.right.z},
-                {basis.up.x, basis.up.y, basis.up.z},
-                {basis.forward.x, basis.forward.y, basis.forward.z},
+                camera_right,
+                camera_up,
+                camera_forward,
                 tracked_body.head.position,
                 controller.position,
                 kGameUnitsPerMeter,
@@ -1775,6 +2019,15 @@ void UpdatePlayerArmTracking(
                               << RuntimeVectorText(geometry.forearm_element_up)
                               << ";forearm_element_forward="
                               << RuntimeVectorText(geometry.forearm_element_forward)
+                              << ";hand_element_position="
+                              << RuntimeVectorText(geometry.hand_element_position)
+                              << ";hand_element_up="
+                              << RuntimeVectorText(geometry.hand_element_up)
+                              << ";hand_element_forward="
+                              << RuntimeVectorText(geometry.hand_element_forward)
+                              << ";hand_target_up=" << RuntimeVectorText(hand_target.up)
+                              << ";hand_target_forward="
+                              << RuntimeVectorText(hand_target.forward)
                               << ";writer=RotateElementWithChildren";
                 EmitEvent("body_arm_write_probe", "natural", natural_probe.str());
             }
@@ -1782,25 +2035,37 @@ void UpdatePlayerArmTracking(
             bool rollback_attempted = false;
             bool rollback_ok = true;
             ArmBoneRotationPlan applied_rotations{};
+            BoneRotationDelta applied_forearm_twist{};
+            BoneRotationDelta applied_hand_rotation{};
             float elbow_target_error = std::numeric_limits<float>::infinity();
             float wrist_target_error = std::numeric_limits<float>::infinity();
+            float hand_up_error = std::numeric_limits<float>::infinity();
+            float hand_forward_error = std::numeric_limits<float>::infinity();
             bool targets_reached = false;
+            bool hand_orientation_reached = false;
             std::string write_error;
             const bool write_allowed =
-                allow_write && !g_arm_rotation_faulted && rotation_plan.valid;
+                allow_write && !g_arm_rotation_faulted && rotation_plan.valid &&
+                hand_target.valid;
             if (body_ik_enabled && write_allowed && elements_ready && plan.valid) {
                 write_ok = ApplyArmPlan(
                     left,
                     plan,
                     rotation_plan,
+                    hand_target,
                     geometry,
                     applied_rotations,
+                    applied_forearm_twist,
+                    applied_hand_rotation,
                     rollback_attempted,
                     rollback_ok,
                     &write_error);
                 if (write_ok) {
                     auto& applied = left ? g_left_arm_rotation : g_right_arm_rotation;
                     applied.rotations = applied_rotations;
+                    applied.forearm_twist = applied_forearm_twist;
+                    applied.hand_rotation = applied_hand_rotation;
+                    applied.hand_target = hand_target;
                     applied.natural_geometry = geometry;
                     applied.post_write_geometry = {};
                     applied.active = true;
@@ -1810,7 +2075,10 @@ void UpdatePlayerArmTracking(
                         applied.post_write_geometry,
                         &post_write_error);
                     const bool expects_change =
-                        !rotation_plan.upper_arm.no_op || !rotation_plan.forearm.no_op;
+                        !applied_rotations.upper_arm.no_op ||
+                        !applied_rotations.forearm.no_op ||
+                        !applied_forearm_twist.no_op ||
+                        !applied_hand_rotation.no_op;
                     const bool changed = applied.post_write_geometry_valid &&
                         ArmGeometryChanged(
                             applied.natural_geometry,
@@ -1823,6 +2091,16 @@ void UpdatePlayerArmTracking(
                         constexpr float kArmTargetTolerance = 0.5F;
                         targets_reached = elbow_target_error <= kArmTargetTolerance &&
                             wrist_target_error <= kArmTargetTolerance;
+                        hand_up_error = std::sqrt(RuntimeVectorDistanceSquared(
+                            applied.post_write_geometry.hand_element_up,
+                            hand_target.up));
+                        hand_forward_error = std::sqrt(RuntimeVectorDistanceSquared(
+                            applied.post_write_geometry.hand_element_forward,
+                            hand_target.forward));
+                        constexpr float kHandOrientationTolerance = 0.02F;
+                        hand_orientation_reached =
+                            hand_up_error <= kHandOrientationTolerance &&
+                            hand_forward_error <= kHandOrientationTolerance;
                     }
                     if (observe) {
                         if (applied.post_write_geometry_valid) {
@@ -1838,6 +2116,10 @@ void UpdatePlayerArmTracking(
                                   << (targets_reached ? "true" : "false")
                                   << ";elbow_target_error=" << elbow_target_error
                                   << ";wrist_target_error=" << wrist_target_error
+                                  << ";hand_orientation_reached="
+                                  << (hand_orientation_reached ? "true" : "false")
+                                  << ";hand_up_error=" << hand_up_error
+                                  << ";hand_forward_error=" << hand_forward_error
                                   << ";elbow="
                                   << RuntimeVectorText(applied.post_write_geometry.elbow)
                                   << ";wrist="
@@ -1854,6 +2136,12 @@ void UpdatePlayerArmTracking(
                                   << ";forearm_element_forward="
                                   << RuntimeVectorText(
                                          applied.post_write_geometry.forearm_element_forward)
+                                  << ";hand_element_up="
+                                  << RuntimeVectorText(
+                                         applied.post_write_geometry.hand_element_up)
+                                  << ";hand_element_forward="
+                                  << RuntimeVectorText(
+                                         applied.post_write_geometry.hand_element_forward)
                                   << ";writer=RotateElementWithChildren";
                             EmitEvent(
                                 "body_arm_write_probe",
@@ -1868,16 +2156,20 @@ void UpdatePlayerArmTracking(
                         }
                     }
                     if (!applied.post_write_geometry_valid ||
-                        (expects_change && !changed) || !targets_reached) {
+                        (expects_change && !changed) || !targets_reached ||
+                        !hand_orientation_reached) {
                         if (!applied.post_write_geometry_valid) {
                             write_error =
                                 "post-write arm geometry could not be read: " + post_write_error;
                         } else if (expects_change && !changed) {
                             write_error =
                                 "RotateElementWithChildren returned without changing arm geometry";
-                        } else {
+                        } else if (!targets_reached) {
                             write_error =
                                 "render-element rotation did not reach the solved elbow/wrist targets";
+                        } else {
+                            write_error =
+                                "render-element rotation did not reach the calibrated hand orientation";
                         }
                         g_arm_rotation_faulted = true;
                         rollback_attempted = true;
@@ -1916,6 +2208,13 @@ void UpdatePlayerArmTracking(
                        << RuntimeVectorText(geometry.forearm_element_up)
                        << ";forearm_element_forward="
                        << RuntimeVectorText(geometry.forearm_element_forward)
+                       << ";hand_element_position="
+                       << RuntimeVectorText(geometry.hand_element_position)
+                       << ";hand_element_up=" << RuntimeVectorText(geometry.hand_element_up)
+                       << ";hand_element_forward="
+                       << RuntimeVectorText(geometry.hand_element_forward)
+                       << ";hand_target_up=" << RuntimeVectorText(hand_target.up)
+                       << ";hand_target_forward=" << RuntimeVectorText(hand_target.forward)
                        << ";elbow_target=" << RuntimeVectorText(plan.elbow_target)
                        << ";upper_target_position="
                        << RuntimeVectorText(plan.upper_arm.position)
@@ -1940,10 +2239,29 @@ void UpdatePlayerArmTracking(
                        << RuntimeVectorText(applied_rotations.upper_arm.axis)
                        << ";forearm_native_axis="
                        << RuntimeVectorText(applied_rotations.forearm.axis)
+                       << ";forearm_twist_native_axis="
+                       << RuntimeVectorText(applied_forearm_twist.axis)
+                       << ";forearm_twist_degrees="
+                       << applied_forearm_twist.angle_degrees
+                       << ";forearm_twist_no_op="
+                       << (applied_forearm_twist.no_op ? "true" : "false")
+                       << ";hand_native_axis="
+                       << RuntimeVectorText(applied_hand_rotation.axis)
+                       << ";hand_rotation_degrees="
+                       << applied_hand_rotation.angle_degrees
+                       << ";hand_rotation_no_op="
+                       << (applied_hand_rotation.no_op ? "true" : "false")
                        << ";native_axis_space=element_local"
                        << ";elbow_target_error=" << elbow_target_error
                        << ";wrist_target_error=" << wrist_target_error
                        << ";targets_reached=" << (targets_reached ? "true" : "false")
+                       << ";hand_up_error=" << hand_up_error
+                       << ";hand_forward_error=" << hand_forward_error
+                       << ";hand_orientation_reached="
+                       << (hand_orientation_reached ? "true" : "false")
+                       << ";controller_orientation_valid=true"
+                       << ";orientation_calibration_recenter_sequence="
+                       << orientation_calibration.recenter_sequence
                        << ";rotation_plan_valid="
                        << (rotation_plan.valid ? "true" : "false")
                        << ";upper_length=" << plan.upper_length
@@ -1956,7 +2274,7 @@ void UpdatePlayerArmTracking(
                        << ";rollback_attempted=" << (rollback_attempted ? "true" : "false")
                        << ";rollback_ok=" << (rollback_ok ? "true" : "false")
                        << ";tracking_forward=-z_to_negative_native_forward"
-                       << ";hand_orientation=natural"
+                       << ";hand_orientation=calibrated_controller_delta"
                        << ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector"
                        << ";writer=RotateElementWithChildren";
                 if (body_ik_enabled && write_allowed && plan.valid && !write_ok) {
@@ -2329,6 +2647,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     const CommandSnapshot snapshot = CurrentCommand();
     if (!snapshot.command.tracking_enabled || !StereoCallbacksReady()) {
+        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
         original(owner, view);
         return;
     }
@@ -2353,6 +2672,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         !sample.hmd_pose.pose.orientation_valid || sample.hmd_pose.sequence == 0 ||
         sample.eyes[0].eye != cojvr::runtime::Eye::left ||
         sample.eyes[1].eye != cojvr::runtime::Eye::right) {
+        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
         original(owner, view);
         return;
     }
@@ -2373,6 +2693,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     cojvr::runtime::Pose relative_head_pose{};
     if (!g_pose_tracker.Update(sample.hmd_pose) ||
         !g_pose_tracker.CurrentPose(relative_head_pose)) {
+        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
         original(owner, view);
         return;
     }
@@ -2394,6 +2715,45 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     const std::uint64_t frame_sequence =
         g_stereo_frame_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const bool gameplay_changed = !g_gameplay_telemetry_initialized ||
+        GameplayInputChanged(sample.gameplay, g_last_gameplay_telemetry);
+    std::string gameplay_input_error;
+    const bool gameplay_input_ok = g_java_player_bridge.TryApplyGameplayInput(
+        sample.gameplay, &gameplay_input_error);
+    if (!gameplay_input_ok || gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            std::ostringstream gameplay_detail;
+            gameplay_detail << "frame_sequence=" << frame_sequence
+                            << ";active=" << (sample.gameplay.active ? "true" : "false")
+                            << ";move=" << sample.gameplay.move.x << ',' << sample.gameplay.move.y
+                            << ";turn=" << sample.gameplay.turn.x << ',' << sample.gameplay.turn.y
+                            << ";fire_left=" << (sample.gameplay.fire_left ? "true" : "false")
+                            << ";fire_right=" << (sample.gameplay.fire_right ? "true" : "false")
+                            << ";jump=" << (sample.gameplay.jump ? "true" : "false")
+                            << ";reload=" << (sample.gameplay.reload ? "true" : "false")
+                            << ";run=" << (sample.gameplay.run ? "true" : "false")
+                            << ";crouch=" << (sample.gameplay.crouch ? "true" : "false")
+                            << ";interact=" << (sample.gameplay.interact ? "true" : "false")
+                            << ";weapon_next="
+                            << (sample.gameplay.weapon_next ? "true" : "false")
+                            << ";weapon_previous="
+                            << (sample.gameplay.weapon_previous ? "true" : "false")
+                            << ";kick=" << (sample.gameplay.kick ? "true" : "false")
+                            << ";route=GameInputController.InputAction.Translate";
+            if (!gameplay_input_error.empty()) {
+                gameplay_detail << ";detail=" << gameplay_input_error;
+            }
+            EmitEvent(
+                "gameplay_input",
+                gameplay_input_ok ? "applied" : "unavailable",
+                gameplay_detail.str());
+        } catch (...) {
+        }
+    }
+    if (gameplay_input_ok) {
+        g_last_gameplay_telemetry = sample.gameplay;
+        g_gameplay_telemetry_initialized = true;
+    }
     ObservePostLoadLiveness(natural_render_state, frame_sequence);
     if (ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -3036,9 +3396,13 @@ void ShutdownCameraProbe() noexcept {
     g_body_player_generation = 0;
     g_body_player_space_applied = false;
     g_arm_element_cache = {};
+    g_left_hand_orientation = {};
+    g_right_hand_orientation = {};
     g_left_arm_rotation = {};
     g_right_arm_rotation = {};
     g_arm_rotation_faulted = false;
+    g_last_gameplay_telemetry = {};
+    g_gameplay_telemetry_initialized = false;
     g_pose_source = nullptr;
     g_stereo_callbacks = {};
     g_recenter_command_generation.store(0, std::memory_order_release);

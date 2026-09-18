@@ -82,6 +82,7 @@ struct OpenVrStereoPresenter::Impl {
     runtime::Pose latest_pose{};
     runtime::Pose latest_left_controller{};
     runtime::Pose latest_right_controller{};
+    runtime::GameplayInputState latest_gameplay{};
     std::uint64_t pose_sequence = 0;
     bool recenter_pending = false;
 
@@ -341,7 +342,7 @@ struct OpenVrStereoPresenter::Impl {
                     runtime.InitializeGlobalActions(action_manifest_path),
                     std::memory_order_release);
                 if (input_ready.load(std::memory_order_acquire)) {
-                    Log("openvr_input: status=started action_set=/actions/global recenter=/actions/global/in/recenter binding=psvr2_sense_create owner=presenter_thread");
+                    Log("openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter gameplay=semantic_sense_profile owner=presenter_thread");
                 } else {
                     Log("openvr_input: status=unavailable owner=presenter_thread error=" +
                         std::string(runtime.last_error()));
@@ -432,10 +433,11 @@ struct OpenVrStereoPresenter::Impl {
                 if (stop_requested.load(std::memory_order_acquire)) break;
                 if (pose_ok) {
                     bool recenter = false;
-                    if (!dashboard_visible &&
+                    runtime::GameplayInputState gameplay{};
+                    if (!dashboard_visible && runtime_state.focused &&
                         input_ready.load(std::memory_order_acquire)) {
                         runtime::OpenVrGlobalActions actions{};
-                        if (runtime.PollGlobalActions(actions)) {
+                        if (runtime.PollActions(actions, gameplay)) {
                             recenter = actions.recenter_requested;
                         }
                     }
@@ -444,6 +446,7 @@ struct OpenVrStereoPresenter::Impl {
                         latest_pose = tracked_poses.hmd;
                         latest_left_controller = tracked_poses.left_controller;
                         latest_right_controller = tracked_poses.right_controller;
+                        latest_gameplay = gameplay;
                         ++pose_sequence;
                         if (recenter) recenter_pending = true;
                     }
@@ -662,6 +665,7 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_pose = {};
             impl_->latest_left_controller = {};
             impl_->latest_right_controller = {};
+            impl_->latest_gameplay = {};
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;
         }
@@ -721,6 +725,7 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.pose = impl_->latest_pose;
         sample.left_controller = impl_->latest_left_controller;
         sample.right_controller = impl_->latest_right_controller;
+        sample.gameplay = impl_->latest_gameplay;
         sample.sequence = impl_->pose_sequence;
         sample.recenter_requested = impl_->recenter_pending;
         impl_->recenter_pending = false;

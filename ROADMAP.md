@@ -59,11 +59,13 @@ Run `20260918T213453Z-a789ac61ac91` physically validated the native-camera roll 
 user no longer experienced the head-tilt nausea, across telemetry samples from `-27.286` to
 `+40.762` degrees. It also proved the float-aware arm restoration over all 6,930 frames: 13,860
 left/right applications and restorations completed with no fail-close. The remaining body failure
-is spatial/visual. Both arms move and reach the solver targets, but physical forward/back is
-reversed; the arms become visible in front only when the controllers move behind the user. Current
-host source flips only tracked Z at the CoJ camera-basis boundary. The screenshot also shows wrist/
-hand twist; controller orientation is not yet applied (`hand_orientation=natural`), so deformation
-is not promoted as solved by the positional sign correction.
+was spatial/visual in that artifact. Both arms moved and reached the solver targets, but physical
+forward/back was reversed; the arms became visible in front only when the controllers moved behind
+the user. Run `20260918T215118Z-c46320012ff0` physically validated the corrected tracked-Z position
+mapping, but still showed severe wrist/hand deformation with `hand_orientation=natural`. Current
+host source now implements calibration-relative Sense orientation, forearm twist and residual hand
+rotation while preserving that validated position mapping. This orientation composition remains
+host-tested pending a fresh physical visual gate.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the
@@ -225,10 +227,10 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 ## Milestone 4 — controllers and interactions
 
-- Minimal logical OpenVR global action seam: **headset-validated for recenter only**; gameplay actions remain planned.
-- PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter only**; tracked-hand/gameplay binding validation remains planned.
+- Minimal logical OpenVR global action seam: **headset-validated for recenter**. Neutral gameplay action state is additionally **host-tested**.
+- PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter**; full gameplay profile is **implemented / host-tested** and awaits physical validation. Current layout uses left stick move/run, right stick turn/crouch, L2/R2 fire, L1/R1 weapon previous/next, Square reload, Triangle interact, Cross jump and Circle kick.
 - Decouple weapon aim from HMD view: **planned**.
-- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual arm composition still rejected**. Exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260918T160300Z-cd4137a48fca` rejected `BoneRotate` as a non-mutating writer. Run `20260918T165754Z-845101e7557b` proved that exact-build `RotateElementWithChildren` changes the visible mesh. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` identified an over-strict restore comparison. Run `20260918T213453Z-a789ac61ac91` then sustained 13,860 applications/restores without fault and physically validated the roll comfort fix, but exposed reversed tracked front/back. Run `20260918T215118Z-c46320012ff0` physically validates the corrected Z mapping: forward Sense motion now produces forward arm motion, with 9,296 successful applications/restores and no restore failure. Both arms remain severely deformed/twisted, and `hand_orientation=natural` confirms controller orientation is still unapplied. The next body slice is controller/hand orientation and forearm/wrist roll/twist; pelvis/thigh/shin/foot writes remain disabled.
+- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual arm composition still rejected**. Exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260918T160300Z-cd4137a48fca` rejected `BoneRotate` as a non-mutating writer. Run `20260918T165754Z-845101e7557b` proved that exact-build `RotateElementWithChildren` changes the visible mesh. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` identified an over-strict restore comparison. Run `20260918T213453Z-a789ac61ac91` then sustained 13,860 applications/restores without fault and physically validated the roll comfort fix, but exposed reversed tracked front/back. Run `20260918T215118Z-c46320012ff0` physically validates the corrected Z mapping: forward Sense motion now produces forward arm motion, with 9,296 successful applications/restores and no restore failure. Both arms remained severely deformed/twisted because that live artifact still used `hand_orientation=natural`. The controller/hand-orientation slice is now **host-tested**: calibration-relative Sense orientation is split into forearm twist plus residual hand rotation, the native hand element participates in the same transactional overlay, and the verifier requires orientation reach plus exact restoration. A fresh physical run is required before visual Body IK promotion; pelvis/thigh/shin/foot writes remain disabled.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
 - Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.
 - Per-game weapon/player adapters: **planned**.

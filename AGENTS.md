@@ -242,10 +242,29 @@ both Sense controllers forward now moves the arms forward. Telemetry recorded 9,
 applications and 9,296 successful restores, zero restore failures, and the corrected
 `tracking_forward=-z_to_negative_native_forward` marker on every application. The body gate still
 fails visual acceptance because both arms remain severely deformed/twisted. Controller orientation
-is still intentionally absent (`hand_orientation=natural`), so the next arm task is explicit
-controller/hand orientation plus forearm/wrist roll/twist composition, not another positional-axis
-change. Evidence package SHA-256:
+was still intentionally absent in that artifact (`hand_orientation=natural`), so that run narrowed
+the next arm task to controller/hand orientation plus forearm/wrist roll/twist composition, not
+another positional-axis change. Evidence package SHA-256:
 `CA3F758168AAE782E727EFCF0A24B6F46E821297538BB1A78883AA2CBA93DA74`.
+
+Current host source implements that next arm slice without changing the live-proven controller
+position mapping or visible writer. It captures a per-side controller-orientation reference against
+the current animated hand frame, applies later Sense orientation as a calibration-relative delta,
+splits roll into forearm twist around the solved lower-arm axis plus residual hand rotation, and
+extends the `RotateElementWithChildren` transaction through the native hand element. Restoration is
+hand -> forearm twist -> forearm -> upper arm and must recover the complete natural hand/arm frame.
+Telemetry identifies the contract as `hand_orientation=calibrated_controller_delta` and requires
+`hand_orientation_reached=true`; invalid controller orientation fails closed. This composition is
+**host-tested only** and still requires one fresh physical visual gate before Body IK promotion.
+
+The same host source adds the first exact-CoJ gameplay-input profile. OpenVR exposes a neutral
+`/actions/gameplay` set for move, turn, left/right fire, jump, reload, run, crouch, interact, weapon
+next/previous and kick. The PS VR2 Sense binding maps sticks/buttons/triggers into that semantic
+state, while the exact game adapter feeds the game's existing
+`GameInputController.InputAction.Translate` objects rather than synthesizing Windows keyboard or
+mouse input. Input is neutralized whenever scene focus/tracking is unavailable so held actions cannot
+stick. This path is also **host-tested only**; left-Sense-Create recenter remains the separately
+headset-validated global action.
 
 The same source adds non-invasive `post_load_liveness` telemetry for the separately reported
 post-load freeze: it observes real input changes, foreground/focus/GUI-thread state, pending
@@ -427,8 +446,10 @@ must not depend on `Present`, `BeginScene`, `EndScene` or `Reset` hooks.
 - Camera hooks, HMD orientation injection, positional/body reconciliation and the current
   native-stereo render-view proof must remain in the exact Call of Juarez game integration.
   The explicitly authorized 6DOF/body preflight may advance through host tests and one gated
-  physical arm-composition run; do not generalize it or extend it into UI/gameplay interaction or
-  pelvis/leg writes before that evidence exists.
+  physical arm-composition run; do not generalize it or extend it into UI rebuilding, weapon/aim
+  ownership or pelvis/leg writes before that evidence exists. The exact-game semantic gameplay-input
+  profile is an explicitly authorized parallel slice; keep it separate from Body IK promotion and do
+  not generalize its CoJ action IDs or JVM route.
 - Do not reactivate D3D9Ex as the primary game path without new evidence.
 - Do not use a blind periodic re-hook loop as the default fix.
 - Do not introduce a full `IDirect3DDevice9` wrapper solely to avoid current hook replacement unless COM identity, `QueryInterface`, `GetDirect3D`, lifetime and discovery semantics are explicitly validated and evidence justifies the design.
@@ -443,8 +464,11 @@ The D3D10 path for Call of Juarez remains a first-class later target because it 
 ## Runtime direction
 
 OpenVR -> SteamVR is the primary PSVR2 path. A minimal left-Sense-Create global recenter action
-is headset-validated for the current camera gate; full tracked-controller/gameplay input remains
-the later input milestone. Keep input abstractions logical and controller-independent.
+is headset-validated for the current camera gate. A broader neutral gameplay-action seam plus a
+PS VR2 Sense profile is now implemented and host-tested; the exact CoJ adapter translates those
+semantic actions through the game's configured `GameInputController` path. Physical gameplay-input
+validation remains pending. Keep shared input abstractions logical and controller-independent, and
+keep exact action IDs/game JVM details inside the CoJ integration.
 
 Preserve OpenXR as an experimental/future backend, but it must be independently selectable and must not be required merely to configure/build the OpenVR path.
 
