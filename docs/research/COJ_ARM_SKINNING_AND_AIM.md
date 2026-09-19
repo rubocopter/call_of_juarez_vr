@@ -13,6 +13,35 @@ Runtime log SHA-256: `E9F615515ADEDCE955EF97B515956E499A9D3E3A8972D03D9A79106289
 The video shows the deliberate T-pose, forward palms-down/up and lowering sequence. Controller
 overlays help show physical placement; no precise video-to-log time synchronization is claimed.
 
+### Diagnostic multiprocess follow-up
+
+Candidate `20260919T122155Z-c534d86926a9` was later launched three times under the same run ID.
+Because that violates the one-process promotion boundary, the evidence is retained as diagnostic
+only. The third process (PID 448) corresponds to the user's 87.79-second video
+`C:\Users\onita\Videos\clip_1.789.829.493.853.mp4`, which exercises forward palms toward the body,
+forward palms down/up, flexed elbows, T-pose palms down/up, raised arm flexion and repeated recenter.
+Video SHA-256: `6BA5556AF95EFB3D598FB77BA900A8BE64065AF568EEF0FFB5B4A523289017F5`.
+
+That process completed 11,406 arm applications and 11,406 restores with zero arm writer/restore
+failures. Reach clamping occurred 6,072 times (53.24%). Sampled natural chain lengths averaged
+26.6857 upper-arm units and 23.1577 lower-arm units, 49.8434 total. This is strong evidence that the
+reported short-arm feel is a real native-chain reach constraint under the current head/shoulder
+anchoring policy. It does not justify changing the already validated tracking axes; the next reach
+experiment should make shoulder/body anchoring or controlled extension explicit and measurable.
+
+The video still rejects visual anatomy, although the earlier catastrophic mesh corruption is absent.
+It also confirms recurring local head/hair intrusion. Repeated recenter sometimes changed hand
+orientation in this artifact because the then-current policy discarded controller-to-hand
+calibration and rebuilt it from the current animated natural hand. Current host source preserves the
+last visible hand target and rebases the post-recenter controller reference against that target;
+this fix is host-tested only. The first two process starts also had the SteamVR interface stuck over
+the game while the third did not, so no focus/dashboard promotion follows from this evidence.
+
+Runtime-log SHA-256 at capture:
+`4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`. Diagnostic package SHA-256:
+`09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`. Repository evidence metadata
+is stored in `docs/research/evidence/20260919T122155Z-c534d86926a9.json`.
+
 ## The previous hierarchy assumption is false
 
 `EBones` assigns semantic IDs; it does not prove parentage. Earlier documentation described

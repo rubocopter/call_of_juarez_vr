@@ -434,13 +434,70 @@ int main() {
         }
         return -1.0F;
     };
-    if (!Near(action_value(2), 0.5F) || !Near(action_value(3), 0.0F) ||
+    if (!Near(action_value(2), 0.0F) || !Near(action_value(3), 0.0F) ||
         !Near(action_value(4), 0.0F) || !Near(action_value(5), 0.6F) ||
         !Near(action_value(6), 0.8F) || !Near(action_value(7), 0.0F) ||
         !Near(action_value(9), 1.0F) || !Near(action_value(10), 1.0F) ||
         !Near(action_value(11), 1.0F) || !Near(action_value(30), 1.0F) ||
         !Near(action_value(31), 1.0F) || !Near(action_value(47), 1.0F)) {
         std::cerr << "VR gameplay semantics did not map to the exact CoJ action IDs\n";
+        return 1;
+    }
+    CoJSnapTurnState snap_turn{};
+    GameplayInputState snap_gameplay{};
+    snap_gameplay.active = true;
+    snap_gameplay.turn.x = 0.69F;
+    if (!Near(snap_turn.Update(snap_gameplay), 0.0F)) {
+        std::cerr << "snap turn fired below the engage threshold\n";
+        return 1;
+    }
+    snap_gameplay.turn.x = 0.8F;
+    if (!Near(snap_turn.Update(snap_gameplay), 45.0F) ||
+        !Near(snap_turn.Update(snap_gameplay), 0.0F)) {
+        std::cerr << "right-stick snap turn did not latch at 45 degrees\n";
+        return 1;
+    }
+    snap_gameplay.turn.x = 0.2F;
+    if (!Near(snap_turn.Update(snap_gameplay), 0.0F)) {
+        std::cerr << "snap turn did not release near stick centre\n";
+        return 1;
+    }
+    snap_gameplay.turn.x = -0.9F;
+    if (!Near(snap_turn.Update(snap_gameplay), -45.0F)) {
+        std::cerr << "left-stick snap turn did not produce minus 45 degrees\n";
+        return 1;
+    }
+    snap_gameplay.active = false;
+    (void)snap_turn.Update(snap_gameplay);
+    snap_gameplay.active = true;
+    snap_gameplay.turn.x = 0.9F;
+    if (!Near(snap_turn.Update(snap_gameplay), 45.0F)) {
+        std::cerr << "inactive gameplay did not reset the snap-turn latch\n";
+        return 1;
+    }
+
+    // Recenter rebasing uses the last visible hand target as the new reference
+    // rather than the animated natural hand. At the recenter frame this must
+    // preserve the target exactly while accepting the new controller basis.
+    const HandOrientationReference recentered_hand_reference =
+        BuildHandOrientationReference(
+            {0.0F, half_sqrt, 0.0F, half_sqrt},
+            {1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F},
+            hand_orientation_target.up,
+            hand_orientation_target.forward);
+    const HandOrientationTarget recentered_hand_target =
+        BuildTrackedHandOrientationTarget(
+            recentered_hand_reference,
+            {0.0F, half_sqrt, 0.0F, half_sqrt},
+            {1.0F, 0.0F, 0.0F},
+            {0.0F, 1.0F, 0.0F},
+            {0.0F, 0.0F, 1.0F});
+    if (!recentered_hand_target.valid ||
+        !Near(Distance(recentered_hand_target.up, hand_orientation_target.up), 0.0F) ||
+        !Near(Distance(recentered_hand_target.forward, hand_orientation_target.forward), 0.0F)) {
+        std::cerr << "recenter hand-orientation rebase changed the visible target\n";
         return 1;
     }
     GameplayInputState deadzone_gameplay{};

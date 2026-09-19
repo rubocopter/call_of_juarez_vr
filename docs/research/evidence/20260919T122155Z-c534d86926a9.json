@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "cojvr-diagnostic-multiprocess-evidence",
+  "runId": "20260919T122155Z-c534d86926a9",
+  "promotionStatus": "diagnostic_only",
+  "promotionReason": "The same run_id contains three separate CoJ process starts and formal staging state was already absent before evidence collection.",
+  "candidate": {
+    "sourceCommit": "075daf3cbeba8abbf6ac389978714d1d85092a9e",
+    "buildManifestId": "163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702",
+    "proxySha256": "74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C"
+  },
+  "processStarts": [24552, 21724, 448],
+  "visualSessionPid": 448,
+  "video": {
+    "path": "C:\\Users\\onita\\Videos\\clip_1.789.829.493.853.mp4",
+    "sha256": "6BA5556AF95EFB3D598FB77BA900A8BE64065AF568EEF0FFB5B4A523289017F5",
+    "durationSeconds": 87.792667,
+    "sizeBytes": 427626665,
+    "width": 3840,
+    "height": 2160,
+    "averageFrameRate": "90000/1501"
+  },
+  "runtimeLogSha256": "4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6",
+  "procedure": [
+    "arms straight forward, palms toward body",
+    "arms straight forward, palms down",
+    "arms straight forward, palms up",
+    "elbows flexed, hands up",
+    "T-pose, palms down",
+    "T-pose, palms up",
+    "arms flexed upward",
+    "recenter several times"
+  ],
+  "telemetry": {
+    "armApplications": 11406,
+    "armRestores": 11406,
+    "armWriteOrRestoreFailures": 0,
+    "targetClamped": 6072,
+    "targetUnclamped": 5334,
+    "targetClampedPercent": 53.24,
+    "recenterEvents": 6,
+    "averageUpperArmLengthGameUnits": 26.6856836401894,
+    "averageLowerArmLengthGameUnits": 23.1577068911095,
+    "averageArmChainLengthGameUnits": 49.8434
+  },
+  "observations": [
+    "The third process produced the recorded visual pose sequence and eventually presented gameplay without a persistent SteamVR dashboard overlay.",
+    "Arm skinning remains visually unacceptable; reach is frequently clamped and the user reports that the arms feel short.",
+    "Head/hair geometry still intrudes into the HMD camera.",
+    "In this artifact recenter invalidates and recaptures controller-to-hand calibration, matching the observed hand-orientation changes after repeated recenter.",
+    "Weapon aiming remains owned by the native per-hand look direction/origin path rather than the transient visible weapon transform."
+  ]
+}

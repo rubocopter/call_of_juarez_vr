@@ -2,14 +2,32 @@
 
 ## Current checkpoint
 
-Fresh sibling-skinning candidate is staged as `20260919T122155Z-c534d86926a9` from clean commit
-`075daf3cbeba8abbf6ac389978714d1d85092a9e` (`dirty=false`). Build manifest:
-`163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`; proxy SHA-256:
+Candidate `20260919T122155Z-c534d86926a9` was launched three times under the same run ID, so its
+physical evidence is retained as **diagnostic multiprocess evidence** and cannot promote a formal
+single-process gate. Candidate identity was clean source
+`075daf3cbeba8abbf6ac389978714d1d85092a9e`, build manifest
+`163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256
 `74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C`.
-Debug/Release suites each pass 24 + one expected capability SKIP; prepare reran Release successfully.
-Body IK is enabled from start, reversible 1920x1080/FSAA0 applied. No game/SteamVR was launched.
-Next: user performs the same T-pose / forward palms-down/up / lower / elbow-flexion sequence and
-Create recenter, exits, then `tools/vr_test.ps1 finish`. No deliberate dashboard cycle is required.
+
+The third process (PID 448) is the user's 87.79-second video session. It recorded 11,406 successful
+arm applications and 11,406 successful restores, zero arm writer/restore failures, and six recenter
+events. Reach clamping occurred 6,072/11,406 times (53.24%). Sampled native chain length averaged
+26.6857 upper + 23.1577 lower = 49.8434 game units, matching the user's observation that the arms
+feel short. Visual anatomy remains rejected; local head/hair still intrudes and aiming still follows
+the native per-hand look direction/origin path rather than the visible weapon transform. The first
+two process starts had the SteamVR interface stuck over the game; the recorded third start did not,
+so focus/dashboard stability is not promoted. Video SHA-256:
+`6BA5556AF95EFB3D598FB77BA900A8BE64065AF568EEF0FFB5B4A523289017F5`; captured runtime-log SHA-256:
+`4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`; diagnostic package SHA-256:
+`09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`.
+
+Current host source fixes the observed recenter hand-orientation jump by preserving the last visible
+hand target and rebasing a new controller reference after recenter. It also consumes right-stick
+horizontal turn as one exact +/-45-degree snap per deflection through the exact native
+`PlayerBeing.RotateHorizontally(F)` route; native analog turn actions 2/3 remain neutral so mouse
+sensitivity cannot reintroduce continuous turn. Fresh full Release CTest is 24 PASS plus the one
+expected classic-D3D9 shared-texture capability SKIP. These changes are **host-tested only**. The
+next physical gate must use a fresh run ID and one CoJ process with `-BodyIkAtStart`.
 
 Latest continuation, 2026-09-19: run `20260919T085408Z-327dd354bc4f` is finalized and unstaged.
 The user's 26.84-second clip still rejects anatomy. It had 5,050 applications/restores, no arm

@@ -2,11 +2,15 @@
 
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
-Latest arm gate (2026-09-19): the `foretwist_only` run `20260919T085408Z-327dd354bc4f` failed
-visually. Measured propagation proves FORETWIST and hand are not a serial chain. The current
-candidate synchronizes FORETWIST sibling swing with forearm and shares axial roll with the hand,
-checking complete skinning frames as well as joint reach. Physical anatomy remains pending.
-Exact shot-direction/origin ownership has been researched; controller aiming is not yet implemented.
+Latest arm gate (2026-09-19): candidate `20260919T122155Z-c534d86926a9` was started three times under
+one run ID, so it is diagnostic rather than promotable evidence. The recorded third process completed
+11,406 arm applications/restores without writer fault, but anatomy still failed visually. Reach was
+clamped on 53.24% of sampled applications, with an average measured native chain length of 49.8434
+game units, making arm reach/shoulder-body anchoring an explicit next investigation. Recenter-driven
+hand-orientation jumps are fixed at host level by target-preserving calibration rebase. Exact +/-45
+degree right-stick snap turn is also implemented/host-tested through `PlayerBeing.RotateHorizontally`.
+Head/hair intrusion remains open. Exact shot-direction/origin ownership has been researched;
+controller aiming is not yet implemented.
 
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
 boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,
@@ -259,7 +263,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 ## Milestone 4 — controllers and interactions
 
 - Minimal logical OpenVR global action seam: **headset-validated for recenter**. Neutral gameplay action state is additionally **host-tested**.
-- PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter; gameplay route live-tested**. Run `20260918T233902Z-0cb2e565e886` physically exercised the native gameplay-input route successfully; individual bindings are not all separately promoted. Current layout uses left stick move/run, right stick turn/crouch, L2/R2 fire, L1/R1 weapon previous/next, Square reload, Triangle interact, Cross jump and Circle kick.
+- PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter; gameplay route live-tested**. Run `20260918T233902Z-0cb2e565e886` physically exercised the native gameplay-input route successfully; individual bindings are not all separately promoted. Current host source supersedes continuous right-stick horizontal turn with one exact +/-45-degree snap per deflection while retaining right-stick crouch; the snap behavior itself is **host-tested only**. Other bindings remain left stick move/run, L2/R2 fire, L1/R1 weapon previous/next, Square reload, Triangle interact, Cross jump and Circle kick.
 - Local head/hair suppression for HMD first-person rendering: **planned; live-observed need**. The 2026-09-19 video capture shows the local head/hair repeatedly entering the HMD view; implementation must preserve body/shadow ownership rather than hiding the whole actor.
 - Physical crouch from calibrated HMD height into the native crouch action/state: **planned**. The existing right-stick crouch remains a gameplay binding, not physical crouch.
 - Decouple weapon aim from HMD/crosshair view and drive muzzle/shot direction from tracked weapon/controller orientation: **planned; live-observed need**.

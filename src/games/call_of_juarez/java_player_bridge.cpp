@@ -142,10 +142,12 @@ std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
     };
     const float move_x = state.active ? normalize_axis(state.move.x) : 0.0F;
     const float move_y = state.active ? normalize_axis(state.move.y) : 0.0F;
-    const float turn_x = state.active ? normalize_axis(state.turn.x) : 0.0F;
     return {{
-        {2, positive(-turn_x)},
-        {3, positive(turn_x)},
+        // Horizontal turn is consumed by the exact 45-degree snap path below.
+        // Keep both native analog actions neutral so mouse sensitivity cannot
+        // turn a snap request back into continuous rotation.
+        {2, 0.0F},
+        {3, 0.0F},
         {4, positive(move_y)},
         {5, positive(-move_y)},
         {6, positive(move_x)},
@@ -161,6 +163,26 @@ std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
         {46, state.active && state.weapon_next ? 1.0F : 0.0F},
         {47, state.active && state.weapon_previous ? 1.0F : 0.0F},
     }};
+}
+
+float CoJSnapTurnState::Update(
+    const cojvr::runtime::GameplayInputState& state) noexcept {
+    constexpr float kEngageThreshold = 0.70F;
+    constexpr float kReleaseThreshold = 0.35F;
+    constexpr float kSnapDegrees = 45.0F;
+
+    if (!state.active || !std::isfinite(state.turn.x)) {
+        latched = false;
+        return 0.0F;
+    }
+    const float turn_x = std::clamp(state.turn.x, -1.0F, 1.0F);
+    if (std::fabs(turn_x) <= kReleaseThreshold) {
+        latched = false;
+        return 0.0F;
+    }
+    if (latched || std::fabs(turn_x) < kEngageThreshold) return 0.0F;
+    latched = true;
+    return turn_x > 0.0F ? kSnapDegrees : -kSnapDegrees;
 }
 
 bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
@@ -282,6 +304,8 @@ void JavaPlayerBridge::Reset() noexcept {
     being_generation_ = 0;
     last_gameplay_input_ = {};
     gameplay_input_applied_ = false;
+    snap_turn_state_ = {};
+    last_snap_turn_degrees_ = 0.0F;
     // Detach current thread if it was attached by this bridge
     DetachCurrentThread();
 }
@@ -658,7 +682,30 @@ bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
     std::string* error) noexcept {
+    last_snap_turn_degrees_ = 0.0F;
+    const float snap_turn_degrees = snap_turn_state_.Update(state);
     if (!state.active && !gameplay_input_applied_) return true;
+
+    if (snap_turn_degrees != 0.0F) {
+        if ((!being_ || !rotate_horizontally_method_) && !Refresh(error)) return false;
+        void* snap_env = Environment(error);
+        if (!snap_env || !being_ || !rotate_horizontally_method_) {
+            SetError(error, "player horizontal-rotation route is unavailable");
+            return false;
+        }
+        const auto call_void = EnvFunction<CallVoidMethodAFn>(snap_env, kCallVoidMethodA);
+        if (!call_void) {
+            SetError(error, "JNI CallVoidMethodA is unavailable for snap turn");
+            return false;
+        }
+        JValue snap_args[1]{};
+        snap_args[0].f = snap_turn_degrees;
+        call_void(snap_env, being_, rotate_horizontally_method_, snap_args);
+        if (ClearException(snap_env, error, "PlayerBeing.RotateHorizontally snap turn failed")) {
+            return false;
+        }
+        last_snap_turn_degrees_ = snap_turn_degrees;
+    }
 
     void* env = Environment(error);
     if (!env || !EnsureGameplayInputAccess(env, error)) return false;
@@ -831,6 +878,7 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     bone_rotate_method_ = nullptr;
     get_position_vector_method_ = nullptr;
     set_position_method_ = nullptr;
+    rotate_horizontally_method_ = nullptr;
     update_body_rotation_method_ = nullptr;
     current_head_vertical_field_ = nullptr;
     current_head_horizontal_field_ = nullptr;
@@ -863,9 +911,10 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* get_mesh = get_method(env, player_class, "GetMeshElemFromBoneID", "(B)I");
     void* get_position = get_method(env, player_class, "GetPositionVectorVolatile", "()LVector;");
     void* set_position = get_method(env, player_class, "SetPosition", "(FFF)V");
+    void* rotate_horizontally = get_method(env, player_class, "RotateHorizontally", "(F)V");
     const bool lookup_failed = ClearException(env, error, "player native-method lookup failed");
     DeleteLocal(env, player_class);
-    if (lookup_failed || !get_mesh || !get_position || !set_position) {
+    if (lookup_failed || !get_mesh || !get_position || !set_position || !rotate_horizontally) {
         SetError(error, "player native-method lookup was incomplete");
         return false;
     }
@@ -880,6 +929,7 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     get_mesh_element_method_ = get_mesh;
     get_position_vector_method_ = get_position;
     set_position_method_ = set_position;
+    rotate_horizontally_method_ = rotate_horizontally;
     return true;
 }
 

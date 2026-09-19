@@ -45,8 +45,22 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
-Current staged candidate: `20260919T122155Z-c534d86926a9`, clean source `075daf3`,
-Body IK enabled from start. See the top of `docs/internal/CODEX_HANDOFF.md` for exact identities.
+Latest physical evidence for candidate `20260919T122155Z-c534d86926a9` is diagnostic only: the
+same run ID contains three separate CoJ process starts, so it cannot promote a formal single-process
+gate. The third process (PID 448) is the user's 87.79-second recorded pose sequence. It completed
+11,406 arm applications and 11,406 restores with zero writer/restore failures, but visual anatomy
+still failed. `target_clamped=true` occurred 6,072/11,406 times (53.24%); the sampled native chain
+averaged 26.686 upper + 23.158 lower = 49.843 game units, quantitatively supporting the user's
+observation that the arms feel short. Head/hair intrusion, weapon-aim ownership and recurring
+SteamVR dashboard sticking remain open. See `docs/research/evidence/20260919T122155Z-c534d86926a9.json`.
+
+Current host source preserves the visible hand-orientation target across Create recenter by rebasing
+the new controller reference instead of recalibrating from the current natural hand pose, and it
+implements one exact +/-45-degree right-stick snap per deflection through
+`PlayerBeing.RotateHorizontally(F)` while neutralizing the old continuous native turn actions.
+Both changes are **host-tested only**. Fresh Release validation is 24 PASS plus the expected classic
+D3D9 shared-texture capability SKIP. A fresh clean single-process `-BodyIkAtStart` candidate is
+required before either behavior can be promoted physically.
 
 Latest evidence supersedes the historical arm-chain assumptions below. Run
 `20260919T085408Z-327dd354bc4f` is finalized/unstaged and visually failed despite 5,050 successful

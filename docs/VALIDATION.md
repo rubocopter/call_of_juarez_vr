@@ -2,12 +2,32 @@
 
 ## Latest arm evidence — 2026-09-19
 
-Fresh candidate `20260919T122155Z-c534d86926a9` is staged from clean source
+Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
 `163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256
-`74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C`.
-Preparation again passed 24 Release tests + one expected capability SKIP, enabled Body IK from
-start, and applied the reversible 1920x1080/FSAA0 profile. This is host/preparation evidence only.
+`74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C`. It was subsequently
+launched three times under the same run ID, so all resulting evidence is **diagnostic only** and
+cannot promote a formal single-process validation state.
+
+The recorded third process (PID 448) produced the user's eight-pose sequence and six recenter events.
+It completed 11,406 arm applications and 11,406 restores with zero arm writer/restore failures.
+`target_clamped=true` occurred 6,072 times (53.24%); sampled arm lengths averaged 26.6857 upper and
+23.1577 lower, 49.8434 game units total. This quantitatively supports the reported short-arm feel and
+requires an explicit shoulder/body-anchor or controlled reach-extension investigation rather than
+another positional-axis change. Anatomy still fails visually and local head/hair intrusion remains.
+The first two starts had the SteamVR dashboard/interface stuck over the game while the third did not,
+so dashboard/focus stability remains unpromoted. Evidence manifest:
+`docs/research/evidence/20260919T122155Z-c534d86926a9.json`; video SHA-256
+`6BA5556AF95EFB3D598FB77BA900A8BE64065AF568EEF0FFB5B4A523289017F5`; runtime-log SHA-256
+`4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`; diagnostic package SHA-256
+`09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`.
+
+Post-run host work fixes the recenter-induced hand-orientation jump by rebasing the new controller
+reference against the last visible hand target. It also implements one exact +/-45-degree right-stick
+snap per deflection through `PlayerBeing.RotateHorizontally(F)` and holds native analog turn actions
+2/3 at zero. Fresh Release validation passes all 25 outcomes with **24 PASS plus the expected
+classic-D3D9 shared-texture capability SKIP**, zero failures. Both changes remain **host-tested only**
+until a fresh single-process run exercises them.
 
 Run `20260919T085408Z-327dd354bc4f` is finalized/unstaged with matching deployed hashes and complete
 evidence packaging. It produced 5,050 arm applications and restores, zero arm write/restore faults,

@@ -124,6 +124,7 @@ struct HandOrientationCalibrationState {
     std::uint64_t being_generation = 0;
     std::uint64_t recenter_sequence = 0;
     HandOrientationReference reference{};
+    HandOrientationTarget last_target{};
 };
 HandOrientationCalibrationState g_left_hand_orientation{};
 HandOrientationCalibrationState g_right_hand_orientation{};
@@ -1978,10 +1979,11 @@ bool RecoverArmTrackingAfterRecenter(
     const bool transaction_active =
         g_left_arm_rotation.active || g_right_arm_rotation.active;
 
-    // Recenter always establishes a new controller-to-hand calibration. The
-    // writer latch is a separate safety concern and is only cleared below.
-    g_left_hand_orientation = {};
-    g_right_hand_orientation = {};
+    // Keep the controller-to-hand target across an HMD recenter. The tracking
+    // basis changes at recenter, so UpdatePlayerArmTracking rebases the stored
+    // controller reference against the last visible hand target on the next
+    // frame. Recalibrating from the animated natural hand here caused the
+    // visible wrist orientation to jump depending on the pose used to recenter.
 
     bool natural_geometry_verified = !previous_fault;
     std::string verification_error;
@@ -2029,7 +2031,7 @@ bool RecoverArmTrackingAfterRecenter(
                << ";transaction_active=" << (transaction_active ? "true" : "false")
                << ";natural_verified="
                << (natural_geometry_verified ? "true" : "false")
-               << ";calibration_invalidated=true";
+               << ";calibration_preserved=true";
         if (!verification_error.empty()) detail << ";detail=" << verification_error;
         EmitEvent(
             "body_arm_recovery",
@@ -2132,16 +2134,30 @@ void UpdatePlayerArmTracking(
                 : g_right_hand_orientation;
             const std::uint64_t recenter_sequence =
                 g_pose_tracker.last_recenter_sequence();
+            const bool generation_changed =
+                orientation_calibration.being_generation != generation;
+            const bool recenter_rebase =
+                orientation_calibration.reference.valid &&
+                !generation_changed &&
+                orientation_calibration.recenter_sequence != recenter_sequence &&
+                orientation_calibration.last_target.valid;
             if (!orientation_calibration.reference.valid ||
-                orientation_calibration.being_generation != generation ||
+                generation_changed ||
                 orientation_calibration.recenter_sequence != recenter_sequence) {
+                const cojvr::runtime::Vec3 reference_up = recenter_rebase
+                    ? orientation_calibration.last_target.up
+                    : geometry.hand_element_up;
+                const cojvr::runtime::Vec3 reference_forward = recenter_rebase
+                    ? orientation_calibration.last_target.forward
+                    : geometry.hand_element_forward;
+                if (generation_changed) orientation_calibration.last_target = {};
                 orientation_calibration.reference = BuildHandOrientationReference(
                     controller.orientation,
                     camera_right,
                     camera_up,
                     camera_forward,
-                    geometry.hand_element_up,
-                    geometry.hand_element_forward);
+                    reference_up,
+                    reference_forward);
                 orientation_calibration.being_generation = generation;
                 orientation_calibration.recenter_sequence = recenter_sequence;
             }
@@ -2161,6 +2177,7 @@ void UpdatePlayerArmTracking(
                 }
                 return;
             }
+            orientation_calibration.last_target = hand_target;
             bool target_valid = false;
             const cojvr::runtime::Vec3 target = BuildTrackedHandTarget(
                 RuntimeVector(head_joint),
@@ -2473,6 +2490,8 @@ void UpdatePlayerArmTracking(
                        << ";controller_orientation_valid=true"
                        << ";orientation_calibration_recenter_sequence="
                        << orientation_calibration.recenter_sequence
+                       << ";orientation_calibration_mode="
+                       << (recenter_rebase ? "preserved_target_rebase" : "reference")
                        << ";rotation_plan_valid="
                        << (rotation_plan.valid ? "true" : "false")
                        << ";upper_length=" << plan.upper_length
@@ -2959,7 +2978,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << ";weapon_previous="
                             << (sample.gameplay.weapon_previous ? "true" : "false")
                             << ";kick=" << (sample.gameplay.kick ? "true" : "false")
-                            << ";route=GameInputController.InputAction.Translate";
+                            << ";route=GameInputController.InputAction.Translate"
+                            << ";snap_turn_degrees="
+                            << g_java_player_bridge.last_snap_turn_degrees()
+                            << ";snap_turn_route=PlayerBeing.RotateHorizontally";
             if (!gameplay_input_error.empty()) {
                 gameplay_detail << ";detail=" << gameplay_input_error;
             }

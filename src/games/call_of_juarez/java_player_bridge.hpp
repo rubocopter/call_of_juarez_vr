@@ -19,6 +19,15 @@ struct CoJGameplayActionValue {
     float value = 0.0F;
 };
 
+struct CoJSnapTurnState {
+    bool latched = false;
+
+    // Return one exact game-yaw step when the right stick crosses the engage
+    // threshold. The stick must return near centre before another step can fire.
+    [[nodiscard]] float Update(
+        const cojvr::runtime::GameplayInputState& state) noexcept;
+};
+
 // Exact Call of Juarez action IDs from Data/InputActions.def/InputSettings.
 // Stick axes are decomposed into the game's directional action model while
 // button semantics stay independent from the physical XR controller profile.
@@ -83,6 +92,9 @@ public:
     [[nodiscard]] bool TryApplyGameplayInput(
         const cojvr::runtime::GameplayInputState& state,
         std::string* error = nullptr) noexcept;
+    [[nodiscard]] float last_snap_turn_degrees() const noexcept {
+        return last_snap_turn_degrees_;
+    }
 
     // Detach the current thread from the JVM if it was attached by this bridge.
     // Should be called when a thread that used JNI operations is about to exit.
@@ -144,6 +156,7 @@ private:
     void* bone_rotate_method_ = nullptr;
     void* get_position_vector_method_ = nullptr;
     void* set_position_method_ = nullptr;
+    void* rotate_horizontally_method_ = nullptr;
     void* update_body_rotation_method_ = nullptr;
     void* current_head_vertical_field_ = nullptr;
     void* current_head_horizontal_field_ = nullptr;
@@ -177,6 +190,8 @@ private:
     std::uint64_t being_generation_ = 0;
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     bool gameplay_input_applied_ = false;
+    CoJSnapTurnState snap_turn_state_{};
+    float last_snap_turn_degrees_ = 0.0F;
 };
 
 } // namespace cojvr::games::call_of_juarez
