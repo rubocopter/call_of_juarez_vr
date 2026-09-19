@@ -46,18 +46,32 @@ so focus/dashboard stability is not promoted. Video SHA-256:
 `4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`; diagnostic package SHA-256:
 `09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`.
 
-Current host source fixes the observed recenter hand-orientation jump by preserving the last visible
-hand target and rebasing a new controller reference after recenter. It also consumes right-stick
-horizontal turn as one exact +/-45-degree snap per deflection through the exact native
-`PlayerBeing.RotateHorizontally(F)` route; native analog turn actions 2/3 remain neutral so mouse
-sensitivity cannot reintroduce continuous turn. Fresh full Release CTest is 24 PASS plus the one
-expected classic-D3D9 shared-texture capability SKIP. These changes are **host-tested only**.
+Current source implements the next four corrections while preserving the live-proven axes and
+writer. Local first-person visibility now resolves only the local player's exact Ray/Billy
+head/hair elements (`RayHead`, `RayHair`, `RayCap`, `BillyHead`, `BillyHair`, `BillyTress`) through
+the shipped `GetElementID(String)` route, records their original hidden state, uses
+`HideElement(int)` only for elements that were visible, and restores only VR-owned changes through
+`UnhideElement(int)` on tracking loss/shutdown. The whole player mesh is never hidden. The effect on
+the exact game's shadow pass still needs physical observation.
 
-Static bytecode also exposes a plausible exact-game seam for the local head/hair problem:
-`PlayerBeing.SetupMeshAfterLoad()` resolves an element by name with `GetElementID(String)` and calls
-`HideElement(int)` (the shipped code uses it for `RayCap`). This proves per-element visibility is a
-native capability, but the exact local head/hair element names still need to be identified before a
-VR suppression writer is safe. Do not hide the whole player mesh because the body/shadow must remain.
+Arm solving keeps the measured native segment lengths and the validated tracking axes, but now
+absorbs up to 12 game units of ordinary target overreach before the hard two-bone clamp; extreme
+targets still clamp. Telemetry records raw/effective distance and the applied adjustment. The
+controller-driven shared FORETWIST/hand axial roll is limited to 100 degrees while the rejected full
+wrist residual remains diagnostic. This is intended to reduce the short-arm clamp frequency and the
+most forced wrist poses without reintroducing arbitrary full-hand rotation.
+
+OpenVR now exposes separate left/right `/pose/tip` actions for weapon aim while `/pose/handgrip`
+continues to own body hands. Static shipped data proves `EnumInvHand._RIGHT=0` and `_LEFT=1`; the CoJ
+adapter writes the tip-derived world direction into `m_avLookDirDevForHand[0/1]` after the native
+game update and before rendering. `GetFireDirForWeapon` remains responsible for native accuracy and
+spread, `GetFireOriginForWeapon` remains on native `GetBeingLookFromPoint`, and the network-forced
+branch is untouched. The direction ownership/timing is implemented but requires a live firing test
+before it can be promoted beyond the host/static gate.
+
+Fresh Debug and Release builds each pass all 25 CTest outcomes with **24 PASS plus the expected
+classic-D3D9 shared-texture capability SKIP**, zero failures. These new paths are not physical
+evidence yet.
 
 Latest continuation, 2026-09-19: run `20260919T085408Z-327dd354bc4f` is finalized and unstaged.
 The user's 26.84-second clip still rejects anatomy. It had 5,050 applications/restores, no arm
@@ -69,8 +83,10 @@ sibling and shared axial roll into FORETWIST and hand. It checks all four output
 retains positional/both-eye/restore checks and reports `hand_rotation_mode=sibling_shared_roll`.
 The full wrist residual remains diagnostic. The old `foretwist_only` no-op-hand requirement is
 superseded by this measured sibling contract. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
-Aiming research proves bullets use native per-hand look directions and look origin; a game-update/
-shot boundary is required before enabling controller aiming. That feature remains unimplemented.
+Aiming research proves bullets use native per-hand look directions and look origin. The current
+candidate now writes controller `/pose/tip` direction at the post-update/pre-render boundary while
+leaving native fire origin, spread and network behavior intact; physical shot-direction ownership
+still needs to be demonstrated.
 Head intrusion and incomplete inner presenter/factory shutdown remain open. Do not promote body
 anatomy from successful telemetry alone. The fresh candidate above is ready for physical validation.
 

@@ -211,6 +211,29 @@ int main() {
         return 1;
     }
 
+    const ArmIkPlan within_reach_plan = BuildArmIkPlan(arm_geometry, {1.90F, 0.0F, 0.0F});
+    if (!within_reach_plan.valid || within_reach_plan.reach_adjusted ||
+        within_reach_plan.target_clamped ||
+        !Near(within_reach_plan.raw_target_distance, 1.90F, 0.001F) ||
+        !Near(within_reach_plan.effective_target_distance, 1.90F, 0.001F)) {
+        std::cerr << "arm reach policy changed a reachable controller target\n";
+        return 1;
+    }
+    const ArmIkPlan soft_overreach_plan = BuildArmIkPlan(arm_geometry, {2.05F, 0.0F, 0.0F});
+    if (!soft_overreach_plan.valid || !soft_overreach_plan.reach_adjusted ||
+        soft_overreach_plan.target_clamped || soft_overreach_plan.reach_adjustment <= 0.0F ||
+        soft_overreach_plan.effective_target_distance >= soft_overreach_plan.raw_target_distance) {
+        std::cerr << "arm reach policy did not absorb a small controller overreach\n";
+        return 1;
+    }
+    const ArmIkPlan extreme_overreach_plan = BuildArmIkPlan(arm_geometry, {4.0F, 0.0F, 0.0F});
+    if (!extreme_overreach_plan.valid || !extreme_overreach_plan.reach_adjusted ||
+        !extreme_overreach_plan.target_clamped ||
+        extreme_overreach_plan.reach_adjustment > 0.501F) {
+        std::cerr << "arm reach policy did not preserve a bounded hard clamp for an extreme target\n";
+        return 1;
+    }
+
     const ArmBoneRotationPlan natural_rotations =
         BuildArmBoneRotationPlan(arm_geometry, natural_arm_plan);
     if (!natural_rotations.valid || !natural_rotations.upper_arm.no_op ||
@@ -397,6 +420,17 @@ int main() {
         std::cerr << "observed post-FORETWIST hand basis did not produce the expected residual\n";
         return 1;
     }
+    BoneRotationDelta excessive_twist{};
+    excessive_twist.axis = {1.0F, 0.0F, 0.0F};
+    excessive_twist.angle_degrees = 135.0F;
+    excessive_twist.valid = true;
+    const BoneRotationDelta limited_twist = LimitRotationMagnitude(excessive_twist, 100.0F);
+    if (!limited_twist.valid || limited_twist.no_op ||
+        !Near(limited_twist.angle_degrees, 100.0F) ||
+        !Near(Distance(limited_twist.axis, excessive_twist.axis), 0.0F)) {
+        std::cerr << "anatomical forearm twist limit did not preserve axis while bounding angle\n";
+        return 1;
+    }
     const HandOrientationReference invalid_hand_reference = BuildHandOrientationReference(
         {0.0F, 0.0F, 0.0F, 0.0F},
         {1.0F, 0.0F, 0.0F},
@@ -546,6 +580,29 @@ int main() {
     if (!hand_target_valid ||
         !Near(Distance(tracked_hand_behind, {130.0F, 180.0F, 350.0F}), 0.0F)) {
         std::cerr << "tracked backward hand did not map to positive native forward\n";
+        return 1;
+    }
+
+    bool aim_direction_valid = false;
+    const Vec3 aim_direction = BuildTrackedAimDirection(
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        aim_direction_valid);
+    if (!aim_direction_valid ||
+        !Near(Distance(aim_direction, {0.0F, 0.0F, -1.0F}), 0.0F)) {
+        std::cerr << "identity /pose/tip did not map tracking -Z to negative native forward\n";
+        return 1;
+    }
+    (void)BuildTrackedAimDirection(
+        {0.0F, 0.0F, 0.0F, 0.0F},
+        {1.0F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+        {0.0F, 0.0F, 1.0F},
+        aim_direction_valid);
+    if (aim_direction_valid) {
+        std::cerr << "invalid /pose/tip orientation produced a CoJ aim direction\n";
         return 1;
     }
 

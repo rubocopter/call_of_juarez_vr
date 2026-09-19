@@ -2,23 +2,23 @@
 
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
-Latest arm gate (2026-09-19): candidate `20260919T122155Z-c534d86926a9` was started three times under
-one run ID, so it is diagnostic rather than promotable evidence. The recorded third process completed
-11,406 arm applications/restores without writer fault, but anatomy still failed visually. Reach was
-clamped on 53.24% of sampled applications, with an average measured native chain length of 49.8434
-game units, making arm reach/shoulder-body anchoring an explicit next investigation. Recenter-driven
-hand-orientation jumps are fixed at host level by target-preserving calibration rebase. Exact +/-45
-degree right-stick snap turn is also implemented/host-tested through `PlayerBeing.RotateHorizontally`.
-Head/hair intrusion remains open. Exact shot-direction/origin ownership has been researched;
-controller aiming is not yet implemented.
+Latest arm gate (2026-09-19): formal run `20260919T153546Z-705460dca03b` physically validated exact
++/-45-degree snap turn and sustained 8,452 arm applications/restores without writer fault, while
+Body IK remained visually unpromoted. Reach clamped 43.72% of applications and the video still
+showed forced wrist poses plus major local head/hair intrusion. Current source now carries the next
+candidate as implementation/host evidence: a bounded 12-game-unit overreach remap before hard IK
+clamp, a 100-degree limit on shared FORETWIST/hand axial roll, reversible per-element local
+head/hair suppression, and separate `/pose/tip` controller aiming into the exact per-hand native
+look-direction state. These four corrections require a fresh physical run before promotion.
 
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-
 target recenter rebase. Arms are substantially improved visually and all 8,452 applications/restores
 completed without writer fault, but Body IK remains unpromoted: reach still clamps 43.72% of samples,
 wrist/hand poses still need work, and local head/hair intrusion remains severe.
-Static bytecode confirms a per-element `GetElementID`/`HideElement` visibility seam in `PlayerBeing`;
-head/hair suppression remains planned until the exact local mesh elements are identified.
+Static game data plus the shipped visibility API identify and implement local suppression for
+`RayHead`, `RayHair`, `RayCap`, `BillyHead`, `BillyHair` and `BillyTress`; only elements hidden by VR
+are restored by VR. The physical effect on HMD view and shadow presentation remains unvalidated.
 
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
 boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,
@@ -272,10 +272,10 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 - Minimal logical OpenVR global action seam: **headset-validated for recenter**. Neutral gameplay action state is additionally **host-tested**.
 - PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter and exact +/-45-degree right-stick snap; gameplay route live-tested**. Run `20260918T233902Z-0cb2e565e886` physically exercised the native gameplay-input route, and run `20260919T153546Z-705460dca03b` recorded 23 exact snap steps through `PlayerBeing.RotateHorizontally(F)` that the user confirmed worked correctly. Right-stick vertical crouch remains; other bindings are left stick move/run, L2/R2 fire, L1/R1 weapon previous/next, Square reload, Triangle interact, Cross jump and Circle kick.
-- Local head/hair suppression for HMD first-person rendering: **planned; live-observed need**. The 2026-09-19 video capture shows the local head/hair repeatedly entering the HMD view; implementation must preserve body/shadow ownership rather than hiding the whole actor.
+- Local head/hair suppression for HMD first-person rendering: **implemented; physical validation pending**. The exact local head/hair elements are hidden individually and reversibly through the shipped mesh API; the actor body remains present. Confirm in-headset suppression and shadow behavior before promotion.
 - Physical crouch from calibrated HMD height into the native crouch action/state: **planned**. The existing right-stick crouch remains a gameplay binding, not physical crouch.
 - Decouple weapon aim from HMD/crosshair view and drive muzzle/shot direction from tracked weapon/controller orientation: **planned; live-observed need**.
-- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual anatomy improved but still unpromoted**. The exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Earlier runs established the native writer, local-axis composition, tracked-Z mapping, handgrip source and FORETWIST/hand propagation. Run `20260919T153546Z-705460dca03b` sustains 8,452 applications/restores without fault and is visually much better than the catastrophic earlier candidates, but reach clamps 43.72% of samples and wrist/hand orientation still looks forced in several poses. Next body work should address explicit shoulder/body reach policy and remaining wrist/hand composition; pelvis/thigh/shin/foot writes remain disabled.
+- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual anatomy improved but still unpromoted**. The exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260919T153546Z-705460dca03b` sustains 8,452 applications/restores without fault. Current host candidate adds bounded overreach compensation and caps shared axial FORETWIST/hand roll at 100 degrees while retaining the measured sibling hierarchy and diagnostic full wrist residual. Pelvis/thigh/shin/foot writes remain disabled; the new arm policy must be judged physically.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
 - Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.
 - Per-game weapon/player adapters: **planned**.

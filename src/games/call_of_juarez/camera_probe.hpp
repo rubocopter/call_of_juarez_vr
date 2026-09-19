@@ -102,6 +102,8 @@ struct CameraStereoFrameSample {
     cojvr::runtime::PoseSample hmd_pose{};
     cojvr::runtime::Pose left_controller{};
     cojvr::runtime::Pose right_controller{};
+    cojvr::runtime::Pose left_aim{};
+    cojvr::runtime::Pose right_aim{};
     cojvr::runtime::GameplayInputState gameplay{};
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     bool recenter_requested = false;

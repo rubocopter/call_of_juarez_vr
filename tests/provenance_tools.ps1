@@ -403,6 +403,8 @@ try {
         "/actions/global/in/recenter",
         "/actions/global/in/left_hand_grip_pose",
         "/actions/global/in/right_hand_grip_pose",
+        "/actions/global/in/left_hand_aim_pose",
+        "/actions/global/in/right_hand_aim_pose",
         "/actions/gameplay/in/move",
         "/actions/gameplay/in/turn",
         "/actions/gameplay/in/fire_left",
@@ -442,6 +444,8 @@ try {
     Assert-SenseBinding "/user/hand/left/input/create" "click" "/actions/global/in/recenter"
     Assert-SensePose "/user/hand/left/pose/handgrip" "/actions/global/in/left_hand_grip_pose"
     Assert-SensePose "/user/hand/right/pose/handgrip" "/actions/global/in/right_hand_grip_pose"
+    Assert-SensePose "/user/hand/left/pose/tip" "/actions/global/in/left_hand_aim_pose"
+    Assert-SensePose "/user/hand/right/pose/tip" "/actions/global/in/right_hand_aim_pose"
     Assert-SenseBinding "/user/hand/left/input/left_stick" "position" "/actions/gameplay/in/move"
     Assert-SenseBinding "/user/hand/right/input/right_stick" "position" "/actions/gameplay/in/turn"
     Assert-SenseBinding "/user/hand/left/input/l2" "click" "/actions/gameplay/in/fire_left"
@@ -851,7 +855,7 @@ try {
         "openvr_scene_state: phase=dashboard_opened;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
         "openvr_scene_state: phase=dashboard_closed;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
         "native_stereo_presenter_timing: status=ok submit_sequence=3;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=repeated;left_result=0;right_result=0;wait_pose_ms=5.100;submit_ms=0.300",
-        "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/{left,right}/pose/handgrip gameplay=semantic_sense_profile owner=presenter_thread",
+        "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/{left,right}/pose/handgrip aim_pose=/user/hand/{left,right}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread",
         "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false",
         "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;interact=false;weapon_next=false;weapon_previous=false;kick=false;route=GameInputController.InputAction.Translate",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",

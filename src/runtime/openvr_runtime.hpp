@@ -24,8 +24,12 @@ struct OpenVrGlobalActions {
 struct OpenVrHandPoses {
     Pose left_grip{};
     Pose right_grip{};
+    Pose left_aim{};
+    Pose right_aim{};
     bool left_grip_active = false;
     bool right_grip_active = false;
+    bool left_aim_active = false;
+    bool right_aim_active = false;
 };
 
 struct OpenVrTrackedPoses {

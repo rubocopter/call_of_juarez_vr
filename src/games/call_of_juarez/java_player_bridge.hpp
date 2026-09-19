@@ -49,6 +49,12 @@ public:
         const JavaPlayerPosition& position, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetMeshElement(
         std::int8_t bone, int& element, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryGetMeshElementByName(
+        const char* name, int& element, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryGetMeshElementHidden(
+        int element, bool& hidden, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TrySetMeshElementHidden(
+        int element, bool hidden, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetBoneJointPosition(
         std::int8_t bone, JavaPlayerPosition& position, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetBoneDirection(
@@ -92,6 +98,13 @@ public:
     [[nodiscard]] bool TryApplyGameplayInput(
         const cojvr::runtime::GameplayInputState& state,
         std::string* error = nullptr) noexcept;
+    // Override the exact per-hand look direction consumed by
+    // GetFireDirForWeapon. The game's next UpdateLookAndAimDirs pass naturally
+    // replaces this value, so loss of VR input fails back to native aiming.
+    [[nodiscard]] bool TrySetPerHandAimDirection(
+        int hand,
+        const JavaPlayerPosition& direction,
+        std::string* error = nullptr) noexcept;
     [[nodiscard]] float last_snap_turn_degrees() const noexcept {
         return last_snap_turn_degrees_;
     }
@@ -123,6 +136,8 @@ private:
     [[nodiscard]] bool EnsureElementWorldBasisAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureElementRotationAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureBoneRotationAccess(void* env, std::string* error) noexcept;
+    [[nodiscard]] bool EnsureElementVisibilityAccess(void* env, std::string* error) noexcept;
+    [[nodiscard]] bool EnsureAimAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureGameplayInputAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureVectorAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool ReadVector(
@@ -145,6 +160,10 @@ private:
     void* is_timer_freezed_method_ = nullptr;
     void* being_ = nullptr;
     void* get_mesh_element_method_ = nullptr;
+    void* get_element_id_method_ = nullptr;
+    void* hide_element_method_ = nullptr;
+    void* unhide_element_method_ = nullptr;
+    void* is_element_hidden_method_ = nullptr;
     void* get_bone_joint_method_ = nullptr;
     void* get_bone_direction_method_ = nullptr;
     void* get_bone_perpendicular_method_ = nullptr;
@@ -179,11 +198,14 @@ private:
     void* analog_axis_field_ = nullptr;
     void* analog_axis_sign_field_ = nullptr;
     void* analog_translate_method_ = nullptr;
+    void* look_dir_for_hand_field_ = nullptr;
     bool bone_read_lookup_attempted_ = false;
     bool element_world_read_lookup_attempted_ = false;
     bool element_world_basis_lookup_attempted_ = false;
     bool element_rotation_lookup_attempted_ = false;
     bool bone_rotation_lookup_attempted_ = false;
+    bool element_visibility_lookup_attempted_ = false;
+    bool aim_lookup_attempted_ = false;
     bool body_rotation_lookup_attempted_ = false;
     bool single_player_fallback_used_ = false;
     bool campaign_module_fallback_used_ = false;

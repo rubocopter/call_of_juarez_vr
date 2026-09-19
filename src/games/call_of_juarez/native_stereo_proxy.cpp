@@ -201,6 +201,8 @@ bool BeginStereoFrame(
     sample.hmd_pose.sequence = tracking.sequence;
     sample.left_controller = tracking.left_controller;
     sample.right_controller = tracking.right_controller;
+    sample.left_aim = tracking.left_aim;
+    sample.right_aim = tracking.right_aim;
     sample.gameplay = tracking.gameplay;
     sample.recenter_requested = tracking.recenter_requested;
     if (tracking.recenter_requested) {

@@ -13,6 +13,14 @@
         {
           "output": "/actions/global/in/right_hand_grip_pose",
           "path": "/user/hand/right/pose/handgrip"
+        },
+        {
+          "output": "/actions/global/in/left_hand_aim_pose",
+          "path": "/user/hand/left/pose/tip"
+        },
+        {
+          "output": "/actions/global/in/right_hand_aim_pose",
+          "path": "/user/hand/right/pose/tip"
         }
       ],
       "skeleton": [],
