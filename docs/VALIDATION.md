@@ -109,6 +109,14 @@ be exercised. The current device-Present correction again passes Debug and Relea
 the expected capability SKIP; a fresh run must prove intro/menu `flat_theater`, scene focus, Sense
 pointer/click/re-anchor and the later same-process `native_stereo` transition.
 
+Fresh corrected candidate `20260919T213924Z-d5d149a5bf46` is staged from clean source
+`c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d`, build-manifest ID
+`9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B`, proxy SHA-256
+`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Release preparation completed
+24 PASS plus the expected capability SKIP, enabled Body IK at startup and applied the reversible
+`1920x1080`/FSAA0 profile. This is preparation evidence only until one process proves flat startup,
+scene focus, pointer/click/re-anchor and the transition to native stereo.
+
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
 `163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256

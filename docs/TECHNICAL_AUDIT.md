@@ -63,6 +63,13 @@ Debug and Release suites at 24 PASS plus the expected capability SKIP, but remai
 a new run proves startup/menu scene ownership. Body anatomy, head suppression and controller-owned
 firing remain separately unpromoted.
 
+Corrected candidate `20260919T213924Z-d5d149a5bf46` is staged from clean source
+`c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d`, build-manifest ID
+`9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B`, proxy SHA-256
+`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Its full-profile Release
+preparation passed 24 tests plus the expected capability SKIP and staged Body IK with the reversible
+`1920x1080`/FSAA0 profile. It remains preparation evidence pending the physical menu gate.
+
 The following facts are currently established:
 
 - Call of Juarez (2006) DX9 can run and load gameplay with the project's forwarding path while remaining usable on the monitor.

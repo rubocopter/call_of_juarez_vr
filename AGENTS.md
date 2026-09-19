@@ -92,6 +92,15 @@ captured/published, and OpenVR moved directly to `native_stereo` only after game
 therefore confirms that CoJ presents through `IDirect3DDevice9::Present`; it does not promote the menu
 path. Current source contains the host-tested device-Present correction described above.
 
+Fresh corrected full/body candidate `20260919T213924Z-d5d149a5bf46` is staged from clean source
+`c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d`, build-manifest ID
+`9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B`, proxy SHA-256
+`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Release preparation passed
+24 tests plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before
+process start and applied the reversible `1920x1080`/FSAA0 profile. Its first gate is unchanged:
+the menu must enter `flat_theater` and acquire scene focus before gameplay, then the Sense pointer,
+L2/R2 click, Create re-anchor and same-process `native_stereo` transition must all succeed.
+
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
