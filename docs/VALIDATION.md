@@ -1474,6 +1474,48 @@ and neutral release; provenance coverage binds the critical Sense action paths a
 `hand_orientation=natural` body evidence for a new full/body candidate. No Call of Juarez, SteamVR
 or headset process was launched for this increment.
 
+### Physical Sense gameplay run and FORETWIST correction — 2026-09-19
+
+Full/body run `20260918T233902Z-0cb2e565e886` physically exercised the controller-orientation and
+Sense gameplay candidate built from commit `bdeb53a`. Build-manifest ID was
+`6196BD90555521CFA35B82FFFC3AE41ABE5593D6CBB8D3CAF234F1D8075F0DD4`; staged proxy SHA-256 was
+`F84719D72A5D28A888B7DEB8603BCF81F0EF1BC2D214B5CFB8637738946E14C4`. The finalized evidence is
+complete (`runtimeStarted=true`, `runtimeEnded=true`, `incomplete=false`). It fenced 7,688 frames,
+collected 7,687, submitted 7,686 new plus 4,875 repeated frames and recorded zero capture-ring drops
+or submit failures. Sampled CPU copy was `10.343 ms` average / `14.449 ms` p95. Presenter telemetry
+still did not observe its inner `shutdown_complete` marker even though the outer runtime reached its
+normal end.
+
+The user physically confirmed that using the Sense gameplay controls is a substantial functional
+advance, and the run recorded gameplay input through the native
+`GameInputController.InputAction.Translate` route. This promotes the gameplay-control route itself
+to live physical evidence for the tested session; it does not imply that every individual binding
+has been separately validated. Body IK still fails visual acceptance. Telemetry repeatedly reached
+the hand position and orientation targets, but the user's exported 86-second capture
+`C:\Users\onita\Videos\clip_1.789.775.964.664.mp4` shows severe wrist/forearm deformation while the
+hands/controllers move. Representative frames also show the player's head/hair intruding deeply
+into the HMD view. Those observations are consistent with an arm hierarchy/composition defect, not
+with the already-validated tracked-hand position or front/back sign.
+
+Static inspection of the shipped `EBones.class` then identified dedicated twist elements that the
+previous controller-orientation candidate skipped: left upper/forearm/**FORETWIST**/hand are
+`7/8/9/10`, and right upper/forearm/**FORETWIST**/hand are `12/13/14/15`. The previous implementation
+applied pronation/supination to forearm elements `8/13`; current host source instead resolves twist
+elements `9/14`, applies controller roll there with `RotateElementWithChildren`, leaves only the
+residual orientation for the hand, includes FORETWIST in mutation/persistence/restore geometry and
+restores the hierarchy child-first as hand -> FORETWIST -> forearm -> upper arm. Telemetry and the
+live verifier bind this contract with `twist_owner=foretwist_element`. This correction is
+**host-tested only** until a fresh physical run shows anatomically acceptable forearm/wrist motion.
+Fresh Debug and Release builds both completed successfully; each full CTest suite reports **24 PASS
+plus the expected classic-D3D9 shared-texture capability SKIP out of 25**, zero failures.
+
+Three downstream VR ownership items are now explicitly tracked but remain **planned** and separate
+from the arm-composition gate: suppress the local player's head/hair from the HMD view without
+removing the body, derive physical crouch from calibrated HMD height and feed it through the native
+game crouch action/state, and decouple firearm aim from camera/crosshair ownership so weapon/muzzle
+aim follows tracked controller/weapon orientation. None of those items is claimed implemented by
+this run or by the FORETWIST change.
+
 ### Phase 7 transactional deployment host increment — 2026-09-18
 
 The deployment path now writes its recovery journal before managed game-file mutation and stages
