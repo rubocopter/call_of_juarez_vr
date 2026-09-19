@@ -1,6 +1,8 @@
 {
   "actions": [
     { "name": "/actions/global/in/recenter", "type": "boolean" },
+    { "name": "/actions/global/in/left_hand_grip_pose", "type": "pose" },
+    { "name": "/actions/global/in/right_hand_grip_pose", "type": "pose" },
     { "name": "/actions/gameplay/in/move", "type": "vector2" },
     { "name": "/actions/gameplay/in/turn", "type": "vector2" },
     { "name": "/actions/gameplay/in/fire_left", "type": "boolean" },
@@ -29,6 +31,8 @@
       "language_tag": "en_US",
       "/actions/global": "Global VR controls",
       "/actions/global/in/recenter": "Recenter view",
+      "/actions/global/in/left_hand_grip_pose": "Left hand grip pose",
+      "/actions/global/in/right_hand_grip_pose": "Right hand grip pose",
       "/actions/gameplay": "Gameplay",
       "/actions/gameplay/in/move": "Move",
       "/actions/gameplay/in/turn": "Turn",
@@ -47,6 +51,8 @@
       "language_tag": "es_ES",
       "/actions/global": "Controles VR globales",
       "/actions/global/in/recenter": "Recentrar vista",
+      "/actions/global/in/left_hand_grip_pose": "Pose de agarre de la mano izquierda",
+      "/actions/global/in/right_hand_grip_pose": "Pose de agarre de la mano derecha",
       "/actions/gameplay": "Juego",
       "/actions/gameplay/in/move": "Moverse",
       "/actions/gameplay/in/turn": "Girar",

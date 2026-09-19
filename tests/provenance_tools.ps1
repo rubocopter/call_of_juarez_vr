@@ -318,6 +318,8 @@ try {
     $ActionNames = @($OpenVrActions.actions | ForEach-Object { [string]$_.name })
     foreach ($RequiredAction in @(
         "/actions/global/in/recenter",
+        "/actions/global/in/left_hand_grip_pose",
+        "/actions/global/in/right_hand_grip_pose",
         "/actions/gameplay/in/move",
         "/actions/gameplay/in/turn",
         "/actions/gameplay/in/fire_left",
@@ -337,6 +339,7 @@ try {
     $GlobalBinding = $OpenVrSenseBinding.bindings.PSObject.Properties["/actions/global"].Value
     $GameplaySources = @($GameplayBinding.sources)
     $GlobalSources = @($GlobalBinding.sources)
+    $GlobalPoses = @($GlobalBinding.poses)
     function Assert-SenseBinding([string]$Path, [string]$InputName, [string]$Output) {
         $Matches = @(($GameplaySources + $GlobalSources) | Where-Object {
             [string]$_.path -eq $Path -and
@@ -346,7 +349,16 @@ try {
         Assert-True ($Matches.Count -eq 1) `
             "PS VR2 Sense binding '$($Path)/$InputName' does not map exactly once to '$Output'."
     }
+    function Assert-SensePose([string]$Path, [string]$Output) {
+        $Matches = @($GlobalPoses | Where-Object {
+            [string]$_.path -eq $Path -and [string]$_.output -eq $Output
+        })
+        Assert-True ($Matches.Count -eq 1) `
+            "PS VR2 Sense pose '$Path' does not map exactly once to '$Output'."
+    }
     Assert-SenseBinding "/user/hand/left/input/create" "click" "/actions/global/in/recenter"
+    Assert-SensePose "/user/hand/left/pose/handgrip" "/actions/global/in/left_hand_grip_pose"
+    Assert-SensePose "/user/hand/right/pose/handgrip" "/actions/global/in/right_hand_grip_pose"
     Assert-SenseBinding "/user/hand/left/input/left_stick" "position" "/actions/gameplay/in/move"
     Assert-SenseBinding "/user/hand/right/input/right_stick" "position" "/actions/gameplay/in/turn"
     Assert-SenseBinding "/user/hand/left/input/l2" "click" "/actions/gameplay/in/fire_left"
@@ -687,7 +699,7 @@ try {
     $StereoOrientation2 = "camera_probe_event: event=camera_hmd_orientation_applied result=ok pose_sequence=3 yaw_degrees=0 pitch_degrees=5 roll_degrees=6 roll_mode=native_camera_basis relative_head_position=(0.000000,-0.100000,-0.040000) head_position_valid=true tracked_head_position=(50.0000,50.0000,74.0000) natural_determinant=1 applied_determinant=1 native_homogeneous_layout=true source_world_homogeneous_layout=true source_view_homogeneous_layout=true injected_view_homogeneous_layout=true render_basis_observed=true render_basis_changed=true view_matrix_observed=true view_matrix_changed=true projection_matrix_changed=true view_projection_changed=true restore_deferred=true;stereo=true;renderer_camera_match=true"
     $StereoFrame1 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=1 pose_sequence=2 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) relative_head_position=(0.060000,0.000000,0.000000) head_position_valid=true positional_6dof=true game_units_per_meter=100 left_applied_position=(96.8000,200.0000,300.0000) right_applied_position=(103.2000,200.0000,300.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
     $StereoFrame2 = "camera_probe_event: event=camera_native_stereo_frame result=ok frame_sequence=2 pose_sequence=3 left_camera_applied=true left_projection_applied=true left_captured=true left_state_restored=true right_rendered=true right_full_view_pass=true right_view_guard_restored=true right_captured=true right_state_restored=true submitted=true transport_accepted=true content_hash_deferred=true left_renderer_camera_match=true right_renderer_camera_match=true left_hash=0 right_hash=0 distinct_eye_content=false left_eye_x=-0.032 right_eye_x=0.032 left_eye_position=(-0.032000,0.000000,0.000000) right_eye_position=(0.032000,0.000000,0.000000) relative_head_position=(0.000000,-0.100000,-0.040000) head_position_valid=true positional_6dof=true game_units_per_meter=100 left_applied_position=(46.8000,60.0000,70.0000) right_applied_position=(53.2000,60.0000,70.0000) left_fov=-1,0.8,-1,1 right_fov=-0.8,1,-1,1 left_frustum=-2,1.5,-1.8,1.8,1,1000 right_frustum=-1.5,2,-1.8,1.8,1,1000 render_view_rva=0x30fb0 render_core_rva=0x30e00"
-    $StereoTrackingInput = "camera_probe_event: event=body_tracking_input result=observed detail=frame_sequence=2;left_position_valid=true;left_orientation_valid=true;left_position=(-0.200000,1.200000,-0.300000);right_position_valid=true;right_orientation_valid=true;right_position=(0.200000,1.200000,-0.300000)"
+    $StereoTrackingInput = "camera_probe_event: event=body_tracking_input result=observed detail=frame_sequence=2;controller_pose_source=handgrip;raw_role_fallback=false;left_position_valid=true;left_orientation_valid=true;left_position=(-0.200000,1.200000,-0.300000);right_position_valid=true;right_orientation_valid=true;right_position=(0.200000,1.200000,-0.300000)"
     $StereoLeftArm = "camera_probe_event: event=body_arm_tracking result=applied detail=frame_sequence=2;being_generation=1;side=left;controller_target=(10.000000,20.000000,30.000000);shoulder=(1.000000,2.000000,3.000000);elbow=(4.000000,5.000000,6.000000);wrist=(7.000000,8.000000,9.000000);upper_element_position=(1.500000,2.000000,3.000000);upper_element_up=(0.000000,1.000000,0.000000);upper_element_forward=(0.000000,0.000000,1.000000);forearm_element_position=(4.500000,5.000000,6.000000);forearm_element_up=(0.000000,1.000000,0.000000);forearm_element_forward=(0.000000,0.000000,1.000000);elbow_target=(4.000000,5.000000,6.000000);upper_target_position=(1.500000,2.000000,3.000000);upper_target_up=(0.000000,1.000000,0.000000);upper_target_forward=(0.000000,0.000000,1.000000);forearm_target_position=(4.500000,5.000000,6.000000);forearm_target_up=(0.000000,1.000000,0.000000);forearm_target_forward=(0.000000,0.000000,1.000000);upper_rotation_axis=(0.000000,0.000000,1.000000);upper_rotation_degrees=0;upper_rotation_no_op=true;forearm_rotation_axis=(0.000000,0.000000,1.000000);forearm_rotation_degrees=0;forearm_rotation_no_op=true;rotation_plan_valid=true;upper_length=30;lower_length=28;plan_valid=true;target_clamped=false;write_enabled=true;write_allowed=true;write_ok=true;rollback_attempted=false;rollback_ok=true;hand_orientation=natural;basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=BoneRotate"
     $StereoRightArm = "camera_probe_event: event=body_arm_tracking result=applied detail=frame_sequence=2;being_generation=1;side=right;controller_target=(-10.000000,20.000000,30.000000);shoulder=(-1.000000,2.000000,3.000000);elbow=(-4.000000,5.000000,6.000000);wrist=(-7.000000,8.000000,9.000000);upper_element_position=(-1.500000,2.000000,3.000000);upper_element_up=(0.000000,1.000000,0.000000);upper_element_forward=(0.000000,0.000000,1.000000);forearm_element_position=(-4.500000,5.000000,6.000000);forearm_element_up=(0.000000,1.000000,0.000000);forearm_element_forward=(0.000000,0.000000,1.000000);elbow_target=(-4.000000,5.000000,6.000000);upper_target_position=(-1.500000,2.000000,3.000000);upper_target_up=(0.000000,1.000000,0.000000);upper_target_forward=(0.000000,0.000000,1.000000);forearm_target_position=(-4.500000,5.000000,6.000000);forearm_target_up=(0.000000,1.000000,0.000000);forearm_target_forward=(0.000000,0.000000,1.000000);upper_rotation_axis=(0.000000,0.000000,1.000000);upper_rotation_degrees=0;upper_rotation_no_op=true;forearm_rotation_axis=(0.000000,0.000000,1.000000);forearm_rotation_degrees=0;forearm_rotation_no_op=true;rotation_plan_valid=true;upper_length=30;lower_length=28;plan_valid=true;target_clamped=false;write_enabled=true;write_allowed=true;write_ok=true;rollback_attempted=false;rollback_ok=true;hand_orientation=natural;basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=BoneRotate"
     $StereoLeftArm = $StereoLeftArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
@@ -756,10 +768,12 @@ try {
         "openvr_scene_state: phase=dashboard_opened;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
         "openvr_scene_state: phase=dashboard_closed;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
         "native_stereo_presenter_timing: status=ok submit_sequence=3;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=repeated;left_result=0;right_result=0;wait_pose_ms=5.100;submit_ms=0.300",
-        "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter gameplay=semantic_sense_profile owner=presenter_thread",
+        "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/{left,right}/pose/handgrip gameplay=semantic_sense_profile owner=presenter_thread",
+        "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false",
         "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;interact=false;weapon_next=false;weapon_previous=false;kick=false;route=GameInputController.InputAction.Translate",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
+        "camera_probe_event: event=body_arm_recovery result=ok detail=frame_sequence=3;recenter_sequence=3;previous_fault=false;transaction_active=false;natural_verified=true;calibration_invalidated=true",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=2 tracking_enabled=false",
         "camera_probe_event: event=camera_probe_passthrough result=disabled",
         "camera_probe_event: event=camera_probe_restore result=restored camera_restored_slots=2;view_restored_slots=1",

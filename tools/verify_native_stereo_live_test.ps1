@@ -79,7 +79,7 @@ if ($RequireOpenVrRuntimeState) {
         "The first successful stereo submission did not prove scene focus belonged to the game process."
 }
 Assert-LogMatch `
-    "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter gameplay=semantic_sense_profile owner=presenter_thread" `
+    "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/\{left,right\}/pose/handgrip gameplay=semantic_sense_profile owner=presenter_thread" `
     "The native-stereo OpenVR global/gameplay input action sets did not initialize."
 Assert-LogMatch `
     "native_stereo_factory_hook: status=installed" `
@@ -105,6 +105,17 @@ Assert-LogMatch `
 Assert-LogMatch `
     "camera_probe_event: event=camera_hmd_recenter_requested result=ok .*source=openvr_global_action" `
     "The controller recenter press did not reach the XR-neutral camera recenter boundary."
+if ($RequireBodyIk) {
+    Assert-LogMatch `
+        "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false" `
+        "Body IK never received both PS VR2 Sense handgrip action poses."
+    Assert-LogMatch `
+        "camera_probe_event: event=body_tracking_input result=observed detail=.*controller_pose_source=handgrip;raw_role_fallback=false;.*left_position_valid=true;left_orientation_valid=true;.*right_position_valid=true;right_orientation_valid=true;" `
+        "Body IK tracking telemetry did not prove valid left/right handgrip poses without raw-role fallback."
+    Assert-LogMatch `
+        "camera_probe_event: event=body_arm_recovery result=ok .*transaction_active=false.*calibration_invalidated=true" `
+        "Create recenter did not safely rebuild the arm calibration/recovery boundary."
+}
 Assert-LogMatch `
     "native_stereo_capture: status=source eye=left .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
     "The left eye did not report a valid D3D9 viewport at its capture boundary."

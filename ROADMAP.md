@@ -76,8 +76,14 @@ the first left-arm write changed the mesh and reached its positional targets, bu
 calibrated hand orientation and was safely restored; the writer fault latch then kept subsequent
 writes fail-closed, explaining the user's observation that the body did not move. Current host
 source now computes the final hand residual from the hand basis observed after the native FORETWIST
-write instead of from an idealized pre-write hierarchy prediction. This revised orientation
-composition remains host-tested pending a fresh physical visual gate.
+write instead of from an idealized pre-write hierarchy prediction. Run
+`20260919T003727Z-73f20e13cc1a` physically proved that revised writer path can remain active and
+restore cleanly for an entire session (15,230 applications and 15,230 restores), but visual anatomy
+still failed and sampled targets required extreme FORETWIST/hand rotations. Current host source now
+uses explicit PS VR2 Sense `/pose/handgrip` actions as the anatomical body-hand frame, with no raw
+tracked-device-role fallback. `/pose/tip` is reserved for the later weapon-aim boundary. Explicit
+recenter invalidates hand orientation calibration and may recover a latched arm writer only after a
+safe natural-geometry check. These changes remain host-tested pending one fresh combined body run.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the

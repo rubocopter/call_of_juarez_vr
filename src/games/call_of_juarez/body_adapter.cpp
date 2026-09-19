@@ -415,6 +415,14 @@ ArmGeometryRestoreCheck CheckArmGeometryRestored(
     return result;
 }
 
+bool CanRecoverArmWriterAfterRecenter(
+    const bool previous_fault,
+    const bool transaction_active,
+    const bool natural_geometry_verified) noexcept {
+    if (transaction_active) return false;
+    return !previous_fault || natural_geometry_verified;
+}
+
 SkeletonBinding ExactGameSkeletonBinding() noexcept {
     // EBones.class constants in the shipped code.pak:
     // pelvis=0, spine=1, spine1=2, spine2=3, neck=4, head=5,

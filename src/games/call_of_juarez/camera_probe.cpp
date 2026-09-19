@@ -1916,6 +1916,75 @@ void RestoreAppliedArmRotations(
     if (!left_ok || !right_ok) g_arm_rotation_faulted = true;
 }
 
+bool RecoverArmTrackingAfterRecenter(
+    const std::uint64_t frame_sequence,
+    const std::uint64_t recenter_sequence) noexcept {
+    const bool previous_fault = g_arm_rotation_faulted;
+    const bool transaction_active =
+        g_left_arm_rotation.active || g_right_arm_rotation.active;
+
+    // Recenter always establishes a new controller-to-hand calibration. The
+    // writer latch is a separate safety concern and is only cleared below.
+    g_left_hand_orientation = {};
+    g_right_hand_orientation = {};
+
+    bool natural_geometry_verified = !previous_fault;
+    std::string verification_error;
+    if (previous_fault && !transaction_active) {
+        const std::uint64_t generation = g_java_player_bridge.being_generation();
+        std::string element_error;
+        ArmGeometrySample left_geometry{};
+        ArmGeometrySample right_geometry{};
+        const bool elements_ready = ResolveArmElements(generation, &element_error);
+        const bool left_read = elements_ready &&
+            ReadArmGeometry(true, left_geometry, &verification_error);
+        if (left_read) verification_error.clear();
+        const bool right_read = left_read &&
+            ReadArmGeometry(false, right_geometry, &verification_error);
+        if (right_read) {
+            // Solving each freshly-read chain to its own current wrist is a
+            // non-mutating health check for finite/non-degenerate natural
+            // skeleton geometry before a latched writer is allowed to resume.
+            const ArmIkPlan left_natural =
+                BuildArmIkPlan(left_geometry, left_geometry.wrist);
+            const ArmIkPlan right_natural =
+                BuildArmIkPlan(right_geometry, right_geometry.wrist);
+            natural_geometry_verified = left_natural.valid && right_natural.valid;
+            if (!natural_geometry_verified) {
+                verification_error = "fresh natural arm geometry is degenerate";
+            }
+        } else if (!elements_ready) {
+            verification_error = element_error;
+        }
+    }
+
+    const bool recovered = CanRecoverArmWriterAfterRecenter(
+        previous_fault, transaction_active, natural_geometry_verified);
+    if (recovered) {
+        g_arm_rotation_faulted = false;
+        g_left_arm_rotation = {};
+        g_right_arm_rotation = {};
+    }
+
+    try {
+        std::ostringstream detail;
+        detail << "frame_sequence=" << frame_sequence
+               << ";recenter_sequence=" << recenter_sequence
+               << ";previous_fault=" << (previous_fault ? "true" : "false")
+               << ";transaction_active=" << (transaction_active ? "true" : "false")
+               << ";natural_verified="
+               << (natural_geometry_verified ? "true" : "false")
+               << ";calibration_invalidated=true";
+        if (!verification_error.empty()) detail << ";detail=" << verification_error;
+        EmitEvent(
+            "body_arm_recovery",
+            recovered ? "ok" : "failed",
+            detail.str());
+    } catch (...) {
+    }
+    return recovered;
+}
+
 void UpdatePlayerArmTracking(
     const CameraRenderStateSnapshot& natural_render_state,
     const bool body_ik_enabled,
@@ -2757,8 +2826,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
 
     g_pose_tracker.SetEnabled(true);
+    bool explicit_recenter_requested = false;
     if (sample.recenter_requested) {
         g_pose_tracker.RequestRecenter();
+        explicit_recenter_requested = true;
         EmitEvent(
             "camera_hmd_recenter_requested", "ok",
             "source=openvr_global_action;pose_sequence=" +
@@ -2767,6 +2838,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     if (snapshot.command.recenter &&
         FirstForGeneration(g_recenter_command_generation, snapshot.generation)) {
         g_pose_tracker.RequestRecenter();
+        explicit_recenter_requested = true;
     }
     const std::uint64_t prior_recenter = g_pose_tracker.last_recenter_sequence();
     cojvr::runtime::Pose relative_head_pose{};
@@ -2783,13 +2855,19 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     (void)g_pose_tracker.TransformPose(sample.left_controller, relative_left_controller);
     (void)g_pose_tracker.TransformPose(sample.right_controller, relative_right_controller);
     g_body_tracker.SetHandPoses(relative_left_controller, relative_right_controller);
-    if (g_pose_tracker.last_recenter_sequence() != 0 &&
-        g_pose_tracker.last_recenter_sequence() != prior_recenter) {
+    const bool recentered = g_pose_tracker.last_recenter_sequence() != 0 &&
+        g_pose_tracker.last_recenter_sequence() != prior_recenter;
+    if (recentered) {
         EmitEvent(
             "camera_hmd_recentered", "ok",
             "generation=" + std::to_string(snapshot.generation) +
                 ";pose_sequence=" + std::to_string(sample.hmd_pose.sequence) +
                 ";stereo=true");
+        if (explicit_recenter_requested) {
+            (void)RecoverArmTrackingAfterRecenter(
+                g_stereo_frame_sequence.load(std::memory_order_acquire) + 1,
+                g_pose_tracker.last_recenter_sequence());
+        }
     }
 
     const std::uint64_t frame_sequence =
@@ -2838,6 +2916,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         try {
             std::ostringstream body_input;
             body_input << "frame_sequence=" << frame_sequence
+                       << ";controller_pose_source=handgrip"
+                       << ";raw_role_fallback=false"
                        << ";left_position_valid="
                        << (relative_left_controller.position_valid ? "true" : "false")
                        << ";left_orientation_valid="
@@ -2854,8 +2934,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
     const PlayerBodyPositionUpdate body_position_update = UpdatePlayerBodyPosition(
         natural_render_state, relative_head_pose,
-        g_pose_tracker.last_recenter_sequence() != 0 &&
-            g_pose_tracker.last_recenter_sequence() != prior_recenter,
+        recentered,
         frame_sequence);
     const cojvr::runtime::Pose& render_head_pose = body_position_update.render_head_pose;
     std::uint64_t left_hash = 0;
