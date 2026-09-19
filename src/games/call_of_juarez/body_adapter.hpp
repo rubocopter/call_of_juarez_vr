@@ -183,6 +183,21 @@ struct ArmBoneRotationPlan {
     bool valid = false;
 };
 
+// Live frame replay proves FORETWIST follows upper arm only, while hand follows
+// forearm independently of FORETWIST. EBones ordinals are not parent indices.
+struct ArmSkinningPlan {
+    HandOrientationTarget foretwist{};
+    HandOrientationTarget hand{};
+    bool valid = false;
+};
+
+[[nodiscard]] ArmSkinningPlan BuildArmSkinningPlan(
+    const ArmGeometrySample& natural,
+    const ArmBoneRotationPlan& rotations,
+    const BoneRotationDelta& world_twist,
+    cojvr::runtime::Vec3 post_ik_hand_up,
+    cojvr::runtime::Vec3 post_ik_hand_forward) noexcept;
+
 struct LegIkPlan {
     ElementWorldBasisTarget thigh{};
     ElementWorldBasisTarget shin{};
@@ -203,7 +218,7 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 controller_target) noexcept;
 
 // Converts the solved world-space arm chain into the relative hierarchy
-// rotations consumed by Call of Juarez's native BoneRotate path. The forearm
+// rotations consumed by Call of Juarez's render-element writer. The forearm
 // delta is computed after applying the upper-arm delta to the natural lower
 // segment so parent motion is not applied twice.
 [[nodiscard]] ArmBoneRotationPlan BuildArmBoneRotationPlan(

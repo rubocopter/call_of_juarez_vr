@@ -701,6 +701,35 @@ BoneRotationDelta ConvertWorldRotationToElementLocal(
     return result;
 }
 
+ArmSkinningPlan BuildArmSkinningPlan(
+    const ArmGeometrySample& natural,
+    const ArmBoneRotationPlan& rotations,
+    const BoneRotationDelta& world_twist,
+    const cojvr::runtime::Vec3 post_ik_hand_up,
+    const cojvr::runtime::Vec3 post_ik_hand_forward) noexcept {
+    ArmSkinningPlan result{};
+    const auto valid_rotation = [](const BoneRotationDelta& r) noexcept {
+        return r.valid && Finite(r.axis) && std::isfinite(r.angle_degrees) &&
+            (r.no_op || Length(r.axis) > 0.99F);
+    };
+    if (!rotations.valid || !valid_rotation(rotations.upper_arm) ||
+        !valid_rotation(rotations.forearm) || !valid_rotation(world_twist)) return result;
+    const auto apply = [](cojvr::runtime::Vec3 v, const BoneRotationDelta& r) noexcept {
+        return r.no_op ? v : RotateAroundAxis(v, r.axis, r.angle_degrees);
+    };
+    const auto skin_axis = [&](const cojvr::runtime::Vec3 v) noexcept {
+        return apply(apply(apply(v, rotations.upper_arm), rotations.forearm), world_twist);
+    };
+    result.foretwist.up = skin_axis(natural.foretwist_element_up);
+    result.foretwist.forward = skin_axis(natural.foretwist_element_forward);
+    result.hand.up = apply(post_ik_hand_up, world_twist);
+    result.hand.forward = apply(post_ik_hand_forward, world_twist);
+    result.foretwist.valid = NormalizeBasis(result.foretwist.up, result.foretwist.forward);
+    result.hand.valid = NormalizeBasis(result.hand.up, result.hand.forward);
+    result.valid = result.foretwist.valid && result.hand.valid;
+    return result;
+}
+
 HandOrientationReference BuildHandOrientationReference(
     const cojvr::runtime::Quaternion controller_orientation,
     cojvr::runtime::Vec3 camera_right,

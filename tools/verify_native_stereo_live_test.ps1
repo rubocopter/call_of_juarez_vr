@@ -369,7 +369,7 @@ if ($RequireBodyIk) {
             if ($Line -notmatch ";plan_valid=true;" -or
                 $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
-                $Line -notmatch ";hand_orientation=calibrated_controller_delta_foretwist_only;" -or
+                $Line -notmatch ";hand_orientation=calibrated_controller_delta_sibling_shared_roll;" -or
                 $Line -notmatch ";controller_orientation_valid=true;" -or
                 $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
                 $Line -notmatch ";upper_element_position=\(" -or
@@ -389,10 +389,12 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis_diagnostic;" -or
                 $Line -notmatch ";hand_residual_native_axis=\(" -or
                 $Line -notmatch ";hand_residual_degrees=[-+0-9.eE]+;" -or
-                $Line -notmatch ";hand_rotation_mode=foretwist_only;" -or
+                $Line -notmatch ";hand_rotation_mode=sibling_shared_roll;" -or
                 $Line -notmatch ";hand_native_axis=\(" -or
-                $Line -notmatch ";hand_rotation_degrees=[+-]?0(?:\.0+)?(?:[eE][+-]?0+)?;" -or
-                $Line -notmatch ";hand_rotation_no_op=true;" -or
+                $Line -notmatch ";hand_rotation_degrees=[-+0-9.eE]+;" -or
+                $Line -notmatch ";hand_rotation_no_op=(?:true|false);" -or
+                $Line -notmatch ";skinning_contract=foretwist_sibling_swing_hand_shared_roll;" -or
+                $Line -notmatch ";skinning_frames_reached=true;" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or
                 $Line -notmatch ";hand_orientation_reached=(?:true|false);" -or
@@ -400,6 +402,12 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
                 $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=RotateElementWithChildren") {
                 throw "A $Side arm IK application did not prove the measured-skeleton/native-writer contract."
+            }
+            $SkinErrorMatch = [regex]::Match($Line, ";skinning_axis_error=([-+0-9.eE]+);")
+            if (-not $SkinErrorMatch.Success) { throw "Missing sibling skinning axis error." }
+            $SkinError = [double]::Parse($SkinErrorMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            if (-not [double]::IsFinite($SkinError) -or $SkinError -lt 0 -or $SkinError -gt 0.02) {
+                throw "Sibling skinning frame mismatch exceeded tolerance."
             }
         }
     }

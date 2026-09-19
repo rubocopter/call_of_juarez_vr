@@ -28,6 +28,13 @@ This mirrors the useful separation proven in Penumbra VR while keeping Chrome En
 
 ## Runtime boundary
 
+Exact CoJ arm propagation is measured, not inferred from EBones ordinals. Run
+`20260919T085408Z-327dd354bc4f` establishes FORETWIST following upper-arm swing but not forearm
+flexion, and hand following forearm but not FORETWIST roll. The current writer explicitly composes
+the missing FORETWIST swing and shares axial roll with the independent hand. This supersedes older
+serial-chain descriptions below. Full basis agreement, joint reach, both-eye persistence and
+natural-frame restoration are separate checks. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+
 Neutral runtime code must not contain Chrome Engine addresses, native object layouts, camera offsets, executable hashes or weapon assumptions.
 
 Build/game identity belongs to an integration layer rather than to the neutral VR runtime. OpenVR and OpenXR are separate adapters and must be independently selectable: configuring the OpenVR path must not require the experimental OpenXR backend.

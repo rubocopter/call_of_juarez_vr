@@ -24,6 +24,13 @@ Validation states remain:
 
 ## Current confirmed baseline
 
+Latest body correction: run `20260919T085408Z-327dd354bc4f` failed anatomy despite 5,050 clean
+applications/restores. Replaying the measured element axes rejects the assumed serial
+upper/forearm/FORETWIST/hand chain: FORETWIST misses forearm swing and hand misses FORETWIST roll.
+Current code explicitly composes those sibling transforms and verifies complete frame agreement.
+This is a host candidate, pending physical validation; details and reproducible evidence are in
+`docs/research/COJ_ARM_SKINNING_AND_AIM.md`. Shot direction/origin remain native look-owned.
+
 The following facts are currently established:
 
 - Call of Juarez (2006) DX9 can run and load gameplay with the project's forwarding path while remaining usable on the monitor.

@@ -1536,6 +1536,7 @@ bool ApplyArmPlan(
     BoneRotationDelta& applied_forearm_twist,
     BoneRotationDelta& applied_hand_rotation,
     BoneRotationDelta& diagnostic_hand_residual,
+    float& skinning_axis_error,
     bool& rollback_attempted,
     bool& rollback_ok,
     std::string* error) noexcept {
@@ -1545,6 +1546,7 @@ bool ApplyArmPlan(
     applied_forearm_twist = {};
     applied_hand_rotation = {};
     diagnostic_hand_residual = {};
+    skinning_axis_error = std::numeric_limits<float>::infinity();
     if (!plan.valid || !rotations.valid || !hand_target.valid) {
         if (error) *error = "arm element/orientation rotation plan is invalid";
         return false;
@@ -1573,6 +1575,7 @@ bool ApplyArmPlan(
     bool upper_applied = false;
     bool forearm_applied = false;
     bool twist_applied = false;
+    bool hand_applied = false;
 
     const auto rotate = [&](const int element,
                             const BoneRotationDelta& rotation,
@@ -1586,21 +1589,25 @@ bool ApplyArmPlan(
             rotate_error);
     };
     const auto rollback_chain = [&]() noexcept {
-        if (!upper_applied && !forearm_applied && !twist_applied) return;
+        if (!upper_applied && !forearm_applied && !twist_applied && !hand_applied) return;
         rollback_attempted = true;
+        std::string hand_error;
         std::string twist_error;
         std::string forearm_error;
         std::string upper_error;
+        const bool hand_ok = !hand_applied || rotate(
+            hand, applied_hand_rotation, -1.0F, &hand_error);
         const bool twist_ok = !twist_applied || rotate(
             foretwist, applied_forearm_twist, -1.0F, &twist_error);
         const bool forearm_ok = !forearm_applied || rotate(
             forearm, applied_rotations.forearm, -1.0F, &forearm_error);
         const bool upper_ok = !upper_applied || rotate(
             upper, applied_rotations.upper_arm, -1.0F, &upper_error);
-        rollback_ok = twist_ok && forearm_ok && upper_ok;
+        rollback_ok = hand_ok && twist_ok && forearm_ok && upper_ok;
         if (!rollback_ok && error) {
             if (!error->empty()) *error += "; ";
             *error += "arm RotateElementWithChildren rollback failed";
+            if (!hand_error.empty()) *error += "; hand_rollback=" + hand_error;
             if (!twist_error.empty()) *error += "; twist_rollback=" + twist_error;
             if (!forearm_error.empty()) *error += "; forearm_rollback=" + forearm_error;
             if (!upper_error.empty()) *error += "; upper_rollback=" + upper_error;
@@ -1690,8 +1697,22 @@ bool ApplyArmPlan(
         return false;
     }
 
+    // FORETWIST is a sibling of forearm in the observed native hierarchy.
+    // Reconstruct its full swung frame, then apply the SAME axial roll to that
+    // skinning frame and the independently parented hand. Ordinal order does
+    // not imply hierarchy: the old path bent forearm but left FORETWIST behind.
+    const ArmSkinningPlan skinning = BuildArmSkinningPlan(
+        natural_geometry, rotations, orientation_plan.forearm_twist,
+        RuntimeVector(hand_up), RuntimeVector(hand_forward));
+    if (!skinning.valid) {
+        if (error) *error = "arm sibling skinning plan is invalid";
+        rollback_chain();
+        return false;
+    }
+    const BoneRotationDelta skinning_rotation = BuildHandResidualRotationDelta(
+        RuntimeVector(foretwist_up), RuntimeVector(foretwist_forward), skinning.foretwist);
     applied_forearm_twist = ConvertWorldRotationToElementLocal(
-        orientation_plan.forearm_twist,
+        skinning_rotation,
         RuntimeVector(foretwist_up),
         RuntimeVector(foretwist_forward));
     if (!applied_forearm_twist.valid) {
@@ -1736,16 +1757,42 @@ bool ApplyArmPlan(
         return false;
     }
 
-    // The live handgrip run showed that FORETWIST already tracks physical
-    // pronation/supination while forcing the remaining full controller basis
-    // through the hand element over-rotates the wrist. Keep measuring that
-    // residual, but do not apply it until physical evidence proves that CoJ's
-    // hand element should own any of it. The hand remains a child of the
-    // FORETWIST transform and therefore preserves the native wrist relation.
-    applied_hand_rotation = diagnostic_hand_residual;
-    applied_hand_rotation.angle_degrees = 0.0F;
-    applied_hand_rotation.no_op = true;
-    applied_hand_rotation.valid = true;
+    // Only the shared axial roll belongs on the hand. The arbitrary full
+    // controller residual remains diagnostic; it must not bend the wrist.
+    applied_hand_rotation = ConvertWorldRotationToElementLocal(
+        BuildHandResidualRotationDelta(
+            RuntimeVector(hand_up), RuntimeVector(hand_forward), skinning.hand),
+        RuntimeVector(hand_up), RuntimeVector(hand_forward));
+    if (!applied_hand_rotation.valid ||
+        !rotate(hand, applied_hand_rotation, 1.0F, &write_error)) {
+        if (error) *error = "shared hand roll write failed: " + write_error;
+        rollback_chain();
+        return false;
+    }
+    hand_applied = !applied_hand_rotation.no_op;
+    ArmGeometrySample verified{};
+    const bool skinning_read = ReadArmGeometry(left, verified, &write_error);
+    if (skinning_read) {
+        const float errors[] = {
+            RuntimeVectorDistanceSquared(verified.foretwist_element_up, skinning.foretwist.up),
+            RuntimeVectorDistanceSquared(verified.foretwist_element_forward, skinning.foretwist.forward),
+            RuntimeVectorDistanceSquared(verified.hand_element_up, skinning.hand.up),
+            RuntimeVectorDistanceSquared(verified.hand_element_forward, skinning.hand.forward),
+        };
+        skinning_axis_error = 0.0F;
+        for (const float squared_error : errors) {
+            if (!std::isfinite(squared_error)) {
+                skinning_axis_error = std::numeric_limits<float>::infinity();
+                break;
+            }
+            skinning_axis_error = std::max(skinning_axis_error, std::sqrt(squared_error));
+        }
+    }
+    if (!skinning_read || !(skinning_axis_error <= 0.02F)) {
+        if (error) *error = "sibling skinning frames did not reach shared swing/roll: " + write_error;
+        rollback_chain();
+        return false;
+    }
     return true;
 }
 
@@ -2180,6 +2227,7 @@ void UpdatePlayerArmTracking(
             BoneRotationDelta applied_forearm_twist{};
             BoneRotationDelta applied_hand_rotation{};
             BoneRotationDelta diagnostic_hand_residual{};
+            float skinning_axis_error = std::numeric_limits<float>::infinity();
             float elbow_target_error = std::numeric_limits<float>::infinity();
             float wrist_target_error = std::numeric_limits<float>::infinity();
             float hand_up_error = std::numeric_limits<float>::infinity();
@@ -2201,6 +2249,7 @@ void UpdatePlayerArmTracking(
                     applied_forearm_twist,
                     applied_hand_rotation,
                     diagnostic_hand_residual,
+                    skinning_axis_error,
                     rollback_attempted,
                     rollback_ok,
                     &write_error);
@@ -2403,7 +2452,10 @@ void UpdatePlayerArmTracking(
                        << RuntimeVectorText(diagnostic_hand_residual.axis)
                        << ";hand_residual_degrees="
                        << diagnostic_hand_residual.angle_degrees
-                       << ";hand_rotation_mode=foretwist_only"
+                       << ";hand_rotation_mode=sibling_shared_roll"
+                       << ";skinning_contract=foretwist_sibling_swing_hand_shared_roll"
+                       << ";skinning_frames_reached=" << (write_ok ? "true" : "false")
+                       << ";skinning_axis_error=" << skinning_axis_error
                        << ";hand_native_axis="
                        << RuntimeVectorText(applied_hand_rotation.axis)
                        << ";hand_rotation_degrees="
@@ -2433,7 +2485,7 @@ void UpdatePlayerArmTracking(
                        << ";rollback_attempted=" << (rollback_attempted ? "true" : "false")
                        << ";rollback_ok=" << (rollback_ok ? "true" : "false")
                        << ";tracking_forward=-z_to_negative_native_forward"
-                       << ";hand_orientation=calibrated_controller_delta_foretwist_only"
+                       << ";hand_orientation=calibrated_controller_delta_sibling_shared_roll"
                        << ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector"
                        << ";writer=RotateElementWithChildren";
                 if (body_ik_enabled && write_allowed && plan.valid && !write_ok) {

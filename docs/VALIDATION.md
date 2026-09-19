@@ -1,5 +1,38 @@
 # Validation model
 
+## Latest arm evidence — 2026-09-19
+
+Fresh candidate `20260919T122155Z-c534d86926a9` is staged from clean source
+`075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
+`163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256
+`74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C`.
+Preparation again passed 24 Release tests + one expected capability SKIP, enabled Body IK from
+start, and applied the reversible 1920x1080/FSAA0 profile. This is host/preparation evidence only.
+
+Run `20260919T085408Z-327dd354bc4f` is finalized/unstaged with matching deployed hashes and complete
+evidence packaging. It produced 5,050 arm applications and restores, zero arm write/restore faults,
+one recenter recovery, 2,843 new plus 2,274 repeated stereo submissions and zero submit failures.
+The user's clip `clip_1.789.819.360.960.mp4` still fails anatomy. Inner shutdown is incomplete and
+factory-hook restoration reports incomplete, so neither is promoted by the outer `run_end`.
+
+Replay pairs 58 arm samples (116 up/forward axes): FORETWIST after undoing its own rotation agrees
+with upper-only propagation to mean 0.000001 / max 0.000007, while upper+forearm propagation misses
+by mean 0.583441 / max 1.733806. Hand agrees with upper+forearm without FORETWIST propagation to
+mean 0.000001 / max 0.000008. These measurements invalidate the documented serial chain and
+explain why joint-target checks missed inconsistent skinning frames.
+
+The replacement candidate explicitly composes FORETWIST sibling swing and hand shared roll. The
+writer verifies complete FORETWIST/hand targets within 0.02 unit-vector distance before accepting
+an application. The live verifier requires `skinning_frames_reached=true` and finite measured
+`skinning_axis_error <= 0.02`; full wrist residual remains diagnostic. Tests cover elbow swing,
+both roll signs, native bind-roll preservation and invalid input. Physical improvement is pending.
+The replay tool and exact shot-ownership findings are documented in
+`docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+
+Fresh complete Debug and Release builds and CTest suites each pass 24 tests plus the expected
+classic-D3D9 shared-texture capability SKIP (25 outcomes, zero failures). This includes the new
+skinning math and verifier success/rejection paths. These are host results only.
+
 The project uses explicit evidence states:
 
 `planned` -> `implemented` -> `host-tested` -> `live-tested` ->
