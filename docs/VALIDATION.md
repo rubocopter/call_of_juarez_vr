@@ -1555,6 +1555,17 @@ These handgrip/recenter-recovery changes are **host-tested only**. Fresh Debug a
 each complete all 25 outcomes with **24 PASS plus the expected classic-D3D9 shared-texture
 capability SKIP**, zero failures.
 
+Fresh full/body candidate `20260919T011421Z-bef5076cd07e` is staged from clean source commit
+`1027a67392f1c5baa71bbba8b6c39c9b63444983`. Build-manifest ID is
+`0AB9BCF9BE628504EA5961092681A9550978092D71C8CFF619FD035B304D906C`; staged proxy SHA-256 is
+`CC03E4DD55929CC4154ABB8A88B836A7FE6C60E5880E67F0EAE9B82D481ECBB6`. Preparation reran the full
+Release suite with **24 PASS plus the expected capability SKIP out of 25**, enabled Body IK before
+process start and applied the reversible `1920x1080`/FSAA0 full profile. This is preparation/host
+evidence only; no SteamVR, game or headset process was launched by the preparation step. Physical
+acceptance requires both hands to report `controller_pose_source=handgrip` with
+`raw_role_fallback=false`, visible anatomical improvement, and a successful Create recenter recovery
+without an active arm transaction.
+
 Three downstream VR ownership items are now explicitly tracked but remain **planned** and separate
 from the arm-composition gate: suppress the local player's head/hair from the HMD view without
 removing the body, derive physical crouch from calibrated HMD height and feed it through the native

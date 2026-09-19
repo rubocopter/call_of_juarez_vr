@@ -1162,6 +1162,19 @@ healthy. The live verifier now requires the handgrip source, no raw fallback and
 recovery marker. Fresh Debug and Release suites each pass 24 tests plus the expected capability SKIP
 out of 25. These changes are host-tested only and require one fresh combined body run.
 
+That fresh combined body candidate is now staged as run
+`20260919T011421Z-bef5076cd07e` from clean source commit
+`1027a67392f1c5baa71bbba8b6c39c9b63444983`. Build-manifest ID is
+`0AB9BCF9BE628504EA5961092681A9550978092D71C8CFF619FD035B304D906C`; proxy SHA-256 is
+`CC03E4DD55929CC4154ABB8A88B836A7FE6C60E5880E67F0EAE9B82D481ECBB6`. `prepare -BodyIkAtStart`
+reran the complete Release suite with 24 PASS plus the expected capability SKIP and staged the full
+`1920x1080`/FSAA0 profile with Body IK enabled before process start. No game or SteamVR process was
+launched automatically. The physical gate should verify `controller_pose_source=handgrip`, no raw
+fallback, anatomically improved arm orientation, and one Create recenter that emits safe
+`body_arm_recovery` while rebuilding the hand calibration. The SteamVR dashboard need not be opened
+deliberately; if it appears automatically, treat its visual persistence as a separate presentation
+observation while scene submission and hand tracking continue.
+
 Three separate product milestones are now explicitly recorded for later work: suppress the local
 head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD
 height through the game's crouch action/state, and decouple firearm/muzzle aim from the flat
