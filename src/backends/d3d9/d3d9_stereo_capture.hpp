@@ -37,6 +37,12 @@ public:
         runtime::Eye eye,
         std::uint64_t frame_sequence,
         std::uint64_t generation) noexcept;
+    [[nodiscard]] bool CaptureEyeSurface(
+        IDirect3DDevice9* device,
+        IDirect3DSurface9* source,
+        runtime::Eye eye,
+        std::uint64_t frame_sequence,
+        std::uint64_t generation) noexcept;
     [[nodiscard]] bool EndFrame(
         std::uint64_t frame_sequence,
         const runtime::Pose& render_hmd_pose,

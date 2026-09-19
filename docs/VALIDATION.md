@@ -59,14 +59,36 @@ small-overreach and extreme-overreach policy, the 100-degree rotation limit, neu
 direction mapping, invalid pose rejection and provenance of both tip bindings. JNI visibility and
 shot ownership still require the exact running game and therefore remain below live-tested state.
 
-Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is currently staged from clean source
-`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
-`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
-`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
-Release artifact, repeated the same 24 PASS plus expected capability SKIP result, enabled Body IK
-from process start and applied the reversible `1920x1080`/FSAA0 profile. It contains all four
-post-run corrections above and is preparation/host evidence only until one clean physical run
-exercises head suppression, reach/twist behavior and controller-owned firing direction.
+Run `20260919T162808Z-fb75cb34977a` cannot promote any gate. It was launched twice under the same run
+identity and the user reported the SteamVR interface stuck over the game on both starts. The two
+processes (PIDs 28408 and 24032) each initialized with `scene_focus_process_id=0` and
+`dashboard_visible=true`; only after the first native-stereo frame became presentable and was
+submitted did scene focus transfer to the CoJ PID. This is direct physical evidence that deferring
+compositor pacing until native gameplay stereo is ready is not a stable startup policy. Current
+staging status is `none`; no staged project D3D9/OpenVR files or active video-profile state remain.
+
+The replacement presentation path is **host-tested only**. While no native-stereo producer has been
+active for 250 ms, the surviving implicit swap-chain `Present` seam captures the ordinary CoJ
+backbuffer as `flat_theater` content through its own deferred D3D9 ring. Every second flat Present is
+captured and the presenter repeats the latest image at compositor cadence, so intro/menu/loading
+content can establish OpenVR scene ownership before gameplay exists. The flat image is centered in a
+larger black eye texture and submitted from a stable HMD anchor; Create re-anchors that presentation.
+Native gameplay automatically transitions to `native_stereo`, and loss of native stereo returns to
+the flat path. Identical-eye content is accepted only for `flat_theater`; native stereo preserves its
+per-frame RGB distinction requirement. Mailbox ordering now uses an owner transport sequence so flat
+and stereo capture counters can coexist, and host tests prove swap-chain hook restoration. Fresh
+Debug and Release runs each complete 24 PASS plus the expected capability SKIP, zero failures.
+
+Fresh full/body candidate `20260919T170916Z-d9a22d24eb0c` is staged from clean source
+`e341a32e0e0682b10e22c25e8835081fbba6d106`, build-manifest ID
+`285F9DD22A6A7BDC8588A2EFC37BBE2DA8B22A06D89AA8613210E3DFD94C1C98`, proxy SHA-256
+`25F197B813499C771F77F0614006AB263C049F21BFA6808E5C98376DC01D12F6`. Release preparation repeated
+24 PASS plus the expected capability SKIP, with Body IK enabled from startup and the reversible
+`1920x1080`/FSAA0 profile active. The physical gate begins before gameplay: `flat_theater` must be
+observable for ordinary intro/menu content, scene focus must move to CoJ without a persistent
+SteamVR dashboard, and gameplay must subsequently switch to `native_stereo`. Create re-anchoring,
+head suppression, reach/twist changes and controller-owned firing direction may then be exercised
+in the same process, but none is promoted by preparation alone.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID

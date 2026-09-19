@@ -114,6 +114,24 @@ HookRegistryOutcome InstallSwapChainVtableHookDetailed(
     }
 }
 
+bool RestoreAllSwapChainVtableHooks() noexcept {
+    bool restored_all = true;
+    try {
+        std::lock_guard lock(g_callbacks_mutex);
+        for (void** vtable : g_registry.RegisteredVtables()) {
+            const HookRegistryOutcome outcome = g_registry.Restore(vtable);
+            if (outcome.result != HookRegistryResult::Installed &&
+                outcome.result != HookRegistryResult::AlreadyInstalled) {
+                restored_all = false;
+            }
+            g_callbacks_by_vtable.erase(vtable);
+        }
+    } catch (...) {
+        restored_all = false;
+    }
+    return restored_all;
+}
+
 HookDiagnostics InspectAllSwapChainVtableHooks() noexcept {
     HookDiagnostics diagnostics;
     try {

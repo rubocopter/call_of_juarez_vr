@@ -16,13 +16,15 @@ bool FrameMailbox::Publish(StereoCpuFrame frame) noexcept {
         }
         std::lock_guard lock(mutex_);
         if (stopped_) return false;
+        const std::uint64_t ordering_sequence =
+            frame.transport_sequence != 0 ? frame.transport_sequence : frame.capture_sequence;
         std::uint64_t expected = last_published_sequence_.load(std::memory_order_relaxed);
-        while (frame.capture_sequence <= expected) {
+        while (ordering_sequence <= expected) {
             ++stats_.rejected_stale;
             return false;
         }
         if (!last_published_sequence_.compare_exchange_weak(
-                expected, frame.capture_sequence,
+                expected, ordering_sequence,
                 std::memory_order_acq_rel, std::memory_order_relaxed)) {
             ++stats_.rejected_stale;
             return false;

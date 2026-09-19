@@ -10,6 +10,7 @@
 #include <wrl/client.h>
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <iomanip>
@@ -188,14 +189,26 @@ struct OpenVrStereoPresenter::Impl {
             SetError("presenter rejected inconsistent stereo CPU frame layout");
             return false;
         }
+        const bool flat_theater =
+            frame.presentation_mode == d3d9::FramePresentationMode::flat_theater;
+        const std::uint32_t desired_width = flat_theater
+            ? std::max(
+                  eyes[0].width,
+                  static_cast<std::uint32_t>((static_cast<std::uint64_t>(left.width) * 135U) / 100U))
+            : left.width;
+        const std::uint32_t desired_height = flat_theater
+            ? std::max(
+                  eyes[0].height,
+                  static_cast<std::uint32_t>((static_cast<std::uint64_t>(left.height) * 135U) / 100U))
+            : left.height;
         if (textures[0] && textures[1] &&
-            texture_width == left.width && texture_height == left.height) {
+            texture_width == desired_width && texture_height == desired_height) {
             return true;
         }
         for (auto& texture : textures) texture.Reset();
         D3D11_TEXTURE2D_DESC desc{};
-        desc.Width = left.width;
-        desc.Height = left.height;
+        desc.Width = desired_width;
+        desc.Height = desired_height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
         desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -209,9 +222,17 @@ struct OpenVrStereoPresenter::Impl {
                 for (auto& cleanup : textures) cleanup.Reset();
                 return false;
             }
+            if (flat_theater) {
+                ComPtr<ID3D11RenderTargetView> view;
+                if (SUCCEEDED(d3d11.device()->CreateRenderTargetView(texture.Get(), nullptr, &view)) &&
+                    view) {
+                    constexpr float black[4] = {0.0F, 0.0F, 0.0F, 1.0F};
+                    d3d11.context()->ClearRenderTargetView(view.Get(), black);
+                }
+            }
         }
-        texture_width = left.width;
-        texture_height = left.height;
+        texture_width = desired_width;
+        texture_height = desired_height;
         return true;
     }
 
@@ -228,16 +249,19 @@ struct OpenVrStereoPresenter::Impl {
         if (!EnsureTextures(d3d11, frame, textures, texture_width, texture_height)) return false;
         const auto& left = frame.eyes[0];
         const auto& right = frame.eyes[1];
+        const bool flat_theater =
+            frame.presentation_mode == d3d9::FramePresentationMode::flat_theater;
         const std::size_t left_required = static_cast<std::size_t>(left.stride) * left.height;
         const std::size_t right_required = static_cast<std::size_t>(right.stride) * right.height;
         if (left.pixels.size() < left_required || right.pixels.size() < right_required) {
             SetError("presenter rejected truncated stereo CPU frame pixels");
             return false;
         }
-        if (d3d9::BgrxSurfacesEqualIgnoringAlpha(
+        const bool identical_eye_content = d3d9::BgrxSurfacesEqualIgnoringAlpha(
                 left.pixels.data(), left.stride,
                 right.pixels.data(), right.stride,
-                left.width, left.height)) {
+                left.width, left.height);
+        if (!flat_theater && identical_eye_content) {
             SetError("presenter rejected identical left/right eye RGB content");
             return false;
         }
@@ -253,7 +277,8 @@ struct OpenVrStereoPresenter::Impl {
                 right.pixels.data(), right.stride, right.width, right.height);
             const auto hash_end = std::chrono::steady_clock::now();
             hash_ms = MillisecondsBetween(hash_begin, hash_end);
-            if (left_hash == 0 || right_hash == 0 || left_hash == right_hash) {
+            if (left_hash == 0 || right_hash == 0 ||
+                (!flat_theater && left_hash == right_hash)) {
                 SetError("presenter diagnostic hashes did not preserve distinct eye content");
                 return false;
             }
@@ -262,8 +287,22 @@ struct OpenVrStereoPresenter::Impl {
         const auto upload_begin = std::chrono::steady_clock::now();
         for (std::size_t eye = 0; eye < 2; ++eye) {
             const auto& source = frame.eyes[eye];
-            d3d11.context()->UpdateSubresource(
-                textures[eye].Get(), 0, nullptr, source.pixels.data(), source.stride, 0);
+            if (flat_theater) {
+                const std::uint32_t left_offset = (texture_width - source.width) / 2U;
+                const std::uint32_t top_offset = (texture_height - source.height) / 2U;
+                D3D11_BOX box{};
+                box.left = left_offset;
+                box.top = top_offset;
+                box.front = 0;
+                box.right = left_offset + source.width;
+                box.bottom = top_offset + source.height;
+                box.back = 1;
+                d3d11.context()->UpdateSubresource(
+                    textures[eye].Get(), 0, &box, source.pixels.data(), source.stride, 0);
+            } else {
+                d3d11.context()->UpdateSubresource(
+                    textures[eye].Get(), 0, nullptr, source.pixels.data(), source.stride, 0);
+            }
         }
         const auto upload_end = std::chrono::steady_clock::now();
         upload_ms = MillisecondsBetween(upload_begin, upload_end);
@@ -319,9 +358,15 @@ struct OpenVrStereoPresenter::Impl {
         std::uint64_t active_device_id = 0;
         std::uint64_t active_generation = 0;
         std::uint64_t active_capture_sequence = 0;
+        std::uint64_t active_transport_sequence = 0;
         std::uint64_t active_render_pose_sequence = 0;
         std::chrono::steady_clock::time_point active_capture_time{};
         runtime::Pose active_render_hmd_pose{};
+        runtime::Pose flat_theater_anchor_pose{};
+        bool flat_theater_anchor_valid = false;
+        d3d9::FramePresentationMode active_presentation_mode =
+            d3d9::FramePresentationMode::native_stereo;
+        bool have_active_presentation_mode = false;
         PresentationCadence cadence;
         runtime::OpenVrRuntimeState previous_runtime_state{};
         bool have_previous_runtime_state = false;
@@ -365,7 +410,7 @@ struct OpenVrStereoPresenter::Impl {
 
             running.store(true, std::memory_order_release);
             SignalInitialization(true);
-            Log("native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=latest_frame_repeat");
+            Log("native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=flat_theater_to_native_stereo");
             Log("openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff");
             if (runtime.ReadPresentationState(previous_presentation_state)) {
                 have_previous_presentation_state = true;
@@ -378,10 +423,10 @@ struct OpenVrStereoPresenter::Impl {
             while (!stop_requested.load(std::memory_order_acquire)) {
                 const auto pose_begin = std::chrono::steady_clock::now();
                 runtime::OpenVrTrackedPoses tracked_poses{};
-                // Do not enter WaitGetPoses until there is actual scene content
-                // to submit. WaitGetPoses captures SteamVR scene focus; doing so
-                // during CoJ's flat intro/menu transition can leave the dashboard
-                // owning the visible system layer while the game has no VR frame.
+                // Enter compositor pacing as soon as either flat-theater or native
+                // stereo content is presentable. This gives CoJ scene ownership
+                // during intro/menu rendering instead of leaving SteamVR's
+                // dashboard as the only visible layer until gameplay begins.
                 const bool dashboard_visible_before_poll =
                     have_previous_presentation_state &&
                     previous_presentation_state.dashboard_visible;
@@ -448,6 +493,12 @@ struct OpenVrStereoPresenter::Impl {
                         if (runtime.PollActions(actions, polled_gameplay, hand_poses)) {
                             input_polled = true;
                             recenter = actions.recenter_requested;
+                            if (recenter && tracked_poses.hmd.orientation_valid &&
+                                tracked_poses.hmd.position_valid) {
+                                flat_theater_anchor_pose = tracked_poses.hmd;
+                                flat_theater_anchor_valid = true;
+                                Log("native_stereo_flat_theater: status=recentered source=global_action");
+                            }
                             if (!dashboard_visible && runtime_state.focused) {
                                 gameplay = polled_gameplay;
                             }
@@ -527,11 +578,17 @@ struct OpenVrStereoPresenter::Impl {
                 double hash_ms = 0.0;
                 double upload_ms = 0.0;
                 if (have_new_frame) {
-                    const bool stale = active_generation != 0 &&
+                    const std::uint64_t incoming_transport_sequence =
+                        frame.transport_sequence != 0
+                            ? frame.transport_sequence
+                            : frame.capture_sequence;
+                    const bool stale = active_transport_sequence != 0 &&
+                        incoming_transport_sequence <= active_transport_sequence;
+                    const bool stale_generation = active_generation != 0 &&
                         (frame.generation < active_generation ||
                          (frame.generation == active_generation &&
-                          frame.capture_sequence <= active_capture_sequence));
-                    if (stale) {
+                          frame.device_id != active_device_id));
+                    if (stale || stale_generation) {
                         ++rejected_frames;
                         Log("native_stereo_presenter_frame: status=rejected reason=stale frame_sequence=" +
                             std::to_string(frame.capture_sequence));
@@ -543,6 +600,7 @@ struct OpenVrStereoPresenter::Impl {
                             texture_height = 0;
                             active_generation = frame.generation;
                             active_device_id = frame.device_id;
+                            active_transport_sequence = 0;
                             active_render_pose_sequence = 0;
                             active_render_hmd_pose = {};
                             cadence.Invalidate();
@@ -551,14 +609,31 @@ struct OpenVrStereoPresenter::Impl {
                                 d3d11, frame, textures, texture_width, texture_height,
                                 left_hash, right_hash, hash_ms, upload_ms)) {
                             const bool first_presentable_frame = !cadence.presentable();
+                            const bool mode_changed = !have_active_presentation_mode ||
+                                active_presentation_mode != frame.presentation_mode;
                             active_capture_sequence = frame.capture_sequence;
+                            active_transport_sequence = incoming_transport_sequence;
                             active_capture_time = frame.capture_time;
                             active_render_pose_sequence = frame.render_pose_sequence;
                             active_render_hmd_pose = frame.render_hmd_pose;
+                            active_presentation_mode = frame.presentation_mode;
+                            have_active_presentation_mode = true;
+                            if (frame.presentation_mode ==
+                                    d3d9::FramePresentationMode::flat_theater &&
+                                (!flat_theater_anchor_valid || mode_changed)) {
+                                flat_theater_anchor_pose = frame.render_hmd_pose;
+                                flat_theater_anchor_valid = true;
+                            }
                             cadence.FrameUploaded();
                             ++frames_uploaded;
+                            if (mode_changed) {
+                                Log(std::string("native_stereo_presenter_transition: status=content_mode mode=") +
+                                    (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
+                                         ? "flat_theater"
+                                         : "native_stereo"));
+                            }
                             if (first_presentable_frame) {
-                                Log("native_stereo_presenter_transition: status=scene_ready action=defer_compositor_focus_until_frame");
+                                Log("native_stereo_presenter_transition: status=scene_ready action=claim_compositor_focus_with_presentable_content");
                                 LogPresentationState(runtime, "frame_ready");
                             }
                             if (ShouldLogSequence(frame.capture_sequence)) {
@@ -567,10 +642,20 @@ struct OpenVrStereoPresenter::Impl {
                                      << frame.capture_sequence
                                      << ";render_pose_sequence=" << frame.render_pose_sequence
                                      << ";generation=" << frame.generation
+                                     << ";presentation_mode="
+                                     << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
+                                             ? "flat_theater"
+                                             : "native_stereo")
                                      << ";left_hash=" << left_hash
                                      << ";right_hash=" << right_hash
-                                     << ";distinct_eye_content=true"
-                                     << ";distinct_check=rgb_compare_every_frame"
+                                     << ";distinct_eye_content="
+                                     << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
+                                             ? "false"
+                                             : "true")
+                                     << ";distinct_check="
+                                     << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
+                                             ? "not_required_flat_theater"
+                                             : "rgb_compare_every_frame")
                                      << ";hash_mode=sampled_telemetry"
                                      << std::fixed << std::setprecision(3)
                                      << ";hash_ms=" << hash_ms
@@ -601,9 +686,14 @@ struct OpenVrStereoPresenter::Impl {
                 int right_result = 0;
                 double submit_ms = 0.0;
                 bool scene_focus_pending = false;
+                const bool flat_theater_active =
+                    active_presentation_mode == d3d9::FramePresentationMode::flat_theater;
+                const runtime::Pose& submit_pose =
+                    flat_theater_active && flat_theater_anchor_valid
+                        ? flat_theater_anchor_pose
+                        : active_render_hmd_pose;
                 if (active_render_pose_sequence == 0 ||
-                    !active_render_hmd_pose.orientation_valid ||
-                    !active_render_hmd_pose.position_valid) {
+                    !submit_pose.orientation_valid || !submit_pose.position_valid) {
                     ++rejected_frames;
                     Log("native_stereo_presenter_submit: status=failed frame_sequence=" +
                         std::to_string(active_capture_sequence) +
@@ -613,7 +703,7 @@ struct OpenVrStereoPresenter::Impl {
                 }
                 const PresentationContent pending_content = cadence.pending_content();
                 if (!SubmitEyes(
-                        runtime, textures, active_render_hmd_pose,
+                        runtime, textures, submit_pose,
                         left_result, right_result, submit_ms, scene_focus_pending)) {
                     if (scene_focus_pending) {
                         Log("native_stereo_presenter_submit: status=deferred reason=scene_focus_pending frame_sequence=" +
@@ -649,7 +739,10 @@ struct OpenVrStereoPresenter::Impl {
                          << submit_sequence
                          << ";capture_sequence=" << active_capture_sequence
                          << ";render_pose_sequence=" << active_render_pose_sequence
-                         << ";pose_mode=explicit_render_pose"
+                         << ";pose_mode="
+                         << (flat_theater_active ? "flat_theater_anchor" : "explicit_render_pose")
+                         << ";presentation_mode="
+                         << (flat_theater_active ? "flat_theater" : "native_stereo")
                          << ";content=" << (uploaded_new_frame ? "new" : "repeated")
                          << ";left_result=" << left_result
                          << ";right_result=" << right_result
@@ -662,6 +755,8 @@ struct OpenVrStereoPresenter::Impl {
                     pose_line << "native_stereo_pose_telemetry: status=ok"
                               << ";frame_sequence=" << active_capture_sequence
                               << ";render_pose_sequence=" << active_render_pose_sequence
+                              << ";presentation_mode="
+                              << (flat_theater_active ? "flat_theater" : "native_stereo")
                               << std::fixed << std::setprecision(3)
                               << ";pose_age_ms=" << PoseAgeMilliseconds(active_capture_time)
                               << ";position_x_m=" << active_render_hmd_pose.position.x

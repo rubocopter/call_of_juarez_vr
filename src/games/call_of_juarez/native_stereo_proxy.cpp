@@ -2,11 +2,13 @@
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
+#include "backends/d3d9/swapchain_vtable_hook.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
 #include "backends/openvr/stereo_presenter.hpp"
 #include "runtime/log.hpp"
 
 #include <windows.h>
+#include <wrl/client.h>
 
 #include <array>
 #include <atomic>
@@ -28,12 +30,17 @@ std::string g_run_id{"unbound"};
 
 struct NativeStereoState {
     cojvr::backends::d3d9::D3D9StereoCapture capture;
+    cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
     cojvr::backends::openvr::OpenVrStereoPresenter presenter;
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     std::mutex device_mutex;
     IDirect3D9* factory = nullptr;
     IDirect3DDevice9* device = nullptr;
     std::atomic_uint64_t device_generation{0};
+    std::atomic_uint64_t transport_sequence{0};
+    std::atomic_uint64_t flat_capture_sequence{0};
+    std::atomic_uint64_t last_native_stereo_tick_ms{0};
+    std::atomic_bool flat_capture_active{false};
     std::atomic_uint64_t last_error_frame{0};
     std::array<bool, 2> capture_source_logged{};
     bool runtime_ready = false;
@@ -138,6 +145,103 @@ IDirect3DDevice9* RetainCurrentDevice() noexcept {
     }
 }
 
+bool PublishCapturedFrame(
+    NativeStereoState& state,
+    cojvr::backends::d3d9::StereoCpuFrame frame,
+    const cojvr::backends::d3d9::FramePresentationMode presentation_mode,
+    const char* source) noexcept {
+    try {
+        frame.presentation_mode = presentation_mode;
+        frame.transport_sequence =
+            state.transport_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+        const std::uint64_t capture_sequence = frame.capture_sequence;
+        if (!state.presenter.Publish(std::move(frame))) {
+            LogTransportFailure(
+                capture_sequence, source,
+                "presenter mailbox rejected completed CPU frame");
+            return false;
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
+    if (!device || !g_stereo.runtime_ready) return;
+    try {
+        constexpr std::uint64_t kStereoFreshnessMs = 250;
+        const std::uint64_t now_ms = GetTickCount64();
+        const std::uint64_t last_stereo_ms =
+            g_stereo.last_native_stereo_tick_ms.load(std::memory_order_acquire);
+        if (last_stereo_ms != 0 && now_ms >= last_stereo_ms &&
+            now_ms - last_stereo_ms < kStereoFreshnessMs) {
+            g_stereo.flat_capture_active.store(false, std::memory_order_release);
+            return;
+        }
+
+        if (!g_stereo.flat_capture_active.exchange(true, std::memory_order_acq_rel)) {
+            g_stereo.flat_capture.InvalidateResources();
+            LogLine("native_stereo_flat_theater: status=entered source=swapchain_present");
+        }
+
+        cojvr::backends::d3d9::StereoCpuFrame completed{};
+        if (g_stereo.flat_capture.TryCollectReady(completed)) {
+            const std::uint64_t sequence = completed.capture_sequence;
+            if (PublishCapturedFrame(
+                    g_stereo, std::move(completed),
+                    cojvr::backends::d3d9::FramePresentationMode::flat_theater,
+                    "flat_publish") &&
+                ShouldLogStereoTiming(sequence)) {
+                LogLine(
+                    "native_stereo_flat_theater: status=published " +
+                    std::string(g_stereo.flat_capture.collect_description()));
+            }
+        }
+
+        // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
+        // Capture every second Present; the presenter repeats the latest frame
+        // at compositor cadence between updates.
+        const std::uint64_t present_sequence =
+            g_stereo.flat_capture_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+        if ((present_sequence & 1U) != 0U) return;
+
+        cojvr::backends::openvr::OpenVrTrackingSample tracking{};
+        if (!g_stereo.presenter.LatestTracking(tracking) ||
+            !tracking.pose.orientation_valid || !tracking.pose.position_valid ||
+            tracking.sequence == 0) {
+            return;
+        }
+
+        Microsoft::WRL::ComPtr<IDirect3DSurface9> back_buffer;
+        const HRESULT back_buffer_result =
+            device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
+        if (FAILED(back_buffer_result) || !back_buffer) return;
+        const std::uint64_t generation =
+            g_stereo.device_generation.load(std::memory_order_acquire);
+        if (generation == 0) return;
+        if (!g_stereo.flat_capture.CaptureEyeSurface(
+                device, back_buffer.Get(), cojvr::runtime::Eye::left,
+                present_sequence, generation) ||
+            !g_stereo.flat_capture.CaptureEyeSurface(
+                device, back_buffer.Get(), cojvr::runtime::Eye::right,
+                present_sequence, generation) ||
+            !g_stereo.flat_capture.EndFrame(
+                present_sequence, tracking.pose, tracking.sequence)) {
+            LogTransportFailure(
+                present_sequence, "flat_capture", g_stereo.flat_capture.last_error());
+            return;
+        }
+        if (ShouldLogStereoTiming(present_sequence)) {
+            LogLine(
+                "native_stereo_flat_theater: status=captured " +
+                std::string(g_stereo.flat_capture.capture_description()));
+        }
+    } catch (...) {
+        LogLine("native_stereo_flat_theater: status=exception");
+    }
+}
+
 void AfterCreateDevice(
     IDirect3D9*,
     UINT,
@@ -159,11 +263,24 @@ void AfterCreateDevice(
         }
         const std::uint64_t generation =
             g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+        g_stereo.flat_capture_active.store(false, std::memory_order_release);
+        g_stereo.last_native_stereo_tick_ms.store(0, std::memory_order_release);
         if (previous) previous->Release();
+        const cojvr::backends::d3d9::SwapChainHookCallbacks swapchain_callbacks{
+            .before_present = &BeforeSwapChainPresent,
+        };
+        const auto swapchain_hook =
+            cojvr::backends::d3d9::InstallSwapChainVtableHookDetailed(
+                replacement, swapchain_callbacks);
         std::ostringstream line;
         line << "native_stereo_device: status=observed device=0x" << std::hex
              << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
-             << " generation=" << generation;
+             << " generation=" << generation
+             << " swapchain_present_hook="
+             << ((swapchain_hook.result == cojvr::backends::d3d9::HookRegistryResult::Installed ||
+                     swapchain_hook.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled)
+                     ? "installed"
+                     : "failed");
         LogLine(line.str());
     } catch (...) {
     }
@@ -175,19 +292,23 @@ bool BeginStereoFrame(
     sample = {};
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state || !state->runtime_ready) return false;
+    state->last_native_stereo_tick_ms.store(GetTickCount64(), std::memory_order_release);
+    if (state->flat_capture_active.exchange(false, std::memory_order_acq_rel)) {
+        LogLine("native_stereo_flat_theater: status=leaving reason=native_stereo_active");
+    }
 
     cojvr::backends::d3d9::StereoCpuFrame completed{};
     if (state->capture.TryCollectReady(completed)) {
         const std::uint64_t sequence = completed.capture_sequence;
-        if (state->presenter.Publish(std::move(completed))) {
+        if (PublishCapturedFrame(
+                *state, std::move(completed),
+                cojvr::backends::d3d9::FramePresentationMode::native_stereo,
+                "publish")) {
             if (ShouldLogStereoTiming(sequence)) {
                 LogLine(
                     "native_stereo_producer_timing: status=published " +
                     std::string(state->capture.collect_description()));
             }
-        } else {
-            LogTransportFailure(
-                sequence, "publish", "presenter mailbox rejected completed CPU frame");
         }
     }
 
@@ -311,6 +432,10 @@ bool StartStereoRuntime() noexcept {
 
 void Finalize() noexcept {
     cojvr::games::call_of_juarez::ShutdownCameraProbe();
+    const bool swapchain_restored =
+        cojvr::backends::d3d9::RestoreAllSwapChainVtableHooks();
+    LogLine(std::string("native_stereo_swapchain_hook: status=") +
+        (swapchain_restored ? "restored" : "incomplete"));
     if (g_stereo.factory) {
         const bool restored =
             cojvr::backends::d3d9::RestoreFactoryVtableHook(g_stereo.factory);
@@ -319,6 +444,7 @@ void Finalize() noexcept {
     }
     LogLine("native_stereo_shutdown: stage=capture_begin");
     g_stereo.capture.Shutdown();
+    g_stereo.flat_capture.Shutdown();
     LogLine("native_stereo_shutdown: stage=capture_end");
     LogLine("native_stereo_shutdown: stage=presenter_begin");
     g_stereo.presenter.Stop();
