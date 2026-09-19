@@ -29,6 +29,13 @@ snap per deflection through `PlayerBeing.RotateHorizontally(F)` and holds native
 classic-D3D9 shared-texture capability SKIP**, zero failures. Both changes remain **host-tested only**
 until a fresh single-process run exercises them.
 
+Fresh candidate `20260919T153546Z-705460dca03b` is staged for that gate from clean source
+`32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
+`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
+`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. Body IK is enabled from
+process start and the reversible 1920x1080/FSAA0 profile is active. This is host/preparation evidence
+only until one CoJ process completes the physical gate.
+
 Run `20260919T085408Z-327dd354bc4f` is finalized/unstaged with matching deployed hashes and complete
 evidence packaging. It produced 5,050 arm applications and restores, zero arm write/restore faults,
 one recenter recovery, 2,843 new plus 2,274 repeated stereo submissions and zero submit failures.

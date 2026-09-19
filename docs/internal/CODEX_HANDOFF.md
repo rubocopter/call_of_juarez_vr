@@ -26,8 +26,22 @@ hand target and rebasing a new controller reference after recenter. It also cons
 horizontal turn as one exact +/-45-degree snap per deflection through the exact native
 `PlayerBeing.RotateHorizontally(F)` route; native analog turn actions 2/3 remain neutral so mouse
 sensitivity cannot reintroduce continuous turn. Fresh full Release CTest is 24 PASS plus the one
-expected classic-D3D9 shared-texture capability SKIP. These changes are **host-tested only**. The
-next physical gate must use a fresh run ID and one CoJ process with `-BodyIkAtStart`.
+expected classic-D3D9 shared-texture capability SKIP. These changes are **host-tested only**.
+
+Fresh full/body candidate `20260919T153546Z-705460dca03b` is staged from clean source
+`32e979709bbb13780cf885c82770a0e8c1649631` (`dirty=false`). Build-manifest ID:
+`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`; proxy SHA-256:
+`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. Prepare rebuilt Release,
+reran 24 PASS + the expected capability SKIP, enabled Body IK before process start and applied the
+reversible 1920x1080/FSAA0 profile. Use one CoJ process for this run ID. The physical pass should
+repeat representative forward/T-pose/flexion arm poses, exercise several Create recenters and test
+one right-stick snap in each direction while keeping normal gameplay focus.
+
+Static bytecode also exposes a plausible exact-game seam for the local head/hair problem:
+`PlayerBeing.SetupMeshAfterLoad()` resolves an element by name with `GetElementID(String)` and calls
+`HideElement(int)` (the shipped code uses it for `RayCap`). This proves per-element visibility is a
+native capability, but the exact local head/hair element names still need to be identified before a
+VR suppression writer is safe. Do not hide the whole player mesh because the body/shadow must remain.
 
 Latest continuation, 2026-09-19: run `20260919T085408Z-327dd354bc4f` is finalized and unstaged.
 The user's 26.84-second clip still rejects anatomy. It had 5,050 applications/restores, no arm

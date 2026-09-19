@@ -42,6 +42,12 @@ Runtime-log SHA-256 at capture:
 `09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`. Repository evidence metadata
 is stored in `docs/research/evidence/20260919T122155Z-c534d86926a9.json`.
 
+For the separate local-head intrusion issue, shipped `PlayerBeing.SetupMeshAfterLoad()` provides
+static evidence that the exact game can hide individual mesh elements: it calls
+`GetElementID(String)` followed by `HideElement(int)` for `RayCap`. This is a candidate visibility
+boundary for VR, not yet an implementation. The exact head/hair element names and their effect on
+body/shadow rendering must be established before enabling local suppression.
+
 ## The previous hierarchy assumption is false
 
 `EBones` assigns semantic IDs; it does not prove parentage. Earlier documentation described

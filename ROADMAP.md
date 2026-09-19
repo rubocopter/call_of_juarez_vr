@@ -12,6 +12,12 @@ degree right-stick snap turn is also implemented/host-tested through `PlayerBein
 Head/hair intrusion remains open. Exact shot-direction/origin ownership has been researched;
 controller aiming is not yet implemented.
 
+Fresh physical candidate `20260919T153546Z-705460dca03b` is staged from clean source `32e9797`
+with Body IK enabled from start. It combines the existing arm/body gate with the host-tested
+recenter-target rebase and exact 45-degree snap turn so one physical pass can validate them together.
+Static bytecode confirms a per-element `GetElementID`/`HideElement` visibility seam in `PlayerBeing`;
+head/hair suppression remains planned until the exact local mesh elements are identified.
+
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
 boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,
 in-headset Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit
