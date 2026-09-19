@@ -13,6 +13,69 @@ Runtime log SHA-256: `E9F615515ADEDCE955EF97B515956E499A9D3E3A8972D03D9A79106289
 The video shows the deliberate T-pose, forward palms-down/up and lowering sequence. Controller
 overlays help show physical placement; no precise video-to-log time synchronization is claimed.
 
+### Diagnostic multiprocess follow-up
+
+Candidate `20260919T122155Z-c534d86926a9` was later launched three times under the same run ID.
+Because that violates the one-process promotion boundary, the evidence is retained as diagnostic
+only. The third process (PID 448) corresponds to the user's 87.79-second video
+`C:\Users\onita\Videos\clip_1.789.829.493.853.mp4`, which exercises forward palms toward the body,
+forward palms down/up, flexed elbows, T-pose palms down/up, raised arm flexion and repeated recenter.
+Video SHA-256: `6BA5556AF95EFB3D598FB77BA900A8BE64065AF568EEF0FFB5B4A523289017F5`.
+
+That process completed 11,406 arm applications and 11,406 restores with zero arm writer/restore
+failures. Reach clamping occurred 6,072 times (53.24%). Sampled natural chain lengths averaged
+26.6857 upper-arm units and 23.1577 lower-arm units, 49.8434 total. This is strong evidence that the
+reported short-arm feel is a real native-chain reach constraint under the current head/shoulder
+anchoring policy. It does not justify changing the already validated tracking axes; the next reach
+experiment should make shoulder/body anchoring or controlled extension explicit and measurable.
+
+The video still rejects visual anatomy, although the earlier catastrophic mesh corruption is absent.
+It also confirms recurring local head/hair intrusion. Repeated recenter sometimes changed hand
+orientation in this artifact because the then-current policy discarded controller-to-hand
+calibration and rebuilt it from the current animated natural hand. Current host source preserves the
+last visible hand target and rebases the post-recenter controller reference against that target;
+this fix is host-tested only. The first two process starts also had the SteamVR interface stuck over
+the game while the third did not, so no focus/dashboard promotion follows from this evidence.
+
+Runtime-log SHA-256 at capture:
+`4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`. Diagnostic package SHA-256:
+`09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`. Repository evidence metadata
+is stored in `docs/research/evidence/20260919T122155Z-c534d86926a9.json`.
+
+### Clean single-process follow-up
+
+Run `20260919T153546Z-705460dca03b` then exercised the corrected recenter/snap source in one clean
+process (PID 7756). Source was `32e979709bbb13780cf885c82770a0e8c1649631`; build-manifest ID
+`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`; proxy SHA-256
+`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. The user's 52.678-second
+video is `C:\Users\onita\Videos\clip_1.789.832.536.546.mp4`, SHA-256
+`B132BD5709B79E8396CF4048B98A88EA70FF0FFFC88F4EE6C27255E5657ACB11`.
+
+The run completed 8,452 arm applications and 8,452 restores with zero writer/restore failures. Visual
+anatomy is substantially improved: the earlier collapse/catastrophic corruption is absent, and the
+arms generally occupy plausible body-relative space. Acceptance is still incomplete. Reach clamped
+3,695/8,452 applications (43.72%; left 45.41%, right 42.03%), and several wrist/hand poses remain
+visibly forced. The native chain remains about 26.686 upper + 23.158 lower = 49.843 game units, so
+the next reach experiment should address shoulder/body anchoring or explicit controlled extension.
+
+Two Create recenter recoveries report `calibration_preserved=true`; four immediate arm samples use
+`orientation_calibration_mode=preserved_target_rebase`, proving the new rebase path reached the live
+writer. The user also tested snap turning: telemetry recorded 23 exact calls through
+`PlayerBeing.RotateHorizontally(F)` (13 at -45 degrees, 10 at +45 degrees), matching the deliberate
+screen jumps in the video. The exact snap behavior is therefore headset-validated.
+
+The video still shows severe local hair/head intrusion, especially in sampled frames around 18 s and
+30 s. Weapon frames around 42-48 s also remain governed by the native weapon/shot path; this run does
+not establish controller-owned muzzle/shot direction. Evidence package SHA-256:
+`0AF7723484528C368549F0DB46FE0C682F078B3120CCA3E67F7EA3DD4A1C4BE8`; packaged runtime-log SHA-256:
+`57E56F94F963AA121B63BD4DD5C23644655A46C3285069ACC02471DBCA647BE7`.
+
+For the separate local-head intrusion issue, shipped `PlayerBeing.SetupMeshAfterLoad()` provides
+static evidence that the exact game can hide individual mesh elements: it calls
+`GetElementID(String)` followed by `HideElement(int)` for `RayCap`. This is a candidate visibility
+boundary for VR, not yet an implementation. The exact head/hair element names and their effect on
+body/shadow rendering must be established before enabling local suppression.
+
 ## The previous hierarchy assumption is false
 
 `EBones` assigns semantic IDs; it does not prove parentage. Earlier documentation described

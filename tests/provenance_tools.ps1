@@ -856,7 +856,7 @@ try {
         "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;interact=false;weapon_next=false;weapon_previous=false;kick=false;route=GameInputController.InputAction.Translate",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
-        "camera_probe_event: event=body_arm_recovery result=ok detail=frame_sequence=3;recenter_sequence=3;previous_fault=false;transaction_active=false;natural_verified=true;calibration_invalidated=true",
+        "camera_probe_event: event=body_arm_recovery result=ok detail=frame_sequence=3;recenter_sequence=3;previous_fault=false;transaction_active=false;natural_verified=true;calibration_preserved=true",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=2 tracking_enabled=false",
         "camera_probe_event: event=camera_probe_passthrough result=disabled",
         "camera_probe_event: event=camera_probe_restore result=restored camera_restored_slots=2;view_restored_slots=1",

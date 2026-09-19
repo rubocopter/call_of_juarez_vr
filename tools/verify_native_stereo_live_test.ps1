@@ -113,8 +113,8 @@ if ($RequireBodyIk) {
         "camera_probe_event: event=body_tracking_input result=observed detail=.*controller_pose_source=handgrip;raw_role_fallback=false;.*left_position_valid=true;left_orientation_valid=true;.*right_position_valid=true;right_orientation_valid=true;" `
         "Body IK tracking telemetry did not prove valid left/right handgrip poses without raw-role fallback."
     Assert-LogMatch `
-        "camera_probe_event: event=body_arm_recovery result=ok .*transaction_active=false.*calibration_invalidated=true" `
-        "Create recenter did not safely rebuild the arm calibration/recovery boundary."
+        "camera_probe_event: event=body_arm_recovery result=ok .*transaction_active=false.*calibration_preserved=true" `
+        "Create recenter did not safely preserve the arm target across the recovery boundary."
 }
 Assert-LogMatch `
     "native_stereo_capture: status=source eye=left .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
