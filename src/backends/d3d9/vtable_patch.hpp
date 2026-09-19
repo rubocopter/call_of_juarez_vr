@@ -58,6 +58,7 @@ public:
         void** entry,
         void* expected_target,
         void* replacement_target) noexcept;
+    [[nodiscard]] VtablePatchOutcome Reacquire() noexcept;
     [[nodiscard]] VtablePatchOutcome Restore() noexcept;
 
     [[nodiscard]] bool owns_entry() const noexcept { return owns_entry_; }

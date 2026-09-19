@@ -1,6 +1,7 @@
 #include "games/call_of_juarez/camera_probe.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
+#include "backends/d3d9/device_vtable_hook.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
 #include "backends/d3d9/swapchain_vtable_hook.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
@@ -12,6 +13,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -21,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -44,6 +47,9 @@ struct NativeStereoState {
     std::atomic_bool flat_capture_active{false};
     std::atomic_uint64_t last_error_frame{0};
     std::atomic_uintptr_t game_window{0};
+    std::mutex present_hook_worker_mutex;
+    std::jthread present_hook_worker;
+    std::atomic_bool present_hook_conflict_logged{false};
     std::mutex flat_ui_mutex;
     bool flat_ui_pointer_active = false;
     bool flat_ui_click_down = false;
@@ -260,7 +266,7 @@ bool PublishCapturedFrame(
     }
 }
 
-void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
+void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (!device || !g_stereo.runtime_ready) return;
     try {
         constexpr std::uint64_t kStereoFreshnessMs = 250;
@@ -275,7 +281,9 @@ void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
 
         if (!g_stereo.flat_capture_active.exchange(true, std::memory_order_acq_rel)) {
             g_stereo.flat_capture.InvalidateResources();
-            LogLine("native_stereo_flat_theater: status=entered source=swapchain_present");
+            LogLine(
+                "native_stereo_flat_theater: status=entered source=" +
+                std::string(source ? source : "unknown"));
         }
 
         cojvr::backends::d3d9::StereoCpuFrame completed{};
@@ -335,6 +343,76 @@ void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
     }
 }
 
+thread_local std::uint32_t g_device_present_depth = 0;
+
+void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
+    ++g_device_present_depth;
+    if (g_device_present_depth == 1) {
+        BeforePresentBoundary(device, "device_present");
+    }
+}
+
+void AfterDevicePresent(IDirect3DDevice9*, HRESULT) noexcept {
+    if (g_device_present_depth > 0) --g_device_present_depth;
+}
+
+void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
+    if (g_device_present_depth == 0) {
+        BeforePresentBoundary(device, "swapchain_present");
+    }
+}
+
+void MaintainDevicePresentHook(const std::stop_token stop_token) noexcept {
+    using namespace std::chrono_literals;
+    while (!stop_token.stop_requested()) {
+        IDirect3DDevice9* device = RetainCurrentDevice();
+        if (device) {
+            const auto outcome =
+                cojvr::backends::d3d9::ReacquireDeviceVtableHookDetailed(device);
+            device->Release();
+            if (outcome.result ==
+                    cojvr::backends::d3d9::HookRegistryResult::Installed &&
+                outcome.modified_slots > 0) {
+                g_stereo.present_hook_conflict_logged.store(
+                    false, std::memory_order_release);
+                LogLine(
+                    "native_stereo_device_present_hook: status=reacquired slots=" +
+                    std::to_string(outcome.modified_slots));
+            } else if (outcome.result ==
+                           cojvr::backends::d3d9::HookRegistryResult::Conflict &&
+                !g_stereo.present_hook_conflict_logged.exchange(
+                    true, std::memory_order_acq_rel)) {
+                LogLine(
+                    "native_stereo_device_present_hook: status=foreign_owner_preserved");
+            }
+        }
+        std::this_thread::sleep_for(100ms);
+    }
+}
+
+void StartPresentHookWorker() noexcept {
+    try {
+        std::lock_guard lock(g_stereo.present_hook_worker_mutex);
+        if (!g_stereo.present_hook_worker.joinable()) {
+            g_stereo.present_hook_worker = std::jthread(MaintainDevicePresentHook);
+        }
+    } catch (...) {
+        LogLine("native_stereo_device_present_hook: status=watchdog_start_failed");
+    }
+}
+
+void StopPresentHookWorker() noexcept {
+    try {
+        std::lock_guard lock(g_stereo.present_hook_worker_mutex);
+        if (g_stereo.present_hook_worker.joinable()) {
+            g_stereo.present_hook_worker.request_stop();
+            g_stereo.present_hook_worker.join();
+        }
+    } catch (...) {
+        LogLine("native_stereo_device_present_hook: status=watchdog_stop_failed");
+    }
+}
+
 void AfterCreateDevice(
     IDirect3D9*,
     UINT,
@@ -363,6 +441,13 @@ void AfterCreateDevice(
         g_stereo.flat_capture_active.store(false, std::memory_order_release);
         g_stereo.last_native_stereo_tick_ms.store(0, std::memory_order_release);
         if (previous) previous->Release();
+        const cojvr::backends::d3d9::DeviceHookCallbacks device_callbacks{
+            .before_present = &BeforeDevicePresent,
+            .after_present = &AfterDevicePresent,
+        };
+        const auto device_hook =
+            cojvr::backends::d3d9::InstallDeviceVtableHookDetailed(
+                replacement, device_callbacks);
         const cojvr::backends::d3d9::SwapChainHookCallbacks swapchain_callbacks{
             .before_present = &BeforeSwapChainPresent,
         };
@@ -373,12 +458,18 @@ void AfterCreateDevice(
         line << "native_stereo_device: status=observed device=0x" << std::hex
              << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
              << " generation=" << generation
+             << " device_present_hook="
+             << ((device_hook.result == cojvr::backends::d3d9::HookRegistryResult::Installed ||
+                     device_hook.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled)
+                     ? "installed"
+                     : "failed")
              << " swapchain_present_hook="
              << ((swapchain_hook.result == cojvr::backends::d3d9::HookRegistryResult::Installed ||
                      swapchain_hook.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled)
                      ? "installed"
                      : "failed");
         LogLine(line.str());
+        StartPresentHookWorker();
     } catch (...) {
     }
 }
@@ -529,7 +620,13 @@ bool StartStereoRuntime() noexcept {
 }
 
 void Finalize() noexcept {
+    g_stereo.runtime_ready = false;
+    StopPresentHookWorker();
     cojvr::games::call_of_juarez::ShutdownCameraProbe();
+    const bool device_restored =
+        cojvr::backends::d3d9::RestoreAllDeviceVtableHooks();
+    LogLine(std::string("native_stereo_device_hook: status=") +
+        (device_restored ? "restored" : "incomplete"));
     const bool swapchain_restored =
         cojvr::backends::d3d9::RestoreAllSwapChainVtableHooks();
     LogLine(std::string("native_stereo_swapchain_hook: status=") +
@@ -551,7 +648,6 @@ void Finalize() noexcept {
     LogLine(std::string("native_stereo_presenter_stop: shutdown_complete=") +
         (presenter_stop_stats.shutdown_complete ? "true" : "false"));
     LogLine("native_stereo_shutdown: stage=presenter_end");
-    g_stereo.runtime_ready = false;
     try {
         const auto capture_stats = g_stereo.capture.stats();
         const auto presenter_stats = g_stereo.presenter.stats();
