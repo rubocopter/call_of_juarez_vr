@@ -267,6 +267,15 @@ longer an acceptance requirement for this candidate. Telemetry identifies the ex
 host suites pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This
 twist-only composition still requires a fresh physical visual gate before Body IK promotion.
 
+Clean candidate `20260919T085408Z-327dd354bc4f` is staged for that gate from source commit
+`18057534b960522613e30b8aa2dc20e02d35eb1e` with `dirty=false`, build-manifest ID
+`79EE4829D5076EB59A96F71609ACCFB37642E42788BDA30A9A28B6F4A5801213` and proxy SHA-256
+`3BD0B476810B15FBD935FA96F539E7303439B372F6BC45DA57BB40595CCE693F`. Preparation passed 24 tests
+plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before process start
+and applied the reversible `1920x1080`/FSAA0 profile. Earlier preparation
+`20260919T085249Z-0caf8c569979` was unstaged before launch because its manifest was dirty and must not
+be treated as physical evidence.
+
 Audit-remediation Phase 7 now has complete host transaction acceptance. The isolated
 `tools/test_deployment_transactions.ps1` matrix recovers 15 staging failure checkpoints, 10
 unstaging failure checkpoints and two repeated full stage/unstage cycles; `provenance_tools` also

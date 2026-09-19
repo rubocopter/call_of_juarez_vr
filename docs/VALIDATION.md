@@ -1578,6 +1578,20 @@ natural restoration remain mandatory. Fresh Debug and Release builds each comple
 with **24 PASS plus the expected classic-D3D9 shared-texture capability SKIP**, zero failures. This
 twist-only candidate is **host-tested only** pending one fresh physical visual gate.
 
+The first preparation after this host work, `20260919T085249Z-0caf8c569979`, was intentionally
+unstaged before launch because its manifest captured the still-uncommitted tree as `dirty=true`; no
+game, SteamVR or headset process was launched and it carries no physical evidence. The host changes
+were then committed as `18057534b960522613e30b8aa2dc20e02d35eb1e`.
+
+Fresh clean candidate `20260919T085408Z-327dd354bc4f` is now staged from that exact commit with
+`dirty=false`. Build-manifest ID is
+`79EE4829D5076EB59A96F71609ACCFB37642E42788BDA30A9A28B6F4A5801213`; proxy SHA-256 is
+`3BD0B476810B15FBD935FA96F539E7303439B372F6BC45DA57BB40595CCE693F`. Preparation rebuilt Release
+and reran all 25 outcomes with **24 PASS plus the expected classic-D3D9 shared-texture capability
+SKIP**, zero failures, then enabled Body IK from process start and applied the reversible
+`1920x1080`/FSAA0 profile. This remains preparation/host evidence until the user performs the single
+physical FORETWIST-only visual gate.
+
 Three downstream VR ownership items are now explicitly tracked but remain **planned** and separate
 from the arm-composition gate: suppress the local player's head/hair from the HMD view without
 removing the body, derive physical crouch from calibrated HMD height and feed it through the native
