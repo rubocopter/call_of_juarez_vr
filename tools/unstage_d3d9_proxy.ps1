@@ -129,9 +129,11 @@ if ($OpenVrInputManaged) {
 [void](Write-CojvrDeploymentJournal $GameDirectory "unstage" ([string]$StageState.runId) ([string]$StageState.diagnosticMode) $JournalAssets)
 
 Remove-Item -LiteralPath $Destination -Force
+Invoke-CojvrDeploymentCheckpoint "unstage_proxy_removed"
 
 if ([bool]$StageState.hadOriginalD3D9) {
     Move-Item -LiteralPath $Backup -Destination $Destination
+    Invoke-CojvrDeploymentCheckpoint "unstage_proxy_original_restored"
     Write-Host "Restored the original d3d9.dll."
 } else {
     Write-Host "Removed the CoJ VR proxy. No original d3d9.dll backup was present."
@@ -140,9 +142,11 @@ if ([bool]$StageState.hadOriginalD3D9) {
 if ($CameraControlManaged) {
     if (Test-Path -LiteralPath $CameraControl -PathType Leaf) {
         Remove-Item -LiteralPath $CameraControl -Force
+        Invoke-CojvrDeploymentCheckpoint "unstage_camera_control_removed"
     }
     if ([bool]$StageState.hadOriginalCameraControl) {
         Move-Item -LiteralPath $CameraControlBackup -Destination $CameraControl
+        Invoke-CojvrDeploymentCheckpoint "unstage_camera_control_original_restored"
         Write-Host "Restored the original camera-control file."
     } else {
         Write-Host "Removed the staged camera-control file."
@@ -151,8 +155,10 @@ if ($CameraControlManaged) {
 
 if ($OpenVrRuntimeManaged) {
     Remove-Item -LiteralPath $OpenVrDestination -Force
+    Invoke-CojvrDeploymentCheckpoint "unstage_openvr_removed"
     if ([bool]$StageState.hadOriginalOpenVr) {
         Move-Item -LiteralPath $OpenVrBackup -Destination $OpenVrDestination
+        Invoke-CojvrDeploymentCheckpoint "unstage_openvr_original_restored"
         Write-Host "Restored the original openvr_api.dll."
     } else {
         Write-Host "Removed the staged OpenVR runtime."
@@ -160,8 +166,10 @@ if ($OpenVrRuntimeManaged) {
 }
 if ($OpenVrInputManaged) {
     Remove-Item -LiteralPath $OpenVrInputDestination -Recurse -Force
+    Invoke-CojvrDeploymentCheckpoint "unstage_openvr_input_removed"
     if ([bool]$StageState.hadOriginalOpenVrInput) {
         Move-Item -LiteralPath $OpenVrInputBackup -Destination $OpenVrInputDestination
+        Invoke-CojvrDeploymentCheckpoint "unstage_openvr_input_original_restored"
         Write-Host "Restored the original OpenVR input directory."
     } else {
         Write-Host "Removed the staged OpenVR input assets."
@@ -169,6 +177,7 @@ if ($OpenVrInputManaged) {
 }
 
 Remove-Item -LiteralPath $State -Force
+Invoke-CojvrDeploymentCheckpoint "unstage_state_removed"
 Remove-Item -LiteralPath $TransactionJournal -Force
 if (Test-Path -LiteralPath $BridgeMarker -PathType Leaf) {
     Remove-Item -LiteralPath $BridgeMarker -Force

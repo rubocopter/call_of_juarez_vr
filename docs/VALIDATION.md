@@ -1555,16 +1555,28 @@ These handgrip/recenter-recovery changes are **host-tested only**. Fresh Debug a
 each complete all 25 outcomes with **24 PASS plus the expected classic-D3D9 shared-texture
 capability SKIP**, zero failures.
 
-Fresh full/body candidate `20260919T011421Z-bef5076cd07e` is staged from clean source commit
-`1027a67392f1c5baa71bbba8b6c39c9b63444983`. Build-manifest ID is
-`0AB9BCF9BE628504EA5961092681A9550978092D71C8CFF619FD035B304D906C`; staged proxy SHA-256 is
-`CC03E4DD55929CC4154ABB8A88B836A7FE6C60E5880E67F0EAE9B82D481ECBB6`. Preparation reran the full
-Release suite with **24 PASS plus the expected capability SKIP out of 25**, enabled Body IK before
-process start and applied the reversible `1920x1080`/FSAA0 full profile. This is preparation/host
-evidence only; no SteamVR, game or headset process was launched by the preparation step. Physical
-acceptance requires both hands to report `controller_pose_source=handgrip` with
-`raw_role_fallback=false`, visible anatomical improvement, and a successful Create recenter recovery
-without an active arm transaction.
+Full/body run `20260919T011421Z-bef5076cd07e` physically exercised that handgrip candidate from
+clean source commit `1027a67392f1c5baa71bbba8b6c39c9b63444983`. Build-manifest ID was
+`0AB9BCF9BE628504EA5961092681A9550978092D71C8CFF619FD035B304D906C`; proxy SHA-256 was
+`CC03E4DD55929CC4154ABB8A88B836A7FE6C60E5880E67F0EAE9B82D481ECBB6`. Evidence finalization is
+complete and staging is now clear. The run recorded 14,968 successful left/right arm applications,
+14,968 successful restores, zero restore failures and seven successful arm recoveries after recenter.
+Body input came from explicit `handgrip` actions with raw-role fallback disabled, so the handgrip
+source/recenter contract is physically exercised. Visual anatomy nevertheless remained unacceptable.
+
+Targeted pose-window analysis separates the remaining rotation defect from positional IK. In the
+user's palms-up gesture, average FORETWIST was approximately 88.8 degrees left / 95.7 degrees right,
+while the additional residual hand rotation was approximately 98.2 / 121.8 degrees. Elbow/wrist
+target errors remained effectively zero in the same sampled windows. The next candidate therefore
+keeps calculating the observed post-FORETWIST residual but records it as diagnostic only and does
+not rotate the hand element. The visible writer is upper arm -> forearm -> FORETWIST, with the native
+hand relationship preserved. The verifier now requires
+`hand_orientation=calibrated_controller_delta_foretwist_only`,
+`hand_residual_source=post_foretwist_observed_basis_diagnostic`,
+`hand_rotation_mode=foretwist_only` and `hand_rotation_no_op=true`; positional target reach and exact
+natural restoration remain mandatory. Fresh Debug and Release builds each complete all 25 outcomes
+with **24 PASS plus the expected classic-D3D9 shared-texture capability SKIP**, zero failures. This
+twist-only candidate is **host-tested only** pending one fresh physical visual gate.
 
 Three downstream VR ownership items are now explicitly tracked but remain **planned** and separate
 from the arm-composition gate: suppress the local player's head/hair from the HMD view without
@@ -1573,7 +1585,7 @@ game crouch action/state, and decouple firearm aim from camera/crosshair ownersh
 aim follows tracked controller/weapon orientation. None of those items is claimed implemented by
 this run or by the FORETWIST change.
 
-### Phase 7 transactional deployment host increment — 2026-09-18
+### Phase 7 transactional deployment host acceptance — 2026-09-19
 
 The deployment path now writes its recovery journal before managed game-file mutation and stages
 replacement content through deterministic temporary paths. Proxy/OpenVR/camera-control files are
@@ -1583,14 +1595,19 @@ an interrupted later invocation can remove only verified staged/partial content 
 original. A changed temporary, destination or backup fails closed and leaves the journal available
 for diagnosis.
 
-`provenance_tools` now exercises clean/no-original recovery, pre-existing original restoration,
+`provenance_tools` exercises clean/no-original recovery, pre-existing original restoration,
 verified temporary-file publication, interrupted temporary-file cleanup, known partial temporary
 OpenVR-input cleanup, managed-directory restoration, missing-backup rejection, external-change
-rejection and idempotent no-journal recovery. The focused provenance test passed, then the current
-tree was rebuilt in Debug and Release and both complete CTest suites passed with **24 PASS plus the
-expected classic-D3D9 shared-texture capability SKIP out of 25**, zero failures. No game, SteamVR or
-headset process was launched. Full Phase 7 acceptance still requires script-level failure injection
-after every mutation, repeated real stage/unstage cycles and active-process integration coverage.
+rejection and idempotent no-journal recovery. It now also launches a temporary test process named
+`CoJ.exe` and proves both stage and unstage reject it before mutating the fixture.
+
+`tools/test_deployment_transactions.ps1` closes the script-level interruption matrix without
+touching the installed game: it creates isolated fixtures from the exact installed `CoJ.exe` and
+`ChromeEngine3.dll`, current proxy/build manifest and synthetic originals, then drives every
+scripted mutation checkpoint. The matrix passes **15 staging failure recoveries**, **10 unstaging
+failure recoveries** and **two complete repeated stage/unstage cycles**, with every fixture original
+restored at the end. No game, SteamVR or headset process is launched. Phase 7 therefore reaches its
+host acceptance gate.
 
 A subsequent real `vr_test prepare -BodyIkAtStart` exposed one script-level integration defect not
 covered by the helper tests: `Select-Object -ExpandProperty stagedManifest` cannot expand the
@@ -1600,5 +1617,21 @@ none`. Replacing that expansion with explicit single-asset selection plus normal
 access preserved the same manifest checks. Focused `provenance_tools` passed, and a fresh full
 prepare then completed successfully as run `20260918T114514Z-8f16a3b98492` with build-manifest ID
 `3EBA34EA0B3FCCEC92F1520E684CDE1D8B83BA90BCBB274585DEA053B63928AA` and proxy SHA-256
-`3790A5997B1FBA62B499FDDFD642DAF3EE9FFC6CE05DF892C4F17DB3600A4BF8`. This is additional real
-transaction/recovery evidence, while the broader Phase 7 acceptance matrix remains open.
+`3790A5997B1FBA62B499FDDFD642DAF3EE9FFC6CE05DF892C4F17DB3600A4BF8`. This remains useful historical
+real-install recovery evidence; the isolated end-to-end matrix above now supplies the missing
+repeat/failure/process acceptance coverage.
+
+### Phase 8 neutral math/semantic host acceptance — 2026-09-19
+
+The shared VR types now encode one meaning per field: `EyeView::eye_to_head` is static optical
+eye-to-head data, `LocatedEyeView::tracking_from_eye` is a time-located tracking/reference-space
+pose, and `EyeRenderRecommendation` contains only render-target extent. The neutral tracking
+contract is explicitly right-handed `+X` right, `+Y` up, `-Z` forward, metres, quaternion
+`(x,y,z,w)` with destination-from-source transform naming and composition.
+
+`vr_math` host tests cover asymmetric `EyeFov` through a reference projection matrix and reject
+non-finite/invalid FOV, near/far and rigid-transform inputs. OpenVR eye configuration fails closed on
+invalid optics; OpenXR located views validate pose/FOV before returning them, and OpenXR render-size
+recommendations no longer masquerade as `EyeView`. This reaches the Phase 8 neutral math/semantic
+host gate. It does **not** promote the experimental OpenXR backend's runtime/session lifetime or
+ownership, which remains tracked separately under A10.

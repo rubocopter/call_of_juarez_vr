@@ -1535,6 +1535,7 @@ bool ApplyArmPlan(
     ArmBoneRotationPlan& applied_rotations,
     BoneRotationDelta& applied_forearm_twist,
     BoneRotationDelta& applied_hand_rotation,
+    BoneRotationDelta& diagnostic_hand_residual,
     bool& rollback_attempted,
     bool& rollback_ok,
     std::string* error) noexcept {
@@ -1543,6 +1544,7 @@ bool ApplyArmPlan(
     applied_rotations = {};
     applied_forearm_twist = {};
     applied_hand_rotation = {};
+    diagnostic_hand_residual = {};
     if (!plan.valid || !rotations.valid || !hand_target.valid) {
         if (error) *error = "arm element/orientation rotation plan is invalid";
         return false;
@@ -1724,20 +1726,26 @@ bool ApplyArmPlan(
         rollback_chain();
         return false;
     }
-    applied_hand_rotation = ConvertWorldRotationToElementLocal(
+    diagnostic_hand_residual = ConvertWorldRotationToElementLocal(
         observed_hand_residual,
         RuntimeVector(hand_up),
         RuntimeVector(hand_forward));
-    if (!applied_hand_rotation.valid) {
+    if (!diagnostic_hand_residual.valid) {
         if (error) *error = "hand world-to-element-local rotation conversion failed";
         rollback_chain();
         return false;
     }
-    if (!rotate(hand, applied_hand_rotation, 1.0F, &write_error)) {
-        if (error) *error = write_error;
-        rollback_chain();
-        return false;
-    }
+
+    // The live handgrip run showed that FORETWIST already tracks physical
+    // pronation/supination while forcing the remaining full controller basis
+    // through the hand element over-rotates the wrist. Keep measuring that
+    // residual, but do not apply it until physical evidence proves that CoJ's
+    // hand element should own any of it. The hand remains a child of the
+    // FORETWIST transform and therefore preserves the native wrist relation.
+    applied_hand_rotation = diagnostic_hand_residual;
+    applied_hand_rotation.angle_degrees = 0.0F;
+    applied_hand_rotation.no_op = true;
+    applied_hand_rotation.valid = true;
     return true;
 }
 
@@ -2171,6 +2179,7 @@ void UpdatePlayerArmTracking(
             ArmBoneRotationPlan applied_rotations{};
             BoneRotationDelta applied_forearm_twist{};
             BoneRotationDelta applied_hand_rotation{};
+            BoneRotationDelta diagnostic_hand_residual{};
             float elbow_target_error = std::numeric_limits<float>::infinity();
             float wrist_target_error = std::numeric_limits<float>::infinity();
             float hand_up_error = std::numeric_limits<float>::infinity();
@@ -2191,6 +2200,7 @@ void UpdatePlayerArmTracking(
                     applied_rotations,
                     applied_forearm_twist,
                     applied_hand_rotation,
+                    diagnostic_hand_residual,
                     rollback_attempted,
                     rollback_ok,
                     &write_error);
@@ -2296,8 +2306,7 @@ void UpdatePlayerArmTracking(
                         }
                     }
                     if (!applied.post_write_geometry_valid ||
-                        (expects_change && !changed) || !targets_reached ||
-                        !hand_orientation_reached) {
+                        (expects_change && !changed) || !targets_reached) {
                         if (!applied.post_write_geometry_valid) {
                             write_error =
                                 "post-write arm geometry could not be read: " + post_write_error;
@@ -2307,9 +2316,6 @@ void UpdatePlayerArmTracking(
                         } else if (!targets_reached) {
                             write_error =
                                 "render-element rotation did not reach the solved elbow/wrist targets";
-                        } else {
-                            write_error =
-                                "render-element rotation did not reach the calibrated hand orientation";
                         }
                         g_arm_rotation_faulted = true;
                         rollback_attempted = true;
@@ -2392,7 +2398,12 @@ void UpdatePlayerArmTracking(
                        << ";forearm_twist_no_op="
                        << (applied_forearm_twist.no_op ? "true" : "false")
                        << ";twist_owner=foretwist_element"
-                       << ";hand_residual_source=post_foretwist_observed_basis"
+                       << ";hand_residual_source=post_foretwist_observed_basis_diagnostic"
+                       << ";hand_residual_native_axis="
+                       << RuntimeVectorText(diagnostic_hand_residual.axis)
+                       << ";hand_residual_degrees="
+                       << diagnostic_hand_residual.angle_degrees
+                       << ";hand_rotation_mode=foretwist_only"
                        << ";hand_native_axis="
                        << RuntimeVectorText(applied_hand_rotation.axis)
                        << ";hand_rotation_degrees="
@@ -2422,7 +2433,7 @@ void UpdatePlayerArmTracking(
                        << ";rollback_attempted=" << (rollback_attempted ? "true" : "false")
                        << ";rollback_ok=" << (rollback_ok ? "true" : "false")
                        << ";tracking_forward=-z_to_negative_native_forward"
-                       << ";hand_orientation=calibrated_controller_delta"
+                       << ";hand_orientation=calibrated_controller_delta_foretwist_only"
                        << ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector"
                        << ";writer=RotateElementWithChildren";
                 if (body_ik_enabled && write_allowed && plan.valid && !write_ok) {

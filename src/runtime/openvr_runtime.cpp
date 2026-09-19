@@ -265,6 +265,13 @@ bool OpenVrRuntime::ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept 
             eye.fov = OpenVrProjectionRawToEyeFov(left, right, top, bottom);
             eye.width = impl_->system_info.recommended_width;
             eye.height = impl_->system_info.recommended_height;
+            if (!eye.eye_to_head.orientation_valid || !eye.eye_to_head.position_valid ||
+                !IsValidEyeFov(eye.fov)) {
+                eyes = {};
+                return FailNoThrow(
+                    impl_.get(),
+                    "OpenVR returned invalid/non-finite eye optics");
+            }
         }
         return true;
     } catch (...) {

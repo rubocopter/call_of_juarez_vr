@@ -42,8 +42,10 @@ Sense gameplay route. The controls reached the game's native `GameInputControlle
 path and were usable in-headset, but the arm gate still failed visually despite target reach. The
 user's exported video shows severe wrist/forearm twisting and recurring local head/hair intrusion.
 Shipped `EBones.class` inspection identified dedicated FORETWIST elements `9/14` that the failed
-candidate skipped. Current host source routes pronation/supination through those elements and keeps
-only residual orientation on the hand; this hierarchy correction awaits a fresh physical gate.
+candidate skipped. Subsequent physical runs proved FORETWIST ownership and explicit handgrip poses
+but still rejected the additional hand residual visually. Current host source routes pronation/
+supination through FORETWIST and leaves the remaining hand residual diagnostic-only; this
+`foretwist_only` composition awaits a fresh physical gate.
 Run `20260917T163732Z-03df947b8d50` physically confirmed that visible fallback and reduced sampled
 CPU copy to `10.246 ms` average / `12.937 ms` p95 at `1920x1080` FSAA0. Controller gameplay,
 interaction rebuilding and lower-body writes remain downstream of the physical body gate.
@@ -79,11 +81,15 @@ source now computes the final hand residual from the hand basis observed after t
 write instead of from an idealized pre-write hierarchy prediction. Run
 `20260919T003727Z-73f20e13cc1a` physically proved that revised writer path can remain active and
 restore cleanly for an entire session (15,230 applications and 15,230 restores), but visual anatomy
-still failed and sampled targets required extreme FORETWIST/hand rotations. Current host source now
-uses explicit PS VR2 Sense `/pose/handgrip` actions as the anatomical body-hand frame, with no raw
-tracked-device-role fallback. `/pose/tip` is reserved for the later weapon-aim boundary. Explicit
-recenter invalidates hand orientation calibration and may recover a latched arm writer only after a
-safe natural-geometry check. These changes remain host-tested pending one fresh combined body run.
+still failed and sampled targets required extreme FORETWIST/hand rotations. Run
+`20260919T011421Z-bef5076cd07e` then physically exercised explicit PS VR2 Sense `/pose/handgrip`
+actions with no raw-role fallback. It sustained 14,968 arm applications/restores and seven safe
+recenter recoveries, yet anatomy still failed. In the sampled palms-up pose FORETWIST was already
+approximately symmetric (~89/~96 degrees average) while the remaining hand residual was still
+extreme (~98/~122 degrees average). Current host source therefore leaves that post-FORETWIST hand
+residual diagnostic-only and applies no hand-element rotation (`hand_rotation_mode=foretwist_only`).
+`/pose/tip` remains reserved for the later weapon-aim boundary. Fresh Debug/Release suites pass; the
+twist-only candidate requires the next combined physical body gate.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the
@@ -179,18 +185,19 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 ### Phase 7 — transactional deployment
 
-- Basic preflight before mutation (game-process rejection plus Win32/x86 checks for the game/proxy/OpenVR/ChromeEngine artifacts): **implemented**.
+- Basic preflight before mutation (game-process rejection plus Win32/x86 checks for the game/proxy/OpenVR/ChromeEngine artifacts): **host-tested**.
 - Journal-before-mutation staging plus verified temporary file/directory installation before final replacement: **host-tested**.
-- Recoverable interrupted stage/unstage with fail-closed handling of missing backups and externally changed destinations/temporaries: **host-tested at helper level**.
-- Run-bound verification that cannot consume stale logs: **implemented for the current native-stereo path**.
-- End-to-end failure injection after every script mutation, repeated real stage/unstage cycles and active-process integration coverage: **remaining before full Phase 7 acceptance**.
+- Recoverable interrupted stage/unstage with fail-closed handling of missing backups and externally changed destinations/temporaries: **host-tested**.
+- Run-bound verification that cannot consume stale logs: **host-tested for the current native-stereo path**.
+- End-to-end transaction matrix: **host-tested** — 15 staging failure checkpoints, 10 unstaging failure checkpoints, two repeated full cycles, plus active-`CoJ.exe` rejection before mutation. Phase 7 host acceptance is complete.
 
 ### Phase 8 — neutral VR math contracts
 
-- Explicit eye-to-head vs tracking-space pose semantics: **planned**.
-- Units/axes/handedness/composition documentation: **planned**.
-- Asymmetric FOV/projection validation: **planned**.
-- Invalid/non-finite transform rejection: **planned**.
+- Explicit eye-to-head vs time-located tracking-space pose semantics, with render-size recommendations separated from optical poses: **host-tested**.
+- Units/axes/handedness/composition documentation: **host-tested**.
+- Backend-independent asymmetric FOV/reference-projection validation: **host-tested**.
+- Invalid/non-finite pose/FOV/projection rejection in neutral math and runtime adapters: **host-tested**.
+- Phase 8 neutral math/semantic acceptance: **complete at host level**. OpenXR runtime/session ownership remains a separate experimental-backend lifecycle task under A10.
 
 ## Milestone 0 — repository and initial evidence
 
@@ -250,7 +257,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 - Local head/hair suppression for HMD first-person rendering: **planned; live-observed need**. The 2026-09-19 video capture shows the local head/hair repeatedly entering the HMD view; implementation must preserve body/shadow ownership rather than hiding the whole actor.
 - Physical crouch from calibrated HMD height into the native crouch action/state: **planned**. The existing right-stick crouch remains a gameplay binding, not physical crouch.
 - Decouple weapon aim from HMD/crosshair view and drive muzzle/shot direction from tracked weapon/controller orientation: **planned; live-observed need**.
-- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual arm composition still rejected**. Exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260918T160300Z-cd4137a48fca` rejected `BoneRotate` as a non-mutating writer. Run `20260918T165754Z-845101e7557b` proved that exact-build `RotateElementWithChildren` changes the visible mesh. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` identified an over-strict restore comparison. Run `20260918T213453Z-a789ac61ac91` then sustained 13,860 applications/restores without fault and physically validated the roll comfort fix, and run `20260918T215118Z-c46320012ff0` physically validated the corrected tracked-Z position mapping. Run `20260918T233902Z-0cb2e565e886` physically exercised calibration-relative controller orientation but still showed severe wrist/forearm deformation despite target reach. Exact shipped hierarchy inspection then found dedicated FORETWIST bones `9/14`; current host source routes controller roll there, keeps residual orientation on hand `10/15`, verifies FORETWIST mutation/persistence/restoration and requires `twist_owner=foretwist_element`. A fresh physical run is required before visual Body IK promotion; pelvis/thigh/shin/foot writes remain disabled.
+- Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual arm composition still rejected**. Exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260918T160300Z-cd4137a48fca` rejected `BoneRotate` as a non-mutating writer. Run `20260918T165754Z-845101e7557b` proved that exact-build `RotateElementWithChildren` changes the visible mesh. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` identified an over-strict restore comparison. Run `20260918T213453Z-a789ac61ac91` then sustained 13,860 applications/restores without fault and physically validated the roll comfort fix, and run `20260918T215118Z-c46320012ff0` physically validated the corrected tracked-Z position mapping. Run `20260918T233902Z-0cb2e565e886` physically exercised calibration-relative controller orientation but still showed severe wrist/forearm deformation despite target reach. Exact shipped hierarchy inspection then found dedicated FORETWIST bones `9/14`. Run `20260919T011421Z-bef5076cd07e` physically validated stable explicit handgrip tracking/recenter and sustained FORETWIST/hand writes, but its sampled data isolated the additional hand residual as the remaining large rotation. Current host source therefore routes controller roll through FORETWIST while leaving the post-FORETWIST hand residual diagnostic-only (`hand_rotation_mode=foretwist_only`). A fresh physical run is required before visual Body IK promotion; pelvis/thigh/shin/foot writes remain disabled.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
 - Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.
 - Per-game weapon/player adapters: **planned**.
