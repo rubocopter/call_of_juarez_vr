@@ -45,6 +45,17 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
+Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is staged from clean source
+`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
+`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
+`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
+Release artifact and passed 24 tests plus the expected classic-D3D9 shared-texture capability SKIP.
+Body IK is enabled from process start and the reversible `1920x1080`/FSAA0 profile is active. This
+candidate contains local head/hair suppression, bounded 12-unit overreach remapping, 100-degree
+shared FORETWIST/hand axial-roll limiting, and controller `/pose/tip` direction ownership for the
+native per-hand firing direction. All four corrections are host-tested only until this staged run is
+physically exercised.
+
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
@@ -78,7 +89,9 @@ Current source preserves the visible hand-orientation target across Create recen
 the new controller reference instead of recalibrating from the current natural hand pose, and it
 implements one exact +/-45-degree right-stick snap per deflection through
 `PlayerBeing.RotateHorizontally(F)` while neutralizing the old continuous native turn actions.
-Fresh Release validation is 24 PASS plus the expected classic D3D9 shared-texture capability SKIP.
+It also contains the four host-tested corrections described in the staged candidate above. Fresh
+Debug and Release validation are both 24 PASS plus the expected classic D3D9 shared-texture
+capability SKIP.
 
 Latest evidence supersedes the historical arm-chain assumptions below. Run
 `20260919T085408Z-327dd354bc4f` is finalized/unstaged and visually failed despite 5,050 successful
@@ -89,7 +102,9 @@ hand (`hand_rotation_mode=sibling_shared_roll`), verifies both complete bases an
 elements. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`. Physical anatomy remains unpromoted.
 The user has additionally authorized investigating/fixing aiming where feasible. Exact bytecode
 shows shots use per-hand look direction and look origin, not render-time barrel transforms;
-game-update/shot ownership must be established before a controller-aim writer is enabled.
+the current staged source writes controller `/pose/tip` direction into the per-hand native look
+direction after the game update and before rendering, while preserving native spread/accuracy and
+native fire origin. Physical firing evidence is still required before promotion.
 
 Audit-remediation Phases 0-4 remain the established stabilization baseline. The
 Call of Juarez camera-path gate has passed live validation:

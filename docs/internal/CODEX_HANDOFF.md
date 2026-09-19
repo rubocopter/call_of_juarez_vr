@@ -2,6 +2,17 @@
 
 ## Current checkpoint
 
+Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is staged from clean source
+`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
+`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
+`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
+Release artifact and passed 24 tests plus the expected classic-D3D9 shared-texture capability SKIP.
+Body IK is enabled from process start and the reversible `1920x1080`/FSAA0 profile is active. This
+is the first physical candidate containing the four host-tested corrections below: local head/hair
+suppression, bounded 12-unit overreach remapping, 100-degree shared FORETWIST/hand axial-roll
+limiting, and controller `/pose/tip` ownership of the native per-hand firing direction. Do not
+promote any of those four paths until this run supplies physical evidence.
+
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
