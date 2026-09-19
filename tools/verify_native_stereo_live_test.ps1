@@ -363,6 +363,7 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
                 $Line -notmatch ";upper_element_position=\(" -or
                 $Line -notmatch ";forearm_element_position=\(" -or
+                $Line -notmatch ";foretwist_element_position=\(" -or
                 $Line -notmatch ";hand_element_position=\(" -or
                 $Line -notmatch ";hand_target_up=\(" -or
                 $Line -notmatch ";hand_target_forward=\(" -or
@@ -373,6 +374,7 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";upper_native_axis=\(" -or
                 $Line -notmatch ";forearm_native_axis=\(" -or
                 $Line -notmatch ";forearm_twist_native_axis=\(" -or
+                $Line -notmatch ";twist_owner=foretwist_element;" -or
                 $Line -notmatch ";hand_native_axis=\(" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or
@@ -426,7 +428,7 @@ if ($RequireBodyIk) {
         $RestoreLines = @($BodyRestoreLines | Where-Object { $_ -match ";side=$Side;" })
         if ($RestoreLines.Count -lt 1 -or
             -not ($RestoreLines | Where-Object {
-                $_ -match ";hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;transaction=post_stereo_capture;" -and
+                $_ -match ";hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;twist_owner=foretwist_element;transaction=post_stereo_capture;" -and
                 $_ -match ";restore_joint_error=[-+0-9.eE]+;restore_element_position_error=[-+0-9.eE]+;restore_axis_error=[-+0-9.eE]+"
             })) {
             throw "The body IK gate did not restore the natural $Side element hierarchy after stereo capture."

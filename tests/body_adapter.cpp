@@ -57,9 +57,11 @@ int main() {
     if (binding.pelvis != 0 || binding.spine != 1 || binding.spine1 != 2 ||
         binding.chest != 3 || binding.neck != 4 || binding.head != 5 ||
         binding.left_upper_arm != 7 ||
-        binding.left_forearm != 8 || binding.left_hand != 10 ||
+        binding.left_forearm != 8 || binding.left_foretwist != 9 ||
+        binding.left_hand != 10 ||
         binding.right_upper_arm != 12 || binding.right_forearm != 13 ||
-        binding.right_hand != 15 || binding.left_thigh != 16 ||
+        binding.right_foretwist != 14 || binding.right_hand != 15 ||
+        binding.left_thigh != 16 ||
         binding.right_thigh != 17 || binding.left_shin != 20 ||
         binding.right_shin != 21 || binding.left_foot != 22 ||
         binding.right_foot != 23) {
@@ -158,6 +160,12 @@ int main() {
         .forearm_element_position = {1.20F, -0.10F, 0.05F},
         .forearm_element_up = {0.0F, 1.0F, 0.0F},
         .forearm_element_forward = {0.0F, 0.0F, 1.0F},
+        .foretwist_element_position = {1.35F, 0.10F, 0.02F},
+        .foretwist_element_up = {0.0F, 1.0F, 0.0F},
+        .foretwist_element_forward = {0.0F, 0.0F, 1.0F},
+        .hand_element_position = {1.5F, 0.8660254F, 0.0F},
+        .hand_element_up = {0.0F, 1.0F, 0.0F},
+        .hand_element_forward = {0.0F, 0.0F, 1.0F},
     };
     const ArmIkPlan arm_plan = BuildArmIkPlan(arm_geometry, {1.2F, 0.8F, 0.2F});
     if (!arm_plan.valid || arm_plan.target_clamped ||
@@ -283,6 +291,8 @@ int main() {
     large_world_natural.wrist = {39725.0F, 3605.0F, 29410.0F};
     large_world_natural.upper_element_position = {39695.0F, 3602.0F, 29401.0F};
     large_world_natural.forearm_element_position = {39712.0F, 3604.0F, 29406.0F};
+    large_world_natural.foretwist_element_position = {39718.0F, 3605.0F, 29408.0F};
+    large_world_natural.hand_element_position = {39725.0F, 3605.0F, 29410.0F};
     ArmGeometrySample one_ulp_restored = large_world_natural;
     one_ulp_restored.elbow.x = std::nextafter(
         one_ulp_restored.elbow.x, std::numeric_limits<float>::infinity());
@@ -290,6 +300,9 @@ int main() {
         one_ulp_restored.wrist.z, std::numeric_limits<float>::infinity());
     one_ulp_restored.upper_element_position.x = std::nextafter(
         one_ulp_restored.upper_element_position.x,
+        std::numeric_limits<float>::infinity());
+    one_ulp_restored.foretwist_element_position.x = std::nextafter(
+        one_ulp_restored.foretwist_element_position.x,
         std::numeric_limits<float>::infinity());
     one_ulp_restored.forearm_element_up.x += 0.0002F;
     const ArmGeometryRestoreCheck one_ulp_check = CheckArmGeometryRestored(

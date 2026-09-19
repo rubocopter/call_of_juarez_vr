@@ -32,9 +32,11 @@ struct SkeletonBinding {
     int head = -1;
     int left_upper_arm = -1;
     int left_forearm = -1;
+    int left_foretwist = -1;
     int left_hand = -1;
     int right_upper_arm = -1;
     int right_forearm = -1;
+    int right_foretwist = -1;
     int right_hand = -1;
     int left_thigh = -1;
     int left_shin = -1;
@@ -73,6 +75,9 @@ struct ArmGeometrySample {
     cojvr::runtime::Vec3 forearm_element_position{};
     cojvr::runtime::Vec3 forearm_element_up{};
     cojvr::runtime::Vec3 forearm_element_forward{};
+    cojvr::runtime::Vec3 foretwist_element_position{};
+    cojvr::runtime::Vec3 foretwist_element_up{};
+    cojvr::runtime::Vec3 foretwist_element_forward{};
     cojvr::runtime::Vec3 hand_element_position{};
     cojvr::runtime::Vec3 hand_element_up{};
     cojvr::runtime::Vec3 hand_element_forward{};

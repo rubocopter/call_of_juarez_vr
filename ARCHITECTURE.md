@@ -336,14 +336,30 @@ write, the same changed geometry after each complete eye render, and the origina
 after restore. It also requires elbow/wrist agreement with the solved targets, preventing an
 arbitrarily changed but misoriented mesh from passing. Inverse drift is corrected from the captured
 complete natural element frames and verified; failure of both restore paths fail-closes the writer.
-The current host-only orientation extension also reads the native hand element and calibrates the
-animated hand basis against the controller orientation at the current recenter/actor generation.
-Subsequent controller orientation is applied as a relative delta, decomposed into twist about the
-solved forearm axis plus residual hand rotation, then written through the same element-relative
-`RotateElementWithChildren` contract. Restoration runs hand -> forearm twist -> forearm -> upper and
-verifies the complete natural hand/arm geometry. This avoids hard-coding a controller-local palm
-axis before physical evidence. Pelvis/leg writers remain disabled until this corrected exact arm/
-hand path passes a fresh physical run.
+The controller-orientation extension also reads the native hand element and calibrates the animated
+hand basis against the controller orientation at the current recenter/actor generation. Run
+`20260918T233902Z-0cb2e565e886` proved the controller/gameplay route physically but rejected the arm
+appearance: target reach could be correct while wrist/forearm anatomy remained badly twisted.
+Inspection of the shipped `EBones.class` explains a concrete hierarchy mistake in that candidate:
+the exact chains are left `upper=7 -> forearm=8 -> foretwist=9 -> hand=10` and right
+`upper=12 -> forearm=13 -> foretwist=14 -> hand=15`. Controller pronation/supination therefore
+belongs to the dedicated FORETWIST element rather than directly to the forearm element. Current
+host source applies the relative controller delta as FORETWIST roll plus residual hand rotation
+through the same element-relative `RotateElementWithChildren` contract. Mutation/persistence and
+natural-frame verification include FORETWIST, and restoration runs hand -> FORETWIST -> forearm ->
+upper. Telemetry names this ownership explicitly as `twist_owner=foretwist_element`. This avoids
+hard-coding a controller-local palm axis and keeps the physically accepted hand-position mapping
+unchanged. Pelvis/leg writers remain disabled until this corrected exact arm/hand path passes a
+fresh physical run.
+
+Three additional first-person ownership boundaries remain deliberately separate from arm IK.
+Head/hair suppression must hide only the local head geometry from HMD rendering while preserving
+the rest of the body/shadow/animation. Physical crouch should be derived from calibrated HMD height
+and enter the game through the existing exact-game crouch action/state rather than by moving the
+camera independently of the actor. Firearm aiming must eventually separate weapon/muzzle aim from
+the flat game's camera/crosshair authority and derive the shot direction from tracked weapon/
+controller orientation. These are planned exact-game adapters, not consequences of the current
+Sense button mapping.
 
 The OpenVR presenter treats SteamVR's dashboard as a system-owned layer. A visible dashboard gates
 scene submission and compositor-paced `WaitGetPoses`, while the latest valid game frame remains

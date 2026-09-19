@@ -111,9 +111,11 @@ struct ArmElementCache {
     std::uint64_t being_generation = 0;
     int left_upper_arm = -1;
     int left_forearm = -1;
+    int left_foretwist = -1;
     int left_hand = -1;
     int right_upper_arm = -1;
     int right_forearm = -1;
+    int right_foretwist = -1;
     int right_hand = -1;
     bool valid = false;
 };
@@ -1284,6 +1286,9 @@ bool ResolveArmElements(const std::uint64_t generation, std::string* error) noex
             static_cast<std::int8_t>(binding.left_forearm),
             g_arm_element_cache.left_forearm, error) &&
         g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.left_foretwist),
+            g_arm_element_cache.left_foretwist, error) &&
+        g_java_player_bridge.TryGetMeshElement(
             static_cast<std::int8_t>(binding.left_hand),
             g_arm_element_cache.left_hand, error) &&
         g_java_player_bridge.TryGetMeshElement(
@@ -1292,6 +1297,9 @@ bool ResolveArmElements(const std::uint64_t generation, std::string* error) noex
         g_java_player_bridge.TryGetMeshElement(
             static_cast<std::int8_t>(binding.right_forearm),
             g_arm_element_cache.right_forearm, error) &&
+        g_java_player_bridge.TryGetMeshElement(
+            static_cast<std::int8_t>(binding.right_foretwist),
+            g_arm_element_cache.right_foretwist, error) &&
         g_java_player_bridge.TryGetMeshElement(
             static_cast<std::int8_t>(binding.right_hand),
             g_arm_element_cache.right_hand, error);
@@ -1317,6 +1325,9 @@ bool ReadArmGeometry(
     JavaPlayerPosition forearm_element_position{};
     JavaPlayerPosition forearm_element_up{};
     JavaPlayerPosition forearm_element_forward{};
+    JavaPlayerPosition foretwist_element_position{};
+    JavaPlayerPosition foretwist_element_up{};
+    JavaPlayerPosition foretwist_element_forward{};
     JavaPlayerPosition hand_element_position{};
     JavaPlayerPosition hand_element_up{};
     JavaPlayerPosition hand_element_forward{};
@@ -1326,6 +1337,9 @@ bool ReadArmGeometry(
     const int forearm_element = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int foretwist_element = left
+        ? g_arm_element_cache.left_foretwist
+        : g_arm_element_cache.right_foretwist;
     const int hand_element = left
         ? g_arm_element_cache.left_hand
         : g_arm_element_cache.right_hand;
@@ -1348,6 +1362,12 @@ bool ReadArmGeometry(
             forearm_element_forward,
             error) ||
         !g_java_player_bridge.TryGetElementWorldBasis(
+            foretwist_element,
+            foretwist_element_position,
+            foretwist_element_up,
+            foretwist_element_forward,
+            error) ||
+        !g_java_player_bridge.TryGetElementWorldBasis(
             hand_element,
             hand_element_position,
             hand_element_up,
@@ -1364,6 +1384,9 @@ bool ReadArmGeometry(
     geometry.forearm_element_position = RuntimeVector(forearm_element_position);
     geometry.forearm_element_up = RuntimeVector(forearm_element_up);
     geometry.forearm_element_forward = RuntimeVector(forearm_element_forward);
+    geometry.foretwist_element_position = RuntimeVector(foretwist_element_position);
+    geometry.foretwist_element_up = RuntimeVector(foretwist_element_up);
+    geometry.foretwist_element_forward = RuntimeVector(foretwist_element_forward);
     geometry.hand_element_position = RuntimeVector(hand_element_position);
     geometry.hand_element_up = RuntimeVector(hand_element_up);
     geometry.hand_element_forward = RuntimeVector(hand_element_forward);
@@ -1389,6 +1412,12 @@ bool ArmGeometryChanged(
             lhs.forearm_element_up, rhs.forearm_element_up) > kDifferenceSquared ||
         RuntimeVectorDistanceSquared(
             lhs.forearm_element_forward, rhs.forearm_element_forward) > kDifferenceSquared ||
+        RuntimeVectorDistanceSquared(
+            lhs.foretwist_element_position, rhs.foretwist_element_position) > kDifferenceSquared ||
+        RuntimeVectorDistanceSquared(
+            lhs.foretwist_element_up, rhs.foretwist_element_up) > kDifferenceSquared ||
+        RuntimeVectorDistanceSquared(
+            lhs.foretwist_element_forward, rhs.foretwist_element_forward) > kDifferenceSquared ||
         RuntimeVectorDistanceSquared(
             lhs.hand_element_position, rhs.hand_element_position) > kDifferenceSquared ||
         RuntimeVectorDistanceSquared(
@@ -1434,6 +1463,9 @@ void ObserveAppliedArmRenderState(
            << ";forearm_element_up=" << RuntimeVectorText(rendered.forearm_element_up)
            << ";forearm_element_forward="
            << RuntimeVectorText(rendered.forearm_element_forward)
+           << ";foretwist_element_up=" << RuntimeVectorText(rendered.foretwist_element_up)
+           << ";foretwist_element_forward="
+           << RuntimeVectorText(rendered.foretwist_element_forward)
            << ";hand_element_up=" << RuntimeVectorText(rendered.hand_element_up)
            << ";hand_element_forward="
            << RuntimeVectorText(rendered.hand_element_forward)
@@ -1522,6 +1554,9 @@ bool ApplyArmPlan(
     const int forearm = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int foretwist = left
+        ? g_arm_element_cache.left_foretwist
+        : g_arm_element_cache.right_foretwist;
     const int hand = left
         ? g_arm_element_cache.left_hand
         : g_arm_element_cache.right_hand;
@@ -1555,7 +1590,7 @@ bool ApplyArmPlan(
         std::string forearm_error;
         std::string upper_error;
         const bool twist_ok = !twist_applied || rotate(
-            forearm, applied_forearm_twist, -1.0F, &twist_error);
+            foretwist, applied_forearm_twist, -1.0F, &twist_error);
         const bool forearm_ok = !forearm_applied || rotate(
             forearm, applied_rotations.forearm, -1.0F, &forearm_error);
         const bool upper_ok = !upper_applied || rotate(
@@ -1611,17 +1646,17 @@ bool ApplyArmPlan(
     }
     forearm_applied = !applied_rotations.forearm.no_op;
 
-    JavaPlayerPosition post_forearm_position{};
-    JavaPlayerPosition post_forearm_up{};
-    JavaPlayerPosition post_forearm_forward{};
+    JavaPlayerPosition foretwist_position{};
+    JavaPlayerPosition foretwist_up{};
+    JavaPlayerPosition foretwist_forward{};
     JavaPlayerPosition hand_position{};
     JavaPlayerPosition hand_up{};
     JavaPlayerPosition hand_forward{};
     if (!g_java_player_bridge.TryGetElementWorldBasis(
-            forearm,
-            post_forearm_position,
-            post_forearm_up,
-            post_forearm_forward,
+            foretwist,
+            foretwist_position,
+            foretwist_up,
+            foretwist_forward,
             &write_error) ||
         !g_java_player_bridge.TryGetElementWorldBasis(
             hand,
@@ -1630,7 +1665,7 @@ bool ApplyArmPlan(
             hand_forward,
             &write_error)) {
         if (error) {
-            *error = "post-IK forearm/hand basis read failed";
+            *error = "post-IK foretwist/hand basis read failed";
             if (!write_error.empty()) *error += ": " + write_error;
         }
         rollback_chain();
@@ -1655,14 +1690,14 @@ bool ApplyArmPlan(
 
     applied_forearm_twist = ConvertWorldRotationToElementLocal(
         orientation_plan.forearm_twist,
-        RuntimeVector(post_forearm_up),
-        RuntimeVector(post_forearm_forward));
+        RuntimeVector(foretwist_up),
+        RuntimeVector(foretwist_forward));
     if (!applied_forearm_twist.valid) {
         if (error) *error = "forearm twist world-to-element-local conversion failed";
         rollback_chain();
         return false;
     }
-    if (!rotate(forearm, applied_forearm_twist, 1.0F, &write_error)) {
+    if (!rotate(foretwist, applied_forearm_twist, 1.0F, &write_error)) {
         if (error) *error = write_error;
         rollback_chain();
         return false;
@@ -1709,6 +1744,9 @@ bool RestoreNaturalArmElementFrames(
     const int forearm = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int foretwist = left
+        ? g_arm_element_cache.left_foretwist
+        : g_arm_element_cache.right_foretwist;
     const int hand = left
         ? g_arm_element_cache.left_hand
         : g_arm_element_cache.right_hand;
@@ -1730,6 +1768,16 @@ bool RestoreNaturalArmElementFrames(
             JavaVector(natural.forearm_element_position),
             &forearm_error)) {
         if (error) *error = "exact forearm frame restore failed: " + forearm_error;
+        return false;
+    }
+    std::string foretwist_error;
+    if (!g_java_player_bridge.TrySetElementWorldBasis(
+            foretwist,
+            JavaVector(natural.foretwist_element_up),
+            JavaVector(natural.foretwist_element_forward),
+            JavaVector(natural.foretwist_element_position),
+            &foretwist_error)) {
+        if (error) *error = "exact foretwist frame restore failed: " + foretwist_error;
         return false;
     }
     std::string hand_error;
@@ -1757,6 +1805,9 @@ bool RestoreAppliedArmRotation(
     const int forearm = left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
+    const int foretwist = left
+        ? g_arm_element_cache.left_foretwist
+        : g_arm_element_cache.right_foretwist;
     const int hand = left
         ? g_arm_element_cache.left_hand
         : g_arm_element_cache.right_hand;
@@ -1776,7 +1827,7 @@ bool RestoreAppliedArmRotation(
     std::string forearm_error;
     std::string upper_error;
     const bool hand_ok = inverse(hand, applied.hand_rotation, &hand_error);
-    const bool twist_ok = inverse(forearm, applied.forearm_twist, &twist_error);
+    const bool twist_ok = inverse(foretwist, applied.forearm_twist, &twist_error);
     const bool forearm_ok = inverse(forearm, applied.rotations.forearm, &forearm_error);
     const bool upper_ok = inverse(upper, applied.rotations.upper_arm, &upper_error);
     ArmGeometrySample restored_geometry{};
@@ -1823,6 +1874,7 @@ bool RestoreAppliedArmRotation(
                << ";geometry_read=" << (geometry_read ? "true" : "false")
                << ";geometry_restored=" << (geometry_restored ? "true" : "false")
                << ";writer=RotateElementWithChildren"
+               << ";twist_owner=foretwist_element"
                << ";transaction=" << transaction
                << ";inverse_geometry_restored="
                << (inverse_geometry_restored ? "true" : "false")
@@ -2019,6 +2071,12 @@ void UpdatePlayerArmTracking(
                               << RuntimeVectorText(geometry.forearm_element_up)
                               << ";forearm_element_forward="
                               << RuntimeVectorText(geometry.forearm_element_forward)
+                              << ";foretwist_element_position="
+                              << RuntimeVectorText(geometry.foretwist_element_position)
+                              << ";foretwist_element_up="
+                              << RuntimeVectorText(geometry.foretwist_element_up)
+                              << ";foretwist_element_forward="
+                              << RuntimeVectorText(geometry.foretwist_element_forward)
                               << ";hand_element_position="
                               << RuntimeVectorText(geometry.hand_element_position)
                               << ";hand_element_up="
@@ -2136,6 +2194,12 @@ void UpdatePlayerArmTracking(
                                   << ";forearm_element_forward="
                                   << RuntimeVectorText(
                                          applied.post_write_geometry.forearm_element_forward)
+                                  << ";foretwist_element_up="
+                                  << RuntimeVectorText(
+                                         applied.post_write_geometry.foretwist_element_up)
+                                  << ";foretwist_element_forward="
+                                  << RuntimeVectorText(
+                                         applied.post_write_geometry.foretwist_element_forward)
                                   << ";hand_element_up="
                                   << RuntimeVectorText(
                                          applied.post_write_geometry.hand_element_up)
@@ -2208,6 +2272,12 @@ void UpdatePlayerArmTracking(
                        << RuntimeVectorText(geometry.forearm_element_up)
                        << ";forearm_element_forward="
                        << RuntimeVectorText(geometry.forearm_element_forward)
+                       << ";foretwist_element_position="
+                       << RuntimeVectorText(geometry.foretwist_element_position)
+                       << ";foretwist_element_up="
+                       << RuntimeVectorText(geometry.foretwist_element_up)
+                       << ";foretwist_element_forward="
+                       << RuntimeVectorText(geometry.foretwist_element_forward)
                        << ";hand_element_position="
                        << RuntimeVectorText(geometry.hand_element_position)
                        << ";hand_element_up=" << RuntimeVectorText(geometry.hand_element_up)
@@ -2245,6 +2315,7 @@ void UpdatePlayerArmTracking(
                        << applied_forearm_twist.angle_degrees
                        << ";forearm_twist_no_op="
                        << (applied_forearm_twist.no_op ? "true" : "false")
+                       << ";twist_owner=foretwist_element"
                        << ";hand_native_axis="
                        << RuntimeVectorText(applied_hand_rotation.axis)
                        << ";hand_rotation_degrees="

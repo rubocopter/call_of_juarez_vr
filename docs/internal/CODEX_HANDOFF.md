@@ -1085,12 +1085,45 @@ failures. Focused body/OpenVR/provenance coverage also passes. The next candidat
 first, then prepared once with `tools/vr_test.ps1 prepare -BodyIkAtStart`; preparation must not
 launch SteamVR or CoJ.
 
-The next physical run remains one process and one run ID. Do not require a dashboard cycle. Visually
-test T-pose plus forward/back/up/down, then controller roll and palm-up/palm-down on both hands; the
-arms must follow position and orientation without the photographed deformation, and natural forearm
-twist must be plausible. In the same run exercise the Sense gameplay profile (move, turn, both fire
-actions, jump, reload, run/crouch, interact, kick, weapon cycle) and left-Create recenter. Gameplay
-input evidence does not promote Body IK by itself. Pelvis/leg writes remain disabled.
+That candidate was committed as `bdeb53a` and physically exercised by full/body run
+`20260918T233902Z-0cb2e565e886`. Build-manifest ID was
+`6196BD90555521CFA35B82FFFC3AE41ABE5593D6CBB8D3CAF234F1D8075F0DD4`; proxy SHA-256 was
+`F84719D72A5D28A888B7DEB8603BCF81F0EF1BC2D214B5CFB8637738946E14C4`. The finalized run is complete
+(`runtimeStarted=true`, `runtimeEnded=true`, `incomplete=false`): 7,688 fenced / 7,687 collected
+frames, 7,686 new plus 4,875 repeated submissions, zero ring drops/submit failures and sampled CPU
+copy `10.343 ms` average / `14.449 ms` p95. The inner presenter still did not report
+`shutdown_complete`, despite clean outer runtime finalization.
+
+The Sense gameplay route is now physically proven usable through
+`GameInputController.InputAction.Translate`; do not claim every individual binding separately
+headset-validated. Body IK still fails visual acceptance. Position/orientation target telemetry was
+successful, but the user-exported `C:\Users\onita\Videos\clip_1.789.775.964.664.mp4` shows severe
+wrist/forearm deformation and repeated local head/hair intrusion into the HMD view.
+
+Static shipped-code inspection after that run found the concrete arm hierarchy omission:
+`EBones._L_UPPERARM=7`, `_L_FOREARM=8`, `_L_FORETWIST=9`, `_L_HAND=10` and
+`_R_UPPERARM=12`, `_R_FOREARM=13`, `_R_FORETWIST=14`, `_R_HAND=15`. The failed candidate applied
+controller pronation/supination on forearm `8/13`, skipping the dedicated twist elements. Current
+host source resolves FORETWIST `9/14`, applies the twist there through the already-live-proven
+`RotateElementWithChildren` writer, applies only residual orientation to hand `10/15`, includes
+FORETWIST in natural/post-write/render/restore geometry and requires
+`twist_owner=foretwist_element`. Restore remains child-first: hand -> FORETWIST -> forearm -> upper.
+Focused Release `body_adapter`, `camera_probe`, `openvr_runtime` and `provenance_tools` tests pass.
+Fresh full Debug and Release builds also pass all host acceptance: each CTest suite reports 24 PASS
+plus the expected classic-D3D9 shared-texture capability SKIP out of 25, zero failures. The
+FORETWIST correction is therefore ready to commit, but still requires physical visual acceptance.
+
+The next physical run, if host acceptance stays green, remains one process and one fresh run ID with
+`tools/vr_test.ps1 prepare -BodyIkAtStart`. Do not require a dashboard cycle. Concentrate visual
+acceptance on modest controller roll and palm-up/palm-down plus ordinary forward/up/down reach on
+both hands; the purpose is to discriminate the new FORETWIST ownership without adding more body
+writers. Pelvis/leg writes remain disabled.
+
+Three separate product milestones are now explicitly recorded for later work: suppress the local
+head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD
+height through the game's crouch action/state, and decouple firearm/muzzle aim from the flat
+camera/crosshair so tracked controller/weapon orientation owns shot direction. Do not bundle these
+into the FORETWIST body correction; each needs its own exact-game ownership research and gate.
 
 ## Constraints
 
@@ -1100,12 +1133,12 @@ input evidence does not promote Body IK by itself. Pelvis/leg writes remain disa
 - Positional 6DOF and the isolated body/arm IK preflight remain in scope. Campaign actor discovery,
   controller tracking and actor reconciliation are live-proven for the exact build. `BoneRotate` is
   physically rejected as a visible writer; `RotateElementWithChildren` is now live-proven to mutate
-  the mesh, while controller-orientation/forearm-twist/hand composition is host-tested for the next
-  physical body gate. Keep body semantics exact-build-first and fail closed; do not extend the
-  unvalidated arm writer into pelvis/legs.
-- UI rebuilding, weapon-aim ownership and interaction redesign remain outside the current gate.
-  The exact-game Sense gameplay mapping is host-tested and may be physically co-validated in the
-  same body run without implying those later interaction milestones are complete.
+  the mesh. The latest physical orientation candidate still deformed the arm; dedicated FORETWIST
+  ownership is host-tested for the next physical body gate. Keep body semantics exact-build-first
+  and fail closed; do not extend the unvalidated arm writer into pelvis/legs.
+- UI rebuilding, local head suppression, physical crouch, weapon-aim ownership and interaction
+  redesign remain outside the current FORETWIST gate. The exact-game Sense gameplay route has live
+  physical evidence without implying those later interaction milestones are complete.
 - Do not equate submit count with new game content.
 - Preserve the validation-state boundary: host-only Phase 5/6 changes remain `host-tested` until a
   fresh run supplies the specific live/headset evidence required by the consolidated verifier.

@@ -386,16 +386,19 @@ ArmGeometryRestoreCheck CheckArmGeometryRestored(
     result.max_joint_position_error = std::max(
         distance(natural.elbow, restored.elbow),
         distance(natural.wrist, restored.wrist));
-    result.max_element_position_error = std::max(
-        std::max(
-            distance(natural.upper_element_position, restored.upper_element_position),
-            distance(natural.forearm_element_position, restored.forearm_element_position)),
-        distance(natural.hand_element_position, restored.hand_element_position));
+    result.max_element_position_error = std::max({
+        distance(natural.upper_element_position, restored.upper_element_position),
+        distance(natural.forearm_element_position, restored.forearm_element_position),
+        distance(natural.foretwist_element_position, restored.foretwist_element_position),
+        distance(natural.hand_element_position, restored.hand_element_position),
+    });
     result.max_axis_error = std::max({
         distance(natural.upper_element_up, restored.upper_element_up),
         distance(natural.upper_element_forward, restored.upper_element_forward),
         distance(natural.forearm_element_up, restored.forearm_element_up),
         distance(natural.forearm_element_forward, restored.forearm_element_forward),
+        distance(natural.foretwist_element_up, restored.foretwist_element_up),
+        distance(natural.foretwist_element_forward, restored.foretwist_element_forward),
         distance(natural.hand_element_up, restored.hand_element_up),
         distance(natural.hand_element_forward, restored.hand_element_forward),
     });
@@ -415,7 +418,8 @@ ArmGeometryRestoreCheck CheckArmGeometryRestored(
 SkeletonBinding ExactGameSkeletonBinding() noexcept {
     // EBones.class constants in the shipped code.pak:
     // pelvis=0, spine=1, spine1=2, spine2=3, neck=4, head=5,
-    // L upper/forearm/hand=7/8/10, R upper/forearm/hand=12/13/15,
+    // L upper/forearm/foretwist/hand=7/8/9/10,
+    // R upper/forearm/foretwist/hand=12/13/14/15,
     // thighs=16/17, calves=20/21, feet=22/23.
     return {
         .pelvis = 0,
@@ -426,9 +430,11 @@ SkeletonBinding ExactGameSkeletonBinding() noexcept {
         .head = 5,
         .left_upper_arm = 7,
         .left_forearm = 8,
+        .left_foretwist = 9,
         .left_hand = 10,
         .right_upper_arm = 12,
         .right_forearm = 13,
+        .right_foretwist = 14,
         .right_hand = 15,
         .left_thigh = 16,
         .left_shin = 20,
