@@ -100,6 +100,15 @@ struct ArmGeometryRestoreCheck {
     const ArmGeometrySample& natural,
     const ArmGeometrySample& restored) noexcept;
 
+// A recenter is an explicit recovery boundary for the transient arm overlay.
+// Never clear a fail-closed writer latch while a render transaction is active;
+// a latched fault additionally requires freshly readable/valid natural arm
+// geometry before writes may resume.
+[[nodiscard]] bool CanRecoverArmWriterAfterRecenter(
+    bool previous_fault,
+    bool transaction_active,
+    bool natural_geometry_verified) noexcept;
+
 struct PelvisLocomotionAnchor {
     cojvr::runtime::Vec3 actor_position{};
     cojvr::runtime::Vec3 pelvis_offset{};

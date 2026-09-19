@@ -1136,15 +1136,31 @@ provenance tests pass, and fresh full Debug/Release suites each complete all 25 
 PASS plus the expected classic-D3D9 shared-texture capability SKIP. Pelvis/leg writes remain
 disabled.
 
-Fresh full/body candidate `20260919T003727Z-73f20e13cc1a` is now prepared from clean source commit
+Full/body run `20260919T003727Z-73f20e13cc1a` was physically exercised from clean source commit
 `2213ae6a2903581f8c82c43bb01a1cc6705b0b00`. Build-manifest ID is
 `172178E5ECDC340E563C4F0FD1412DC3E5AD477D142605472F87445B11FF0CA4`; proxy SHA-256 is
 `E0093D6ACDDE08411B16045AC87709F22EAA0188B7A8D14E4C189A9A40A8926B`. `prepare -BodyIkAtStart`
 reran the complete Release suite with 24 PASS plus the expected capability SKIP and staged the
-reversible `1920x1080`/FSAA0 full profile with Body IK enabled before process start. No game or
-SteamVR process was launched automatically. The next physical observation should first confirm that
-the arms now remain active instead of tripping the frame-1 orientation latch, then check modest
-palm-up/palm-down/controller roll for anatomical improvement.
+reversible `1920x1080`/FSAA0 full profile with Body IK enabled before process start. The physical run
+kept the writer active for its full 7,615-frame lifetime: 15,230 arm applications and 15,230 clean
+restores completed with no writer/restore failure. Visual acceptance still failed because both arms
+were heavily deformed. Telemetry showed that the mathematical target could be reached only through
+extreme controller-frame rotations, with sampled values reaching about 132 degrees FORETWIST plus
+155 degrees residual hand rotation. The remaining orientation defect is therefore upstream of the
+proven element writer/restoration path.
+
+The user's capture also showed SteamVR's dashboard visibly stuck while the Sense render models and
+laser pointers were available. Sony's installed SteamVR profile exposes `raw`, `base`, `handgrip`,
+`tip` and `openxr_aim`; the compositor's own laser binding uses `tip`. Current host source therefore
+uses explicit left/right `handgrip` pose actions for body IK and fails closed when either action is
+inactive/invalid; raw tracked-device-role poses are no longer anatomical body targets. `tip` remains
+reserved for the later weapon-aim milestone. Dashboard visibility no longer suppresses scene
+submission or global pose/recenter polling; gameplay actions are neutralized while the overlay owns
+interaction. A successful explicit recenter invalidates hand-orientation calibration and clears a
+latched arm-writer fault only when there is no active arm transaction and fresh natural geometry is
+healthy. The live verifier now requires the handgrip source, no raw fallback and the safe recenter
+recovery marker. Fresh Debug and Release suites each pass 24 tests plus the expected capability SKIP
+out of 25. These changes are host-tested only and require one fresh combined body run.
 
 Three separate product milestones are now explicitly recorded for later work: suppress the local
 head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD
@@ -1160,9 +1176,10 @@ into the FORETWIST body correction; each needs its own exact-game ownership rese
 - Positional 6DOF and the isolated body/arm IK preflight remain in scope. Campaign actor discovery,
   controller tracking and actor reconciliation are live-proven for the exact build. `BoneRotate` is
   physically rejected as a visible writer; `RotateElementWithChildren` is now live-proven to mutate
-  the mesh. The latest physical orientation candidate still deformed the arm; dedicated FORETWIST
-  ownership is host-tested for the next physical body gate. Keep body semantics exact-build-first
-  and fail closed; do not extend the unvalidated arm writer into pelvis/legs.
+  the mesh. The latest physical orientation candidate still deformed the arm despite sustained
+  FORETWIST/hand target reach; the next body candidate changes the controller frame to explicit PS
+  VR2 `handgrip` pose actions and rebuilds orientation calibration on recenter. Keep body semantics
+  exact-build-first and fail closed; do not extend the unvalidated arm writer into pelvis/legs.
 - UI rebuilding, local head suppression, physical crouch, weapon-aim ownership and interaction
   redesign remain outside the current FORETWIST gate. The exact-game Sense gameplay route has live
   physical evidence without implying those later interaction milestones are complete.

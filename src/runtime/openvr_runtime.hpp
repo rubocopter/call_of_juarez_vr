@@ -21,6 +21,13 @@ struct OpenVrGlobalActions {
     bool recenter_active = false;
 };
 
+struct OpenVrHandPoses {
+    Pose left_grip{};
+    Pose right_grip{};
+    bool left_grip_active = false;
+    bool right_grip_active = false;
+};
+
 struct OpenVrTrackedPoses {
     Pose hmd{};
     Pose left_controller{};
@@ -96,7 +103,8 @@ public:
     [[nodiscard]] bool PollGlobalActions(OpenVrGlobalActions& actions) noexcept;
     [[nodiscard]] bool PollActions(
         OpenVrGlobalActions& global_actions,
-        GameplayInputState& gameplay_actions) noexcept;
+        GameplayInputState& gameplay_actions,
+        OpenVrHandPoses& hand_poses) noexcept;
     [[nodiscard]] bool global_actions_initialized() const noexcept;
     void RecordEyeSubmission(Eye eye, bool succeeded) noexcept;
 

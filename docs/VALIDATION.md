@@ -1529,6 +1529,32 @@ fresh physical run proves both orientation reach and acceptable anatomy. Fresh D
 builds pass the complete 25-outcome suite with **24 PASS plus the expected classic-D3D9
 shared-texture capability SKIP**, zero failures.
 
+Full/body run `20260919T003727Z-73f20e13cc1a` physically exercised that post-FORETWIST residual
+candidate from clean commit `2213ae6a2903581f8c82c43bb01a1cc6705b0b00`. Build-manifest ID was
+`172178E5ECDC340E563C4F0FD1412DC3E5AD477D142605472F87445B11FF0CA4`; staged proxy SHA-256 was
+`E0093D6ACDDE08411B16045AC87709F22EAA0188B7A8D14E4C189A9A40A8926B`. The run fenced 7,615 frames,
+collected 7,614, submitted 7,613 new plus 3,977 repeated frames and recorded zero ring drops or
+submit failures. The visible writer remained stable for the whole run: 15,230 left/right
+`body_arm_tracking result=applied` records were paired with 15,230 successful post-stereo restores.
+The user nevertheless observed severe arm deformation. Representative telemetry reached essentially
+zero hand-orientation error only by demanding extreme FORETWIST/hand rotations, including roughly
+132 degrees of FORETWIST plus 155 degrees of residual hand rotation on one sampled left-arm pose.
+This physically rejects the calibrated raw controller-frame target as an anatomical hand target;
+it does not reject the live-proven writer, restoration, tracked-Z mapping or FORETWIST reachability.
+
+The same run recorded ten successful recenter sequences and repeated SteamVR dashboard transitions
+while stereo presentation continued. The user still observed the dashboard visibly stuck over the
+game, so scene submission and the overlay problem are now treated separately. Inspection of Sony's
+installed PS VR2 SteamVR controller profile exposes `/pose/raw`, `/pose/base`, `/pose/handgrip`,
+`/pose/tip` and `/pose/openxr_aim`; SteamVR's compositor binding uses `/pose/tip` for its laser
+pointer. Current host source therefore adds explicit left/right `handgrip` pose actions for body IK,
+keeps `/pose/tip` for the later weapon-aim boundary and forbids raw-role fallback for anatomical hand
+targets. Explicit recenter now invalidates hand-orientation calibration and can clear a latched arm
+writer only when no write transaction is active and fresh natural arm geometry verifies healthy.
+These handgrip/recenter-recovery changes are **host-tested only**. Fresh Debug and Release builds
+each complete all 25 outcomes with **24 PASS plus the expected classic-D3D9 shared-texture
+capability SKIP**, zero failures.
+
 Three downstream VR ownership items are now explicitly tracked but remain **planned** and separate
 from the arm-composition gate: suppress the local player's head/hair from the HMD view without
 removing the body, derive physical crouch from calibrated HMD height and feed it through the native

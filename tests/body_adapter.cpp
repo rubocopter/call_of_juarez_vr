@@ -409,6 +409,14 @@ int main() {
         return 1;
     }
 
+    if (!CanRecoverArmWriterAfterRecenter(false, false, false) ||
+        CanRecoverArmWriterAfterRecenter(false, true, true) ||
+        CanRecoverArmWriterAfterRecenter(true, false, false) ||
+        !CanRecoverArmWriterAfterRecenter(true, false, true)) {
+        std::cerr << "recenter arm-recovery policy did not preserve fail-closed semantics\n";
+        return 1;
+    }
+
     GameplayInputState gameplay{};
     gameplay.active = true;
     gameplay.move = {0.8F, -0.6F};

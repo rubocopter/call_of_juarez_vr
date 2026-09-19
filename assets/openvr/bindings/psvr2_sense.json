@@ -5,7 +5,16 @@
     "/actions/global": {
       "chords": [],
       "haptics": [],
-      "poses": [],
+      "poses": [
+        {
+          "output": "/actions/global/in/left_hand_grip_pose",
+          "path": "/user/hand/left/pose/handgrip"
+        },
+        {
+          "output": "/actions/global/in/right_hand_grip_pose",
+          "path": "/user/hand/right/pose/handgrip"
+        }
+      ],
       "skeleton": [],
       "sources": [
         {

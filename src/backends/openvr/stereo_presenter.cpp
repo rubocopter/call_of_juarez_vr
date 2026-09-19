@@ -82,6 +82,8 @@ struct OpenVrStereoPresenter::Impl {
     runtime::Pose latest_pose{};
     runtime::Pose latest_left_controller{};
     runtime::Pose latest_right_controller{};
+    bool latest_left_handgrip_active = false;
+    bool latest_right_handgrip_active = false;
     runtime::GameplayInputState latest_gameplay{};
     std::uint64_t pose_sequence = 0;
     bool recenter_pending = false;
@@ -342,7 +344,7 @@ struct OpenVrStereoPresenter::Impl {
                     runtime.InitializeGlobalActions(action_manifest_path),
                     std::memory_order_release);
                 if (input_ready.load(std::memory_order_acquire)) {
-                    Log("openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter gameplay=semantic_sense_profile owner=presenter_thread");
+                    Log("openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/{left,right}/pose/handgrip gameplay=semantic_sense_profile owner=presenter_thread");
                 } else {
                     Log("openvr_input: status=unavailable owner=presenter_thread error=" +
                         std::string(runtime.last_error()));
@@ -416,8 +418,8 @@ struct OpenVrStereoPresenter::Impl {
                             Log(std::string(
                                     "native_stereo_presenter_transition: status=") +
                                 (presentation_state.dashboard_visible
-                                     ? "dashboard_visible action=pause_scene_submission"
-                                     : "dashboard_hidden action=resume_scene_submission"));
+                                     ? "dashboard_visible action=neutralize_gameplay_keep_scene_submission"
+                                     : "dashboard_hidden action=resume_gameplay_keep_scene_submission"));
                         }
                         previous_presentation_state = presentation_state;
                         have_previous_presentation_state = true;
@@ -434,18 +436,50 @@ struct OpenVrStereoPresenter::Impl {
                 if (pose_ok) {
                     bool recenter = false;
                     runtime::GameplayInputState gameplay{};
-                    if (!dashboard_visible && runtime_state.focused &&
-                        input_ready.load(std::memory_order_acquire)) {
+                    runtime::OpenVrHandPoses hand_poses{};
+                    bool input_polled = false;
+                    if (input_ready.load(std::memory_order_acquire)) {
                         runtime::OpenVrGlobalActions actions{};
-                        if (runtime.PollActions(actions, gameplay)) {
+                        runtime::GameplayInputState polled_gameplay{};
+                        if (runtime.PollActions(actions, polled_gameplay, hand_poses)) {
+                            input_polled = true;
                             recenter = actions.recenter_requested;
+                            if (!dashboard_visible && runtime_state.focused) {
+                                gameplay = polled_gameplay;
+                            }
                         }
                     }
+                    const bool left_handgrip_valid = input_polled &&
+                        hand_poses.left_grip_active &&
+                        hand_poses.left_grip.position_valid &&
+                        hand_poses.left_grip.orientation_valid;
+                    const bool right_handgrip_valid = input_polled &&
+                        hand_poses.right_grip_active &&
+                        hand_poses.right_grip.position_valid &&
+                        hand_poses.right_grip.orientation_valid;
                     {
                         std::lock_guard lock(tracking_mutex);
                         latest_pose = tracked_poses.hmd;
-                        latest_left_controller = tracked_poses.left_controller;
-                        latest_right_controller = tracked_poses.right_controller;
+                        latest_left_controller = left_handgrip_valid
+                            ? hand_poses.left_grip
+                            : runtime::Pose{};
+                        latest_right_controller = right_handgrip_valid
+                            ? hand_poses.right_grip
+                            : runtime::Pose{};
+                        if (latest_left_handgrip_active != left_handgrip_valid ||
+                            latest_right_handgrip_active != right_handgrip_valid ||
+                            pose_sequence == 0) {
+                            std::ostringstream line;
+                            line << "openvr_controller_pose: source=handgrip"
+                                 << ";left_active="
+                                 << (left_handgrip_valid ? "true" : "false")
+                                 << ";right_active="
+                                 << (right_handgrip_valid ? "true" : "false")
+                                 << ";raw_role_fallback=false";
+                            Log(line.str());
+                        }
+                        latest_left_handgrip_active = left_handgrip_valid;
+                        latest_right_handgrip_active = right_handgrip_valid;
                         latest_gameplay = gameplay;
                         ++pose_sequence;
                         if (recenter) recenter_pending = true;
@@ -665,6 +699,8 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_pose = {};
             impl_->latest_left_controller = {};
             impl_->latest_right_controller = {};
+            impl_->latest_left_handgrip_active = false;
+            impl_->latest_right_handgrip_active = false;
             impl_->latest_gameplay = {};
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;

@@ -354,6 +354,16 @@ an idealized child transform. This avoids hard-coding a controller-local palm ax
 hierarchy composition and keeps the physically accepted hand-position mapping unchanged. Pelvis/leg
 writers remain disabled until this corrected exact arm/hand path passes a fresh physical run.
 
+The PS VR2 Sense pose contract is now explicit. Body IK consumes the OpenVR
+`/pose/handgrip` action for each hand because that pose represents the controller's anatomical grip
+frame. The SteamVR compositor's own PS VR2 binding uses `/pose/tip` for its laser pointer; that pose
+is reserved for the later weapon/aiming boundary rather than being used as the body-hand frame. Raw
+tracked-device role poses remain diagnostic only: if either handgrip action is inactive or invalid,
+body hand tracking fails closed instead of silently falling back to `/pose/raw`. A successful
+explicit recenter invalidates the controller-to-hand orientation calibration. A previously latched
+arm-writer fault may only be cleared at that boundary when no arm write transaction is active and
+freshly read natural arm geometry is valid.
+
 Three additional first-person ownership boundaries remain deliberately separate from arm IK.
 Head/hair suppression must hide only the local head geometry from HMD rendering while preserving
 the rest of the body/shadow/animation. Physical crouch should be derived from calibrated HMD height
@@ -363,11 +373,13 @@ the flat game's camera/crosshair authority and derive the shot direction from tr
 controller orientation. These are planned exact-game adapters, not consequences of the current
 Sense button mapping.
 
-The OpenVR presenter treats SteamVR's dashboard as a system-owned layer. A visible dashboard gates
-scene submission and compositor-paced `WaitGetPoses`, while the latest valid game frame remains
-retained for immediate resumption. Global game-action polling is also suspended while the dashboard
-owns presentation. This policy is backend/presenter state handling; it does not change the CoJ
-camera or body contracts.
+The OpenVR presenter treats SteamVR's dashboard as a system-owned layer, but dashboard visibility
+does not stop valid scene submission. The presenter keeps feeding the latest game stereo content,
+continues global action/pose polling so recenter and handgrip tracking can recover across an overlay
+transition, and neutralizes gameplay actions while the dashboard owns interaction. This avoids
+turning an unavoidable startup/dashboard transition into a stalled scene producer. The dashboard
+can still remain visibly stuck over a correctly submitting CoJ scene, so overlay ownership/focus is
+tracked as a separate presentation problem rather than an arm-IK failure.
 
 The lower-body preflight uses the same exact skeleton readers without writing any lower-body
 element. The game-specific adapter records the native actor position plus animated pelvis offset,
