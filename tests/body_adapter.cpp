@@ -619,6 +619,55 @@ int main() {
         return 1;
     }
 
+    // Native replay of run 327dd proves FORETWIST is NOT under forearm and
+    // hand is NOT under FORETWIST. With a 90-degree elbow bend the old twist-
+    // only writer leaves the skinning frame behind, even at zero controller roll.
+    ArmGeometrySample skin_natural{};
+    skin_natural.foretwist_element_up = {0.0F, 1.0F, 0.0F};
+    skin_natural.foretwist_element_forward = {0.0F, 0.0F, 1.0F};
+    ArmBoneRotationPlan skin_rotations{};
+    skin_rotations.valid = true;
+    skin_rotations.upper_arm = {{1.0F, 0.0F, 0.0F}, 0.0F, true, true};
+    skin_rotations.forearm = {{0.0F, 0.0F, 1.0F}, 90.0F, false, true};
+    BoneRotationDelta skin_twist{{0.0F, 1.0F, 0.0F}, 0.0F, true, true};
+    auto skin = BuildArmSkinningPlan(skin_natural, skin_rotations, skin_twist,
+        {-1.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F});
+    if (!skin.valid || Distance(skin.foretwist.up, {-1.0F, 0.0F, 0.0F}) > 0.001F ||
+        Distance(skin.hand.up, skin.foretwist.up) > 0.001F) {
+        std::cerr << "FORETWIST sibling did not receive missing elbow swing\n";
+        return 1;
+    }
+    for (float roll : {-90.0F, 90.0F}) {
+        skin_twist.angle_degrees = roll;
+        skin_twist.no_op = false;
+        skin = BuildArmSkinningPlan(skin_natural, skin_rotations, skin_twist,
+            {-1.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F});
+        const float sign = roll / 90.0F;
+        if (!skin.valid || Distance(skin.foretwist.up, {0.0F, 0.0F, sign}) > 0.001F ||
+            Distance(skin.foretwist.forward, {sign, 0.0F, 0.0F}) > 0.001F ||
+            Distance(skin.hand.up, skin.foretwist.up) > 0.001F ||
+            Distance(skin.hand.forward, skin.foretwist.forward) > 0.001F) {
+            std::cerr << "Independent hand and skinning frame did not share signed roll\n";
+            return 1;
+        }
+    }
+    // A pre-existing native twist must survive the composed swing/roll.
+    skin_natural.foretwist_element_up = {0.0F, 0.0F, 1.0F};
+    skin_natural.foretwist_element_forward = {0.0F, -1.0F, 0.0F};
+    skin_twist = {{0.0F, 1.0F, 0.0F}, 0.0F, true, true};
+    skin = BuildArmSkinningPlan(skin_natural, skin_rotations, skin_twist,
+        {-1.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F});
+    if (!skin.valid || Distance(skin.foretwist.up, {0.0F, 0.0F, 1.0F}) > 0.001F ||
+        Distance(skin.foretwist.forward, {1.0F, 0.0F, 0.0F}) > 0.001F) {
+        std::cerr << "Sibling correction destroyed native bind roll\n";
+        return 1;
+    }
+    skin_rotations.forearm.axis.x = std::numeric_limits<float>::quiet_NaN();
+    if (BuildArmSkinningPlan(skin_natural, skin_rotations, skin_twist, {}, {}).valid) {
+        std::cerr << "Invalid sibling rotation accepted\n";
+        return 1;
+    }
+
     // Host tests run without the game's JVM. Discovery and all dependent
     // operations must therefore fail closed without creating or loading one.
     JavaPlayerBridge bridge;

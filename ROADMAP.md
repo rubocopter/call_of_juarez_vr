@@ -2,6 +2,12 @@
 
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
+Latest arm gate (2026-09-19): the `foretwist_only` run `20260919T085408Z-327dd354bc4f` failed
+visually. Measured propagation proves FORETWIST and hand are not a serial chain. The current
+candidate synchronizes FORETWIST sibling swing with forearm and shares axial roll with the hand,
+checking complete skinning frames as well as joint reach. Physical anatomy remains pending.
+Exact shot-direction/origin ownership has been researched; controller aiming is not yet implemented.
+
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
 boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,
 in-headset Sense recenter, SteamVR scene-focus handoff, clean runtime teardown and explicit

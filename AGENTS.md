@@ -45,6 +45,17 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
+Latest evidence supersedes the historical arm-chain assumptions below. Run
+`20260919T085408Z-327dd354bc4f` is finalized/unstaged and visually failed despite 5,050 successful
+arm applications/restores. Replaying 116 logged axes proves FORETWIST inherits upper but NOT
+forearm swing, while hand inherits forearm but NOT FORETWIST roll. EBones ordering is not parentage.
+Current source explicitly swings the FORETWIST sibling and shares axial roll with the independent
+hand (`hand_rotation_mode=sibling_shared_roll`), verifies both complete bases and restores all
+elements. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`. Physical anatomy remains unpromoted.
+The user has additionally authorized investigating/fixing aiming where feasible. Exact bytecode
+shows shots use per-hand look direction and look origin, not render-time barrel transforms;
+game-update/shot ownership must be established before a controller-aim writer is enabled.
+
 Audit-remediation Phases 0-4 remain the established stabilization baseline. The
 Call of Juarez camera-path gate has passed live validation:
 `Camera -> View/Projection -> ChromeEngine3 renderer`, external FOV control and clean

@@ -2,6 +2,21 @@
 
 ## Current checkpoint
 
+Latest continuation, 2026-09-19: run `20260919T085408Z-327dd354bc4f` is finalized and unstaged.
+The user's 26.84-second clip still rejects anatomy. It had 5,050 applications/restores, no arm
+fault, and one recenter recovery. `tools/analyze_arm_hierarchy.py` proves the old ordinal-based
+hierarchy assumption wrong: FORETWIST follows upper only; hand follows forearm without FORETWIST.
+All 116 measured axes agree with those propagation models within 0.000008, whereas the assumed
+serial chain has large errors. Current source composes full upper+forearm swing into the FORETWIST
+sibling and shared axial roll into FORETWIST and hand. It checks all four output axes within 0.02,
+retains positional/both-eye/restore checks and reports `hand_rotation_mode=sibling_shared_roll`.
+The full wrist residual remains diagnostic. The old `foretwist_only` no-op-hand requirement is
+superseded by this measured sibling contract. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+Aiming research proves bullets use native per-hand look directions and look origin; a game-update/
+shot boundary is required before enabling controller aiming. That feature remains unimplemented.
+Head intrusion and incomplete inner presenter/factory shutdown remain open. Do not promote body
+anatomy from successful telemetry alone. Prepare a fresh committed candidate after host checks.
+
 Audit-remediation Phases 0-4 remain **host-tested**, and their two run-bound manual Call
 of Juarez observations remain authoritative. The user explicitly deferred repeating the
 prepared Steam-Overlay-disabled A/B. The separate exact-build camera-path run established
