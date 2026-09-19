@@ -2,6 +2,13 @@
 
 ## Latest arm evidence — 2026-09-19
 
+Fresh candidate `20260919T122155Z-c534d86926a9` is staged from clean source
+`075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
+`163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256
+`74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C`.
+Preparation again passed 24 Release tests + one expected capability SKIP, enabled Body IK from
+start, and applied the reversible 1920x1080/FSAA0 profile. This is host/preparation evidence only.
+
 Run `20260919T085408Z-327dd354bc4f` is finalized/unstaged with matching deployed hashes and complete
 evidence packaging. It produced 5,050 arm applications and restores, zero arm write/restore faults,
 one recenter recovery, 2,843 new plus 2,274 repeated stereo submissions and zero submit failures.

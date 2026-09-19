@@ -2,6 +2,15 @@
 
 ## Current checkpoint
 
+Fresh sibling-skinning candidate is staged as `20260919T122155Z-c534d86926a9` from clean commit
+`075daf3cbeba8abbf6ac389978714d1d85092a9e` (`dirty=false`). Build manifest:
+`163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`; proxy SHA-256:
+`74FDEBE4C09C8D5AD6AE6EFAF6F8FDF80C2D900E4B60CF4AEEB59BBF384E9E1C`.
+Debug/Release suites each pass 24 + one expected capability SKIP; prepare reran Release successfully.
+Body IK is enabled from start, reversible 1920x1080/FSAA0 applied. No game/SteamVR was launched.
+Next: user performs the same T-pose / forward palms-down/up / lower / elbow-flexion sequence and
+Create recenter, exits, then `tools/vr_test.ps1 finish`. No deliberate dashboard cycle is required.
+
 Latest continuation, 2026-09-19: run `20260919T085408Z-327dd354bc4f` is finalized and unstaged.
 The user's 26.84-second clip still rejects anatomy. It had 5,050 applications/restores, no arm
 fault, and one recenter recovery. `tools/analyze_arm_hierarchy.py` proves the old ordinal-based
@@ -15,7 +24,7 @@ superseded by this measured sibling contract. See `docs/research/COJ_ARM_SKINNIN
 Aiming research proves bullets use native per-hand look directions and look origin; a game-update/
 shot boundary is required before enabling controller aiming. That feature remains unimplemented.
 Head intrusion and incomplete inner presenter/factory shutdown remain open. Do not promote body
-anatomy from successful telemetry alone. Prepare a fresh committed candidate after host checks.
+anatomy from successful telemetry alone. The fresh candidate above is ready for physical validation.
 
 Audit-remediation Phases 0-4 remain **host-tested**, and their two run-bound manual Call
 of Juarez observations remain authoritative. The user explicitly deferred repeating the

@@ -45,6 +45,9 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
+Current staged candidate: `20260919T122155Z-c534d86926a9`, clean source `075daf3`,
+Body IK enabled from start. See the top of `docs/internal/CODEX_HANDOFF.md` for exact identities.
+
 Latest evidence supersedes the historical arm-chain assumptions below. Run
 `20260919T085408Z-327dd354bc4f` is finalized/unstaged and visually failed despite 5,050 successful
 arm applications/restores. Replaying 116 logged axes proves FORETWIST inherits upper but NOT
