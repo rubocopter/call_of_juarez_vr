@@ -24,12 +24,21 @@ Validation states remain:
 
 ## Current confirmed baseline
 
-Latest body correction: run `20260919T085408Z-327dd354bc4f` failed anatomy despite 5,050 clean
-applications/restores. Replaying the measured element axes rejects the assumed serial
-upper/forearm/FORETWIST/hand chain: FORETWIST misses forearm swing and hand misses FORETWIST roll.
-Current code explicitly composes those sibling transforms and verifies complete frame agreement.
-This is a host candidate, pending physical validation; details and reproducible evidence are in
-`docs/research/COJ_ARM_SKINNING_AND_AIM.md`. Shot direction/origin remain native look-owned.
+Latest formal body evidence is run `20260919T153546Z-705460dca03b`: 8,452 arm applications and
+8,452 restores completed without writer/restore failure, exact +/-45-degree right-stick snap turn
+was physically validated, and the preserved-target recenter rebase was live-exercised. Visual Body
+IK remains unpromoted because reach still clamped on 43.72% of applications, wrist/hand poses were
+still forced in some positions and local head/hair intruded into the HMD view. The measured sibling
+FORETWIST/hand propagation remains authoritative; details and reproducible evidence are in
+`docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+
+Fresh candidate `20260919T162808Z-fb75cb34977a` is staged from clean source `7d4f94b63152aadee85d6ba0148d0baf84b384af`.
+It adds bounded 12-unit overreach remapping, a 100-degree shared FORETWIST/hand axial-roll limit,
+reversible local Ray/Billy head/hair suppression and controller `/pose/tip` ownership of the exact
+per-hand native look direction while preserving native spread/accuracy, fire origin and the
+network-forced branch. Debug and Release each pass 24 tests plus the expected classic-D3D9
+shared-texture capability SKIP. These four paths remain host-tested pending physical exercise of the
+staged candidate.
 
 The following facts are currently established:
 
@@ -44,6 +53,7 @@ The following facts are currently established:
 - Run `20260918T213453Z-a789ac61ac91` physically validated native-camera roll: the previous tilt-induced nausea was absent while telemetry covered `-27.286` to `+40.762` degrees. It also sustained 13,860 successful arm applications/restorations with no fail-close, validating the float-aware restore threshold. The body gate still failed visually. Controller front/back was reversed even though elbow/wrist targets were reached, and the wrist/hand remained twisted with `hand_orientation=natural`. Run `20260918T215118Z-c46320012ff0` then physically validated the corrected tracked-Z hand position mapping while the deformation remained. The following host slice preserved that positional mapping and added calibration-relative controller orientation, forearm twist and residual hand rotation through the already-live-proven `RotateElementWithChildren` writer. Physical arm-orientation acceptance remained pending and was narrowed further by the later runs below.
 - Run `20260918T233902Z-0cb2e565e886` then physically exercised that orientation/gameplay candidate. Position and orientation target telemetry reached their goals, but the user's video still shows severe wrist/forearm deformation and frequent head/hair intrusion into the HMD view, so Body IK remains rejected visually. Exact shipped `EBones.class` inspection identifies dedicated FORETWIST elements `9` (left) and `14` (right), between forearm `8/13` and hand `10/15`. Current host source routes controller pronation/supination through those dedicated elements, includes them in transactional geometry/restore verification and requires `twist_owner=foretwist_element`; that hierarchy correction is host-tested only. Head/hair suppression, physical HMD-height crouch and controller/weapon-owned aiming are tracked as separate later VR ownership milestones.
 - Run `20260919T011421Z-bef5076cd07e` physically exercised the subsequent explicit `/pose/handgrip` candidate. It sustained 14,968 arm applications and 14,968 restores with zero restore failures plus seven safe recenter recoveries, but visual anatomy remained rejected. Pose-window analysis showed that in the palms-up gesture FORETWIST had already converged to roughly symmetric roll while the residual hand rotation remained very large. Current host source therefore keeps that post-FORETWIST residual as diagnostics only and applies no hand-element rotation. Debug and Release host suites pass 24 tests plus the expected capability SKIP; the new `foretwist_only` composition is not yet physically promoted.
+- Post-run source now implements the next exact-CoJ candidate for the remaining user-visible issues. It keeps native arm lengths and validated tracking axes, adds a bounded overreach remap before hard IK clamp, limits shared FORETWIST/hand axial roll to 100 degrees, hides/restores only the local Ray/Billy head/hair elements through the shipped per-element visibility API, and introduces distinct OpenVR `/pose/tip` actions that write the exact per-hand native look-direction array (`EnumInvHand`: right=0, left=1). Native spread/accuracy and `GetBeingLookFromPoint` fire origin remain owned by the game and the network-forced attack branch is untouched. Fresh Debug and Release suites each pass 24 tests plus the expected capability SKIP. These corrections require live/headset evidence before promotion; in particular, shot ownership at the actual attack boundary and shadow behavior after local-head suppression are still unproven.
 
 The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` records which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves replacement addresses to owning modules. Preserve it as evidence/baseline; do not let its existence bypass the audit-remediation work below.
 

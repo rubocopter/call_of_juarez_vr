@@ -142,6 +142,10 @@ struct ArmIkPlan {
     cojvr::runtime::Vec3 wrist_target{};
     float upper_length = 0.0F;
     float lower_length = 0.0F;
+    float raw_target_distance = 0.0F;
+    float effective_target_distance = 0.0F;
+    float reach_adjustment = 0.0F;
+    bool reach_adjusted = false;
     bool target_clamped = false;
     bool valid = false;
 };
@@ -272,6 +276,13 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 current_hand_forward,
     const HandOrientationTarget& target) noexcept;
 
+// Bounds a controller-requested anatomical roll without changing its axis.
+// Used for the CoJ forearm/hand overlay where unrestricted controller roll can
+// force the native wrist mesh well beyond the range seen in the shipped pose.
+[[nodiscard]] BoneRotationDelta LimitRotationMagnitude(
+    BoneRotationDelta rotation,
+    float max_degrees) noexcept;
+
 // Maps a recentered tracked hand around the native animated head joint. The
 // controller and HMD positions are in the same tracking space; subtracting the
 // tracked head removes the recenter-space origin before the offset is mapped
@@ -284,6 +295,16 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 tracked_head,
     cojvr::runtime::Vec3 tracked_hand,
     float game_units_per_meter,
+    bool& valid) noexcept;
+
+// Maps the neutral tracking-space -Z axis of a controller /pose/tip into the
+// exact CoJ camera basis. The returned value is a normalized game-world look
+// direction suitable for m_avLookDirDevForHand.
+[[nodiscard]] cojvr::runtime::Vec3 BuildTrackedAimDirection(
+    cojvr::runtime::Quaternion tracked_orientation,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
     bool& valid) noexcept;
 
 // Keeps the pelvis rooted in the native locomotion owner while exposing the

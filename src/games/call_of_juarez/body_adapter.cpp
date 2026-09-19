@@ -588,9 +588,40 @@ ArmIkPlan BuildArmIkPlan(
         return result;
     }
 
-    const cojvr::runtime::Vec3 target_axis =
-        Normalize(Subtract(controller_target, geometry.shoulder));
+    const cojvr::runtime::Vec3 raw_target_offset =
+        Subtract(controller_target, geometry.shoulder);
+    result.raw_target_distance = Length(raw_target_offset);
+    const cojvr::runtime::Vec3 target_axis = Normalize(raw_target_offset);
     if (Length(target_axis) <= 1.0e-5F) return result;
+    const float native_reach = result.upper_length + result.lower_length;
+    // The live CoJ skeleton is materially shorter than the user's tracked
+    // shoulder-to-controller span in many ordinary poses. Keep the native bone
+    // lengths authoritative, but absorb a bounded amount of overreach before
+    // the hard two-bone clamp. Extreme targets still clamp and remain visible
+    // in telemetry instead of silently dragging an arm arbitrarily far.
+    constexpr float kBendReserveGameUnits = 0.75F;
+    constexpr float kMaxReachAdjustmentGameUnits = 12.0F;
+    const float bend_reserve = std::min(
+        kBendReserveGameUnits,
+        native_reach * 0.01F);
+    const float max_reach_adjustment = std::min(
+        kMaxReachAdjustmentGameUnits,
+        native_reach * 0.25F);
+    const float soft_reach = std::max(
+        result.upper_length,
+        native_reach - bend_reserve);
+    cojvr::runtime::Vec3 effective_target = controller_target;
+    result.effective_target_distance = result.raw_target_distance;
+    if (std::isfinite(result.raw_target_distance) && result.raw_target_distance > soft_reach) {
+        result.reach_adjustment = std::min(
+            result.raw_target_distance - soft_reach,
+            max_reach_adjustment);
+        result.effective_target_distance = result.raw_target_distance - result.reach_adjustment;
+        effective_target = Add(
+            geometry.shoulder,
+            Scale(target_axis, result.effective_target_distance));
+        result.reach_adjusted = result.reach_adjustment > 0.0F;
+    }
     const cojvr::runtime::Vec3 current_elbow =
         Subtract(geometry.elbow, geometry.shoulder);
     cojvr::runtime::Vec3 pole =
@@ -599,7 +630,7 @@ ArmIkPlan BuildArmIkPlan(
 
     const auto solved = cojvr::runtime::SolveTwoBoneIK(
         geometry.shoulder,
-        controller_target,
+        effective_target,
         pole,
         result.upper_length,
         result.lower_length);
@@ -840,6 +871,19 @@ BoneRotationDelta BuildHandResidualRotationDelta(
         current_hand_up, current_hand_forward, target_up, target_forward);
 }
 
+BoneRotationDelta LimitRotationMagnitude(
+    BoneRotationDelta rotation,
+    const float max_degrees) noexcept {
+    if (!rotation.valid || !std::isfinite(rotation.angle_degrees) ||
+        !std::isfinite(max_degrees) || max_degrees < 0.0F) {
+        return {};
+    }
+    if (rotation.no_op || rotation.angle_degrees <= max_degrees) return rotation;
+    rotation.angle_degrees = max_degrees;
+    rotation.no_op = max_degrees <= 0.001F;
+    return rotation;
+}
+
 cojvr::runtime::Vec3 BuildTrackedHandTarget(
     const cojvr::runtime::Vec3 head_world_target,
     const cojvr::runtime::Vec3 camera_right,
@@ -877,6 +921,28 @@ cojvr::runtime::Vec3 BuildTrackedHandTarget(
     };
     valid = Finite(target);
     return target;
+}
+
+cojvr::runtime::Vec3 BuildTrackedAimDirection(
+    const cojvr::runtime::Quaternion tracked_orientation,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    bool& valid) noexcept {
+    valid = false;
+    cojvr::runtime::Quaternion orientation{};
+    if (!NormalizeQuaternionChecked(tracked_orientation, orientation) ||
+        !NormalizeCameraBasis(camera_right, camera_up, camera_forward)) {
+        return {};
+    }
+    const cojvr::runtime::Vec3 tracking_forward = cojvr::runtime::RotateVector(
+        orientation, {0.0F, 0.0F, -1.0F});
+    if (!Finite(tracking_forward)) return {};
+    cojvr::runtime::Vec3 world = BasisToWorld(
+        tracking_forward, camera_right, camera_up, camera_forward);
+    world = Normalize(world);
+    valid = Finite(world) && Length(world) > 0.99F;
+    return valid ? world : cojvr::runtime::Vec3{};
 }
 
 PelvisLocomotionAnchor BuildPelvisLocomotionAnchor(

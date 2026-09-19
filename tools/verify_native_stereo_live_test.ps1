@@ -79,7 +79,7 @@ if ($RequireOpenVrRuntimeState) {
         "The first successful stereo submission did not prove scene focus belonged to the game process."
 }
 Assert-LogMatch `
-    "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/\{left,right\}/pose/handgrip gameplay=semantic_sense_profile owner=presenter_thread" `
+    "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/\{left,right\}/pose/handgrip aim_pose=/user/hand/\{left,right\}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread" `
     "The native-stereo OpenVR global/gameplay input action sets did not initialize."
 Assert-LogMatch `
     "native_stereo_factory_hook: status=installed" `

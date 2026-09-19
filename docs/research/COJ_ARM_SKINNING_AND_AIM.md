@@ -29,6 +29,14 @@ reported short-arm feel is a real native-chain reach constraint under the curren
 anchoring policy. It does not justify changing the already validated tracking axes; the next reach
 experiment should make shoulder/body anchoring or controlled extension explicit and measurable.
 
+Current host source now implements that experiment without changing the validated axes or native
+segment lengths. Targets beyond the measured arm reach are pulled back by a bounded amount (maximum
+12 game units for the live-sized chain) before the existing hard clamp. Telemetry records raw and
+effective target distance plus the adjustment, and extreme targets remain hard-clamped. The same
+candidate caps shared FORETWIST/hand axial roll at 100 degrees while leaving the rejected full
+post-FORETWIST wrist residual diagnostic-only. Physical anatomy remains unpromoted until a fresh
+run measures clamp frequency and visual reach.
+
 The video still rejects visual anatomy, although the earlier catastrophic mesh corruption is absent.
 It also confirms recurring local head/hair intrusion. Repeated recenter sometimes changed hand
 orientation in this artifact because the then-current policy discarded controller-to-hand
@@ -73,8 +81,10 @@ not establish controller-owned muzzle/shot direction. Evidence package SHA-256:
 For the separate local-head intrusion issue, shipped `PlayerBeing.SetupMeshAfterLoad()` provides
 static evidence that the exact game can hide individual mesh elements: it calls
 `GetElementID(String)` followed by `HideElement(int)` for `RayCap`. This is a candidate visibility
-boundary for VR, not yet an implementation. The exact head/hair element names and their effect on
-body/shadow rendering must be established before enabling local suppression.
+boundary for VR. Static mesh inspection identifies `RayHead`, `RayHair`, `RayCap`, `BillyHead`,
+`BillyHair` and `BillyTress`; current source resolves those names, preserves prior hidden state,
+hides only visible entries and restores only VR-owned changes through `UnhideElement(int)`. HMD and
+shadow behavior still require physical validation.
 
 ## The previous hierarchy assumption is false
 
@@ -131,10 +141,13 @@ Inspection uses `tools/inspect_java_bytecode.py` against the exact installed `co
   repurposed as a VR shortcut.
 
 Therefore moving the visible weapon during the transient render overlay cannot aim its bullets.
-A complete implementation needs a proven game-update/shot boundary feeding per-hand direction
-and muzzle origin after native aim calculation, with appropriate weapon identity, spread,
-focus/tracking-loss handling and restoration. The current render-only hook cannot guarantee that
-ownership. Aiming is researched but **not implemented** in the sibling-skinning candidate.
+Current source now uses a different path: OpenVR exposes left/right `/pose/tip`, shipped
+`EnumInvHand` proves `_RIGHT=0` and `_LEFT=1`, and the Java bridge writes the tip-derived game-world
+direction into `m_avLookDirDevForHand[0/1]` at the post-game-update/pre-render boundary. The native
+`GetFireDirForWeapon` path still owns accuracy/spread, ordinary fire origin remains
+`GetBeingLookFromPoint`, and the network-forced attack branch is untouched. This is an implemented
+aim-direction candidate, not proof of shot ownership: a live firing run must establish that the
+field survives at the actual attack boundary and that each hand's bullets follow its Sense tip.
 
 ## Other observations
 

@@ -41,6 +41,7 @@ constexpr std::size_t kGetFloatField = 102;
 constexpr std::size_t kSetFloatField = 111;
 constexpr std::size_t kGetStaticFieldId = 144;
 constexpr std::size_t kGetStaticObjectField = 145;
+constexpr std::size_t kNewStringUtf = 167;
 constexpr std::size_t kGetArrayLength = 171;
 constexpr std::size_t kGetObjectArrayElement = 173;
 
@@ -113,6 +114,7 @@ using GetFloatFieldFn = float(COJVR_JNICALL*)(void*, void*, void*);
 using SetFloatFieldFn = void(COJVR_JNICALL*)(void*, void*, void*, float);
 using GetStaticFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetStaticObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
+using NewStringUtfFn = void*(COJVR_JNICALL*)(void*, const char*);
 using GetArrayLengthFn = std::int32_t(COJVR_JNICALL*)(void*, void*);
 using GetObjectArrayElementFn = void*(COJVR_JNICALL*)(void*, void*, std::int32_t);
 
@@ -259,6 +261,10 @@ void JavaPlayerBridge::Reset() noexcept {
     active_game_module_field_ = nullptr;
     is_timer_freezed_method_ = nullptr;
     get_mesh_element_method_ = nullptr;
+    get_element_id_method_ = nullptr;
+    hide_element_method_ = nullptr;
+    unhide_element_method_ = nullptr;
+    is_element_hidden_method_ = nullptr;
     get_bone_joint_method_ = nullptr;
     get_bone_direction_method_ = nullptr;
     get_bone_perpendicular_method_ = nullptr;
@@ -293,11 +299,14 @@ void JavaPlayerBridge::Reset() noexcept {
     analog_axis_field_ = nullptr;
     analog_axis_sign_field_ = nullptr;
     analog_translate_method_ = nullptr;
+    look_dir_for_hand_field_ = nullptr;
     bone_read_lookup_attempted_ = false;
     element_world_read_lookup_attempted_ = false;
     element_world_basis_lookup_attempted_ = false;
     element_rotation_lookup_attempted_ = false;
     bone_rotation_lookup_attempted_ = false;
+    element_visibility_lookup_attempted_ = false;
+    aim_lookup_attempted_ = false;
     single_player_fallback_used_ = false;
     campaign_module_fallback_used_ = false;
     vm_ = nullptr;
@@ -859,6 +868,60 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     return true;
 }
 
+bool JavaPlayerBridge::TrySetPerHandAimDirection(
+    const int hand,
+    const JavaPlayerPosition& direction,
+    std::string* error) noexcept {
+    if (hand < 0 || hand > 1 || !std::isfinite(direction.x) ||
+        !std::isfinite(direction.y) || !std::isfinite(direction.z)) {
+        SetError(error, "per-hand aim direction input is invalid");
+        return false;
+    }
+    const float length_squared = direction.x * direction.x + direction.y * direction.y +
+        direction.z * direction.z;
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-8F) {
+        SetError(error, "per-hand aim direction is degenerate");
+        return false;
+    }
+    if (!being_ && !Refresh(error)) return false;
+    void* env = Environment(error);
+    if (!env || !being_ || !EnsureAimAccess(env, error)) return false;
+    const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    const auto get_length = EnvFunction<GetArrayLengthFn>(env, kGetArrayLength);
+    const auto get_element = EnvFunction<GetObjectArrayElementFn>(env, kGetObjectArrayElement);
+    if (!get_object || !get_length || !get_element) {
+        SetError(error, "required JNI per-hand aim functions are unavailable");
+        return false;
+    }
+    void* directions = get_object(env, being_, look_dir_for_hand_field_);
+    if (!directions || ClearException(env, error, "per-hand aim array read failed")) {
+        DeleteLocal(env, directions);
+        return false;
+    }
+    const std::int32_t count = get_length(env, directions);
+    if (ClearException(env, error, "per-hand aim array length read failed") || count <= hand) {
+        DeleteLocal(env, directions);
+        SetError(error, "per-hand aim array is incomplete");
+        return false;
+    }
+    void* vector = get_element(env, directions, hand);
+    if (!vector || ClearException(env, error, "per-hand aim vector read failed")) {
+        DeleteLocal(env, vector);
+        DeleteLocal(env, directions);
+        return false;
+    }
+    const float inverse_length = 1.0F / std::sqrt(length_squared);
+    const JavaPlayerPosition normalized{
+        direction.x * inverse_length,
+        direction.y * inverse_length,
+        direction.z * inverse_length,
+    };
+    const bool written = WriteVector(env, vector, normalized, error);
+    DeleteLocal(env, vector);
+    DeleteLocal(env, directions);
+    return written;
+}
+
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     if (being_ && env) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
@@ -867,6 +930,10 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     }
     being_ = nullptr;
     get_mesh_element_method_ = nullptr;
+    get_element_id_method_ = nullptr;
+    hide_element_method_ = nullptr;
+    unhide_element_method_ = nullptr;
+    is_element_hidden_method_ = nullptr;
     get_bone_joint_method_ = nullptr;
     get_bone_direction_method_ = nullptr;
     get_bone_perpendicular_method_ = nullptr;
@@ -890,6 +957,9 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     element_world_basis_lookup_attempted_ = false;
     element_rotation_lookup_attempted_ = false;
     bone_rotation_lookup_attempted_ = false;
+    element_visibility_lookup_attempted_ = false;
+    aim_lookup_attempted_ = false;
+    look_dir_for_hand_field_ = nullptr;
 }
 
 bool JavaPlayerBridge::ResolveBeingMethods(
@@ -930,6 +1000,75 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     get_position_vector_method_ = get_position;
     set_position_method_ = set_position;
     rotate_horizontally_method_ = rotate_horizontally;
+    return true;
+}
+
+bool JavaPlayerBridge::EnsureElementVisibilityAccess(
+    void* env, std::string* error) noexcept {
+    if (element_visibility_lookup_attempted_) {
+        if (get_element_id_method_ && hide_element_method_ && unhide_element_method_ &&
+            is_element_hidden_method_) {
+            return true;
+        }
+        SetError(error, "player mesh-element visibility path is unavailable");
+        return false;
+    }
+    element_visibility_lookup_attempted_ = true;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    if (!get_class || !get_method || !being_) {
+        SetError(error, "required JNI mesh-element visibility lookup functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (!player_class || ClearException(env, error, "GetObjectClass(element visibility) failed")) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    get_element_id_method_ =
+        get_method(env, player_class, "GetElementID", "(Ljava/lang/String;)I");
+    hide_element_method_ = get_method(env, player_class, "HideElement", "(I)Z");
+    unhide_element_method_ = get_method(env, player_class, "UnhideElement", "(I)Z");
+    is_element_hidden_method_ = get_method(env, player_class, "IsElementHidden", "(I)Z");
+    const bool failed = ClearException(env, error, "mesh-element visibility method lookup failed");
+    DeleteLocal(env, player_class);
+    if (failed || !get_element_id_method_ || !hide_element_method_ ||
+        !unhide_element_method_ || !is_element_hidden_method_) {
+        get_element_id_method_ = nullptr;
+        hide_element_method_ = nullptr;
+        unhide_element_method_ = nullptr;
+        is_element_hidden_method_ = nullptr;
+        return false;
+    }
+    return true;
+}
+
+bool JavaPlayerBridge::EnsureAimAccess(void* env, std::string* error) noexcept {
+    if (aim_lookup_attempted_) {
+        if (look_dir_for_hand_field_) return true;
+        SetError(error, "player per-hand aim direction path is unavailable");
+        return false;
+    }
+    aim_lookup_attempted_ = true;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    if (!get_class || !get_field || !being_) {
+        SetError(error, "required JNI per-hand aim lookup functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (!player_class || ClearException(env, error, "GetObjectClass(per-hand aim) failed")) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    look_dir_for_hand_field_ =
+        get_field(env, player_class, "m_avLookDirDevForHand", "[LVector;");
+    const bool failed = ClearException(env, error, "per-hand aim field lookup failed");
+    DeleteLocal(env, player_class);
+    if (failed || !look_dir_for_hand_field_) {
+        look_dir_for_hand_field_ = nullptr;
+        return false;
+    }
     return true;
 }
 
@@ -1351,6 +1490,104 @@ bool JavaPlayerBridge::TryGetMeshElement(
         return false;
     }
     element = result;
+    return true;
+}
+
+bool JavaPlayerBridge::TryGetMeshElementByName(
+    const char* name, int& element, std::string* error) noexcept {
+    element = -1;
+    if (!name || !*name) {
+        SetError(error, "mesh element name is empty");
+        return false;
+    }
+    void* env = Environment(error);
+    if (!env || !being_) {
+        SetError(error, "player being is not resolved");
+        return false;
+    }
+    if (!EnsureElementVisibilityAccess(env, error)) return false;
+    const auto new_string = EnvFunction<NewStringUtfFn>(env, kNewStringUtf);
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    if (!new_string || !call_int) {
+        SetError(error, "required JNI mesh-element name lookup functions are unavailable");
+        return false;
+    }
+    void* java_name = new_string(env, name);
+    if (!java_name || ClearException(env, error, "NewStringUTF(element name) failed")) {
+        DeleteLocal(env, java_name);
+        return false;
+    }
+    JValue args[1]{};
+    args[0].l = java_name;
+    const std::int32_t result = call_int(env, being_, get_element_id_method_, args);
+    const bool failed = ClearException(env, error, "GetElementID call failed");
+    DeleteLocal(env, java_name);
+    if (failed || result < 0) {
+        if (!failed) SetError(error, "named mesh element is unavailable");
+        return false;
+    }
+    element = result;
+    return true;
+}
+
+bool JavaPlayerBridge::TryGetMeshElementHidden(
+    const int element, bool& hidden, std::string* error) noexcept {
+    hidden = false;
+    if (element < 0) {
+        SetError(error, "mesh element id is invalid");
+        return false;
+    }
+    void* env = Environment(error);
+    if (!env || !being_) {
+        SetError(error, "player being is not resolved");
+        return false;
+    }
+    if (!EnsureElementVisibilityAccess(env, error)) return false;
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!call_boolean) {
+        SetError(error, "JNI CallBooleanMethodA is unavailable");
+        return false;
+    }
+    JValue args[1]{};
+    args[0].i = element;
+    hidden = call_boolean(env, being_, is_element_hidden_method_, args) != 0;
+    return !ClearException(env, error, "IsElementHidden call failed");
+}
+
+bool JavaPlayerBridge::TrySetMeshElementHidden(
+    const int element, const bool hidden, std::string* error) noexcept {
+    if (element < 0) {
+        SetError(error, "mesh element id is invalid");
+        return false;
+    }
+    void* env = Environment(error);
+    if (!env || !being_) {
+        SetError(error, "player being is not resolved");
+        return false;
+    }
+    if (!EnsureElementVisibilityAccess(env, error)) return false;
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!call_boolean) {
+        SetError(error, "JNI CallBooleanMethodA is unavailable");
+        return false;
+    }
+    JValue args[1]{};
+    args[0].i = element;
+    const bool changed = call_boolean(
+        env,
+        being_,
+        hidden ? hide_element_method_ : unhide_element_method_,
+        args) != 0;
+    if (ClearException(env, error, hidden ? "HideElement call failed" : "UnhideElement call failed")) {
+        return false;
+    }
+    if (!changed) {
+        bool current = false;
+        if (!TryGetMeshElementHidden(element, current, error) || current != hidden) {
+            SetError(error, hidden ? "HideElement did not hide the element" : "UnhideElement did not show the element");
+            return false;
+        }
+    }
     return true;
 }
 

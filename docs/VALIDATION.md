@@ -6,7 +6,8 @@ Run `20260919T153546Z-705460dca03b` is the latest formal single-process physical
 clean source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
 `8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. The evidence manifest reports
-`runtimeEnded=true` and `incomplete=false`; staging is now clear. Transport fenced 4,312 frames,
+`runtimeEnded=true` and `incomplete=false`; that run was finalized and unstaged before the next
+candidate was prepared. Transport fenced 4,312 frames,
 collected 4,311, submitted 4,309 new plus 3,828 repeated frames, and recorded zero capture-ring drops
 or submit failures. Sampled CPU copy was 10.253 ms average / 13.974 ms p95. The inner presenter still
 ended with `shutdown_complete=false`, so that shutdown sub-gate remains open.
@@ -28,6 +29,44 @@ boundary remains unresolved. Video SHA-256:
 `B132BD5709B79E8396CF4048B98A88EA70FF0FFFC88F4EE6C27255E5657ACB11`; evidence package SHA-256:
 `0AF7723484528C368549F0DB46FE0C682F078B3120CCA3E67F7EA3DD4A1C4BE8`; packaged runtime-log SHA-256:
 `57E56F94F963AA121B63BD4DD5C23644655A46C3285069ACC02471DBCA647BE7`.
+
+Post-run source implements the four remaining corrections as the next physical candidate. The arm
+adapter keeps the live-proven tracking axes and measured native bone lengths, but remaps ordinary
+overreach by at most 12 game units before invoking the existing hard-clamped two-bone solver;
+extreme targets still clamp. Telemetry now separates `raw_target_distance`,
+`effective_target_distance`, `reach_adjustment`, `reach_adjusted` and the final `target_clamped`.
+The measured sibling skinning contract remains authoritative, while shared FORETWIST/hand axial roll
+is bounded to 100 degrees and the rejected full wrist residual remains diagnostic.
+
+The exact local player visibility path is also implemented. Static mesh inspection identifies
+`RayHead`, `RayHair`, `RayCap`, `BillyHead`, `BillyHair` and `BillyTress`; the bridge resolves them
+with the shipped `GetElementID(String)`, records `IsElementHidden(int)`, hides only originally visible
+elements and restores only VR-owned changes with `UnhideElement(int)`. Tracking loss and shutdown
+explicitly restore the visibility transaction. This prevents whole-actor suppression, but HMD and
+shadow behavior require live evidence.
+
+Controller aiming now has separate OpenVR `/pose/tip` inputs while body hands continue to use
+`/pose/handgrip`. Shipped `EnumInvHand.class` establishes right=0 and left=1. The exact CoJ bridge
+writes the tip-derived world direction into `m_avLookDirDevForHand` after the native game update and
+before rendering; `GetFireDirForWeapon` still applies native spread/accuracy and
+`GetFireOriginForWeapon` still uses `GetBeingLookFromPoint`. No network-forced attack state is used.
+This timing/ownership path is **implemented but not live-proven**; a physical firing test must show
+that shots follow the corresponding Sense controller before aiming is promoted.
+
+Fresh Debug and Release builds each complete the 25-outcome CTest suite with **24 PASS plus the one
+expected classic-D3D9 shared-texture capability SKIP**, zero failures. Host tests cover within-reach,
+small-overreach and extreme-overreach policy, the 100-degree rotation limit, neutral `/pose/tip`
+direction mapping, invalid pose rejection and provenance of both tip bindings. JNI visibility and
+shot ownership still require the exact running game and therefore remain below live-tested state.
+
+Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is currently staged from clean source
+`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
+`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
+`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
+Release artifact, repeated the same 24 PASS plus expected capability SKIP result, enabled Body IK
+from process start and applied the reversible `1920x1080`/FSAA0 profile. It contains all four
+post-run corrections above and is preparation/host evidence only until one clean physical run
+exercises head suppression, reach/twist behavior and controller-owned firing direction.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
