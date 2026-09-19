@@ -131,7 +131,10 @@ The isolated OpenVR path has demonstrated runtime initialization, eye configurat
 pose acquisition and accepted D3D11 submissions. The exact Call of Juarez path has additionally
 demonstrated sustained physically visible stereo submission, scene-focus handoff, repeated-frame
 presentation, explicit render-pose submission and clean runtime teardown. Frame pacing/performance
-remains the active physical gate.
+remains an open product constraint. The immediate staged physical gate is the host-tested startup
+presentation policy: acquire scene ownership from `flat_theater`, operate the Sense menu pointer and
+selection seam, re-anchor the flat plane with Create, then transition to `native_stereo` in the same
+process without click-through.
 
 ## OpenXR direction
 
@@ -164,12 +167,14 @@ native-stereo render-view proof:
 13. fourth physical attempt — both complete `0x30FB0` passes captured distinct real color RT0 results and submitted them to OpenVR; binocular gameplay was visible, but fusion/comfort and frame pacing were poor and shutdown remained incomplete;
 14. corrected CoJ world scale, Sense recenter, scene-focus handoff and clean finalization — live-tested;
 15. preserve the exact render HMD pose through the asynchronous capture/mailbox path and submit new/repeated frames with OpenVR explicit render-pose metadata — live-tested by `20260916T224239Z-e43b46698e5c`, which removed the reported head-turn snap-back;
-16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — current physical gate;
+16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — live performance work remains open;
 17. Phase 5 resize/Reset/new-device and paused-producer acceptance coverage — host-tested;
 18. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization — host-tested; one consolidated physical run now checks those contracts together with the active performance gate;
 19. positional 6DOF and body/IK preflight are implemented at host level, including read-only pelvis/leg geometry plus measured two-bone leg solving; run `20260917T161917Z-909b63e114af` proved Sense tracking and showed Session-based campaign actor discovery is empty;
 20. shipped bytecode supplies the exact campaign ownership route `LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer()`; the JNI bridge verifies the active module type and uses that fallback only for the empty-Session single-player case — live-tested by `20260917T172007Z-e6232c4778d2` together with successful actor reconciliation and arm-writer invocation, while visual arm composition failed and remains under correction;
 21. unresolved/invalid actor reconciliation fails closed to HMD rotation plus native stereo eye offsets: room-scale head translation is suppressed until the actor can absorb it, preventing the render camera from walking away from the character body; run `20260917T163732Z-03df947b8d50` physically confirmed that visible-body fallback while body IK itself was disabled.
+22. diagnostic multiprocess run `20260919T162808Z-fb75cb34977a` showed both starts entering with no CoJ scene focus and the SteamVR dashboard visible until the first native-stereo submit; current source therefore captures startup/menu/loading backbuffer content through the surviving swap-chain `Present` seam as `flat_theater` and lets that content claim the VR scene before gameplay — host-tested, physical gate pending.
+23. flat-theater interaction adds a renderer-owned Sense ray/cursor and exact-CoJ menu click bridge with dedicated UI-select actions, focus/ray-loss release, Create re-anchor support and a transition fence that prevents a held menu trigger becoming a gameplay shot — host-tested; candidate `20260919T174647Z-67b3c560acd0` is staged for one-process physical validation of the complete flat-menu-to-native-stereo sequence.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
