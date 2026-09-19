@@ -11,10 +11,14 @@ clamp, a 100-degree limit on shared FORETWIST/hand axial roll, reversible per-el
 head/hair suppression, and separate `/pose/tip` controller aiming into the exact per-hand native
 look-direction state. These four corrections require a fresh physical run before promotion.
 
-Candidate `20260919T162808Z-fb75cb34977a` is staged from clean source `7d4f94b` with Body IK enabled
-from process start and the reversible `1920x1080`/FSAA0 profile active. Its Release preparation
-passed 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. It is the active
-physical gate; no result from those four corrections is promoted until this exact candidate is run.
+Candidate `20260919T162808Z-fb75cb34977a` is diagnostic only after two launches under the same run
+identity both left the SteamVR interface stuck over the game. Telemetry shows CoJ started with no
+scene focus and only acquired it after native gameplay stereo produced its first submit. The active
+presentation task is therefore the host-tested `flat_theater -> native_stereo` startup/fallback
+policy: ordinary intro/menu/loading backbuffer content is submitted from the surviving swap-chain
+Present path so the app can own the VR scene from startup, Create re-anchors the stable flat view,
+and gameplay transitions automatically to true stereo. Debug and Release each pass 24 tests plus the
+expected classic-D3D9 shared-texture capability SKIP; a fresh physical run is still required.
 
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-

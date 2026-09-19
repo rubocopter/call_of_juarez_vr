@@ -75,8 +75,15 @@ int main() {
     }
 
     mailbox.Reset();
-    if (!mailbox.Publish(MakeFrame(1)) || !mailbox.WaitConsumeLatest(consumed, 1)) {
-        return Fail("mailbox reset did not restore producer/consumer operation");
+    StereoCpuFrame flat = MakeFrame(10);
+    flat.transport_sequence = 1;
+    flat.presentation_mode = cojvr::backends::d3d9::FramePresentationMode::flat_theater;
+    StereoCpuFrame stereo = MakeFrame(1);
+    stereo.transport_sequence = 2;
+    if (!mailbox.Publish(std::move(flat)) || !mailbox.Publish(std::move(stereo)) ||
+        !mailbox.WaitConsumeLatest(consumed, 1) || consumed.capture_sequence != 1 ||
+        consumed.transport_sequence != 2) {
+        return Fail("mailbox did not preserve owner ordering across producer sequence domains");
     }
 
     std::cout << "Bounded latest-frame mailbox tests passed\n";

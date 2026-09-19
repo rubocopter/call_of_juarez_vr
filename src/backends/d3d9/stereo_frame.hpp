@@ -13,6 +13,11 @@ enum class CpuPixelFormat : std::uint8_t {
     bgrx8_unorm,
 };
 
+enum class FramePresentationMode : std::uint8_t {
+    native_stereo,
+    flat_theater,
+};
+
 struct CpuEyeFrame {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
@@ -25,9 +30,14 @@ struct StereoCpuFrame {
     std::uintptr_t device_id = 0;
     std::uint64_t generation = 0;
     std::uint64_t capture_sequence = 0;
+    // Optional owner-assigned ordering sequence. This lets two producer paths
+    // (startup flat capture and native stereo) share the same latest-frame
+    // mailbox without conflating their independent capture counters.
+    std::uint64_t transport_sequence = 0;
     std::uint64_t render_pose_sequence = 0;
     runtime::Pose render_hmd_pose{};
     std::chrono::steady_clock::time_point capture_time{};
+    FramePresentationMode presentation_mode = FramePresentationMode::native_stereo;
     std::array<CpuEyeFrame, 2> eyes{};
 };
 

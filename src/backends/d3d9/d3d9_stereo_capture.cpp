@@ -252,20 +252,38 @@ bool D3D9StereoCapture::CaptureEye(
     const runtime::Eye eye,
     const std::uint64_t frame_sequence,
     const std::uint64_t generation) noexcept {
-    if (!device || frame_sequence == 0 || generation == 0) {
+    if (!device) {
+        impl_->last_error = "D3D9 stereo capture requires device, frame and generation";
+        return false;
+    }
+    try {
+        ComPtr<IDirect3DSurface9> source;
+        const HRESULT hr = device->GetRenderTarget(0, &source);
+        if (FAILED(hr) || !source) {
+            impl_->last_error = Failure("GetRenderTarget(0)", FAILED(hr) ? hr : E_FAIL);
+            return false;
+        }
+        return CaptureEyeSurface(device, source.Get(), eye, frame_sequence, generation);
+    } catch (...) {
+        impl_->last_error = "D3D9 stereo eye capture raised an exception";
+        return false;
+    }
+}
+
+bool D3D9StereoCapture::CaptureEyeSurface(
+    IDirect3DDevice9* device,
+    IDirect3DSurface9* source_surface,
+    const runtime::Eye eye,
+    const std::uint64_t frame_sequence,
+    const std::uint64_t generation) noexcept {
+    if (!device || !source_surface || frame_sequence == 0 || generation == 0) {
         impl_->last_error = "D3D9 stereo capture requires device, frame and generation";
         return false;
     }
     try {
         const auto begin = std::chrono::steady_clock::now();
         impl_->last_error.clear();
-        ComPtr<IDirect3DSurface9> source;
-        HRESULT hr = device->GetRenderTarget(0, &source);
-        if (FAILED(hr) || !source) {
-            impl_->last_error = Failure("GetRenderTarget(0)", FAILED(hr) ? hr : E_FAIL);
-            return false;
-        }
-        if (!impl_->EnsureResources(device, source.Get(), generation) ||
+        if (!impl_->EnsureResources(device, source_surface, generation) ||
             !impl_->AcquireSlot(frame_sequence)) {
             return false;
         }
@@ -274,14 +292,14 @@ bool D3D9StereoCapture::CaptureEye(
         const HRESULT back_buffer_result =
             device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
         const bool source_is_backbuffer = SUCCEEDED(back_buffer_result) && back_buffer &&
-            source.Get() == back_buffer.Get();
+            source_surface == back_buffer.Get();
         D3DVIEWPORT9 viewport{};
         const bool viewport_valid = SUCCEEDED(device->GetViewport(&viewport));
 
         Impl::Slot& slot = impl_->slots[impl_->current_slot];
         const std::size_t eye_index = EyeIndex(eye);
-        hr = device->StretchRect(
-            source.Get(), nullptr, slot.gpu_eyes[eye_index].Get(), nullptr, D3DTEXF_NONE);
+        HRESULT hr = device->StretchRect(
+            source_surface, nullptr, slot.gpu_eyes[eye_index].Get(), nullptr, D3DTEXF_NONE);
         if (FAILED(hr)) {
             impl_->last_error = Failure("stereo capture GPU copy StretchRect", hr);
             slot.ResetState();

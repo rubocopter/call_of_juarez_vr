@@ -45,16 +45,25 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
-Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is staged from clean source
-`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
-`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
-`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
-Release artifact and passed 24 tests plus the expected classic-D3D9 shared-texture capability SKIP.
-Body IK is enabled from process start and the reversible `1920x1080`/FSAA0 profile is active. This
-candidate contains local head/hair suppression, bounded 12-unit overreach remapping, 100-degree
-shared FORETWIST/hand axial-roll limiting, and controller `/pose/tip` direction ownership for the
-native per-hand firing direction. All four corrections are host-tested only until this staged run is
-physically exercised.
+Run `20260919T162808Z-fb75cb34977a` is diagnostic multiprocess evidence and is no longer staged.
+The user launched it twice (PIDs 28408 and 24032) and both starts left the SteamVR interface stuck
+over the game. In each process the presenter initially reported `scene_focus_process_id=0` with
+`dashboard_visible=true`; CoJ did not obtain scene focus until the first native-stereo frame became
+presentable and the first scene submit completed. Reusing one run ID across two processes also
+prevents formal promotion. The staging tool now reports `Staging: none`; no staged project D3D9 or
+OpenVR files remain in the game directory. Treat the residual run manifest/log as diagnostic data.
+
+Current host source replaces that startup contract with a Penumbra-style presentation policy adapted
+to CoJ's classic-D3D9 ownership. The implicit swap-chain `Present` hook captures the game backbuffer
+as `flat_theater` content whenever no native-stereo producer has been active for 250 ms. The presenter
+claims the OpenVR scene as soon as that flat content exists, repeats the latest flat frame at compositor
+cadence, anchors it to a stable HMD pose and lets left-Sense Create re-anchor it. Native gameplay
+automatically switches to `native_stereo`; later menus/loading screens can fall back to `flat_theater`.
+The flat path deliberately permits identical eye content while native stereo retains the distinct-eye
+fail-closed check. The old device-vtable `Present` hook is not reused; the swap-chain hook is used
+because historical live evidence showed it remained owned when the device slots were restored by
+another participant. Debug and Release each pass 24 tests plus the expected classic-D3D9 shared-
+texture capability SKIP. This startup/fallback policy is **host-tested only** until a fresh physical run.
 
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
@@ -102,7 +111,7 @@ hand (`hand_rotation_mode=sibling_shared_roll`), verifies both complete bases an
 elements. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`. Physical anatomy remains unpromoted.
 The user has additionally authorized investigating/fixing aiming where feasible. Exact bytecode
 shows shots use per-hand look direction and look origin, not render-time barrel transforms;
-the current staged source writes controller `/pose/tip` direction into the per-hand native look
+the current host-tested source writes controller `/pose/tip` direction into the per-hand native look
 direction after the game update and before rendering, while preserving native spread/accuracy and
 native fire origin. Physical firing evidence is still required before promotion.
 

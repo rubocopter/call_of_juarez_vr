@@ -88,6 +88,11 @@ int main() {
 
     const HRESULT present_result = swap_chain->Present(nullptr, nullptr, nullptr, nullptr, 0);
     const auto callbacks = g_present_callbacks.load(std::memory_order_relaxed);
+    const bool restored = cojvr::backends::d3d9::RestoreAllSwapChainVtableHooks();
+    const HRESULT restored_present_result =
+        swap_chain->Present(nullptr, nullptr, nullptr, nullptr, 0);
+    const auto callbacks_after_restore =
+        g_present_callbacks.load(std::memory_order_relaxed);
 
     swap_chain->Release();
     device->Release();
@@ -100,7 +105,13 @@ int main() {
     if (FAILED(present_result) && present_result != D3DERR_DEVICELOST) {
         return Fail("D3D9 swapchain Present returned an unexpected failure");
     }
+    if (!restored || callbacks_after_restore != callbacks) {
+        return Fail("D3D9 swapchain Present hook did not restore cleanly");
+    }
+    if (FAILED(restored_present_result) && restored_present_result != D3DERR_DEVICELOST) {
+        return Fail("restored D3D9 swapchain Present returned an unexpected failure");
+    }
 
-    std::cout << "d3d9 swapchain Present hook passed\n";
+    std::cout << "d3d9 swapchain Present hook install/restore passed\n";
     return 0;
 }

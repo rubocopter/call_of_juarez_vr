@@ -2,16 +2,27 @@
 
 ## Current checkpoint
 
-Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is staged from clean source
-`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
-`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
-`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
-Release artifact and passed 24 tests plus the expected classic-D3D9 shared-texture capability SKIP.
-Body IK is enabled from process start and the reversible `1920x1080`/FSAA0 profile is active. This
-is the first physical candidate containing the four host-tested corrections below: local head/hair
-suppression, bounded 12-unit overreach remapping, 100-degree shared FORETWIST/hand axial-roll
-limiting, and controller `/pose/tip` ownership of the native per-hand firing direction. Do not
-promote any of those four paths until this run supplies physical evidence.
+Run `20260919T162808Z-fb75cb34977a` is now diagnostic multiprocess evidence, not an active candidate.
+The user launched it twice and both starts left the SteamVR interface stuck over the game. PID 28408
+and PID 24032 both initialized with `scene_focus_process_id=0` and `dashboard_visible=true`; scene
+focus moved to CoJ only after a native-stereo frame reached `scene_ready` and the first scene submit
+completed. This directly rejects the previous policy of postponing compositor pacing until gameplay
+stereo exists. Reusing the run ID for two processes also prevents formal promotion. Current tooling
+reports `Staging: none`; the game directory has no staged project `d3d9.dll`, `openvr_api.dll`, stage
+state or active video-profile state. The residual `.cojvr-run.json` and `cojvr.log` are diagnostic.
+
+Current source implements a Penumbra-style startup/fallback presentation policy using CoJ's proven
+classic-D3D9 boundaries. The implicit swap-chain `Present` hook captures the backbuffer into a
+separate deferred ring when native stereo has been absent for 250 ms. Every second flat `Present` is
+captured to limit CPU-readback pressure, while the OpenVR presenter repeats the latest image at
+compositor cadence. Flat content is centered inside a larger black eye texture, submitted from a
+stable HMD anchor and re-anchored by left-Sense Create. When the exact CoJ stereo producer resumes,
+the presenter automatically switches to `native_stereo`; if it later stops for menus/loading, it can
+return to `flat_theater`. Flat content may have identical eyes; native stereo still fails closed on
+identical RGB. A shared transport sequence orders the two producer domains without conflating their
+capture counters, and shutdown explicitly restores the swap-chain hook. Fresh Debug and Release
+suites each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This new
+presentation path is host-tested only and requires a fresh one-process physical gate.
 
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
@@ -94,12 +105,13 @@ sibling and shared axial roll into FORETWIST and hand. It checks all four output
 retains positional/both-eye/restore checks and reports `hand_rotation_mode=sibling_shared_roll`.
 The full wrist residual remains diagnostic. The old `foretwist_only` no-op-hand requirement is
 superseded by this measured sibling contract. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
-Aiming research proves bullets use native per-hand look directions and look origin. The current
-candidate now writes controller `/pose/tip` direction at the post-update/pre-render boundary while
+Aiming research proves bullets use native per-hand look directions and look origin. Current source
+writes controller `/pose/tip` direction at the post-update/pre-render boundary while
 leaving native fire origin, spread and network behavior intact; physical shot-direction ownership
 still needs to be demonstrated.
 Head intrusion and incomplete inner presenter/factory shutdown remain open. Do not promote body
-anatomy from successful telemetry alone. The fresh candidate above is ready for physical validation.
+anatomy from successful telemetry alone. The next candidate must include the host-tested flat-theater
+startup/fallback path described at the top of this handoff.
 
 Audit-remediation Phases 0-4 remain **host-tested**, and their two run-bound manual Call
 of Juarez observations remain authoritative. The user explicitly deferred repeating the

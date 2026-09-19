@@ -22,6 +22,8 @@ struct SwapChainHookCallbacks {
 [[nodiscard]] HookRegistryOutcome InstallSwapChainVtableHookDetailed(
     IDirect3DDevice9* device, SwapChainHookCallbacks callbacks) noexcept;
 
+[[nodiscard]] bool RestoreAllSwapChainVtableHooks() noexcept;
+
 [[nodiscard]] HookDiagnostics InspectAllSwapChainVtableHooks() noexcept;
 
 } // namespace cojvr::backends::d3d9
