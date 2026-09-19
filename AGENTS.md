@@ -247,15 +247,34 @@ the next arm task to controller/hand orientation plus forearm/wrist roll/twist c
 another positional-axis change. Evidence package SHA-256:
 `CA3F758168AAE782E727EFCF0A24B6F46E821297538BB1A78883AA2CBA93DA74`.
 
-Current host source implements that next arm slice without changing the live-proven controller
-position mapping or visible writer. It captures a per-side controller-orientation reference against
-the current animated hand frame, applies later Sense orientation as a calibration-relative delta,
-splits roll into forearm twist around the solved lower-arm axis plus residual hand rotation, and
-extends the `RotateElementWithChildren` transaction through the native hand element. Restoration is
-hand -> forearm twist -> forearm -> upper arm and must recover the complete natural hand/arm frame.
-Telemetry identifies the contract as `hand_orientation=calibrated_controller_delta` and requires
-`hand_orientation_reached=true`; invalid controller orientation fails closed. This composition is
-**host-tested only** and still requires one fresh physical visual gate before Body IK promotion.
+Run `20260919T011421Z-bef5076cd07e` physically exercised the explicit PS VR2 Sense
+`/pose/handgrip` path. It completed 14,968 left/right arm applications and 14,968 restores with no
+restore failure, plus seven safe recenter recoveries, so the writer/restoration and handgrip pose
+source remained stable. Visual anatomy still failed. In the sampled palms-up pose FORETWIST was
+already approximately symmetric between sides (~89/~96 degrees average), while the additional hand
+residual was still very large (~98/~122 degrees average). This isolates the next experiment to the
+residual wrist/hand rotation rather than positional IK, tracked-Z, FORETWIST ownership or the native
+writer.
+
+Current host source therefore keeps computing the post-FORETWIST hand residual as diagnostic
+telemetry but does **not** apply it. The visible transaction is upper arm -> forearm -> FORETWIST;
+the hand keeps its native child relation to FORETWIST. Positional elbow/wrist target agreement and
+complete natural-frame restoration remain mandatory, while calibrated full-hand orientation is no
+longer an acceptance requirement for this candidate. Telemetry identifies the experiment with
+`hand_orientation=calibrated_controller_delta_foretwist_only`,
+`hand_residual_source=post_foretwist_observed_basis_diagnostic` and
+`hand_rotation_mode=foretwist_only`; `hand_rotation_no_op=true` is required. Fresh Debug and Release
+host suites pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This
+twist-only composition still requires a fresh physical visual gate before Body IK promotion.
+
+Audit-remediation Phase 7 now has complete host transaction acceptance. The isolated
+`tools/test_deployment_transactions.ps1` matrix recovers 15 staging failure checkpoints, 10
+unstaging failure checkpoints and two repeated full stage/unstage cycles; `provenance_tools` also
+proves active-`CoJ.exe` rejection before mutation. Phase 8's neutral math/semantic contract is also
+host-tested: `EyeView::eye_to_head`, `LocatedEyeView::tracking_from_eye` and
+`EyeRenderRecommendation` have distinct meanings; axes/units/handedness/composition are explicit;
+asymmetric reference projection and invalid/non-finite inputs are covered. Do not infer from Phase 8
+that the experimental OpenXR runtime/session lifetime is promoted; that remains a separate A10 task.
 
 The same host source adds the first exact-CoJ gameplay-input profile. OpenVR exposes a neutral
 `/actions/gameplay` set for move, turn, left/right fire, jump, reload, run, crouch, interact, weapon

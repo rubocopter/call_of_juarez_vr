@@ -277,12 +277,16 @@ Host/simulated tests cover focus loss, one-eye submit failure, invalid tracking,
 
 **Goal:** guarantee recoverability and prevent stale evidence from validating a new build.
 
-**Current status:** substantially implemented and host-tested at the transaction-helper level.
+**Current status:** host-tested acceptance complete.
 Active-game rejection, Win32/x86 preflight, run-bound stale-evidence rejection,
 journal-before-mutation, verified temporary installation and interrupted stage/unstage recovery are
-implemented. Helper-level tests cover clean/original/temporary/partial-directory/missing-backup and
-external-change recovery paths. Completion still requires end-to-end failure injection after each
-script mutation, repeated real stage/unstage cycles and an active-process integration test.
+implemented. Helper tests cover clean/original/temporary/partial-directory/missing-backup and
+external-change recovery paths. `tools/test_deployment_transactions.ps1` additionally exercises the
+real stage/unstage scripts against isolated copies of the exact installed game/engine binaries. The
+current matrix recovers all 15 scripted staging failure checkpoints, all 10 scripted unstaging
+failure checkpoints, completes two repeated full stage/unstage cycles, and `provenance_tools`
+verifies that an active `CoJ.exe` is rejected before mutation. No game or SteamVR process is launched
+by this evidence.
 
 ### Work
 
@@ -314,6 +318,9 @@ Any interruption either leaves originals intact or provides an unambiguous recov
 
 **Goal:** ensure game-neutral VR transforms mean the same thing across runtime backends before camera integration.
 
+**Current status:** host-tested neutral math/semantic acceptance complete. OpenXR runtime/handle
+lifetime remains a separate Phase 6/A10 ownership concern and is not promoted by this result.
+
 ### Work
 
 - distinguish eye-to-head transform from an eye pose in tracking/reference space;
@@ -324,7 +331,13 @@ Any interruption either leaves originals intact or provides an unambiguous recov
 
 ### Acceptance
 
-The same neutral field has one documented semantic meaning for every producer and consumer, with tests covering asymmetric stereo projection.
+The same neutral field has one documented semantic meaning for every producer and consumer, with
+tests covering asymmetric stereo projection. `EyeView` is static eye-to-head optics,
+`LocatedEyeView` is a time-located `tracking_from_eye` pose, and render-size recommendations use the
+separate `EyeRenderRecommendation` type. The neutral convention is right-handed `+X` right, `+Y` up,
+`-Z` forward, metres, `(x,y,z,w)` quaternions and destination-from-source transform naming. OpenVR
+and OpenXR adapters reject invalid/non-finite eye data, and reference-projection tests cover
+asymmetric FOV plus invalid near/far/FOV inputs.
 
 ## Execution order
 
@@ -352,14 +365,15 @@ Phases 0-4 host baseline
   -> Phase 5 host acceptance complete / live-exercised
   -> Phase 6 host acceptance complete
   -> one consolidated native-stereo performance/state/focus physical run
-  -> Phase 7 transactional deployment completion
-  -> Phase 8/general portability hardening before promoting broader runtime/game reuse
+  -> Phase 7 transactional deployment host acceptance complete
+  -> Phase 8 neutral math/semantic host acceptance complete
+  -> remaining backend-specific lifetime/general portability hardening before broader runtime reuse
   -> positional 6DOF / gameplay controllers / interactions / full-body IK
 ```
 
-Phase 8 may progress through host tests in parallel. Its remaining backend-neutral/OpenXR work is
-a portability/hardening requirement; it no longer retroactively blocks the already-proven exact
-Call of Juarez/OpenVR stereo path.
+Phase 8's neutral math contract is now host-tested. Remaining OpenXR lifetime/state ownership stays
+tracked independently under A10; it does not retroactively block the already-proven exact Call of
+Juarez/OpenVR stereo path.
 
 ### Camera/render boundary proof — live-tested
 

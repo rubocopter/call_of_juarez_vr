@@ -369,7 +369,7 @@ if ($RequireBodyIk) {
             if ($Line -notmatch ";plan_valid=true;" -or
                 $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
-                $Line -notmatch ";hand_orientation=calibrated_controller_delta;" -or
+                $Line -notmatch ";hand_orientation=calibrated_controller_delta_foretwist_only;" -or
                 $Line -notmatch ";controller_orientation_valid=true;" -or
                 $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
                 $Line -notmatch ";upper_element_position=\(" -or
@@ -386,11 +386,16 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";forearm_native_axis=\(" -or
                 $Line -notmatch ";forearm_twist_native_axis=\(" -or
                 $Line -notmatch ";twist_owner=foretwist_element;" -or
-                $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis;" -or
+                $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis_diagnostic;" -or
+                $Line -notmatch ";hand_residual_native_axis=\(" -or
+                $Line -notmatch ";hand_residual_degrees=[-+0-9.eE]+;" -or
+                $Line -notmatch ";hand_rotation_mode=foretwist_only;" -or
                 $Line -notmatch ";hand_native_axis=\(" -or
+                $Line -notmatch ";hand_rotation_degrees=[+-]?0(?:\.0+)?(?:[eE][+-]?0+)?;" -or
+                $Line -notmatch ";hand_rotation_no_op=true;" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or
-                $Line -notmatch ";hand_orientation_reached=true;" -or
+                $Line -notmatch ";hand_orientation_reached=(?:true|false);" -or
                 $Line -notmatch ";rollback_attempted=false;rollback_ok=true;" -or
                 $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
                 $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=RotateElementWithChildren") {
@@ -412,10 +417,10 @@ if ($RequireBodyIk) {
             throw "The body IK gate did not capture the natural $Side arm immediately before the element overlay."
         }
         if (-not ($BodyWriteProbes | Where-Object {
-            $_ -match "result=changed .*;side=$Side;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;.*;hand_orientation_reached=true;" -and
+            $_ -match "result=changed .*;side=$Side;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;.*;hand_orientation_reached=(?:true|false);" -and
             $_ -match ";writer=RotateElementWithChildren"
         })) {
-            throw "The body IK gate did not prove that the $Side element writer reached both arm position and calibrated hand orientation."
+            throw "The body IK gate did not prove that the $Side element writer reached the solved arm position."
         }
         foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
             if (-not ($BodyRenderProbes | Where-Object {

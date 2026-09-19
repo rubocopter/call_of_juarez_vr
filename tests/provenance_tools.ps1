@@ -37,6 +37,7 @@ try {
         "collect_run_evidence.ps1",
         "get_run_provenance.ps1",
         "deployment_transaction.ps1",
+        "test_deployment_transactions.ps1",
         "stage_d3d9_proxy.ps1",
         "unstage_d3d9_proxy.ps1",
         "stage_d3d9_openvr_flat.ps1",
@@ -65,6 +66,85 @@ try {
         "vr_test stages a native-stereo DLL from a different tree than it builds/tests."
     Assert-True (-not ($VrTestSource -match 'New-Item\s+-ItemType\s+File\s+-Path\s+\$ExBridgeMarkerPath')) `
         "vr_test re-enables the rejected D3D9Ex game path."
+
+    $StageSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\stage_d3d9_proxy.ps1") -Raw
+    $UnstageSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\unstage_d3d9_proxy.ps1") -Raw
+    $RequiredStageCheckpoints = @(
+        "stage_proxy_backup_created",
+        "stage_proxy_published",
+        "stage_openvr_backup_created",
+        "stage_openvr_published",
+        "stage_openvr_input_backup_created",
+        "stage_openvr_input_temporary_created",
+        "stage_openvr_action_copied",
+        "stage_openvr_binding_copied",
+        "stage_openvr_input_published",
+        "stage_camera_control_backup_created",
+        "stage_camera_control_published",
+        "stage_state_written",
+        "stage_run_manifest_written",
+        "stage_evidence_manifest_written"
+    )
+    foreach ($Checkpoint in $RequiredStageCheckpoints) {
+        Assert-True ($StageSource.Contains("`"$Checkpoint`"")) `
+            "Stage transaction is missing failure-injection checkpoint '$Checkpoint'."
+    }
+    $RequiredUnstageCheckpoints = @(
+        "unstage_proxy_removed",
+        "unstage_proxy_original_restored",
+        "unstage_camera_control_removed",
+        "unstage_camera_control_original_restored",
+        "unstage_openvr_removed",
+        "unstage_openvr_original_restored",
+        "unstage_openvr_input_removed",
+        "unstage_openvr_input_original_restored",
+        "unstage_state_removed"
+    )
+    foreach ($Checkpoint in $RequiredUnstageCheckpoints) {
+        Assert-True ($UnstageSource.Contains("`"$Checkpoint`"")) `
+            "Unstage transaction is missing failure-injection checkpoint '$Checkpoint'."
+    }
+
+    # The real scripts must reject an active CoJ-named process before inspecting
+    # or mutating any game asset. Use a copied system cmd.exe as a synthetic
+    # process; this is not the game and requires no SteamVR/headset state.
+    $ActiveProcessGame = Join-Path $TestRoot "active-process-game"
+    New-Item -ItemType Directory -Path $ActiveProcessGame -Force | Out-Null
+    $FakeCoJ = Join-Path $ActiveProcessGame "CoJ.exe"
+    Copy-Item -LiteralPath (Join-Path $env:SystemRoot "System32\cmd.exe") -Destination $FakeCoJ
+    $FakeProcess = Start-Process `
+        -FilePath $FakeCoJ `
+        -ArgumentList "/c ping 127.0.0.1 -n 20" `
+        -WindowStyle Hidden `
+        -PassThru
+    try {
+        for ($Attempt = 0; $Attempt -lt 20 -and -not (Get-Process -Name CoJ -ErrorAction SilentlyContinue); ++$Attempt) {
+            Start-Sleep -Milliseconds 50
+        }
+        Assert-True ([bool](Get-Process -Name CoJ -ErrorAction SilentlyContinue)) `
+            "Synthetic CoJ-named process did not start for active-process deployment coverage."
+        $ActiveStageRejected = $false
+        try {
+            & (Join-Path $SourceDirectory "tools\stage_d3d9_proxy.ps1") -GameDirectory $ActiveProcessGame
+        } catch {
+            $ActiveStageRejected = $_.Exception.Message -match "Call of Juarez is running"
+        }
+        Assert-True $ActiveStageRejected `
+            "Stage script did not reject an active CoJ-named process before mutation."
+        $ActiveUnstageRejected = $false
+        try {
+            & (Join-Path $SourceDirectory "tools\unstage_d3d9_proxy.ps1") -GameDirectory $ActiveProcessGame
+        } catch {
+            $ActiveUnstageRejected = $_.Exception.Message -match "Call of Juarez is running"
+        }
+        Assert-True $ActiveUnstageRejected `
+            "Unstage script did not reject an active CoJ-named process before mutation."
+    } finally {
+        if ($FakeProcess -and -not $FakeProcess.HasExited) {
+            Stop-Process -Id $FakeProcess.Id -Force -ErrorAction SilentlyContinue
+            $FakeProcess.WaitForExit(5000)
+        }
+    }
 
     . (Join-Path $SourceDirectory "tools\deployment_transaction.ps1")
     $TransactionRoot = Join-Path $TestRoot "deployment-transaction"
@@ -101,8 +181,10 @@ try {
         -not (Test-Path -LiteralPath $VerifiedInstallTemporary)) `
         "Verified temporary file installation did not publish the expected artifact cleanly."
 
+    $PreviousFailureTest = $env:COJVR_DEPLOYMENT_FAILURE_TEST
     $PreviousFailureCheckpoint = $env:COJVR_DEPLOYMENT_FAIL_AFTER
     try {
+        $env:COJVR_DEPLOYMENT_FAILURE_TEST = "1"
         $env:COJVR_DEPLOYMENT_FAIL_AFTER = "file_published"
         $InjectedFailureGame = Join-Path $TransactionRoot "injected-failure"
         New-Item -ItemType Directory -Path $InjectedFailureGame -Force | Out-Null
@@ -119,6 +201,7 @@ try {
         }
         Assert-True $InjectedRejected "Deployment failure injection did not interrupt publication."
     } finally {
+        $env:COJVR_DEPLOYMENT_FAILURE_TEST = $PreviousFailureTest
         $env:COJVR_DEPLOYMENT_FAIL_AFTER = $PreviousFailureCheckpoint
     }
 
@@ -706,14 +789,14 @@ try {
     $StereoRightArm = $StereoRightArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
     $StereoLeftArm = $StereoLeftArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
     $StereoRightArm = $StereoRightArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(-6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(-7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
-    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
-    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
-    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta;"
-    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta;"
+    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=foretwist_only;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=foretwist_only;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_foretwist_only;"
+    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_foretwist_only;"
     $StereoLeftArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=left;phase=before_write;writer=RotateElementWithChildren"
     $StereoRightArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=right;phase=before_write;writer=RotateElementWithChildren"
-    $StereoLeftArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=left;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=true;hand_up_error=0;hand_forward_error=0;writer=RotateElementWithChildren"
-    $StereoRightArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=right;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=true;hand_up_error=0;hand_forward_error=0;writer=RotateElementWithChildren"
+    $StereoLeftArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=left;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=false;hand_up_error=0.5;hand_forward_error=0.5;writer=RotateElementWithChildren"
+    $StereoRightArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=right;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=false;hand_up_error=0.5;hand_forward_error=0.5;writer=RotateElementWithChildren"
     $StereoLeftArmRenderLeft = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=left;phase=left_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
     $StereoLeftArmRenderRight = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=left;phase=right_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
     $StereoRightArmRenderLeft = "camera_probe_event: event=body_arm_render_probe result=changed detail=frame_sequence=2;side=right;phase=left_eye_complete;changed_from_natural=true;post_write_geometry_valid=true;matches_post_write=true;writer=RotateElementWithChildren"
@@ -831,7 +914,7 @@ try {
 
     $StereoVerifierNaturalHandOrientation = @($StereoVerifierLog | ForEach-Object {
         $_ -replace `
-            "hand_orientation=calibrated_controller_delta", `
+            "hand_orientation=calibrated_controller_delta_foretwist_only", `
             "hand_orientation=natural"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNaturalHandOrientation
@@ -863,7 +946,7 @@ try {
 
     $StereoVerifierWrongHandResidualSource = @($StereoVerifierLog | ForEach-Object {
         $_ -replace `
-            "hand_residual_source=post_foretwist_observed_basis", `
+            "hand_residual_source=post_foretwist_observed_basis_diagnostic", `
             "hand_residual_source=precomputed_ideal_basis"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierWrongHandResidualSource
@@ -876,6 +959,38 @@ try {
     }
     Assert-True $WrongHandResidualSourceRejected `
         "Native-stereo verifier accepted a hand residual that was not recomputed from the observed post-FORETWIST basis."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierAppliedHandResidual = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace "hand_rotation_mode=foretwist_only", "hand_rotation_mode=foretwist_plus_hand" `
+           -replace "hand_rotation_no_op=true", "hand_rotation_no_op=false"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierAppliedHandResidual
+    $AppliedHandResidualRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $AppliedHandResidualRejected = $true
+    }
+    Assert-True $AppliedHandResidualRejected `
+        "Native-stereo verifier accepted a body candidate that reapplied the diagnostic hand residual."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierNonZeroHandRotation = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace "hand_rotation_degrees=0;hand_rotation_no_op=true", `
+            "hand_rotation_degrees=15;hand_rotation_no_op=true"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNonZeroHandRotation
+    $NonZeroHandRotationRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $NonZeroHandRotationRejected = $true
+    }
+    Assert-True $NonZeroHandRotationRejected `
+        "Native-stereo verifier accepted non-zero hand rotation while claiming foretwist-only mode."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierNeutralGameplay = @($StereoVerifierLog | ForEach-Object {

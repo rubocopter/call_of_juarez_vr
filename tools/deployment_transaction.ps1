@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 function Invoke-CojvrDeploymentCheckpoint([string]$Name) {
+    if ([string]$env:COJVR_DEPLOYMENT_FAILURE_TEST -ne "1") { return }
     $Requested = [string]$env:COJVR_DEPLOYMENT_FAIL_AFTER
     if (-not [string]::IsNullOrWhiteSpace($Requested) -and $Requested -eq $Name) {
         throw "Injected deployment failure after checkpoint '$Name'."
@@ -60,7 +61,8 @@ function Install-CojvrVerifiedFile(
     [string]$Source,
     [string]$Destination,
     [string]$Temporary,
-    [string]$ExpectedSha256) {
+    [string]$ExpectedSha256,
+    [string]$Checkpoint = "file_published") {
     if (Test-Path -LiteralPath $Temporary) {
         throw "Temporary deployment path '$Temporary' already exists."
     }
@@ -71,7 +73,7 @@ function Install-CojvrVerifiedFile(
         throw "Temporary deployment copy '$Temporary' failed SHA-256 verification."
     }
     Move-Item -LiteralPath $Temporary -Destination $Destination
-    Invoke-CojvrDeploymentCheckpoint "file_published"
+    Invoke-CojvrDeploymentCheckpoint $Checkpoint
     if ((Get-CojvrFileSha256 $Destination) -ne $Expected) {
         throw "Installed deployment file '$Destination' failed SHA-256 verification."
     }
@@ -81,7 +83,8 @@ function Install-CojvrVerifiedBytes(
     [byte[]]$Bytes,
     [string]$Destination,
     [string]$Temporary,
-    [string]$ExpectedSha256) {
+    [string]$ExpectedSha256,
+    [string]$Checkpoint = "bytes_published") {
     if (Test-Path -LiteralPath $Temporary) {
         throw "Temporary deployment path '$Temporary' already exists."
     }
@@ -92,7 +95,7 @@ function Install-CojvrVerifiedBytes(
         throw "Temporary deployment content '$Temporary' failed SHA-256 verification."
     }
     Move-Item -LiteralPath $Temporary -Destination $Destination
-    Invoke-CojvrDeploymentCheckpoint "bytes_published"
+    Invoke-CojvrDeploymentCheckpoint $Checkpoint
     if ((Get-CojvrFileSha256 $Destination) -ne $Expected) {
         throw "Installed deployment file '$Destination' failed SHA-256 verification."
     }

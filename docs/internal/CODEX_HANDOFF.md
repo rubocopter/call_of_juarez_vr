@@ -595,8 +595,19 @@ journal. `provenance_tools` covers clean and pre-existing-original recovery, ver
 installation, interrupted temporary file/directory cleanup, partial managed-directory recovery,
 missing-backup rejection, external-change rejection and idempotent no-journal recovery. Fresh Debug
 and Release full suites pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP.
-Phase 7 is still not complete: add end-to-end failure injection after each script mutation, repeated
-real stage/unstage cycles and an active-process integration test before promoting full acceptance.
+The previously missing end-to-end matrix is now host-tested. `tools/test_deployment_transactions.ps1`
+uses isolated exact-binary fixtures and recovers all 15 staging failure checkpoints, all 10
+unstaging failure checkpoints and two repeated complete stage/unstage cycles. `provenance_tools`
+also proves a temporary active `CoJ.exe` blocks stage/unstage before mutation. Phase 7 host
+acceptance is therefore complete without launching the real game or SteamVR.
+
+Phase 8 neutral math/semantic acceptance is also host-tested. Static optical data is
+`EyeView::eye_to_head`; runtime-located eyes use `LocatedEyeView::tracking_from_eye`; render-size
+recommendations use `EyeRenderRecommendation`. The neutral convention is explicitly right-handed
+`+X` right, `+Y` up, `-Z` forward, metres, `(x,y,z,w)` quaternions and destination-from-source
+composition. Reference-projection tests cover asymmetric FOV and invalid inputs, and both OpenVR
+optics and OpenXR located-view publication fail closed on malformed/non-finite data. This does not
+promote OpenXR runtime/session lifetime ownership, which remains separate under A10.
 
 The user then explicitly advanced the positional 6DOF/full-body direction. Current host source now
 reconciles horizontal recentered HMD translation into `NetPlayer.m_Being` at the proven `100`
@@ -957,7 +968,8 @@ normal member adaptation works. Transaction recovery returned the game directory
 none`. The script now selects the single `openvr_input` asset explicitly and reads
 `.stagedManifest`; focused provenance validation passed and the subsequent real prepare completed
 successfully. This supplies one additional successful real stage after recovery, but it does not by
-itself complete the remaining Phase 7 repeated/failure-injection acceptance matrix.
+itself constitute the Phase 7 matrix; the later isolated end-to-end transaction suite now completes
+that host acceptance coverage.
 
 Do not reuse run `20260918T165754Z-845101e7557b`; it is finalized failed body evidence. Prepare one
 fresh full `-BodyIkAtStart` candidate from the corrected source and repeat the same compact physical
@@ -1162,18 +1174,27 @@ healthy. The live verifier now requires the handgrip source, no raw fallback and
 recovery marker. Fresh Debug and Release suites each pass 24 tests plus the expected capability SKIP
 out of 25. These changes are host-tested only and require one fresh combined body run.
 
-That fresh combined body candidate is now staged as run
+That combined body candidate was physically exercised as run
 `20260919T011421Z-bef5076cd07e` from clean source commit
-`1027a67392f1c5baa71bbba8b6c39c9b63444983`. Build-manifest ID is
-`0AB9BCF9BE628504EA5961092681A9550978092D71C8CFF619FD035B304D906C`; proxy SHA-256 is
-`CC03E4DD55929CC4154ABB8A88B836A7FE6C60E5880E67F0EAE9B82D481ECBB6`. `prepare -BodyIkAtStart`
-reran the complete Release suite with 24 PASS plus the expected capability SKIP and staged the full
-`1920x1080`/FSAA0 profile with Body IK enabled before process start. No game or SteamVR process was
-launched automatically. The physical gate should verify `controller_pose_source=handgrip`, no raw
-fallback, anatomically improved arm orientation, and one Create recenter that emits safe
-`body_arm_recovery` while rebuilding the hand calibration. The SteamVR dashboard need not be opened
-deliberately; if it appears automatically, treat its visual persistence as a separate presentation
-observation while scene submission and hand tracking continue.
+`1027a67392f1c5baa71bbba8b6c39c9b63444983`. Build-manifest ID was
+`0AB9BCF9BE628504EA5961092681A9550978092D71C8CFF619FD035B304D906C`; proxy SHA-256 was
+`CC03E4DD55929CC4154ABB8A88B836A7FE6C60E5880E67F0EAE9B82D481ECBB6`. The evidence manifest is
+complete and staging is clear. The run sustained 14,968 arm applications and 14,968 clean restores
+with zero restore failures, and seven recenter recoveries succeeded. Explicit handgrip actions were
+therefore live-exercised without raw-role fallback, but the arms still failed visual anatomy.
+
+Analysis of the deliberate pose sequence isolates the next candidate. Elbow/wrist position solving
+continued to reach its targets, and in the palms-up segment FORETWIST was already close between the
+two sides (~89/~96 degrees average). The extra hand residual remained extreme (~98/~122 degrees
+average) and is the next controlled variable. Current host source still computes the residual from
+the observed post-FORETWIST hand basis, but records it as diagnostic only and never writes it to the
+hand element. The verifier requires `hand_rotation_mode=foretwist_only`,
+`hand_rotation_no_op=true`, `hand_orientation=calibrated_controller_delta_foretwist_only` and the
+diagnostic residual marker while still requiring positional target reach, both-eye persistence and
+natural restoration. Fresh Debug and Release suites each pass 24 tests plus the expected capability
+SKIP out of 25. No candidate is currently staged. The next action is one fresh
+`prepare -BodyIkAtStart` physical visual run of this twist-only composition; do not regress handgrip,
+tracked-Z, FORETWIST ownership or the visible writer while evaluating it.
 
 Three separate product milestones are now explicitly recorded for later work: suppress the local
 head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD
@@ -1190,9 +1211,10 @@ into the FORETWIST body correction; each needs its own exact-game ownership rese
   controller tracking and actor reconciliation are live-proven for the exact build. `BoneRotate` is
   physically rejected as a visible writer; `RotateElementWithChildren` is now live-proven to mutate
   the mesh. The latest physical orientation candidate still deformed the arm despite sustained
-  FORETWIST/hand target reach; the next body candidate changes the controller frame to explicit PS
-  VR2 `handgrip` pose actions and rebuilds orientation calibration on recenter. Keep body semantics
-  exact-build-first and fail closed; do not extend the unvalidated arm writer into pelvis/legs.
+  FORETWIST/hand target reach. Explicit PS VR2 `handgrip` tracking and recenter recovery are now
+  physically exercised; the next body candidate keeps that contract and disables only the residual
+  hand-element writer (`foretwist_only`). Keep body semantics exact-build-first and fail closed; do
+  not extend the unvalidated arm writer into pelvis/legs.
 - UI rebuilding, local head suppression, physical crouch, weapon-aim ownership and interaction
   redesign remain outside the current FORETWIST gate. The exact-game Sense gameplay route has live
   physical evidence without implying those later interaction milestones are complete.

@@ -90,7 +90,7 @@ public:
 
     [[nodiscard]] OpenXrStatus status() const noexcept;
     [[nodiscard]] const OpenXrSystemInfo& system_info() const noexcept;
-    [[nodiscard]] const std::array<EyeView, 2>& recommended_views() const noexcept;
+    [[nodiscard]] const std::array<EyeRenderRecommendation, 2>& recommended_views() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
 
     // Native handles are exposed only for renderer adapters that must query a

@@ -34,8 +34,9 @@ The following facts are currently established:
 - That hook-integrity loss is a confirmed failure mode of the current interception design. Run `20260914T215121Z-9bac4e22cffd` established that all four lost device slots return exactly to their recorded original targets in `C:\WINDOWS\system32\d3d9.dll`; no foreign replacement target was observed. It still does **not** prove which component performs the restoration, why it occurs, or that hook loss is the only reason the user never sees a stable game image in the headset.
 - HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission. Run `20260916T153109Z-8976b8f77775` then live-observed the corrected `100` game-units-per-metre eye translation and physically validated left PS VR2 Sense Create recenter. Run `20260916T221254Z-861f3c15abd4` validated deferred-presenter scene-focus handoff and clean OpenVR/runtime shutdown. Run `20260916T224239Z-e43b46698e5c` validated explicit render-pose submission and removed the reported head-turn snap-back. Frame pacing/performance remains poor and the flat/menu path is not presented in the headset. Positional 6DOF plus the body/IK preflight are implemented: tracked Sense anchors, campaign actor reconciliation and the visible render-element writer are live-proven, while visual arm composition remains rejected and lower-body geometry/leg solving remains read-only. Motion-controller gameplay is implemented for this exact CoJ integration through a neutral OpenVR action state and the game's own `GameInputController.InputAction.Translate` route; run `20260918T233902Z-0cb2e565e886` physically exercised that route successfully, without claiming every individual binding separately validated. Run `20260918T165754Z-845101e7557b` proved `RotateElementWithChildren` changes both arms through both eye renders, but physically failed because world-space solver axes were passed to an element-local native rotation. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` then exercised the corrected element-local path and reached both solved targets for hundreds of frames before fail-closing at frames 416 and 614. The restore criterion was tighter than one float ULP at the live world coordinates; current host source uses separate measured restore tolerances while retaining strict mutation detection.
 - The active physical gate is presentation performance/comfort. Run `20260917T161917Z-909b63e114af` measured roughly `15-25 ms` of classic-D3D9 CPU copy per stereo frame at `2560x1440`/FSAA8. The three 2026-09-18 runs all used the reversible `1920x1080`/FSAA0 profile and reduced sampled copy averages to `9.7-10.7 ms`, but the user reported visibly poor resolution. They also exposed a head-tilt comfort defect: the native camera omitted roll while OpenVR received the full HMD pose. Current source applies roll to the native camera basis and the live verifier requires a meaningful tilt sample; this is host-tested only. Resolution remains coupled to the provisional CPU-readback cost, and all three runs still reported `shutdown_complete=false`.
-- Run `20260918T213453Z-a789ac61ac91` physically validated native-camera roll: the previous tilt-induced nausea was absent while telemetry covered `-27.286` to `+40.762` degrees. It also sustained 13,860 successful arm applications/restorations with no fail-close, validating the float-aware restore threshold. The body gate still failed visually. Controller front/back was reversed even though elbow/wrist targets were reached, and the wrist/hand remained twisted with `hand_orientation=natural`. Run `20260918T215118Z-c46320012ff0` then physically validated the corrected tracked-Z hand position mapping while the deformation remained. Current host source preserves that positional mapping and addresses the remaining orientation boundary with calibration-relative controller orientation, forearm twist and residual hand rotation through the already-live-proven `RotateElementWithChildren` writer. Debug and Release host suites pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP; physical arm-orientation acceptance remains pending.
+- Run `20260918T213453Z-a789ac61ac91` physically validated native-camera roll: the previous tilt-induced nausea was absent while telemetry covered `-27.286` to `+40.762` degrees. It also sustained 13,860 successful arm applications/restorations with no fail-close, validating the float-aware restore threshold. The body gate still failed visually. Controller front/back was reversed even though elbow/wrist targets were reached, and the wrist/hand remained twisted with `hand_orientation=natural`. Run `20260918T215118Z-c46320012ff0` then physically validated the corrected tracked-Z hand position mapping while the deformation remained. The following host slice preserved that positional mapping and added calibration-relative controller orientation, forearm twist and residual hand rotation through the already-live-proven `RotateElementWithChildren` writer. Physical arm-orientation acceptance remained pending and was narrowed further by the later runs below.
 - Run `20260918T233902Z-0cb2e565e886` then physically exercised that orientation/gameplay candidate. Position and orientation target telemetry reached their goals, but the user's video still shows severe wrist/forearm deformation and frequent head/hair intrusion into the HMD view, so Body IK remains rejected visually. Exact shipped `EBones.class` inspection identifies dedicated FORETWIST elements `9` (left) and `14` (right), between forearm `8/13` and hand `10/15`. Current host source routes controller pronation/supination through those dedicated elements, includes them in transactional geometry/restore verification and requires `twist_owner=foretwist_element`; that hierarchy correction is host-tested only. Head/hair suppression, physical HMD-height crouch and controller/weapon-owned aiming are tracked as separate later VR ownership milestones.
+- Run `20260919T011421Z-bef5076cd07e` physically exercised the subsequent explicit `/pose/handgrip` candidate. It sustained 14,968 arm applications and 14,968 restores with zero restore failures plus seven safe recenter recoveries, but visual anatomy remained rejected. Pose-window analysis showed that in the palms-up gesture FORETWIST had already converged to roughly symmetric roll while the residual hand rotation remained very large. Current host source therefore keeps that post-FORETWIST residual as diagnostics only and applies no hand-element rotation. Debug and Release host suites pass 24 tests plus the expected capability SKIP; the new `foretwist_only` composition is not yet physically promoted.
 
 The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` records which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves replacement addresses to owning modules. Preserve it as evidence/baseline; do not let its existence bypass the audit-remediation work below.
 
@@ -129,7 +130,7 @@ Runs `20260914T214318Z-fe71b222b664` and `20260914T215121Z-9bac4e22cffd` exercis
 ### A8 — Deployment is reversible only on the happy path, not transactional
 
 **Severity:** P1  
-**Status:** substantially remediated at host level; full script-level interruption matrix open
+**Status:** resolved at host/deployment-test level
 
 Current staging/unstaging writes a recovery journal before mutating managed game assets and
 automatically resolves an interrupted journal before a later stage/unstage attempt. Staging rejects
@@ -140,14 +141,16 @@ Recovery restores a proven original or removes only recognized staged/temporary 
 destinations, backups or temporary artifacts fail closed and preserve the journal for diagnosis.
 Run-bound manifests and verifiers prevent stale logs from validating a new native-stereo candidate.
 
-Host coverage now includes clean/no-original recovery, a pre-existing original DLL, verified
-temporary file installation, interrupted temporary-file cleanup, partial temporary-directory
-cleanup, interrupted managed-directory restoration, missing-backup rejection, external-change
-rejection and idempotent no-journal recovery. The remaining gap is the full end-to-end script matrix:
-failure injection after every staging/unstaging mutation, repeated real stage/unstage cycles and an
-active-process integration case.
+Host coverage includes clean/no-original recovery, a pre-existing original DLL, verified temporary
+file installation, interrupted temporary-file cleanup, partial temporary-directory cleanup,
+interrupted managed-directory restoration, missing-backup rejection, external-change rejection and
+idempotent no-journal recovery. `tools/test_deployment_transactions.ps1` closes the previous
+script-level gap against isolated exact-binary fixtures: all 15 staging failure checkpoints and all
+10 unstaging failure checkpoints recover successfully, followed by two complete repeated
+stage/unstage cycles. `provenance_tools` additionally starts a temporary process named `CoJ.exe` and
+proves stage/unstage rejection before mutation.
 
-**Required action:** preserve the current journal/verified-temporary/recovery contract and complete the remaining end-to-end failure/repetition/process test matrix described in remediation Phase 7.
+**Required action:** preserve this journal/verified-temporary/recovery contract and keep the full transaction matrix in host validation.
 
 ### A9 — Declared architectural separation does not match current build dependencies
 
@@ -174,15 +177,19 @@ This does not resolve the equivalent OpenXR ownership/lifetime contract, nor doe
 ### A11 — Neutral math contracts are ambiguous before camera work begins
 
 **Severity:** P2  
-**Status:** partially host-tested for the exact CoJ/OpenVR stereo candidate; general neutral contract remains open
+**Status:** resolved at neutral math/semantic host level; OpenXR lifetime remains separate under A10
 
-`EyeView::pose` is not guaranteed to mean the same space/transform across OpenVR and OpenXR. The exact CoJ/OpenVR candidate now defines OpenVR `EyeView::pose` as eye-to-head, maps its translation into the native right/up/forward camera basis and maps asymmetric per-eye FOV into the engine's off-center frustum builder. Host tests cover that mapping and reject invalid frusta/bases. OpenXR equivalence and a backend-independent proof across runtimes remain open.
+The neutral types now prevent the previous semantic overload. `EyeView::eye_to_head` means static
+eye-to-head optics for every producer/consumer. A time-located runtime view uses
+`LocatedEyeView::tracking_from_eye`, while render-size recommendations use the pose/FOV-free
+`EyeRenderRecommendation` type. OpenXR no longer stores recommendation dimensions in `EyeView`.
+The shared convention is explicitly right-handed `+X` right, `+Y` up, `-Z` forward, metres,
+`(x,y,z,w)` quaternions and destination-from-source transform naming/composition.
 
 These issues predate native stereo and no longer describe the current renderer state. The exact CoJ/OpenVR path now constructs and has live-tested distinct game stereo cameras, which makes the remaining neutral-contract work a portability and hardening requirement rather than a blocker to proving that game-specific path.
 
-The HMD/native-stereo gate has now narrowed the OpenVR subset without closing this finding:
-the neutral HMD pose convention is explicitly right-handed `+X` right, `+Y` up, `-Z`
-forward with `(x,y,z,w)` quaternions, and base-relative orientation/recenter is host-tested.
+The HMD/native-stereo gate had already established the OpenVR subset: base-relative
+orientation/recenter is host-tested.
 The OpenVR global-action edge feeding that policy is additionally headset-validated for left
 PS VR2 Sense Create by run `20260916T153109Z-8976b8f77775`.
 OpenVR supplies HMD orientation through a backend-neutral `PoseSource`, while
@@ -190,12 +197,13 @@ OpenVR supplies HMD orientation through a backend-neutral `PoseSource`, while
 OpenVR eye-to-head semantics and the CoJ asymmetric frustum mapping are host-tested. The first
 physical native-stereo attempt exposed one OpenVR-specific vertical-sign conversion defect:
 `GetProjectionRaw` supplied negative top/positive bottom while neutral `EyeFov` requires
-positive up/negative down. That adapter conversion is now explicit and host-tested. OpenXR
-equivalence and general neutral stereo-matrix validation remain open. Rigid-transform conversion
-now also rejects non-finite values, scaled/non-orthogonal bases and reflected rotations in host
-tests; that hardening does not by itself close the broader cross-runtime contract.
+positive up/negative down. That adapter conversion is explicit and host-tested. Neutral math now
+also supplies backend-independent asymmetric-FOV reference-projection tests and rejects invalid or
+non-finite projection/pose inputs. OpenVR fails eye-configuration reads closed on malformed optics;
+OpenXR located views validate pose/FOV before publication. This closes Phase 8's neutral semantic
+contract without claiming the experimental OpenXR backend's runtime/session lifetime is promoted.
 
-**Required action:** complete remediation Phase 8 before camera/stereo implementation is promoted.
+**Required action:** preserve the Phase 8 semantic/type boundary; address OpenXR lifetime/state independently under A10 before promoting that backend.
 
 ### A12 — Documentation and source-to-run provenance were incomplete
 

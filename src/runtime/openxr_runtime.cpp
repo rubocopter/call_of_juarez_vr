@@ -1,4 +1,5 @@
 #include "runtime/openxr_runtime.hpp"
+#include "runtime/vr_math.hpp"
 
 #include <openxr/openxr.h>
 
@@ -35,7 +36,8 @@ struct OpenXrRuntime::Impl {
     bool frame_active = false;
     OpenXrStatus status = OpenXrStatus::idle;
     OpenXrSystemInfo system_info{};
-    std::array<EyeView, 2> recommended_views{{EyeView{Eye::left}, EyeView{Eye::right}}};
+    std::array<EyeRenderRecommendation, 2> recommended_views{{
+        EyeRenderRecommendation{Eye::left}, EyeRenderRecommendation{Eye::right}}};
     std::string last_error;
 
     void Fail(std::string message) noexcept {
@@ -497,9 +499,13 @@ bool OpenXrRuntime::LocateStereoViews(
         (view_state.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) != 0;
     const bool position_valid =
         (view_state.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0;
+    if (!orientation_valid || !position_valid) {
+        impl_->Fail("xrLocateViews returned incomplete stereo pose validity");
+        return false;
+    }
 
     for (std::size_t index = 0; index < xr_views.size(); ++index) {
-        const EyeView& recommendation = impl_->recommended_views[index];
+        const EyeRenderRecommendation& recommendation = impl_->recommended_views[index];
         LocatedEyeView view{};
         view.eye = recommendation.eye;
         view.width = recommendation.width;
@@ -524,6 +530,13 @@ bool OpenXrRuntime::LocateStereoViews(
             xr_view.fov.angleUp,
             xr_view.fov.angleDown,
         };
+        std::array<float, 12> validated_transform{};
+        if (!RigidTransform3x4FromPose(view.tracking_from_eye, validated_transform) ||
+            !IsValidEyeFov(view.fov)) {
+            views = {};
+            impl_->Fail("xrLocateViews returned invalid/non-finite stereo view data");
+            return false;
+        }
         views[index] = view;
     }
 
@@ -586,8 +599,9 @@ const OpenXrSystemInfo& OpenXrRuntime::system_info() const noexcept {
     return impl_ ? impl_->system_info : empty;
 }
 
-const std::array<EyeView, 2>& OpenXrRuntime::recommended_views() const noexcept {
-    static const std::array<EyeView, 2> empty{{EyeView{Eye::left}, EyeView{Eye::right}}};
+const std::array<EyeRenderRecommendation, 2>& OpenXrRuntime::recommended_views() const noexcept {
+    static const std::array<EyeRenderRecommendation, 2> empty{{
+        EyeRenderRecommendation{Eye::left}, EyeRenderRecommendation{Eye::right}}};
     return impl_ ? impl_->recommended_views : empty;
 }
 

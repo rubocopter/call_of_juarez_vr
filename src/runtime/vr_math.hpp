@@ -22,4 +22,16 @@ namespace cojvr::runtime {
     float top,
     float bottom) noexcept;
 
+[[nodiscard]] bool IsValidEyeFov(EyeFov fov) noexcept;
+
+// Row-major, column-vector reference projection for the neutral convention:
+// right-handed +X/+Y/-Z view space and D3D-style NDC z in [0, 1]. This helper
+// exists to lock the FOV semantic contract; renderer/game adapters may use a
+// different native matrix layout after an explicit conversion.
+[[nodiscard]] bool BuildReferenceProjectionMatrix(
+    EyeFov fov,
+    float near_plane,
+    float far_plane,
+    std::array<float, 16>& matrix) noexcept;
+
 } // namespace cojvr::runtime

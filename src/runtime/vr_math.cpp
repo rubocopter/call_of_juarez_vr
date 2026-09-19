@@ -184,4 +184,52 @@ EyeFov FovFromTangents(
     };
 }
 
+bool IsValidEyeFov(const EyeFov fov) noexcept {
+    constexpr float kHalfPi = 1.57079632679F;
+    return std::isfinite(fov.angle_left) &&
+        std::isfinite(fov.angle_right) &&
+        std::isfinite(fov.angle_up) &&
+        std::isfinite(fov.angle_down) &&
+        fov.angle_left < 0.0F && fov.angle_right > 0.0F &&
+        fov.angle_down < 0.0F && fov.angle_up > 0.0F &&
+        fov.angle_left > -kHalfPi && fov.angle_right < kHalfPi &&
+        fov.angle_down > -kHalfPi && fov.angle_up < kHalfPi;
+}
+
+bool BuildReferenceProjectionMatrix(
+    const EyeFov fov,
+    const float near_plane,
+    const float far_plane,
+    std::array<float, 16>& matrix) noexcept {
+    matrix = {};
+    if (!IsValidEyeFov(fov) || !std::isfinite(near_plane) ||
+        !std::isfinite(far_plane) || near_plane <= 0.0F ||
+        far_plane <= near_plane) {
+        return false;
+    }
+
+    const float left = std::tan(fov.angle_left) * near_plane;
+    const float right = std::tan(fov.angle_right) * near_plane;
+    const float bottom = std::tan(fov.angle_down) * near_plane;
+    const float top = std::tan(fov.angle_up) * near_plane;
+    const float width = right - left;
+    const float height = top - bottom;
+    const float depth = far_plane - near_plane;
+    if (!std::isfinite(left) || !std::isfinite(right) ||
+        !std::isfinite(bottom) || !std::isfinite(top) ||
+        width <= 0.0F || height <= 0.0F || !std::isfinite(depth)) {
+        return false;
+    }
+
+    matrix = {
+        2.0F * near_plane / width, 0.0F, (right + left) / width, 0.0F,
+        0.0F, 2.0F * near_plane / height, (top + bottom) / height, 0.0F,
+        0.0F, 0.0F, -far_plane / depth, -(far_plane * near_plane) / depth,
+        0.0F, 0.0F, -1.0F, 0.0F,
+    };
+    return std::all_of(matrix.begin(), matrix.end(), [](const float value) noexcept {
+        return std::isfinite(value);
+    });
+}
+
 } // namespace cojvr::runtime

@@ -320,23 +320,32 @@ foreach ($HistoricalFile in $HistoricalFiles) {
 
 if ($HadOriginal) {
     Move-Item -LiteralPath $Destination -Destination $Backup
+    Invoke-CojvrDeploymentCheckpoint "stage_proxy_backup_created"
     Write-Host "Backed up existing d3d9.dll to d3d9.cojvr-backup.dll"
 }
 
-    Install-CojvrVerifiedFile $ProxyPath $Destination $ProxyTemporary $ProxyHash
+    Install-CojvrVerifiedFile `
+        $ProxyPath $Destination $ProxyTemporary $ProxyHash "stage_proxy_published"
     if ($IsOpenVrIntegration) {
         if ($HadOriginalOpenVr) {
             Move-Item -LiteralPath $OpenVrDestination -Destination $OpenVrBackup
+            Invoke-CojvrDeploymentCheckpoint "stage_openvr_backup_created"
         }
-        Install-CojvrVerifiedFile $OpenVrSource $OpenVrDestination $OpenVrTemporary $OpenVrHash
+        Install-CojvrVerifiedFile `
+            $OpenVrSource $OpenVrDestination $OpenVrTemporary $OpenVrHash `
+            "stage_openvr_published"
     }
     if ($IsNativeStereo) {
         if ($HadOriginalOpenVrInput) {
             Move-Item -LiteralPath $OpenVrInputDestination -Destination $OpenVrInputBackup
+            Invoke-CojvrDeploymentCheckpoint "stage_openvr_input_backup_created"
         }
         New-Item -ItemType Directory -Path (Join-Path $OpenVrInputTemporary "bindings") -Force | Out-Null
+        Invoke-CojvrDeploymentCheckpoint "stage_openvr_input_temporary_created"
         Copy-Item -LiteralPath $OpenVrActionManifestSource -Destination (Join-Path $OpenVrInputTemporary "actions.json")
+        Invoke-CojvrDeploymentCheckpoint "stage_openvr_action_copied"
         Copy-Item -LiteralPath $OpenVrSenseBindingSource -Destination (Join-Path $OpenVrInputTemporary "bindings\psvr2_sense.json")
+        Invoke-CojvrDeploymentCheckpoint "stage_openvr_binding_copied"
         $OpenVrInputAssets = @(
             $JournalAssets | Where-Object { [string]$_.role -eq "openvr_input" }
         )
@@ -348,6 +357,7 @@ if ($HadOriginal) {
             throw "Temporary OpenVR input deployment failed manifest verification."
         }
         Move-Item -LiteralPath $OpenVrInputTemporary -Destination $OpenVrInputDestination
+        Invoke-CojvrDeploymentCheckpoint "stage_openvr_input_published"
         if (-not (Test-CojvrDirectoryMatchesManifest $OpenVrInputDestination $ExpectedInputManifest)) {
             throw "Installed OpenVR input deployment failed manifest verification."
         }
@@ -355,8 +365,11 @@ if ($HadOriginal) {
     if ($IsCameraIntegration) {
         if ($HadOriginalCameraControl) {
             Move-Item -LiteralPath $CameraControl -Destination $CameraControlBackup
+            Invoke-CojvrDeploymentCheckpoint "stage_camera_control_backup_created"
         }
-        Install-CojvrVerifiedBytes $CameraControlBytes $CameraControl $CameraControlTemporary $CameraControlStagedHash
+        Install-CojvrVerifiedBytes `
+            $CameraControlBytes $CameraControl $CameraControlTemporary $CameraControlStagedHash `
+            "stage_camera_control_published"
     }
     @{
         schemaVersion = 1
@@ -382,6 +395,7 @@ if ($HadOriginal) {
             (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json") -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
     } | ConvertTo-Json | Set-Content -LiteralPath $State -Encoding UTF8
+    Invoke-CojvrDeploymentCheckpoint "stage_state_written"
 
     $Deployment = @(
         [ordered]@{
@@ -458,7 +472,9 @@ if ($HadOriginal) {
         $CurrentRun,
         $RunJson + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
+    Invoke-CojvrDeploymentCheckpoint "stage_run_manifest_written"
     Copy-Item -LiteralPath $CurrentRun -Destination (Join-Path $RunDirectory "run-manifest.json") -Force
+    Invoke-CojvrDeploymentCheckpoint "stage_evidence_manifest_written"
     Remove-Item -LiteralPath $TransactionJournal -Force
 } catch {
     if (Test-Path -LiteralPath $CurrentRun) {

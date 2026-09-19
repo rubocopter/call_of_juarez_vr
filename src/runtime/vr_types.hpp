@@ -24,6 +24,10 @@ struct Quaternion {
 
 // Neutral tracking-space convention: right-handed, +X right, +Y up,
 // -Z forward, metres for position, quaternion stored as (x, y, z, w).
+// Named transform fields use destination_from_source semantics. Composition is
+// therefore destination_from_child = destination_from_parent * parent_from_child.
+// A bare Pose is only a rigid transform value; producers/consumers must name the
+// spaces at their API boundary rather than infer them from this storage type.
 struct Pose {
     Vec3 position{};
     Quaternion orientation{};
@@ -53,6 +57,8 @@ struct GameplayInputState {
 };
 
 struct EyeFov {
+    // Radians from neutral -Z forward. A normal forward-looking eye has
+    // left/down < 0 and right/up > 0; asymmetric magnitudes are expected.
     float angle_left = 0.0F;
     float angle_right = 0.0F;
     float angle_up = 0.0F;
@@ -60,6 +66,15 @@ struct EyeFov {
 };
 
 enum class Eye : std::uint8_t { left, right };
+
+// Recommended render-target extent only. This deliberately carries no pose or
+// FOV so a runtime cannot accidentally use a size recommendation as EyeView
+// optical data.
+struct EyeRenderRecommendation {
+    Eye eye = Eye::left;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
 
 struct EyeView {
     Eye eye = Eye::left;

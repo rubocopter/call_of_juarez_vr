@@ -130,7 +130,11 @@ remains the active physical gate.
 
 OpenXR remains experimental/future. Its existing work is useful research evidence, but it must be build-configurable independently and must not contaminate the neutral runtime ownership model.
 
-OpenXR runtime/handle lifetime and neutral pose/FOV semantics must be corrected before that backend is promoted.
+Neutral pose/FOV semantics are now host-tested across the shared type boundary: static
+`EyeView::eye_to_head`, time-located `LocatedEyeView::tracking_from_eye`, separate
+`EyeRenderRecommendation`, explicit units/axes/handedness and asymmetric reference-projection
+validation. OpenXR runtime/handle lifetime and state ownership remain unresolved and must be
+corrected before that backend is promoted.
 
 ## Validation progression
 
@@ -344,15 +348,17 @@ Inspection of the shipped `EBones.class` explains a concrete hierarchy mistake i
 the exact chains are left `upper=7 -> forearm=8 -> foretwist=9 -> hand=10` and right
 `upper=12 -> forearm=13 -> foretwist=14 -> hand=15`. Controller pronation/supination therefore
 belongs to the dedicated FORETWIST element rather than directly to the forearm element. Current
-host source applies the relative controller delta as FORETWIST roll plus residual hand rotation
-through the same element-relative `RotateElementWithChildren` contract. Mutation/persistence and
-natural-frame verification include FORETWIST, and restoration runs hand -> FORETWIST -> forearm ->
-upper. Telemetry names this ownership explicitly as `twist_owner=foretwist_element`. The FORETWIST
-write is allowed to propagate through the real native hierarchy first; the hand frame is then
-re-read and its final residual is recomputed from that observed post-FORETWIST basis instead of from
-an idealized child transform. This avoids hard-coding a controller-local palm axis or an unproven
-hierarchy composition and keeps the physically accepted hand-position mapping unchanged. Pelvis/leg
-writers remain disabled until this corrected exact arm/hand path passes a fresh physical run.
+host source derives the relative controller delta and routes pronation/supination through FORETWIST.
+Run `20260919T011421Z-bef5076cd07e` showed that positional IK, FORETWIST and restoration can all stay
+healthy while the extra residual hand rotation still produces unacceptable anatomy. The current
+candidate therefore lets the FORETWIST write propagate through the real native hierarchy, re-reads
+the hand frame and computes the remaining hand residual for diagnostics only. It does not write that
+residual to the hand element: the hand keeps its native child relation to FORETWIST. Mutation/
+persistence and natural-frame verification still include FORETWIST, restoration remains child-first,
+and elbow/wrist positional target agreement is still mandatory. Telemetry names the experiment
+`hand_rotation_mode=foretwist_only` and requires the applied hand rotation to be a no-op. This keeps
+the physically accepted hand-position mapping unchanged while making the next physical gate isolate
+whether the residual wrist writer itself caused the deformation. Pelvis/leg writers remain disabled.
 
 The PS VR2 Sense pose contract is now explicit. Body IK consumes the OpenVR
 `/pose/handgrip` action for each hand because that pose represents the controller's anatomical grip

@@ -10,6 +10,24 @@ bool Near(const float a, const float b) {
     return std::fabs(a - b) <= 0.0001F;
 }
 
+struct NdcPoint {
+    float x = 0.0F;
+    float y = 0.0F;
+    float z = 0.0F;
+};
+
+NdcPoint Project(
+    const std::array<float, 16>& matrix,
+    const float x,
+    const float y,
+    const float z) {
+    const float clip_x = matrix[0] * x + matrix[2] * z;
+    const float clip_y = matrix[5] * y + matrix[6] * z;
+    const float clip_z = matrix[10] * z + matrix[11];
+    const float clip_w = matrix[14] * z;
+    return {clip_x / clip_w, clip_y / clip_w, clip_z / clip_w};
+}
+
 int Fail(const char* message) {
     std::cerr << message << '\n';
     return 1;
@@ -110,6 +128,40 @@ int main() {
         !Near(fov.angle_up, kQuarterTurn) ||
         !Near(fov.angle_down, -kQuarterTurn)) {
         return Fail("FOV tangent conversion failed");
+    }
+
+    if (!IsValidEyeFov(fov)) {
+        return Fail("valid neutral FOV was rejected");
+    }
+
+    const EyeFov asymmetric_fov = FovFromTangents(-1.20F, 0.80F, 1.10F, -0.90F);
+    std::array<float, 16> projection{};
+    constexpr float kNear = 0.25F;
+    constexpr float kFar = 500.0F;
+    if (!BuildReferenceProjectionMatrix(asymmetric_fov, kNear, kFar, projection)) {
+        return Fail("asymmetric neutral FOV did not produce a reference projection matrix");
+    }
+    const float left = std::tan(asymmetric_fov.angle_left) * kNear;
+    const float right = std::tan(asymmetric_fov.angle_right) * kNear;
+    const float bottom = std::tan(asymmetric_fov.angle_down) * kNear;
+    const float top = std::tan(asymmetric_fov.angle_up) * kNear;
+    const NdcPoint near_left_bottom = Project(projection, left, bottom, -kNear);
+    const NdcPoint near_right_top = Project(projection, right, top, -kNear);
+    const NdcPoint far_center = Project(projection, 0.0F, 0.0F, -kFar);
+    if (!Near(near_left_bottom.x, -1.0F) || !Near(near_left_bottom.y, -1.0F) ||
+        !Near(near_left_bottom.z, 0.0F) || !Near(near_right_top.x, 1.0F) ||
+        !Near(near_right_top.y, 1.0F) || !Near(near_right_top.z, 0.0F) ||
+        !Near(far_center.z, 1.0F)) {
+        return Fail("asymmetric FOV reference projection changed the neutral clip-space contract");
+    }
+
+    EyeFov invalid_fov = asymmetric_fov;
+    invalid_fov.angle_up = nan;
+    if (IsValidEyeFov(invalid_fov) ||
+        BuildReferenceProjectionMatrix(invalid_fov, kNear, kFar, projection) ||
+        BuildReferenceProjectionMatrix(asymmetric_fov, 0.0F, kFar, projection) ||
+        BuildReferenceProjectionMatrix(asymmetric_fov, kFar, kNear, projection)) {
+        return Fail("invalid FOV/projection input was accepted");
     }
 
     std::cout << "VR math tests passed\n";
