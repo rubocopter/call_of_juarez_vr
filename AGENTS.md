@@ -65,6 +65,16 @@ because historical live evidence showed it remained owned when the device slots 
 another participant. Debug and Release each pass 24 tests plus the expected classic-D3D9 shared-
 texture capability SKIP. This startup/fallback policy is **host-tested only** until a fresh physical run.
 
+Fresh full/body candidate `20260919T170916Z-d9a22d24eb0c` is staged from clean source
+`e341a32e0e0682b10e22c25e8835081fbba6d106`, build-manifest ID
+`285F9DD22A6A7BDC8588A2EFC37BBE2DA8B22A06D89AA8613210E3DFD94C1C98`, proxy SHA-256
+`25F197B813499C771F77F0614006AB263C049F21BFA6808E5C98376DC01D12F6`. Preparation passed 24 tests
+plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before process start
+and applied the reversible `1920x1080`/FSAA0 profile. The first physical acceptance point is startup:
+intro/menu content should enter `flat_theater` and acquire scene focus without a stuck SteamVR
+dashboard; gameplay should then transition to `native_stereo`, and Create should re-anchor either
+presentation. Do not promote this path until that one-process physical behavior is observed.
+
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256

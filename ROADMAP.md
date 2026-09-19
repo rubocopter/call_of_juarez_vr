@@ -20,6 +20,12 @@ Present path so the app can own the VR scene from startup, Create re-anchors the
 and gameplay transitions automatically to true stereo. Debug and Release each pass 24 tests plus the
 expected classic-D3D9 shared-texture capability SKIP; a fresh physical run is still required.
 
+Fresh candidate `20260919T170916Z-d9a22d24eb0c` is now staged from clean source `e341a32` with the
+new startup/fallback policy, Body IK at process start and reversible `1920x1080`/FSAA0. Its Release
+preparation passes 24 tests plus the expected capability SKIP. The immediate gate is presentation
+ownership: flat intro/menu content must replace the stuck SteamVR interface, Create must re-anchor
+the flat view, and gameplay must transition automatically to native stereo in the same process.
+
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-
 target recenter rebase. Arms are substantially improved visually and all 8,452 applications/restores

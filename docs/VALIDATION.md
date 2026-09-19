@@ -79,6 +79,17 @@ per-frame RGB distinction requirement. Mailbox ordering now uses an owner transp
 and stereo capture counters can coexist, and host tests prove swap-chain hook restoration. Fresh
 Debug and Release runs each complete 24 PASS plus the expected capability SKIP, zero failures.
 
+Fresh full/body candidate `20260919T170916Z-d9a22d24eb0c` is staged from clean source
+`e341a32e0e0682b10e22c25e8835081fbba6d106`, build-manifest ID
+`285F9DD22A6A7BDC8588A2EFC37BBE2DA8B22A06D89AA8613210E3DFD94C1C98`, proxy SHA-256
+`25F197B813499C771F77F0614006AB263C049F21BFA6808E5C98376DC01D12F6`. Release preparation repeated
+24 PASS plus the expected capability SKIP, with Body IK enabled from startup and the reversible
+`1920x1080`/FSAA0 profile active. The physical gate begins before gameplay: `flat_theater` must be
+observable for ordinary intro/menu content, scene focus must move to CoJ without a persistent
+SteamVR dashboard, and gameplay must subsequently switch to `native_stereo`. Create re-anchoring,
+head suppression, reach/twist changes and controller-owned firing direction may then be exercised
+in the same process, but none is promoted by preparation alone.
+
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
 `163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256
