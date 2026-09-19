@@ -1133,8 +1133,18 @@ FORETWIST through the real hierarchy, re-reads the resulting hand basis, and rec
 residual directly from that observed basis to the calibrated Sense target. Telemetry/verifier now
 require `hand_residual_source=post_foretwist_observed_basis`. Focused Release body/camera/OpenVR/
 provenance tests pass, and fresh full Debug/Release suites each complete all 25 outcomes with 24
-PASS plus the expected classic-D3D9 shared-texture capability SKIP. A fresh candidate remains
-required before another physical run. Pelvis/leg writes remain disabled.
+PASS plus the expected classic-D3D9 shared-texture capability SKIP. Pelvis/leg writes remain
+disabled.
+
+Fresh full/body candidate `20260919T003727Z-73f20e13cc1a` is now prepared from clean source commit
+`2213ae6a2903581f8c82c43bb01a1cc6705b0b00`. Build-manifest ID is
+`172178E5ECDC340E563C4F0FD1412DC3E5AD477D142605472F87445B11FF0CA4`; proxy SHA-256 is
+`E0093D6ACDDE08411B16045AC87709F22EAA0188B7A8D14E4C189A9A40A8926B`. `prepare -BodyIkAtStart`
+reran the complete Release suite with 24 PASS plus the expected capability SKIP and staged the
+reversible `1920x1080`/FSAA0 full profile with Body IK enabled before process start. No game or
+SteamVR process was launched automatically. The next physical observation should first confirm that
+the arms now remain active instead of tripping the frame-1 orientation latch, then check modest
+palm-up/palm-down/controller roll for anatomical improvement.
 
 Three separate product milestones are now explicitly recorded for later work: suppress the local
 head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD
