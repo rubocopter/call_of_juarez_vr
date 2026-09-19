@@ -6,7 +6,8 @@ Run `20260919T153546Z-705460dca03b` is the latest formal single-process physical
 clean source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
 `8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. The evidence manifest reports
-`runtimeEnded=true` and `incomplete=false`; staging is now clear. Transport fenced 4,312 frames,
+`runtimeEnded=true` and `incomplete=false`; that run was finalized and unstaged before the next
+candidate was prepared. Transport fenced 4,312 frames,
 collected 4,311, submitted 4,309 new plus 3,828 repeated frames, and recorded zero capture-ring drops
 or submit failures. Sampled CPU copy was 10.253 ms average / 13.974 ms p95. The inner presenter still
 ended with `shutdown_complete=false`, so that shutdown sub-gate remains open.
@@ -57,6 +58,15 @@ expected classic-D3D9 shared-texture capability SKIP**, zero failures. Host test
 small-overreach and extreme-overreach policy, the 100-degree rotation limit, neutral `/pose/tip`
 direction mapping, invalid pose rejection and provenance of both tip bindings. JNI visibility and
 shot ownership still require the exact running game and therefore remain below live-tested state.
+
+Fresh full/body candidate `20260919T162808Z-fb75cb34977a` is currently staged from clean source
+`7d4f94b63152aadee85d6ba0148d0baf84b384af`, build-manifest ID
+`09AC71BD936DB0895BA5EA4520E38CCFEFBB5B5BCC0E6A65D3B176EBF3E80F33`, proxy SHA-256
+`B05BBDCCCBEE93216B609D3082C54B434C9248F1A86E515B80835E3A3F85275D`. Preparation rebuilt the
+Release artifact, repeated the same 24 PASS plus expected capability SKIP result, enabled Body IK
+from process start and applied the reversible `1920x1080`/FSAA0 profile. It contains all four
+post-run corrections above and is preparation/host evidence only until one clean physical run
+exercises head suppression, reach/twist behavior and controller-owned firing direction.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID

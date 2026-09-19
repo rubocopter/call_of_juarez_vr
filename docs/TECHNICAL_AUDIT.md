@@ -24,12 +24,21 @@ Validation states remain:
 
 ## Current confirmed baseline
 
-Latest body correction: run `20260919T085408Z-327dd354bc4f` failed anatomy despite 5,050 clean
-applications/restores. Replaying the measured element axes rejects the assumed serial
-upper/forearm/FORETWIST/hand chain: FORETWIST misses forearm swing and hand misses FORETWIST roll.
-Current code explicitly composes those sibling transforms and verifies complete frame agreement.
-This is a host candidate, pending physical validation; details and reproducible evidence are in
-`docs/research/COJ_ARM_SKINNING_AND_AIM.md`. Shot direction/origin remain native look-owned.
+Latest formal body evidence is run `20260919T153546Z-705460dca03b`: 8,452 arm applications and
+8,452 restores completed without writer/restore failure, exact +/-45-degree right-stick snap turn
+was physically validated, and the preserved-target recenter rebase was live-exercised. Visual Body
+IK remains unpromoted because reach still clamped on 43.72% of applications, wrist/hand poses were
+still forced in some positions and local head/hair intruded into the HMD view. The measured sibling
+FORETWIST/hand propagation remains authoritative; details and reproducible evidence are in
+`docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+
+Fresh candidate `20260919T162808Z-fb75cb34977a` is staged from clean source `7d4f94b63152aadee85d6ba0148d0baf84b384af`.
+It adds bounded 12-unit overreach remapping, a 100-degree shared FORETWIST/hand axial-roll limit,
+reversible local Ray/Billy head/hair suppression and controller `/pose/tip` ownership of the exact
+per-hand native look direction while preserving native spread/accuracy, fire origin and the
+network-forced branch. Debug and Release each pass 24 tests plus the expected classic-D3D9
+shared-texture capability SKIP. These four paths remain host-tested pending physical exercise of the
+staged candidate.
 
 The following facts are currently established:
 

@@ -364,16 +364,23 @@ Phases 0-4 host baseline
   -> exact CoJ camera/native-stereo live proof
   -> Phase 5 host acceptance complete / live-exercised
   -> Phase 6 host acceptance complete
-  -> one consolidated native-stereo performance/state/focus physical run
   -> Phase 7 transactional deployment host acceptance complete
   -> Phase 8 neutral math/semantic host acceptance complete
+  -> positional 6DOF and exact CoJ gameplay-controller route live-tested
+  -> recenter and exact +/-45-degree snap turn headset-validated
+  -> visible arm writer/restoration and tracked-hand positional mapping live-tested
+  -> active full/body candidate 20260919T162808Z-fb75cb34977a
+     (reach/twist policy, local head suppression and controller-owned shot direction)
+  -> physical Body IK anatomy/aim gate
+  -> physical crouch, lower-body writing and rebuilt VR interactions
   -> remaining backend-specific lifetime/general portability hardening before broader runtime reuse
-  -> positional 6DOF / gameplay controllers / interactions / full-body IK
 ```
 
 Phase 8's neutral math contract is now host-tested. Remaining OpenXR lifetime/state ownership stays
 tracked independently under A10; it does not retroactively block the already-proven exact Call of
-Juarez/OpenVR stereo path.
+Juarez/OpenVR stereo path. The active staged candidate remains host/preparation evidence until a
+single clean physical run exercises it; Body IK is not promoted from successful writer telemetry
+alone.
 
 ### Camera/render boundary proof — live-tested
 
@@ -394,8 +401,10 @@ renderer-camera correlation, natural-basis restoration, disabled passthrough and
 hook restoration. Follow-on HMD runs refined the native paired world/view camera contract,
 right-handed source basis and game-specific yaw sign. The current host-tested candidate also
 uses the exact ChromeEngine render-view boundary for two per-eye passes with eye-to-head
-translation and asymmetric projection. This does not yet promote stereo, positional 6DOF or
-motion controls. The Steam Overlay A/B remains unresolved evidence for the D3D9 interception
+translation and asymmetric projection. That camera-boundary run alone did not promote stereo,
+positional 6DOF or motion controls; later exact-build runs now provide live evidence for native
+stereo, positional reconciliation and the exact CoJ gameplay-input route, while Body IK still fails
+visual anatomy acceptance. The Steam Overlay A/B remains unresolved evidence for the D3D9 interception
 finding and may be resumed later if presentation work returns to that boundary. Exact
 static/live evidence and constraints are recorded in `docs/research/COJ_CAMERA_PATH.md`.
 

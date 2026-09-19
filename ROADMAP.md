@@ -11,6 +11,11 @@ clamp, a 100-degree limit on shared FORETWIST/hand axial roll, reversible per-el
 head/hair suppression, and separate `/pose/tip` controller aiming into the exact per-hand native
 look-direction state. These four corrections require a fresh physical run before promotion.
 
+Candidate `20260919T162808Z-fb75cb34977a` is staged from clean source `7d4f94b` with Body IK enabled
+from process start and the reversible `1920x1080`/FSAA0 profile active. Its Release preparation
+passed 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. It is the active
+physical gate; no result from those four corrections is promoted until this exact candidate is run.
+
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-
 target recenter rebase. Arms are substantially improved visually and all 8,452 applications/restores
@@ -274,7 +279,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 - PS VR2 Sense OpenVR/SteamVR binding: **headset-validated for left-Create recenter and exact +/-45-degree right-stick snap; gameplay route live-tested**. Run `20260918T233902Z-0cb2e565e886` physically exercised the native gameplay-input route, and run `20260919T153546Z-705460dca03b` recorded 23 exact snap steps through `PlayerBeing.RotateHorizontally(F)` that the user confirmed worked correctly. Right-stick vertical crouch remains; other bindings are left stick move/run, L2/R2 fire, L1/R1 weapon previous/next, Square reload, Triangle interact, Cross jump and Circle kick.
 - Local head/hair suppression for HMD first-person rendering: **implemented; physical validation pending**. The exact local head/hair elements are hidden individually and reversibly through the shipped mesh API; the actor body remains present. Confirm in-headset suppression and shadow behavior before promotion.
 - Physical crouch from calibrated HMD height into the native crouch action/state: **planned**. The existing right-stick crouch remains a gameplay binding, not physical crouch.
-- Decouple weapon aim from HMD/crosshair view and drive muzzle/shot direction from tracked weapon/controller orientation: **planned; live-observed need**.
+- Decouple weapon aim from HMD/crosshair view and drive shot direction from tracked weapon/controller orientation: **implemented / host-tested; physical firing validation pending**. Separate left/right `/pose/tip` actions now drive the exact native per-hand look-direction array after the game update and before rendering, while native spread/accuracy, fire origin and the network-forced branch remain game-owned. A clean firing run must prove that each hand's shots follow its Sense controller before promotion.
 - Full-body IK driven by validated HMD/controller/body anchors: **visible writer/restoration and positional controller mapping live-tested; visual anatomy improved but still unpromoted**. The exact shipped bone IDs, head-anchored targets and measured two-bone shoulder/elbow/wrist solving remain behind `bodyIkEnabled`. Run `20260919T153546Z-705460dca03b` sustains 8,452 applications/restores without fault. Current host candidate adds bounded overreach compensation and caps shared axial FORETWIST/hand roll at 100 degrees while retaining the measured sibling hierarchy and diagnostic full wrist residual. Pelvis/thigh/shin/foot writes remain disabled; the new arm policy must be judged physically.
 - Motion-controlled guns/reload/interactions where game boundaries permit: **planned**.
 - Rebuild game interactions for VR instead of mapping all original flat interactions directly: **planned**.

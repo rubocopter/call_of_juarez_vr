@@ -370,21 +370,26 @@ whether the residual wrist writer itself caused the deformation. Pelvis/leg writ
 The PS VR2 Sense pose contract is now explicit. Body IK consumes the OpenVR
 `/pose/handgrip` action for each hand because that pose represents the controller's anatomical grip
 frame. The SteamVR compositor's own PS VR2 binding uses `/pose/tip` for its laser pointer; that pose
-is reserved for the later weapon/aiming boundary rather than being used as the body-hand frame. Raw
+is also exposed separately to the exact CoJ weapon-aim adapter and is never reused as the body-hand
+frame. The adapter converts each valid tip orientation into the native camera basis and writes the
+corresponding `m_avLookDirDevForHand` entry after the game's normal look/aim update and before stereo
+rendering. Native `GetFireDirForWeapon` spread/accuracy, `GetFireOriginForWeapon` origin and the
+network-forced attack branch remain game-owned. This ownership path is host-tested; physical firing
+direction has not yet been validated. Raw
 tracked-device role poses remain diagnostic only: if either handgrip action is inactive or invalid,
 body hand tracking fails closed instead of silently falling back to `/pose/raw`. A successful
 explicit recenter invalidates the controller-to-hand orientation calibration. A previously latched
 arm-writer fault may only be cleared at that boundary when no arm write transaction is active and
 freshly read natural arm geometry is valid.
 
-Three additional first-person ownership boundaries remain deliberately separate from arm IK.
-Head/hair suppression must hide only the local head geometry from HMD rendering while preserving
-the rest of the body/shadow/animation. Physical crouch should be derived from calibrated HMD height
-and enter the game through the existing exact-game crouch action/state rather than by moving the
-camera independently of the actor. Firearm aiming must eventually separate weapon/muzzle aim from
-the flat game's camera/crosshair authority and derive the shot direction from tracked weapon/
-controller orientation. These are planned exact-game adapters, not consequences of the current
-Sense button mapping.
+First-person ownership boundaries remain deliberately separate from arm IK. Local head/hair
+suppression is now implemented as an exact-game visibility transaction: only resolved Ray/Billy
+head and hair elements that were originally visible are hidden, and only VR-owned changes are
+restored on tracking loss/shutdown. Its HMD and shadow result still needs physical validation.
+Physical crouch remains planned: it should be derived from calibrated HMD height and enter the game
+through the existing exact-game crouch action/state rather than by moving the camera independently
+of the actor. Firearm shot-direction ownership is implemented through the `/pose/tip` path described
+above and remains below live-tested state until firing is observed physically.
 
 The OpenVR presenter treats SteamVR's dashboard as a system-owned layer, but dashboard visibility
 does not stop valid scene submission. The presenter keeps feeding the latest game stereo content,
