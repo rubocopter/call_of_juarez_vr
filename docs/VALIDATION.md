@@ -1509,6 +1509,26 @@ live verifier bind this contract with `twist_owner=foretwist_element`. This corr
 Fresh Debug and Release builds both completed successfully; each full CTest suite reports **24 PASS
 plus the expected classic-D3D9 shared-texture capability SKIP out of 25**, zero failures.
 
+Fresh physical run `20260919T002540Z-fc19b8ae78a4` exercised that FORETWIST candidate but did not
+produce visible body motion. The log explains the apparently inert body: on frame 1 the left arm
+writer mutated the mesh and reached the solved positional targets (`elbow_target_error=0.000732422`,
+`wrist_target_error=0.00201324`), but the composed hand basis missed the calibrated orientation
+target (`hand_up_error=0.274044`, `hand_forward_error=0.272201`). The guarded path immediately
+restored the complete natural arm successfully and set the existing writer fault latch, so all
+subsequent arm writes failed closed with `prior element writer/restore validation failed`. This is
+positive evidence for safe fail-close behavior and FORETWIST reachability, but not Body IK
+promotion.
+
+The failure exposed a specific composition assumption: the residual hand rotation had been
+precomputed from ideal mathematical FORETWIST propagation. The native hierarchy's observed hand
+basis after `RotateElementWithChildren` differs from that estimate. Current host source now re-reads
+the hand element after the FORETWIST write and recomputes the final residual directly from that
+observed post-FORETWIST basis to the calibrated target. Telemetry/verifier bind the new path as
+`hand_residual_source=post_foretwist_observed_basis`. This correction is **host-tested only** until a
+fresh physical run proves both orientation reach and acceptable anatomy. Fresh Debug and Release
+builds pass the complete 25-outcome suite with **24 PASS plus the expected classic-D3D9
+shared-texture capability SKIP**, zero failures.
+
 Three downstream VR ownership items are now explicitly tracked but remain **planned** and separate
 from the arm-composition gate: suppress the local player's head/hair from the HMD view without
 removing the body, derive physical crouch from calibrated HMD height and feed it through the native

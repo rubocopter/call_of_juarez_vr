@@ -70,9 +70,14 @@ was spatial/visual in that artifact. Both arms moved and reached the solver targ
 forward/back was reversed; the arms became visible in front only when the controllers moved behind
 the user. Run `20260918T215118Z-c46320012ff0` physically validated the corrected tracked-Z position
 mapping, but still showed severe wrist/hand deformation with `hand_orientation=natural`. Current
-host source now implements calibration-relative Sense orientation, forearm twist and residual hand
-rotation while preserving that validated position mapping. This orientation composition remains
-host-tested pending a fresh physical visual gate.
+host source implements calibration-relative Sense orientation while preserving that validated
+position mapping. Run `20260919T002540Z-fc19b8ae78a4` then exercised dedicated FORETWIST ownership:
+the first left-arm write changed the mesh and reached its positional targets, but missed the
+calibrated hand orientation and was safely restored; the writer fault latch then kept subsequent
+writes fail-closed, explaining the user's observation that the body did not move. Current host
+source now computes the final hand residual from the hand basis observed after the native FORETWIST
+write instead of from an idealized pre-write hierarchy prediction. This revised orientation
+composition remains host-tested pending a fresh physical visual gate.
 
 The supported-game end state is native stereo rendering, full-body IK and interactions
 rebuilt around tracked VR input. These remain product milestones and do not bypass the

@@ -694,8 +694,8 @@ try {
     $StereoRightArm = $StereoRightArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
     $StereoLeftArm = $StereoLeftArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
     $StereoRightArm = $StereoRightArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(-6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(-7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
-    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
-    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0;hand_forward_error=0;hand_orientation_reached=true;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
     $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta;"
     $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta;"
     $StereoLeftArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=left;phase=before_write;writer=RotateElementWithChildren"
@@ -845,6 +845,23 @@ try {
     }
     Assert-True $WrongTwistOwnerRejected `
         "Native-stereo verifier accepted controller twist on the forearm instead of EBones FORETWIST."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierWrongHandResidualSource = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace `
+            "hand_residual_source=post_foretwist_observed_basis", `
+            "hand_residual_source=precomputed_ideal_basis"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierWrongHandResidualSource
+    $WrongHandResidualSourceRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $WrongHandResidualSourceRejected = $true
+    }
+    Assert-True $WrongHandResidualSourceRejected `
+        "Native-stereo verifier accepted a hand residual that was not recomputed from the observed post-FORETWIST basis."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierNeutralGameplay = @($StereoVerifierLog | ForEach-Object {

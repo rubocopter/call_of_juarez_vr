@@ -783,13 +783,24 @@ HandOrientationRotationPlan BuildHandOrientationRotationPlan(
               current_hand_forward,
               result.forearm_twist.axis,
               result.forearm_twist.angle_degrees);
-    result.hand = BuildBasisRotationDelta(
-        hand_up_after_twist,
-        hand_forward_after_twist,
-        target_up,
-        target_forward);
+    result.hand = BuildHandResidualRotationDelta(
+        hand_up_after_twist, hand_forward_after_twist, target);
     result.valid = result.hand.valid;
     return result;
+}
+
+BoneRotationDelta BuildHandResidualRotationDelta(
+    cojvr::runtime::Vec3 current_hand_up,
+    cojvr::runtime::Vec3 current_hand_forward,
+    const HandOrientationTarget& target) noexcept {
+    cojvr::runtime::Vec3 target_up = target.up;
+    cojvr::runtime::Vec3 target_forward = target.forward;
+    if (!target.valid || !NormalizeBasis(current_hand_up, current_hand_forward) ||
+        !NormalizeBasis(target_up, target_forward)) {
+        return {};
+    }
+    return BuildBasisRotationDelta(
+        current_hand_up, current_hand_forward, target_up, target_forward);
 }
 
 cojvr::runtime::Vec3 BuildTrackedHandTarget(
