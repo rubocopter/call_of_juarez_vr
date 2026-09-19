@@ -401,6 +401,8 @@ try {
     $ActionNames = @($OpenVrActions.actions | ForEach-Object { [string]$_.name })
     foreach ($RequiredAction in @(
         "/actions/global/in/recenter",
+        "/actions/global/in/ui_select_left",
+        "/actions/global/in/ui_select_right",
         "/actions/global/in/left_hand_grip_pose",
         "/actions/global/in/right_hand_grip_pose",
         "/actions/global/in/left_hand_aim_pose",
@@ -442,6 +444,8 @@ try {
             "PS VR2 Sense pose '$Path' does not map exactly once to '$Output'."
     }
     Assert-SenseBinding "/user/hand/left/input/create" "click" "/actions/global/in/recenter"
+    Assert-SenseBinding "/user/hand/left/input/l2" "click" "/actions/global/in/ui_select_left"
+    Assert-SenseBinding "/user/hand/right/input/r2" "click" "/actions/global/in/ui_select_right"
     Assert-SensePose "/user/hand/left/pose/handgrip" "/actions/global/in/left_hand_grip_pose"
     Assert-SensePose "/user/hand/right/pose/handgrip" "/actions/global/in/right_hand_grip_pose"
     Assert-SensePose "/user/hand/left/pose/tip" "/actions/global/in/left_hand_aim_pose"
@@ -764,6 +768,7 @@ try {
             requireProductionGpuSyncNone = $true
             requirePerformanceSummary = $true
             requireRepeatedPresentation = $true
+            requireFlatTheaterUi = $true
             requirePositional6Dof = $true
             requireBodyIk = $true
             requireGameplayInput = $true
@@ -811,11 +816,17 @@ try {
     $StereoRightLeg = "camera_probe_event: event=body_lower_tracking result=observed detail=frame_sequence=2;being_generation=1;side=right;actor_position=(0.000000,0.000000,0.000000);pelvis_offset=(0.000000,90.000000,0.000000);pelvis_target=(0.000000,90.000000,0.000000);hip=(10.000000,90.000000,0.000000);knee=(10.000000,50.000000,5.000000);ankle=(10.000000,10.000000,0.000000);foot_target=(10.000000,10.000000,0.000000);thigh_length=40.3;shin_length=40.3;plan_valid=true;target_clamped=false;knee_plane_valid=true;write_enabled=false;foot_orientation=natural;basis_source=GetBoneDirVector/GetBonePerpVector;writer=disabled_preflight"
     $StereoVerifierLog = @(
         "run_start: run_id=$StereoVerifierRunId build_manifest_id=$($StereoBuildManifest.manifestId) pid=789",
-        "native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=latest_frame_repeat",
+        "native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=flat_theater_to_native_stereo",
         "native_stereo_runtime: status=started backend=openvr owner=presenter_thread recommended_eye=2000x2040 left_eye_x=-0.032 right_eye_x=0.032 pose_semantics=eye_to_head",
         "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff",
         "openvr_scene_state: phase=initialized;process_id=789;scene_focus_process_id=0;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=false;should_reduce_rendering_work=false",
         "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
+        "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
+        "flat_ui_pointer: status=hit;hand=right;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;source=1920x1080;select=false;smoothing=0.40;route=flat_theater_menu_pointer",
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_menu_mouse",
+        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=down;pixel=960,540;hand=right;route=win32_menu_mouse",
+        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=up;pixel=960,540;hand=right;route=win32_menu_mouse",
+        "native_stereo_presenter_transition: status=content_mode mode=native_stereo",
         "native_stereo_factory_hook: status=installed",
         "native_stereo_device: status=observed device=0x1234 generation=1",
         "camera_probe_bootstrap: status=installed system_d3d9=expected",

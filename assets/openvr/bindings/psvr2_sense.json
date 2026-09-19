@@ -33,6 +33,16 @@
           },
           "mode": "button",
           "path": "/user/hand/left/input/create"
+        },
+        {
+          "inputs": { "click": { "output": "/actions/global/in/ui_select_left" } },
+          "mode": "trigger",
+          "path": "/user/hand/left/input/l2"
+        },
+        {
+          "inputs": { "click": { "output": "/actions/global/in/ui_select_right" } },
+          "mode": "trigger",
+          "path": "/user/hand/right/input/r2"
         }
       ]
     },

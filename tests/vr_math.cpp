@@ -164,6 +164,68 @@ int main() {
         return Fail("invalid FOV/projection input was accepted");
     }
 
+    Pose theater_anchor{};
+    theater_anchor.orientation_valid = true;
+    theater_anchor.position_valid = true;
+    Pose controller_aim = theater_anchor;
+    FlatTheaterPointerProjection pointer{};
+    const EyeFov theater_fov = FovFromTangents(-1.0F, 1.0F, 1.0F, -1.0F);
+    if (!ProjectFlatTheaterPointer(
+            theater_anchor, controller_aim,
+            theater_fov, theater_fov,
+            1000, 600, 1350, 810, pointer) ||
+        !pointer.hit || !Near(pointer.u, 0.5F) || !Near(pointer.v, 0.5F) ||
+        pointer.pixel_x != 500 || pointer.pixel_y != 300) {
+        return Fail("flat-theater center ray did not map to the source-image center");
+    }
+
+    controller_aim.position.x = 0.30F;
+    if (!ProjectFlatTheaterPointer(
+            theater_anchor, controller_aim,
+            theater_fov, theater_fov,
+            1000, 600, 1350, 810, pointer) ||
+        pointer.u <= 0.5F || pointer.u >= 1.0F || !Near(pointer.v, 0.5F)) {
+        return Fail("flat-theater translated controller did not move the pointer right");
+    }
+
+    theater_anchor.orientation = {0.0F, kSqrtHalf, 0.0F, kSqrtHalf};
+    controller_aim = theater_anchor;
+    if (!ProjectFlatTheaterPointer(
+            theater_anchor, controller_aim,
+            theater_fov, theater_fov,
+            1000, 600, 1350, 810, pointer) ||
+        !Near(pointer.u, 0.5F) || !Near(pointer.v, 0.5F)) {
+        return Fail("flat-theater recenter rotation changed the pointer coordinate contract");
+    }
+
+    theater_anchor.orientation = {};
+    controller_aim.orientation = {0.0F, 1.0F, 0.0F, 0.0F};
+    if (ProjectFlatTheaterPointer(
+            theater_anchor, controller_aim,
+            theater_fov, theater_fov,
+            1000, 600, 1350, 810, pointer)) {
+        return Fail("flat-theater ray pointing away from the anchored screen was accepted");
+    }
+
+    Pose invalid_theater_anchor = theater_anchor;
+    invalid_theater_anchor.orientation = {0.0F, 0.0F, 0.0F, 0.0F};
+    controller_aim = theater_anchor;
+    if (ProjectFlatTheaterPointer(
+            invalid_theater_anchor, controller_aim,
+            theater_fov, theater_fov,
+            1000, 600, 1350, 810, pointer)) {
+        return Fail("flat-theater pointer accepted a zero-length anchor quaternion");
+    }
+
+    controller_aim = theater_anchor;
+    controller_aim.position.x = 2.0F;
+    if (ProjectFlatTheaterPointer(
+            theater_anchor, controller_aim,
+            theater_fov, theater_fov,
+            1000, 600, 1350, 810, pointer)) {
+        return Fail("flat-theater pointer accepted a hit in the black border/outside source image");
+    }
+
     std::cout << "VR math tests passed\n";
     return 0;
 }

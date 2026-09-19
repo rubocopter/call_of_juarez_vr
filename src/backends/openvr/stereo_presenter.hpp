@@ -13,6 +13,23 @@ namespace cojvr::backends::openvr {
 
 using PresenterLogCallback = void (*)(void* context, std::string_view line) noexcept;
 
+struct FlatUiPointerSample {
+    bool active = false;
+    bool using_left_hand = false;
+    bool select_down = false;
+    float u = 0.0F;
+    float v = 0.0F;
+    std::uint32_t pixel_x = 0;
+    std::uint32_t pixel_y = 0;
+    std::uint32_t source_width = 0;
+    std::uint32_t source_height = 0;
+    float ray_distance_m = 0.0F;
+};
+
+using FlatUiPointerCallback = void (*)(
+    void* context,
+    const FlatUiPointerSample& sample) noexcept;
+
 struct OpenVrTrackingSample {
     runtime::Pose pose{};
     runtime::Pose left_controller{};
@@ -48,7 +65,9 @@ public:
     [[nodiscard]] bool Start(
         std::string action_manifest_path,
         PresenterLogCallback log_callback = nullptr,
-        void* log_context = nullptr) noexcept;
+        void* log_context = nullptr,
+        FlatUiPointerCallback flat_ui_callback = nullptr,
+        void* flat_ui_context = nullptr) noexcept;
     void Stop() noexcept;
 
     [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame) noexcept;

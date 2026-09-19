@@ -461,6 +461,7 @@ if ($HadOriginal) {
             requireProductionGpuSyncNone = $IsNativeStereo
             requirePerformanceSummary = $IsNativeStereo
             requireRepeatedPresentation = $IsNativeStereo
+            requireFlatTheaterUi = $IsNativeStereo
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
             requireGameplayInput = $RequireBodyValidation

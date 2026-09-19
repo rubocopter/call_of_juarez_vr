@@ -5,6 +5,7 @@
 #include "backends/openvr/d3d11_session.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
 #include "runtime/openvr_runtime.hpp"
+#include "runtime/vr_math.hpp"
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -13,12 +14,14 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace cojvr::backends::openvr {
 namespace {
@@ -64,6 +67,15 @@ double PoseAgeMilliseconds(const std::chrono::steady_clock::time_point capture_t
     return MillisecondsBetween(capture_time, std::chrono::steady_clock::now());
 }
 
+std::uint32_t FlatTextureExtent(
+    const std::uint32_t source_extent,
+    const std::uint32_t recommended_extent) noexcept {
+    return std::max(
+        recommended_extent,
+        static_cast<std::uint32_t>(
+            (static_cast<std::uint64_t>(source_extent) * 135U) / 100U));
+}
+
 } // namespace
 
 struct OpenVrStereoPresenter::Impl {
@@ -107,6 +119,8 @@ struct OpenVrStereoPresenter::Impl {
     std::string action_manifest_path;
     PresenterLogCallback log_callback = nullptr;
     void* log_context = nullptr;
+    FlatUiPointerCallback flat_ui_callback = nullptr;
+    void* flat_ui_context = nullptr;
 
     void Log(const std::string_view line) const noexcept {
         if (log_callback) log_callback(log_context, line);
@@ -116,6 +130,14 @@ struct OpenVrStereoPresenter::Impl {
         try {
             std::lock_guard lock(error_mutex);
             error = std::move(value);
+        } catch (...) {
+        }
+    }
+
+    void PublishFlatUiPointer(const FlatUiPointerSample& sample) const noexcept {
+        if (!flat_ui_callback) return;
+        try {
+            flat_ui_callback(flat_ui_context, sample);
         } catch (...) {
         }
     }
@@ -192,14 +214,10 @@ struct OpenVrStereoPresenter::Impl {
         const bool flat_theater =
             frame.presentation_mode == d3d9::FramePresentationMode::flat_theater;
         const std::uint32_t desired_width = flat_theater
-            ? std::max(
-                  eyes[0].width,
-                  static_cast<std::uint32_t>((static_cast<std::uint64_t>(left.width) * 135U) / 100U))
+            ? FlatTextureExtent(left.width, eyes[0].width)
             : left.width;
         const std::uint32_t desired_height = flat_theater
-            ? std::max(
-                  eyes[0].height,
-                  static_cast<std::uint32_t>((static_cast<std::uint64_t>(left.height) * 135U) / 100U))
+            ? FlatTextureExtent(left.height, eyes[0].height)
             : left.height;
         if (textures[0] && textures[1] &&
             texture_width == desired_width && texture_height == desired_height) {
@@ -239,6 +257,7 @@ struct OpenVrStereoPresenter::Impl {
     bool UploadFrame(
         D3D11SessionBridge& d3d11,
         const d3d9::StereoCpuFrame& frame,
+        const FlatUiPointerSample& flat_ui_pointer,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         std::uint32_t& texture_width,
         std::uint32_t& texture_height,
@@ -299,6 +318,74 @@ struct OpenVrStereoPresenter::Impl {
                 box.back = 1;
                 d3d11.context()->UpdateSubresource(
                     textures[eye].Get(), 0, &box, source.pixels.data(), source.stride, 0);
+
+                if (flat_ui_pointer.active &&
+                    flat_ui_pointer.source_width == source.width &&
+                    flat_ui_pointer.source_height == source.height) {
+                    constexpr std::uint32_t kRadius = 9U;
+                    const std::uint32_t center_x = std::min(
+                        flat_ui_pointer.pixel_x, source.width - 1U);
+                    const std::uint32_t center_y = std::min(
+                        flat_ui_pointer.pixel_y, source.height - 1U);
+                    const std::uint32_t patch_left = center_x > kRadius
+                        ? center_x - kRadius
+                        : 0U;
+                    const std::uint32_t patch_top = center_y > kRadius
+                        ? center_y - kRadius
+                        : 0U;
+                    const std::uint32_t patch_right = std::min(
+                        source.width, center_x + kRadius + 1U);
+                    const std::uint32_t patch_bottom = std::min(
+                        source.height, center_y + kRadius + 1U);
+                    const std::uint32_t patch_width = patch_right - patch_left;
+                    const std::uint32_t patch_height = patch_bottom - patch_top;
+                    std::vector<std::uint8_t> patch(
+                        static_cast<std::size_t>(patch_width) * patch_height * 4U);
+                    for (std::uint32_t row = 0; row < patch_height; ++row) {
+                        const auto* source_row = source.pixels.data() +
+                            static_cast<std::size_t>(patch_top + row) * source.stride +
+                            static_cast<std::size_t>(patch_left) * 4U;
+                        std::memcpy(
+                            patch.data() + static_cast<std::size_t>(row) * patch_width * 4U,
+                            source_row,
+                            static_cast<std::size_t>(patch_width) * 4U);
+                    }
+                    const auto set_pixel = [&](const std::uint32_t x,
+                                               const std::uint32_t y,
+                                               const std::uint8_t value) noexcept {
+                        if (x >= patch_width || y >= patch_height) return;
+                        auto* pixel = patch.data() +
+                            (static_cast<std::size_t>(y) * patch_width + x) * 4U;
+                        pixel[0] = value;
+                        pixel[1] = value;
+                        pixel[2] = value;
+                        pixel[3] = 0xFFU;
+                    };
+                    const std::uint32_t local_x = center_x - patch_left;
+                    const std::uint32_t local_y = center_y - patch_top;
+                    for (std::uint32_t offset = 2U; offset <= kRadius; ++offset) {
+                        if (local_x >= offset) set_pixel(local_x - offset, local_y, 0x00U);
+                        if (local_x + offset < patch_width) set_pixel(local_x + offset, local_y, 0x00U);
+                        if (local_y >= offset) set_pixel(local_x, local_y - offset, 0x00U);
+                        if (local_y + offset < patch_height) set_pixel(local_x, local_y + offset, 0x00U);
+                    }
+                    for (std::uint32_t offset = 3U; offset + 1U <= kRadius; ++offset) {
+                        if (local_x >= offset) set_pixel(local_x - offset, local_y, 0xFFU);
+                        if (local_x + offset < patch_width) set_pixel(local_x + offset, local_y, 0xFFU);
+                        if (local_y >= offset) set_pixel(local_x, local_y - offset, 0xFFU);
+                        if (local_y + offset < patch_height) set_pixel(local_x, local_y + offset, 0xFFU);
+                    }
+                    set_pixel(local_x, local_y, 0xFFU);
+                    D3D11_BOX cursor_box{};
+                    cursor_box.left = left_offset + patch_left;
+                    cursor_box.top = top_offset + patch_top;
+                    cursor_box.front = 0;
+                    cursor_box.right = left_offset + patch_right;
+                    cursor_box.bottom = top_offset + patch_bottom;
+                    cursor_box.back = 1;
+                    d3d11.context()->UpdateSubresource(
+                        textures[eye].Get(), 0, &cursor_box, patch.data(), patch_width * 4U, 0);
+                }
             } else {
                 d3d11.context()->UpdateSubresource(
                     textures[eye].Get(), 0, nullptr, source.pixels.data(), source.stride, 0);
@@ -362,8 +449,13 @@ struct OpenVrStereoPresenter::Impl {
         std::uint64_t active_render_pose_sequence = 0;
         std::chrono::steady_clock::time_point active_capture_time{};
         runtime::Pose active_render_hmd_pose{};
+        std::uint32_t active_source_width = 0;
+        std::uint32_t active_source_height = 0;
         runtime::Pose flat_theater_anchor_pose{};
         bool flat_theater_anchor_valid = false;
+        FlatUiPointerSample flat_ui_pointer{};
+        bool flat_ui_fire_release_required = false;
+        std::uint64_t flat_ui_pointer_sequence = 0;
         d3d9::FramePresentationMode active_presentation_mode =
             d3d9::FramePresentationMode::native_stereo;
         bool have_active_presentation_mode = false;
@@ -484,12 +576,12 @@ struct OpenVrStereoPresenter::Impl {
                 if (stop_requested.load(std::memory_order_acquire)) break;
                 if (pose_ok) {
                     bool recenter = false;
+                    runtime::OpenVrGlobalActions actions{};
                     runtime::GameplayInputState gameplay{};
+                    runtime::GameplayInputState polled_gameplay{};
                     runtime::OpenVrHandPoses hand_poses{};
                     bool input_polled = false;
                     if (input_ready.load(std::memory_order_acquire)) {
-                        runtime::OpenVrGlobalActions actions{};
-                        runtime::GameplayInputState polled_gameplay{};
                         if (runtime.PollActions(actions, polled_gameplay, hand_poses)) {
                             input_polled = true;
                             recenter = actions.recenter_requested;
@@ -499,8 +591,20 @@ struct OpenVrStereoPresenter::Impl {
                                 flat_theater_anchor_valid = true;
                                 Log("native_stereo_flat_theater: status=recentered source=global_action");
                             }
-                            if (!dashboard_visible && runtime_state.focused) {
+                            const bool native_gameplay_active =
+                                have_active_presentation_mode &&
+                                active_presentation_mode ==
+                                    d3d9::FramePresentationMode::native_stereo;
+                            if (!dashboard_visible && runtime_state.focused &&
+                                native_gameplay_active) {
                                 gameplay = polled_gameplay;
+                                if (flat_ui_fire_release_required) {
+                                    gameplay.fire_left = false;
+                                    gameplay.fire_right = false;
+                                    if (!polled_gameplay.fire_left && !polled_gameplay.fire_right) {
+                                        flat_ui_fire_release_required = false;
+                                    }
+                                }
                             }
                         }
                     }
@@ -520,6 +624,85 @@ struct OpenVrStereoPresenter::Impl {
                         hand_poses.right_aim_active &&
                         hand_poses.right_aim.position_valid &&
                         hand_poses.right_aim.orientation_valid;
+                    FlatUiPointerSample pointer{};
+                    const bool flat_mode_active =
+                        have_active_presentation_mode &&
+                        active_presentation_mode ==
+                            d3d9::FramePresentationMode::flat_theater;
+                    const bool pointer_allowed =
+                        flat_mode_active && flat_theater_anchor_valid && input_polled &&
+                        runtime_state.focused && !dashboard_visible &&
+                        active_source_width > 0 && active_source_height > 0 &&
+                        texture_width >= active_source_width &&
+                        texture_height >= active_source_height;
+                    if (pointer_allowed) {
+                        const auto try_pointer = [&](const runtime::Pose& aim_pose,
+                                                     const bool valid,
+                                                     const bool using_left_hand) noexcept {
+                            if (!valid || pointer.active) return;
+                            runtime::FlatTheaterPointerProjection projected{};
+                            if (!runtime::ProjectFlatTheaterPointer(
+                                    flat_theater_anchor_pose, aim_pose,
+                                    eyes[0].fov, eyes[1].fov,
+                                    active_source_width, active_source_height,
+                                    texture_width, texture_height, projected)) {
+                                return;
+                            }
+                            pointer.active = true;
+                            pointer.using_left_hand = using_left_hand;
+                            pointer.u = projected.u;
+                            pointer.v = projected.v;
+                            pointer.pixel_x = projected.pixel_x;
+                            pointer.pixel_y = projected.pixel_y;
+                            pointer.source_width = active_source_width;
+                            pointer.source_height = active_source_height;
+                            pointer.ray_distance_m = projected.ray_distance_m;
+                        };
+                        try_pointer(hand_poses.right_aim, right_aim_valid, false);
+                        try_pointer(hand_poses.right_grip, right_handgrip_valid, false);
+                        try_pointer(hand_poses.left_aim, left_aim_valid, true);
+                        try_pointer(hand_poses.left_grip, left_handgrip_valid, true);
+                        if (pointer.active && flat_ui_pointer.active && !recenter &&
+                            pointer.using_left_hand == flat_ui_pointer.using_left_hand &&
+                            pointer.source_width == flat_ui_pointer.source_width &&
+                            pointer.source_height == flat_ui_pointer.source_height) {
+                            constexpr float kPointerSmoothing = 0.40F;
+                            pointer.u = flat_ui_pointer.u +
+                                (pointer.u - flat_ui_pointer.u) * kPointerSmoothing;
+                            pointer.v = flat_ui_pointer.v +
+                                (pointer.v - flat_ui_pointer.v) * kPointerSmoothing;
+                            pointer.pixel_x = std::min(
+                                pointer.source_width - 1U,
+                                static_cast<std::uint32_t>(
+                                    pointer.u * static_cast<float>(pointer.source_width)));
+                            pointer.pixel_y = std::min(
+                                pointer.source_height - 1U,
+                                static_cast<std::uint32_t>(
+                                    pointer.v * static_cast<float>(pointer.source_height)));
+                        }
+                        pointer.select_down = pointer.active &&
+                            (actions.ui_select_left || actions.ui_select_right);
+                        if (pointer.select_down) flat_ui_fire_release_required = true;
+                    }
+                    flat_ui_pointer = pointer;
+                    PublishFlatUiPointer(flat_ui_pointer);
+                    ++flat_ui_pointer_sequence;
+                    if (flat_ui_pointer.active &&
+                        ShouldLogSequence(flat_ui_pointer_sequence)) {
+                        std::ostringstream line;
+                        line << "flat_ui_pointer: status=hit"
+                             << ";hand=" << (flat_ui_pointer.using_left_hand ? "left" : "right")
+                             << ";pose=tip_with_grip_fallback"
+                             << ";u=" << std::fixed << std::setprecision(4) << flat_ui_pointer.u
+                             << ";v=" << flat_ui_pointer.v
+                             << ";pixel=" << flat_ui_pointer.pixel_x << ',' << flat_ui_pointer.pixel_y
+                             << ";source=" << flat_ui_pointer.source_width << 'x'
+                             << flat_ui_pointer.source_height
+                             << ";select=" << (flat_ui_pointer.select_down ? "true" : "false")
+                             << ";smoothing=0.40"
+                             << ";route=flat_theater_menu_pointer";
+                        Log(line.str());
+                    }
                     {
                         std::lock_guard lock(tracking_mutex);
                         latest_pose = tracked_poses.hmd;
@@ -568,6 +751,9 @@ struct OpenVrStereoPresenter::Impl {
                         if (recenter) recenter_pending = true;
                     }
                     ++pose_updates;
+                } else {
+                    flat_ui_pointer = {};
+                    PublishFlatUiPointer(flat_ui_pointer);
                 }
 
                 d3d9::StereoCpuFrame frame{};
@@ -603,10 +789,21 @@ struct OpenVrStereoPresenter::Impl {
                             active_transport_sequence = 0;
                             active_render_pose_sequence = 0;
                             active_render_hmd_pose = {};
+                            active_source_width = 0;
+                            active_source_height = 0;
                             cadence.Invalidate();
                         }
+                        if (frame.presentation_mode ==
+                                d3d9::FramePresentationMode::flat_theater &&
+                            (!flat_theater_anchor_valid ||
+                             !have_active_presentation_mode ||
+                             active_presentation_mode != frame.presentation_mode)) {
+                            flat_theater_anchor_pose = frame.render_hmd_pose;
+                            flat_theater_anchor_valid = true;
+                        }
                         if (UploadFrame(
-                                d3d11, frame, textures, texture_width, texture_height,
+                                d3d11, frame, flat_ui_pointer,
+                                textures, texture_width, texture_height,
                                 left_hash, right_hash, hash_ms, upload_ms)) {
                             const bool first_presentable_frame = !cadence.presentable();
                             const bool mode_changed = !have_active_presentation_mode ||
@@ -616,14 +813,10 @@ struct OpenVrStereoPresenter::Impl {
                             active_capture_time = frame.capture_time;
                             active_render_pose_sequence = frame.render_pose_sequence;
                             active_render_hmd_pose = frame.render_hmd_pose;
+                            active_source_width = frame.eyes[0].width;
+                            active_source_height = frame.eyes[0].height;
                             active_presentation_mode = frame.presentation_mode;
                             have_active_presentation_mode = true;
-                            if (frame.presentation_mode ==
-                                    d3d9::FramePresentationMode::flat_theater &&
-                                (!flat_theater_anchor_valid || mode_changed)) {
-                                flat_theater_anchor_pose = frame.render_hmd_pose;
-                                flat_theater_anchor_valid = true;
-                            }
                             cadence.FrameUploaded();
                             ++frames_uploaded;
                             if (mode_changed) {
@@ -773,6 +966,7 @@ struct OpenVrStereoPresenter::Impl {
             if (!init_done.load(std::memory_order_acquire)) SignalInitialization(false);
         }
 
+        PublishFlatUiPointer({});
         running.store(false, std::memory_order_release);
         for (auto& texture : textures) texture.Reset();
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
@@ -805,7 +999,9 @@ OpenVrStereoPresenter::~OpenVrStereoPresenter() { Stop(); }
 bool OpenVrStereoPresenter::Start(
     std::string action_manifest_path,
     const PresenterLogCallback log_callback,
-    void* const log_context) noexcept {
+    void* const log_context,
+    const FlatUiPointerCallback flat_ui_callback,
+    void* const flat_ui_context) noexcept {
     try {
         Stop();
         impl_->mailbox.Reset();
@@ -815,6 +1011,8 @@ bool OpenVrStereoPresenter::Start(
         impl_->action_manifest_path = std::move(action_manifest_path);
         impl_->log_callback = log_callback;
         impl_->log_context = log_context;
+        impl_->flat_ui_callback = flat_ui_callback;
+        impl_->flat_ui_context = flat_ui_context;
         {
             std::lock_guard lock(impl_->init_mutex);
             impl_->init_done.store(false, std::memory_order_release);

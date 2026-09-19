@@ -64,8 +64,7 @@ identity and the user reported the SteamVR interface stuck over the game on both
 processes (PIDs 28408 and 24032) each initialized with `scene_focus_process_id=0` and
 `dashboard_visible=true`; only after the first native-stereo frame became presentable and was
 submitted did scene focus transfer to the CoJ PID. This is direct physical evidence that deferring
-compositor pacing until native gameplay stereo is ready is not a stable startup policy. Current
-staging status is `none`; no staged project D3D9/OpenVR files or active video-profile state remain.
+compositor pacing until native gameplay stereo is ready is not a stable startup policy.
 
 The replacement presentation path is **host-tested only**. While no native-stereo producer has been
 active for 250 ms, the surviving implicit swap-chain `Present` seam captures the ordinary CoJ
@@ -79,16 +78,31 @@ per-frame RGB distinction requirement. Mailbox ordering now uses an owner transp
 and stereo capture counters can coexist, and host tests prove swap-chain hook restoration. Fresh
 Debug and Release runs each complete 24 PASS plus the expected capability SKIP, zero failures.
 
-Fresh full/body candidate `20260919T170916Z-d9a22d24eb0c` is staged from clean source
-`e341a32e0e0682b10e22c25e8835081fbba6d106`, build-manifest ID
-`285F9DD22A6A7BDC8588A2EFC37BBE2DA8B22A06D89AA8613210E3DFD94C1C98`, proxy SHA-256
-`25F197B813499C771F77F0614006AB263C049F21BFA6808E5C98376DC01D12F6`. Release preparation repeated
-24 PASS plus the expected capability SKIP, with Body IK enabled from startup and the reversible
-`1920x1080`/FSAA0 profile active. The physical gate begins before gameplay: `flat_theater` must be
-observable for ordinary intro/menu content, scene focus must move to CoJ without a persistent
-SteamVR dashboard, and gameplay must subsequently switch to `native_stereo`. Create re-anchoring,
-head suppression, reach/twist changes and controller-owned firing direction may then be exercised
-in the same process, but none is promoted by preparation alone.
+Flat-menu interaction is now part of the same **host-tested** presentation gate. OpenVR has dedicated
+global UI-select actions on L2/R2 and controller `/pose/tip` rays with handgrip fallback. The presenter
+intersects the ray with the anchored flat plane, maps it through the exact centered source rectangle,
+smooths the result and composites a visible crosshair. The CoJ adapter translates that hit into the
+real game-client cursor and left-button input while the game owns foreground focus. It force-releases
+on ray/focus/client failure or shutdown and suppresses a trigger held across the return to gameplay
+until the physical fire inputs are released. Synthetic provenance now covers the action/binding
+contract and the live verifier requires a `flat_ui_pointer` hit plus applied click down/up before a
+run with `requireFlatTheaterUi=true` can pass. Debug and Release both remain 24 PASS plus the expected
+classic-D3D9 capability SKIP.
+
+Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is now unstaged; no `cojvr.log`
+existed, so it contributes no physical evidence and must not be reused.
+
+Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+`8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
+`96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
+`4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation completed
+24 PASS plus the expected capability SKIP, enabled Body IK at process start and applied the reversible
+`1920x1080`/FSAA0 profile. This candidate must prove, in one process, that ordinary intro/menu content
+enters `flat_theater`, scene focus moves to CoJ without a persistent SteamVR dashboard, a visible Sense
+ray cursor can activate a menu item with L2/R2 and release correctly, Create can re-anchor without
+pointer misalignment, and gameplay then switches to `native_stereo` with no click-through. Head
+suppression, reach/twist and controller-owned firing direction may be observed in that same run but
+are promoted only by their own acceptance evidence.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID

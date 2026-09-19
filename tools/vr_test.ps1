@@ -245,6 +245,8 @@ switch ($Action) {
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { '1920x1080, FSAA 0 (restored by finish)' })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
+        Write-Host "At the first flat menu, aim a Sense controller at the visible VR cursor and activate at least one menu item with either L2 or R2; keyboard/mouse remain available as fallback."
+        Write-Host "Move the ray across the menu, release the trigger after clicking, and confirm Create re-anchors the flat view without breaking cursor alignment."
         Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller."
         if ($BodyIkAtStart) {
             Write-Host "Body/full-profile run: do not open the SteamVR dashboard for this gate; keep focus on CoJ and exercise both Sense controllers plus physical HMD translation."
