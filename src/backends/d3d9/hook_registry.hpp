@@ -49,6 +49,7 @@ public:
     [[nodiscard]] HookRegistryOutcome Install(
         void** vtable,
         std::span<const HookSlotRequest> requests) noexcept;
+    [[nodiscard]] HookRegistryOutcome Reacquire(void** vtable) noexcept;
     [[nodiscard]] HookRegistryOutcome Restore(void** vtable) noexcept;
 
     [[nodiscard]] void* OriginalTarget(void** vtable, std::size_t index) const noexcept;

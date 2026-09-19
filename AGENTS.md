@@ -54,16 +54,17 @@ prevents formal promotion. The staging tool now reports `Staging: none`; no stag
 OpenVR files remain in the game directory. Treat the residual run manifest/log as diagnostic data.
 
 Current host source replaces that startup contract with a Penumbra-style presentation policy adapted
-to CoJ's classic-D3D9 ownership. The implicit swap-chain `Present` hook captures the game backbuffer
+to CoJ's classic-D3D9 ownership. The device `Present` hook captures the game backbuffer
 as `flat_theater` content whenever no native-stereo producer has been active for 250 ms. The presenter
 claims the OpenVR scene as soon as that flat content exists, repeats the latest flat frame at compositor
 cadence, anchors it to a stable HMD pose and lets left-Sense Create re-anchor it. Native gameplay
 automatically switches to `native_stereo`; later menus/loading screens can fall back to `flat_theater`.
 The flat path deliberately permits identical eye content while native stereo retains the distinct-eye
-fail-closed check. The old device-vtable `Present` hook is not reused; the swap-chain hook is used
-because historical live evidence showed it remained owned when the device slots were restored by
-another participant. Debug and Release each pass 24 tests plus the expected classic-D3D9 shared-
-texture capability SKIP. This startup/fallback policy is **host-tested only** until a fresh physical run.
+fail-closed check. The implicit swap-chain hook remains as an explicit-swap-chain fallback. A
+low-frequency ownership check safely reacquires the device slot only when it has returned to the
+recorded system-D3D9 original; a foreign target is preserved and reported. Debug and Release each
+pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This corrected
+startup/fallback policy is **host-tested only** until a fresh physical run.
 
 The flat presentation now also owns the first CoJ VR menu-interaction seam. OpenVR exposes dedicated
 global `ui_select_left`/`ui_select_right` actions on L2/R2, independent from gameplay fire actions.
@@ -80,16 +81,16 @@ down/up and the subsequent `flat_theater -> native_stereo` transition. Debug and
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and has been transactionally unstaged;
 its missing `cojvr.log` means it is not physical evidence and its run ID must not be reused.
 
-Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+Full/body run `20260919T174647Z-67b3c560acd0` is finalized/unstaged. It used clean source
 `8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
 `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
 `4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation passed
 24 tests plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before process
-start and applied the reversible `1920x1080`/FSAA0 profile. Its first physical acceptance point is
-startup/menu interaction: flat content must acquire scene focus without a stuck SteamVR dashboard,
-the visible pointer must follow a Sense ray, L2/R2 must activate at least one menu item, Create must
-re-anchor without breaking pointer alignment, and gameplay must then enter `native_stereo` in the
-same process without click-through. Do not promote the menu path from preparation alone.
+start and applied the reversible `1920x1080`/FSAA0 profile. The physical startup/menu gate failed:
+the installed swap-chain hook received no game presentation callback, no `flat_theater` frame was
+captured/published, and OpenVR moved directly to `native_stereo` only after gameplay loaded. The run
+therefore confirms that CoJ presents through `IDirect3DDevice9::Present`; it does not promote the menu
+path. Current source contains the host-tested device-Present correction described above.
 
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

@@ -173,8 +173,8 @@ native-stereo render-view proof:
 19. positional 6DOF and body/IK preflight are implemented at host level, including read-only pelvis/leg geometry plus measured two-bone leg solving; run `20260917T161917Z-909b63e114af` proved Sense tracking and showed Session-based campaign actor discovery is empty;
 20. shipped bytecode supplies the exact campaign ownership route `LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer()`; the JNI bridge verifies the active module type and uses that fallback only for the empty-Session single-player case — live-tested by `20260917T172007Z-e6232c4778d2` together with successful actor reconciliation and arm-writer invocation, while visual arm composition failed and remains under correction;
 21. unresolved/invalid actor reconciliation fails closed to HMD rotation plus native stereo eye offsets: room-scale head translation is suppressed until the actor can absorb it, preventing the render camera from walking away from the character body; run `20260917T163732Z-03df947b8d50` physically confirmed that visible-body fallback while body IK itself was disabled.
-22. diagnostic multiprocess run `20260919T162808Z-fb75cb34977a` showed both starts entering with no CoJ scene focus and the SteamVR dashboard visible until the first native-stereo submit; current source therefore captures startup/menu/loading backbuffer content through the surviving swap-chain `Present` seam as `flat_theater` and lets that content claim the VR scene before gameplay — host-tested, physical gate pending.
-23. flat-theater interaction adds a renderer-owned Sense ray/cursor and exact-CoJ menu click bridge with dedicated UI-select actions, focus/ray-loss release, Create re-anchor support and a transition fence that prevents a held menu trigger becoming a gameplay shot — host-tested; candidate `20260919T174647Z-67b3c560acd0` is staged for one-process physical validation of the complete flat-menu-to-native-stereo sequence.
+22. diagnostic multiprocess run `20260919T162808Z-fb75cb34977a` showed both starts entering with no CoJ scene focus and the SteamVR dashboard visible until the first native-stereo submit. Run `20260919T174647Z-67b3c560acd0` then proved the installed implicit swap-chain slot is not traversed by CoJ's live presentation path. Current source captures startup/menu/loading backbuffer content from device `Present`, retains the swap-chain hook as a fallback and safely reacquires only exact-original slot restoration — host-tested, physical gate pending.
+23. flat-theater interaction adds a renderer-owned Sense ray/cursor and exact-CoJ menu click bridge with dedicated UI-select actions, focus/ray-loss release, Create re-anchor support and a transition fence that prevents a held menu trigger becoming a gameplay shot — host-tested; the failed run never produced flat content, so the complete flat-menu-to-native-stereo sequence still needs one-process physical validation.
 
 See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
 
@@ -416,7 +416,8 @@ passes physically.
 Run `20260916T153109Z-8976b8f77775` also demonstrates that modal/flat UI is a separate
 presentation boundary: the game menu was not visible through the current native gameplay stereo
 path, while returning to gameplay resumed HMD-driven rendering. Current source implements that
-boundary as `flat_theater`: the surviving swap-chain `Present` capture supplies ordinary 2D content,
+boundary as `flat_theater`: the device `Present` capture supplies ordinary 2D content, with the
+swap-chain slot retained for explicit-swap-chain callers,
 the OpenVR presenter anchors it to a stable HMD pose and Create can re-anchor it, while native stereo
 automatically retakes ownership when the game resumes the exact two-eye render path.
 

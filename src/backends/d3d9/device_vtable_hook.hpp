@@ -37,14 +37,21 @@ struct DeviceVtableHookContinuity {
     void* end_scene_target = nullptr;
 };
 
-// Patches Reset and Present in the native D3D9 device vtable and, when requested,
-// BeginScene/EndScene. The device vptr, COM identity, object layout and reference counting
-// remain unchanged. The hook is process-lifetime for the observed implementation.
+// Patches Present in the native D3D9 device vtable plus Reset and BeginScene/EndScene
+// only when their callbacks are requested. The device vptr, COM identity, object layout
+// and reference counting remain unchanged.
 bool InstallDeviceVtableHook(
     IDirect3DDevice9* device, DeviceHookCallbacks callbacks) noexcept;
 
 [[nodiscard]] HookRegistryOutcome InstallDeviceVtableHookDetailed(
     IDirect3DDevice9* device, DeviceHookCallbacks callbacks) noexcept;
+
+// Reclaims recorded slots only when every lost slot has returned to its exact
+// native target. A foreign replacement is reported and never overwritten.
+[[nodiscard]] HookRegistryOutcome ReacquireDeviceVtableHookDetailed(
+    IDirect3DDevice9* device) noexcept;
+
+[[nodiscard]] bool RestoreAllDeviceVtableHooks() noexcept;
 
 [[nodiscard]] DeviceVtableHookStatus InspectDeviceVtableHook(
     IDirect3DDevice9* device) noexcept;

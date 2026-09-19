@@ -38,23 +38,30 @@ transferred only after native gameplay stereo produced its first presentable fra
 reused run ID prevents formal promotion, but the observation rejects waiting for native stereo as a
 stable startup presentation policy.
 
-Current host source adds a flat startup/menu fallback through the surviving implicit swap-chain
-`Present` seam. When native stereo has been absent for 250 ms, ordinary CoJ backbuffer content is
+Run `20260919T174647Z-67b3c560acd0` physically rejected the swap-chain-only producer. Its hook
+installed, but no flat entry/capture/publish event occurred; the process moved directly to
+`native_stereo` after gameplay loaded and only then acquired scene focus. CoJ's live path therefore
+uses `IDirect3DDevice9::Present` without dispatching through the implicit swap-chain COM slot.
+
+Current host source adds the flat startup/menu fallback at the observed device `Present` seam, with
+the swap-chain hook retained for explicit-swap-chain callers. When native stereo has been absent for 250 ms, ordinary CoJ backbuffer content is
 captured as `flat_theater`, repeated at compositor cadence from a stable HMD anchor and re-anchored by
 left-Sense Create. Gameplay automatically transitions to `native_stereo`, and later flat/menu content
 can take ownership again. Flat content may use identical eyes; native stereo retains its distinct-eye
 fail-closed requirement. The same boundary now has a host-tested Sense UI seam: `/pose/tip` ray with
 handgrip fallback, visible flat-plane cursor, dedicated L2/R2 UI-select actions and exact-game Win32
-cursor/click injection with focus-loss release and gameplay click-through suppression.
+cursor/click injection with focus-loss release and gameplay click-through suppression. Exact-original
+slot restoration can be reacquired with compare-and-swap; foreign replacements remain untouched.
 
-Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+The failed run used clean source
 `8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
 `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
 `4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation passed
 24 tests plus the expected classic-D3D9 shared-texture capability SKIP, with Body IK enabled at
-startup and the reversible `1920x1080`/FSAA0 profile active. Its first physical gate is startup/menu
-scene ownership, Sense pointer/select/re-anchor behavior and the same-process transition to native
-stereo. Body anatomy, head suppression and controller-owned firing remain separately unpromoted.
+startup and the reversible `1920x1080`/FSAA0 profile active. Current corrected source passes fresh
+Debug and Release suites at 24 PASS plus the expected capability SKIP, but remains host-tested until
+a new run proves startup/menu scene ownership. Body anatomy, head suppression and controller-owned
+firing remain separately unpromoted.
 
 The following facts are currently established:
 

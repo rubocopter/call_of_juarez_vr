@@ -370,9 +370,9 @@ Phases 0-4 host baseline
   -> recenter and exact +/-45-degree snap turn headset-validated
   -> visible arm writer/restoration and tracked-hand positional mapping live-tested
   -> diagnostic multiprocess run 20260919T162808Z-fb75cb34977a exposes startup scene-focus failure
-  -> flat_theater startup/menu fallback and Sense menu interaction host-tested
-  -> active full/body candidate 20260919T174647Z-67b3c560acd0
-     (startup/menu scene ownership -> pointer/select/re-anchor -> native_stereo transition)
+  -> swap-chain-only flat fallback rejected by run 20260919T174647Z-67b3c560acd0
+  -> device-Present flat_theater fallback and Sense menu interaction host-tested
+  -> next physical gate: startup/menu scene ownership -> pointer/select/re-anchor -> native_stereo
   -> physical Body IK anatomy/head-suppression/aim gates
   -> physical crouch, lower-body writing and rebuilt VR interactions
   -> remaining backend-specific lifetime/general portability hardening before broader runtime reuse
@@ -380,9 +380,9 @@ Phases 0-4 host baseline
 
 Phase 8's neutral math contract is now host-tested. Remaining OpenXR lifetime/state ownership stays
 tracked independently under A10; it does not retroactively block the already-proven exact Call of
-Juarez/OpenVR stereo path. The active staged candidate is `20260919T174647Z-67b3c560acd0` and remains
-host/preparation evidence until one clean physical process proves the flat startup/menu interaction
-and transition gate. Body IK, local-head suppression and controller-owned firing are promoted only
+Juarez/OpenVR stereo path. Run `20260919T174647Z-67b3c560acd0` is finalized/unstaged and rejected
+the swap-chain-only producer. The device-Present correction remains host-tested until one clean
+physical process proves the flat startup/menu interaction and transition gate. Body IK, local-head suppression and controller-owned firing are promoted only
 by their own physical acceptance evidence.
 
 ### Camera/render boundary proof — live-tested

@@ -15,8 +15,10 @@ Candidate `20260919T162808Z-fb75cb34977a` is diagnostic only after two launches 
 identity both left the SteamVR interface stuck over the game. Telemetry shows CoJ started with no
 scene focus and only acquired it after native gameplay stereo produced its first submit. The active
 presentation task is therefore the host-tested `flat_theater -> native_stereo` startup/fallback
-policy: ordinary intro/menu/loading backbuffer content is submitted from the surviving swap-chain
-Present path so the app can own the VR scene from startup, Create re-anchors the stable flat view,
+policy. Run `20260919T174647Z-67b3c560acd0` showed that the installed swap-chain hook receives no
+game callback: no flat frame was produced and VR began only after loading gameplay. Current source
+therefore captures ordinary intro/menu/loading content from device `Present`, keeping the swap-chain
+hook as fallback and safely reacquiring only an exact-original device slot. This lets the app own the VR scene from startup, Create re-anchors the stable flat view,
 and gameplay transitions automatically to true stereo. Debug and Release each pass 24 tests plus the
 expected classic-D3D9 shared-texture capability SKIP; a fresh physical run is still required.
 
@@ -28,12 +30,11 @@ gameplay cannot become an accidental shot. The live verifier requires pointer hi
 the subsequent native-stereo transition. Keyboard/mouse remain a fallback, not a test dependency.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is unstaged. Its run ID is retired.
-Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source `8697a81`, with
+Full/body run `20260919T174647Z-67b3c560acd0` is finalized/unstaged. It used clean source `8697a81`, with
 build-manifest ID `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5` and proxy SHA-256
 `4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Body IK is enabled from
-startup and the reversible `1920x1080`/FSAA0 profile is active. This run must physically validate
-startup scene ownership, the Sense menu ray/cursor/select path, Create re-anchoring alignment and the
-same-process transition to native stereo.
+startup and the reversible `1920x1080`/FSAA0 profile active. It failed startup scene ownership before
+the Sense menu path could run. The device-Present correction is host-tested and requires a new run.
 
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-

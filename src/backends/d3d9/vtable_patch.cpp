@@ -126,6 +126,59 @@ VtablePatchOutcome VtablePatch::Install(
     return outcome;
 }
 
+VtablePatchOutcome VtablePatch::Reacquire() noexcept {
+    VtablePatchOutcome outcome{};
+    if (!entry_ || !original_target_ || !replacement_target_ ||
+        !operations_.protect || !operations_.compare_exchange) {
+        outcome.result = VtablePatchResult::InvalidArgument;
+        return outcome;
+    }
+
+    outcome.observed_target = *entry_;
+    if (outcome.observed_target == replacement_target_) {
+        owns_entry_ = true;
+        outcome.result = VtablePatchResult::NoModification;
+        outcome.owns_entry = true;
+        return outcome;
+    }
+    if (outcome.observed_target != original_target_) {
+        owns_entry_ = false;
+        outcome.result = VtablePatchResult::Conflict;
+        return outcome;
+    }
+
+    std::uint32_t prior_protection = 0;
+    if (!operations_.protect(
+            entry_, sizeof(*entry_), kWritableProtection, &prior_protection,
+            operations_.context)) {
+        owns_entry_ = false;
+        outcome.result = VtablePatchResult::ProtectionFailure;
+        outcome.protection_restored = false;
+        return outcome;
+    }
+
+    outcome.observed_target = operations_.compare_exchange(
+        entry_, replacement_target_, original_target_, operations_.context);
+    outcome.modified = outcome.observed_target == original_target_;
+    owns_entry_ = outcome.modified || outcome.observed_target == replacement_target_;
+    outcome.owns_entry = owns_entry_;
+
+    std::uint32_t ignored = 0;
+    outcome.protection_restored = operations_.protect(
+        entry_, sizeof(*entry_), prior_protection, &ignored, operations_.context);
+    protection_restore_pending_ = !outcome.protection_restored;
+    if (!outcome.protection_restored) {
+        outcome.result = VtablePatchResult::ProtectionFailure;
+    } else if (outcome.modified) {
+        outcome.result = VtablePatchResult::Applied;
+    } else if (owns_entry_) {
+        outcome.result = VtablePatchResult::NoModification;
+    } else {
+        outcome.result = VtablePatchResult::Conflict;
+    }
+    return outcome;
+}
+
 VtablePatchOutcome VtablePatch::Restore() noexcept {
     VtablePatchOutcome outcome{};
     if (!entry_ || !replacement_target_ || !original_target_) {

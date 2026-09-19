@@ -113,9 +113,9 @@ DeviceVtableHookContinuity ContinuityFor(void** vtable) noexcept {
     const HookSlotStatus* present = FindSlot(slots, kPresentIndex);
     const HookSlotStatus* begin_scene = FindSlot(slots, kBeginSceneIndex);
     const HookSlotStatus* end_scene = FindSlot(slots, kEndSceneIndex);
+    continuity.reset_active = reset == nullptr || reset->owned;
     if (reset) {
         continuity.reset_target = reset->current;
-        continuity.reset_active = reset->owned;
     }
     if (present) {
         continuity.present_target = present->current;
@@ -153,8 +153,10 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
 
         std::array<HookSlotRequest, 4> requests{};
         std::size_t request_count = 0;
-        requests[request_count++] = HookSlotRequest{
-            kResetIndex, reinterpret_cast<void*>(&HookReset)};
+        if (callbacks.before_reset || callbacks.after_reset) {
+            requests[request_count++] = HookSlotRequest{
+                kResetIndex, reinterpret_cast<void*>(&HookReset)};
+        }
         requests[request_count++] = HookSlotRequest{
             kPresentIndex, reinterpret_cast<void*>(&HookPresent)};
         if (callbacks.before_begin_scene || callbacks.after_begin_scene) {
@@ -179,6 +181,31 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
         failed.ownership_record_retained = true;
         return failed;
     }
+}
+
+HookRegistryOutcome ReacquireDeviceVtableHookDetailed(
+    IDirect3DDevice9* device) noexcept {
+    HookRegistryOutcome failed{};
+    void** vtable = DeviceVtable(device);
+    return vtable ? g_registry.Reacquire(vtable) : failed;
+}
+
+bool RestoreAllDeviceVtableHooks() noexcept {
+    bool restored_all = true;
+    try {
+        std::lock_guard lock(g_callbacks_mutex);
+        for (void** vtable : g_registry.RegisteredVtables()) {
+            const HookRegistryOutcome outcome = g_registry.Restore(vtable);
+            if (outcome.result != HookRegistryResult::Installed &&
+                outcome.result != HookRegistryResult::AlreadyInstalled) {
+                restored_all = false;
+            }
+            g_callbacks_by_vtable.erase(vtable);
+        }
+    } catch (...) {
+        restored_all = false;
+    }
+    return restored_all;
 }
 
 DeviceVtableHookStatus InspectDeviceVtableHook(IDirect3DDevice9* device) noexcept {

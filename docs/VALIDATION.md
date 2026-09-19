@@ -66,8 +66,13 @@ processes (PIDs 28408 and 24032) each initialized with `scene_focus_process_id=0
 submitted did scene focus transfer to the CoJ PID. This is direct physical evidence that deferring
 compositor pacing until native gameplay stereo is ready is not a stable startup policy.
 
-The replacement presentation path is **host-tested only**. While no native-stereo producer has been
-active for 250 ms, the surviving implicit swap-chain `Present` seam captures the ordinary CoJ
+Run `20260919T174647Z-67b3c560acd0` physically rejected the swap-chain-only boundary. The hook
+reported installed, but the one-process log contains no flat entry/capture/publish event and switches
+directly to `native_stereo` when gameplay begins. Scene focus was therefore unavailable during the
+menu and the user again observed the SteamVR interface stuck over the game.
+
+The corrected replacement presentation path is **host-tested only**. While no native-stereo producer has been
+active for 250 ms, the observed device `Present` seam captures the ordinary CoJ
 backbuffer as `flat_theater` content through its own deferred D3D9 ring. Every second flat Present is
 captured and the presenter repeats the latest image at compositor cadence, so intro/menu/loading
 content can establish OpenVR scene ownership before gameplay exists. The flat image is centered in a
@@ -75,7 +80,9 @@ larger black eye texture and submitted from a stable HMD anchor; Create re-ancho
 Native gameplay automatically transitions to `native_stereo`, and loss of native stereo returns to
 the flat path. Identical-eye content is accepted only for `flat_theater`; native stereo preserves its
 per-frame RGB distinction requirement. Mailbox ordering now uses an owner transport sequence so flat
-and stereo capture counters can coexist, and host tests prove swap-chain hook restoration. Fresh
+and stereo capture counters can coexist, and host tests prove device/swap-chain hook restoration.
+The swap-chain hook remains a fallback. The device hook may be safely reacquired only from its exact
+recorded original; tests prove a foreign target remains untouched. Fresh
 Debug and Release runs each complete 24 PASS plus the expected capability SKIP, zero failures.
 
 Flat-menu interaction is now part of the same **host-tested** presentation gate. OpenVR has dedicated
@@ -92,17 +99,15 @@ classic-D3D9 capability SKIP.
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is now unstaged; no `cojvr.log`
 existed, so it contributes no physical evidence and must not be reused.
 
-Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+Full/body run `20260919T174647Z-67b3c560acd0` is finalized/unstaged. It used clean source
 `8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
 `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
 `4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation completed
 24 PASS plus the expected capability SKIP, enabled Body IK at process start and applied the reversible
-`1920x1080`/FSAA0 profile. This candidate must prove, in one process, that ordinary intro/menu content
-enters `flat_theater`, scene focus moves to CoJ without a persistent SteamVR dashboard, a visible Sense
-ray cursor can activate a menu item with L2/R2 and release correctly, Create can re-anchor without
-pointer misalignment, and gameplay then switches to `native_stereo` with no click-through. Head
-suppression, reach/twist and controller-owned firing direction may be observed in that same run but
-are promoted only by their own acceptance evidence.
+`1920x1080`/FSAA0 profile. It failed the required flat-menu acceptance before the pointer path could
+be exercised. The current device-Present correction again passes Debug and Release at 24 PASS plus
+the expected capability SKIP; a fresh run must prove intro/menu `flat_theater`, scene focus, Sense
+pointer/click/re-anchor and the later same-process `native_stereo` transition.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID

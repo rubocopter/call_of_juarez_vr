@@ -217,6 +217,41 @@ int TestRegistryOwnership() {
     return 0;
 }
 
+int TestSafeReacquire() {
+    FakeMemory memory{};
+    HookRegistry registry(Operations(memory));
+    void* vtable[]{reinterpret_cast<void*>(&OriginalA)};
+    const HookSlotRequest request{0, reinterpret_cast<void*>(&ReplacementA)};
+
+    const auto installed = registry.Install(
+        vtable, std::span<const HookSlotRequest>(&request, 1));
+    if (installed.result != HookRegistryResult::Installed ||
+        vtable[0] != reinterpret_cast<void*>(&ReplacementA)) {
+        return Fail("reacquire setup did not install the replacement");
+    }
+
+    // Reproduce the live-game failure: another participant restores the exact
+    // native target after our hook was installed.
+    vtable[0] = reinterpret_cast<void*>(&OriginalA);
+    const auto reacquired = registry.Reacquire(vtable);
+    if (reacquired.result != HookRegistryResult::Installed ||
+        reacquired.modified_slots != 1 ||
+        vtable[0] != reinterpret_cast<void*>(&ReplacementA) ||
+        registry.Inspect(vtable).front().owned == false) {
+        return Fail("registry did not safely reacquire an externally restored original slot");
+    }
+
+    // A foreign hook is never ours to replace.
+    vtable[0] = reinterpret_cast<void*>(&ReplacementC);
+    const auto conflict = registry.Reacquire(vtable);
+    if (conflict.result != HookRegistryResult::Conflict ||
+        conflict.modified_slots != 0 ||
+        vtable[0] != reinterpret_cast<void*>(&ReplacementC)) {
+        return Fail("registry reacquire overwrote or accepted a foreign hook");
+    }
+    return 0;
+}
+
 int TestPartialRollback() {
     FakeMemory memory{};
     memory.failing_protect_calls.insert(3);
@@ -261,6 +296,7 @@ int TestCallbackDuringTransition() {
 int main() {
     if (const int result = TestPatchFailures()) return result;
     if (const int result = TestRegistryOwnership()) return result;
+    if (const int result = TestSafeReacquire()) return result;
     if (const int result = TestPartialRollback()) return result;
     if (const int result = TestCallbackDuringTransition()) return result;
     std::cout << "vtable patch and hook registry failure/ownership tests passed\n";

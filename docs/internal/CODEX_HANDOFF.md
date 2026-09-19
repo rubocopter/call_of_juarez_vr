@@ -11,8 +11,13 @@ stereo exists. Reusing the run ID for two processes also prevents formal promoti
 reports `Staging: none`; the game directory has no staged project `d3d9.dll`, `openvr_api.dll`, stage
 state or active video-profile state. The residual `.cojvr-run.json` and `cojvr.log` are diagnostic.
 
+Run `20260919T174647Z-67b3c560acd0` is finalized/unstaged and physically failed its startup/menu
+gate. Although the implicit swap-chain hook reported installed, the log contains no flat entry,
+capture or publish event; it transitioned directly to `native_stereo` only after loading gameplay.
+This proves the live CoJ path calls device `Present` without traversing the swap-chain COM slot.
+
 Current source implements a Penumbra-style startup/fallback presentation policy using CoJ's proven
-classic-D3D9 boundaries. The implicit swap-chain `Present` hook captures the backbuffer into a
+classic-D3D9 boundaries. The device `Present` hook captures the backbuffer into a
 separate deferred ring when native stereo has been absent for 250 ms. Every second flat `Present` is
 captured to limit CPU-readback pressure, while the OpenVR presenter repeats the latest image at
 compositor cadence. Flat content is centered inside a larger black eye texture, submitted from a
@@ -20,7 +25,9 @@ stable HMD anchor and re-anchored by left-Sense Create. When the exact CoJ stere
 the presenter automatically switches to `native_stereo`; if it later stops for menus/loading, it can
 return to `flat_theater`. Flat content may have identical eyes; native stereo still fails closed on
 identical RGB. A shared transport sequence orders the two producer domains without conflating their
-capture counters, and shutdown explicitly restores the swap-chain hook. Fresh Debug and Release
+capture counters, and shutdown explicitly restores both hooks. The swap-chain hook remains a fallback
+for explicit callers. A low-frequency integrity worker reacquires a lost device slot only when its
+target exactly equals the recorded system original; it never overwrites a foreign hook. Fresh Debug and Release
 suites each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This new
 presentation path is host-tested only and requires a fresh one-process physical gate.
 
@@ -39,15 +46,14 @@ Candidate `20260919T170916Z-d9a22d24eb0c` was never launched. `finish` found no 
 transactionally removed its staged assets and restored the video profile; its run ID must not be
 reused.
 
-Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+The failed full/body run `20260919T174647Z-67b3c560acd0` used clean source
 `8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
 `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
 `4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation again
-completed 24 PASS plus the expected capability SKIP. Body IK is enabled from process start and the
-reversible `1920x1080`/FSAA0 profile is active. During its one-process physical gate, first confirm
-flat intro/menu presentation and scene focus, then use the visible Sense ray cursor and L2/R2 to
-activate at least one menu item, verify Create re-anchors without cursor misalignment, and finally
-enter gameplay and confirm automatic `native_stereo` with no trigger click-through.
+completed 24 PASS plus the expected capability SKIP. It reached normal outer `run_end`, but never
+entered `flat_theater`; scene ownership arrived only with gameplay stereo and the SteamVR interface
+remained stuck during startup. Do not reuse this run ID. The next candidate must come from the
+device-Present correction and repeat the same menu/pointer/re-anchor/native-stereo acceptance sequence.
 
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

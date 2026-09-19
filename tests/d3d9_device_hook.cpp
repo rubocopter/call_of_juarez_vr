@@ -43,6 +43,29 @@ int Fail(const char* message) {
     return 1;
 }
 
+bool RestorePresentSlotExternally() {
+    const auto diagnostics = cojvr::backends::d3d9::InspectAllDeviceVtableHooks();
+    for (const auto& slot : diagnostics) {
+        if (slot.slot_name != "Present" || !slot.vtable || !slot.original || !slot.replacement) {
+            continue;
+        }
+        DWORD old_protection = 0;
+        if (!VirtualProtect(
+                &slot.vtable[slot.index], sizeof(void*), PAGE_READWRITE,
+                &old_protection)) {
+            return false;
+        }
+        void* observed = InterlockedCompareExchangePointer(
+            reinterpret_cast<PVOID volatile*>(&slot.vtable[slot.index]),
+            slot.original, slot.replacement);
+        DWORD ignored = 0;
+        const bool protection_restored = VirtualProtect(
+            &slot.vtable[slot.index], sizeof(void*), old_protection, &ignored) != FALSE;
+        return observed == slot.replacement && protection_restored;
+    }
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -102,6 +125,14 @@ int main() {
         DestroyWindow(window);
         return Fail("failed to install D3D9 device hook");
     }
+    for (const auto& slot : cojvr::backends::d3d9::InspectAllDeviceVtableHooks()) {
+        if (slot.slot_name == "Reset") {
+            device->Release();
+            d3d9->Release();
+            DestroyWindow(window);
+            return Fail("present-only callback registration patched the unrelated Reset slot");
+        }
+    }
 
     const auto installed_status = cojvr::backends::d3d9::InspectDeviceVtableHook(device);
     if (!installed_status.installed || !installed_status.device_uses_hooked_vtable) {
@@ -137,6 +168,31 @@ int main() {
     const auto final_status = cojvr::backends::d3d9::InspectDeviceVtableHook(device);
     const auto continuity = cojvr::backends::d3d9::InspectInstalledDeviceVtableHook();
 
+    if (!RestorePresentSlotExternally()) {
+        device->Release();
+        d3d9->Release();
+        DestroyWindow(window);
+        return Fail("test could not reproduce external restoration of device Present");
+    }
+    const auto callbacks_before_unhooked_present =
+        g_present_callbacks.load(std::memory_order_relaxed);
+    present_result = device->Present(nullptr, nullptr, nullptr, nullptr);
+    if (FAILED(present_result) ||
+        g_present_callbacks.load(std::memory_order_relaxed) !=
+            callbacks_before_unhooked_present) {
+        device->Release();
+        d3d9->Release();
+        DestroyWindow(window);
+        return Fail("externally restored device Present still traversed our callback");
+    }
+
+    const auto reacquired =
+        cojvr::backends::d3d9::ReacquireDeviceVtableHookDetailed(device);
+    present_result = device->Present(nullptr, nullptr, nullptr, nullptr);
+    const auto callbacks_after_reacquire =
+        g_present_callbacks.load(std::memory_order_relaxed);
+    const bool restored = cojvr::backends::d3d9::RestoreAllDeviceVtableHooks();
+
     device->Release();
     d3d9->Release();
     DestroyWindow(window);
@@ -155,6 +211,14 @@ int main() {
     if (!continuity.installed || !continuity.reset_active || !continuity.present_active ||
         !continuity.begin_scene_active || !continuity.end_scene_active) {
         return Fail("D3D9 device hook entries did not remain installed during the hook test");
+    }
+    if (reacquired.result != cojvr::backends::d3d9::HookRegistryResult::Installed ||
+        reacquired.modified_slots != 1 ||
+        callbacks_after_reacquire != callbacks_before_unhooked_present + 1) {
+        return Fail("D3D9 device Present hook was not reacquired after exact-original restoration");
+    }
+    if (!restored) {
+        return Fail("reacquired D3D9 device hook did not restore cleanly");
     }
     if (begin_callbacks_seen != kSceneCycles) {
         return Fail("D3D9 BeginScene did not traverse the installed callback for every scene cycle");

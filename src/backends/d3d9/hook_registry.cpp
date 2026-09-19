@@ -168,6 +168,68 @@ HookRegistryOutcome HookRegistry::Restore(void** vtable) noexcept {
     }
 }
 
+HookRegistryOutcome HookRegistry::Reacquire(void** vtable) noexcept {
+    HookRegistryOutcome outcome{};
+    if (!vtable) return outcome;
+
+    try {
+        std::unique_lock lock(mutex_);
+        const auto record_iterator = records_.find(vtable);
+        if (record_iterator == records_.end() ||
+            record_iterator->second.state != RecordState::Active) {
+            return outcome;
+        }
+
+        Record& record = record_iterator->second;
+        outcome.ownership_record_retained = true;
+        for (const SlotRecord& slot : record.slots) {
+            void* current = vtable[slot.index];
+            if (current != slot.original && current != slot.replacement) {
+                outcome.result = HookRegistryResult::Conflict;
+                return outcome;
+            }
+        }
+
+        std::vector<SlotRecord*> reacquired;
+        reacquired.reserve(record.slots.size());
+        for (SlotRecord& slot : record.slots) {
+            if (vtable[slot.index] == slot.replacement) continue;
+            const VtablePatchOutcome patch_outcome = slot.patch.Reacquire();
+            if (patch_outcome.modified) {
+                ++outcome.modified_slots;
+                reacquired.push_back(&slot);
+            }
+            if (patch_outcome.result == VtablePatchResult::Applied ||
+                patch_outcome.result == VtablePatchResult::NoModification) {
+                continue;
+            }
+
+            bool rollback_incomplete = false;
+            for (auto restored = reacquired.rbegin(); restored != reacquired.rend(); ++restored) {
+                const VtablePatchOutcome rollback = (*restored)->patch.Restore();
+                if (rollback.result != VtablePatchResult::Applied ||
+                    !rollback.protection_restored || (*restored)->patch.owns_entry()) {
+                    rollback_incomplete = true;
+                }
+            }
+            outcome.modified_slots = 0;
+            outcome.result = rollback_incomplete
+                ? HookRegistryResult::RollbackIncomplete
+                : ToRegistryResult(patch_outcome.result);
+            return outcome;
+        }
+
+        outcome.result = outcome.modified_slots == 0
+            ? HookRegistryResult::AlreadyInstalled
+            : HookRegistryResult::Installed;
+        return outcome;
+    } catch (...) {
+        outcome.result = HookRegistryResult::RollbackIncomplete;
+        outcome.ownership_record_retained = true;
+        return outcome;
+    }
+}
+
 void* HookRegistry::OriginalTarget(void** vtable, std::size_t index) const noexcept {
     try {
         std::shared_lock lock(mutex_);
