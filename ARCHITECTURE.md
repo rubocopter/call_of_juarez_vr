@@ -347,10 +347,12 @@ belongs to the dedicated FORETWIST element rather than directly to the forearm e
 host source applies the relative controller delta as FORETWIST roll plus residual hand rotation
 through the same element-relative `RotateElementWithChildren` contract. Mutation/persistence and
 natural-frame verification include FORETWIST, and restoration runs hand -> FORETWIST -> forearm ->
-upper. Telemetry names this ownership explicitly as `twist_owner=foretwist_element`. This avoids
-hard-coding a controller-local palm axis and keeps the physically accepted hand-position mapping
-unchanged. Pelvis/leg writers remain disabled until this corrected exact arm/hand path passes a
-fresh physical run.
+upper. Telemetry names this ownership explicitly as `twist_owner=foretwist_element`. The FORETWIST
+write is allowed to propagate through the real native hierarchy first; the hand frame is then
+re-read and its final residual is recomputed from that observed post-FORETWIST basis instead of from
+an idealized child transform. This avoids hard-coding a controller-local palm axis or an unproven
+hierarchy composition and keeps the physically accepted hand-position mapping unchanged. Pelvis/leg
+writers remain disabled until this corrected exact arm/hand path passes a fresh physical run.
 
 Three additional first-person ownership boundaries remain deliberately separate from arm IK.
 Head/hair suppression must hide only the local head geometry from HMD rendering while preserving

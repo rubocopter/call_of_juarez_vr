@@ -238,6 +238,16 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 current_hand_forward,
     const HandOrientationTarget& target) noexcept;
 
+// Recompute the final hand residual from the hand basis that actually exists
+// after the native FORETWIST writer has propagated through the mesh hierarchy.
+// The real hierarchy can differ slightly from the ideal world-space twist used
+// to choose FORETWIST, so this observed-basis correction is the authority for
+// the final hand-element rotation.
+[[nodiscard]] BoneRotationDelta BuildHandResidualRotationDelta(
+    cojvr::runtime::Vec3 current_hand_up,
+    cojvr::runtime::Vec3 current_hand_forward,
+    const HandOrientationTarget& target) noexcept;
+
 // Maps a recentered tracked hand around the native animated head joint. The
 // controller and HMD positions are in the same tracking space; subtracting the
 // tracked head removes the recenter-space origin before the offset is mapped

@@ -382,6 +382,21 @@ int main() {
         std::cerr << "controller roll was not split into forearm twist plus residual hand rotation\n";
         return 1;
     }
+    // The native FORETWIST hierarchy is authoritative after the twist write.
+    // If its propagated hand basis differs from the ideal pre-write estimate,
+    // the final residual must be recomputed from that observed basis.
+    constexpr float cos_80 = 0.173648178F;
+    constexpr float sin_80 = 0.984807753F;
+    const BoneRotationDelta observed_residual = BuildHandResidualRotationDelta(
+        {0.0F, cos_80, sin_80},
+        {0.0F, -sin_80, cos_80},
+        hand_orientation_target);
+    if (!observed_residual.valid || observed_residual.no_op ||
+        !Near(observed_residual.angle_degrees, 10.0F, 0.01F) ||
+        !Near(std::fabs(observed_residual.axis.x), 1.0F, 0.001F)) {
+        std::cerr << "observed post-FORETWIST hand basis did not produce the expected residual\n";
+        return 1;
+    }
     const HandOrientationReference invalid_hand_reference = BuildHandOrientationReference(
         {0.0F, 0.0F, 0.0F, 0.0F},
         {1.0F, 0.0F, 0.0F},

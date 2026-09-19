@@ -375,6 +375,7 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";forearm_native_axis=\(" -or
                 $Line -notmatch ";forearm_twist_native_axis=\(" -or
                 $Line -notmatch ";twist_owner=foretwist_element;" -or
+                $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis;" -or
                 $Line -notmatch ";hand_native_axis=\(" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or

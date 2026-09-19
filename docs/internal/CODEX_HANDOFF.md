@@ -1113,20 +1113,28 @@ Fresh full Debug and Release builds also pass all host acceptance: each CTest su
 plus the expected classic-D3D9 shared-texture capability SKIP out of 25, zero failures. The
 FORETWIST correction is therefore ready to commit, but still requires physical visual acceptance.
 
-Fresh full/body candidate `20260919T002540Z-fc19b8ae78a4` is now prepared and staged from clean
-source commit `5f1dc8f765684af8980f7e98b76f6600222848e7`. Build-manifest ID is
-`27FEC7017D7B4BDBC995830DD1FEFF207AEB94DA53E0CFD883A5B889FB8A5E99`; staged proxy SHA-256 is
-`8A57AF169246BC98C9F7424E7B92B6340ED48461C738F1643DCE8A9FEF338EA7`. `prepare -BodyIkAtStart`
-rebuilt Release, reran all 25 host outcomes with 24 PASS plus the expected capability SKIP, enabled
-Body IK before process start and applied the reversible `1920x1080`/FSAA0 profile. Neither SteamVR
-nor CoJ was launched automatically.
+Fresh full/body candidate `20260919T002540Z-fc19b8ae78a4` was prepared from clean source commit
+`5f1dc8f765684af8980f7e98b76f6600222848e7`. Build-manifest ID was
+`27FEC7017D7B4BDBC995830DD1FEFF207AEB94DA53E0CFD883A5B889FB8A5E99`; staged proxy SHA-256 was
+`8A57AF169246BC98C9F7424E7B92B6340ED48461C738F1643DCE8A9FEF338EA7`. The run is now finished and
+unstaged.
 
-That physical run must use exactly one game process for this run ID and should not require a
-dashboard cycle. Concentrate visual acceptance on modest controller roll and palm-up/palm-down plus
-ordinary forward/up/down reach on both hands; the purpose is to discriminate the new FORETWIST
-ownership without adding more body writers. Pelvis/leg writes remain disabled. After closing the
-game, use `pwsh -File tools/vr_test.ps1 finish` to verify, collect evidence and restore the video
-profile/staging transaction.
+The user observed no body motion. Frame-1 telemetry identifies the cause: the first left-arm write
+did mutate the mesh and reached the solved elbow/wrist targets, but the hand orientation check
+failed (`hand_up_error=0.274044`, `hand_forward_error=0.272201`). The transaction restored the
+natural arm successfully and set the existing writer fault latch; every later arm update therefore
+failed closed with `prior element writer/restore validation failed`. Tracking, actor discovery,
+position solving and FORETWIST element access were all active, so do not regress those paths to
+explain the inert visual result.
+
+The failed candidate precomputed the residual hand rotation from an ideal mathematical propagation
+of the FORETWIST delta. Current host source instead lets `RotateElementWithChildren` propagate the
+FORETWIST through the real hierarchy, re-reads the resulting hand basis, and recomputes the final
+residual directly from that observed basis to the calibrated Sense target. Telemetry/verifier now
+require `hand_residual_source=post_foretwist_observed_basis`. Focused Release body/camera/OpenVR/
+provenance tests pass, and fresh full Debug/Release suites each complete all 25 outcomes with 24
+PASS plus the expected classic-D3D9 shared-texture capability SKIP. A fresh candidate remains
+required before another physical run. Pelvis/leg writes remain disabled.
 
 Three separate product milestones are now explicitly recorded for later work: suppress the local
 head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD

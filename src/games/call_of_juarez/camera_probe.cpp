@@ -1717,8 +1717,15 @@ bool ApplyArmPlan(
         rollback_chain();
         return false;
     }
+    const BoneRotationDelta observed_hand_residual = BuildHandResidualRotationDelta(
+        RuntimeVector(hand_up), RuntimeVector(hand_forward), hand_target);
+    if (!observed_hand_residual.valid) {
+        if (error) *error = "post-FORETWIST observed hand residual is invalid";
+        rollback_chain();
+        return false;
+    }
     applied_hand_rotation = ConvertWorldRotationToElementLocal(
-        orientation_plan.hand,
+        observed_hand_residual,
         RuntimeVector(hand_up),
         RuntimeVector(hand_forward));
     if (!applied_hand_rotation.valid) {
@@ -2316,6 +2323,7 @@ void UpdatePlayerArmTracking(
                        << ";forearm_twist_no_op="
                        << (applied_forearm_twist.no_op ? "true" : "false")
                        << ";twist_owner=foretwist_element"
+                       << ";hand_residual_source=post_foretwist_observed_basis"
                        << ";hand_native_axis="
                        << RuntimeVectorText(applied_hand_rotation.axis)
                        << ";hand_rotation_degrees="
