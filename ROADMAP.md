@@ -28,8 +28,12 @@ gameplay cannot become an accidental shot. The live verifier requires pointer hi
 the subsequent native-stereo transition. Keyboard/mouse remain a fallback, not a test dependency.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is unstaged. Its run ID is retired.
-The next clean full/body candidate must physically validate startup scene ownership, the Sense menu
-ray/cursor/select path, Create re-anchoring alignment and the same-process transition to native stereo.
+Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source `8697a81`, with
+build-manifest ID `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5` and proxy SHA-256
+`4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Body IK is enabled from
+startup and the reversible `1920x1080`/FSAA0 profile is active. This run must physically validate
+startup scene ownership, the Sense menu ray/cursor/select path, Create re-anchoring alignment and the
+same-process transition to native stereo.
 
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-

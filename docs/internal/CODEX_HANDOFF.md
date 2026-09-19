@@ -37,11 +37,17 @@ flat-theater UI gate. This entire interaction path remains **host-tested only**.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched. `finish` found no `cojvr.log`, then
 transactionally removed its staged assets and restored the video profile; its run ID must not be
-reused. Current staging is `none`. Prepare the next clean full/body candidate with `-BodyIkAtStart`.
-During its one-process physical gate, first confirm flat intro/menu presentation and scene focus,
-then use the visible Sense ray cursor and L2/R2 to activate at least one menu item, verify Create
-re-anchors without cursor misalignment, and finally enter gameplay and confirm automatic
-`native_stereo` with no trigger click-through.
+reused.
+
+Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+`8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
+`96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
+`4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation again
+completed 24 PASS plus the expected capability SKIP. Body IK is enabled from process start and the
+reversible `1920x1080`/FSAA0 profile is active. During its one-process physical gate, first confirm
+flat intro/menu presentation and scene focus, then use the visible Sense ray cursor and L2/R2 to
+activate at least one menu item, verify Create re-anchors without cursor misalignment, and finally
+enter gameplay and confirm automatic `native_stereo` with no trigger click-through.
 
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

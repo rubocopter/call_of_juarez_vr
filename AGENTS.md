@@ -78,13 +78,18 @@ down/up and the subsequent `flat_theater -> native_stereo` transition. Debug and
 24 tests plus the expected capability SKIP after these changes. This menu path is **host-tested only**.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and has been transactionally unstaged;
-its missing `cojvr.log` means it is not physical evidence and its run ID must not be reused. Current
-staging is `none`. The next full/body candidate must come from a clean source commit containing the
-flat-theater startup/fallback and Sense ray/cursor/click path. Its first physical acceptance point is
+its missing `cojvr.log` means it is not physical evidence and its run ID must not be reused.
+
+Fresh full/body candidate `20260919T174647Z-67b3c560acd0` is staged from clean source
+`8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
+`96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
+`4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation passed
+24 tests plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before process
+start and applied the reversible `1920x1080`/FSAA0 profile. Its first physical acceptance point is
 startup/menu interaction: flat content must acquire scene focus without a stuck SteamVR dashboard,
 the visible pointer must follow a Sense ray, L2/R2 must activate at least one menu item, Create must
 re-anchor without breaking pointer alignment, and gameplay must then enter `native_stereo` in the
-same process without click-through.
+same process without click-through. Do not promote the menu path from preparation alone.
 
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
