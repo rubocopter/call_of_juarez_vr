@@ -1192,9 +1192,18 @@ hand element. The verifier requires `hand_rotation_mode=foretwist_only`,
 `hand_rotation_no_op=true`, `hand_orientation=calibrated_controller_delta_foretwist_only` and the
 diagnostic residual marker while still requiring positional target reach, both-eye persistence and
 natural restoration. Fresh Debug and Release suites each pass 24 tests plus the expected capability
-SKIP out of 25. No candidate is currently staged. The next action is one fresh
-`prepare -BodyIkAtStart` physical visual run of this twist-only composition; do not regress handgrip,
-tracked-Z, FORETWIST ownership or the visible writer while evaluating it.
+SKIP out of 25. Preparation `20260919T085249Z-0caf8c569979` was deliberately unstaged before any
+game/SteamVR launch because its build manifest recorded the then-uncommitted tree as `dirty=true`;
+it has no physical evidence and must not be used for promotion. The host changes were committed as
+`18057534b960522613e30b8aa2dc20e02d35eb1e` (`Harden VR math and deployment transactions`). A fresh
+clean full/body candidate is now staged as run `20260919T085408Z-327dd354bc4f`, build-manifest ID
+`79EE4829D5076EB59A96F71609ACCFB37642E42788BDA30A9A28B6F4A5801213`, proxy SHA-256
+`3BD0B476810B15FBD935FA96F539E7303439B372F6BC45DA57BB40595CCE693F`. Its source identity is that
+commit with `dirty=false`; preparation reran all 25 Release outcomes with 24 PASS plus the expected
+capability SKIP, enabled Body IK at process start and applied the reversible `1920x1080`/FSAA0
+profile. This is preparation/host evidence only. The next action is one physical visual run of this
+twist-only composition; do not regress handgrip, tracked-Z, FORETWIST ownership or the visible writer
+while evaluating it.
 
 Three separate product milestones are now explicitly recorded for later work: suppress the local
 head/hair from the HMD view while preserving the body, derive physical crouch from calibrated HMD
