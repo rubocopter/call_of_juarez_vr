@@ -45,6 +45,26 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
+Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
+physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
+`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
+`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. The user confirmed the new
+right-stick snap turn works physically; telemetry recorded 23 exact native +/-45-degree turns
+(13 left, 10 right) through `PlayerBeing.RotateHorizontally(F)`. The same process completed 8,452
+arm applications and 8,452 restores with zero writer/restore failures. Two Create recenter recoveries
+used `calibration_preserved=true`, and subsequent arm samples exercised
+`orientation_calibration_mode=preserved_target_rebase`. Promote the exact 45-degree snap behavior to
+**headset-validated** and treat the recenter target-preservation path as **live-exercised**; visual
+recenter stability was not isolated as its own acceptance gesture.
+
+The new 52.68-second video shows a substantial arm-anatomy improvement over the earlier catastrophic
+twist/collapse, but Body IK still needs visual work. Reach clamping remains frequent at 3,695/8,452
+applications (43.72%; left 45.41%, right 42.03%), with the same ~49.843-unit native arm chain.
+Wrist/hand orientation is still visibly forced in some poses, local head/hair intrudes strongly into
+the HMD view, and weapon/shot aiming remains on the unresolved native per-hand look direction/origin
+boundary. Presenter inner shutdown still reports `shutdown_complete=false` despite normal outer
+runtime stop/run_end. See `docs/research/evidence/20260919T153546Z-705460dca03b.json`.
+
 Latest physical evidence for candidate `20260919T122155Z-c534d86926a9` is diagnostic only: the
 same run ID contains three separate CoJ process starts, so it cannot promote a formal single-process
 gate. The third process (PID 448) is the user's 87.79-second recorded pose sequence. It completed
@@ -54,18 +74,11 @@ averaged 26.686 upper + 23.158 lower = 49.843 game units, quantitatively support
 observation that the arms feel short. Head/hair intrusion, weapon-aim ownership and recurring
 SteamVR dashboard sticking remain open. See `docs/research/evidence/20260919T122155Z-c534d86926a9.json`.
 
-Current host source preserves the visible hand-orientation target across Create recenter by rebasing
+Current source preserves the visible hand-orientation target across Create recenter by rebasing
 the new controller reference instead of recalibrating from the current natural hand pose, and it
 implements one exact +/-45-degree right-stick snap per deflection through
 `PlayerBeing.RotateHorizontally(F)` while neutralizing the old continuous native turn actions.
-Both changes are **host-tested only**. Fresh Release validation is 24 PASS plus the expected classic
-D3D9 shared-texture capability SKIP. Fresh clean single-process candidate
-`20260919T153546Z-705460dca03b` is now staged from source
-`32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
-`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
-`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`, with Body IK enabled from
-process start. It is the next physical gate for snap turn, recenter orientation preservation and the
-existing arm/body evidence; none of those host-only changes are promoted until that run completes.
+Fresh Release validation is 24 PASS plus the expected classic D3D9 shared-texture capability SKIP.
 
 Latest evidence supersedes the historical arm-chain assumptions below. Run
 `20260919T085408Z-327dd354bc4f` is finalized/unstaged and visually failed despite 5,050 successful

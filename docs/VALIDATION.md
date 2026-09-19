@@ -2,6 +2,33 @@
 
 ## Latest arm evidence — 2026-09-19
 
+Run `20260919T153546Z-705460dca03b` is the latest formal single-process physical run. It came from
+clean source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
+`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
+`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. The evidence manifest reports
+`runtimeEnded=true` and `incomplete=false`; staging is now clear. Transport fenced 4,312 frames,
+collected 4,311, submitted 4,309 new plus 3,828 repeated frames, and recorded zero capture-ring drops
+or submit failures. Sampled CPU copy was 10.253 ms average / 13.974 ms p95. The inner presenter still
+ended with `shutdown_complete=false`, so that shutdown sub-gate remains open.
+
+The user physically confirmed right-stick snap turn works. Telemetry records 23 exact native snaps
+through `PlayerBeing.RotateHorizontally(F)`: 13 left (-45 degrees) and 10 right (+45 degrees). This
+promotes the exact 45-degree snap behavior to **headset-validated** for the tested PS VR2 Sense path.
+The run also contains two successful Create recenter recoveries with `calibration_preserved=true` and
+four immediate `orientation_calibration_mode=preserved_target_rebase` arm samples. The preservation
+implementation is therefore **live-exercised**; a dedicated visual recenter gesture would be needed
+to promote the absence of orientation jumps as a separate user-visible acceptance claim.
+
+Body telemetry completed 8,452 applications and 8,452 restores with zero writer/restore failures.
+The 52.678-second video `clip_1.789.832.536.546.mp4` shows a substantial anatomical improvement over
+the earlier catastrophic twist/collapse, but full Body IK remains visually unpromoted. Reach was
+still clamped 3,695/8,452 times (43.72%; left 45.41%, right 42.03%). Wrist/hand orientation is still
+forced in some poses, local head/hair remains a major HMD intrusion, and the visible weapon/shot-aim
+boundary remains unresolved. Video SHA-256:
+`B132BD5709B79E8396CF4048B98A88EA70FF0FFFC88F4EE6C27255E5657ACB11`; evidence package SHA-256:
+`0AF7723484528C368549F0DB46FE0C682F078B3120CCA3E67F7EA3DD4A1C4BE8`; packaged runtime-log SHA-256:
+`57E56F94F963AA121B63BD4DD5C23644655A46C3285069ACC02471DBCA647BE7`.
+
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
 `163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256
@@ -22,19 +49,12 @@ so dashboard/focus stability remains unpromoted. Evidence manifest:
 `4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`; diagnostic package SHA-256
 `09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`.
 
-Post-run host work fixes the recenter-induced hand-orientation jump by rebasing the new controller
+Post-run work fixes the recenter-induced hand-orientation jump by rebasing the new controller
 reference against the last visible hand target. It also implements one exact +/-45-degree right-stick
 snap per deflection through `PlayerBeing.RotateHorizontally(F)` and holds native analog turn actions
 2/3 at zero. Fresh Release validation passes all 25 outcomes with **24 PASS plus the expected
-classic-D3D9 shared-texture capability SKIP**, zero failures. Both changes remain **host-tested only**
-until a fresh single-process run exercises them.
-
-Fresh candidate `20260919T153546Z-705460dca03b` is staged for that gate from clean source
-`32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
-`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
-`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. Body IK is enabled from
-process start and the reversible 1920x1080/FSAA0 profile is active. This is host/preparation evidence
-only until one CoJ process completes the physical gate.
+classic-D3D9 shared-texture capability SKIP**, zero failures. The current run above supersedes the
+previous host-only status for the exercised snap/recenter paths.
 
 Run `20260919T085408Z-327dd354bc4f` is finalized/unstaged with matching deployed hashes and complete
 evidence packaging. It produced 5,050 arm applications and restores, zero arm write/restore faults,

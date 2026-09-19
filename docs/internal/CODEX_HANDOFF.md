@@ -2,6 +2,31 @@
 
 ## Current checkpoint
 
+Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
+full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
+`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
+`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. PID 7756 reached normal outer
+runtime stop and `run_end`; the evidence manifest has `runtimeEnded=true` and `incomplete=false`.
+The inner presenter still reports `shutdown_complete=false`.
+
+The user's 52.678-second `clip_1.789.832.536.546.mp4` physically confirms the new snap-turn behavior.
+Telemetry contains 23 exact steps through `PlayerBeing.RotateHorizontally(F)`: 13 at -45 degrees and
+10 at +45 degrees. The screen jumps in the recording correspond to those deliberate snaps. Promote
+this exact right-stick snap behavior to **headset-validated**. Two Create recenter recoveries report
+`calibration_preserved=true`, with four immediate arm samples using
+`orientation_calibration_mode=preserved_target_rebase`; this proves the new rebase path is live-
+exercised, while visual recenter orientation stability remains a separate observation if needed.
+
+Body writes are stable: 8,452 applications, 8,452 restores, zero writer/restore failures. The video
+is visibly much better than the earlier collapsed/twisted candidates, but anatomy is not accepted
+yet. `target_clamped=true` still occurs 3,695/8,452 times (43.72%; left 45.41%, right 42.03%), so the
+short-arm/reach problem remains. Several wrist/hand poses are still forced, and the local hair/head
+intrudes prominently (for example around the 18 s and 30 s sampled frames). Weapon presentation and
+shot direction remain on the unresolved native aim boundary. Video SHA-256:
+`B132BD5709B79E8396CF4048B98A88EA70FF0FFFC88F4EE6C27255E5657ACB11`; package SHA-256:
+`0AF7723484528C368549F0DB46FE0C682F078B3120CCA3E67F7EA3DD4A1C4BE8`; packaged runtime-log SHA-256:
+`57E56F94F963AA121B63BD4DD5C23644655A46C3285069ACC02471DBCA647BE7`.
+
 Candidate `20260919T122155Z-c534d86926a9` was launched three times under the same run ID, so its
 physical evidence is retained as **diagnostic multiprocess evidence** and cannot promote a formal
 single-process gate. Candidate identity was clean source
@@ -27,15 +52,6 @@ horizontal turn as one exact +/-45-degree snap per deflection through the exact 
 `PlayerBeing.RotateHorizontally(F)` route; native analog turn actions 2/3 remain neutral so mouse
 sensitivity cannot reintroduce continuous turn. Fresh full Release CTest is 24 PASS plus the one
 expected classic-D3D9 shared-texture capability SKIP. These changes are **host-tested only**.
-
-Fresh full/body candidate `20260919T153546Z-705460dca03b` is staged from clean source
-`32e979709bbb13780cf885c82770a0e8c1649631` (`dirty=false`). Build-manifest ID:
-`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`; proxy SHA-256:
-`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. Prepare rebuilt Release,
-reran 24 PASS + the expected capability SKIP, enabled Body IK before process start and applied the
-reversible 1920x1080/FSAA0 profile. Use one CoJ process for this run ID. The physical pass should
-repeat representative forward/T-pose/flexion arm poses, exercise several Create recenters and test
-one right-stick snap in each direction while keeping normal gameplay focus.
 
 Static bytecode also exposes a plausible exact-game seam for the local head/hair problem:
 `PlayerBeing.SetupMeshAfterLoad()` resolves an element by name with `GetElementID(String)` and calls
