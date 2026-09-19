@@ -1,6 +1,8 @@
 {
   "actions": [
     { "name": "/actions/global/in/recenter", "type": "boolean" },
+    { "name": "/actions/global/in/ui_select_left", "type": "boolean" },
+    { "name": "/actions/global/in/ui_select_right", "type": "boolean" },
     { "name": "/actions/global/in/left_hand_grip_pose", "type": "pose" },
     { "name": "/actions/global/in/right_hand_grip_pose", "type": "pose" },
     { "name": "/actions/global/in/left_hand_aim_pose", "type": "pose" },
@@ -33,6 +35,8 @@
       "language_tag": "en_US",
       "/actions/global": "Global VR controls",
       "/actions/global/in/recenter": "Recenter view",
+      "/actions/global/in/ui_select_left": "Select menu with left trigger",
+      "/actions/global/in/ui_select_right": "Select menu with right trigger",
       "/actions/global/in/left_hand_grip_pose": "Left hand grip pose",
       "/actions/global/in/right_hand_grip_pose": "Right hand grip pose",
       "/actions/global/in/left_hand_aim_pose": "Left hand aim pose",
@@ -55,6 +59,8 @@
       "language_tag": "es_ES",
       "/actions/global": "Controles VR globales",
       "/actions/global/in/recenter": "Recentrar vista",
+      "/actions/global/in/ui_select_left": "Seleccionar menú con gatillo izquierdo",
+      "/actions/global/in/ui_select_right": "Seleccionar menú con gatillo derecho",
       "/actions/global/in/left_hand_grip_pose": "Pose de agarre de la mano izquierda",
       "/actions/global/in/right_hand_grip_pose": "Pose de agarre de la mano derecha",
       "/actions/global/in/left_hand_aim_pose": "Pose de apuntado de la mano izquierda",

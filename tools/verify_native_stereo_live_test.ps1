@@ -42,7 +42,7 @@ Assert-LogMatch `
     "native_stereo_runtime: status=started backend=openvr owner=presenter_thread .*pose_semantics=eye_to_head" `
     "The native-stereo OpenVR runtime/eye configuration did not initialize."
 Assert-LogMatch `
-    "native_stereo_presenter: status=started owner_thread=openvr\+d3d11 mode=latest_frame_repeat" `
+    "native_stereo_presenter: status=started owner_thread=openvr\+d3d11 mode=(latest_frame_repeat|flat_theater_to_native_stereo)" `
     "The dedicated OpenVR/D3D11 presenter thread did not initialize."
 
 $RequireOpenVrRuntimeState = [bool]$Run.validation.requireOpenVrRuntimeState
@@ -56,6 +56,11 @@ $RequireOpenVrDashboardCycle = if ($null -ne $Run.validation.requireOpenVrDashbo
 }
 $RequireProductionGpuSyncNone = [bool]$Run.validation.requireProductionGpuSyncNone
 $RequireRepeatedPresentation = [bool]$Run.validation.requireRepeatedPresentation
+$RequireFlatTheaterUi = if ($null -ne $Run.validation.requireFlatTheaterUi) {
+    [bool]$Run.validation.requireFlatTheaterUi
+} else {
+    $false
+}
 $RequirePositional6Dof = [bool]$Run.validation.requirePositional6Dof
 $RequireBodyIk = [bool]$Run.validation.requireBodyIk
 $RequireGameplayInput = [bool]$Run.validation.requireGameplayInput
@@ -81,6 +86,26 @@ if ($RequireOpenVrRuntimeState) {
 Assert-LogMatch `
     "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/\{left,right\}/pose/handgrip aim_pose=/user/hand/\{left,right\}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread" `
     "The native-stereo OpenVR global/gameplay input action sets did not initialize."
+if ($RequireFlatTheaterUi) {
+    Assert-LogMatch `
+        "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
+        "The run never presented intro/menu content through flat_theater."
+    Assert-LogMatch `
+        "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;route=flat_theater_menu_pointer" `
+        "No valid Sense ray hit the flat-theater menu surface."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_menu_mouse" `
+        "The flat-theater pointer did not reach the CoJ menu cursor bridge."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=down;.*;route=win32_menu_mouse" `
+        "No Sense trigger press reached the native CoJ menu-click bridge."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=up;.*;route=win32_menu_mouse" `
+        "The Sense menu-click bridge did not release the native left mouse button."
+    Assert-LogMatch `
+        "native_stereo_presenter_transition: status=content_mode mode=native_stereo" `
+        "The run did not transition from flat-theater UI to native stereo gameplay."
+}
 Assert-LogMatch `
     "native_stereo_factory_hook: status=installed" `
     "The candidate did not install its CreateDevice-only D3D9 observation hook."
@@ -629,6 +654,9 @@ if ($RequireBodyIk) {
     Write-Host "PASS - pelvis plus both measured leg chains produced read-only lower-body IK preflight telemetry with no lower-body writes."
 }
 Write-Host "PASS - dedicated presenter submission, passthrough, hook restoration and same-owner XR shutdown verified."
+if ($RequireFlatTheaterUi) {
+    Write-Host "PASS - flat-theater Sense ray/cursor, trigger click/release and native-stereo transition verified."
+}
 if ($RequireOpenVrRuntimeState) {
     Write-Host "PASS - OpenVR connected/tracking/presenting state and joined shutdown-complete state verified."
 }

@@ -51,6 +51,8 @@ struct OpenVrRuntime::Impl {
     vr::VRActionSetHandle_t global_action_set = vr::k_ulInvalidActionSetHandle;
     vr::VRActionSetHandle_t gameplay_action_set = vr::k_ulInvalidActionSetHandle;
     vr::VRActionHandle_t recenter_action = vr::k_ulInvalidActionHandle;
+    vr::VRActionHandle_t ui_select_left_action = vr::k_ulInvalidActionHandle;
+    vr::VRActionHandle_t ui_select_right_action = vr::k_ulInvalidActionHandle;
     vr::VRActionHandle_t left_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
     vr::VRActionHandle_t right_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
     vr::VRActionHandle_t left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
@@ -233,6 +235,8 @@ void OpenVrRuntime::Shutdown() noexcept {
     impl_->global_action_set = vr::k_ulInvalidActionSetHandle;
     impl_->gameplay_action_set = vr::k_ulInvalidActionSetHandle;
     impl_->recenter_action = vr::k_ulInvalidActionHandle;
+    impl_->ui_select_left_action = vr::k_ulInvalidActionHandle;
+    impl_->ui_select_right_action = vr::k_ulInvalidActionHandle;
     impl_->left_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
     impl_->right_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
     impl_->left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
@@ -454,6 +458,8 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->global_action_set = vr::k_ulInvalidActionSetHandle;
         impl_->gameplay_action_set = vr::k_ulInvalidActionSetHandle;
         impl_->recenter_action = vr::k_ulInvalidActionHandle;
+        impl_->ui_select_left_action = vr::k_ulInvalidActionHandle;
+        impl_->ui_select_right_action = vr::k_ulInvalidActionHandle;
         impl_->left_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
         impl_->right_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
         impl_->left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
@@ -492,6 +498,25 @@ bool OpenVrRuntime::InitializeGlobalActions(
         if (error != vr::VRInputError_None || recenter_action == vr::k_ulInvalidActionHandle) {
             return FailNoThrow(
                 impl_.get(), "OpenVR recenter action resolution failed",
+                static_cast<std::int32_t>(error));
+        }
+
+        vr::VRActionHandle_t ui_select_left_action = vr::k_ulInvalidActionHandle;
+        error = input->GetActionHandle(
+            "/actions/global/in/ui_select_left", &ui_select_left_action);
+        if (error != vr::VRInputError_None ||
+            ui_select_left_action == vr::k_ulInvalidActionHandle) {
+            return FailNoThrow(
+                impl_.get(), "OpenVR left UI-select action resolution failed",
+                static_cast<std::int32_t>(error));
+        }
+        vr::VRActionHandle_t ui_select_right_action = vr::k_ulInvalidActionHandle;
+        error = input->GetActionHandle(
+            "/actions/global/in/ui_select_right", &ui_select_right_action);
+        if (error != vr::VRInputError_None ||
+            ui_select_right_action == vr::k_ulInvalidActionHandle) {
+            return FailNoThrow(
+                impl_.get(), "OpenVR right UI-select action resolution failed",
                 static_cast<std::int32_t>(error));
         }
 
@@ -570,6 +595,8 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->global_action_set = global_action_set;
         impl_->gameplay_action_set = gameplay_action_set;
         impl_->recenter_action = recenter_action;
+        impl_->ui_select_left_action = ui_select_left_action;
+        impl_->ui_select_right_action = ui_select_right_action;
         impl_->left_hand_grip_pose_action = left_hand_grip_pose_action;
         impl_->right_hand_grip_pose_action = right_hand_grip_pose_action;
         impl_->left_hand_aim_pose_action = left_hand_aim_pose_action;
@@ -612,6 +639,20 @@ bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
 
         actions.recenter_active = data.bActive;
         actions.recenter_requested = impl_->recenter_edge.Update(data.bActive, data.bState);
+        const auto read_ui_select = [&](const vr::VRActionHandle_t action,
+                                        bool& value) noexcept {
+            vr::InputDigitalActionData_t select{};
+            const vr::EVRInputError select_error = impl_->input->GetDigitalActionData(
+                action, &select, sizeof(select), vr::k_ulInvalidInputValueHandle);
+            if (select_error != vr::VRInputError_None) return false;
+            value = select.bActive && select.bState;
+            return true;
+        };
+        if (!read_ui_select(impl_->ui_select_left_action, actions.ui_select_left) ||
+            !read_ui_select(impl_->ui_select_right_action, actions.ui_select_right)) {
+            actions = {};
+            return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
+        }
         return true;
     } catch (...) {
         actions = {};
@@ -660,6 +701,22 @@ bool OpenVrRuntime::PollActions(
         global_actions.recenter_active = recenter.bActive;
         global_actions.recenter_requested =
             impl_->recenter_edge.Update(recenter.bActive, recenter.bState);
+
+        const auto read_global_digital = [&](const vr::VRActionHandle_t action,
+                                             bool& value) noexcept {
+            vr::InputDigitalActionData_t data{};
+            const vr::EVRInputError digital_error = impl_->input->GetDigitalActionData(
+                action, &data, sizeof(data), vr::k_ulInvalidInputValueHandle);
+            if (digital_error != vr::VRInputError_None) return false;
+            value = data.bActive && data.bState;
+            return true;
+        };
+        if (!read_global_digital(
+                impl_->ui_select_left_action, global_actions.ui_select_left) ||
+            !read_global_digital(
+                impl_->ui_select_right_action, global_actions.ui_select_right)) {
+            return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
+        }
 
         const auto read_pose = [&](const vr::VRActionHandle_t action,
                                    Pose& pose,
@@ -757,6 +814,8 @@ bool OpenVrRuntime::global_actions_initialized() const noexcept {
         impl_->global_action_set != vr::k_ulInvalidActionSetHandle &&
         impl_->gameplay_action_set != vr::k_ulInvalidActionSetHandle &&
         impl_->recenter_action != vr::k_ulInvalidActionHandle &&
+        impl_->ui_select_left_action != vr::k_ulInvalidActionHandle &&
+        impl_->ui_select_right_action != vr::k_ulInvalidActionHandle &&
         impl_->left_hand_grip_pose_action != vr::k_ulInvalidActionHandle &&
         impl_->right_hand_grip_pose_action != vr::k_ulInvalidActionHandle &&
         impl_->left_hand_aim_pose_action != vr::k_ulInvalidActionHandle &&

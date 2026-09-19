@@ -24,17 +24,24 @@ capture counters, and shutdown explicitly restores the swap-chain hook. Fresh De
 suites each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This new
 presentation path is host-tested only and requires a fresh one-process physical gate.
 
-Fresh full/body candidate `20260919T170916Z-d9a22d24eb0c` is staged from clean source
-`e341a32e0e0682b10e22c25e8835081fbba6d106`, build-manifest ID
-`285F9DD22A6A7BDC8588A2EFC37BBE2DA8B22A06D89AA8613210E3DFD94C1C98`, proxy SHA-256
-`25F197B813499C771F77F0614006AB263C049F21BFA6808E5C98376DC01D12F6`. Release preparation passed
-24 tests plus the expected classic-D3D9 shared-texture capability SKIP. Body IK is enabled from
-process start and the reversible `1920x1080`/FSAA0 profile is active. For the next one-process run,
-first verify that intro/menu rendering appears as anchored `flat_theater` content and that SteamVR's
-dashboard does not remain stuck. Then load gameplay and verify the automatic `native_stereo`
-transition; Create should re-anchor the flat presentation while preserving the existing gameplay
-recenter path. If startup fails, preserve the run as diagnostic evidence rather than repeating the
-same run ID.
+The same host source now makes the flat menu usable from PS VR2 Sense. Dedicated global
+`/actions/global/in/ui_select_left` and `ui_select_right` actions are bound to L2/R2, separate from
+the gameplay fire semantics. The presenter projects `/pose/tip` (handgrip fallback) onto the anchored
+flat surface, maps through the black-border layout back to source pixels, smooths the result and
+draws a visible crosshair into both flat textures. The CoJ-specific callback moves the real Win32
+cursor and injects left-button down/up only while CoJ is foreground; loss of ray/focus or presenter
+shutdown releases the button. Transition to gameplay suppresses the shared physical trigger until
+it has been released, preventing menu click-through into firing. The verifier requires a pointer hit,
+an applied click down/up and a later native-stereo transition whenever the run manifest enables the
+flat-theater UI gate. This entire interaction path remains **host-tested only**.
+
+Candidate `20260919T170916Z-d9a22d24eb0c` was never launched. `finish` found no `cojvr.log`, then
+transactionally removed its staged assets and restored the video profile; its run ID must not be
+reused. Current staging is `none`. Prepare the next clean full/body candidate with `-BodyIkAtStart`.
+During its one-process physical gate, first confirm flat intro/menu presentation and scene focus,
+then use the visible Sense ray cursor and L2/R2 to activate at least one menu item, verify Create
+re-anchors without cursor misalignment, and finally enter gameplay and confirm automatic
+`native_stereo` with no trigger click-through.
 
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

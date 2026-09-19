@@ -12,6 +12,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -42,6 +43,10 @@ struct NativeStereoState {
     std::atomic_uint64_t last_native_stereo_tick_ms{0};
     std::atomic_bool flat_capture_active{false};
     std::atomic_uint64_t last_error_frame{0};
+    std::atomic_uintptr_t game_window{0};
+    std::mutex flat_ui_mutex;
+    bool flat_ui_pointer_active = false;
+    bool flat_ui_click_down = false;
     std::array<bool, 2> capture_source_logged{};
     bool runtime_ready = false;
 };
@@ -73,7 +78,95 @@ void LogLine(const std::string_view line) noexcept {
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
 }
 
+void CameraEvent(const char* event, const char* result, const char* detail) noexcept;
+
 void PresenterLog(void*, const std::string_view line) noexcept { LogLine(line); }
+
+bool InjectFlatUiMouseButton(const bool down) noexcept {
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+    return SendInput(1, &input, sizeof(input)) == 1U;
+}
+
+void NeutralizeFlatUiPointer(const char* reason) noexcept {
+    try {
+        std::lock_guard lock(g_stereo.flat_ui_mutex);
+        if (g_stereo.flat_ui_click_down) {
+            const bool released = InjectFlatUiMouseButton(false);
+            if (released) g_stereo.flat_ui_click_down = false;
+            std::ostringstream detail;
+            detail << "active=false;click_release=" << (released ? "sent" : "failed")
+                   << ";reason=" << (reason ? reason : "unknown")
+                   << ";route=win32_menu_mouse";
+            CameraEvent("flat_ui_pointer", released ? "neutralized" : "release_failed",
+                detail.str().c_str());
+        }
+        g_stereo.flat_ui_pointer_active = false;
+    } catch (...) {
+    }
+}
+
+void FlatUiPointer(
+    void*,
+    const cojvr::backends::openvr::FlatUiPointerSample& sample) noexcept {
+    try {
+        const HWND window = reinterpret_cast<HWND>(
+            g_stereo.game_window.load(std::memory_order_acquire));
+        HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
+        if (!root) root = window;
+        const bool foreground = root && GetForegroundWindow() == root;
+        if (!sample.active || !foreground ||
+            sample.source_width == 0 || sample.source_height == 0) {
+            NeutralizeFlatUiPointer(
+                !sample.active ? "ray_inactive" :
+                (!foreground ? "game_not_foreground" : "invalid_source"));
+            return;
+        }
+
+        RECT client{};
+        if (!GetClientRect(root, &client)) {
+            NeutralizeFlatUiPointer("client_rect_failed");
+            return;
+        }
+        const LONG width = client.right - client.left;
+        const LONG height = client.bottom - client.top;
+        if (width <= 1 || height <= 1) {
+            NeutralizeFlatUiPointer("invalid_client_extent");
+            return;
+        }
+        POINT screen{
+            static_cast<LONG>(std::lround(sample.u * static_cast<float>(width - 1))),
+            static_cast<LONG>(std::lround(sample.v * static_cast<float>(height - 1))),
+        };
+        if (!ClientToScreen(root, &screen) || !SetCursorPos(screen.x, screen.y)) {
+            NeutralizeFlatUiPointer("cursor_move_failed");
+            return;
+        }
+
+        std::lock_guard lock(g_stereo.flat_ui_mutex);
+        if (!g_stereo.flat_ui_pointer_active) {
+            std::ostringstream detail;
+            detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
+                   << ";source=" << sample.source_width << 'x' << sample.source_height
+                   << ";route=win32_menu_mouse";
+            CameraEvent("flat_ui_pointer", "active", detail.str().c_str());
+        }
+        g_stereo.flat_ui_pointer_active = true;
+        if (sample.select_down != g_stereo.flat_ui_click_down) {
+            const bool sent = InjectFlatUiMouseButton(sample.select_down);
+            if (sent) g_stereo.flat_ui_click_down = sample.select_down;
+            std::ostringstream detail;
+            detail << "button=left;state=" << (sample.select_down ? "down" : "up")
+                   << ";pixel=" << sample.pixel_x << ',' << sample.pixel_y
+                   << ";hand=" << (sample.using_left_hand ? "left" : "right")
+                   << ";route=win32_menu_mouse";
+            CameraEvent("flat_ui_click", sent ? "applied" : "failed", detail.str().c_str());
+        }
+    } catch (...) {
+        NeutralizeFlatUiPointer("exception");
+    }
+}
 
 bool ShouldLogStereoTiming(const std::uint64_t frame_sequence) noexcept {
     return frame_sequence > 0 && (frame_sequence <= 8 || (frame_sequence % 90) == 0);
@@ -246,7 +339,7 @@ void AfterCreateDevice(
     IDirect3D9*,
     UINT,
     D3DDEVTYPE,
-    HWND,
+    HWND focus_window,
     DWORD,
     D3DPRESENT_PARAMETERS*,
     IDirect3DDevice9** returned_device,
@@ -254,6 +347,10 @@ void AfterCreateDevice(
     if (FAILED(result) || !returned_device || !*returned_device) return;
     try {
         IDirect3DDevice9* replacement = *returned_device;
+        HWND root = focus_window ? GetAncestor(focus_window, GA_ROOT) : nullptr;
+        if (!root) root = focus_window;
+        g_stereo.game_window.store(
+            reinterpret_cast<std::uintptr_t>(root), std::memory_order_release);
         replacement->AddRef();
         IDirect3DDevice9* previous = nullptr;
         {
@@ -404,7 +501,8 @@ bool StartStereoRuntime() noexcept {
     } catch (...) {
         LogLine("openvr_input: status=unavailable error=manifest_path_exception");
     }
-    if (!g_stereo.presenter.Start(manifest_path, &PresenterLog, nullptr)) {
+    if (!g_stereo.presenter.Start(
+            manifest_path, &PresenterLog, nullptr, &FlatUiPointer, nullptr)) {
         LogLine(
             "native_stereo_runtime: status=unavailable owner=presenter_thread error=" +
             g_stereo.presenter.last_error());
@@ -448,6 +546,7 @@ void Finalize() noexcept {
     LogLine("native_stereo_shutdown: stage=capture_end");
     LogLine("native_stereo_shutdown: stage=presenter_begin");
     g_stereo.presenter.Stop();
+    NeutralizeFlatUiPointer("presenter_stopped");
     const auto presenter_stop_stats = g_stereo.presenter.stats();
     LogLine(std::string("native_stereo_presenter_stop: shutdown_complete=") +
         (presenter_stop_stats.shutdown_complete ? "true" : "false"));

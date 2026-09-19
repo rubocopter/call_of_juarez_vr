@@ -3,6 +3,7 @@
 #include "runtime/vr_types.hpp"
 
 #include <array>
+#include <cstdint>
 
 namespace cojvr::runtime {
 
@@ -15,6 +16,32 @@ namespace cojvr::runtime {
 
 [[nodiscard]] Quaternion NormalizeQuaternion(Quaternion value) noexcept;
 [[nodiscard]] Vec3 RotateVector(Quaternion rotation, Vec3 value) noexcept;
+
+struct FlatTheaterPointerProjection {
+    bool hit = false;
+    float u = 0.0F;
+    float v = 0.0F;
+    std::uint32_t pixel_x = 0;
+    std::uint32_t pixel_y = 0;
+    float ray_distance_m = 0.0F;
+};
+
+// Intersects a tracked controller aim ray with the virtual flat-theater plane.
+// The plane is fixed relative to the HMD pose captured when flat presentation
+// is anchored. The centered source rectangle matches the black-border layout
+// used by the OpenVR presenter, so returned UV/pixel coordinates address the
+// original 2D game backbuffer rather than the larger compositor texture.
+[[nodiscard]] bool ProjectFlatTheaterPointer(
+    const Pose& anchor_pose,
+    const Pose& aim_pose,
+    EyeFov left_fov,
+    EyeFov right_fov,
+    std::uint32_t source_width,
+    std::uint32_t source_height,
+    std::uint32_t texture_width,
+    std::uint32_t texture_height,
+    FlatTheaterPointerProjection& projection,
+    float plane_distance_m = 1.5F) noexcept;
 
 [[nodiscard]] EyeFov FovFromTangents(
     float left,

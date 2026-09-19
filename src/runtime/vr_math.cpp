@@ -10,6 +10,16 @@ bool IsFiniteVec3(const Vec3 value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
+bool IsFiniteQuaternion(const Quaternion value) noexcept {
+    return std::isfinite(value.x) && std::isfinite(value.y) &&
+        std::isfinite(value.z) && std::isfinite(value.w);
+}
+
+float QuaternionLengthSquared(const Quaternion value) noexcept {
+    return value.x * value.x + value.y * value.y +
+        value.z * value.z + value.w * value.w;
+}
+
 bool IsRigidRotation3x3(const std::array<float, 12>& matrix) noexcept {
     constexpr float kTolerance = 5.0e-3F;
     const Vec3 right{matrix[0], matrix[1], matrix[2]};
@@ -135,6 +145,108 @@ Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
     pose.orientation = NormalizeQuaternion(q);
     pose.orientation_valid = true;
     return pose;
+}
+
+bool ProjectFlatTheaterPointer(
+    const Pose& anchor_pose,
+    const Pose& aim_pose,
+    const EyeFov left_fov,
+    const EyeFov right_fov,
+    const std::uint32_t source_width,
+    const std::uint32_t source_height,
+    const std::uint32_t texture_width,
+    const std::uint32_t texture_height,
+    FlatTheaterPointerProjection& projection,
+    const float plane_distance_m) noexcept {
+    projection = {};
+    if (!anchor_pose.orientation_valid || !anchor_pose.position_valid ||
+        !aim_pose.orientation_valid || !aim_pose.position_valid ||
+        !IsFiniteVec3(anchor_pose.position) || !IsFiniteVec3(aim_pose.position) ||
+        !IsFiniteQuaternion(anchor_pose.orientation) ||
+        !IsFiniteQuaternion(aim_pose.orientation) ||
+        !IsValidEyeFov(left_fov) || !IsValidEyeFov(right_fov) ||
+        source_width == 0 || source_height == 0 ||
+        texture_width < source_width || texture_height < source_height ||
+        !std::isfinite(plane_distance_m) || plane_distance_m <= 0.05F) {
+        return false;
+    }
+
+    const float raw_anchor_length_sq = QuaternionLengthSquared(anchor_pose.orientation);
+    const float raw_aim_length_sq = QuaternionLengthSquared(aim_pose.orientation);
+    if (!std::isfinite(raw_anchor_length_sq) || !std::isfinite(raw_aim_length_sq) ||
+        raw_anchor_length_sq <= 1.0e-6F || raw_aim_length_sq <= 1.0e-6F) {
+        return false;
+    }
+    const Quaternion anchor = NormalizeQuaternion(anchor_pose.orientation);
+    const Quaternion aim = NormalizeQuaternion(aim_pose.orientation);
+
+    const Quaternion tracking_to_anchor{-anchor.x, -anchor.y, -anchor.z, anchor.w};
+    const Vec3 tracking_origin{
+        aim_pose.position.x - anchor_pose.position.x,
+        aim_pose.position.y - anchor_pose.position.y,
+        aim_pose.position.z - anchor_pose.position.z,
+    };
+    const Vec3 local_origin = RotateVector(tracking_to_anchor, tracking_origin);
+    const Vec3 tracking_direction = RotateVector(aim, {0.0F, 0.0F, -1.0F});
+    const Vec3 local_direction = RotateVector(tracking_to_anchor, tracking_direction);
+    if (!IsFiniteVec3(local_origin) || !IsFiniteVec3(local_direction) ||
+        local_direction.z >= -1.0e-5F) {
+        return false;
+    }
+
+    const float ray_distance = (-plane_distance_m - local_origin.z) / local_direction.z;
+    if (!std::isfinite(ray_distance) || ray_distance <= 0.0F) return false;
+    const float hit_x = local_origin.x + local_direction.x * ray_distance;
+    const float hit_y = local_origin.y + local_direction.y * ray_distance;
+
+    const float tangent_left = 0.5F *
+        (std::tan(left_fov.angle_left) + std::tan(right_fov.angle_left));
+    const float tangent_right = 0.5F *
+        (std::tan(left_fov.angle_right) + std::tan(right_fov.angle_right));
+    const float tangent_up = 0.5F *
+        (std::tan(left_fov.angle_up) + std::tan(right_fov.angle_up));
+    const float tangent_down = 0.5F *
+        (std::tan(left_fov.angle_down) + std::tan(right_fov.angle_down));
+    const float x_min = tangent_left * plane_distance_m;
+    const float x_max = tangent_right * plane_distance_m;
+    const float y_min = tangent_down * plane_distance_m;
+    const float y_max = tangent_up * plane_distance_m;
+    const float x_span = x_max - x_min;
+    const float y_span = y_max - y_min;
+    if (!std::isfinite(x_span) || !std::isfinite(y_span) ||
+        x_span <= 1.0e-5F || y_span <= 1.0e-5F) {
+        return false;
+    }
+
+    const float full_u = (hit_x - x_min) / x_span;
+    const float full_v = (y_max - hit_y) / y_span;
+    if (!std::isfinite(full_u) || !std::isfinite(full_v)) return false;
+
+    const float left_offset =
+        static_cast<float>(texture_width - source_width) * 0.5F;
+    const float top_offset =
+        static_cast<float>(texture_height - source_height) * 0.5F;
+    const float source_x = full_u * static_cast<float>(texture_width) - left_offset;
+    const float source_y = full_v * static_cast<float>(texture_height) - top_offset;
+    if (source_x < 0.0F || source_y < 0.0F ||
+        source_x > static_cast<float>(source_width) ||
+        source_y > static_cast<float>(source_height)) {
+        return false;
+    }
+
+    projection.hit = true;
+    projection.u = std::clamp(
+        source_x / static_cast<float>(source_width), 0.0F, 1.0F);
+    projection.v = std::clamp(
+        source_y / static_cast<float>(source_height), 0.0F, 1.0F);
+    projection.pixel_x = std::min(
+        source_width - 1U,
+        static_cast<std::uint32_t>(projection.u * static_cast<float>(source_width)));
+    projection.pixel_y = std::min(
+        source_height - 1U,
+        static_cast<std::uint32_t>(projection.v * static_cast<float>(source_height)));
+    projection.ray_distance_m = ray_distance;
+    return true;
 }
 
 bool RigidTransform3x4FromPose(

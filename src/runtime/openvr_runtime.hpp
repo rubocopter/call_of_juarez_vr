@@ -19,6 +19,8 @@ struct OpenVrSystemInfo {
 struct OpenVrGlobalActions {
     bool recenter_requested = false;
     bool recenter_active = false;
+    bool ui_select_left = false;
+    bool ui_select_right = false;
 };
 
 struct OpenVrHandPoses {

@@ -65,15 +65,26 @@ because historical live evidence showed it remained owned when the device slots 
 another participant. Debug and Release each pass 24 tests plus the expected classic-D3D9 shared-
 texture capability SKIP. This startup/fallback policy is **host-tested only** until a fresh physical run.
 
-Fresh full/body candidate `20260919T170916Z-d9a22d24eb0c` is staged from clean source
-`e341a32e0e0682b10e22c25e8835081fbba6d106`, build-manifest ID
-`285F9DD22A6A7BDC8588A2EFC37BBE2DA8B22A06D89AA8613210E3DFD94C1C98`, proxy SHA-256
-`25F197B813499C771F77F0614006AB263C049F21BFA6808E5C98376DC01D12F6`. Preparation passed 24 tests
-plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before process start
-and applied the reversible `1920x1080`/FSAA0 profile. The first physical acceptance point is startup:
-intro/menu content should enter `flat_theater` and acquire scene focus without a stuck SteamVR
-dashboard; gameplay should then transition to `native_stereo`, and Create should re-anchor either
-presentation. Do not promote this path until that one-process physical behavior is observed.
+The flat presentation now also owns the first CoJ VR menu-interaction seam. OpenVR exposes dedicated
+global `ui_select_left`/`ui_select_right` actions on L2/R2, independent from gameplay fire actions.
+The presenter intersects the preferred Sense `/pose/tip` ray (with `/pose/handgrip` fallback) against
+the same anchored flat-theater plane, maps the hit through the centered source rectangle, smooths it,
+and composites a visible crosshair into the submitted flat texture. The exact CoJ adapter moves the
+native Windows cursor over the game client and sends left-button down/up only while the flat menu is
+active and CoJ owns foreground focus. Ray loss, focus loss, invalid client state and shutdown force a
+release. A trigger held while returning to native stereo is neutralized until released so it cannot
+become an accidental gameplay shot. The live verifier now requires an actual pointer hit plus click
+down/up and the subsequent `flat_theater -> native_stereo` transition. Debug and Release each pass
+24 tests plus the expected capability SKIP after these changes. This menu path is **host-tested only**.
+
+Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and has been transactionally unstaged;
+its missing `cojvr.log` means it is not physical evidence and its run ID must not be reused. Current
+staging is `none`. The next full/body candidate must come from a clean source commit containing the
+flat-theater startup/fallback and Sense ray/cursor/click path. Its first physical acceptance point is
+startup/menu interaction: flat content must acquire scene focus without a stuck SteamVR dashboard,
+the visible pointer must follow a Sense ray, L2/R2 must activate at least one menu item, Create must
+re-anchor without breaking pointer alignment, and gameplay must then enter `native_stereo` in the
+same process without click-through.
 
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

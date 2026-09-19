@@ -410,11 +410,20 @@ passes physically.
 
 Run `20260916T153109Z-8976b8f77775` also demonstrates that modal/flat UI is a separate
 presentation boundary: the game menu was not visible through the current native gameplay stereo
-path, while returning to gameplay resumed HMD-driven rendering. Do not solve that by forcing the
-menu through the exact gameplay camera hook. The later UI layer should treat flat menus/videos as
-explicit VR presentation content (for example a compositor/scene quad or equivalent game-owned
-surface) and may evaluate suppressing unnecessary 3D scene work while a fully modal flat surface
-is active. That policy is not implemented or validated yet.
+path, while returning to gameplay resumed HMD-driven rendering. Current source implements that
+boundary as `flat_theater`: the surviving swap-chain `Present` capture supplies ordinary 2D content,
+the OpenVR presenter anchors it to a stable HMD pose and Create can re-anchor it, while native stereo
+automatically retakes ownership when the game resumes the exact two-eye render path.
+
+Flat-theater interaction is a separate contract from gameplay input. The shared OpenVR action layer
+owns dedicated left/right UI-select booleans and controller aim poses. The presenter owns ray/plane
+intersection, black-border/source-pixel mapping, smoothing and the visible crosshair because those
+operations are renderer/presentation semantics. The exact CoJ adapter owns the legacy menu seam: it
+maps the normalized hit into the foreground game HWND and issues Win32 cursor plus left-button input.
+That bridge is disabled outside `flat_theater`, releases on ray/focus/shutdown failure, and carries a
+release fence into native gameplay so a shared physical trigger cannot click through into firing.
+Keyboard/mouse remain available as fallback. This architecture is **host-tested only** until a fresh
+physical run proves pointer alignment, selection, re-anchor behavior and transition back to stereo.
 
 ## Primary validation hardware
 

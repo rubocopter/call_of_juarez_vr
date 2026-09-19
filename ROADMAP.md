@@ -20,11 +20,16 @@ Present path so the app can own the VR scene from startup, Create re-anchors the
 and gameplay transitions automatically to true stereo. Debug and Release each pass 24 tests plus the
 expected classic-D3D9 shared-texture capability SKIP; a fresh physical run is still required.
 
-Fresh candidate `20260919T170916Z-d9a22d24eb0c` is now staged from clean source `e341a32` with the
-new startup/fallback policy, Body IK at process start and reversible `1920x1080`/FSAA0. Its Release
-preparation passes 24 tests plus the expected capability SKIP. The immediate gate is presentation
-ownership: flat intro/menu content must replace the stuck SteamVR interface, Create must re-anchor
-the flat view, and gameplay must transition automatically to native stereo in the same process.
+Flat menu interaction is now **implemented / host-tested** on that presentation boundary. A Sense
+`/pose/tip` ray (handgrip fallback) maps to the anchored flat source, drives a visible compositor
+crosshair and the exact CoJ Win32 menu cursor, while dedicated global L2/R2 UI-select actions inject
+left-button press/release. Focus/ray loss releases the click and a trigger held during the switch to
+gameplay cannot become an accidental shot. The live verifier requires pointer hit, click down/up and
+the subsequent native-stereo transition. Keyboard/mouse remain a fallback, not a test dependency.
+
+Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is unstaged. Its run ID is retired.
+The next clean full/body candidate must physically validate startup scene ownership, the Sense menu
+ray/cursor/select path, Create re-anchoring alignment and the same-process transition to native stereo.
 
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-
@@ -279,7 +284,7 @@ current camera, stereo, 6DOF and interaction validation gates.
 
 - Positional tracking and room-scale reconciliation: **implemented / live-tested exact-game path; broader comfort promotion pending**. HMD and both Sense poses share one OpenVR sample/recenter basis; run `20260917T172007Z-e6232c4778d2` live-proved campaign actor discovery through `LawmanModuleSingle.GetMainPlayer()` and successful player reconciliation. When a native actor is resolved, horizontal HMD displacement is absorbed at `100` CoJ units/metre while vertical displacement remains camera/body-owned. If actor discovery/reconciliation fails, physical head translation is suppressed while HMD rotation and stereo eye offsets remain active.
 - Culling/visibility corrections: **planned**.
-- HUD/menu strategy: **planned; live-observed gap** — run `20260916T153109Z-8976b8f77775` showed that the flat game menu is not presented through the current native gameplay stereo path.
+- HUD/menu strategy: **implemented / host-tested first slice; physical gate pending** — modal intro/menu/loading content uses `flat_theater`; the Sense ray/cursor/select path maps the anchored flat source to the exact game-client mouse seam and remains separate from gameplay input. Native stereo resumes automatically when gameplay returns.
 - Cinematic and post-process handling: **planned**.
 - Head/body/camera ownership: **implemented / host-tested first slice**. HMD remains camera authority; actor translation, native torso/head rotation and tracked arm overlay have separate owners. Comfort validation remains pending.
 
