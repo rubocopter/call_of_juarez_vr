@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/java_player_bridge.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/device_vtable_hook.hpp"
@@ -53,6 +54,8 @@ struct NativeStereoState {
     std::mutex flat_ui_mutex;
     bool flat_ui_pointer_active = false;
     bool flat_loading_resume_pending = false;
+    bool flat_ui_select_release_required = false;
+    cojvr::games::call_of_juarez::CoJUiSelectRetryState flat_ui_select_retry{};
     std::array<bool, 2> capture_source_logged{};
     bool runtime_ready = false;
 };
@@ -94,7 +97,7 @@ void NeutralizeFlatUiPointer(const char* reason) noexcept {
         if (g_stereo.flat_ui_pointer_active) {
             std::ostringstream detail;
             detail << "active=false;reason=" << (reason ? reason : "unknown")
-                   << ";route=win32_cursor_only";
+                   << ";route=win32_cursor_plus_game_ui_mouse";
             CameraEvent("flat_ui_pointer", "neutralized", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = false;
@@ -144,7 +147,7 @@ void FlatUiPointer(
             std::ostringstream detail;
             detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
                    << ";source=" << sample.source_width << 'x' << sample.source_height
-                   << ";route=win32_cursor_only";
+                   << ";route=win32_cursor_plus_game_ui_mouse";
             CameraEvent("flat_ui_pointer", "active", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = true;
@@ -257,32 +260,29 @@ bool PublishCapturedFrame(
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (!device || !g_stereo.runtime_ready) return;
     try {
-        if (g_stereo.flat_loading_resume_pending) {
-            bool timer_frozen = true;
-            std::string timer_error;
-            if (cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
-                    timer_frozen, &timer_error) && !timer_frozen) {
-                CameraEvent(
-                    "loading_ui_resume",
-                    "observed",
-                    "game_timer_valid=true;game_timer_frozen=false;route=LawmanModule.TimerStart");
-                g_stereo.flat_loading_resume_pending = false;
-            }
-        }
+        bool timer_frozen = false;
+        std::string timer_error;
+        const bool timer_valid =
+            cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
+                timer_frozen, &timer_error);
         constexpr std::uint64_t kStereoFreshnessMs = 250;
         const std::uint64_t now_ms = GetTickCount64();
         const std::uint64_t last_stereo_ms =
             g_stereo.last_native_stereo_tick_ms.load(std::memory_order_acquire);
-        if (last_stereo_ms != 0 && now_ms >= last_stereo_ms &&
+        if (!(timer_valid && timer_frozen) && !g_stereo.flat_ui_select_release_required &&
+            last_stereo_ms != 0 && now_ms >= last_stereo_ms &&
             now_ms - last_stereo_ms < kStereoFreshnessMs) {
             g_stereo.flat_capture_active.store(false, std::memory_order_release);
             return;
         }
 
         if (!g_stereo.flat_capture_active.exchange(true, std::memory_order_acq_rel)) {
-            LogLine(
-                "native_stereo_flat_theater: status=entered source=" +
-                std::string(source ? source : "unknown"));
+            std::ostringstream entered;
+            entered << "native_stereo_flat_theater: status=entered source="
+                    << (source ? source : "unknown")
+                    << ";reason="
+                    << (timer_valid && timer_frozen ? "game_timer_frozen" : "native_stereo_stale");
+            LogLine(entered.str());
         }
 
         cojvr::backends::openvr::OpenVrTrackingSample tracking{};
@@ -292,42 +292,78 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             return;
         }
 
+        const bool pointer_active = FlatUiPointerActive();
+        if (pointer_active) {
+            std::string pointer_error;
+            if (!cojvr::games::call_of_juarez::DispatchCameraUiPointerMotion(&pointer_error) &&
+                !pointer_error.empty()) {
+                CameraEvent("flat_ui_pointer_game_route", "unavailable", pointer_error.c_str());
+            }
+        }
+
+        if (g_stereo.flat_ui_select_release_required && timer_valid && !timer_frozen &&
+            !tracking.ui_select_left && !tracking.ui_select_right) {
+            g_stereo.flat_ui_select_release_required = false;
+            g_stereo.flat_loading_resume_pending = false;
+            CameraEvent(
+                "blocking_ui_resume",
+                "observed",
+                "game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart");
+        }
+
         const bool ui_select_pressed =
             tracking.ui_select_left_pressed || tracking.ui_select_right_pressed;
-        if (ui_select_pressed) {
+        const bool ui_select_held = tracking.ui_select_left || tracking.ui_select_right;
+        g_stereo.flat_ui_select_retry.Observe(ui_select_pressed, ui_select_held);
+        const bool select_allowed = pointer_active || (timer_valid && timer_frozen);
+        if (g_stereo.flat_ui_select_retry.ShouldDispatch(
+                pointer_active, timer_valid && timer_frozen)) {
             bool current_ui_is_loading = false;
-            bool timer_frozen = false;
-            std::string timer_error;
-            const bool timer_valid =
-                cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
-                    timer_frozen, &timer_error);
+            bool paused_hint_dismissed = false;
+            cojvr::games::call_of_juarez::CoJUiDispatchRoute ui_route =
+                cojvr::games::call_of_juarez::CoJUiDispatchRoute::none;
             std::string ui_error;
-            const bool pointer_active = FlatUiPointerActive();
-            const bool dispatched = pointer_active &&
+            const bool dispatched = select_allowed &&
                 cojvr::games::call_of_juarez::DispatchCameraUiSelectPress(
-                    false, &current_ui_is_loading, &ui_error);
-            std::ostringstream detail;
-            detail << "source="
-                   << (tracking.ui_select_left_pressed ? "left_l2" : "right_r2")
-                   << ";pointer_active=" << (pointer_active ? "true" : "false")
-                   << ";current_ui_is_loading="
-                   << (current_ui_is_loading ? "true" : "false")
-                   << ";route=GameUserInterface.CallEnterKeyPressedReleased";
-            if (!ui_error.empty()) detail << ";detail=" << ui_error;
-            CameraEvent(
-                "flat_ui_select",
-                dispatched ? "applied" : (pointer_active ? "failed" : "ignored"),
-                detail.str().c_str());
-            if (dispatched && current_ui_is_loading && timer_valid && timer_frozen) {
+                    false, &current_ui_is_loading, &ui_error,
+                    &paused_hint_dismissed, &ui_route);
+            g_stereo.flat_ui_select_retry.Complete(dispatched);
+            if (ui_select_pressed || dispatched) {
+                std::ostringstream detail;
+                detail << "source="
+                       << ((tracking.ui_select_left_pressed ||
+                            (!tracking.ui_select_right_pressed && tracking.ui_select_left))
+                               ? "left_l2"
+                               : "right_r2")
+                       << ";pointer_active=" << (pointer_active ? "true" : "false")
+                       << ";retry=" << (!ui_select_pressed ? "true" : "false")
+                       << ";current_ui_is_loading="
+                       << (current_ui_is_loading ? "true" : "false")
+                       << ";paused_hint_dismissed="
+                       << (paused_hint_dismissed ? "true" : "false")
+                       << ";route=" <<
+                           cojvr::games::call_of_juarez::CoJUiDispatchRouteName(ui_route);
+                if (!ui_error.empty()) detail << ";detail=" << ui_error;
+                CameraEvent(
+                    "flat_ui_select",
+                    dispatched ? "applied" : "failed",
+                    detail.str().c_str());
+            }
+            if (dispatched && timer_valid && timer_frozen) {
                 g_stereo.flat_loading_resume_pending = true;
-                std::ostringstream loading_detail;
-                loading_detail << "source="
-                               << (tracking.ui_select_left_pressed ? "left_l2" : "right_r2")
-                               << ";game_timer_valid=true;game_timer_frozen=true"
-                               << ";current_ui_is_loading=true"
-                               << ";fire_suppressed_until_release=true"
-                               << ";route=GameUserInterface.CallEnterKeyPressedReleased";
-                CameraEvent("loading_ui_select", "applied", loading_detail.str().c_str());
+                g_stereo.flat_ui_select_release_required = true;
+                std::ostringstream blocking_detail;
+                blocking_detail << "source="
+                                << (tracking.ui_select_left_pressed ? "left_l2" : "right_r2")
+                                << ";game_timer_valid=true;game_timer_frozen=true"
+                                << ";current_ui_is_loading="
+                                << (current_ui_is_loading ? "true" : "false")
+                                << ";gameplay_suppressed=true"
+                                << ";body_mutation_suppressed=true"
+                                << ";fire_suppressed_until_release=true"
+                                << ";route=" <<
+                                    cojvr::games::call_of_juarez::CoJUiDispatchRouteName(ui_route);
+                CameraEvent("blocking_ui_select", "applied", blocking_detail.str().c_str());
             }
         }
 
@@ -509,6 +545,32 @@ bool BeginStereoFrame(
     sample = {};
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state || !state->runtime_ready) return false;
+    bool timer_frozen = false;
+    std::string timer_error;
+    if (cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
+            timer_frozen, &timer_error) && timer_frozen) {
+        state->last_native_stereo_tick_ms.store(0, std::memory_order_release);
+        return false;
+    }
+    cojvr::backends::openvr::OpenVrTrackingSample tracking{};
+    if (!state->presenter.LatestTracking(tracking) ||
+        !tracking.pose.orientation_valid || !tracking.pose.position_valid ||
+        tracking.sequence == 0) {
+        return false;
+    }
+    if (state->flat_ui_select_release_required) {
+        if (tracking.ui_select_left || tracking.ui_select_right) {
+            state->last_native_stereo_tick_ms.store(0, std::memory_order_release);
+            return false;
+        }
+        state->flat_ui_select_release_required = false;
+        state->flat_loading_resume_pending = false;
+        CameraEvent(
+            "blocking_ui_resume",
+            "observed",
+            "game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=BeginStereoFrame");
+    }
+
     state->last_native_stereo_tick_ms.store(GetTickCount64(), std::memory_order_release);
     if (state->flat_capture_active.exchange(false, std::memory_order_acq_rel)) {
         LogLine("native_stereo_flat_theater: status=leaving reason=native_stereo_active");
@@ -527,13 +589,6 @@ bool BeginStereoFrame(
                     std::string(state->capture.collect_description()));
             }
         }
-    }
-
-    cojvr::backends::openvr::OpenVrTrackingSample tracking{};
-    if (!state->presenter.LatestTracking(tracking) ||
-        !tracking.pose.orientation_valid || !tracking.pose.position_valid ||
-        tracking.sequence == 0) {
-        return false;
     }
     sample.hmd_pose.pose = tracking.pose;
     sample.hmd_pose.sequence = tracking.sequence;
@@ -677,6 +732,7 @@ void Finalize() noexcept {
     LogLine("native_stereo_shutdown: stage=presenter_begin");
     g_stereo.presenter.Stop();
     NeutralizeFlatUiPointer("presenter_stopped");
+    g_stereo.flat_ui_select_retry = {};
     const auto presenter_stop_stats = g_stereo.presenter.stats();
     LogLine(std::string("native_stereo_presenter_stop: shutdown_complete=") +
         (presenter_stop_stats.shutdown_complete ? "true" : "false"));

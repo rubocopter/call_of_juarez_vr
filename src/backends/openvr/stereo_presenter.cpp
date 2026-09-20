@@ -338,16 +338,31 @@ struct OpenVrStereoPresenter::Impl {
                         flat_ui_pointer.pixel_x, source.width - 1U);
                     const std::uint32_t center_y = std::min(
                         flat_ui_pointer.pixel_y, source.height - 1U);
-                    const std::uint32_t patch_left = center_x > kRadius
-                        ? center_x - kRadius
+                    runtime::FlatTheaterPointerBeam beam{};
+                    if (!runtime::ComputeFlatTheaterPointerBeam(
+                            center_x, center_y, source.width, source.height, beam)) {
+                        SetError("presenter could not build flat-theater pointer beam");
+                        return false;
+                    }
+                    constexpr std::uint32_t kBeamPadding = 2U;
+                    const std::uint32_t content_left = std::min(center_x, beam.start_x);
+                    const std::uint32_t content_top = std::min(center_y, beam.start_y);
+                    const std::uint32_t content_right = std::max(center_x, beam.start_x);
+                    const std::uint32_t content_bottom = std::max(center_y, beam.start_y);
+                    const std::uint32_t patch_left = content_left > kRadius
+                        ? content_left - kRadius
                         : 0U;
-                    const std::uint32_t patch_top = center_y > kRadius
-                        ? center_y - kRadius
+                    const std::uint32_t patch_top = content_top > kRadius
+                        ? content_top - kRadius
                         : 0U;
                     const std::uint32_t patch_right = std::min(
-                        source.width, center_x + kRadius + 1U);
+                        source.width,
+                        std::max(center_x + kRadius + 1U,
+                                 content_right + kBeamPadding + 1U));
                     const std::uint32_t patch_bottom = std::min(
-                        source.height, center_y + kRadius + 1U);
+                        source.height,
+                        std::max(center_y + kRadius + 1U,
+                                 content_bottom + kBeamPadding + 1U));
                     const std::uint32_t patch_width = patch_right - patch_left;
                     const std::uint32_t patch_height = patch_bottom - patch_top;
                     std::vector<std::uint8_t> patch(
@@ -363,30 +378,69 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     const auto set_pixel = [&](const std::uint32_t x,
                                                const std::uint32_t y,
-                                               const std::uint8_t value) noexcept {
+                                               const std::uint8_t blue,
+                                               const std::uint8_t green,
+                                               const std::uint8_t red) noexcept {
                         if (x >= patch_width || y >= patch_height) return;
                         auto* pixel = patch.data() +
                             (static_cast<std::size_t>(y) * patch_width + x) * 4U;
-                        pixel[0] = value;
-                        pixel[1] = value;
-                        pixel[2] = value;
+                        pixel[0] = blue;
+                        pixel[1] = green;
+                        pixel[2] = red;
                         pixel[3] = 0xFFU;
                     };
                     const std::uint32_t local_x = center_x - patch_left;
                     const std::uint32_t local_y = center_y - patch_top;
+
+                    // Penumbra-style high-contrast controller laser: a short
+                    // cyan beam segment ends at the menu reticle. Keeping the
+                    // segment bounded avoids another full-frame CPU copy.
+                    std::int32_t x0 = static_cast<std::int32_t>(beam.start_x - patch_left);
+                    std::int32_t y0 = static_cast<std::int32_t>(beam.start_y - patch_top);
+                    const std::int32_t x1 = static_cast<std::int32_t>(local_x);
+                    const std::int32_t y1 = static_cast<std::int32_t>(local_y);
+                    const std::int32_t dx = std::abs(x1 - x0);
+                    const std::int32_t sx = x0 < x1 ? 1 : -1;
+                    const std::int32_t dy = -std::abs(y1 - y0);
+                    const std::int32_t sy = y0 < y1 ? 1 : -1;
+                    std::int32_t line_error = dx + dy;
+                    for (;;) {
+                        for (std::int32_t oy = -1; oy <= 1; ++oy) {
+                            for (std::int32_t ox = -1; ox <= 1; ++ox) {
+                                const std::int32_t px = x0 + ox;
+                                const std::int32_t py = y0 + oy;
+                                if (px >= 0 && py >= 0) {
+                                    set_pixel(
+                                        static_cast<std::uint32_t>(px),
+                                        static_cast<std::uint32_t>(py),
+                                        0xFFU, 0xF0U, 0x20U);
+                                }
+                            }
+                        }
+                        if (x0 == x1 && y0 == y1) break;
+                        const std::int32_t doubled = 2 * line_error;
+                        if (doubled >= dy) {
+                            line_error += dy;
+                            x0 += sx;
+                        }
+                        if (doubled <= dx) {
+                            line_error += dx;
+                            y0 += sy;
+                        }
+                    }
                     for (std::uint32_t offset = 2U; offset <= kRadius; ++offset) {
-                        if (local_x >= offset) set_pixel(local_x - offset, local_y, 0x00U);
-                        if (local_x + offset < patch_width) set_pixel(local_x + offset, local_y, 0x00U);
-                        if (local_y >= offset) set_pixel(local_x, local_y - offset, 0x00U);
-                        if (local_y + offset < patch_height) set_pixel(local_x, local_y + offset, 0x00U);
+                        if (local_x >= offset) set_pixel(local_x - offset, local_y, 0, 0, 0);
+                        if (local_x + offset < patch_width) set_pixel(local_x + offset, local_y, 0, 0, 0);
+                        if (local_y >= offset) set_pixel(local_x, local_y - offset, 0, 0, 0);
+                        if (local_y + offset < patch_height) set_pixel(local_x, local_y + offset, 0, 0, 0);
                     }
                     for (std::uint32_t offset = 3U; offset + 1U <= kRadius; ++offset) {
-                        if (local_x >= offset) set_pixel(local_x - offset, local_y, 0xFFU);
-                        if (local_x + offset < patch_width) set_pixel(local_x + offset, local_y, 0xFFU);
-                        if (local_y >= offset) set_pixel(local_x, local_y - offset, 0xFFU);
-                        if (local_y + offset < patch_height) set_pixel(local_x, local_y + offset, 0xFFU);
+                        if (local_x >= offset) set_pixel(local_x - offset, local_y, 0xFFU, 0xF0U, 0x20U);
+                        if (local_x + offset < patch_width) set_pixel(local_x + offset, local_y, 0xFFU, 0xF0U, 0x20U);
+                        if (local_y >= offset) set_pixel(local_x, local_y - offset, 0xFFU, 0xF0U, 0x20U);
+                        if (local_y + offset < patch_height) set_pixel(local_x, local_y + offset, 0xFFU, 0xF0U, 0x20U);
                     }
-                    set_pixel(local_x, local_y, 0xFFU);
+                    set_pixel(local_x, local_y, 0xFFU, 0xFFU, 0xFFU);
                     D3D11_BOX cursor_box{};
                     cursor_box.left = left_offset + patch_left;
                     cursor_box.top = top_offset + patch_top;
@@ -713,6 +767,7 @@ struct OpenVrStereoPresenter::Impl {
                              << flat_ui_pointer.source_height
                              << ";select=" << (flat_ui_pointer.select_down ? "true" : "false")
                              << ";smoothing=0.40"
+                             << ";visual=cyan_beam_reticle"
                              << ";route=flat_theater_menu_pointer";
                         Log(line.str());
                     }

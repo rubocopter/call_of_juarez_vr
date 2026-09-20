@@ -91,20 +91,26 @@ if ($RequireFlatTheaterUi) {
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
         "The run never presented intro/menu content through flat_theater."
     Assert-LogMatch `
-        "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;route=flat_theater_menu_pointer" `
-        "No valid Sense ray hit the flat-theater menu surface."
+        "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
+        "No valid Sense ray produced the visible flat-theater laser/reticle."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_only" `
-        "The flat-theater pointer did not reach the CoJ menu cursor bridge."
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_plus_game_ui_mouse" `
+        "The flat-theater pointer did not reach the Win32 cursor plus CoJ ProcessMouse route."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=GameUserInterface.CallEnterKeyPressedReleased" `
-        "No Sense trigger press reached the exact CoJ GameUserInterface Enter/select route."
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
+        "No Sense trigger press reached an exact CoJ UI/select route."
     Assert-LogMatch `
-        "camera_probe_event: event=loading_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;fire_suppressed_until_release=true;route=GameUserInterface.CallEnterKeyPressedReleased" `
-        "No Sense select press reached the frozen GameUILoading input gate."
+        "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=GameWithMenu.sm_cIntroModule.OnInputKey" `
+        "No Sense trigger press skipped a startup video through IntroModule.OnInputKey."
     Assert-LogMatch `
-        "camera_probe_event: event=loading_ui_resume result=observed detail=.*game_timer_valid=true;game_timer_frozen=false;route=LawmanModule.TimerStart" `
-        "The run did not prove that Sense input released the GameUILoading timer stop."
+        "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter" `
+        "No Sense trigger press selected the in-game Escape menu through LawmanModule.cMenu."
+    Assert-LogMatch `
+        "camera_probe_event: event=blocking_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=(true|false);gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=(HintManager.DisableCurrentHint|GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter)" `
+        "No Sense select press safely dismissed a frozen loading/hint UI."
+    Assert-LogMatch `
+        "camera_probe_event: event=blocking_ui_resume result=observed detail=.*game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart" `
+        "The run did not prove that the blocking UI resumed only after trigger release."
     Assert-LogMatch `
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo" `
         "The run did not transition from flat-theater UI to native stereo gameplay."
@@ -311,6 +317,8 @@ if ($OrientationLines.Count -lt 2) {
 foreach ($Line in $OrientationLines) {
     if ($Line -notmatch "native_homogeneous_layout=true" -or
         $Line -notmatch "roll_mode=native_camera_basis" -or
+        $Line -notmatch "leveled_forward=\(" -or
+        $Line -notmatch "leveled_up=\(" -or
         $Line -notmatch "source_world_homogeneous_layout=true" -or
         $Line -notmatch "source_view_homogeneous_layout=true" -or
         $Line -notmatch "injected_view_homogeneous_layout=true" -or
@@ -356,6 +364,12 @@ if (-not ($RollSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
     throw "Telemetry did not capture a meaningful physical head tilt through the native camera roll path."
 }
 if ($RequirePositional6Dof) {
+    Assert-LogMatch `
+        "camera_probe_event: event=body_player_reconciliation result=camera_only detail=.*actor_write=false;.*mode=camera_only_collision_safe;collision_owner=native_actor" `
+        "Room-scale translation did not preserve native actor collision ownership."
+    Assert-LogMatch `
+        "camera_probe_event: event=body_yaw_tracking result=applied detail=.*route=PlayerBeing.RotateHorizontally;commit_after_stereo_restore=true" `
+        "Physical HMD yaw never transferred to the native player body root."
     $MeaningfulPositionObserved = $false
     foreach ($Line in $OrientationLines) {
         $PositionMatch = [regex]::Match(
@@ -398,6 +412,7 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
                 $Line -notmatch ";hand_orientation=calibrated_controller_delta_diagnostic_only;" -or
+                $Line -notmatch ";tracking_basis=level_recenter_minus_actor_yaw;" -or
                 $Line -notmatch ";controller_orientation_valid=true;" -or
                 $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
                 $Line -notmatch ";upper_element_position=\(" -or
@@ -535,6 +550,9 @@ if ($RequireBodyIk) {
 }
 
 if ($RequireGameplayInput) {
+    Assert-LogMatch `
+        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_InputDigital_Translate;visual_origin_owner=m_avAimFromPoint;fire_origin_native_restore=true;native_accuracy_spread=preserved" `
+        "Controller tip direction/origin did not reach the exact per-hand CoJ aiming fields with scoped ballistic restoration."
     $GameplayLines = @($Lines | Where-Object {
         $_ -match "camera_probe_event: event=gameplay_input result=applied"
     })
@@ -544,6 +562,7 @@ if ($RequireGameplayInput) {
     $MeaningfulGameplayInput = $false
     foreach ($Line in $GameplayLines) {
         if ($Line -notmatch ";active=true;" -or
+            $Line -notmatch ";locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;" -or
             $Line -notmatch ";route=GameInputController.InputAction.Translate") {
             continue
         }

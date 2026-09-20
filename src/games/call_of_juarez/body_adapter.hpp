@@ -57,11 +57,26 @@ struct UpperBodyTrackingOffsets {
     bool valid = false;
 };
 
+struct BodyYawOwnershipUpdate {
+    float actor_target_degrees = 0.0F;
+    float actor_delta_degrees = 0.0F;
+    float camera_compensation_degrees = 0.0F;
+    float head_residual_degrees = 0.0F;
+    float spine_residual_degrees = 0.0F;
+    bool valid = false;
+};
+
 struct PlayerSpaceReconciliation {
     cojvr::runtime::Vec3 desired_actor_position{};
     cojvr::runtime::Vec3 applied_world_offset{};
     cojvr::runtime::Vec3 applied_tracking_offset{};
     cojvr::runtime::Vec3 render_head_position{};
+    bool valid = false;
+};
+
+struct RoomScaleTranslationUpdate {
+    cojvr::runtime::Vec3 render_head_position{};
+    bool write_actor_position = false;
     bool valid = false;
 };
 
@@ -364,6 +379,22 @@ struct LegIkPlan {
 // angle and leaves the remaining 1/3 to the neck/head chain.
 [[nodiscard]] UpperBodyTrackingOffsets UpperBodyOffsetsFromHeadPose(
     const cojvr::runtime::Pose& relative_head_pose) noexcept;
+
+// The actor absorbs physical HMD yaw after the current stereo frame. The
+// current frame therefore keeps only the yaw not already represented by the
+// actor, while the camera compensates the previously committed actor yaw.
+// Recenter promotes the actor's current orientation to the new baseline.
+[[nodiscard]] BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
+    const cojvr::runtime::Pose& relative_head_pose,
+    float previously_owned_degrees,
+    bool previous_owned_valid,
+    bool recentered) noexcept;
+
+// Room-scale HMD translation is rendered by the camera. Directly writing the
+// Java actor position bypasses native collision/grounding and, in physical
+// evidence, fought locomotion with millimetre-scale teleports each frame.
+[[nodiscard]] RoomScaleTranslationUpdate BuildCollisionSafeRoomScaleTranslation(
+    cojvr::runtime::Vec3 relative_head_position) noexcept;
 
 // Discovery remains engine-specific. The adapter can start without a known
 // skeleton and later accept bindings discovered from the live actor.

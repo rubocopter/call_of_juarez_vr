@@ -45,6 +45,63 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
+User-recorded test clips are stored in `C:\Users\onita\Videos`; resolve a supplied clip filename
+there before searching elsewhere.
+
+Latest physical test `20260920T152316Z-48dab54366d5` is a complete single-process **diagnostic
+rejection** from dirty source. Its 77.884-second video is
+`C:\Users\onita\Videos\clip_1.789.918.380.445.mp4`; formal metadata is in
+`docs/research/evidence/20260920T152316Z-48dab54366d5.json`. The user could not skip startup videos
+or reliably activate menu options with Sense, saw no Penumbra-style laser, reported severely jerky
+walking/jumping and observed T-pose arms moving away when only the head turned. Weapons were not
+tested. The run reached normal outer `run_end`, but the live verifier failed because no Sense select
+safely dismissed a frozen loading/hint UI. Do not promote any gate from it.
+
+The exact UI failure was route ownership: `GameWithMenu.sm_cMenuModule` was unavailable 2,959 times,
+47 flat UI selections failed and only four applied. Shipped bytecode exposes the missing routes:
+`GameWithMenu.sm_cIntroModule -> IntroModule.OnInputKey(IZC)V` skips startup videos, while the active
+campaign module inherits `LawmanModule.cMenu` for in-game Escape/loading menus. Current host source
+resolves global menu, active-module menu and intro skip separately, reports the selected route and
+draws a bounded cyan laser segment plus high-contrast reticle on the flat-theater surface.
+
+The locomotion and arm failures also have direct telemetry causes. The rejected candidate wrote the
+Java actor position for millimetre-scale HMD noise on most sampled frames and applied hundreds of
+small `RotateHorizontally` updates, fighting native collision/locomotion. It also mapped fixed
+tracking-space hand targets through a natural camera basis that already contained actor-owned HMD
+yaw, so head/body yaw rotated the arms a second time. Current host source leaves actor position and
+grounding to native gameplay, keeps room-scale translation camera-owned, turns the actor only after
+head yaw exceeds a 35-degree comfort cone, and removes actor-owned yaw from the level controller/body
+reference. These corrections are **host-tested only** pending a fresh headset run.
+
+Latest physical test `20260920T120157Z-ec17bbca3a2b` is **diagnostic only** because the same run ID
+contains two CoJ process starts. The first start left the SteamVR dashboard over the game; the second
+did not. The user also observed that menu hover/select did not follow the Sense pointer reliably, a
+new-game hint appeared only on the monitor and froze progression, the actor fell through the map,
+loaded games inherited an uncomfortable world tilt, the body did not follow physical HMD yaw,
+locomotion remained coarse and shots still originated from the native player point. Do not promote
+any gate from this run.
+
+Current host source addresses those observations without changing the already validated stereo,
+roll, snap-turn or tracked-hand axis contracts. A frozen game timer now forces `flat_theater`,
+neutralizes all gameplay input and skips actor/body/IK mutation until the UI resumes. Paused hints are
+dismissed through `HintManager.DisableCurrentHint()`; ordinary UI activation still uses
+`GameUserInterface.CallEnterKeyPressed/Released()`. The pointer now combines the real Win32 cursor
+with `GameUserInterface.SetProcessMouse()` and retains one select press while the trigger is held if
+`MainMenuModule` is transiently unavailable. The VR camera levels the natural game basis to yaw-only
+before applying relative HMD yaw/pitch/roll, so slope/save animation pitch and roll cannot become the
+VR recenter baseline. Physical HMD yaw is transferred to `PlayerBeing.RotateHorizontally(F)` after
+both eye renders and resets on actor/tracking loss. Locomotion now reproduces CoJ `InputAnalog`'s
+per-axis `0.04` deadzone/saturation and sends actions 4-7 as native floats.
+
+Controller `/pose/tip` direction is written to `m_avLookDirDevForHand` and its mapped world position
+to `m_avAimFromPoint` before gameplay input. For a local fire press, the ordinary ballistic
+`Being.m_vLookFromPoint` is replaced only for that synchronous `InputDigital.Translate` call and is
+restored immediately; the network-forced branch and native spread/accuracy remain untouched.
+Automatic/deferred firing still requires physical evidence because the exact game weapon state
+machine may consume a later attack boundary. Fresh Debug and Release suites each complete the
+25-outcome suite with **24 PASS plus the expected classic-D3D9 shared-texture capability SKIP**.
+All of these corrections remain **host-tested only** pending a fresh unique headset run.
+
 Latest formal full/body run `20260920T090448Z-b1f54e3cb38e` is finalized/unstaged from clean source
 `14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
 `4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
@@ -62,12 +119,10 @@ resolved.
 The same run physically rejects Win32 mouse-button injection as the CoJ menu activation route. The
 Sense ray/crosshair worked and telemetry recorded 15 applied left-button down/up pairs, but no Sense
 button activated the menu and keyboard/mouse was still required. Shipped bytecode identifies the
-exact UI seam: `MainMenuModule.GetCurrentUI()` plus
-`GameUserInterface.CallEnterKeyPressed/Released()`. `GameUILoading.WaitForUserInput()` also stops the
-game timer until its exclusive input path resumes it. Current host source therefore keeps Win32
-cursor positioning only, sends L2/R2 UI select through that Java route, observes the later timer
-resume and suppresses gameplay fire until trigger release. The verifier requires those events. This
-replacement is **host-tested only** pending the next physical run.
+exact UI seam described above. The newer host source additionally drives `SetProcessMouse()` after
+cursor movement, retries a select while its trigger remains held if the menu module is between
+states, and treats any frozen game timer as a blocking UI transaction. The verifier now requires the
+combined cursor/Java-mouse route plus safe blocking-UI suppression/resume events.
 
 Body IK remains visually rejected. The latest run completed 8,465 applications per arm and 16,930
 clean restores with zero writer/restore failures, but target clamp was 22.58% left / 53.68% right,
@@ -81,14 +136,17 @@ The PS VR2 Sense binding manifest itself is coherent: left stick move/run-click,
 turn/crouch-click, L2/R2 fire, Cross jump, Square reload, Triangle interact, Circle kick, L1/R1
 previous/next weapon and left Create recenter. The latest run delivered gameplay action samples. The
 reported coarse walk/run behavior came from routing stick movement through desktop digital
-directional semantics. Current host source applies a radial deadzone and sends CoJ actions 4-7 as
-floats directly through `GameObject.CallOnInputGameController`; run remains boolean and snap turn
-remains exact +/-45 degrees. This locomotion correction is **host-tested only**.
+directional semantics. Exact `InputAnalog.class` inspection establishes a per-axis `0.04` deadzone
+and `1.0` saturation; current host source reproduces that shaping and sends CoJ actions 4-7 as floats
+directly through `GameObject.CallOnInputGameController`. Run remains boolean and snap turn remains
+exact +/-45 degrees. This locomotion correction is **host-tested only**.
 
-Controller `/pose/tip` direction continues to own the exact per-hand native look direction, but the
-latest physical run confirms that ballistic origin still comes from the native player/fire-origin
-boundary. Instrument the exact attack boundary before changing origin; preserve native spread,
-accuracy and the network-forced branch.
+Controller `/pose/tip` now owns both exact per-hand look direction and per-hand visual fire origin.
+Exact bytecode confirms `WeaponFire.AttackFire()` obtains ordinary ballistic origin through
+`GetFireOriginForWeapon()` -> `Being.m_vLookFromPoint`, while visualization uses
+`m_avAimFromPoint[hand]`. Current host source scopes the ballistic substitution to the local digital
+fire call and immediately restores the native vector. Physical firing, including deferred/automatic
+shots, is still required before promotion.
 
 Run `20260919T162808Z-fb75cb34977a` is diagnostic multiprocess evidence and is no longer staged.
 The user launched it twice (PIDs 28408 and 24032) and both starts left the SteamVR interface stuck

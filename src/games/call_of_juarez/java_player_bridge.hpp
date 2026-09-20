@@ -19,6 +19,16 @@ struct CoJGameplayActionValue {
     float value = 0.0F;
 };
 
+enum class CoJUiDispatchRoute {
+    none,
+    paused_hint,
+    global_menu,
+    active_game_menu,
+    intro_skip,
+};
+
+[[nodiscard]] const char* CoJUiDispatchRouteName(CoJUiDispatchRoute route) noexcept;
+
 struct CoJSnapTurnState {
     bool latched = false;
 
@@ -31,10 +41,12 @@ struct CoJSnapTurnState {
 struct CoJLoadingUiInputResult {
     bool dispatch_select = false;
     bool suppress_fire = false;
+    bool suppress_gameplay = false;
 };
 
 // Exact-game safety policy for GameUILoading::WaitForUserInput.  A Sense
-// UI-select press may satisfy the frozen loading gate, but the physical trigger
+// UI-select press may satisfy the frozen loading gate. While the game timer is
+// frozen all gameplay input/body mutation is neutralized; the physical trigger
 // remains neutralized until release so the same press cannot become a gameplay
 // shot when TimerStart resumes the simulation.
 class CoJLoadingUiInputGate final {
@@ -49,6 +61,22 @@ public:
 
 private:
     bool fire_release_required_ = false;
+};
+
+// MainMenuModule can be transiently unavailable during startup/menu changes.
+// Keep one physical select edge alive only while the trigger remains held so
+// the exact Java UI route can be retried without generating extra selections.
+class CoJUiSelectRetryState final {
+public:
+    void Observe(bool pressed_edge, bool select_held) noexcept;
+    [[nodiscard]] bool ShouldDispatch(
+        bool pointer_active,
+        bool timer_frozen) const noexcept;
+    void Complete(bool dispatched) noexcept;
+
+private:
+    bool pending_ = false;
+    bool held_ = false;
 };
 
 // Exact Call of Juarez action IDs from Data/InputActions.def/InputSettings.
@@ -115,6 +143,12 @@ public:
         float spine_horizontal_offset_degrees,
         float head_vertical_offset_degrees,
         std::string* error = nullptr) noexcept;
+    // Rotate the exact PlayerBeing root through the same shipped route already
+    // used by headset-validated snap turn. VR body yaw commits this only after
+    // the stereo eye overlays have been restored for the current frame.
+    [[nodiscard]] bool TryRotateHorizontally(
+        float degrees,
+        std::string* error = nullptr) noexcept;
     // Feed semantic VR gameplay intent through the game's own configured
     // InputAction objects. This never synthesizes process-global keyboard or
     // mouse input; digital transitions and analog values are translated on
@@ -129,7 +163,13 @@ public:
     [[nodiscard]] bool TryDispatchUiSelectPress(
         bool require_loading_ui,
         bool* current_ui_is_loading = nullptr,
-        std::string* error = nullptr) noexcept;
+        std::string* error = nullptr,
+        bool* paused_hint_dismissed = nullptr,
+        CoJUiDispatchRoute* route = nullptr) noexcept;
+    // Re-arm the shipped GameUserInterface mouse-processing path after the
+    // flat-theater ray moves the real Win32 cursor. This is invoked from the
+    // game Present thread, never from the OpenVR presenter worker.
+    [[nodiscard]] bool TryProcessUiPointer(std::string* error = nullptr) noexcept;
     // Override the exact per-hand look direction consumed by
     // GetFireDirForWeapon. The game's next UpdateLookAndAimDirs pass naturally
     // replaces this value, so loss of VR input fails back to native aiming.
@@ -137,6 +177,22 @@ public:
         int hand,
         const JavaPlayerPosition& direction,
         std::string* error = nullptr) noexcept;
+    // Update the exact per-hand visualization origin consumed by
+    // GetFireOriginVisualizationForWeapon -> GetFireOriginVisualizationForHand.
+    // This leaves the ordinary ballistic Being.m_vLookFromPoint ownership to
+    // the narrowly scoped fire-input override below.
+    [[nodiscard]] bool TrySetPerHandAimOrigin(
+        int hand,
+        const JavaPlayerPosition& origin,
+        std::string* error = nullptr) noexcept;
+    // Cache the controller-derived world origin for one inventory hand. When
+    // that hand's digital fire action is translated, TryApplyGameplayInput
+    // substitutes Being.m_vLookFromPoint only for the synchronous input call
+    // and restores the native value immediately afterwards.
+    void SetPerHandFireOrigin(
+        int hand,
+        const JavaPlayerPosition& origin,
+        bool valid) noexcept;
     [[nodiscard]] float last_snap_turn_degrees() const noexcept {
         return last_snap_turn_degrees_;
     }
@@ -170,8 +226,19 @@ private:
     [[nodiscard]] bool EnsureBoneRotationAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureElementVisibilityAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureAimAccess(void* env, std::string* error) noexcept;
+    [[nodiscard]] bool EnsureFireOriginAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureGameplayInputAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureVectorAccess(void* env, std::string* error) noexcept;
+    [[nodiscard]] bool TryResolveCurrentGameUi(
+        void* env,
+        void*& ui,
+        CoJUiDispatchRoute& route,
+        std::string* error) noexcept;
+    [[nodiscard]] bool TryDispatchIntroSkip(
+        void* env,
+        std::string* error) noexcept;
+    [[nodiscard]] bool TryDismissPausedHint(
+        void* env, bool& dismissed, std::string* error) noexcept;
     [[nodiscard]] bool ReadVector(
         void* env, void* vector, JavaPlayerPosition& value, std::string* error) noexcept;
     [[nodiscard]] bool WriteVector(
@@ -236,6 +303,8 @@ private:
     void* game_object_class_ = nullptr;
     void* game_object_controller_input_method_ = nullptr;
     void* look_dir_for_hand_field_ = nullptr;
+    void* aim_from_point_field_ = nullptr;
+    void* look_from_point_field_ = nullptr;
     bool bone_read_lookup_attempted_ = false;
     bool element_world_read_lookup_attempted_ = false;
     bool element_world_basis_lookup_attempted_ = false;
@@ -243,6 +312,7 @@ private:
     bool bone_rotation_lookup_attempted_ = false;
     bool element_visibility_lookup_attempted_ = false;
     bool aim_lookup_attempted_ = false;
+    bool fire_origin_lookup_attempted_ = false;
     bool body_rotation_lookup_attempted_ = false;
     bool single_player_fallback_used_ = false;
     bool campaign_module_fallback_used_ = false;
@@ -251,6 +321,8 @@ private:
     bool gameplay_input_applied_ = false;
     CoJSnapTurnState snap_turn_state_{};
     float last_snap_turn_degrees_ = 0.0F;
+    std::array<JavaPlayerPosition, 2> fire_origins_{};
+    std::array<bool, 2> fire_origin_valid_{};
 };
 
 } // namespace cojvr::games::call_of_juarez

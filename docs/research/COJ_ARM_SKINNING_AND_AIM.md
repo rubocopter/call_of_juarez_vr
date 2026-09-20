@@ -2,6 +2,33 @@
 
 ## Evidence
 
+### 2026-09-20 shot-origin follow-up
+
+Diagnostic run `20260920T120157Z-ec17bbca3a2b` again showed that controller direction alone does not
+move the visible/ballistic shot origin to the Sense controller. The run is multiprocess and cannot
+promote a gate, but it motivated exact bytecode inspection of the attack boundary.
+
+`WeaponFire.AttackFire()` first calls `GetOwnerAttackOrigin`, `GetOwnerAttackDir`,
+`GetOwnerAttackOriginVisualization` and `GetOwnerAttackDirVisualization`. For the local armed player,
+ordinary ballistic origin reaches `ArmedPlayerBeing.GetFireOriginForWeapon()` and then
+`Being.GetBeingLookFromPoint()`, which copies the global `Being.m_vLookFromPoint`. The network-forced
+branch instead uses `m_vNetAttackFirePos` and remains untouched. Visualization is different:
+`GetFireOriginVisualizationForWeapon()` resolves the actual weapon hand and copies
+`m_avAimFromPoint[hand]`. Shipped `EnumInvHand.class` remains authoritative: right=0, left=1.
+
+Current host source maps `/pose/tip` position through the same leveled CoJ camera basis and
+metres-to-game-units conversion used by the tracked-hand contract. It writes that point to
+`m_avAimFromPoint[hand]` before gameplay input. For a local L2/R2 fire edge it also substitutes
+`Being.m_vLookFromPoint` only while the matching `InputDigital.Translate` call is executing and
+restores the captured native vector immediately afterward. `/pose/tip` direction continues to write
+`m_avLookDirDevForHand`; native spread and accuracy remain downstream of that direction. This avoids
+persistent mutation of the global look-from point and preserves the network-forced branch.
+
+The exact weapon state machine can defer automatic fire after the original digital edge, so this
+implementation remains **host-tested only**. The next physical run must distinguish direct press
+shots from held/automatic shots and verify both ballistic and visual origin before any shot-origin
+promotion.
+
 Run `20260919T085408Z-327dd354bc4f` is finalized and unstaged. Source was `1805753`,
 proxy SHA-256 `3BD0B476810B15FBD935FA96F539E7303439B372F6BC45DA57BB40595CCE693F`.
 It recorded 5,050 applied arms and 5,050 successful restores, zero arm restore/write failures,

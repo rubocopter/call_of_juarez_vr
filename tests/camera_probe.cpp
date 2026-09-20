@@ -269,6 +269,21 @@ int main() {
         return 1;
     }
 
+    const CameraProbeBasis naturally_tilted = ApplyCameraProbeOrientation(
+        {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, 25.0F, 20.0F);
+    const CameraProbeBasis vr_leveled = ApplyCameraPoseOrientation(
+        naturally_tilted.forward, naturally_tilted.up, {});
+    const float expected_yaw_x = std::sin(25.0F * 3.14159265358979323846F / 180.0F);
+    const float expected_yaw_z = std::cos(25.0F * 3.14159265358979323846F / 180.0F);
+    if (!Near(vr_leveled.forward.x, expected_yaw_x, 0.002F) ||
+        !Near(vr_leveled.forward.y, 0.0F, 0.002F) ||
+        !Near(vr_leveled.forward.z, expected_yaw_z, 0.002F) ||
+        !NearVector(vr_leveled.up, {0.0F, 1.0F, 0.0F}, 0.002F) ||
+        !IsCameraProbeBasisRigidRightHanded(vr_leveled)) {
+        std::cerr << "VR recenter inherited natural camera pitch/roll instead of a level yaw base\n";
+        return 1;
+    }
+
     cojvr::runtime::PoseSample translated_sample = base;
     translated_sample.sequence = 2;
     translated_sample.pose.position = {1.10F, 2.20F, 2.70F};
@@ -295,6 +310,31 @@ int main() {
         !Near(CameraProbeBasisDeterminant(hmd_yaw), 1.0F) ||
         !IsCameraProbeBasisRigidRightHanded(hmd_yaw) || hmd_yaw.right.x <= 0.9F) {
         std::cerr << "HMD yaw did not preserve the live-observed CoJ horizontal direction mapping\n";
+        return 1;
+    }
+
+    const CameraProbeBasis actor_owned_yaw = ApplyCameraProbeOrientation(
+        {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, -20.0F, 0.0F);
+    const CameraProbeBasis stable_tracking_basis = BuildTrackingReferenceBasis(
+        actor_owned_yaw.forward,
+        actor_owned_yaw.up,
+        -20.0F);
+    if (!NearVector(stable_tracking_basis.forward, {0.0F, 0.0F, 1.0F}, 0.002F) ||
+        !NearVector(stable_tracking_basis.up, {0.0F, 1.0F, 0.0F}, 0.002F) ||
+        !NearVector(stable_tracking_basis.right, {1.0F, 0.0F, 0.0F}, 0.002F) ||
+        !IsCameraProbeBasisRigidRightHanded(stable_tracking_basis)) {
+        std::cerr << "actor-owned yaw leaked into the stable controller/body reference\n";
+        return 1;
+    }
+    const CameraProbeBasis compensated_hmd_yaw = ApplyCameraPoseOrientation(
+        actor_owned_yaw.forward,
+        actor_owned_yaw.up,
+        relative.orientation,
+        -20.0F);
+    if (!NearVector(compensated_hmd_yaw.forward, actor_owned_yaw.forward, 0.002F) ||
+        !NearVector(compensated_hmd_yaw.up, actor_owned_yaw.up, 0.002F) ||
+        !IsCameraProbeBasisRigidRightHanded(compensated_hmd_yaw)) {
+        std::cerr << "actor-owned HMD yaw was applied to the VR camera a second time\n";
         return 1;
     }
 
