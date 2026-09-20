@@ -92,14 +92,34 @@ captured/published, and OpenVR moved directly to `native_stereo` only after game
 therefore confirms that CoJ presents through `IDirect3DDevice9::Present`; it does not promote the menu
 path. Current source contains the host-tested device-Present correction described above.
 
-Fresh corrected full/body candidate `20260919T213924Z-d5d149a5bf46` is staged from clean source
-`c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d`, build-manifest ID
-`9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B`, proxy SHA-256
-`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Release preparation passed
+Run `20260919T213924Z-d5d149a5bf46` is finalized/unstaged and proves the corrected device-Present
+startup path in one process. The menu entered `flat_theater`, CoJ PID 404 acquired scene focus on the
+first scene submit, 1,417 flat frames were published/uploaded, 1,417 new plus 2,482 repeated scene
+submissions completed with zero submit failures, the Sense pointer produced native Win32 menu clicks,
+and Create re-anchored the flat screen twice. The user nevertheless saw the menu doubled between the
+eyes. That artifact copied the same centered source rectangle into both runtime-eye textures and did
+not encode the finite screen depth from `eye_to_head`/per-eye FOV. Loading then crashed before any
+`flat_theater -> native_stereo` transition; `hs_err_pid404.log` records the fault at
+`ChromeEngine3.dll+0x20d889` inside `MeshObject.LoadMesh()` during `LawmanGame.LoadLevelAfterFade()`.
+The fault is a near-null destination write after the engine's D3D buffer lock-like helper. The old
+flat path kept deferred-capture default-pool resources alive across menu/loading, which can make a
+classic D3D9 Reset fail. Current source addresses both observed boundaries: flat content is projected
+per eye onto a head-centered 1.5 m plane using runtime eye translation/FOV, and flat readback is now
+immediate with no persistent default-pool resource. A host test proves classic D3D9 Reset succeeds
+without explicit flat-capture invalidation and capture recovers afterward. Debug and Release each pass
+24 tests plus the expected classic-D3D9 shared-texture capability SKIP. These two corrections remain
+host-tested pending one fresh physical fusion/load gate. The run also observed a SteamVR dashboard
+cycle while scene focus remained PID 404; the project's Sense binding contains no dashboard/system
+action, so this remains a separate overlay/input observation rather than a scene-ownership failure.
+
+Fresh full/body candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source
+`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Release preparation passed
 24 tests plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before
-process start and applied the reversible `1920x1080`/FSAA0 profile. Its first gate is unchanged:
-the menu must enter `flat_theater` and acquire scene focus before gameplay, then the Sense pointer,
-L2/R2 click, Create re-anchor and same-process `native_stereo` transition must all succeed.
+process start and applied the reversible `1920x1080`/FSAA0 profile. Its first gate is binocular:
+the flat menu must appear as one fused screen, retain pointer/click/Create alignment, survive one
+level load and transition to `native_stereo` in that same process.
 
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

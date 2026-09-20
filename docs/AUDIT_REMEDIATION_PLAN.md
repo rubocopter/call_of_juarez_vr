@@ -372,8 +372,11 @@ Phases 0-4 host baseline
   -> diagnostic multiprocess run 20260919T162808Z-fb75cb34977a exposes startup scene-focus failure
   -> swap-chain-only flat fallback rejected by run 20260919T174647Z-67b3c560acd0
   -> device-Present flat_theater fallback and Sense menu interaction host-tested
-  -> corrected candidate 20260919T213924Z-d5d149a5bf46
-     (startup/menu scene ownership -> pointer/select/re-anchor -> native_stereo)
+  -> run 20260919T213924Z-d5d149a5bf46 live-proves device-Present flat startup,
+     scene ownership and pointer/select/re-anchor; binocular fusion and load crash fail
+     before native_stereo
+  -> host-tested per-eye 1.5 m flat projection + Reset-safe immediate flat readback
+  -> fresh one-process fusion/load -> native_stereo gate
   -> physical Body IK anatomy/head-suppression/aim gates
   -> physical crouch, lower-body writing and rebuilt VR interactions
   -> remaining backend-specific lifetime/general portability hardening before broader runtime reuse
@@ -386,8 +389,12 @@ the swap-chain-only producer. The device-Present correction remains host-tested 
 physical process proves the flat startup/menu interaction and transition gate. Body IK, local-head suppression and controller-owned firing are promoted only
 by their own physical acceptance evidence.
 
-The active staged candidate for that gate is `20260919T213924Z-d5d149a5bf46`, built from clean
-source `c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d` with the device-Present correction.
+Run `20260919T213924Z-d5d149a5bf46` is finalized/unstaged. It promoted the device-Present producer,
+scene ownership and flat-menu interaction to live-tested, but the user saw binocular doubling and the
+process crashed in `MeshObject.LoadMesh()` during level load before native stereo. Current source has
+host-tested per-eye flat-plane placement plus an immediate flat readback path whose integration test
+survives classic D3D9 Reset without explicit invalidation. A fresh physical run must prove binocular
+fusion and load survival before the same-process native-stereo transition can promote.
 
 ### Camera/render boundary proof — live-tested
 

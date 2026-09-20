@@ -170,6 +170,35 @@ int main() {
     Pose controller_aim = theater_anchor;
     FlatTheaterPointerProjection pointer{};
     const EyeFov theater_fov = FovFromTangents(-1.0F, 1.0F, 1.0F, -1.0F);
+
+    EyeView centered_eye{};
+    centered_eye.eye_to_head.orientation_valid = true;
+    centered_eye.eye_to_head.position_valid = true;
+    centered_eye.fov = theater_fov;
+    FlatTheaterEyePlacement centered_placement{};
+    if (!ComputeFlatTheaterEyePlacement(
+            centered_eye, 1000, 600, 1350, 810, centered_placement) ||
+        centered_placement.left != 175 || centered_placement.top != 105) {
+        return Fail("flat-theater centered eye did not preserve the centered source rectangle");
+    }
+
+    EyeView left_theater_eye = centered_eye;
+    left_theater_eye.eye = Eye::left;
+    left_theater_eye.eye_to_head.position.x = -0.032F;
+    EyeView right_theater_eye = centered_eye;
+    right_theater_eye.eye = Eye::right;
+    right_theater_eye.eye_to_head.position.x = 0.032F;
+    FlatTheaterEyePlacement left_placement{};
+    FlatTheaterEyePlacement right_placement{};
+    if (!ComputeFlatTheaterEyePlacement(
+            left_theater_eye, 1000, 600, 1350, 810, left_placement) ||
+        !ComputeFlatTheaterEyePlacement(
+            right_theater_eye, 1000, 600, 1350, 810, right_placement) ||
+        left_placement.left != 189 || right_placement.left != 161 ||
+        left_placement.top != 105 || right_placement.top != 105) {
+        return Fail("flat-theater eye placement did not encode finite-distance binocular disparity");
+    }
+
     if (!ProjectFlatTheaterPointer(
             theater_anchor, controller_aim,
             theater_fov, theater_fov,

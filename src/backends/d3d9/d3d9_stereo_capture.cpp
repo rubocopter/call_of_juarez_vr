@@ -335,6 +335,131 @@ bool D3D9StereoCapture::CaptureEyeSurface(
     }
 }
 
+bool D3D9StereoCapture::CaptureFlatFrameImmediate(
+    IDirect3DDevice9* device,
+    IDirect3DSurface9* source_surface,
+    const std::uint64_t frame_sequence,
+    const std::uint64_t generation,
+    const runtime::Pose& render_hmd_pose,
+    const std::uint64_t render_pose_sequence,
+    StereoCpuFrame& frame) noexcept {
+    frame = {};
+    if (!device || !source_surface || frame_sequence == 0 || generation == 0 ||
+        render_pose_sequence == 0 || !render_hmd_pose.orientation_valid ||
+        !render_hmd_pose.position_valid) {
+        impl_->last_error = "immediate flat capture requires device, source, frame, generation and render pose";
+        return false;
+    }
+    try {
+        const auto begin = std::chrono::steady_clock::now();
+        impl_->last_error.clear();
+        D3DSURFACE_DESC desc{};
+        HRESULT hr = source_surface->GetDesc(&desc);
+        if (FAILED(hr)) {
+            impl_->last_error = Failure("flat capture surface GetDesc", hr);
+            return false;
+        }
+        if (!SupportedFormat(desc.Format) || desc.Format == kD3dFormatNull) {
+            impl_->last_error = "unsupported immediate flat-capture surface format";
+            return false;
+        }
+
+        ComPtr<IDirect3DSurface9> resolved;
+        IDirect3DSurface9* readback_source = source_surface;
+        if (desc.MultiSampleType != D3DMULTISAMPLE_NONE) {
+            hr = device->CreateRenderTarget(
+                desc.Width, desc.Height, desc.Format, D3DMULTISAMPLE_NONE, 0,
+                FALSE, &resolved, nullptr);
+            if (FAILED(hr) || !resolved) {
+                impl_->last_error = Failure("flat capture transient resolve target creation", hr);
+                return false;
+            }
+            hr = device->StretchRect(
+                source_surface, nullptr, resolved.Get(), nullptr, D3DTEXF_NONE);
+            if (FAILED(hr)) {
+                impl_->last_error = Failure("flat capture transient MSAA resolve", hr);
+                return false;
+            }
+            readback_source = resolved.Get();
+        }
+
+        ComPtr<IDirect3DSurface9> system_memory;
+        hr = device->CreateOffscreenPlainSurface(
+            desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM,
+            &system_memory, nullptr);
+        if (FAILED(hr) || !system_memory) {
+            impl_->last_error = Failure("flat capture system-memory surface creation", hr);
+            return false;
+        }
+        hr = device->GetRenderTargetData(readback_source, system_memory.Get());
+        if (FAILED(hr)) {
+            impl_->last_error = Failure("flat capture GetRenderTargetData", hr);
+            return false;
+        }
+
+        D3DLOCKED_RECT locked{};
+        hr = system_memory->LockRect(&locked, nullptr, D3DLOCK_READONLY);
+        if (FAILED(hr) || !locked.pBits || locked.Pitch <= 0) {
+            if (SUCCEEDED(hr)) (void)system_memory->UnlockRect();
+            impl_->last_error = Failure("flat capture LockRect", FAILED(hr) ? hr : E_FAIL);
+            return false;
+        }
+        const std::size_t row_bytes = static_cast<std::size_t>(desc.Width) * 4U;
+        const std::size_t source_pitch = static_cast<std::size_t>(locked.Pitch);
+        if (source_pitch < row_bytes) {
+            (void)system_memory->UnlockRect();
+            impl_->last_error = "flat capture returned a pitch smaller than the pixel row";
+            return false;
+        }
+
+        CpuEyeFrame eye{};
+        eye.width = desc.Width;
+        eye.height = desc.Height;
+        eye.stride = static_cast<std::uint32_t>(row_bytes);
+        eye.format = CpuPixelFormat::bgrx8_unorm;
+        eye.pixels.resize(row_bytes * desc.Height);
+        const auto* source_row = static_cast<const std::uint8_t*>(locked.pBits);
+        auto* destination_row = eye.pixels.data();
+        for (UINT row = 0; row < desc.Height; ++row) {
+            std::memcpy(destination_row, source_row, row_bytes);
+            source_row += source_pitch;
+            destination_row += row_bytes;
+        }
+        hr = system_memory->UnlockRect();
+        if (FAILED(hr)) {
+            impl_->last_error = Failure("flat capture UnlockRect", hr);
+            return false;
+        }
+
+        frame.device_id = reinterpret_cast<std::uintptr_t>(device);
+        frame.generation = generation;
+        frame.capture_sequence = frame_sequence;
+        frame.render_pose_sequence = render_pose_sequence;
+        frame.render_hmd_pose = render_hmd_pose;
+        frame.capture_time = begin;
+        frame.eyes[0] = std::move(eye);
+        frame.eyes[1] = frame.eyes[0];
+
+        const auto end = std::chrono::steady_clock::now();
+        std::ostringstream detail;
+        detail << "transport=immediate_flat_d3d9_cpu_mailbox"
+               << ";capture_source=backbuffer"
+               << ";eye_surface=" << desc.Width << 'x' << desc.Height
+               << ";format=" << static_cast<unsigned>(desc.Format)
+               << ";source_msaa=" << static_cast<unsigned>(desc.MultiSampleType)
+               << ";persistent_default_pool=false"
+               << std::fixed << std::setprecision(3)
+               << ";capture_ms=" << MillisecondsBetween(begin, end);
+        impl_->capture_description = detail.str();
+        impl_->collect_description = detail.str();
+        return true;
+    } catch (...) {
+        impl_->last_error = "immediate flat D3D9 capture raised an exception";
+        frame = {};
+        return false;
+    }
+}
+
 bool D3D9StereoCapture::EndFrame(
     const std::uint64_t frame_sequence,
     const runtime::Pose& render_hmd_pose,

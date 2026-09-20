@@ -26,6 +26,24 @@ struct FlatTheaterPointerProjection {
     float ray_distance_m = 0.0F;
 };
 
+struct FlatTheaterEyePlacement {
+    std::uint32_t left = 0;
+    std::uint32_t top = 0;
+};
+
+// Projects the head-centered flat-theater screen onto one runtime eye. The
+// source image keeps its native pixel extent inside the larger eye texture,
+// while eye-to-head translation and asymmetric FOV move its center to the
+// location corresponding to a finite plane in front of the anchored HMD.
+[[nodiscard]] bool ComputeFlatTheaterEyePlacement(
+    const EyeView& eye,
+    std::uint32_t source_width,
+    std::uint32_t source_height,
+    std::uint32_t texture_width,
+    std::uint32_t texture_height,
+    FlatTheaterEyePlacement& placement,
+    float plane_distance_m = 1.5F) noexcept;
+
 // Intersects a tracked controller aim ray with the virtual flat-theater plane.
 // The plane is fixed relative to the HMD pose captured when flat presentation
 // is anchored. The centered source rectangle matches the black-border layout
