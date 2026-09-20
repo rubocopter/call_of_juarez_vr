@@ -85,16 +85,17 @@ The swap-chain hook remains a fallback. The device hook may be safely reacquired
 recorded original; tests prove a foreign target remains untouched. Fresh
 Debug and Release runs each complete 24 PASS plus the expected capability SKIP, zero failures.
 
-Flat-menu interaction is now part of the same **host-tested** presentation gate. OpenVR has dedicated
-global UI-select actions on L2/R2 and controller `/pose/tip` rays with handgrip fallback. The presenter
-intersects the ray with the anchored flat plane, maps it through the exact centered source rectangle,
-smooths the result and composites a visible crosshair. The CoJ adapter translates that hit into the
-real game-client cursor and left-button input while the game owns foreground focus. It force-releases
-on ray/focus/client failure or shutdown and suppresses a trigger held across the return to gameplay
-until the physical fire inputs are released. Synthetic provenance now covers the action/binding
-contract and the live verifier requires a `flat_ui_pointer` hit plus applied click down/up before a
-run with `requireFlatTheaterUi=true` can pass. Debug and Release both remain 24 PASS plus the expected
-classic-D3D9 capability SKIP.
+Run `20260920T090448Z-b1f54e3cb38e` physically separates pointer presentation from menu activation.
+The `/pose/tip` ray, mapped cursor and visible crosshair worked, but 15 telemetry-confirmed Win32
+left-button down/up pairs did not activate the CoJ UI; keyboard/mouse was still required. Win32 mouse
+injection is therefore rejected as the menu-select contract for this exact build. Shipped bytecode
+shows `MainMenuModule.GetCurrentUI()` plus `GameUserInterface.CallEnterKeyPressed/Released()` as the
+exact global Enter/select route, including `GameUILoading`'s exclusive input wait. Current source
+keeps Win32 cursor positioning only and dispatches L2/R2 select through that Java route. The verifier
+now requires an applied exact-game UI select, an observed frozen `GameUILoading` timer and a later
+`LawmanModule.TimerStart` resume. Held trigger fire remains suppressed until physical release. This
+replacement route is **host-tested**; Debug and Release both pass 24 tests plus the expected classic-
+D3D9 shared-texture capability SKIP.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is now unstaged; no `cojvr.log`
 existed, so it contributes no physical evidence and must not be reused.
@@ -118,11 +119,31 @@ screen per eye at 1.5 m and uses immediate flat readback with no persistent defa
 the D3D9 integration test proves Reset and post-Reset recapture without explicit invalidation. Debug
 and Release each pass 24 PASS plus the expected capability SKIP.
 
-Candidate `20260920T090448Z-b1f54e3cb38e` is staged for that gate from clean source `14d387b`,
-build-manifest ID `4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
-`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Body IK is enabled at start
-and the reversible `1920x1080`/FSAA0 profile is active. This candidate is host-tested only until one
-process proves fused flat presentation and the subsequent successful native-stereo load transition.
+Run `20260920T090448Z-b1f54e3cb38e` is finalized/unstaged from clean source `14d387b`, build-manifest
+ID `4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. PID 6260 reached normal outer
+`run_end`; the evidence manifest records `runtimeEnded=true` and `incomplete=false`. The user reported
+VR presentation from startup, working Create recenter, no stuck SteamVR interface in this run, a
+successful level load and later gameplay. This physically advances the per-eye flat projection and
+Reset-safe load path. The presenter inner shutdown still reports `shutdown_complete=false`.
+
+The run also physically validates local first-person head/hair suppression for the exercised player:
+103 hidden samples agree with the user's report that the head no longer intrudes into the HMD view.
+Body IK remains rejected visually despite 8,465 applications per arm and 16,930 clean restores with
+zero writer/restore failures. Left clamp was 1,911/8,465 (22.58%); right clamp was 4,544/8,465
+(53.68%); the native arm chain remained ~49.843 game units. Average residual hand orientation was
+~103.8 degrees left and ~142.9 degrees right. Current source therefore removes the old 12-unit target
+shortening and makes controller-driven axial twist a no-op while keeping controller orientation as
+diagnostic telemetry. Those arm changes are **host-tested only**.
+
+The PS VR2 Sense binding manifest is complete and gameplay input telemetry was present in this run.
+The observed coarse walk/run behavior was traced to the bridge's desktop digital directional route,
+not to missing bindings. Current source applies a radial move deadzone and sends CoJ actions 4-7 as
+floats directly through `GameObject.CallOnInputGameController`; running remains action 18 and snap
+turn remains one exact +/-45-degree step per deflection. This locomotion correction is **host-tested**
+pending physical comfort/smoothness validation. Shot direction remains controller-owned while the
+ballistic origin remains the game's native fire-origin boundary; no origin override is promoted.
+Evidence: `docs/research/evidence/20260920T090448Z-b1f54e3cb38e.json`.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID

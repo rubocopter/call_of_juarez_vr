@@ -45,6 +45,51 @@ A successful build or synthetic test does not imply a live-game or headset test.
 
 ## Current scope
 
+Latest formal full/body run `20260920T090448Z-b1f54e3cb38e` is finalized/unstaged from clean source
+`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. PID 6260 reached normal
+outer `run_end`; its evidence manifest has `runtimeEnded=true` and `incomplete=false`, and staging is
+currently `none`. See `docs/research/evidence/20260920T090448Z-b1f54e3cb38e.json`.
+
+That run physically exercised the corrected device-`Present` startup path through one level load.
+The user saw the game in VR from startup, Create recenter worked, the SteamVR interface did not stay
+stuck over the game, the load survived and gameplay reached native stereo. Local Ray/Billy head/hair
+suppression also worked visually; promote that exercised suppression path to **headset-validated**.
+The inner presenter still reports `shutdown_complete=false`, so do not treat presenter finalization as
+resolved.
+
+The same run physically rejects Win32 mouse-button injection as the CoJ menu activation route. The
+Sense ray/crosshair worked and telemetry recorded 15 applied left-button down/up pairs, but no Sense
+button activated the menu and keyboard/mouse was still required. Shipped bytecode identifies the
+exact UI seam: `MainMenuModule.GetCurrentUI()` plus
+`GameUserInterface.CallEnterKeyPressed/Released()`. `GameUILoading.WaitForUserInput()` also stops the
+game timer until its exclusive input path resumes it. Current host source therefore keeps Win32
+cursor positioning only, sends L2/R2 UI select through that Java route, observes the later timer
+resume and suppresses gameplay fire until trigger release. The verifier requires those events. This
+replacement is **host-tested only** pending the next physical run.
+
+Body IK remains visually rejected. The latest run completed 8,465 applications per arm and 16,930
+clean restores with zero writer/restore failures, but target clamp was 22.58% left / 53.68% right,
+the native arm chain remained ~49.843 game units, and average residual hand orientation remained
+~103.8 degrees left / ~142.9 degrees right. Current host source removes the old 12-unit pre-clamp
+target shortening and applies no controller-driven axial twist while preserving positional IK,
+FORETWIST sibling swing and orientation telemetry. Treat this as an ablation experiment requiring a
+fresh headset visual gate; do not promote Body IK.
+
+The PS VR2 Sense binding manifest itself is coherent: left stick move/run-click, right stick snap
+turn/crouch-click, L2/R2 fire, Cross jump, Square reload, Triangle interact, Circle kick, L1/R1
+previous/next weapon and left Create recenter. The latest run delivered gameplay action samples. The
+reported coarse walk/run behavior came from routing stick movement through desktop digital
+directional semantics. Current host source applies a radial deadzone and sends CoJ actions 4-7 as
+floats directly through `GameObject.CallOnInputGameController`; run remains boolean and snap turn
+remains exact +/-45 degrees. This locomotion correction is **host-tested only**.
+
+Controller `/pose/tip` direction continues to own the exact per-hand native look direction, but the
+latest physical run confirms that ballistic origin still comes from the native player/fire-origin
+boundary. Instrument the exact attack boundary before changing origin; preserve native spread,
+accuracy and the network-forced branch.
+
 Run `20260919T162808Z-fb75cb34977a` is diagnostic multiprocess evidence and is no longer staged.
 The user launched it twice (PIDs 28408 and 24032) and both starts left the SteamVR interface stuck
 over the game. In each process the presenter initially reported `scene_focus_process_id=0` with
@@ -53,7 +98,7 @@ presentable and the first scene submit completed. Reusing one run ID across two 
 prevents formal promotion. The staging tool now reports `Staging: none`; no staged project D3D9 or
 OpenVR files remain in the game directory. Treat the residual run manifest/log as diagnostic data.
 
-Current host source replaces that startup contract with a Penumbra-style presentation policy adapted
+Current presentation source uses a Penumbra-style presentation policy adapted
 to CoJ's classic-D3D9 ownership. The device `Present` hook captures the game backbuffer
 as `flat_theater` content whenever no native-stereo producer has been active for 250 ms. The presenter
 claims the OpenVR scene as soon as that flat content exists, repeats the latest flat frame at compositor
@@ -63,20 +108,14 @@ The flat path deliberately permits identical eye content while native stereo ret
 fail-closed check. The implicit swap-chain hook remains as an explicit-swap-chain fallback. A
 low-frequency ownership check safely reacquires the device slot only when it has returned to the
 recorded system-D3D9 original; a foreign target is preserved and reported. Debug and Release each
-pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This corrected
-startup/fallback policy is **host-tested only** until a fresh physical run.
+pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. Run
+`20260920T090448Z-b1f54e3cb38e` supplies the current physical startup/load evidence described above.
 
-The flat presentation now also owns the first CoJ VR menu-interaction seam. OpenVR exposes dedicated
-global `ui_select_left`/`ui_select_right` actions on L2/R2, independent from gameplay fire actions.
-The presenter intersects the preferred Sense `/pose/tip` ray (with `/pose/handgrip` fallback) against
-the same anchored flat-theater plane, maps the hit through the centered source rectangle, smooths it,
-and composites a visible crosshair into the submitted flat texture. The exact CoJ adapter moves the
-native Windows cursor over the game client and sends left-button down/up only while the flat menu is
-active and CoJ owns foreground focus. Ray loss, focus loss, invalid client state and shutdown force a
-release. A trigger held while returning to native stereo is neutralized until released so it cannot
-become an accidental gameplay shot. The live verifier now requires an actual pointer hit plus click
-down/up and the subsequent `flat_theater -> native_stereo` transition. Debug and Release each pass
-24 tests plus the expected capability SKIP after these changes. This menu path is **host-tested only**.
+The flat presentation owns the CoJ VR menu pointer seam. OpenVR exposes dedicated global
+`ui_select_left`/`ui_select_right` actions on L2/R2, independent from gameplay fire actions. The
+presenter intersects the preferred Sense `/pose/tip` ray (with `/pose/handgrip` fallback) against the
+anchored flat-theater plane and maps it to the native Windows cursor. Activation now uses the exact
+Java UI route described above; do not restore the physically rejected Win32 mouse-click path.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and has been transactionally unstaged;
 its missing `cojvr.log` means it is not physical evidence and its run ID must not be reused.
@@ -112,15 +151,6 @@ host-tested pending one fresh physical fusion/load gate. The run also observed a
 cycle while scene focus remained PID 404; the project's Sense binding contains no dashboard/system
 action, so this remains a separate overlay/input observation rather than a scene-ownership failure.
 
-Fresh full/body candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source
-`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
-`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
-`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Release preparation passed
-24 tests plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before
-process start and applied the reversible `1920x1080`/FSAA0 profile. Its first gate is binocular:
-the flat menu must appear as one fused screen, retain pointer/click/Create alignment, survive one
-level load and transition to `native_stereo` in that same process.
-
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256
@@ -154,7 +184,8 @@ Current source preserves the visible hand-orientation target across Create recen
 the new controller reference instead of recalibrating from the current natural hand pose, and it
 implements one exact +/-45-degree right-stick snap per deflection through
 `PlayerBeing.RotateHorizontally(F)` while neutralizing the old continuous native turn actions.
-It also contains the four host-tested corrections described in the staged candidate above. Fresh
+The latest host source also contains the Java UI/loading-gate route, direct analog locomotion,
+raw-target arm reach and zero-controller-twist ablation described at the top of this section. Fresh
 Debug and Release validation are both 24 PASS plus the expected classic D3D9 shared-texture
 capability SKIP.
 

@@ -103,6 +103,8 @@ CameraProbeEventCallback g_event_callback = nullptr;
 cojvr::runtime::PoseSource* g_pose_source = nullptr;
 cojvr::runtime::BodyTracker g_body_tracker;
 JavaPlayerBridge g_java_player_bridge;
+CoJLoadingUiInputGate g_loading_ui_input_gate;
+bool g_loading_ui_resume_pending = false;
 cojvr::runtime::Vec3 g_body_applied_world_offset{};
 cojvr::runtime::Vec3 g_body_applied_tracking_offset{};
 std::uint64_t g_body_player_generation = 0;
@@ -1836,9 +1838,9 @@ bool ApplyArmPlan(
         return false;
     }
     requested_forearm_twist_degrees = orientation_plan.forearm_twist.angle_degrees;
-    constexpr float kMaxAnatomicalForearmTwistDegrees = 100.0F;
+    const float controller_twist_limit_degrees = CoJArmControllerTwistLimitDegrees();
     const BoneRotationDelta bounded_forearm_twist = LimitRotationMagnitude(
-        orientation_plan.forearm_twist, kMaxAnatomicalForearmTwistDegrees);
+        orientation_plan.forearm_twist, controller_twist_limit_degrees);
     if (!bounded_forearm_twist.valid) {
         if (error) *error = "bounded controller-driven forearm twist is invalid";
         rollback_chain();
@@ -2616,7 +2618,8 @@ void UpdatePlayerArmTracking(
                        << applied_forearm_twist.angle_degrees
                        << ";forearm_twist_requested_degrees="
                        << requested_forearm_twist_degrees
-                       << ";forearm_twist_limit_degrees=100"
+                       << ";forearm_twist_limit_degrees="
+                       << CoJArmControllerTwistLimitDegrees()
                        << ";forearm_twist_limited="
                        << (forearm_twist_limited ? "true" : "false")
                        << ";forearm_twist_no_op="
@@ -2627,8 +2630,8 @@ void UpdatePlayerArmTracking(
                        << RuntimeVectorText(diagnostic_hand_residual.axis)
                        << ";hand_residual_degrees="
                        << diagnostic_hand_residual.angle_degrees
-                       << ";hand_rotation_mode=sibling_shared_roll"
-                       << ";skinning_contract=foretwist_sibling_swing_hand_shared_roll"
+                       << ";hand_rotation_mode=controller_orientation_diagnostic_only"
+                       << ";skinning_contract=foretwist_sibling_swing_hand_native_orientation"
                        << ";skinning_frames_reached=" << (write_ok ? "true" : "false")
                        << ";skinning_axis_error=" << skinning_axis_error
                        << ";hand_native_axis="
@@ -2658,7 +2661,7 @@ void UpdatePlayerArmTracking(
                        << ";effective_target_distance=" << plan.effective_target_distance
                        << ";reach_adjustment=" << plan.reach_adjustment
                        << ";reach_adjusted=" << (plan.reach_adjusted ? "true" : "false")
-                       << ";reach_policy=bounded_target_remap_12_units"
+                       << ";reach_policy=native_chain_hard_clamp"
                        << ";plan_valid=" << (plan.valid ? "true" : "false")
                        << ";target_clamped=" << (plan.target_clamped ? "true" : "false")
                        << ";write_enabled=" << (body_ik_enabled ? "true" : "false")
@@ -2667,7 +2670,7 @@ void UpdatePlayerArmTracking(
                        << ";rollback_attempted=" << (rollback_attempted ? "true" : "false")
                        << ";rollback_ok=" << (rollback_ok ? "true" : "false")
                        << ";tracking_forward=-z_to_negative_native_forward"
-                       << ";hand_orientation=calibrated_controller_delta_sibling_shared_roll"
+                       << ";hand_orientation=calibrated_controller_delta_diagnostic_only"
                        << ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector"
                        << ";writer=RotateElementWithChildren";
                 if (body_ik_enabled && write_allowed && plan.valid && !write_ok) {
@@ -3220,30 +3223,93 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     const std::uint64_t frame_sequence =
         g_stereo_frame_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const bool ui_select_pressed =
+        sample.ui_select_left_pressed || sample.ui_select_right_pressed;
+    bool game_timer_frozen = false;
+    bool game_timer_valid = false;
+    std::string game_timer_error;
+    if (ui_select_pressed) {
+        game_timer_valid = g_java_player_bridge.TryGetActiveGameTimerFrozen(
+            game_timer_frozen, &game_timer_error);
+    }
+    const CoJLoadingUiInputResult loading_ui_input = g_loading_ui_input_gate.Update(
+        game_timer_valid,
+        game_timer_frozen,
+        ui_select_pressed,
+        sample.gameplay.fire_left,
+        sample.gameplay.fire_right);
+    if (loading_ui_input.dispatch_select) {
+        bool current_ui_is_loading = false;
+        std::string ui_error;
+        const bool dispatched = g_java_player_bridge.TryDispatchUiSelectPress(
+            true, &current_ui_is_loading, &ui_error);
+        if (dispatched) g_loading_ui_resume_pending = true;
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";source="
+                   << (sample.ui_select_left_pressed ? "left_l2" : "right_r2")
+                   << ";game_timer_valid=" << (game_timer_valid ? "true" : "false")
+                   << ";game_timer_frozen=" << (game_timer_frozen ? "true" : "false")
+                   << ";current_ui_is_loading="
+                   << (current_ui_is_loading ? "true" : "false")
+                   << ";fire_suppressed_until_release=true"
+                   << ";route=GameUserInterface.CallEnterKeyPressedReleased";
+            if (!ui_error.empty()) detail << ";detail=" << ui_error;
+            EmitEvent(
+                "loading_ui_select",
+                dispatched ? "applied" : "failed",
+                detail.str());
+        } catch (...) {
+        }
+    }
+    if (g_loading_ui_resume_pending && !ui_select_pressed) {
+        bool resumed_timer_frozen = false;
+        std::string resumed_timer_error;
+        const bool resumed_timer_valid =
+            g_java_player_bridge.TryGetActiveGameTimerFrozen(
+                resumed_timer_frozen, &resumed_timer_error);
+        if (resumed_timer_valid && !resumed_timer_frozen) {
+            EmitEvent(
+                "loading_ui_resume",
+                "observed",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";game_timer_valid=true;game_timer_frozen=false;route=LawmanModule.TimerStart");
+            g_loading_ui_resume_pending = false;
+        }
+    }
+    cojvr::runtime::GameplayInputState gameplay_input = sample.gameplay;
+    if (loading_ui_input.suppress_fire) {
+        gameplay_input.fire_left = false;
+        gameplay_input.fire_right = false;
+    }
     const bool gameplay_changed = !g_gameplay_telemetry_initialized ||
-        GameplayInputChanged(sample.gameplay, g_last_gameplay_telemetry);
+        GameplayInputChanged(gameplay_input, g_last_gameplay_telemetry);
     std::string gameplay_input_error;
     const bool gameplay_input_ok = g_java_player_bridge.TryApplyGameplayInput(
-        sample.gameplay, &gameplay_input_error);
+        gameplay_input, &gameplay_input_error);
     if (!gameplay_input_ok || gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
             std::ostringstream gameplay_detail;
             gameplay_detail << "frame_sequence=" << frame_sequence
-                            << ";active=" << (sample.gameplay.active ? "true" : "false")
-                            << ";move=" << sample.gameplay.move.x << ',' << sample.gameplay.move.y
-                            << ";turn=" << sample.gameplay.turn.x << ',' << sample.gameplay.turn.y
-                            << ";fire_left=" << (sample.gameplay.fire_left ? "true" : "false")
-                            << ";fire_right=" << (sample.gameplay.fire_right ? "true" : "false")
-                            << ";jump=" << (sample.gameplay.jump ? "true" : "false")
-                            << ";reload=" << (sample.gameplay.reload ? "true" : "false")
-                            << ";run=" << (sample.gameplay.run ? "true" : "false")
-                            << ";crouch=" << (sample.gameplay.crouch ? "true" : "false")
-                            << ";interact=" << (sample.gameplay.interact ? "true" : "false")
+                            << ";active=" << (gameplay_input.active ? "true" : "false")
+                            << ";move=" << gameplay_input.move.x << ',' << gameplay_input.move.y
+                            << ";turn=" << gameplay_input.turn.x << ',' << gameplay_input.turn.y
+                            << ";fire_left=" << (gameplay_input.fire_left ? "true" : "false")
+                            << ";fire_right=" << (gameplay_input.fire_right ? "true" : "false")
+                            << ";jump=" << (gameplay_input.jump ? "true" : "false")
+                            << ";reload=" << (gameplay_input.reload ? "true" : "false")
+                            << ";run=" << (gameplay_input.run ? "true" : "false")
+                            << ";crouch=" << (gameplay_input.crouch ? "true" : "false")
+                            << ";interact=" << (gameplay_input.interact ? "true" : "false")
                             << ";weapon_next="
-                            << (sample.gameplay.weapon_next ? "true" : "false")
+                            << (gameplay_input.weapon_next ? "true" : "false")
                             << ";weapon_previous="
-                            << (sample.gameplay.weapon_previous ? "true" : "false")
-                            << ";kick=" << (sample.gameplay.kick ? "true" : "false")
+                            << (gameplay_input.weapon_previous ? "true" : "false")
+                            << ";kick=" << (gameplay_input.kick ? "true" : "false")
+                            << ";ui_select_pressed=" << (ui_select_pressed ? "true" : "false")
+                            << ";loading_fire_suppressed="
+                            << (loading_ui_input.suppress_fire ? "true" : "false")
                             << ";route=GameInputController.InputAction.Translate"
                             << ";snap_turn_degrees="
                             << g_java_player_bridge.last_snap_turn_degrees()
@@ -3259,7 +3325,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         }
     }
     if (gameplay_input_ok) {
-        g_last_gameplay_telemetry = sample.gameplay;
+        g_last_gameplay_telemetry = gameplay_input;
         g_gameplay_telemetry_initialized = true;
     }
     ObservePostLoadLiveness(natural_render_state, frame_sequence);
@@ -3493,6 +3559,20 @@ void __fastcall HookSetFov(
 }
 
 } // namespace
+
+bool DispatchCameraUiSelectPress(
+    const bool require_loading_ui,
+    bool* current_ui_is_loading,
+    std::string* error) noexcept {
+    return g_java_player_bridge.TryDispatchUiSelectPress(
+        require_loading_ui, current_ui_is_loading, error);
+}
+
+bool ObserveCameraGameTimerFrozen(
+    bool& frozen,
+    std::string* error) noexcept {
+    return g_java_player_bridge.TryGetActiveGameTimerFrozen(frozen, error);
+}
 
 bool ParseCameraProbeCommand(
     const std::string_view text,
@@ -3916,6 +3996,8 @@ void ShutdownCameraProbe() noexcept {
         g_stereo_frame_sequence.load(std::memory_order_acquire),
         true);
     g_java_player_bridge.Reset();
+    g_loading_ui_input_gate.Reset();
+    g_loading_ui_resume_pending = false;
     ResetLocalHeadVisibilityForGeneration(0);
     g_body_applied_world_offset = {};
     g_body_applied_tracking_offset = {};

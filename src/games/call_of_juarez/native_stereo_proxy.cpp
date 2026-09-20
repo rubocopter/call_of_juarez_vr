@@ -52,7 +52,7 @@ struct NativeStereoState {
     std::atomic_bool present_hook_conflict_logged{false};
     std::mutex flat_ui_mutex;
     bool flat_ui_pointer_active = false;
-    bool flat_ui_click_down = false;
+    bool flat_loading_resume_pending = false;
     std::array<bool, 2> capture_source_logged{};
     bool runtime_ready = false;
 };
@@ -88,25 +88,14 @@ void CameraEvent(const char* event, const char* result, const char* detail) noex
 
 void PresenterLog(void*, const std::string_view line) noexcept { LogLine(line); }
 
-bool InjectFlatUiMouseButton(const bool down) noexcept {
-    INPUT input{};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
-    return SendInput(1, &input, sizeof(input)) == 1U;
-}
-
 void NeutralizeFlatUiPointer(const char* reason) noexcept {
     try {
         std::lock_guard lock(g_stereo.flat_ui_mutex);
-        if (g_stereo.flat_ui_click_down) {
-            const bool released = InjectFlatUiMouseButton(false);
-            if (released) g_stereo.flat_ui_click_down = false;
+        if (g_stereo.flat_ui_pointer_active) {
             std::ostringstream detail;
-            detail << "active=false;click_release=" << (released ? "sent" : "failed")
-                   << ";reason=" << (reason ? reason : "unknown")
-                   << ";route=win32_menu_mouse";
-            CameraEvent("flat_ui_pointer", released ? "neutralized" : "release_failed",
-                detail.str().c_str());
+            detail << "active=false;reason=" << (reason ? reason : "unknown")
+                   << ";route=win32_cursor_only";
+            CameraEvent("flat_ui_pointer", "neutralized", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = false;
     } catch (...) {
@@ -155,22 +144,21 @@ void FlatUiPointer(
             std::ostringstream detail;
             detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
                    << ";source=" << sample.source_width << 'x' << sample.source_height
-                   << ";route=win32_menu_mouse";
+                   << ";route=win32_cursor_only";
             CameraEvent("flat_ui_pointer", "active", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = true;
-        if (sample.select_down != g_stereo.flat_ui_click_down) {
-            const bool sent = InjectFlatUiMouseButton(sample.select_down);
-            if (sent) g_stereo.flat_ui_click_down = sample.select_down;
-            std::ostringstream detail;
-            detail << "button=left;state=" << (sample.select_down ? "down" : "up")
-                   << ";pixel=" << sample.pixel_x << ',' << sample.pixel_y
-                   << ";hand=" << (sample.using_left_hand ? "left" : "right")
-                   << ";route=win32_menu_mouse";
-            CameraEvent("flat_ui_click", sent ? "applied" : "failed", detail.str().c_str());
-        }
     } catch (...) {
         NeutralizeFlatUiPointer("exception");
+    }
+}
+
+bool FlatUiPointerActive() noexcept {
+    try {
+        std::lock_guard lock(g_stereo.flat_ui_mutex);
+        return g_stereo.flat_ui_pointer_active;
+    } catch (...) {
+        return false;
     }
 }
 
@@ -269,6 +257,18 @@ bool PublishCapturedFrame(
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (!device || !g_stereo.runtime_ready) return;
     try {
+        if (g_stereo.flat_loading_resume_pending) {
+            bool timer_frozen = true;
+            std::string timer_error;
+            if (cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
+                    timer_frozen, &timer_error) && !timer_frozen) {
+                CameraEvent(
+                    "loading_ui_resume",
+                    "observed",
+                    "game_timer_valid=true;game_timer_frozen=false;route=LawmanModule.TimerStart");
+                g_stereo.flat_loading_resume_pending = false;
+            }
+        }
         constexpr std::uint64_t kStereoFreshnessMs = 250;
         const std::uint64_t now_ms = GetTickCount64();
         const std::uint64_t last_stereo_ms =
@@ -285,19 +285,58 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 std::string(source ? source : "unknown"));
         }
 
-        // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
-        // Capture every second Present; the presenter repeats the latest frame
-        // at compositor cadence between updates.
-        const std::uint64_t present_sequence =
-            g_stereo.flat_capture_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
-        if ((present_sequence & 1U) != 0U) return;
-
         cojvr::backends::openvr::OpenVrTrackingSample tracking{};
         if (!g_stereo.presenter.LatestTracking(tracking) ||
             !tracking.pose.orientation_valid || !tracking.pose.position_valid ||
             tracking.sequence == 0) {
             return;
         }
+
+        const bool ui_select_pressed =
+            tracking.ui_select_left_pressed || tracking.ui_select_right_pressed;
+        if (ui_select_pressed) {
+            bool current_ui_is_loading = false;
+            bool timer_frozen = false;
+            std::string timer_error;
+            const bool timer_valid =
+                cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
+                    timer_frozen, &timer_error);
+            std::string ui_error;
+            const bool pointer_active = FlatUiPointerActive();
+            const bool dispatched = pointer_active &&
+                cojvr::games::call_of_juarez::DispatchCameraUiSelectPress(
+                    false, &current_ui_is_loading, &ui_error);
+            std::ostringstream detail;
+            detail << "source="
+                   << (tracking.ui_select_left_pressed ? "left_l2" : "right_r2")
+                   << ";pointer_active=" << (pointer_active ? "true" : "false")
+                   << ";current_ui_is_loading="
+                   << (current_ui_is_loading ? "true" : "false")
+                   << ";route=GameUserInterface.CallEnterKeyPressedReleased";
+            if (!ui_error.empty()) detail << ";detail=" << ui_error;
+            CameraEvent(
+                "flat_ui_select",
+                dispatched ? "applied" : (pointer_active ? "failed" : "ignored"),
+                detail.str().c_str());
+            if (dispatched && current_ui_is_loading && timer_valid && timer_frozen) {
+                g_stereo.flat_loading_resume_pending = true;
+                std::ostringstream loading_detail;
+                loading_detail << "source="
+                               << (tracking.ui_select_left_pressed ? "left_l2" : "right_r2")
+                               << ";game_timer_valid=true;game_timer_frozen=true"
+                               << ";current_ui_is_loading=true"
+                               << ";fire_suppressed_until_release=true"
+                               << ";route=GameUserInterface.CallEnterKeyPressedReleased";
+                CameraEvent("loading_ui_select", "applied", loading_detail.str().c_str());
+            }
+        }
+
+        // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
+        // Capture every second Present; the presenter repeats the latest frame
+        // at compositor cadence between updates.
+        const std::uint64_t present_sequence =
+            g_stereo.flat_capture_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+        if ((present_sequence & 1U) != 0U) return;
 
         Microsoft::WRL::ComPtr<IDirect3DSurface9> back_buffer;
         const HRESULT back_buffer_result =
@@ -504,6 +543,10 @@ bool BeginStereoFrame(
     sample.right_aim = tracking.right_aim;
     sample.gameplay = tracking.gameplay;
     sample.recenter_requested = tracking.recenter_requested;
+    sample.ui_select_left = tracking.ui_select_left;
+    sample.ui_select_right = tracking.ui_select_right;
+    sample.ui_select_left_pressed = tracking.ui_select_left_pressed;
+    sample.ui_select_right_pressed = tracking.ui_select_right_pressed;
     if (tracking.recenter_requested) {
         LogLine("openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread");
     }

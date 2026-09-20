@@ -59,6 +59,8 @@ struct OpenVrRuntime::Impl {
     vr::VRActionHandle_t right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     std::array<vr::VRActionHandle_t, 12> gameplay_actions{};
     OpenVrDigitalActionEdge recenter_edge{};
+    OpenVrDigitalActionEdge ui_select_left_edge{};
+    OpenVrDigitalActionEdge ui_select_right_edge{};
     OpenVrSystemInfo system_info{};
     OpenVrStateTracker state_tracker{};
     bool owns_process_runtime = false;
@@ -243,6 +245,8 @@ void OpenVrRuntime::Shutdown() noexcept {
     impl_->right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
     impl_->recenter_edge.Reset();
+    impl_->ui_select_left_edge.Reset();
+    impl_->ui_select_right_edge.Reset();
     impl_->system_info = {};
     impl_->owns_process_runtime = false;
     impl_->state_tracker.ShutdownComplete();
@@ -466,6 +470,8 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
         impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
         impl_->recenter_edge.Reset();
+        impl_->ui_select_left_edge.Reset();
+        impl_->ui_select_right_edge.Reset();
         if (!initialized()) return FailNoThrow(impl_.get(), "OpenVR is not initialized");
         if (absolute_manifest_path.empty()) {
             return FailNoThrow(impl_.get(), "OpenVR action manifest path is empty");
@@ -640,16 +646,27 @@ bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
         actions.recenter_active = data.bActive;
         actions.recenter_requested = impl_->recenter_edge.Update(data.bActive, data.bState);
         const auto read_ui_select = [&](const vr::VRActionHandle_t action,
-                                        bool& value) noexcept {
+                                        bool& value,
+                                        bool& pressed,
+                                        OpenVrDigitalActionEdge& edge) noexcept {
             vr::InputDigitalActionData_t select{};
             const vr::EVRInputError select_error = impl_->input->GetDigitalActionData(
                 action, &select, sizeof(select), vr::k_ulInvalidInputValueHandle);
             if (select_error != vr::VRInputError_None) return false;
             value = select.bActive && select.bState;
+            pressed = edge.Update(select.bActive, select.bState);
             return true;
         };
-        if (!read_ui_select(impl_->ui_select_left_action, actions.ui_select_left) ||
-            !read_ui_select(impl_->ui_select_right_action, actions.ui_select_right)) {
+        if (!read_ui_select(
+                impl_->ui_select_left_action,
+                actions.ui_select_left,
+                actions.ui_select_left_pressed,
+                impl_->ui_select_left_edge) ||
+            !read_ui_select(
+                impl_->ui_select_right_action,
+                actions.ui_select_right,
+                actions.ui_select_right_pressed,
+                impl_->ui_select_right_edge)) {
             actions = {};
             return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
         }
@@ -703,18 +720,27 @@ bool OpenVrRuntime::PollActions(
             impl_->recenter_edge.Update(recenter.bActive, recenter.bState);
 
         const auto read_global_digital = [&](const vr::VRActionHandle_t action,
-                                             bool& value) noexcept {
+                                             bool& value,
+                                             bool& pressed,
+                                             OpenVrDigitalActionEdge& edge) noexcept {
             vr::InputDigitalActionData_t data{};
             const vr::EVRInputError digital_error = impl_->input->GetDigitalActionData(
                 action, &data, sizeof(data), vr::k_ulInvalidInputValueHandle);
             if (digital_error != vr::VRInputError_None) return false;
             value = data.bActive && data.bState;
+            pressed = edge.Update(data.bActive, data.bState);
             return true;
         };
         if (!read_global_digital(
-                impl_->ui_select_left_action, global_actions.ui_select_left) ||
+                impl_->ui_select_left_action,
+                global_actions.ui_select_left,
+                global_actions.ui_select_left_pressed,
+                impl_->ui_select_left_edge) ||
             !read_global_digital(
-                impl_->ui_select_right_action, global_actions.ui_select_right)) {
+                impl_->ui_select_right_action,
+                global_actions.ui_select_right,
+                global_actions.ui_select_right_pressed,
+                impl_->ui_select_right_edge)) {
             return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
         }
 

@@ -104,6 +104,10 @@ struct OpenVrStereoPresenter::Impl {
     runtime::GameplayInputState latest_gameplay{};
     std::uint64_t pose_sequence = 0;
     bool recenter_pending = false;
+    bool latest_ui_select_left = false;
+    bool latest_ui_select_right = false;
+    bool ui_select_left_pressed_pending = false;
+    bool ui_select_right_pressed_pending = false;
 
     mutable std::mutex error_mutex;
     std::string error;
@@ -689,6 +693,8 @@ struct OpenVrStereoPresenter::Impl {
                         }
                         pointer.select_down = pointer.active &&
                             (actions.ui_select_left || actions.ui_select_right);
+                        pointer.select_pressed = pointer.active &&
+                            (actions.ui_select_left_pressed || actions.ui_select_right_pressed);
                         if (pointer.select_down) flat_ui_fire_release_required = true;
                     }
                     flat_ui_pointer = pointer;
@@ -754,6 +760,14 @@ struct OpenVrStereoPresenter::Impl {
                         latest_left_aim_active = left_aim_valid;
                         latest_right_aim_active = right_aim_valid;
                         latest_gameplay = gameplay;
+                        latest_ui_select_left = actions.ui_select_left;
+                        latest_ui_select_right = actions.ui_select_right;
+                        if (actions.ui_select_left_pressed) {
+                            ui_select_left_pressed_pending = true;
+                        }
+                        if (actions.ui_select_right_pressed) {
+                            ui_select_right_pressed_pending = true;
+                        }
                         ++pose_sequence;
                         if (recenter) recenter_pending = true;
                     }
@@ -1062,8 +1076,12 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_left_aim_active = false;
             impl_->latest_right_aim_active = false;
             impl_->latest_gameplay = {};
+            impl_->latest_ui_select_left = false;
+            impl_->latest_ui_select_right = false;
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;
+            impl_->ui_select_left_pressed_pending = false;
+            impl_->ui_select_right_pressed_pending = false;
         }
         impl_->pose_updates.store(0, std::memory_order_release);
         impl_->frames_uploaded.store(0, std::memory_order_release);
@@ -1126,7 +1144,13 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.gameplay = impl_->latest_gameplay;
         sample.sequence = impl_->pose_sequence;
         sample.recenter_requested = impl_->recenter_pending;
+        sample.ui_select_left = impl_->latest_ui_select_left;
+        sample.ui_select_right = impl_->latest_ui_select_right;
+        sample.ui_select_left_pressed = impl_->ui_select_left_pressed_pending;
+        sample.ui_select_right_pressed = impl_->ui_select_right_pressed_pending;
         impl_->recenter_pending = false;
+        impl_->ui_select_left_pressed_pending = false;
+        impl_->ui_select_right_pressed_pending = false;
         return true;
     } catch (...) {
         return false;

@@ -282,6 +282,7 @@ struct LegIkPlan {
 [[nodiscard]] BoneRotationDelta LimitRotationMagnitude(
     BoneRotationDelta rotation,
     float max_degrees) noexcept;
+[[nodiscard]] float CoJArmControllerTwistLimitDegrees() noexcept;
 
 // Maps a recentered tracked hand around the native animated head joint. The
 // controller and HMD positions are in the same tracking space; subtracting the

@@ -14,6 +14,7 @@ bool Near(const float a, const float b) {
 
 int main() {
     using cojvr::runtime::OpenVrDigitalActionEdge;
+    using cojvr::runtime::OpenVrGlobalActions;
     using cojvr::runtime::OpenVrProjectionRawToEyeFov;
 
     // OpenVR GetProjectionRaw convention observed on the PSVR2 runtime:
@@ -36,6 +37,21 @@ int main() {
     edge.Reset();
     if (!edge.Update(true, true)) {
         std::cerr << "OpenVR digital action edge reset did not allow a fresh press\n";
+        return 1;
+    }
+
+    // UI-select is shared by flat menus and the exact-game loading gate.  The
+    // runtime contract must carry both held state and a single press edge so a
+    // trigger held across flat_theater -> native_stereo cannot be counted as a
+    // second activation.
+    OpenVrGlobalActions ui_actions{};
+    ui_actions.ui_select_left = true;
+    ui_actions.ui_select_left_pressed = true;
+    ui_actions.ui_select_right = false;
+    ui_actions.ui_select_right_pressed = false;
+    if (!ui_actions.ui_select_left || !ui_actions.ui_select_left_pressed ||
+        ui_actions.ui_select_right || ui_actions.ui_select_right_pressed) {
+        std::cerr << "OpenVR global UI-select state lost press-edge semantics\n";
         return 1;
     }
 

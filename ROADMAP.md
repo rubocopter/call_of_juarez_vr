@@ -2,32 +2,51 @@
 
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
-Latest arm gate (2026-09-19): formal run `20260919T153546Z-705460dca03b` physically validated exact
-+/-45-degree snap turn and sustained 8,452 arm applications/restores without writer fault, while
-Body IK remained visually unpromoted. Reach clamped 43.72% of applications and the video still
-showed forced wrist poses plus major local head/hair intrusion. Current source now carries the next
-candidate as implementation/host evidence: a bounded 12-game-unit overreach remap before hard IK
-clamp, a 100-degree limit on shared FORETWIST/hand axial roll, reversible per-element local
-head/hair suppression, and separate `/pose/tip` controller aiming into the exact per-hand native
-look-direction state. These four corrections require a fresh physical run before promotion.
+Latest formal full/body run `20260920T090448Z-b1f54e3cb38e` is finalized/unstaged from clean source
+`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. It is a single-process run
+with normal outer `run_end`, zero submit failures and a complete evidence package. See
+`docs/research/evidence/20260920T090448Z-b1f54e3cb38e.json`.
 
-Candidate `20260919T162808Z-fb75cb34977a` is diagnostic only after two launches under the same run
-identity both left the SteamVR interface stuck over the game. Telemetry shows CoJ started with no
-scene focus and only acquired it after native gameplay stereo produced its first submit. The active
-presentation task is therefore the host-tested `flat_theater -> native_stereo` startup/fallback
-policy. Run `20260919T174647Z-67b3c560acd0` showed that the installed swap-chain hook receives no
-game callback: no flat frame was produced and VR began only after loading gameplay. Current source
-therefore captures ordinary intro/menu/loading content from device `Present`, keeping the swap-chain
-hook as fallback and safely reacquiring only an exact-original device slot. This lets the app own the VR scene from startup, Create re-anchors the stable flat view,
-and gameplay transitions automatically to true stereo. Debug and Release each pass 24 tests plus the
-expected classic-D3D9 shared-texture capability SKIP; a fresh physical run is still required.
+The device-`Present` startup/fallback policy now has physical evidence through startup and one level
+load. The user saw the game in VR from the beginning, Create recenter worked, the SteamVR interface
+did not remain stuck over the game, loading completed and gameplay reached `native_stereo`. The
+per-eye flat projection and Reset-safe immediate readback therefore advance beyond host-only status;
+the intermittent dashboard behavior remains an observation rather than a resolved support claim.
 
-Flat menu interaction is now **implemented / host-tested** on that presentation boundary. A Sense
-`/pose/tip` ray (handgrip fallback) maps to the anchored flat source, drives a visible compositor
-crosshair and the exact CoJ Win32 menu cursor, while dedicated global L2/R2 UI-select actions inject
-left-button press/release. Focus/ray loss releases the click and a trigger held during the switch to
-gameplay cannot become an accidental shot. The live verifier requires pointer hit, click down/up and
-the subsequent native-stereo transition. Keyboard/mouse remain a fallback, not a test dependency.
+The same run physically rejected Win32 mouse-button injection as the CoJ menu activation route. The
+Sense `/pose/tip` ray and compositor cursor were visible and telemetry recorded 15 native Win32
+button down/up pairs, but no Sense button activated the menu and keyboard/mouse was still required.
+Shipped Java bytecode shows the active UI contract: `MainMenuModule.GetCurrentUI()` and
+`GameUserInterface.CallEnterKeyPressed/Released()` emit global Enter input, while
+`GameUILoading.WaitForUserInput()` stops the game timer until its exclusive input handler resumes it.
+Current source routes L2/R2 UI-select through that exact Java path, observes the loading timer resume
+and suppresses gameplay fire until the trigger is released. This correction is **host-tested** and
+is the next physical menu/loading gate.
+
+Local first-person head/hair suppression is now **headset-validated** for the exercised Ray/Billy
+player: 103 logged hidden samples agree with the user's report that the head no longer obstructs the
+HMD view. Body IK remains visually rejected. The run sustained 8,465 applications per arm and
+16,930 clean restores with zero writer/restore failures, but clamp remained asymmetric (22.58% left,
+53.68% right), the measured native chain stayed ~49.843 game units and average residual hand
+orientation remained ~103.8 degrees left / ~142.9 degrees right. Current host source removes the old
+12-unit pre-clamp target shortening and applies no controller-driven axial twist while retaining the
+position solver, FORETWIST sibling swing and orientation diagnostics. This is an ablation candidate,
+not a Body IK promotion.
+
+The PS VR2 Sense binding manifest itself is coherent and the run delivered gameplay action samples:
+left stick move/run-click, right stick snap-turn/crouch-click, L2/R2 fire, Cross jump, Square reload,
+Triangle interact, Circle kick and L1/R1 weapon previous/next. The coarse locomotion came from the
+bridge converting stick motion through desktop digital directional semantics. Current host source
+uses a radial deadzone and sends actions 4-7 directly to `GameObject.CallOnInputGameController` with
+their float values; run remains boolean and snap turn remains exact +/-45 degrees. Smooth locomotion
+therefore remains **host-tested** pending the next headset run.
+
+Controller `/pose/tip` direction is already written into the exact per-hand look direction, but the
+user again observed shots originating from the native player/fire-origin boundary. Ballistic origin
+ownership remains open; instrument the exact attack boundary before changing it so native
+spread/accuracy and the network-forced path remain intact.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is unstaged. Its run ID is retired.
 Full/body run `20260919T174647Z-67b3c560acd0` is finalized/unstaged. It used clean source `8697a81`, with
@@ -44,19 +63,10 @@ each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP
 gate is therefore: fused menu -> pointer/select/re-anchor -> successful load -> same-process
 `native_stereo`.
 
-Fresh candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source `14d387b`, manifest
-`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
-`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. It carries the per-eye flat
-projection and Reset-safe readback corrections with Body IK enabled from startup.
-
-Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
-It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-
-target recenter rebase. Arms are substantially improved visually and all 8,452 applications/restores
-completed without writer fault, but Body IK remains unpromoted: reach still clamps 43.72% of samples,
-wrist/hand poses still need work, and local head/hair intrusion remains severe.
-Static game data plus the shipped visibility API identify and implement local suppression for
-`RayHead`, `RayHair`, `RayCap`, `BillyHead`, `BillyHair` and `BillyTress`; only elements hidden by VR
-are restored by VR. The physical effect on HMD view and shadow presentation remains unvalidated.
+Run `20260919T153546Z-705460dca03b` remains the earlier clean snap-turn/recenter/body reference; its
+head-intrusion and old reach/twist observations are superseded where the 2026-09-20 run exercised the
+newer suppression and body candidate. Historical evidence below remains useful for the sequence of
+rejected arm-composition hypotheses.
 
 The audit-driven stabilization track remains authoritative. The exact-build camera/render
 boundary and distinct two-eye ChromeEngine render path are live-tested. Corrected eye scale,

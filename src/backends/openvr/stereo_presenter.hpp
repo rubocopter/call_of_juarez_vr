@@ -17,6 +17,7 @@ struct FlatUiPointerSample {
     bool active = false;
     bool using_left_hand = false;
     bool select_down = false;
+    bool select_pressed = false;
     float u = 0.0F;
     float v = 0.0F;
     std::uint32_t pixel_x = 0;
@@ -39,6 +40,10 @@ struct OpenVrTrackingSample {
     runtime::GameplayInputState gameplay{};
     std::uint64_t sequence = 0;
     bool recenter_requested = false;
+    bool ui_select_left = false;
+    bool ui_select_right = false;
+    bool ui_select_left_pressed = false;
+    bool ui_select_right_pressed = false;
 };
 
 struct OpenVrPresenterStats {

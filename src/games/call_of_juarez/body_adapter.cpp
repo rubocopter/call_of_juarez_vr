@@ -593,35 +593,13 @@ ArmIkPlan BuildArmIkPlan(
     result.raw_target_distance = Length(raw_target_offset);
     const cojvr::runtime::Vec3 target_axis = Normalize(raw_target_offset);
     if (Length(target_axis) <= 1.0e-5F) return result;
-    const float native_reach = result.upper_length + result.lower_length;
-    // The live CoJ skeleton is materially shorter than the user's tracked
-    // shoulder-to-controller span in many ordinary poses. Keep the native bone
-    // lengths authoritative, but absorb a bounded amount of overreach before
-    // the hard two-bone clamp. Extreme targets still clamp and remain visible
-    // in telemetry instead of silently dragging an arm arbitrarily far.
-    constexpr float kBendReserveGameUnits = 0.75F;
-    constexpr float kMaxReachAdjustmentGameUnits = 12.0F;
-    const float bend_reserve = std::min(
-        kBendReserveGameUnits,
-        native_reach * 0.01F);
-    const float max_reach_adjustment = std::min(
-        kMaxReachAdjustmentGameUnits,
-        native_reach * 0.25F);
-    const float soft_reach = std::max(
-        result.upper_length,
-        native_reach - bend_reserve);
-    cojvr::runtime::Vec3 effective_target = controller_target;
+    // Physical run 20260920T090448Z-b1f54e3cb38e showed that the old bounded
+    // overreach policy made the rendered wrist lag the tracked controller by as
+    // much as 12 game units. Preserve the native bone lengths and let the
+    // two-bone solver perform the only reach clamp at the actual controller
+    // target instead of shortening that target first.
+    const cojvr::runtime::Vec3 effective_target = controller_target;
     result.effective_target_distance = result.raw_target_distance;
-    if (std::isfinite(result.raw_target_distance) && result.raw_target_distance > soft_reach) {
-        result.reach_adjustment = std::min(
-            result.raw_target_distance - soft_reach,
-            max_reach_adjustment);
-        result.effective_target_distance = result.raw_target_distance - result.reach_adjustment;
-        effective_target = Add(
-            geometry.shoulder,
-            Scale(target_axis, result.effective_target_distance));
-        result.reach_adjusted = result.reach_adjustment > 0.0F;
-    }
     const cojvr::runtime::Vec3 current_elbow =
         Subtract(geometry.elbow, geometry.shoulder);
     cojvr::runtime::Vec3 pole =
@@ -882,6 +860,15 @@ BoneRotationDelta LimitRotationMagnitude(
     rotation.angle_degrees = max_degrees;
     rotation.no_op = max_degrees <= 0.001F;
     return rotation;
+}
+
+float CoJArmControllerTwistLimitDegrees() noexcept {
+    // Physical run 20260920T090448Z-b1f54e3cb38e still showed severe arm
+    // corkscrewing while controller-driven axial roll routinely approached the
+    // previous 100-degree limit. Keep controller orientation as diagnostic
+    // telemetry for the next physical gate, but apply no axial roll. Positional
+    // IK and the proven FORETWIST sibling swing remain active.
+    return 0.0F;
 }
 
 cojvr::runtime::Vec3 BuildTrackedHandTarget(

@@ -21,6 +21,8 @@ struct OpenVrGlobalActions {
     bool recenter_active = false;
     bool ui_select_left = false;
     bool ui_select_right = false;
+    bool ui_select_left_pressed = false;
+    bool ui_select_right_pressed = false;
 };
 
 struct OpenVrHandPoses {
