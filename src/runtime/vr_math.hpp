@@ -19,10 +19,13 @@ namespace cojvr::runtime {
 
 struct FlatTheaterPointerProjection {
     bool hit = false;
+    bool beam_origin_valid = false;
     float u = 0.0F;
     float v = 0.0F;
     std::uint32_t pixel_x = 0;
     std::uint32_t pixel_y = 0;
+    std::uint32_t beam_origin_x = 0;
+    std::uint32_t beam_origin_y = 0;
     float ray_distance_m = 0.0F;
 };
 
@@ -38,9 +41,11 @@ struct FlatTheaterPointerBeam {
     std::uint32_t end_y = 0;
 };
 
-// Builds a short screen-space laser segment that terminates at the menu
-// reticle. Its bounded 96-pixel extent keeps the CPU upload patch small.
+// Builds the visible screen-space segment from the projected tracked
+// controller origin to the menu hit point.
 [[nodiscard]] bool ComputeFlatTheaterPointerBeam(
+    std::uint32_t origin_x,
+    std::uint32_t origin_y,
     std::uint32_t pointer_x,
     std::uint32_t pointer_y,
     std::uint32_t source_width,

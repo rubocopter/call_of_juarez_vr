@@ -46,6 +46,14 @@ int main() {
     if (!mailbox.WaitConsumeLatest(consumed, 0) || consumed.capture_sequence != 2) {
         return Fail("mailbox did not replace stale pending content with the newest frame");
     }
+    const auto recycled_capacity = consumed.eyes[0].pixels.capacity();
+    mailbox.Recycle(std::move(consumed));
+    StereoCpuFrame reusable{};
+    if (!mailbox.TryAcquireRecycled(reusable) ||
+        reusable.eyes[0].pixels.capacity() != recycled_capacity ||
+        reusable.eyes[0].pixels.empty()) {
+        return Fail("mailbox did not return consumed CPU pixel storage for producer reuse");
+    }
     if (mailbox.Publish(MakeFrame(2)) || mailbox.Publish(MakeFrame(1))) {
         return Fail("mailbox accepted a stale capture sequence");
     }

@@ -22,6 +22,9 @@ struct FlatUiPointerSample {
     float v = 0.0F;
     std::uint32_t pixel_x = 0;
     std::uint32_t pixel_y = 0;
+    bool beam_origin_valid = false;
+    std::uint32_t beam_origin_x = 0;
+    std::uint32_t beam_origin_y = 0;
     std::uint32_t source_width = 0;
     std::uint32_t source_height = 0;
     float ray_distance_m = 0.0F;
@@ -44,6 +47,10 @@ struct OpenVrTrackingSample {
     bool ui_select_right = false;
     bool ui_select_left_pressed = false;
     bool ui_select_right_pressed = false;
+    bool ui_accept = false;
+    bool ui_back = false;
+    bool ui_accept_pressed = false;
+    bool ui_back_pressed = false;
 };
 
 struct OpenVrPresenterStats {
@@ -76,6 +83,8 @@ public:
     void Stop() noexcept;
 
     [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame) noexcept;
+    [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;
+    void RecycleFrame(d3d9::StereoCpuFrame frame) noexcept;
     [[nodiscard]] bool LatestTracking(OpenVrTrackingSample& sample) noexcept;
     [[nodiscard]] bool EyeViews(std::array<runtime::EyeView, 2>& eyes) const noexcept;
 

@@ -168,6 +168,7 @@ int main() {
     theater_anchor.orientation_valid = true;
     theater_anchor.position_valid = true;
     Pose controller_aim = theater_anchor;
+    controller_aim.position.z = -0.40F;
     FlatTheaterPointerProjection pointer{};
     const EyeFov theater_fov = FovFromTangents(-1.0F, 1.0F, 1.0F, -1.0F);
 
@@ -204,23 +205,25 @@ int main() {
             theater_fov, theater_fov,
             1000, 600, 1350, 810, pointer) ||
         !pointer.hit || !Near(pointer.u, 0.5F) || !Near(pointer.v, 0.5F) ||
-        pointer.pixel_x != 500 || pointer.pixel_y != 300) {
+        pointer.pixel_x != 500 || pointer.pixel_y != 300 ||
+        !pointer.beam_origin_valid) {
         return Fail("flat-theater center ray did not map to the source-image center");
     }
 
     FlatTheaterPointerBeam beam{};
-    if (!ComputeFlatTheaterPointerBeam(500, 300, 1000, 600, beam) ||
+    if (!ComputeFlatTheaterPointerBeam(
+            pointer.beam_origin_x, pointer.beam_origin_y,
+            500, 300, 1000, 600, beam) ||
         beam.end_x != 500 || beam.end_y != 300 ||
-        beam.start_x != 500 || beam.start_y <= beam.end_y ||
-        beam.start_y - beam.end_y > 96U) {
-        return Fail("flat-theater pointer beam did not terminate at the reticle");
+        beam.start_x != pointer.beam_origin_x || beam.start_y != pointer.beam_origin_y) {
+        return Fail("flat-theater pointer beam did not originate at the projected controller");
     }
-    if (!ComputeFlatTheaterPointerBeam(900, 100, 1000, 600, beam) ||
+    if (!ComputeFlatTheaterPointerBeam(200, 500, 900, 100, 1000, 600, beam) ||
         beam.end_x != 900 || beam.end_y != 100 ||
-        beam.start_x >= beam.end_x || beam.start_y <= beam.end_y) {
-        return Fail("flat-theater pointer beam did not point toward an off-centre reticle");
+        beam.start_x != 200 || beam.start_y != 500) {
+        return Fail("flat-theater pointer beam did not preserve controller-to-reticle geometry");
     }
-    if (ComputeFlatTheaterPointerBeam(1000, 100, 1000, 600, beam)) {
+    if (ComputeFlatTheaterPointerBeam(200, 500, 1000, 100, 1000, 600, beam)) {
         return Fail("flat-theater pointer beam accepted an out-of-range reticle");
     }
 

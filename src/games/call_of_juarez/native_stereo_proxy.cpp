@@ -53,6 +53,10 @@ struct NativeStereoState {
     std::atomic_bool present_hook_conflict_logged{false};
     std::mutex flat_ui_mutex;
     bool flat_ui_pointer_active = false;
+    std::uint32_t flat_ui_pointer_x = 0;
+    std::uint32_t flat_ui_pointer_y = 0;
+    bool flat_ui_pointer_game_route_logged = false;
+    bool flat_ui_pointer_game_error_logged = false;
     bool flat_loading_resume_pending = false;
     bool flat_ui_select_release_required = false;
     cojvr::games::call_of_juarez::CoJUiSelectRetryState flat_ui_select_retry{};
@@ -97,10 +101,14 @@ void NeutralizeFlatUiPointer(const char* reason) noexcept {
         if (g_stereo.flat_ui_pointer_active) {
             std::ostringstream detail;
             detail << "active=false;reason=" << (reason ? reason : "unknown")
-                   << ";route=win32_cursor_plus_game_ui_mouse";
+                   << ";route=win32_cursor_position";
             CameraEvent("flat_ui_pointer", "neutralized", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = false;
+        g_stereo.flat_ui_pointer_x = 0;
+        g_stereo.flat_ui_pointer_y = 0;
+        g_stereo.flat_ui_pointer_game_route_logged = false;
+        g_stereo.flat_ui_pointer_game_error_logged = false;
     } catch (...) {
     }
 }
@@ -133,12 +141,22 @@ void FlatUiPointer(
             NeutralizeFlatUiPointer("invalid_client_extent");
             return;
         }
-        POINT screen{
+        const POINT client_pointer{
             static_cast<LONG>(std::lround(sample.u * static_cast<float>(width - 1))),
             static_cast<LONG>(std::lround(sample.v * static_cast<float>(height - 1))),
         };
+        POINT screen = client_pointer;
         if (!ClientToScreen(root, &screen) || !SetCursorPos(screen.x, screen.y)) {
             NeutralizeFlatUiPointer("cursor_move_failed");
+            return;
+        }
+        // Chrome Engine's UI hit-testing reacts to the window mouse-move path.
+        // SetCursorPos alone updates the OS cursor but did not produce hover in
+        // the 20260920 headset run until a physical mouse movement arrived.
+        if (!PostMessageW(
+                root, WM_MOUSEMOVE, 0,
+                MAKELPARAM(client_pointer.x, client_pointer.y))) {
+            NeutralizeFlatUiPointer("mouse_move_post_failed");
             return;
         }
 
@@ -147,10 +165,12 @@ void FlatUiPointer(
             std::ostringstream detail;
             detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
                    << ";source=" << sample.source_width << 'x' << sample.source_height
-                   << ";route=win32_cursor_plus_game_ui_mouse";
+                   << ";route=win32_cursor_position+WM_MOUSEMOVE";
             CameraEvent("flat_ui_pointer", "active", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = true;
+        g_stereo.flat_ui_pointer_x = sample.pixel_x;
+        g_stereo.flat_ui_pointer_y = sample.pixel_y;
     } catch (...) {
         NeutralizeFlatUiPointer("exception");
     }
@@ -160,6 +180,18 @@ bool FlatUiPointerActive() noexcept {
     try {
         std::lock_guard lock(g_stereo.flat_ui_mutex);
         return g_stereo.flat_ui_pointer_active;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool ReadFlatUiPointer(std::uint32_t& pixel_x, std::uint32_t& pixel_y) noexcept {
+    try {
+        std::lock_guard lock(g_stereo.flat_ui_mutex);
+        if (!g_stereo.flat_ui_pointer_active) return false;
+        pixel_x = g_stereo.flat_ui_pointer_x;
+        pixel_y = g_stereo.flat_ui_pointer_y;
+        return true;
     } catch (...) {
         return false;
     }
@@ -294,15 +326,60 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
 
         const bool pointer_active = FlatUiPointerActive();
         if (pointer_active) {
+            std::uint32_t pointer_x = 0;
+            std::uint32_t pointer_y = 0;
             std::string pointer_error;
-            if (!cojvr::games::call_of_juarez::DispatchCameraUiPointerMotion(&pointer_error) &&
-                !pointer_error.empty()) {
-                CameraEvent("flat_ui_pointer_game_route", "unavailable", pointer_error.c_str());
+            const bool pointer_dispatched = ReadFlatUiPointer(pointer_x, pointer_y) &&
+                cojvr::games::call_of_juarez::DispatchCameraUiPointerMotion(
+                    static_cast<float>(pointer_x), static_cast<float>(pointer_y),
+                    &pointer_error);
+            if (!pointer_dispatched && !pointer_error.empty()) {
+                bool log_error = false;
+                {
+                    std::lock_guard lock(g_stereo.flat_ui_mutex);
+                    if (!g_stereo.flat_ui_pointer_game_error_logged) {
+                        g_stereo.flat_ui_pointer_game_error_logged = true;
+                        log_error = true;
+                    }
+                }
+                if (log_error) {
+                    CameraEvent(
+                        "flat_ui_pointer_game_route", "unavailable", pointer_error.c_str());
+                }
+            } else if (pointer_dispatched) {
+                bool log_route = false;
+                {
+                    std::lock_guard lock(g_stereo.flat_ui_mutex);
+                    g_stereo.flat_ui_pointer_game_error_logged = false;
+                    if (!g_stereo.flat_ui_pointer_game_route_logged) {
+                        g_stereo.flat_ui_pointer_game_route_logged = true;
+                        log_route = true;
+                    }
+                }
+                if (log_route) {
+                    CameraEvent(
+                        "flat_ui_pointer_game_route",
+                        "applied",
+                        "route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove");
+                }
             }
         }
 
+        if (tracking.ui_back_pressed) {
+            cojvr::games::call_of_juarez::CoJUiDispatchRoute back_route =
+                cojvr::games::call_of_juarez::CoJUiDispatchRoute::none;
+            std::string back_error;
+            const bool backed = cojvr::games::call_of_juarez::DispatchCameraUiBackPress(
+                &back_error, &back_route);
+            std::ostringstream detail;
+            detail << "source=right_circle;route="
+                   << cojvr::games::call_of_juarez::CoJUiBackDispatchRouteName(back_route);
+            if (!back_error.empty()) detail << ";detail=" << back_error;
+            CameraEvent("flat_ui_back", backed ? "applied" : "failed", detail.str().c_str());
+        }
+
         if (g_stereo.flat_ui_select_release_required && timer_valid && !timer_frozen &&
-            !tracking.ui_select_left && !tracking.ui_select_right) {
+            !tracking.ui_select_left && !tracking.ui_select_right && !tracking.ui_accept) {
             g_stereo.flat_ui_select_release_required = false;
             g_stereo.flat_loading_resume_pending = false;
             CameraEvent(
@@ -312,8 +389,10 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         }
 
         const bool ui_select_pressed =
-            tracking.ui_select_left_pressed || tracking.ui_select_right_pressed;
-        const bool ui_select_held = tracking.ui_select_left || tracking.ui_select_right;
+            tracking.ui_select_left_pressed || tracking.ui_select_right_pressed ||
+            tracking.ui_accept_pressed;
+        const bool ui_select_held =
+            tracking.ui_select_left || tracking.ui_select_right || tracking.ui_accept;
         g_stereo.flat_ui_select_retry.Observe(ui_select_pressed, ui_select_held);
         const bool select_allowed = pointer_active || (timer_valid && timer_frozen);
         if (g_stereo.flat_ui_select_retry.ShouldDispatch(
@@ -330,11 +409,19 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             g_stereo.flat_ui_select_retry.Complete(dispatched);
             if (ui_select_pressed || dispatched) {
                 std::ostringstream detail;
-                detail << "source="
+                detail << "source=";
+                if (tracking.ui_accept_pressed ||
+                    (!tracking.ui_select_left_pressed && !tracking.ui_select_right_pressed &&
+                     tracking.ui_accept)) {
+                    detail << "right_cross";
+                } else {
+                    detail
                        << ((tracking.ui_select_left_pressed ||
                             (!tracking.ui_select_right_pressed && tracking.ui_select_left))
                                ? "left_l2"
-                               : "right_r2")
+                               : "right_r2");
+                }
+                detail
                        << ";pointer_active=" << (pointer_active ? "true" : "false")
                        << ";retry=" << (!ui_select_pressed ? "true" : "false")
                        << ";current_ui_is_loading="
@@ -354,7 +441,8 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 g_stereo.flat_ui_select_release_required = true;
                 std::ostringstream blocking_detail;
                 blocking_detail << "source="
-                                << (tracking.ui_select_left_pressed ? "left_l2" : "right_r2")
+                                << (tracking.ui_accept_pressed ? "right_cross" :
+                                    (tracking.ui_select_left_pressed ? "left_l2" : "right_r2"))
                                 << ";game_timer_valid=true;game_timer_frozen=true"
                                 << ";current_ui_is_loading="
                                 << (current_ui_is_loading ? "true" : "false")
@@ -559,7 +647,7 @@ bool BeginStereoFrame(
         return false;
     }
     if (state->flat_ui_select_release_required) {
-        if (tracking.ui_select_left || tracking.ui_select_right) {
+        if (tracking.ui_select_left || tracking.ui_select_right || tracking.ui_accept) {
             state->last_native_stereo_tick_ms.store(0, std::memory_order_release);
             return false;
         }
@@ -577,6 +665,7 @@ bool BeginStereoFrame(
     }
 
     cojvr::backends::d3d9::StereoCpuFrame completed{};
+    const bool reused_cpu_storage = state->presenter.TryAcquireReusableFrame(completed);
     if (state->capture.TryCollectReady(completed)) {
         const std::uint64_t sequence = completed.capture_sequence;
         if (PublishCapturedFrame(
@@ -589,6 +678,8 @@ bool BeginStereoFrame(
                     std::string(state->capture.collect_description()));
             }
         }
+    } else if (reused_cpu_storage) {
+        state->presenter.RecycleFrame(std::move(completed));
     }
     sample.hmd_pose.pose = tracking.pose;
     sample.hmd_pose.sequence = tracking.sequence;
@@ -602,6 +693,10 @@ bool BeginStereoFrame(
     sample.ui_select_right = tracking.ui_select_right;
     sample.ui_select_left_pressed = tracking.ui_select_left_pressed;
     sample.ui_select_right_pressed = tracking.ui_select_right_pressed;
+    sample.ui_accept = tracking.ui_accept;
+    sample.ui_back = tracking.ui_back;
+    sample.ui_accept_pressed = tracking.ui_accept_pressed;
+    sample.ui_back_pressed = tracking.ui_back_pressed;
     if (tracking.recenter_requested) {
         LogLine("openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread");
     }

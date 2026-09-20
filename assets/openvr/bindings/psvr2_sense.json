@@ -43,6 +43,16 @@
           "inputs": { "click": { "output": "/actions/global/in/ui_select_right" } },
           "mode": "trigger",
           "path": "/user/hand/right/input/r2"
+        },
+        {
+          "inputs": { "click": { "output": "/actions/global/in/ui_accept" } },
+          "mode": "button",
+          "path": "/user/hand/right/input/cross"
+        },
+        {
+          "inputs": { "click": { "output": "/actions/global/in/ui_back" } },
+          "mode": "button",
+          "path": "/user/hand/right/input/circle"
         }
       ]
     },

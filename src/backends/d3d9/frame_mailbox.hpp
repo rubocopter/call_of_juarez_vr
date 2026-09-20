@@ -24,6 +24,8 @@ public:
     [[nodiscard]] bool WaitConsumeLatest(
         StereoCpuFrame& frame,
         std::uint32_t timeout_ms) noexcept;
+    void Recycle(StereoCpuFrame frame) noexcept;
+    [[nodiscard]] bool TryAcquireRecycled(StereoCpuFrame& frame) noexcept;
     void Stop() noexcept;
     void Reset() noexcept;
 
@@ -35,6 +37,8 @@ private:
     std::condition_variable wake_;
     StereoCpuFrame pending_{};
     bool has_pending_ = false;
+    StereoCpuFrame recycled_{};
+    bool has_recycled_ = false;
     bool stopped_ = false;
     std::atomic_uint64_t last_published_sequence_{0};
     FrameMailboxStats stats_{};

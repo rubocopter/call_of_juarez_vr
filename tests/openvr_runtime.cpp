@@ -49,8 +49,14 @@ int main() {
     ui_actions.ui_select_left_pressed = true;
     ui_actions.ui_select_right = false;
     ui_actions.ui_select_right_pressed = false;
+    ui_actions.ui_accept = true;
+    ui_actions.ui_accept_pressed = true;
+    ui_actions.ui_back = false;
+    ui_actions.ui_back_pressed = false;
     if (!ui_actions.ui_select_left || !ui_actions.ui_select_left_pressed ||
-        ui_actions.ui_select_right || ui_actions.ui_select_right_pressed) {
+        ui_actions.ui_select_right || ui_actions.ui_select_right_pressed ||
+        !ui_actions.ui_accept || !ui_actions.ui_accept_pressed ||
+        ui_actions.ui_back || ui_actions.ui_back_pressed) {
         std::cerr << "OpenVR global UI-select state lost press-edge semantics\n";
         return 1;
     }

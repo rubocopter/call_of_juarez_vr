@@ -218,6 +218,8 @@ bool ComputeFlatTheaterEyePlacement(
 }
 
 bool ComputeFlatTheaterPointerBeam(
+    const std::uint32_t origin_x,
+    const std::uint32_t origin_y,
     const std::uint32_t pointer_x,
     const std::uint32_t pointer_y,
     const std::uint32_t source_width,
@@ -225,29 +227,12 @@ bool ComputeFlatTheaterPointerBeam(
     FlatTheaterPointerBeam& beam) noexcept {
     beam = {};
     if (source_width == 0 || source_height == 0 ||
+        origin_x >= source_width || origin_y >= source_height ||
         pointer_x >= source_width || pointer_y >= source_height) {
         return false;
     }
-
-    constexpr float kBeamPixels = 96.0F;
-    const float origin_x = static_cast<float>(source_width) * 0.5F;
-    const float origin_y = static_cast<float>(source_height - 1U);
-    const float dx = static_cast<float>(pointer_x) - origin_x;
-    const float dy = static_cast<float>(pointer_y) - origin_y;
-    const float length = std::sqrt(dx * dx + dy * dy);
-    if (!std::isfinite(length) || length <= 1.0e-4F) {
-        beam.start_x = pointer_x;
-        beam.start_y = pointer_y;
-    } else {
-        const float extent = std::min(length, kBeamPixels);
-        const float scale = extent / length;
-        beam.start_x = static_cast<std::uint32_t>(std::clamp(
-            std::lround(static_cast<float>(pointer_x) - dx * scale),
-            0L, static_cast<long>(source_width - 1U)));
-        beam.start_y = static_cast<std::uint32_t>(std::clamp(
-            std::lround(static_cast<float>(pointer_y) - dy * scale),
-            0L, static_cast<long>(source_height - 1U)));
-    }
+    beam.start_x = origin_x;
+    beam.start_y = origin_y;
     beam.end_x = pointer_x;
     beam.end_y = pointer_y;
     return true;
@@ -322,6 +307,27 @@ bool ProjectFlatTheaterPointer(
     if (!std::isfinite(x_span) || !std::isfinite(y_span) ||
         x_span <= 1.0e-5F || y_span <= 1.0e-5F) {
         return false;
+    }
+
+    if (local_origin.z < -0.05F) {
+        const float origin_scale = -plane_distance_m / local_origin.z;
+        const float origin_plane_x = local_origin.x * origin_scale;
+        const float origin_plane_y = local_origin.y * origin_scale;
+        const float origin_full_u = (origin_plane_x - x_min) / x_span;
+        const float origin_full_v = (y_max - origin_plane_y) / y_span;
+        const float origin_source_x =
+            origin_full_u * static_cast<float>(texture_width) -
+            static_cast<float>(texture_width - source_width) * 0.5F;
+        const float origin_source_y =
+            origin_full_v * static_cast<float>(texture_height) -
+            static_cast<float>(texture_height - source_height) * 0.5F;
+        if (std::isfinite(origin_source_x) && std::isfinite(origin_source_y)) {
+            projection.beam_origin_x = static_cast<std::uint32_t>(std::lround(std::clamp(
+                origin_source_x, 0.0F, static_cast<float>(source_width - 1U))));
+            projection.beam_origin_y = static_cast<std::uint32_t>(std::lround(std::clamp(
+                origin_source_y, 0.0F, static_cast<float>(source_height - 1U))));
+            projection.beam_origin_valid = true;
+        }
     }
 
     const float full_u = (hit_x - x_min) / x_span;

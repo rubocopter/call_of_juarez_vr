@@ -122,6 +122,10 @@ struct CameraStereoFrameSample {
     bool ui_select_right = false;
     bool ui_select_left_pressed = false;
     bool ui_select_right_pressed = false;
+    bool ui_accept = false;
+    bool ui_back = false;
+    bool ui_accept_pressed = false;
+    bool ui_back_pressed = false;
 };
 
 // Exact-game UI input seam.  Selection is delivered through the currently
@@ -134,7 +138,12 @@ struct CameraStereoFrameSample {
     bool* paused_hint_dismissed = nullptr,
     CoJUiDispatchRoute* route = nullptr) noexcept;
 [[nodiscard]] bool DispatchCameraUiPointerMotion(
+    float pixel_x,
+    float pixel_y,
     std::string* error = nullptr) noexcept;
+[[nodiscard]] bool DispatchCameraUiBackPress(
+    std::string* error = nullptr,
+    CoJUiDispatchRoute* route = nullptr) noexcept;
 [[nodiscard]] bool ObserveCameraGameTimerFrozen(
     bool& frozen,
     std::string* error = nullptr) noexcept;

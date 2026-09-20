@@ -80,6 +80,27 @@ struct RoomScaleTranslationUpdate {
     bool valid = false;
 };
 
+// Physical room-scale crouch is detected from calibrated HMD height for body
+// policy/telemetry. Native gameplay crouch remains a separate explicit action:
+// applying both at once double-crouches the avatar relative to the physical
+// head position and exposes the third-person body in first person.
+class CoJPhysicalCrouchState final {
+public:
+    [[nodiscard]] bool Update(
+        bool tracking_active,
+        bool recentered,
+        float relative_head_y_m) noexcept;
+    void Reset() noexcept { crouched_ = false; }
+    [[nodiscard]] bool crouched() const noexcept { return crouched_; }
+
+private:
+    bool crouched_ = false;
+};
+
+[[nodiscard]] bool ResolveCoJCrouchAction(
+    bool requested_native_crouch,
+    bool physical_crouch_detected) noexcept;
+
 struct ArmGeometrySample {
     cojvr::runtime::Vec3 shoulder{};
     cojvr::runtime::Vec3 elbow{};

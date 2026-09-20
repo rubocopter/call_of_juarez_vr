@@ -38,6 +38,10 @@ function Assert-LogMatch([string]$Pattern, [string]$Failure) {
     if (-not [bool]($Lines -match $Pattern)) { throw $Failure }
 }
 
+function Assert-LogNotMatch([string]$Pattern, [string]$Failure) {
+    if ([bool]($Lines -match $Pattern)) { throw $Failure }
+}
+
 Assert-LogMatch `
     "native_stereo_runtime: status=started backend=openvr owner=presenter_thread .*pose_semantics=eye_to_head" `
     "The native-stereo OpenVR runtime/eye configuration did not initialize."
@@ -91,14 +95,23 @@ if ($RequireFlatTheaterUi) {
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
         "The run never presented intro/menu content through flat_theater."
     Assert-LogMatch `
-        "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
-        "No valid Sense ray produced the visible flat-theater laser/reticle."
+        "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;beam_origin=[0-9]+,[0-9]+;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
+        "No valid Sense ray produced a flat-theater beam from the projected controller origin."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_plus_game_ui_mouse" `
-        "The flat-theater pointer did not reach the Win32 cursor plus CoJ ProcessMouse route."
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_position" `
+        "The flat-theater pointer did not reach the game-window cursor position."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos\+OnMouseMove" `
+        "The projected Sense pointer never reached CoJ's logical cursor position plus mouse-move route."
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
         "No Sense trigger press reached an exact CoJ UI/select route."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
+        "Cross did not reach an exact CoJ accept/select route."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=MainMenuModule.ShowPrevUI" `
+        "Circle did not reach MainMenuModule.ShowPrevUI for menu back."
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=GameWithMenu.sm_cIntroModule.OnInputKey" `
         "No Sense trigger press skipped a startup video through IntroModule.OnInputKey."
@@ -106,8 +119,8 @@ if ($RequireFlatTheaterUi) {
         "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter" `
         "No Sense trigger press selected the in-game Escape menu through LawmanModule.cMenu."
     Assert-LogMatch `
-        "camera_probe_event: event=blocking_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=(true|false);gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=(HintManager.DisableCurrentHint|GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter)" `
-        "No Sense select press safely dismissed a frozen loading/hint UI."
+        "camera_probe_event: event=blocking_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameUILoading.OnInputKey" `
+        "No Sense select press reached GameUILoading.OnInputKey while the loading timer was frozen."
     Assert-LogMatch `
         "camera_probe_event: event=blocking_ui_resume result=observed detail=.*game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart" `
         "The run did not prove that the blocking UI resumed only after trigger release."
@@ -163,8 +176,8 @@ Assert-LogMatch `
     "native_stereo_capture_timing: status=ok .*eye=right .*transport=deferred_d3d9_ring_cpu_mailbox.*gpu_copy_queue_ms=[0-9.]+" `
     "The right-eye deferred transport did not report GPU-copy queue timing."
 Assert-LogMatch `
-    "native_stereo_producer_timing: status=published .*transport=deferred_d3d9_ring_cpu_mailbox.*deferred_readback_ms=[0-9.]+;cpu_copy_ms=[0-9.]+;producer_collect_ms=[0-9.]+" `
-    "The producer did not report deferred readback/copy timing."
+    "native_stereo_producer_timing: status=published .*transport=deferred_d3d9_ring_cpu_mailbox.*cpu_storage_reused=true;fence_poll_ms=[0-9.]+;deferred_readback_ms=[0-9.]+;cpu_copy_ms=[0-9.]+;producer_collect_ms=[0-9.]+" `
+    "The producer did not prove recycled CPU storage and deferred readback/copy timing."
 Assert-LogMatch `
     "native_stereo_presenter_timing: status=ok .*render_pose_sequence=[1-9][0-9]*;pose_mode=explicit_render_pose;content=new.*left_result=0;right_result=0.*wait_pose_ms=[0-9.]+;submit_ms=[0-9.]+" `
     "The presenter did not report a successful new-frame OpenVR submission bound to its exact render pose."
@@ -300,11 +313,11 @@ if ($PresentedStereoLines.Count -lt 2) {
 foreach ($Line in $PresentedStereoLines) {
     if ($Line -notmatch "left_hash=[1-9][0-9]*" -or
         $Line -notmatch "right_hash=[1-9][0-9]*" -or
-        $Line -notmatch "distinct_check=rgb_compare_every_frame" -or
+        $Line -notmatch "distinct_check=sampled_hash" -or
         $Line -notmatch "hash_mode=sampled_telemetry" -or
         $Line -notmatch "hash_ms=[0-9.]+" -or
         $Line -notmatch "upload_ms=[0-9.]+") {
-        throw "A sampled presenter frame did not prove per-frame RGB distinction, diagnostic hashing and D3D11 upload timing."
+        throw "A sampled presenter frame did not prove sampled stereo distinction, diagnostic hashing and D3D11 upload timing."
     }
 }
 
@@ -551,8 +564,14 @@ if ($RequireBodyIk) {
 
 if ($RequireGameplayInput) {
     Assert-LogMatch `
-        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_InputDigital_Translate;visual_origin_owner=m_avAimFromPoint;fire_origin_native_restore=true;native_accuracy_spread=preserved" `
-        "Controller tip direction/origin did not reach the exact per-hand CoJ aiming fields with scoped ballistic restoration."
+        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_input_translation;visual_origin_owner=m_avAimFromPoint;fire_origin_release=immediate_native_restore;native_accuracy_spread=preserved" `
+        "Controller tip direction/origin did not reach the exact per-hand CoJ aiming fields with deferred weapon-state ownership."
+    Assert-LogMatch `
+        "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=false;physical_crouch=true;.*;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate" `
+        "The gameplay gate did not keep physical crouch separate from the native crouch action."
+    Assert-LogNotMatch `
+        "renderer=LaserPointer\.PointFromTo" `
+        "The run created the old diagnostic LaserPointer during normal gameplay."
     $GameplayLines = @($Lines | Where-Object {
         $_ -match "camera_probe_event: event=gameplay_input result=applied"
     })

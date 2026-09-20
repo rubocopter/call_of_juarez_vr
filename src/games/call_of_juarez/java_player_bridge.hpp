@@ -24,10 +24,31 @@ enum class CoJUiDispatchRoute {
     paused_hint,
     global_menu,
     active_game_menu,
+    loading_ui,
     intro_skip,
 };
 
 [[nodiscard]] const char* CoJUiDispatchRouteName(CoJUiDispatchRoute route) noexcept;
+[[nodiscard]] const char* CoJUiBackDispatchRouteName(CoJUiDispatchRoute route) noexcept;
+
+struct CoJUiBackDispatchPolicy {
+    bool dispatch = false;
+    int key_code = 1;
+    bool press = true;
+    bool release = true;
+};
+
+[[nodiscard]] CoJUiBackDispatchPolicy BuildCoJUiBackDispatchPolicy(
+    bool current_ui_available) noexcept;
+
+struct CoJUiPointerDispatchPolicy {
+    bool dispatch_cursor = false;
+    bool dispatch_process_mouse = false;
+};
+
+[[nodiscard]] CoJUiPointerDispatchPolicy BuildCoJUiPointerDispatchPolicy(
+    bool menu_available,
+    bool current_ui_available) noexcept;
 
 struct CoJSnapTurnState {
     bool latched = false;
@@ -37,6 +58,21 @@ struct CoJSnapTurnState {
     [[nodiscard]] float Update(
         const cojvr::runtime::GameplayInputState& state) noexcept;
 };
+
+struct CoJFireOriginMutationPolicy {
+    int hand = -1;
+    bool override_for_translate = false;
+    bool restore_after_translate = false;
+};
+
+// Being.m_vLookFromPoint is global even though CoJ tracks weapon direction per
+// hand. Controller ownership is therefore allowed only around the synchronous
+// fire InputDigital.Translate call and must be restored before control returns.
+[[nodiscard]] CoJFireOriginMutationPolicy BuildCoJFireOriginMutationPolicy(
+    int action,
+    bool current_pressed,
+    bool digital_transition,
+    bool origin_valid) noexcept;
 
 struct CoJLoadingUiInputResult {
     bool dispatch_select = false;
@@ -157,19 +193,25 @@ public:
         const cojvr::runtime::GameplayInputState& state,
         std::string* error = nullptr) noexcept;
     // Route an intentional VR UI-select press through the currently visible
-    // CoJ GameUserInterface.  The shipped helper emits scan-code 28 (Enter)
-    // through GameObject.CallOnInputKeyGlobal, which also reaches the
-    // GameUILoading exclusive key request and its TimerStart continuation.
+    // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive
+    // "press a key" gate; ordinary menus keep their Enter helper route.
     [[nodiscard]] bool TryDispatchUiSelectPress(
         bool require_loading_ui,
         bool* current_ui_is_loading = nullptr,
         std::string* error = nullptr,
         bool* paused_hint_dismissed = nullptr,
         CoJUiDispatchRoute* route = nullptr) noexcept;
-    // Re-arm the shipped GameUserInterface mouse-processing path after the
-    // flat-theater ray moves the real Win32 cursor. This is invoked from the
-    // game Present thread, never from the OpenVR presenter worker.
-    [[nodiscard]] bool TryProcessUiPointer(std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryDispatchUiBackPress(
+        std::string* error = nullptr,
+        CoJUiDispatchRoute* route = nullptr) noexcept;
+    // Move CoJ's own UICursorGame logical position to the projected theater
+    // pixel, then run the shipped mouse-processing path when a current UI
+    // object exists. The cursor route itself is valid even while GetCurrentUI
+    // is null. This is invoked from the game Present thread.
+    [[nodiscard]] bool TryProcessUiPointer(
+        float pixel_x,
+        float pixel_y,
+        std::string* error = nullptr) noexcept;
     // Override the exact per-hand look direction consumed by
     // GetFireDirForWeapon. The game's next UpdateLookAndAimDirs pass naturally
     // replaces this value, so loss of VR input fails back to native aiming.
@@ -233,6 +275,11 @@ private:
         void* env,
         void*& ui,
         CoJUiDispatchRoute& route,
+        std::string* error) noexcept;
+    [[nodiscard]] bool TryResolveMenuForUiRoute(
+        void* env,
+        CoJUiDispatchRoute route,
+        void*& menu,
         std::string* error) noexcept;
     [[nodiscard]] bool TryDispatchIntroSkip(
         void* env,
