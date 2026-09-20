@@ -118,6 +118,12 @@ screen per eye at 1.5 m and uses immediate flat readback with no persistent defa
 the D3D9 integration test proves Reset and post-Reset recapture without explicit invalidation. Debug
 and Release each pass 24 PASS plus the expected capability SKIP.
 
+Candidate `20260920T090448Z-b1f54e3cb38e` is staged for that gate from clean source `14d387b`,
+build-manifest ID `4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Body IK is enabled at start
+and the reversible `1920x1080`/FSAA0 profile is active. This candidate is host-tested only until one
+process proves fused flat presentation and the subsequent successful native-stereo load transition.
+
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID
 `163BBD05C73327FADEEA3B50D4418D11A6C2B0ACAC5B49108389832B667A3702`, proxy SHA-256

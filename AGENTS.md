@@ -112,6 +112,15 @@ host-tested pending one fresh physical fusion/load gate. The run also observed a
 cycle while scene focus remained PID 404; the project's Sense binding contains no dashboard/system
 action, so this remains a separate overlay/input observation rather than a scene-ownership failure.
 
+Fresh full/body candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source
+`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Release preparation passed
+24 tests plus the expected classic-D3D9 shared-texture capability SKIP, enabled Body IK before
+process start and applied the reversible `1920x1080`/FSAA0 profile. Its first gate is binocular:
+the flat menu must appear as one fused screen, retain pointer/click/Create alignment, survive one
+level load and transition to `native_stereo` in that same process.
+
 Run `20260919T153546Z-705460dca03b` is now finalized/unstaged as the latest clean single-process
 physical evidence. It ran from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256

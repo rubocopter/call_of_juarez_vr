@@ -73,6 +73,11 @@ default-pool capture ring with immediate readback so classic D3D9 Reset is not b
 Release each pass 24 tests plus the expected capability SKIP; fusion and load survival remain physical
 gates. See `docs/research/evidence/20260919T213924Z-d5d149a5bf46.json`.
 
+Fresh candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source `14d387b`, manifest
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195`, proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. It is preparation evidence
+only until physical fusion and load survival are observed.
+
 The following facts are currently established:
 
 - Call of Juarez (2006) DX9 can run and load gameplay with the project's forwarding path while remaining usable on the monitor.

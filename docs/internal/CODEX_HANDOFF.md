@@ -67,6 +67,15 @@ then captures again successfully. Debug/Release are 24 PASS plus the expected ca
 next physical run must check menu fusion first, then load the game once and reach `native_stereo`.
 Do not reuse `20260919T213924Z-d5d149a5bf46`.
 
+That next run is staged as `20260920T090448Z-b1f54e3cb38e` from clean source
+`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195`, proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Body IK is enabled before
+launch and the reversible `1920x1080`/FSAA0 profile is active. Start SteamVR manually, launch CoJ
+once, verify the flat menu is binocularly fused, exercise one pointer click and Create re-anchor,
+then load once and verify the same process reaches native stereo. Finish the run after exit; do not
+reuse its run ID for a second process.
+
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
 `9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`, proxy SHA-256

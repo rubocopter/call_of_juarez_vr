@@ -44,6 +44,11 @@ each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP
 gate is therefore: fused menu -> pointer/select/re-anchor -> successful load -> same-process
 `native_stereo`.
 
+Fresh candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source `14d387b`, manifest
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. It carries the per-eye flat
+projection and Reset-safe readback corrections with Body IK enabled from startup.
+
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-
 target recenter rebase. Arms are substantially improved visually and all 8,452 applications/restores
