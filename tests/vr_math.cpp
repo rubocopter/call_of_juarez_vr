@@ -208,6 +208,22 @@ int main() {
         return Fail("flat-theater center ray did not map to the source-image center");
     }
 
+    FlatTheaterPointerBeam beam{};
+    if (!ComputeFlatTheaterPointerBeam(500, 300, 1000, 600, beam) ||
+        beam.end_x != 500 || beam.end_y != 300 ||
+        beam.start_x != 500 || beam.start_y <= beam.end_y ||
+        beam.start_y - beam.end_y > 96U) {
+        return Fail("flat-theater pointer beam did not terminate at the reticle");
+    }
+    if (!ComputeFlatTheaterPointerBeam(900, 100, 1000, 600, beam) ||
+        beam.end_x != 900 || beam.end_y != 100 ||
+        beam.start_x >= beam.end_x || beam.start_y <= beam.end_y) {
+        return Fail("flat-theater pointer beam did not point toward an off-centre reticle");
+    }
+    if (ComputeFlatTheaterPointerBeam(1000, 100, 1000, 600, beam)) {
+        return Fail("flat-theater pointer beam accepted an out-of-range reticle");
+    }
+
     controller_aim.position.x = 0.30F;
     if (!ProjectFlatTheaterPointer(
             theater_anchor, controller_aim,

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <iostream>
 #include <limits>
+#include <string_view>
 
 namespace {
 
@@ -53,6 +54,14 @@ int main() {
     using namespace cojvr::games::call_of_juarez;
     using namespace cojvr::runtime;
 
+    if (std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::intro_skip)) !=
+            "GameWithMenu.sm_cIntroModule.OnInputKey" ||
+        std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::active_game_menu)) !=
+            "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter") {
+        std::cerr << "exact UI dispatch routes lost their telemetry identities\n";
+        return 1;
+    }
+
     const SkeletonBinding binding = ExactGameSkeletonBinding();
     if (binding.pelvis != 0 || binding.spine != 1 || binding.spine1 != 2 ||
         binding.chest != 3 || binding.neck != 4 || binding.head != 5 ||
@@ -91,6 +100,53 @@ int main() {
         !Near(yaw_offsets.spine_horizontal_degrees, -20.0F) ||
         !Near(yaw_offsets.head_vertical_degrees, 0.0F)) {
         std::cerr << "HMD yaw did not map to the live-proven CoJ sign/distribution\n";
+        return 1;
+    }
+
+    const auto first_body_yaw = BuildBodyYawOwnershipUpdate(
+        right_turn_head, 0.0F, false, false);
+    if (!first_body_yaw.valid ||
+        !Near(first_body_yaw.actor_target_degrees, 0.0F) ||
+        !Near(first_body_yaw.actor_delta_degrees, 0.0F) ||
+        !Near(first_body_yaw.camera_compensation_degrees, 0.0F) ||
+        !Near(first_body_yaw.head_residual_degrees, -30.0F) ||
+        !Near(first_body_yaw.spine_residual_degrees, -20.0F)) {
+        std::cerr << "body yaw comfort zone rotated the actor during an ordinary head turn\n";
+        return 1;
+    }
+
+    const float wide_yaw_half = 22.5F * kPi / 180.0F;
+    Pose wide_right_turn_head{};
+    wide_right_turn_head.orientation = {
+        0.0F, -std::sin(wide_yaw_half), 0.0F, std::cos(wide_yaw_half)};
+    wide_right_turn_head.orientation_valid = true;
+    const auto wide_body_yaw = BuildBodyYawOwnershipUpdate(
+        wide_right_turn_head, 0.0F, false, false);
+    if (!wide_body_yaw.valid ||
+        !Near(wide_body_yaw.actor_target_degrees, -25.0F) ||
+        !Near(wide_body_yaw.actor_delta_degrees, -25.0F) ||
+        !Near(wide_body_yaw.head_residual_degrees, -45.0F)) {
+        std::cerr << "wide HMD yaw did not move the actor toward the comfort-zone residual\n";
+        return 1;
+    }
+    const auto settled_body_yaw = BuildBodyYawOwnershipUpdate(
+        wide_right_turn_head, wide_body_yaw.actor_target_degrees, true, false);
+    if (!settled_body_yaw.valid ||
+        !Near(settled_body_yaw.actor_delta_degrees, 0.0F) ||
+        !Near(settled_body_yaw.camera_compensation_degrees, -25.0F) ||
+        !Near(settled_body_yaw.head_residual_degrees, -20.0F) ||
+        !Near(settled_body_yaw.spine_residual_degrees, -13.333333F, 0.001F)) {
+        std::cerr << "actor-owned HMD yaw was still being double-applied to the upper body\n";
+        return 1;
+    }
+    const auto recentered_body_yaw = BuildBodyYawOwnershipUpdate(
+        identity_head, settled_body_yaw.actor_target_degrees, true, true);
+    if (!recentered_body_yaw.valid ||
+        !Near(recentered_body_yaw.actor_target_degrees, 0.0F) ||
+        !Near(recentered_body_yaw.actor_delta_degrees, 0.0F) ||
+        !Near(recentered_body_yaw.camera_compensation_degrees, 0.0F) ||
+        !Near(recentered_body_yaw.head_residual_degrees, 0.0F)) {
+        std::cerr << "recenter did not adopt current actor yaw as the new VR baseline\n";
         return 1;
     }
 
@@ -481,8 +537,8 @@ int main() {
         return -1.0F;
     };
     if (!Near(action_value(2), 0.0F) || !Near(action_value(3), 0.0F) ||
-        !Near(action_value(4), 0.0F) || !Near(action_value(5), 0.6F) ||
-        !Near(action_value(6), 0.8F) || !Near(action_value(7), 0.0F) ||
+        !Near(action_value(4), 0.0F) || !Near(action_value(5), 7.0F / 12.0F) ||
+        !Near(action_value(6), 19.0F / 24.0F) || !Near(action_value(7), 0.0F) ||
         !Near(action_value(9), 1.0F) || !Near(action_value(10), 1.0F) ||
         !Near(action_value(11), 1.0F) || !Near(action_value(30), 1.0F) ||
         !Near(action_value(31), 1.0F) || !Near(action_value(47), 1.0F)) {
@@ -548,7 +604,7 @@ int main() {
     }
     GameplayInputState deadzone_gameplay{};
     deadzone_gameplay.active = true;
-    deadzone_gameplay.move = {0.1F, -0.1F};
+    deadzone_gameplay.move = {0.03F, -0.03F};
     for (const auto& item : BuildCoJGameplayActionValues(deadzone_gameplay)) {
         if (!Near(item.value, 0.0F)) {
             std::cerr << "VR gameplay stick deadzone leaked into a CoJ action\n";
@@ -563,13 +619,13 @@ int main() {
     for (const auto& item : low_speed_actions) {
         if (item.action == 4) low_speed_forward = item.value;
     }
-    if (!(low_speed_forward > 0.0F && low_speed_forward < 0.10F)) {
-        std::cerr << "VR locomotion deadzone did not preserve low-speed analog movement\n";
+    if (!Near(low_speed_forward, 1.0F / 6.0F, 0.002F)) {
+        std::cerr << "VR locomotion did not reproduce InputAnalog's 0.04 deadzone shaping\n";
         return 1;
     }
     GameplayInputState diagonal_gameplay{};
     diagonal_gameplay.active = true;
-    diagonal_gameplay.move = {0.12F, 0.12F};
+    diagonal_gameplay.move = {0.12F, 0.03F};
     const auto diagonal_actions = BuildCoJGameplayActionValues(diagonal_gameplay);
     float diagonal_forward = 0.0F;
     float diagonal_right = 0.0F;
@@ -577,9 +633,9 @@ int main() {
         if (item.action == 4) diagonal_forward = item.value;
         if (item.action == 6) diagonal_right = item.value;
     }
-    if (!(diagonal_forward > 0.0F && diagonal_right > 0.0F &&
-          Near(diagonal_forward, diagonal_right, 0.001F))) {
-        std::cerr << "VR locomotion deadzone was applied per axis instead of radially\n";
+    if (!Near(diagonal_forward, 0.0F) ||
+        !Near(diagonal_right, 1.0F / 12.0F, 0.002F)) {
+        std::cerr << "VR locomotion did not preserve InputAnalog's per-axis constraints\n";
         return 1;
     }
     if (!UseDirectAnalogCoJLocomotion(4) || !UseDirectAnalogCoJLocomotion(5) ||
@@ -598,30 +654,67 @@ int main() {
     }
 
     CoJLoadingUiInputGate loading_ui_gate{};
+    auto blocking_ui = loading_ui_gate.Update(
+        true, true, false, false, false);
+    if (!blocking_ui.suppress_fire || !blocking_ui.suppress_gameplay) {
+        std::cerr << "frozen game timer did not immediately neutralize gameplay input\n";
+        return 1;
+    }
+    loading_ui_gate.Reset();
     auto loading_ui = loading_ui_gate.Update(
         true, false, true, true, false);
-    if (loading_ui.dispatch_select || loading_ui.suppress_fire) {
+    if (loading_ui.dispatch_select || loading_ui.suppress_fire ||
+        loading_ui.suppress_gameplay) {
         std::cerr << "ordinary gameplay UI-select was consumed by the loading gate\n";
         return 1;
     }
     loading_ui = loading_ui_gate.Update(true, true, true, true, false);
-    if (!loading_ui.dispatch_select || !loading_ui.suppress_fire) {
+    if (!loading_ui.dispatch_select || !loading_ui.suppress_fire ||
+        !loading_ui.suppress_gameplay) {
         std::cerr << "frozen loading gate did not consume the Sense select press\n";
         return 1;
     }
     loading_ui = loading_ui_gate.Update(true, true, false, true, false);
-    if (loading_ui.dispatch_select || !loading_ui.suppress_fire) {
+    if (loading_ui.dispatch_select || !loading_ui.suppress_fire ||
+        !loading_ui.suppress_gameplay) {
         std::cerr << "held trigger was not neutralized after loading UI dispatch\n";
         return 1;
     }
     loading_ui = loading_ui_gate.Update(true, false, false, true, false);
-    if (loading_ui.dispatch_select || !loading_ui.suppress_fire) {
+    if (loading_ui.dispatch_select || !loading_ui.suppress_fire ||
+        loading_ui.suppress_gameplay) {
         std::cerr << "trigger leaked when the game timer resumed before release\n";
         return 1;
     }
     loading_ui = loading_ui_gate.Update(true, false, false, false, false);
-    if (loading_ui.dispatch_select || loading_ui.suppress_fire) {
+    if (loading_ui.dispatch_select || loading_ui.suppress_fire ||
+        loading_ui.suppress_gameplay) {
         std::cerr << "loading UI fire suppression did not clear after trigger release\n";
+        return 1;
+    }
+
+    CoJUiSelectRetryState ui_select_retry{};
+    ui_select_retry.Observe(true, true);
+    if (!ui_select_retry.ShouldDispatch(true, false)) {
+        std::cerr << "UI select edge was not retained for the active pointer\n";
+        return 1;
+    }
+    ui_select_retry.Complete(false);
+    ui_select_retry.Observe(false, true);
+    if (!ui_select_retry.ShouldDispatch(true, false)) {
+        std::cerr << "transient UI unavailability consumed a held select\n";
+        return 1;
+    }
+    ui_select_retry.Complete(true);
+    if (ui_select_retry.ShouldDispatch(true, false)) {
+        std::cerr << "successful UI select was dispatched more than once\n";
+        return 1;
+    }
+    ui_select_retry.Observe(true, true);
+    ui_select_retry.Complete(false);
+    ui_select_retry.Observe(false, false);
+    if (ui_select_retry.ShouldDispatch(true, false)) {
+        std::cerr << "released UI select remained queued after dispatch failure\n";
         return 1;
     }
 
@@ -806,6 +899,16 @@ int main() {
         return 1;
     }
 
+    const auto camera_only_roomscale = BuildCollisionSafeRoomScaleTranslation(
+        {0.034F, 0.12F, -0.027F});
+    if (!camera_only_roomscale.valid || camera_only_roomscale.write_actor_position ||
+        !Near(Distance(
+            camera_only_roomscale.render_head_position,
+            {0.034F, 0.12F, -0.027F}), 0.0F)) {
+        std::cerr << "collision-safe room scale did not preserve HMD translation in the camera\n";
+        return 1;
+    }
+
     // Native replay of run 327dd proves FORETWIST is NOT under forearm and
     // hand is NOT under FORETWIST. With a 90-degree elbow bend the old twist-
     // only writer leaves the skinning frame behind, even at zero controller roll.
@@ -881,7 +984,10 @@ int main() {
             0, element_position, element_up, element_forward) ||
         bridge.TrySetElementWorldBasis(0, {}, {}, {}) ||
         bridge.TryRotateElementWithChildren(0, {0.0F, 1.0F, 0.0F}, 10.0F) ||
+        bridge.TryRotateHorizontally(15.0F) ||
         bridge.TryGetActiveGameTimerFrozen(game_timer_frozen) ||
+        bridge.TryProcessUiPointer() ||
+        bridge.TrySetPerHandAimOrigin(0, {1.0F, 2.0F, 3.0F}) ||
         bridge.TryApplyUpperBodyTracking(0.0F, 0.0F, 0.0F)) {
         std::cerr << "Java player bridge did not fail closed without the game JVM\n";
         return 1;

@@ -488,6 +488,73 @@ UpperBodyTrackingOffsets UpperBodyOffsetsFromHeadPose(
     return result;
 }
 
+BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
+    const cojvr::runtime::Pose& relative_head_pose,
+    const float previously_owned_degrees,
+    const bool previous_owned_valid,
+    const bool recentered) noexcept {
+    BodyYawOwnershipUpdate result{};
+    if (!relative_head_pose.orientation_valid ||
+        !std::isfinite(previously_owned_degrees)) {
+        return result;
+    }
+
+    if (recentered) {
+        result.valid = true;
+        return result;
+    }
+
+    const cojvr::runtime::Vec3 tracked_forward = cojvr::runtime::RotateVector(
+        relative_head_pose.orientation, {0.0F, 0.0F, -1.0F});
+    if (!std::isfinite(tracked_forward.x) || !std::isfinite(tracked_forward.y) ||
+        !std::isfinite(tracked_forward.z)) {
+        return result;
+    }
+
+    constexpr float kRadiansToDegrees = 57.29577951308232F;
+    const float local_x = tracked_forward.x;
+    const float local_z = -tracked_forward.z;
+    const float physical_yaw = std::atan2(local_x, local_z) * kRadiansToDegrees;
+    if (!std::isfinite(physical_yaw)) return result;
+
+    const float game_yaw = std::remainder(-physical_yaw, 360.0F);
+    const float previous_owned = previous_owned_valid
+        ? std::remainder(previously_owned_degrees, 360.0F)
+        : 0.0F;
+    const float residual = std::remainder(game_yaw - previous_owned, 360.0F);
+
+    // Keep ordinary head motion in the neck/spine chain. Rotating the actor
+    // for every one-degree HMD sample made native movement visibly step and
+    // also rotated the controller-to-world basis continuously. Once the head
+    // exceeds the comfort cone, move the actor only far enough to leave a
+    // twenty-degree residual and wait for another wide turn before moving it
+    // again.
+    constexpr float kActorFollowEngageDegrees = 35.0F;
+    constexpr float kActorFollowResidualDegrees = 20.0F;
+    float actor_delta = 0.0F;
+    if (std::fabs(residual) > kActorFollowEngageDegrees) {
+        actor_delta = residual - std::copysign(kActorFollowResidualDegrees, residual);
+    }
+
+    result.actor_target_degrees = std::remainder(previous_owned + actor_delta, 360.0F);
+    result.actor_delta_degrees = actor_delta;
+    result.camera_compensation_degrees = previous_owned;
+    result.head_residual_degrees = std::clamp(residual, -90.0F, 90.0F);
+    result.spine_residual_degrees = result.head_residual_degrees * (2.0F / 3.0F);
+    result.valid = true;
+    return result;
+}
+
+RoomScaleTranslationUpdate BuildCollisionSafeRoomScaleTranslation(
+    const cojvr::runtime::Vec3 relative_head_position) noexcept {
+    RoomScaleTranslationUpdate result{};
+    if (!Finite(relative_head_position)) return result;
+    result.render_head_position = relative_head_position;
+    result.write_actor_position = false;
+    result.valid = true;
+    return result;
+}
+
 PlayerSpaceReconciliation ReconcilePlayerSpace(
     const cojvr::runtime::Vec3 current_actor_position,
     cojvr::runtime::Vec3 camera_right,

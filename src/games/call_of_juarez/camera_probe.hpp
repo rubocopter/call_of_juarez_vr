@@ -10,6 +10,8 @@
 
 namespace cojvr::games::call_of_juarez {
 
+enum class CoJUiDispatchRoute;
+
 inline constexpr std::string_view kInspectedChromeEngine3Sha256 =
     "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8";
 
@@ -63,7 +65,16 @@ struct CameraProbeCommand {
 [[nodiscard]] CameraProbeBasis ApplyCameraPoseOrientation(
     CameraProbeVector forward,
     CameraProbeVector up,
-    cojvr::runtime::Quaternion relative_orientation) noexcept;
+    cojvr::runtime::Quaternion relative_orientation,
+    float actor_yaw_compensation_degrees = 0.0F) noexcept;
+
+// Produces the level, recenter-space basis used for controllers and body
+// targets. Natural camera yaw already includes actor-owned HMD rotation, so
+// remove that owned component before mapping fixed tracking-space poses.
+[[nodiscard]] CameraProbeBasis BuildTrackingReferenceBasis(
+    CameraProbeVector forward,
+    CameraProbeVector up,
+    float actor_owned_yaw_degrees) noexcept;
 
 [[nodiscard]] float CameraProbeBasisDeterminant(CameraProbeBasis basis) noexcept;
 
@@ -119,6 +130,10 @@ struct CameraStereoFrameSample {
 [[nodiscard]] bool DispatchCameraUiSelectPress(
     bool require_loading_ui,
     bool* current_ui_is_loading = nullptr,
+    std::string* error = nullptr,
+    bool* paused_hint_dismissed = nullptr,
+    CoJUiDispatchRoute* route = nullptr) noexcept;
+[[nodiscard]] bool DispatchCameraUiPointerMotion(
     std::string* error = nullptr) noexcept;
 [[nodiscard]] bool ObserveCameraGameTimerFrozen(
     bool& frozen,

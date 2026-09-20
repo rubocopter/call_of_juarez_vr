@@ -1,5 +1,74 @@
 # Validation model
 
+## Single-process physical rejection — 2026-09-20 15:23Z
+
+Run `20260920T152316Z-48dab54366d5` is finalized and unstaged. It contains one CoJ process and a
+normal outer `run_end`, but it ran from a dirty tree and failed the live verifier because no Sense
+press safely dismissed a frozen loading/hint UI. It is therefore **diagnostic single-process
+evidence**, not a promotion run. The 77.884-second video is
+`C:\Users\onita\Videos\clip_1.789.918.380.445.mp4`; formal hashes and metrics are in
+`docs/research/evidence/20260920T152316Z-48dab54366d5.json`.
+
+The user could not skip startup videos or reliably activate menu choices. The cursor appeared, but
+there was no controller laser. Runtime telemetry recorded 2,959 instances where the global main-menu
+module was unavailable, 47 failed flat UI selections and only four applied selections. Shipped
+bytecode supplies two distinct missing routes: `IntroModule.OnInputKey(1,false,0)` for startup
+movies/logos and inherited `LawmanModule.cMenu -> MainMenuModule.GetCurrentUI()` for the in-game
+Escape menu. Current source resolves those routes in addition to the global menu and overlays a
+bounded cyan beam plus reticle. The verifier now requires an actual intro skip and an actual active
+Escape-menu selection, not cursor movement alone.
+
+The user also reported walking and jumping in visible steps. The action log contained continuous
+float locomotion values, while actor reconciliation wrote the Java player position for mostly
+sub-centimetre HMD changes on sampled frames. That direct position route bypasses native collision
+and competes with the game's movement/grounding. Current source keeps room-scale translation in the
+transient camera and leaves the actor position entirely under native gameplay ownership. Raw HMD yaw
+also produced 792 actor-yaw updates; current body follow uses a 35-degree engage / 20-degree residual
+comfort cone so ordinary head motion does not rotate the actor every frame.
+
+The video confirms that T-pose arms moved away during head-only yaw. The controller offset was being
+mapped through the natural camera basis after the actor had already absorbed physical HMD yaw. This
+rotated the fixed tracking-space hands a second time. Arm, foot and controller-aim mapping now use a
+level reference with actor-owned yaw removed. Focused `body_adapter`, `camera_probe` and `vr_math`
+tests and the fresh Debug and Release suites each pass with 24 PASS plus the expected classic-D3D9
+shared-texture SKIP.
+All post-run corrections remain **host-tested only** pending a fresh unique headset run.
+
+## Diagnostic physical regression run — 2026-09-20
+
+Run `20260920T120157Z-ec17bbca3a2b` is retained as **diagnostic multiprocess evidence only** because
+the same run ID contains two separate CoJ process starts. It cannot promote any validation state.
+The user observed an intermittent SteamVR dashboard at startup, non-functional menu hover/select,
+a monitor-only new-game hint that froze progression, repeated falls below the map, persistent world
+tilt after recenter, a body root that did not follow physical HMD yaw, coarse locomotion and shots
+originating from the native player point.
+
+The diagnostic log and shipped Java bytecode isolate the relevant boundaries. Frozen hints stop the
+`LawmanModule` game timer; actor reconciliation was still running during that frozen state. Menu
+hover is owned by `GameUserInterface.SetProcessMouse()`/`ProcessMouse(true)`, and select remains the
+global Enter route. The camera had been composing relative HMD orientation on the complete natural
+camera basis, inheriting native pitch/roll. `WeaponFire.AttackFire()` reads ordinary ballistic origin
+through `Being.m_vLookFromPoint`, while its visual origin is selected per weapon hand through
+`m_avAimFromPoint[hand]`.
+
+Current source is **host-tested** for the resulting corrections: a frozen timer forces flat-theater
+presentation, gameplay/body/IK mutation is neutralized until resume, paused hints use
+`HintManager.DisableCurrentHint()`, cursor movement drives `SetProcessMouse()`, and a single held
+select is retried across transient menu-module unavailability. The VR camera levels natural pitch/
+roll to a yaw-only base before applying relative HMD orientation. Physical HMD yaw transfers to the
+actor through `PlayerBeing.RotateHorizontally(F)` after stereo restoration and resets on actor or
+tracking loss. Movement actions 4-7 use CoJ `InputAnalog`'s per-axis 0.04 deadzone. `/pose/tip` writes
+both per-hand direction and visual origin before gameplay input; local ballistic origin substitution
+is scoped to the synchronous digital fire call and immediately restored. Native accuracy/spread and
+the network-forced path remain unchanged.
+
+Fresh Debug and Release runs each complete the 25-outcome CTest suite with **24 PASS plus one expected
+classic-D3D9 shared-texture capability SKIP**, zero failures. The live verifier now requires the
+combined Win32-cursor/Java-mouse pointer route, safe blocking-UI suppression/resume, leveled-camera
+telemetry, body-yaw transfer, CoJ analog locomotion telemetry, and controller direction/visual-origin
+writes. A fresh unique headset run is required before any of these corrections can advance beyond
+`host-tested`.
+
 ## Latest arm evidence — 2026-09-19
 
 Run `20260919T153546Z-705460dca03b` is the latest formal single-process physical run. It came from

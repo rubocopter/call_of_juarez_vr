@@ -217,6 +217,42 @@ bool ComputeFlatTheaterEyePlacement(
     return true;
 }
 
+bool ComputeFlatTheaterPointerBeam(
+    const std::uint32_t pointer_x,
+    const std::uint32_t pointer_y,
+    const std::uint32_t source_width,
+    const std::uint32_t source_height,
+    FlatTheaterPointerBeam& beam) noexcept {
+    beam = {};
+    if (source_width == 0 || source_height == 0 ||
+        pointer_x >= source_width || pointer_y >= source_height) {
+        return false;
+    }
+
+    constexpr float kBeamPixels = 96.0F;
+    const float origin_x = static_cast<float>(source_width) * 0.5F;
+    const float origin_y = static_cast<float>(source_height - 1U);
+    const float dx = static_cast<float>(pointer_x) - origin_x;
+    const float dy = static_cast<float>(pointer_y) - origin_y;
+    const float length = std::sqrt(dx * dx + dy * dy);
+    if (!std::isfinite(length) || length <= 1.0e-4F) {
+        beam.start_x = pointer_x;
+        beam.start_y = pointer_y;
+    } else {
+        const float extent = std::min(length, kBeamPixels);
+        const float scale = extent / length;
+        beam.start_x = static_cast<std::uint32_t>(std::clamp(
+            std::lround(static_cast<float>(pointer_x) - dx * scale),
+            0L, static_cast<long>(source_width - 1U)));
+        beam.start_y = static_cast<std::uint32_t>(std::clamp(
+            std::lround(static_cast<float>(pointer_y) - dy * scale),
+            0L, static_cast<long>(source_height - 1U)));
+    }
+    beam.end_x = pointer_x;
+    beam.end_y = pointer_y;
+    return true;
+}
+
 bool ProjectFlatTheaterPointer(
     const Pose& anchor_pose,
     const Pose& aim_pose,

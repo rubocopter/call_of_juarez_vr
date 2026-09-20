@@ -2,6 +2,40 @@
 
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `headset-validated`, `supported`.
 
+Latest physical test `20260920T152316Z-48dab54366d5` is a finalized/unstaged, single-process
+diagnostic rejection. The run completed, but startup videos could not be skipped, menu activation
+remained unreliable, no controller laser was visible, walking/jumping felt jerky and head-only yaw
+moved the T-pose arms away. Weapons were not tested. Evidence is in
+`docs/research/evidence/20260920T152316Z-48dab54366d5.json`; no gate is promoted.
+
+Current host source adds the exact `IntroModule.OnInputKey` startup-skip route, falls back to the
+active `LawmanModule.cMenu` for the in-game Escape menu and draws a cyan flat-theater laser/reticle.
+It removes per-frame Java actor teleports, keeps room-scale translation camera-owned, adds a body-yaw
+comfort cone and removes actor-owned yaw from the controller/body mapping basis. The next physical
+run must explicitly skip an intro, select an Escape-menu option, dismiss a blocking hint/loading UI,
+walk/run/jump, turn the head with arms held in a T-pose and then exercise direct plus deferred fire.
+These corrections remain **host-tested**.
+
+The Half-Life: Alyx-style weapon wheel and an optional HUD reveal button remain **planned** interface
+work after the current playability gate. The compass must remain available through that HUD path;
+a physical world-space compass is a later experiment once movement, body ownership and weapon
+interaction are stable.
+
+Latest physical test `20260920T120157Z-ec17bbca3a2b` is diagnostic-only because one run identity was
+used for two CoJ processes. It exposed the next acceptance gate: intermittent startup dashboard,
+menu pointer without reliable hover/select, a monitor-only frozen hint, actor fall-through while
+paused, inherited world tilt, missing HMD-to-body yaw ownership, coarse movement/run and incorrect
+shot origin. Current source addresses the host-observable causes and remains **host-tested** pending a
+fresh unique physical run.
+
+The next candidate must prove, in one process: startup scene ownership on both cold/repeated launch;
+pointer hover plus L2/R2 selection through `SetProcessMouse()` and the exact Java Enter route; frozen
+hint visibility in-headset and Sense dismissal without actor/body mutation; no fall-through while the
+timer is frozen; a level world before/after Create recenter; torso yaw following HMD without double
+rotation; CoJ `InputAnalog`-style per-axis 0.04 locomotion; controller-tip visual/ballistic firing;
+arm quality no worse than the current ablation; and normal shutdown/finalization. The verifier now
+requires telemetry for these contracts.
+
 Latest formal full/body run `20260920T090448Z-b1f54e3cb38e` is finalized/unstaged from clean source
 `14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
 `4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
@@ -39,14 +73,17 @@ The PS VR2 Sense binding manifest itself is coherent and the run delivered gamep
 left stick move/run-click, right stick snap-turn/crouch-click, L2/R2 fire, Cross jump, Square reload,
 Triangle interact, Circle kick and L1/R1 weapon previous/next. The coarse locomotion came from the
 bridge converting stick motion through desktop digital directional semantics. Current host source
-uses a radial deadzone and sends actions 4-7 directly to `GameObject.CallOnInputGameController` with
-their float values; run remains boolean and snap turn remains exact +/-45 degrees. Smooth locomotion
-therefore remains **host-tested** pending the next headset run.
+reproduces the shipped `InputAnalog` per-axis 0.04 deadzone/saturation and sends actions 4-7 directly
+to `GameObject.CallOnInputGameController` with their float values; run remains boolean and snap turn
+remains exact +/-45 degrees. Smooth locomotion therefore remains **host-tested** pending the next
+headset run.
 
-Controller `/pose/tip` direction is already written into the exact per-hand look direction, but the
-user again observed shots originating from the native player/fire-origin boundary. Ballistic origin
-ownership remains open; instrument the exact attack boundary before changing it so native
-spread/accuracy and the network-forced path remain intact.
+Controller `/pose/tip` now writes the exact per-hand look direction and the per-hand visual origin
+`m_avAimFromPoint`. Exact `WeaponFire.AttackFire` inspection confirms ordinary ballistic origin uses
+`Being.m_vLookFromPoint`; current host source substitutes that vector only around the matching local
+digital fire call and restores it immediately. Native spread/accuracy and network-forced attacks are
+untouched. Physical testing must still cover both direct and deferred/automatic firing before this
+origin path can advance beyond **host-tested**.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched and is unstaged. Its run ID is retired.
 Full/body run `20260919T174647Z-67b3c560acd0` is finalized/unstaged. It used clean source `8697a81`, with

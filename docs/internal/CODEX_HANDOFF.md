@@ -2,6 +2,62 @@
 
 ## Current checkpoint
 
+Latest physical test `20260920T152316Z-48dab54366d5` is finalized/unstaged and is a single-process
+**diagnostic rejection** from dirty source. The associated video is
+`C:\Users\onita\Videos\clip_1.789.918.380.445.mp4`; user clips should always be resolved under
+`C:\Users\onita\Videos`. Evidence metadata is recorded in
+`docs/research/evidence/20260920T152316Z-48dab54366d5.json`. Outer shutdown reached `run_end`, but
+the verifier failed because no Sense select dismissed a frozen loading/hint state. The user also
+reported unskippable startup videos, menu options that could not be activated, no visible controller
+laser, jerky walking/jumping and arms that moved away during head-only yaw in a T-pose. Weapons were
+not tested and no gate advances.
+
+The UI log contains 2,959 `main menu module is unavailable` failures, 47 failed flat selections and
+only four applied selections. Static bytecode closes the missing ownership boundaries:
+`IntroModule.OnInputKey(1,false,0)` is the startup video/logo skip path and inherited
+`LawmanModule.cMenu -> MainMenuModule.GetCurrentUI()` owns the in-game Escape menu when global
+`GameWithMenu.sm_cMenuModule` is null. Current host source tries global menu, active-module menu and
+intro skip in that order, logs the actual route and overlays a bounded cyan laser/reticle on the
+flat-theater image.
+
+The analog samples were continuous; the stronger locomotion cause was player reconciliation. It
+wrote the actor position for mostly sub-centimetre tracking deltas, bypassing native collision and
+competing with normal movement. Current source keeps full room-scale translation in the transient
+camera and never writes actor position. Actor yaw now uses a 35-degree engage / 20-degree residual
+comfort cone instead of committing raw HMD yaw every frame. Arm and controller-aim mapping use a
+level reference with previously actor-owned yaw removed, preventing body/head yaw from rotating
+fixed tracking-space hands a second time. Debug focused and full suites pass; all of these changes
+remain **host-tested only** until a fresh unique physical run.
+
+Latest physical test `20260920T120157Z-ec17bbca3a2b` is diagnostic-only because its run identity was
+reused across two CoJ process starts. It reproduces the user's remaining integration failures: the
+SteamVR dashboard stuck on the first start but not the second; flat-theater ray movement did not
+reliably update CoJ hover/select; a new-game hint was visible only on the monitor and froze the game;
+the actor continued to mutate while the timer was frozen and fell below the map; saves could inherit
+a persistent sloped/tilted VR world; physical HMD yaw did not rotate the body root; movement/run felt
+coarse; and ballistic origin remained at the native player look-from point. No gate is promoted from
+this multiprocess evidence.
+
+Current source resolves the host-observable causes. Frozen-timer UI states enter `flat_theater`,
+neutralize gameplay and skip actor/body/IK mutation. `HintManager.DisableCurrentHint()` owns paused
+hint dismissal, while ordinary selection stays on `GameUserInterface.CallEnterKeyPressed/Released()`.
+Pointer movement now calls `GameUserInterface.SetProcessMouse()` after positioning the real cursor,
+and one held trigger edge is retained across transient `MainMenuModule` unavailability. The camera
+uses a yaw-only natural basis before relative HMD yaw/pitch/roll, preventing game slope/animation
+pitch or roll from becoming the VR baseline. Physical HMD yaw is committed to
+`PlayerBeing.RotateHorizontally(F)` only after stereo restoration and its ownership state resets on
+tracking/actor loss. CoJ locomotion uses the shipped `InputAnalog` per-axis 0.04 deadzone instead of
+the earlier radial 0.15 approximation.
+
+`/pose/tip` now updates both `m_avLookDirDevForHand` and `m_avAimFromPoint[hand]` before gameplay
+input. Exact bytecode inspection confirms `WeaponFire.AttackFire()` uses the latter for visual fire
+origin, while ordinary ballistic origin still routes through `Being.m_vLookFromPoint`. Local fire
+input therefore substitutes that global vector only around its synchronous `InputDigital.Translate`
+call and restores it immediately; native spread/accuracy and the network-forced branch are preserved.
+Deferred/automatic fire remains a required physical observation. Debug and Release each pass the
+25-outcome suite with **24 PASS plus the expected classic-D3D9 shared-texture capability SKIP**. These
+corrections are **host-tested only** until a fresh unique headset run exercises them.
+
 Latest formal full/body run `20260920T090448Z-b1f54e3cb38e` is finalized and unstaged. It used clean
 source `14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
 `4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195`, proxy SHA-256
@@ -28,8 +84,9 @@ events. This correction is host-tested only.
 
 The PS VR2 Sense binding file is complete; the locomotion complaint was an adapter problem. The old
 bridge decomposed the stick into desktop directional actions with deadzone + digital threshold,
-creating a large effective deadzone and binary-feeling movement. Current source applies one radial
-0.15 deadzone and sends CoJ movement actions 4-7 directly to
+creating a large effective deadzone and binary-feeling movement. Static `InputAnalog.class` evidence
+shows CoJ itself uses a per-axis 0.04 deadzone and 1.0 saturation. Current source reproduces that
+mapping and sends movement actions 4-7 directly to
 `GameObject.CallOnInputGameController(action,float,source)`. Run action 18 stays boolean and right-stick
 snap turn stays exact +/-45 degrees. This direct-float locomotion path is host-tested only.
 
@@ -41,11 +98,13 @@ units before the real two-bone clamp. Current source removes that target remap a
 controller-driven axial twist; positional IK, FORETWIST sibling swing and controller-orientation
 diagnostics remain. Treat this as the next physical ablation gate, not as Body IK promotion.
 
-Controller `/pose/tip` direction already reaches the exact per-hand native look direction, but the
-user again observed shots originating from the native player/fire-origin point. Do not guess an
-origin replacement. Instrument the exact `WeaponFire.AttackFire` boundary first, comparing ballistic
-origin, visual/barrel origin and mapped controller tip while preserving native spread/accuracy and the
-network-forced branch.
+Controller `/pose/tip` direction reaches the exact per-hand native look direction and current host
+source also writes its mapped world point to `m_avAimFromPoint[hand]`, the visual origin selected by
+`GetFireOriginVisualizationForWeapon`. Exact `WeaponFire.AttackFire` bytecode confirms ordinary
+ballistic origin separately reads `Being.m_vLookFromPoint`; the local input bridge temporarily
+substitutes that vector for the matching fire action and verifies immediate restoration. Do not
+promote ballistic origin until a physical firing sequence covers both press-driven and deferred/
+automatic weapon states.
 
 Run `20260919T162808Z-fb75cb34977a` is now diagnostic multiprocess evidence, not an active candidate.
 The user launched it twice and both starts left the SteamVR interface stuck over the game. PID 28408

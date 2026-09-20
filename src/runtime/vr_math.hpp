@@ -31,6 +31,22 @@ struct FlatTheaterEyePlacement {
     std::uint32_t top = 0;
 };
 
+struct FlatTheaterPointerBeam {
+    std::uint32_t start_x = 0;
+    std::uint32_t start_y = 0;
+    std::uint32_t end_x = 0;
+    std::uint32_t end_y = 0;
+};
+
+// Builds a short screen-space laser segment that terminates at the menu
+// reticle. Its bounded 96-pixel extent keeps the CPU upload patch small.
+[[nodiscard]] bool ComputeFlatTheaterPointerBeam(
+    std::uint32_t pointer_x,
+    std::uint32_t pointer_y,
+    std::uint32_t source_width,
+    std::uint32_t source_height,
+    FlatTheaterPointerBeam& beam) noexcept;
+
 // Projects the head-centered flat-theater screen onto one runtime eye. The
 // source image keeps its native pixel extent inside the larger eye texture,
 // while eye-to-head translation and asymmetric FOV move its center to the
