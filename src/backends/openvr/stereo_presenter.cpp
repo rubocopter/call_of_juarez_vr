@@ -307,8 +307,15 @@ struct OpenVrStereoPresenter::Impl {
         for (std::size_t eye = 0; eye < 2; ++eye) {
             const auto& source = frame.eyes[eye];
             if (flat_theater) {
-                const std::uint32_t left_offset = (texture_width - source.width) / 2U;
-                const std::uint32_t top_offset = (texture_height - source.height) / 2U;
+                runtime::FlatTheaterEyePlacement placement{};
+                if (!runtime::ComputeFlatTheaterEyePlacement(
+                        eyes[eye], source.width, source.height,
+                        texture_width, texture_height, placement)) {
+                    SetError("presenter could not project the flat-theater plane into the runtime eye");
+                    return false;
+                }
+                const std::uint32_t left_offset = placement.left;
+                const std::uint32_t top_offset = placement.top;
                 D3D11_BOX box{};
                 box.left = left_offset;
                 box.top = top_offset;
@@ -824,6 +831,30 @@ struct OpenVrStereoPresenter::Impl {
                                     (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
                                          ? "flat_theater"
                                          : "native_stereo"));
+                                if (frame.presentation_mode ==
+                                    d3d9::FramePresentationMode::flat_theater) {
+                                    runtime::FlatTheaterEyePlacement left_placement{};
+                                    runtime::FlatTheaterEyePlacement right_placement{};
+                                    if (runtime::ComputeFlatTheaterEyePlacement(
+                                            eyes[0], frame.eyes[0].width, frame.eyes[0].height,
+                                            texture_width, texture_height, left_placement) &&
+                                        runtime::ComputeFlatTheaterEyePlacement(
+                                            eyes[1], frame.eyes[1].width, frame.eyes[1].height,
+                                            texture_width, texture_height, right_placement)) {
+                                        std::ostringstream geometry;
+                                        geometry << "native_stereo_flat_theater_geometry: status=active"
+                                                 << ";plane_distance_m=1.500"
+                                                 << ";texture=" << texture_width << 'x' << texture_height
+                                                 << ";source=" << frame.eyes[0].width << 'x'
+                                                 << frame.eyes[0].height
+                                                 << ";left_offset=" << left_placement.left << ','
+                                                 << left_placement.top
+                                                 << ";right_offset=" << right_placement.left << ','
+                                                 << right_placement.top
+                                                 << ";binocular_projection=eye_to_head_fov";
+                                        Log(geometry.str());
+                                    }
+                                }
                             }
                             if (first_presentable_frame) {
                                 Log("native_stereo_presenter_transition: status=scene_ready action=claim_compositor_focus_with_presentable_content");

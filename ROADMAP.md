@@ -36,10 +36,13 @@ build-manifest ID `96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F
 startup and the reversible `1920x1080`/FSAA0 profile active. It failed startup scene ownership before
 the Sense menu path could run. The device-Present correction is host-tested and requires a new run.
 
-Corrected full/body candidate `20260919T213924Z-d5d149a5bf46` is staged from clean source `c8dcbdf`,
-build-manifest ID `9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B` and proxy SHA-256
-`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Body IK and the reversible
-`1920x1080`/FSAA0 profile are active. The next physical run starts with the flat menu gate.
+Run `20260919T213924Z-d5d149a5bf46` is finalized/unstaged. It live-proves device-Present flat menu
+capture, scene focus and Sense pointer/click/re-anchor, but the user saw a doubled binocular image and
+the game crashed in `MeshObject.LoadMesh()` during level load before native stereo. Current source
+adds per-eye 1.5 m flat-plane projection and Reset-safe immediate flat readback. Debug and Release
+each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. The next physical
+gate is therefore: fused menu -> pointer/select/re-anchor -> successful load -> same-process
+`native_stereo`.
 
 Fresh physical run `20260919T153546Z-705460dca03b` is finalized from clean source `32e9797`.
 It physically validates exact +/-45-degree right-stick snap turn and live-exercises the preserved-

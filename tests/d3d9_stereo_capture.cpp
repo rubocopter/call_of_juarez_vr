@@ -204,6 +204,64 @@ int main() {
         return Fail("capture reused stale resources across an identical new device");
     }
 
+    // Flat-theater capture runs across menu/loading transitions where the game
+    // may Reset its classic D3D9 device. It must therefore leave no persistent
+    // default-pool resources that can make Reset fail when the owner has no
+    // explicit pre-Reset callback.
+    ComPtr<IDirect3DDevice9> flat_device;
+    hr = d3d9->CreateDevice(
+        D3DADAPTER_DEFAULT,
+        D3DDEVTYPE_HAL,
+        window,
+        D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
+        &present,
+        &flat_device);
+    if (FAILED(hr) || !flat_device) return Fail("flat-capture D3D9 device creation failed", hr);
+    ComPtr<IDirect3DSurface9> flat_back_buffer;
+    hr = flat_device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &flat_back_buffer);
+    if (FAILED(hr) || !flat_back_buffer) return Fail("flat-capture GetBackBuffer failed", hr);
+
+    cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
+    cojvr::backends::d3d9::StereoCpuFrame flat_frame{};
+    hr = flat_device->ColorFill(flat_back_buffer.Get(), nullptr, D3DCOLOR_ARGB(0xFF, 0x34, 0x56, 0x78));
+    if (FAILED(hr) ||
+        !flat_capture.CaptureFlatFrameImmediate(
+            flat_device.Get(), flat_back_buffer.Get(), 10, 1,
+            TestRenderPose(), 51, flat_frame)) {
+        std::cerr << flat_capture.last_error() << '\n';
+        return Fail("flat capture did not produce an immediate owned CPU frame", hr);
+    }
+    const std::uint64_t flat_left_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+        flat_frame.eyes[0].pixels.data(), flat_frame.eyes[0].stride,
+        flat_frame.eyes[0].width, flat_frame.eyes[0].height);
+    const std::uint64_t flat_right_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+        flat_frame.eyes[1].pixels.data(), flat_frame.eyes[1].stride,
+        flat_frame.eyes[1].width, flat_frame.eyes[1].height);
+    if (flat_left_hash == 0 || flat_left_hash != flat_right_hash ||
+        flat_frame.capture_sequence != 10 || flat_frame.render_pose_sequence != 51) {
+        return Fail("flat capture did not duplicate one backbuffer into a complete stereo frame");
+    }
+
+    flat_back_buffer.Reset();
+    D3DPRESENT_PARAMETERS flat_present = present;
+    flat_present.BackBufferWidth = 89;
+    flat_present.BackBufferHeight = 43;
+    hr = flat_device->Reset(&flat_present);
+    if (FAILED(hr)) {
+        return Fail("flat capture retained resources that blocked classic D3D9 Reset", hr);
+    }
+    hr = flat_device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &flat_back_buffer);
+    if (FAILED(hr) || !flat_back_buffer) return Fail("flat-capture post-Reset GetBackBuffer failed", hr);
+    flat_frame = {};
+    if (!flat_capture.CaptureFlatFrameImmediate(
+            flat_device.Get(), flat_back_buffer.Get(), 11, 2,
+            TestRenderPose(), 52, flat_frame) ||
+        flat_frame.eyes[0].width != 89 || flat_frame.eyes[0].height != 43 ||
+        flat_frame.generation != 2) {
+        std::cerr << flat_capture.last_error() << '\n';
+        return Fail("flat capture did not recover across Reset without explicit invalidation");
+    }
+
     const auto stats = capture.stats();
     if (stats.frames_fenced != 4 || stats.frames_collected != 4 ||
         stats.frames_dropped_no_slot != 0) {

@@ -55,13 +55,17 @@ entered `flat_theater`; scene ownership arrived only with gameplay stereo and th
 remained stuck during startup. Do not reuse this run ID. The next candidate must come from the
 device-Present correction and repeat the same menu/pointer/re-anchor/native-stereo acceptance sequence.
 
-That corrected candidate is now staged as run `20260919T213924Z-d5d149a5bf46` from clean source
-`c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d`, build-manifest ID
-`9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B`, proxy SHA-256
-`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Preparation passed 24 PASS
-plus the expected capability SKIP, enabled Body IK before process start and applied the reversible
-`1920x1080`/FSAA0 profile. Start SteamVR manually, launch CoJ once, and test the menu gate before
-loading gameplay. Do not reuse the run ID for a second process.
+Run `20260919T213924Z-d5d149a5bf46` is finalized/unstaged. Its device-Present correction worked:
+flat startup content acquired scene focus, the Sense ray/click path worked, and Create re-anchored the
+screen. The user saw severe binocular doubling because the artifact centered identical source pixels
+in both full-eye textures. Loading then crashed before native stereo; `hs_err_pid404.log` places the
+fault in `MeshObject.LoadMesh()` during `LawmanGame.LoadLevelAfterFade()`, after a D3D lock-like
+helper returned a near-null destination. Current source gives each eye finite-depth placement from
+`eye_to_head` + FOV at 1.5 m and removes persistent default-pool resources from flat capture by using
+an immediate readback. The Reset integration test captures, resets without invalidating flat capture,
+then captures again successfully. Debug/Release are 24 PASS plus the expected capability SKIP. The
+next physical run must check menu fusion first, then load the game once and reach `native_stereo`.
+Do not reuse `20260919T213924Z-d5d149a5bf46`.
 
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID

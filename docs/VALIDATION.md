@@ -109,13 +109,14 @@ be exercised. The current device-Present correction again passes Debug and Relea
 the expected capability SKIP; a fresh run must prove intro/menu `flat_theater`, scene focus, Sense
 pointer/click/re-anchor and the later same-process `native_stereo` transition.
 
-Fresh corrected candidate `20260919T213924Z-d5d149a5bf46` is staged from clean source
-`c8dcbdf4891f5a4a9e586e3ff109c42cd8999d3d`, build-manifest ID
-`9E23D917129EA6835D709F8023262F4F05643C6E05B49A546FA8853C003D900B`, proxy SHA-256
-`C0493B69870183763BE5D6FFAF0069D0DF381745CBEE60AB9DB2A095F8BA8B9A`. Release preparation completed
-24 PASS plus the expected capability SKIP, enabled Body IK at startup and applied the reversible
-`1920x1080`/FSAA0 profile. This is preparation evidence only until one process proves flat startup,
-scene focus, pointer/click/re-anchor and the transition to native stereo.
+Run `20260919T213924Z-d5d149a5bf46` is finalized/unstaged. It live-tested flat startup from
+`IDirect3DDevice9::Present`, scene focus, pointer/click and Create re-anchor, but failed visual
+binocular fusion and crashed during level load before any native-stereo transition. The next candidate
+must show a single fused flat screen, retain pointer/click/re-anchor, survive the load transition and
+then emit `flat_theater -> native_stereo` in the same process. Current host source projects the flat
+screen per eye at 1.5 m and uses immediate flat readback with no persistent default-pool resource;
+the D3D9 integration test proves Reset and post-Reset recapture without explicit invalidation. Debug
+and Release each pass 24 PASS plus the expected capability SKIP.
 
 Candidate `20260919T122155Z-c534d86926a9` was prepared from clean source
 `075daf3cbeba8abbf6ac389978714d1d85092a9e`, build-manifest ID

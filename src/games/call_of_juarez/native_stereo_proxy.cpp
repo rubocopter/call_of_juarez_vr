@@ -280,24 +280,9 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         }
 
         if (!g_stereo.flat_capture_active.exchange(true, std::memory_order_acq_rel)) {
-            g_stereo.flat_capture.InvalidateResources();
             LogLine(
                 "native_stereo_flat_theater: status=entered source=" +
                 std::string(source ? source : "unknown"));
-        }
-
-        cojvr::backends::d3d9::StereoCpuFrame completed{};
-        if (g_stereo.flat_capture.TryCollectReady(completed)) {
-            const std::uint64_t sequence = completed.capture_sequence;
-            if (PublishCapturedFrame(
-                    g_stereo, std::move(completed),
-                    cojvr::backends::d3d9::FramePresentationMode::flat_theater,
-                    "flat_publish") &&
-                ShouldLogStereoTiming(sequence)) {
-                LogLine(
-                    "native_stereo_flat_theater: status=published " +
-                    std::string(g_stereo.flat_capture.collect_description()));
-            }
         }
 
         // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
@@ -321,14 +306,10 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         const std::uint64_t generation =
             g_stereo.device_generation.load(std::memory_order_acquire);
         if (generation == 0) return;
-        if (!g_stereo.flat_capture.CaptureEyeSurface(
-                device, back_buffer.Get(), cojvr::runtime::Eye::left,
-                present_sequence, generation) ||
-            !g_stereo.flat_capture.CaptureEyeSurface(
-                device, back_buffer.Get(), cojvr::runtime::Eye::right,
-                present_sequence, generation) ||
-            !g_stereo.flat_capture.EndFrame(
-                present_sequence, tracking.pose, tracking.sequence)) {
+        cojvr::backends::d3d9::StereoCpuFrame completed{};
+        if (!g_stereo.flat_capture.CaptureFlatFrameImmediate(
+                device, back_buffer.Get(), present_sequence, generation,
+                tracking.pose, tracking.sequence, completed)) {
             LogTransportFailure(
                 present_sequence, "flat_capture", g_stereo.flat_capture.last_error());
             return;
@@ -337,6 +318,15 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             LogLine(
                 "native_stereo_flat_theater: status=captured " +
                 std::string(g_stereo.flat_capture.capture_description()));
+        }
+        if (PublishCapturedFrame(
+                g_stereo, std::move(completed),
+                cojvr::backends::d3d9::FramePresentationMode::flat_theater,
+                "flat_publish") &&
+            ShouldLogStereoTiming(present_sequence)) {
+            LogLine(
+                "native_stereo_flat_theater: status=published " +
+                std::string(g_stereo.flat_capture.collect_description()));
         }
     } catch (...) {
         LogLine("native_stereo_flat_theater: status=exception");

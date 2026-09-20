@@ -147,6 +147,76 @@ Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
     return pose;
 }
 
+bool ComputeFlatTheaterEyePlacement(
+    const EyeView& eye,
+    const std::uint32_t source_width,
+    const std::uint32_t source_height,
+    const std::uint32_t texture_width,
+    const std::uint32_t texture_height,
+    FlatTheaterEyePlacement& placement,
+    const float plane_distance_m) noexcept {
+    placement = {};
+    if (!eye.eye_to_head.orientation_valid || !eye.eye_to_head.position_valid ||
+        !IsFiniteVec3(eye.eye_to_head.position) ||
+        !IsFiniteQuaternion(eye.eye_to_head.orientation) ||
+        !IsValidEyeFov(eye.fov) || source_width == 0 || source_height == 0 ||
+        texture_width < source_width || texture_height < source_height ||
+        !std::isfinite(plane_distance_m) || plane_distance_m <= 0.05F) {
+        return false;
+    }
+
+    const float orientation_length_sq = QuaternionLengthSquared(eye.eye_to_head.orientation);
+    if (!std::isfinite(orientation_length_sq) || orientation_length_sq <= 1.0e-6F) {
+        return false;
+    }
+    const Quaternion eye_to_head = NormalizeQuaternion(eye.eye_to_head.orientation);
+    const Quaternion head_to_eye{
+        -eye_to_head.x, -eye_to_head.y, -eye_to_head.z, eye_to_head.w};
+    const Vec3 eye_to_screen_head{
+        -eye.eye_to_head.position.x,
+        -eye.eye_to_head.position.y,
+        -plane_distance_m - eye.eye_to_head.position.z,
+    };
+    const Vec3 eye_to_screen = RotateVector(head_to_eye, eye_to_screen_head);
+    if (!IsFiniteVec3(eye_to_screen) || eye_to_screen.z >= -0.05F) return false;
+
+    const float depth = -eye_to_screen.z;
+    const float tangent_x = eye_to_screen.x / depth;
+    const float tangent_y = eye_to_screen.y / depth;
+    const float tangent_left = std::tan(eye.fov.angle_left);
+    const float tangent_right = std::tan(eye.fov.angle_right);
+    const float tangent_up = std::tan(eye.fov.angle_up);
+    const float tangent_down = std::tan(eye.fov.angle_down);
+    const float tangent_width = tangent_right - tangent_left;
+    const float tangent_height = tangent_up - tangent_down;
+    if (!std::isfinite(tangent_x) || !std::isfinite(tangent_y) ||
+        !std::isfinite(tangent_width) || !std::isfinite(tangent_height) ||
+        tangent_width <= 1.0e-5F || tangent_height <= 1.0e-5F) {
+        return false;
+    }
+
+    const float center_u = (tangent_x - tangent_left) / tangent_width;
+    const float center_v = (tangent_up - tangent_y) / tangent_height;
+    const float left = center_u * static_cast<float>(texture_width) -
+        static_cast<float>(source_width) * 0.5F;
+    const float top = center_v * static_cast<float>(texture_height) -
+        static_cast<float>(source_height) * 0.5F;
+    if (!std::isfinite(left) || !std::isfinite(top) || left < 0.0F || top < 0.0F ||
+        left + static_cast<float>(source_width) > static_cast<float>(texture_width) ||
+        top + static_cast<float>(source_height) > static_cast<float>(texture_height)) {
+        return false;
+    }
+
+    placement.left = static_cast<std::uint32_t>(std::lround(left));
+    placement.top = static_cast<std::uint32_t>(std::lround(top));
+    if (placement.left + source_width > texture_width ||
+        placement.top + source_height > texture_height) {
+        placement = {};
+        return false;
+    }
+    return true;
+}
+
 bool ProjectFlatTheaterPointer(
     const Pose& anchor_pose,
     const Pose& aim_pose,

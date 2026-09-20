@@ -43,6 +43,17 @@ public:
         runtime::Eye eye,
         std::uint64_t frame_sequence,
         std::uint64_t generation) noexcept;
+    // Flat/menu capture is intentionally immediate and owns no persistent
+    // default-pool resource. This keeps classic D3D9 Reset legal while the
+    // exact CoJ menu path has no pre-Reset lifecycle callback.
+    [[nodiscard]] bool CaptureFlatFrameImmediate(
+        IDirect3DDevice9* device,
+        IDirect3DSurface9* source,
+        std::uint64_t frame_sequence,
+        std::uint64_t generation,
+        const runtime::Pose& render_hmd_pose,
+        std::uint64_t render_pose_sequence,
+        StereoCpuFrame& frame) noexcept;
     [[nodiscard]] bool EndFrame(
         std::uint64_t frame_sequence,
         const runtime::Pose& render_hmd_pose,
