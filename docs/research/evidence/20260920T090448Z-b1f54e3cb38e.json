@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "cojvr-physical-video-evidence",
+  "runId": "20260920T090448Z-b1f54e3cb38e",
+  "promotionStatus": "formal_single_process_partial_gate",
+  "candidate": {
+    "sourceCommit": "14d387bdcf63d24b7eae7abe90c2d624f423bd50",
+    "buildManifestId": "4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195",
+    "proxySha256": "B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3"
+  },
+  "processId": 6260,
+  "video": {
+    "path": "C:\\Users\\onita\\Videos\\clip_1.789.900.081.276.mp4",
+    "sha256": "8F04A56492DA32CA6D693583F914AD01A73BD504F87AAE6B86A127D0B1BAACC0",
+    "durationSeconds": 69.723,
+    "sizeBytes": 421268791,
+    "width": 3840,
+    "height": 2160,
+    "averageFrameRate": "1990797307/33259751"
+  },
+  "evidencePackage": {
+    "sha256": "9FF9DBB161285CFFF0ED627AF5BB8C41F10C6869B2C50854C07608ACFD2E7640",
+    "sizeBytes": 9287337,
+    "runtimeLogSha256": "7DABC33628A498BB1265CCCD7DD34CD0668B83EE044490DA1D7331FEA7DC1A27",
+    "runtimeEnded": true,
+    "incomplete": false
+  },
+  "telemetry": {
+    "leftArmApplications": 8465,
+    "rightArmApplications": 8465,
+    "armRestores": 16930,
+    "armWriteOrRestoreFailures": 0,
+    "leftTargetClamped": 1911,
+    "leftTargetClampedPercent": 22.58,
+    "rightTargetClamped": 4544,
+    "rightTargetClampedPercent": 53.68,
+    "averageArmChainLengthGameUnits": 49.843,
+    "leftAverageHandResidualDegrees": 103.789,
+    "rightAverageHandResidualDegrees": 142.936,
+    "maxRestoreJointErrorGameUnits": 0.00390625,
+    "maxRestoreElementPositionErrorGameUnits": 0.00390625,
+    "maxRestoreAxisError": 5.10351e-7,
+    "localHeadHiddenSamples": 103,
+    "recenterPresses": 7,
+    "flatWin32ClickDownEvents": 15,
+    "flatWin32ClickUpEvents": 15,
+    "gameplayInputAppliedSamples": 522,
+    "framesFenced": 8631,
+    "framesCollected": 8630,
+    "captureRingDrops": 0,
+    "framesUploaded": 11058,
+    "newSubmissions": 11058,
+    "repeatSubmissions": 6890,
+    "submitFailures": 0,
+    "cpuCopyAverageMs": 9.779,
+    "cpuCopyP95Ms": 12.159,
+    "presenterShutdownComplete": false,
+    "outerRuntimeEnded": true
+  },
+  "observations": [
+    "The user reported that VR presentation was available from game startup, Create recenter behaved correctly and the SteamVR interface did not remain stuck over the game in this run.",
+    "The flat-menu Sense ray and visible cursor worked, but none of the Sense buttons activated the menu. Telemetry recorded 15 Win32 left-button down/up pairs, physically rejecting Win32 mouse injection as the CoJ menu-select route.",
+    "The game survived loading and reached gameplay. The user observed that the post-load simulation remained frozen until keyboard or mouse input, matching the shipped GameUILoading.WaitForUserInput timer gate.",
+    "Local first-person head/hair suppression worked visually and the user reported that the head no longer obstructed the HMD view.",
+    "Both arm writers remained stable and restored cleanly, but the arms were still visibly twisted and felt short. Clamp asymmetry and very large hand-orientation residuals support keeping Body IK visually unpromoted.",
+    "Sense gameplay actions reached the existing input bridge, but locomotion and running felt coarse. The old bridge converted stick movement through desktop digital directional actions, so smooth analog locomotion requires a separate host-tested correction.",
+    "Shots still originated from the native player/fire-origin boundary. Controller tip direction does not by itself move the ballistic origin."
+  ]
+}

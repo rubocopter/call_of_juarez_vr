@@ -2,6 +2,51 @@
 
 ## Current checkpoint
 
+Latest formal full/body run `20260920T090448Z-b1f54e3cb38e` is finalized and unstaged. It used clean
+source `14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195`, proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3` and one CoJ process (PID 6260).
+The evidence manifest records `runtimeEnded=true` and `incomplete=false`; outer runtime reached
+`run_end` and current tooling reports `Staging: none`. Evidence is recorded in
+`docs/research/evidence/20260920T090448Z-b1f54e3cb38e.json`.
+
+This run physically proves the current device-`Present` startup/load boundary far enough to move on:
+the user saw VR presentation from game startup, Create recenter worked, the SteamVR interface did not
+remain stuck over the game, the level load survived and gameplay reached native stereo. The local
+Ray/Billy head/hair suppression also worked visually and no longer obstructed the HMD view. The inner
+presenter still reports `shutdown_complete=false`; preserve that as an open finalization issue.
+
+The run also rejects the old Win32 menu-click implementation. The `/pose/tip` ray/crosshair worked
+and telemetry contains 15 applied Win32 left-button down/up pairs, but the CoJ menu ignored them and
+keyboard/mouse was required. Static shipped bytecode identifies the exact route:
+`MainMenuModule.GetCurrentUI()` -> `GameUserInterface.CallEnterKeyPressed/Released()`; the helper emits
+global Enter input. `GameUILoading.WaitForUserInput()` stops the game timer and registers exclusive
+input until its continuation calls `TimerStart` and starts the mission. Current source keeps Win32
+cursor movement only, dispatches L2/R2 select through the exact Java UI route, observes loading timer
+resume and suppresses gameplay fire until trigger release. The live verifier now requires those exact
+events. This correction is host-tested only.
+
+The PS VR2 Sense binding file is complete; the locomotion complaint was an adapter problem. The old
+bridge decomposed the stick into desktop directional actions with deadzone + digital threshold,
+creating a large effective deadzone and binary-feeling movement. Current source applies one radial
+0.15 deadzone and sends CoJ movement actions 4-7 directly to
+`GameObject.CallOnInputGameController(action,float,source)`. Run action 18 stays boolean and right-stick
+snap turn stays exact +/-45 degrees. This direct-float locomotion path is host-tested only.
+
+Body IK still fails visual acceptance. The run sustained 8,465 applications per arm and 16,930 clean
+restores with zero writer/restore failures, but target clamp remained 22.58% left / 53.68% right with
+the same ~49.843-unit native chain. Average diagnostic hand residual remained ~103.8 degrees left and
+~142.9 degrees right. The old reach code also shortened the controller target by as much as 12 game
+units before the real two-bone clamp. Current source removes that target remap and applies no
+controller-driven axial twist; positional IK, FORETWIST sibling swing and controller-orientation
+diagnostics remain. Treat this as the next physical ablation gate, not as Body IK promotion.
+
+Controller `/pose/tip` direction already reaches the exact per-hand native look direction, but the
+user again observed shots originating from the native player/fire-origin point. Do not guess an
+origin replacement. Instrument the exact `WeaponFire.AttackFire` boundary first, comparing ballistic
+origin, visual/barrel origin and mapped controller tip while preserving native spread/accuracy and the
+network-forced branch.
+
 Run `20260919T162808Z-fb75cb34977a` is now diagnostic multiprocess evidence, not an active candidate.
 The user launched it twice and both starts left the SteamVR interface stuck over the game. PID 28408
 and PID 24032 both initialized with `scene_focus_process_id=0` and `dashboard_visible=true`; scene
@@ -16,7 +61,7 @@ gate. Although the implicit swap-chain hook reported installed, the log contains
 capture or publish event; it transitioned directly to `native_stereo` only after loading gameplay.
 This proves the live CoJ path calls device `Present` without traversing the swap-chain COM slot.
 
-Current source implements a Penumbra-style startup/fallback presentation policy using CoJ's proven
+The presentation source implements a Penumbra-style startup/fallback policy using CoJ's proven
 classic-D3D9 boundaries. The device `Present` hook captures the backbuffer into a
 separate deferred ring when native stereo has been absent for 250 ms. Every second flat `Present` is
 captured to limit CPU-readback pressure, while the OpenVR presenter repeats the latest image at
@@ -28,19 +73,12 @@ identical RGB. A shared transport sequence orders the two producer domains witho
 capture counters, and shutdown explicitly restores both hooks. The swap-chain hook remains a fallback
 for explicit callers. A low-frequency integrity worker reacquires a lost device slot only when its
 target exactly equals the recorded system original; it never overwrites a foreign hook. Fresh Debug and Release
-suites each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. This new
-presentation path is host-tested only and requires a fresh one-process physical gate.
+suites each pass 24 tests plus the expected classic-D3D9 shared-texture capability SKIP. The latest
+formal run above now supplies physical startup/load evidence for this path.
 
-The same host source now makes the flat menu usable from PS VR2 Sense. Dedicated global
-`/actions/global/in/ui_select_left` and `ui_select_right` actions are bound to L2/R2, separate from
-the gameplay fire semantics. The presenter projects `/pose/tip` (handgrip fallback) onto the anchored
-flat surface, maps through the black-border layout back to source pixels, smooths the result and
-draws a visible crosshair into both flat textures. The CoJ-specific callback moves the real Win32
-cursor and injects left-button down/up only while CoJ is foreground; loss of ray/focus or presenter
-shutdown releases the button. Transition to gameplay suppresses the shared physical trigger until
-it has been released, preventing menu click-through into firing. The verifier requires a pointer hit,
-an applied click down/up and a later native-stereo transition whenever the run manifest enables the
-flat-theater UI gate. This entire interaction path remains **host-tested only**.
+The flat menu pointer projects `/pose/tip` (handgrip fallback) onto the anchored surface and maps the
+hit to the real Win32 cursor. Activation must use the Java UI route described above; the latest
+physical evidence rejects injected Win32 mouse buttons. Do not restore the obsolete click path.
 
 Candidate `20260919T170916Z-d9a22d24eb0c` was never launched. `finish` found no `cojvr.log`, then
 transactionally removed its staged assets and restored the video profile; its run ID must not be
@@ -66,15 +104,6 @@ an immediate readback. The Reset integration test captures, resets without inval
 then captures again successfully. Debug/Release are 24 PASS plus the expected capability SKIP. The
 next physical run must check menu fusion first, then load the game once and reach `native_stereo`.
 Do not reuse `20260919T213924Z-d5d149a5bf46`.
-
-That next run is staged as `20260920T090448Z-b1f54e3cb38e` from clean source
-`14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
-`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195`, proxy SHA-256
-`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. Body IK is enabled before
-launch and the reversible `1920x1080`/FSAA0 profile is active. Start SteamVR manually, launch CoJ
-once, verify the flat menu is binocularly fused, exercise one pointer click and Create re-anchor,
-then load once and verify the same process reaches native stereo. Finish the run after exit; do not
-reuse its run ID for a second process.
 
 Run `20260919T153546Z-705460dca03b` is finalized and staging is clear. It is a clean single-process
 full/body run from source `32e979709bbb13780cf885c82770a0e8c1649631`, build-manifest ID
@@ -120,20 +149,15 @@ so focus/dashboard stability is not promoted. Video SHA-256:
 `4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`; diagnostic package SHA-256:
 `09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`.
 
-Current source implements the next four corrections while preserving the live-proven axes and
-writer. Local first-person visibility now resolves only the local player's exact Ray/Billy
-head/hair elements (`RayHead`, `RayHair`, `RayCap`, `BillyHead`, `BillyHair`, `BillyTress`) through
-the shipped `GetElementID(String)` route, records their original hidden state, uses
-`HideElement(int)` only for elements that were visible, and restores only VR-owned changes through
-`UnhideElement(int)` on tracking loss/shutdown. The whole player mesh is never hidden. The effect on
-the exact game's shadow pass still needs physical observation.
+Local first-person visibility resolves only the local player's exact Ray/Billy head/hair elements
+(`RayHead`, `RayHair`, `RayCap`, `BillyHead`, `BillyHair`, `BillyTress`) through the shipped
+`GetElementID(String)` route, records original hidden state and restores only VR-owned changes. The
+2026-09-20 run physically validates its HMD-view effect for the exercised player.
 
-Arm solving keeps the measured native segment lengths and the validated tracking axes, but now
-absorbs up to 12 game units of ordinary target overreach before the hard two-bone clamp; extreme
-targets still clamp. Telemetry records raw/effective distance and the applied adjustment. The
-controller-driven shared FORETWIST/hand axial roll is limited to 100 degrees while the rejected full
-wrist residual remains diagnostic. This is intended to reduce the short-arm clamp frequency and the
-most forced wrist poses without reintroducing arbitrary full-hand rotation.
+Arm solving keeps the measured native segment lengths and validated tracking axes. The latest host
+source uses the raw controller target and lets only the actual two-bone solver clamp unreachable
+targets. Controller-driven axial roll is diagnostic-only for the next run; do not restore the old
+12-unit target remap or 100-degree shared-roll policy unless new physical evidence supports it.
 
 OpenVR now exposes separate left/right `/pose/tip` actions for weapon aim while `/pose/handgrip`
 continues to own body hands. Static shipped data proves `EnumInvHand._RIGHT=0` and `_LEFT=1`; the CoJ

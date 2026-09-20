@@ -94,14 +94,17 @@ if ($RequireFlatTheaterUi) {
         "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;route=flat_theater_menu_pointer" `
         "No valid Sense ray hit the flat-theater menu surface."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_menu_mouse" `
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_only" `
         "The flat-theater pointer did not reach the CoJ menu cursor bridge."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=down;.*;route=win32_menu_mouse" `
-        "No Sense trigger press reached the native CoJ menu-click bridge."
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=GameUserInterface.CallEnterKeyPressedReleased" `
+        "No Sense trigger press reached the exact CoJ GameUserInterface Enter/select route."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=up;.*;route=win32_menu_mouse" `
-        "The Sense menu-click bridge did not release the native left mouse button."
+        "camera_probe_event: event=loading_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;fire_suppressed_until_release=true;route=GameUserInterface.CallEnterKeyPressedReleased" `
+        "No Sense select press reached the frozen GameUILoading input gate."
+    Assert-LogMatch `
+        "camera_probe_event: event=loading_ui_resume result=observed detail=.*game_timer_valid=true;game_timer_frozen=false;route=LawmanModule.TimerStart" `
+        "The run did not prove that Sense input released the GameUILoading timer stop."
     Assert-LogMatch `
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo" `
         "The run did not transition from flat-theater UI to native stereo gameplay."
@@ -394,7 +397,7 @@ if ($RequireBodyIk) {
             if ($Line -notmatch ";plan_valid=true;" -or
                 $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
-                $Line -notmatch ";hand_orientation=calibrated_controller_delta_sibling_shared_roll;" -or
+                $Line -notmatch ";hand_orientation=calibrated_controller_delta_diagnostic_only;" -or
                 $Line -notmatch ";controller_orientation_valid=true;" -or
                 $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
                 $Line -notmatch ";upper_element_position=\(" -or
@@ -414,16 +417,19 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis_diagnostic;" -or
                 $Line -notmatch ";hand_residual_native_axis=\(" -or
                 $Line -notmatch ";hand_residual_degrees=[-+0-9.eE]+;" -or
-                $Line -notmatch ";hand_rotation_mode=sibling_shared_roll;" -or
+                $Line -notmatch ";hand_rotation_mode=controller_orientation_diagnostic_only;" -or
                 $Line -notmatch ";hand_native_axis=\(" -or
                 $Line -notmatch ";hand_rotation_degrees=[-+0-9.eE]+;" -or
-                $Line -notmatch ";hand_rotation_no_op=(?:true|false);" -or
-                $Line -notmatch ";skinning_contract=foretwist_sibling_swing_hand_shared_roll;" -or
+                $Line -notmatch ";hand_rotation_no_op=true;" -or
+                $Line -notmatch ";forearm_twist_limit_degrees=0;" -or
+                $Line -notmatch ";forearm_twist_no_op=true;" -or
+                $Line -notmatch ";skinning_contract=foretwist_sibling_swing_hand_native_orientation;" -or
                 $Line -notmatch ";skinning_frames_reached=true;" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or
                 $Line -notmatch ";hand_orientation_reached=(?:true|false);" -or
                 $Line -notmatch ";rollback_attempted=false;rollback_ok=true;" -or
+                $Line -notmatch ";reach_adjustment=0(?:\.0+)?;reach_adjusted=false;reach_policy=native_chain_hard_clamp;" -or
                 $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
                 $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=RotateElementWithChildren") {
                 throw "A $Side arm IK application did not prove the measured-skeleton/native-writer contract."
@@ -655,7 +661,7 @@ if ($RequireBodyIk) {
 }
 Write-Host "PASS - dedicated presenter submission, passthrough, hook restoration and same-owner XR shutdown verified."
 if ($RequireFlatTheaterUi) {
-    Write-Host "PASS - flat-theater Sense ray/cursor, trigger click/release and native-stereo transition verified."
+    Write-Host "PASS - flat-theater Sense ray/cursor, exact CoJ UI select, loading-gate release and native-stereo transition verified."
 }
 if ($RequireOpenVrRuntimeState) {
     Write-Host "PASS - OpenVR connected/tracking/presenting state and joined shutdown-complete state verified."

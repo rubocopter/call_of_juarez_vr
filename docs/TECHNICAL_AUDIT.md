@@ -24,13 +24,12 @@ Validation states remain:
 
 ## Current confirmed baseline
 
-Latest formal body evidence is run `20260919T153546Z-705460dca03b`: 8,452 arm applications and
-8,452 restores completed without writer/restore failure, exact +/-45-degree right-stick snap turn
-was physically validated, and the preserved-target recenter rebase was live-exercised. Visual Body
-IK remains unpromoted because reach still clamped on 43.72% of applications, wrist/hand poses were
-still forced in some positions and local head/hair intruded into the HMD view. The measured sibling
-FORETWIST/hand propagation remains authoritative; details and reproducible evidence are in
-`docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+Latest formal body/presentation evidence is run `20260920T090448Z-b1f54e3cb38e`. It is a clean,
+single-process run from source `14d387bdcf63d24b7eae7abe90c2d624f423bd50`, build-manifest ID
+`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195` and proxy SHA-256
+`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. The evidence manifest records
+`runtimeEnded=true` and `incomplete=false`; staging is now clear. See
+`docs/research/evidence/20260920T090448Z-b1f54e3cb38e.json`.
 
 Run `20260919T162808Z-fb75cb34977a` is diagnostic multiprocess evidence and is no longer staged.
 Both process starts began with no CoJ scene focus and the SteamVR dashboard visible; scene focus
@@ -43,25 +42,20 @@ installed, but no flat entry/capture/publish event occurred; the process moved d
 `native_stereo` after gameplay loaded and only then acquired scene focus. CoJ's live path therefore
 uses `IDirect3DDevice9::Present` without dispatching through the implicit swap-chain COM slot.
 
-Current host source adds the flat startup/menu fallback at the observed device `Present` seam, with
-the swap-chain hook retained for explicit-swap-chain callers. When native stereo has been absent for 250 ms, ordinary CoJ backbuffer content is
-captured as `flat_theater`, repeated at compositor cadence from a stable HMD anchor and re-anchored by
-left-Sense Create. Gameplay automatically transitions to `native_stereo`, and later flat/menu content
-can take ownership again. Flat content may use identical eyes; native stereo retains its distinct-eye
-fail-closed requirement. The same boundary now has a host-tested Sense UI seam: `/pose/tip` ray with
-handgrip fallback, visible flat-plane cursor, dedicated L2/R2 UI-select actions and exact-game Win32
-cursor/click injection with focus-loss release and gameplay click-through suppression. Exact-original
-slot restoration can be reacquired with compare-and-swap; foreign replacements remain untouched.
+The device-`Present` flat startup/menu fallback has now been physically exercised through startup,
+one successful level load and transition into native gameplay stereo. The user reported VR
+presentation from the beginning, working Create recenter and no stuck SteamVR interface in this run.
+The per-eye finite-depth projection and Reset-safe immediate flat readback therefore have physical
+evidence. Exact-original slot restoration remains compare-and-swap guarded and foreign replacements
+remain untouched.
 
-The failed run used clean source
-`8697a816406b897fce35bcbb2b98ce12fd535216`, build-manifest ID
-`96ACFF43B38E16C1FAA5A1177180F3567561B0587B72D3B39FB7622B0911F7A5`, proxy SHA-256
-`4A6562851FE4CAA9845740ECBA35BCF85FF37E499FD7E3D0574C3F7C8C2D50DF`. Release preparation passed
-24 tests plus the expected classic-D3D9 shared-texture capability SKIP, with Body IK enabled at
-startup and the reversible `1920x1080`/FSAA0 profile active. Current corrected source passes fresh
-Debug and Release suites at 24 PASS plus the expected capability SKIP, but remains host-tested until
-a new run proves startup/menu scene ownership. Body anatomy, head suppression and controller-owned
-firing remain separately unpromoted.
+The same run rejects the old Win32 mouse-button UI route: the Sense ray/cursor was visible and the
+log records 15 applied down/up click pairs, but no Sense button activated the menu. Static shipped
+bytecode identifies `MainMenuModule.GetCurrentUI()` plus
+`GameUserInterface.CallEnterKeyPressed/Released()` as the exact UI select path; `GameUILoading`
+separately stops the game timer until its exclusive input handler resumes it. Current source keeps
+Win32 cursor movement only, sends L2/R2 select through that Java route, observes timer resume and
+neutralizes fire until trigger release. This replacement is **host-tested**.
 
 Candidate `20260919T213924Z-d5d149a5bf46` is finalized/unstaged. It physically proves the
 device-Present flat startup producer, first-submit scene focus, Sense pointer/click and Create
@@ -73,10 +67,22 @@ default-pool capture ring with immediate readback so classic D3D9 Reset is not b
 Release each pass 24 tests plus the expected capability SKIP; fusion and load survival remain physical
 gates. See `docs/research/evidence/20260919T213924Z-d5d149a5bf46.json`.
 
-Fresh candidate `20260920T090448Z-b1f54e3cb38e` is staged from clean source `14d387b`, manifest
-`4E5D9F08DFC4F523EC37B3886AFBE2AA491E83092A5AFC245662DC6042841195`, proxy SHA-256
-`B60181C0FC094176AA5288147506D9876F124A3EACCE65DA7406ECB01BB70BC3`. It is preparation evidence
-only until physical fusion and load survival are observed.
+Local Ray/Billy head/hair suppression is physically validated by the latest run: 103 hidden samples
+agree with the user's report that local head geometry no longer obstructs the HMD view. Visual Body
+IK remains rejected. The process completed 8,465 applications per arm and 16,930 clean restores with
+zero writer/restore failure, but target clamp remained 22.58% left / 53.68% right with the same
+~49.843-unit native arm chain, and average residual hand orientation remained ~103.8 degrees left /
+~142.9 degrees right. Current host source removes the old 12-unit target shortening and makes
+controller-driven axial twist a no-op while preserving positional IK, FORETWIST sibling swing and
+orientation diagnostics. This is a controlled ablation pending physical anatomy evidence.
+
+The PS VR2 Sense action/binding manifest is complete and the latest run delivered gameplay-input
+samples. Coarse locomotion was traced to the exact adapter translating stick motion through desktop
+digital directional actions. Current host source applies a radial deadzone and sends CoJ movement
+actions 4-7 directly through `GameObject.CallOnInputGameController` with their float values; run and
+snap-turn semantics stay separate. This locomotion correction is **host-tested**. Controller tip
+direction reaches the exact per-hand native look direction, but ballistic origin remains
+`GetBeingLookFromPoint`/native fire-origin territory; origin ownership remains unresolved.
 
 The following facts are currently established:
 
@@ -86,12 +92,12 @@ The following facts are currently established:
 - The in-game flat bridge has completed D3D9 readback, D3D11 upload, pose wait and OpenVR submission for captured game frames.
 - A later exact-build diagnostic observed exactly three project callbacks for `Present`, `BeginScene` and `EndScene`, followed by loss of integrity of the installed device-vtable entries while the game continued rendering on the monitor.
 - That hook-integrity loss is a confirmed failure mode of the current interception design. Run `20260914T215121Z-9bac4e22cffd` established that all four lost device slots return exactly to their recorded original targets in `C:\WINDOWS\system32\d3d9.dll`; no foreign replacement target was observed. It still does **not** prove which component performs the restoration, why it occurs, or that hook loss is the only reason the user never sees a stable game image in the headset.
-- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission. Run `20260916T153109Z-8976b8f77775` then live-observed the corrected `100` game-units-per-metre eye translation and physically validated left PS VR2 Sense Create recenter. Run `20260916T221254Z-861f3c15abd4` validated deferred-presenter scene-focus handoff and clean OpenVR/runtime shutdown. Run `20260916T224239Z-e43b46698e5c` validated explicit render-pose submission and removed the reported head-turn snap-back. Frame pacing/performance remains poor; the historical missing flat/menu path now has a host-tested `flat_theater` fallback and Sense UI interaction seam awaiting physical validation. Positional 6DOF plus the body/IK preflight are implemented: tracked Sense anchors, campaign actor reconciliation and the visible render-element writer are live-proven, while visual arm composition remains rejected and lower-body geometry/leg solving remains read-only. Motion-controller gameplay is implemented for this exact CoJ integration through a neutral OpenVR action state and the game's own `GameInputController.InputAction.Translate` route; run `20260918T233902Z-0cb2e565e886` physically exercised that route successfully, without claiming every individual binding separately validated. Run `20260918T165754Z-845101e7557b` proved `RotateElementWithChildren` changes both arms through both eye renders, but physically failed because world-space solver axes were passed to an element-local native rotation. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` then exercised the corrected element-local path and reached both solved targets for hundreds of frames before fail-closing at frames 416 and 614. The restore criterion was tighter than one float ULP at the live world coordinates; current host source uses separate measured restore tolerances while retaining strict mutation detection.
+- HMD-driven game-camera rotation and distinct native eye rendering are live-observed. Run `20260916T133322Z-36c287cc43d8` produced two complete ChromeEngine eye passes with distinct real RT0 hashes and OpenVR submission. Run `20260916T153109Z-8976b8f77775` then live-observed the corrected `100` game-units-per-metre eye translation and physically validated left PS VR2 Sense Create recenter. Run `20260916T221254Z-861f3c15abd4` validated deferred-presenter scene-focus handoff and clean OpenVR/runtime shutdown. Run `20260916T224239Z-e43b46698e5c` validated explicit render-pose submission and removed the reported head-turn snap-back. Run `20260920T090448Z-b1f54e3cb38e` now adds successful startup flat presentation, level-load survival and local-head suppression, while physically rejecting Win32 menu-click activation and leaving Body IK visually failed. Positional 6DOF plus the body/IK preflight are implemented: tracked Sense anchors, campaign actor reconciliation and the visible render-element writer are live-proven, while visual arm composition remains rejected and lower-body geometry/leg solving remains read-only. Run `20260918T165754Z-845101e7557b` proved `RotateElementWithChildren` changes both arms through both eye renders, but physically failed because world-space solver axes were passed to an element-local native rotation. Runs `20260918T204701Z-f561e493f4ab` and `20260918T210459Z-b59448961f3c` then exercised the corrected element-local path and reached both solved targets for hundreds of frames before fail-closing at frames 416 and 614. The restore criterion was tighter than one float ULP at the live world coordinates; current host source uses separate measured restore tolerances while retaining strict mutation detection.
 - The active physical gate is presentation performance/comfort. Run `20260917T161917Z-909b63e114af` measured roughly `15-25 ms` of classic-D3D9 CPU copy per stereo frame at `2560x1440`/FSAA8. The three 2026-09-18 runs all used the reversible `1920x1080`/FSAA0 profile and reduced sampled copy averages to `9.7-10.7 ms`, but the user reported visibly poor resolution. They also exposed a head-tilt comfort defect: the native camera omitted roll while OpenVR received the full HMD pose. Current source applies roll to the native camera basis and the live verifier requires a meaningful tilt sample; this is host-tested only. Resolution remains coupled to the provisional CPU-readback cost, and all three runs still reported `shutdown_complete=false`.
 - Run `20260918T213453Z-a789ac61ac91` physically validated native-camera roll: the previous tilt-induced nausea was absent while telemetry covered `-27.286` to `+40.762` degrees. It also sustained 13,860 successful arm applications/restorations with no fail-close, validating the float-aware restore threshold. The body gate still failed visually. Controller front/back was reversed even though elbow/wrist targets were reached, and the wrist/hand remained twisted with `hand_orientation=natural`. Run `20260918T215118Z-c46320012ff0` then physically validated the corrected tracked-Z hand position mapping while the deformation remained. The following host slice preserved that positional mapping and added calibration-relative controller orientation, forearm twist and residual hand rotation through the already-live-proven `RotateElementWithChildren` writer. Physical arm-orientation acceptance remained pending and was narrowed further by the later runs below.
 - Run `20260918T233902Z-0cb2e565e886` then physically exercised that orientation/gameplay candidate. Position and orientation target telemetry reached their goals, but the user's video still shows severe wrist/forearm deformation and frequent head/hair intrusion into the HMD view, so Body IK remains rejected visually. Exact shipped `EBones.class` inspection identifies dedicated FORETWIST elements `9` (left) and `14` (right), between forearm `8/13` and hand `10/15`. Current host source routes controller pronation/supination through those dedicated elements, includes them in transactional geometry/restore verification and requires `twist_owner=foretwist_element`; that hierarchy correction is host-tested only. Head/hair suppression, physical HMD-height crouch and controller/weapon-owned aiming are tracked as separate later VR ownership milestones.
 - Run `20260919T011421Z-bef5076cd07e` physically exercised the subsequent explicit `/pose/handgrip` candidate. It sustained 14,968 arm applications and 14,968 restores with zero restore failures plus seven safe recenter recoveries, but visual anatomy remained rejected. Pose-window analysis showed that in the palms-up gesture FORETWIST had already converged to roughly symmetric roll while the residual hand rotation remained very large. Current host source therefore keeps that post-FORETWIST residual as diagnostics only and applies no hand-element rotation. Debug and Release host suites pass 24 tests plus the expected capability SKIP; the new `foretwist_only` composition is not yet physically promoted.
-- Post-run source now implements the next exact-CoJ candidate for the remaining user-visible issues. It keeps native arm lengths and validated tracking axes, adds a bounded overreach remap before hard IK clamp, limits shared FORETWIST/hand axial roll to 100 degrees, hides/restores only the local Ray/Billy head/hair elements through the shipped per-element visibility API, and introduces distinct OpenVR `/pose/tip` actions that write the exact per-hand native look-direction array (`EnumInvHand`: right=0, left=1). Native spread/accuracy and `GetBeingLookFromPoint` fire origin remain owned by the game and the network-forced attack branch is untouched. Fresh Debug and Release suites each pass 24 tests plus the expected capability SKIP. These corrections require live/headset evidence before promotion; in particular, shot ownership at the actual attack boundary and shadow behavior after local-head suppression are still unproven.
+- Post-run source now implements the exact-CoJ follow-up for the failures isolated on 2026-09-20: Java UI select/loading-gate dispatch, radial/direct-float locomotion, raw controller target reach with only the native two-bone clamp, and diagnostic-only controller axial twist. Local-head suppression is already physically validated. `/pose/tip` still owns per-hand look direction only; native spread/accuracy, `GetBeingLookFromPoint` fire origin and the network-forced branch remain untouched. Fresh Debug and Release suites each pass 24 tests plus the expected capability SKIP. The UI, locomotion and arm-ablation changes require a fresh physical run before promotion; shot origin should be instrumented at the attack boundary before any override.
 
 The active historical diagnostic candidate `369754A6D93A1A93C87B157E9480F8F82518A1F703B67ADCB8C56F889A14A6AF` records which `Reset`, `Present`, `BeginScene` and `EndScene` slots are replaced and resolves replacement addresses to owning modules. Preserve it as evidence/baseline; do not let its existence bypass the audit-remediation work below.
 

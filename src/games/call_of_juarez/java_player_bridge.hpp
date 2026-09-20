@@ -28,11 +28,35 @@ struct CoJSnapTurnState {
         const cojvr::runtime::GameplayInputState& state) noexcept;
 };
 
+struct CoJLoadingUiInputResult {
+    bool dispatch_select = false;
+    bool suppress_fire = false;
+};
+
+// Exact-game safety policy for GameUILoading::WaitForUserInput.  A Sense
+// UI-select press may satisfy the frozen loading gate, but the physical trigger
+// remains neutralized until release so the same press cannot become a gameplay
+// shot when TimerStart resumes the simulation.
+class CoJLoadingUiInputGate final {
+public:
+    [[nodiscard]] CoJLoadingUiInputResult Update(
+        bool timer_state_valid,
+        bool timer_frozen,
+        bool ui_select_pressed,
+        bool fire_left,
+        bool fire_right) noexcept;
+    void Reset() noexcept;
+
+private:
+    bool fire_release_required_ = false;
+};
+
 // Exact Call of Juarez action IDs from Data/InputActions.def/InputSettings.
 // Stick axes are decomposed into the game's directional action model while
 // button semantics stay independent from the physical XR controller profile.
 [[nodiscard]] std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
     const cojvr::runtime::GameplayInputState& state) noexcept;
+[[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
 
 // Thin adapter over the Java 1.4 VM already owned by ChromeEngine3. It never
 // creates or loads a second VM. All lookups fail closed when the current game
@@ -97,6 +121,14 @@ public:
     // the game JVM thread using the active CoJ bindings.
     [[nodiscard]] bool TryApplyGameplayInput(
         const cojvr::runtime::GameplayInputState& state,
+        std::string* error = nullptr) noexcept;
+    // Route an intentional VR UI-select press through the currently visible
+    // CoJ GameUserInterface.  The shipped helper emits scan-code 28 (Enter)
+    // through GameObject.CallOnInputKeyGlobal, which also reaches the
+    // GameUILoading exclusive key request and its TimerStart continuation.
+    [[nodiscard]] bool TryDispatchUiSelectPress(
+        bool require_loading_ui,
+        bool* current_ui_is_loading = nullptr,
         std::string* error = nullptr) noexcept;
     // Override the exact per-hand look direction consumed by
     // GetFireDirForWeapon. The game's next UpdateLookAndAimDirs pass naturally
@@ -198,6 +230,11 @@ private:
     void* analog_axis_field_ = nullptr;
     void* analog_axis_sign_field_ = nullptr;
     void* analog_translate_method_ = nullptr;
+    void* input_target_item_target_field_ = nullptr;
+    void* input_target_item_next_field_ = nullptr;
+    void* input_target_can_execute_method_ = nullptr;
+    void* game_object_class_ = nullptr;
+    void* game_object_controller_input_method_ = nullptr;
     void* look_dir_for_hand_field_ = nullptr;
     bool bone_read_lookup_attempted_ = false;
     bool element_world_read_lookup_attempted_ = false;

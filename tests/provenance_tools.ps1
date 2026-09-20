@@ -798,10 +798,12 @@ try {
     $StereoRightArm = $StereoRightArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
     $StereoLeftArm = $StereoLeftArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
     $StereoRightArm = $StereoRightArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(-6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(-7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
-    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=sibling_shared_roll;skinning_contract=foretwist_sibling_swing_hand_shared_roll;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
-    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=sibling_shared_roll;skinning_contract=foretwist_sibling_swing_hand_shared_roll;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
-    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_sibling_shared_roll;"
-    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_sibling_shared_roll;"
+    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_requested_degrees=45;forearm_twist_limit_degrees=0;forearm_twist_limited=true;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=controller_orientation_diagnostic_only;skinning_contract=foretwist_sibling_swing_hand_native_orientation;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_requested_degrees=45;forearm_twist_limit_degrees=0;forearm_twist_limited=true;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=controller_orientation_diagnostic_only;skinning_contract=foretwist_sibling_swing_hand_native_orientation;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoLeftArm = $StereoLeftArm -replace ";upper_length=30;lower_length=28;", ";upper_length=30;lower_length=28;raw_target_distance=50;effective_target_distance=50;reach_adjustment=0;reach_adjusted=false;reach_policy=native_chain_hard_clamp;"
+    $StereoRightArm = $StereoRightArm -replace ";upper_length=30;lower_length=28;", ";upper_length=30;lower_length=28;raw_target_distance=50;effective_target_distance=50;reach_adjustment=0;reach_adjusted=false;reach_policy=native_chain_hard_clamp;"
+    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_diagnostic_only;"
+    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_diagnostic_only;"
     $StereoLeftArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=left;phase=before_write;writer=RotateElementWithChildren"
     $StereoRightArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=right;phase=before_write;writer=RotateElementWithChildren"
     $StereoLeftArmWriteProbe = "camera_probe_event: event=body_arm_write_probe result=changed detail=frame_sequence=2;side=left;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;elbow_target_error=0;wrist_target_error=0;hand_orientation_reached=false;hand_up_error=0.5;hand_forward_error=0.5;writer=RotateElementWithChildren"
@@ -823,15 +825,16 @@ try {
         "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
         "flat_ui_pointer: status=hit;hand=right;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;source=1920x1080;select=false;smoothing=0.40;route=flat_theater_menu_pointer",
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_menu_mouse",
-        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=down;pixel=960,540;hand=right;route=win32_menu_mouse",
-        "camera_probe_event: event=flat_ui_click result=applied detail=button=left;state=up;pixel=960,540;hand=right;route=win32_menu_mouse",
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_only",
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=GameUserInterface.CallEnterKeyPressedReleased",
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo",
         "native_stereo_factory_hook: status=installed",
         "native_stereo_device: status=observed device=0x1234 generation=1",
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
         "camera_probe_event: event=camera_probe_install result=installed pose_source=none native_stereo=available",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted detail=generation=2;enabled=false;fov=natural;yaw=0;pitch=0;tracking_enabled=true;body_ik_enabled=true;recenter=false",
+        "camera_probe_event: event=loading_ui_select result=applied detail=frame_sequence=1;source=right_r2;game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;fire_suppressed_until_release=true;route=GameUserInterface.CallEnterKeyPressedReleased",
+        "camera_probe_event: event=loading_ui_resume result=observed detail=frame_sequence=2;game_timer_valid=true;game_timer_frozen=false;route=LawmanModule.TimerStart",
         $StereoTrackingInput,
         $StereoLeftArmNaturalProbe,
         $StereoLeftArmWriteProbe,
@@ -929,7 +932,7 @@ try {
 
     $StereoVerifierNaturalHandOrientation = @($StereoVerifierLog | ForEach-Object {
         $_ -replace `
-            "hand_orientation=calibrated_controller_delta_sibling_shared_roll", `
+            "hand_orientation=calibrated_controller_delta_diagnostic_only", `
             "hand_orientation=natural"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNaturalHandOrientation
@@ -977,7 +980,7 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierAppliedHandResidual = @($StereoVerifierLog | ForEach-Object {
-        $_ -replace "hand_rotation_mode=sibling_shared_roll", "hand_rotation_mode=foretwist_plus_hand" `
+        $_ -replace "hand_rotation_mode=controller_orientation_diagnostic_only", "hand_rotation_mode=foretwist_plus_hand" `
            -replace "hand_rotation_no_op=true", "hand_rotation_no_op=false"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierAppliedHandResidual

@@ -220,17 +220,25 @@ int main() {
         return 1;
     }
     const ArmIkPlan soft_overreach_plan = BuildArmIkPlan(arm_geometry, {2.05F, 0.0F, 0.0F});
-    if (!soft_overreach_plan.valid || !soft_overreach_plan.reach_adjusted ||
-        soft_overreach_plan.target_clamped || soft_overreach_plan.reach_adjustment <= 0.0F ||
-        soft_overreach_plan.effective_target_distance >= soft_overreach_plan.raw_target_distance) {
-        std::cerr << "arm reach policy did not absorb a small controller overreach\n";
+    if (!soft_overreach_plan.valid || soft_overreach_plan.reach_adjusted ||
+        !soft_overreach_plan.target_clamped ||
+        !Near(soft_overreach_plan.reach_adjustment, 0.0F) ||
+        !Near(
+            soft_overreach_plan.effective_target_distance,
+            soft_overreach_plan.raw_target_distance,
+            0.001F)) {
+        std::cerr << "arm reach policy shortened a slightly unreachable controller target\n";
         return 1;
     }
     const ArmIkPlan extreme_overreach_plan = BuildArmIkPlan(arm_geometry, {4.0F, 0.0F, 0.0F});
-    if (!extreme_overreach_plan.valid || !extreme_overreach_plan.reach_adjusted ||
+    if (!extreme_overreach_plan.valid || extreme_overreach_plan.reach_adjusted ||
         !extreme_overreach_plan.target_clamped ||
-        extreme_overreach_plan.reach_adjustment > 0.501F) {
-        std::cerr << "arm reach policy did not preserve a bounded hard clamp for an extreme target\n";
+        !Near(extreme_overreach_plan.reach_adjustment, 0.0F) ||
+        !Near(
+            extreme_overreach_plan.effective_target_distance,
+            extreme_overreach_plan.raw_target_distance,
+            0.001F)) {
+        std::cerr << "arm reach policy shortened an extreme controller target before hard clamp\n";
         return 1;
     }
 
@@ -431,6 +439,10 @@ int main() {
         std::cerr << "anatomical forearm twist limit did not preserve axis while bounding angle\n";
         return 1;
     }
+    if (!Near(CoJArmControllerTwistLimitDegrees(), 0.0F)) {
+        std::cerr << "current CoJ arm experiment still applies controller-driven axial roll\n";
+        return 1;
+    }
     const HandOrientationReference invalid_hand_reference = BuildHandOrientationReference(
         {0.0F, 0.0F, 0.0F, 0.0F},
         {1.0F, 0.0F, 0.0F},
@@ -543,6 +555,39 @@ int main() {
             return 1;
         }
     }
+    GameplayInputState low_speed_gameplay{};
+    low_speed_gameplay.active = true;
+    low_speed_gameplay.move = {0.0F, 0.20F};
+    const auto low_speed_actions = BuildCoJGameplayActionValues(low_speed_gameplay);
+    float low_speed_forward = 0.0F;
+    for (const auto& item : low_speed_actions) {
+        if (item.action == 4) low_speed_forward = item.value;
+    }
+    if (!(low_speed_forward > 0.0F && low_speed_forward < 0.10F)) {
+        std::cerr << "VR locomotion deadzone did not preserve low-speed analog movement\n";
+        return 1;
+    }
+    GameplayInputState diagonal_gameplay{};
+    diagonal_gameplay.active = true;
+    diagonal_gameplay.move = {0.12F, 0.12F};
+    const auto diagonal_actions = BuildCoJGameplayActionValues(diagonal_gameplay);
+    float diagonal_forward = 0.0F;
+    float diagonal_right = 0.0F;
+    for (const auto& item : diagonal_actions) {
+        if (item.action == 4) diagonal_forward = item.value;
+        if (item.action == 6) diagonal_right = item.value;
+    }
+    if (!(diagonal_forward > 0.0F && diagonal_right > 0.0F &&
+          Near(diagonal_forward, diagonal_right, 0.001F))) {
+        std::cerr << "VR locomotion deadzone was applied per axis instead of radially\n";
+        return 1;
+    }
+    if (!UseDirectAnalogCoJLocomotion(4) || !UseDirectAnalogCoJLocomotion(5) ||
+        !UseDirectAnalogCoJLocomotion(6) || !UseDirectAnalogCoJLocomotion(7) ||
+        UseDirectAnalogCoJLocomotion(18) || UseDirectAnalogCoJLocomotion(9)) {
+        std::cerr << "CoJ VR locomotion did not bypass desktop digital action semantics\n";
+        return 1;
+    }
     GameplayInputState inactive_gameplay = gameplay;
     inactive_gameplay.active = false;
     for (const auto& item : BuildCoJGameplayActionValues(inactive_gameplay)) {
@@ -550,6 +595,34 @@ int main() {
             std::cerr << "inactive VR gameplay state did not release every CoJ action\n";
             return 1;
         }
+    }
+
+    CoJLoadingUiInputGate loading_ui_gate{};
+    auto loading_ui = loading_ui_gate.Update(
+        true, false, true, true, false);
+    if (loading_ui.dispatch_select || loading_ui.suppress_fire) {
+        std::cerr << "ordinary gameplay UI-select was consumed by the loading gate\n";
+        return 1;
+    }
+    loading_ui = loading_ui_gate.Update(true, true, true, true, false);
+    if (!loading_ui.dispatch_select || !loading_ui.suppress_fire) {
+        std::cerr << "frozen loading gate did not consume the Sense select press\n";
+        return 1;
+    }
+    loading_ui = loading_ui_gate.Update(true, true, false, true, false);
+    if (loading_ui.dispatch_select || !loading_ui.suppress_fire) {
+        std::cerr << "held trigger was not neutralized after loading UI dispatch\n";
+        return 1;
+    }
+    loading_ui = loading_ui_gate.Update(true, false, false, true, false);
+    if (loading_ui.dispatch_select || !loading_ui.suppress_fire) {
+        std::cerr << "trigger leaked when the game timer resumed before release\n";
+        return 1;
+    }
+    loading_ui = loading_ui_gate.Update(true, false, false, false, false);
+    if (loading_ui.dispatch_select || loading_ui.suppress_fire) {
+        std::cerr << "loading UI fire suppression did not clear after trigger release\n";
+        return 1;
     }
 
     bool hand_target_valid = false;

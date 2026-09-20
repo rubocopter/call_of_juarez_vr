@@ -107,7 +107,22 @@ struct CameraStereoFrameSample {
     cojvr::runtime::GameplayInputState gameplay{};
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     bool recenter_requested = false;
+    bool ui_select_left = false;
+    bool ui_select_right = false;
+    bool ui_select_left_pressed = false;
+    bool ui_select_right_pressed = false;
 };
+
+// Exact-game UI input seam.  Selection is delivered through the currently
+// visible GameUserInterface's shipped Enter helper rather than process-global
+// Win32 mouse/keyboard synthesis.
+[[nodiscard]] bool DispatchCameraUiSelectPress(
+    bool require_loading_ui,
+    bool* current_ui_is_loading = nullptr,
+    std::string* error = nullptr) noexcept;
+[[nodiscard]] bool ObserveCameraGameTimerFrozen(
+    bool& frozen,
+    std::string* error = nullptr) noexcept;
 
 // Runtime/transport boundary for the exact-build Chrome Engine integration.
 // EyeView::eye_to_head is static optics; the game adapter never depends on an XR API.
