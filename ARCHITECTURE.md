@@ -2,437 +2,133 @@
 
 ## Product boundary
 
-Call of Juarez VR is intended to be one user-facing project with shared VR policy and multiple integration backends. A common installer/bootstrap may eventually select the correct backend from the detected game and exact executable build.
+Call of Juarez VR turns the original Windows games into native-feeling PCVR experiences. Call of Juarez (2006) is the current reference implementation. The project may promote only game-neutral contracts that are independently demonstrated by another title; exact Chrome Engine layouts, RVAs, Java classes and gameplay behavior remain game-specific.
 
-Call of Juarez (2006) is the reference implementation. Reuse is evidence-driven: a Chrome Engine behavior is not promoted to a shared contract until at least one additional game demonstrates the same boundary.
+The supported end state is native stereo rendering, tracked head and hands, full-body IK and interactions rebuilt for VR.
 
-The current stabilization architecture is governed by `docs/TECHNICAL_AUDIT.md` and `docs/AUDIT_REMEDIATION_PLAN.md`.
+## Layering
 
-## Layers
+| Layer | Owns | Must not own |
+| --- | --- | --- |
+| Shared runtime | tracking/recenter policy, neutral eye data, logical actions, haptics, validation-neutral state | exact game addresses/classes |
+| Renderer backend | D3D device/frame ownership, capture, transport, render targets, compositor presentation | player/weapon/UI semantics |
+| Game backend | exact camera, actor, skeleton, UI, input, weapon and physics seams | reusable compositor policy |
+| Diagnostics/evidence | provenance, structured telemetry, hook/device identity, run correlation | gameplay policy |
 
-1. **Neutral runtime** — renderer/game-independent poses, eye/view data, tracking-space policy, configuration, logical input and haptics.
-2. **VR runtime adapters** — OpenVR or OpenXR lifecycle, runtime state, tracking conversion and compositor/session integration.
-3. **Renderer backends** — D3D9 or D3D10 device/frame ownership, capture/transport, eye targets and presentation handoff.
-4. **Game/build integration** — exact executable identity plus camera, player, weapon, UI and physics knowledge for one game/build.
-5. **Diagnostics/evidence** — hook ownership, factory/device/swapchain identity, device generations, run telemetry and source/build/deployment/run provenance.
+The architecture intentionally mirrors the useful separation already proven in the Penumbra VR Framework while keeping all HPL-specific implementation details out of this repository.
 
-This mirrors the useful separation proven in Penumbra VR while keeping Chrome Engine-specific behavior local to this project.
+## Exact-build integration
 
-## Integration matrix
+Game-specific mutation is SHA-256 gated. A recognized filename is never sufficient to authorize exact offsets or bytecode/native seams. Unknown builds may use safe generic diagnostics only.
 
-| Game | Engine evidence | Renderer path | Initial integration |
-| --- | --- | --- | --- |
-| Call of Juarez | Chrome Engine 3 | D3D9 + D3D10 | D3D9 reference; D3D10 retained as first-class later backend |
-| Bound in Blood | Chrome Engine 4 | D3D9 | shared contracts only after independent evidence |
-| Gunslinger | later Chrome Engine branch | D3D9 | shared contracts only after independent evidence |
+The active Call of Juarez integration is Windows x86 and classic D3D9. D3D10 is a later renderer target. OpenVR/SteamVR is the primary runtime for the PS VR2 path; OpenXR remains separate and experimental.
 
-## Runtime boundary
+## Camera and stereo
 
-Exact CoJ arm propagation is measured, not inferred from EBones ordinals. Run
-`20260919T085408Z-327dd354bc4f` establishes FORETWIST following upper-arm swing but not forearm
-flexion, and hand following forearm but not FORETWIST roll. The current writer explicitly composes
-the missing FORETWIST swing and shares axial roll with the independent hand. This supersedes older
-serial-chain descriptions below. Full basis agreement, joint reach, both-eye persistence and
-natural-frame restoration are separate checks. See `docs/research/COJ_ARM_SKINNING_AND_AIM.md`.
+The proven exact-game path is:
 
-Neutral runtime code must not contain Chrome Engine addresses, native object layouts, camera offsets, executable hashes or weapon assumptions.
+`Camera -> View/Projection -> ChromeEngine3 render-view wrapper -> D3D9 target -> presenter -> SteamVR`
 
-Build/game identity belongs to an integration layer rather than to the neutral VR runtime. OpenVR and OpenXR are separate adapters and must be independently selectable: configuring the OpenVR path must not require the experimental OpenXR backend.
+The game camera remains authoritative. VR applies transient offsets around each render pass and restores the natural state afterward.
 
-Renderer-neutral types must have one semantic meaning across adapters. In particular, eye-to-head transforms, poses in tracking/reference space, FOV, units, handedness and composition order must be explicit before real stereo camera work.
+Key exact-game rules:
 
-## Build identity
+- source camera basis is right/up/forward/position;
+- reflected or invalid bases fail closed instead of reconstructing an axis;
+- HMD eye transforms are metres, Call of Juarez world units are centimetres;
+- metres-to-centimetres conversion happens only in the Call of Juarez adapter;
+- each eye must execute the complete render-view wrapper at `0x00030FB0`;
+- core-only `0x00030E00` is insufficient for a valid second-eye pass;
+- the exact render pose used to create a frame travels with that frame and is submitted through OpenVR explicit-pose submission.
 
-Filename matching is diagnostic only. Exact SHA-256 identifies known inspected builds. A known executable is not synonymous with a supported VR integration.
+Native stereo has physical validation for real distinct eye rendering, correct physical baseline, head orientation, positional offset and explicit render-pose behavior.
 
-Game-specific modifications fail closed on unknown builds. Renderer/runtime diagnostics may operate on unknown builds only where their behavior is demonstrably build-independent and safe.
+## Presentation modes
 
-## Current D3D9 evidence
+The D3D9 path has two presentation modes:
 
-D3D9 remains the first integration target because all three inspected games expose a D3D9 path. Call of Juarez additionally has a D3D10 renderer with visible graphics improvements, so D3D10 remains a later first-class backend.
+- `native_stereo`: two real game render passes with distinct eye content;
+- `flat_theater`: a head-anchored finite-depth screen for startup, menus, loading and other non-stereo states.
 
-The basic transport chain has been demonstrated:
+The device `Present` path can publish flat content when no native-stereo producer is active. The presenter claims and maintains compositor scene ownership, repeats the latest frame at compositor cadence, and returns to native stereo when the game resumes the two-eye render path.
 
-`classic D3D9 backbuffer -> CPU readback -> D3D11 texture -> OpenVR -> SteamVR`
+Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Capture is immediate and does not retain default-pool resources across D3D9 reset/loading boundaries.
 
-Established evidence includes:
+Create on the left Sense controller recenters/reanchors the current VR reference.
 
-- forwarding/bootstrap and native D3D9 observation in the exact game build;
-- successful classic-D3D9 CPU readback -> D3D11 upload;
-- successful isolated OpenVR initialization, PSVR2 HMD pose and D3D11 submission;
-- genuine in-game captured-frame submissions through the flat bridge;
-- one diagnostic run in which exactly three project `Present`, `BeginScene` and `EndScene` callbacks were followed by loss of integrity of the installed device-vtable entries while monitor rendering continued.
+## Flat UI ownership
 
-The last point is a confirmed failure mode of the current interception design. It does not by itself prove which module caused the replacement, whether another factory/device/generation becomes active, or whether hook loss is the only condition preventing a stable visible headset image.
+UI pointing is presentation plus exact-game UI policy:
 
-The historical `369754A6...A14A6AF` candidate can resolve replacement-slot ownership and remains useful baseline evidence, but the stabilization plan does not treat another headset run with that candidate as the first priority.
+1. OpenVR supplies `/pose/tip` and global UI actions.
+2. The presenter intersects the Sense ray with the flat screen and reports normalized/source coordinates plus controller and hit positions.
+3. The Call of Juarez adapter resolves `MainMenuModule.GetGlobalCursor()`, updates its logical position with `UICursorGame.SetPos(LVector;)V`, then sends `OnMouseMove(FFI)V`. This keeps the game cursor visual synchronized but does not by itself own menu hover.
+4. The same projected point is mirrored to the game window with Win32 `SetCursorPos` plus `WM_MOUSEMOVE`, because shipped UI hit-testing follows the real mouse position/process-mouse path. Physical evidence showed that moving the real mouse changed hover while logical cursor motion alone did not.
+5. Cross is global accept, Circle is global back, and L2/R2 remain ray-select inputs.
+6. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`; `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
+7. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
 
-## Hook and device ownership target
+The current implementation of this path is host-tested only. The previous physical run rejected the older cursor/selection route.
 
-Ad-hoc global vtable patching is not the target architecture.
+## Tracking, locomotion and body ownership
 
-The stabilization target is:
+Room-scale HMD translation is camera-owned. The native actor keeps authoritative world position, grounding, collision and ordinary locomotion. Body yaw follows HMD yaw only outside the configured comfort cone; actor yaw must not be applied a second time when mapping controller targets.
 
-- safe conditional `VtablePatch` operations with explicit result states;
-- `HookRegistry` ownership per vtable/device;
-- rollback only for entries still owned by this project;
-- integrity verification and conflict reporting;
-- support for multiple factories/devices/vtables;
-- `DeviceContext` identity for factory, device, swapchain, thread and generation.
+Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
 
-Preserve native COM identity where possible. The preferred audit direction is to observe/intercept device creation on native/reachable D3D9 factories using the safe hook infrastructure.
+Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Run remains boolean and right-stick snap turn is an exact ±45° actor rotation.
 
-A complete `IDirect3DDevice9` forwarding wrapper is not the default remedy for current hook replacement. It may be considered only if evidence requires it and COM identity, `QueryInterface`, `GetDirect3D`, reference/lifetime and device-discovery semantics are explicitly validated.
+Physical crouch is detected from calibrated HMD-height change with hysteresis, but the HMD drop does not automatically press the native crouch action. The latest physical evidence still exposed the full local avatar with `physical_crouch=true` and native `crouch=false`, so first-person body visibility is not explained by a double native-crouch transform. Physical vertical viewpoint remains camera-owned; actor position and grounding remain game-owned. Local-mesh suppression/ownership must be solved without losing tracked arms, shadows or future full-body behavior. Explicit controller crouch still uses the native action.
 
-Do not use blind periodic re-hooking as the normal ownership model.
+## Body IK
 
-## Capture/presentation separation
+The body adapter reads the live Call of Juarez skeleton and builds game-space controller targets. Arm solving uses measured native segment lengths; it does not silently scale skeleton bones.
 
-The historical flat diagnostic bridge performed capture, D3D11 upload, pose wait and OpenVR
-submission synchronously from the game callback. That path proved transport but is no longer the
-current sustained architecture.
+For the observed exact model:
 
-The implemented native-stereo path is:
+- the native two-bone upper+forearm chain is about 49.843 game units;
+- FORETWIST behaves as a sibling of forearm beneath upper;
+- hand follows forearm and does not inherit FORETWIST roll;
+- `EBones` ordering is semantic numbering, not parentage;
+- visible writes use exact-build `RotateElementWithChildren(ILVector;F)V` with element-local axes;
+- child/parent restoration is verified against the captured natural state and failures disable further mutation.
 
-```text
-ChromeEngine per-eye render-view boundary
-  -> D3D9StereoCapture on the game/render thread
-  -> owned CPU StereoCpuFrame
-  -> bounded FrameMailbox
-  -> OpenVrStereoPresenter with exclusive D3D11/OpenVR ownership
-  -> compositor
-```
+The visible writer and restore path are live-exercised, but Body IK remains visually rejected. Latest telemetry frequently reaches elbow/wrist positional targets while controller hand orientation remains far from the rendered hand, and reload animation visibly contorts the arms. Reach, shoulder/clavicle participation, hand orientation and native-animation ownership must therefore be treated as separate problems. Lower-body writing remains unpromoted.
 
-The frame contract includes at least device ID, generation, capture sequence/time, dimensions, stride, explicit pixel format and owned storage.
-
-No D3D9 COM resource crosses to the presenter thread. Reset/device recreation invalidates the old generation. The presenter may repeat the last frame to prove runtime continuity, but repeated presentation increments `submit_sequence`, not `capture_sequence` or new-content sequence.
-
-This separation exists to distinguish engine capture progress from compositor progress and to prevent SteamVR synchronization from directly owning the Chrome Engine render callback cadence.
-
-## Evidence architecture
-
-Every meaningful runtime result must be correlated by `run_id` to:
-
-`sources -> build manifest -> package/deployed hashes -> process -> device generation -> events -> verifier result`
-
-Minimum structured events and fields are defined in `docs/AUDIT_REMEDIATION_PLAN.md`.
-
-A successful OpenVR submission does not prove a unique new game frame. A missing final summary marks evidence incomplete. Historical log phrases must never validate a new artifact.
-
-## OpenVR direction
-
-OpenVR -> SteamVR remains the initial PSVR2 runtime path.
-
-The OpenVR adapter owns explicit lifecycle state (`initialized`, HMD `connected`, scene `focused`, `tracking_valid`, stereo `presenting`, shutdown requested/completed) and processes relevant OpenVR events instead of inferring runtime health from submit count. One process-level owner gate controls OpenVR initialization; competing owners fail closed, and ownership is released by normal runtime teardown outside `DllMain`.
-
-The presenter owns the D3D11 immediate context. Its normal handoff is explicit: CPU frame upload through `UpdateSubresource`, no unconditional GPU-wide wait, left/right `Submit_TextureWithPose`, then `PostPresentHandoff`. `none`, `Flush` and bounded D3D11 event-query synchronization exist as controlled diagnostic strategies; the production presenter remains on `none` unless evidence justifies a narrower change.
-
-The isolated OpenVR path has demonstrated runtime initialization, eye configuration, valid HMD
-pose acquisition and accepted D3D11 submissions. The exact Call of Juarez path has additionally
-demonstrated sustained physically visible stereo submission, scene-focus handoff, repeated-frame
-presentation, explicit render-pose submission and clean runtime teardown. Frame pacing/performance
-remains an open product constraint. The immediate staged physical gate is the host-tested startup
-presentation policy: acquire scene ownership from `flat_theater`, operate the Sense menu pointer and
-selection seam, re-anchor the flat plane with Create, then transition to `native_stereo` in the same
-process without click-through.
-
-## OpenXR direction
-
-OpenXR remains experimental/future. Its existing work is useful research evidence, but it must be build-configurable independently and must not contaminate the neutral runtime ownership model.
-
-Neutral pose/FOV semantics are now host-tested across the shared type boundary: static
-`EyeView::eye_to_head`, time-located `LocatedEyeView::tracking_from_eye`, separate
-`EyeRenderRecommendation`, explicit units/axes/handedness and asymmetric reference-projection
-validation. OpenXR runtime/handle lifetime and state ownership remain unresolved and must be
-corrected before that backend is promoted.
-
-## Validation progression
-
-Audit-remediation Phases 0-4 are the established host-tested baseline. The current
-user-directed gate combines the corrected HMD camera convention with the first exact-build
-native-stereo render-view proof:
-
-1. auditable source/build/run provenance;
-2. valid clean build/CI/tests;
-3. safe hook ownership;
-4. complete native factory/device discovery;
-5. structured render/run telemetry;
-6. exact-build `CBaseCamera -> view/projection -> renderer` static proof — complete;
-7. one manual, non-headset proof of the camera/render boundary plus external FOV control and clean restoration — live-tested;
-8. backend-neutral HMD pose/recenter boundary feeding the same transient camera path — headset/live-tested for the current OpenVR/CoJ path;
-9. exact ChromeEngine render-view boundary plus per-eye translation/asymmetric projection — live-tested for the exact CoJ build;
-10. first physical native-stereo attempt — failed before eye capture/submission because of an OpenVR vertical-FOV sign conversion defect and exposed source/frustum restoration occurring before later scene visibility work;
-11. second physical attempt — reached visible in-game OpenVR submission, but all sampled left/right captures were identical and the run did not reach `run_end`; this is live evidence of headset presentation, not native stereo;
-12. third physical attempt — HMD yaw/pitch direction was correct, but right-eye capture ended on `D3DFMT_NULL` because the implementation used core-only `0x30E00` for the second eye while the first eye traversed full wrapper `0x30FB0`; no stereo pair was submitted;
-13. fourth physical attempt — both complete `0x30FB0` passes captured distinct real color RT0 results and submitted them to OpenVR; binocular gameplay was visible, but fusion/comfort and frame pacing were poor and shutdown remained incomplete;
-14. corrected CoJ world scale, Sense recenter, scene-focus handoff and clean finalization — live-tested;
-15. preserve the exact render HMD pose through the asynchronous capture/mailbox path and submit new/repeated frames with OpenVR explicit render-pose metadata — live-tested by `20260916T224239Z-e43b46698e5c`, which removed the reported head-turn snap-back;
-16. reduce capture/readback/copy overhead and validate sustained frame pacing without regressing stereo geometry, recenter, scene focus, explicit render pose or teardown — live performance work remains open;
-17. Phase 5 resize/Reset/new-device and paused-producer acceptance coverage — host-tested;
-18. Phase 6 OpenVR state/ownership/failure simulation and controlled D3D11 synchronization — host-tested; one consolidated physical run now checks those contracts together with the active performance gate;
-19. positional 6DOF and body/IK preflight are implemented at host level, including read-only pelvis/leg geometry plus measured two-bone leg solving; run `20260917T161917Z-909b63e114af` proved Sense tracking and showed Session-based campaign actor discovery is empty;
-20. shipped bytecode supplies the exact campaign ownership route `LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer()`; the JNI bridge verifies the active module type and uses that fallback only for the empty-Session single-player case — live-tested by `20260917T172007Z-e6232c4778d2` together with successful actor reconciliation and arm-writer invocation, while visual arm composition failed and remains under correction;
-21. unresolved/invalid actor reconciliation fails closed to HMD rotation plus native stereo eye offsets: room-scale head translation is suppressed until the actor can absorb it, preventing the render camera from walking away from the character body; run `20260917T163732Z-03df947b8d50` physically confirmed that visible-body fallback while body IK itself was disabled.
-22. diagnostic multiprocess run `20260919T162808Z-fb75cb34977a` showed both starts entering with no CoJ scene focus and the SteamVR dashboard visible until the first native-stereo submit. Run `20260919T174647Z-67b3c560acd0` then proved the installed implicit swap-chain slot is not traversed by CoJ's live presentation path. Run `20260919T213924Z-d5d149a5bf46` live-proved startup/menu capture from device `Present` and first-submit scene focus. The swap-chain hook remains a fallback and the device slot is reacquired only after exact-original restoration.
-23. flat-theater interaction adds a renderer-owned Sense ray/cursor and exact-CoJ menu click bridge with dedicated UI-select actions, focus/ray-loss release, Create re-anchor support and a transition fence that prevents a held menu trigger becoming a gameplay shot. Run `20260919T213924Z-d5d149a5bf46` live-proved those interaction seams but visually failed because identical centered eye images did not describe a finite virtual screen. Current host source places the common screen at 1.5 m separately through each eye's `eye_to_head`/FOV and uses Reset-safe immediate D3D9 readback for flat content; physical fusion/load validation is pending.
-
-See `docs/AUDIT_REMEDIATION_PLAN.md` for phase acceptance criteria.
-
-The camera probe is game/build integration. Exact RVAs, native layouts and
-`ChromeEngine3.dll` identities stay below the neutral runtime boundary. It uses D3D9 only
-as a bootstrap/forwarding DLL and does not depend on the known-fragile D3D9 frame hooks.
-
-The HMD-rotation candidate adds a neutral `PoseSource` boundary plus
-`RelativePoseTracker`. Runtime pose semantics are right-handed `+X` right, `+Y` up,
-`-Z` forward, metres, quaternion `(x,y,z,w)`, local/device to tracking space. OpenVR is
-the current producer because its x86 standing-space HMD path already has live evidence;
-the Call of Juarez integration depends only on `PoseSource`. Recenter computes an absolute
-relative orientation from a captured base (`R_base^T * R_current`), so no per-frame delta
-is accumulated. Invalid/missing pose data immediately produces natural camera passthrough.
-For the exact CoJ build, camera orientation has a paired native representation. The
-world/camera transform begins at `+0x44`; its inverse/view source begins at `+0x04`.
-Native setters keep them synchronized through matrix-inverse RVA `0x001F3F80`, then
-`0x0022BB10` derives `+0x104` view, `+0x144` world/culling and `+0x204` view-projection.
-The first derived-basis attempt was overwritten; the second `+0x44`-only attempt changed
-world visibility/culling but not the visual camera. Synchronized paired-transform runs then
-reached the visible first-person camera but exposed reversed yaw and incomplete environment
-visibility. A later run also showed the right-hand weapon on the left side of the view. Exact
-binary inspection resolved the shared cause: native `FromForwardUpPos` builds the source
-matrix as **right/up/forward**, with `right = up x forward` at `+0x44`; the hook had written
-the opposite left vector there, creating a horizontal reflection. Current source writes the
-native right axis explicitly and keeps the paired world/view update and restoration. Run
-`20260916T104036Z-24b3e3010d4c` then showed that this removes the mirrored character and
-obvious culling/scene corruption, but same-sign HMD yaw still rotates the visible camera in
-the opposite horizontal direction. The game-specific pose adapter therefore negates only
-physical yaw; pitch keeps the direction confirmed by the live attempts. Runs on 2026-09-18 then
-exposed a comfort defect on physical head tilt: the camera basis excluded roll while the compositor
-received the full HMD render pose. Current host source extracts roll around the tracked forward axis
-and applies it around the native forward axis with the sign inversion required by the tracking
-`-Z` -> CoJ `+Z` reflection. The rendered right/up/forward basis and the pose used by
-`Submit_TextureWithPose` now describe the same full head orientation; physical comfort remains
-pending a fresh headset run.
-The integration treats a rigid right-handed source basis as a runtime invariant: both source
-world and source view/inverse matrices must preserve the native homogeneous `0/0/0/1`
-layout, and natural/applied bases must remain orthonormal with determinant approximately
-`+1`; otherwise the hook uses natural-camera passthrough.
-
-The native-stereo candidate hooks the exact render-view entry at RVA `0x00030FB0`. Exact-build
-disassembly shows this wrapper tests/sets a rendered-this-frame guard at `view+0xD7`, stores the
-active view at owner `+0x3B8`, calls core RVA `0x00030E00`, then performs additional post-core
-work. A live attempt that used the wrapper for the left eye and core-only `0x00030E00` for the
-right eye left RT0 as `D3DFMT_NULL` after the right pass, so current source replays the complete
-wrapper for both eyes. Before the second pass it clears only `view+0xD7` and restores the
-natural post-left value after the wrapper returns. Per-eye data reaches the game through
-`CameraStereoRuntimeCallbacks`, so the ChromeEngine adapter does not depend on OpenVR types.
-`EyeView::pose` is explicitly eye-to-head; the adapter maps that translation into the native
-right/up/forward camera basis. The neutral runtime stores translation in metres. CoJ gameplay
-data explicitly documents `MoveSpeed` in `cm/s` and acceleration in `cm/s^2`, so this game
-adapter converts eye translation with `100` game units per metre before composing it onto the
-camera basis. OpenVR raw `top/bottom` projection signs are converted into the
-neutral positive-up/negative-down `EyeFov` convention before mapping to engine frustum fields
-at `+0x244..+0x250`. Each eye pass keeps source `+0x04/+0x44`, frustum and derived matrices
-active through the complete render-view call, then restores the full snapshot including
-`+0x84`, `+0xC4`, `+0x104`, `+0x144`, `+0x184` and `+0x204`. This matters because exact
-disassembly shows scene/visibility work continues after the camera virtual update inside
-`0x00030E00`.
-
-For the first proof only, each native eye pass is captured from classic D3D9 into a small
-GPU-copy ring, collected into owned CPU frames when ready, published through a bounded latest-frame
-mailbox, uploaded by the presenter into separate D3D11 textures and submitted to OpenVR. The first
-live submission attempt read the swap-chain
-backbuffer while executing inside the render-view boundary; every sampled left/right pair was
-pixel-identical even though the two eye camera/projection passes executed. Current transport
-therefore reads the D3D9 render target currently bound at slot 0, records whether it aliases
-the backbuffer, keys resources to that capture-surface description and rejects identical eye
-hashes before OpenVR submission. `D3DFMT_NULL` is explicitly treated as an auxiliary/wrong
-capture boundary and fails closed. The candidate observes device creation through the factory
-hook and does not install `Present`, `BeginScene`, `EndScene` or `Reset` hooks. CPU readback,
-owned CPU copying and upload remain proof-only costs that require frame-pacing work. Full-frame
-diagnostic hashes are sampled telemetry only; every frame still performs fail-closed RGB eye
-comparison. Contiguous D3D9 locks construct the owned byte range directly instead of first
-value-initializing and then overwriting a same-sized destination vector. The capture component also
-exposes explicit resource invalidation for owners with a real Reset/recreation lifecycle signal;
-the exact CoJ proof does not depend on a Reset hook.
-Run `20260916T133322Z-36c287cc43d8` live-tested distinct left/right engine captures and OpenVR
-submission through this path, but the user reported poor fusion/comfort and performance. That
-run used the pre-fix 1:1 metre-to-game-unit eye translation, making the 65 mm physical IPD only
-0.65 mm in CoJ world scale. Current source fixes that adapter scale and logs the D3D9 viewport
-plus applied per-eye position/frustum so the next run can separate geometric correctness from
-transport cost. Sampled transport telemetry breaks out deferred D3D9 readback, CPU/hash/D3D11
-upload, total eye capture and OpenVR submission time.
-
-Run `20260916T221254Z-861f3c15abd4` subsequently proved clean presenter/runtime shutdown and
-SteamVR scene-focus handoff, but exposed strong head-turn ghosting/elastic reprojection. The
-presenter can submit an image substantially later than the HMD pose used to render it, and may
-repeat that image while newer compositor poses continue to arrive. Current transport therefore
-carries the exact raw HMD render pose and pose sequence with each `StereoCpuFrame`; the presenter
-retains that metadata with the uploaded textures and submits both new and repeated frames using
-OpenVR `VRTextureWithPose_t` / `Submit_TextureWithPose`. A missing or invalid render pose fails
-closed before submission. This preserves the compositor's ability to reproject from the actual
-pose associated with the image instead of implicitly treating the texture as if it were rendered
-at the newest `WaitGetPoses` result.
-
-Run `20260916T224239Z-e43b46698e5c` then physically confirmed that explicit render-pose metadata
-removes the reported snap-back during slow/fast head turns and mouse rotation. The remaining
-presentation problem is throughput. Telemetry showed approximately `15-22 ms` of owned CPU copy
-and `11-14 ms` of full diagnostic hashing on sampled 2560x1440 stereo frames. The hot path now
-checks left/right RGB inequality directly on every frame and computes full hashes only on the
-telemetry samples that are logged; contiguous D3D9 locks use one bulk `memcpy`. This preserves the
-fail-closed distinct-eye contract while removing diagnostic work from almost every frame.
-
-Recenter now uses a small game-neutral OpenVR action boundary. The runtime owns the action
-manifest, action-set/action handles and press-edge semantics; the current PS VR2 Sense profile
-maps left Create to `/actions/global/in/recenter`. The ChromeEngine adapter receives only a
-logical `recenter_requested` flag and forwards it into the existing `RelativePoseTracker`, so
-controller paths and OpenVR handles do not leak into game camera code. The JSON/terminal command
-remains a diagnostic fallback. The same OpenVR sample now also carries both controller-role poses.
-`RelativePoseTracker::TransformPose()` maps those poses into the exact HMD recenter space without
-mutating tracker state, and the neutral `BodyTracker` receives only XR-neutral poses.
-
-Gameplay input is a separate logical state carried beside those tracked poses. The OpenVR adapter
-owns `/actions/gameplay` and converts the current controller binding into a neutral
-`GameplayInputState`; it does not expose OpenVR handles or PS VR2-specific paths to the game layer.
-The exact Call of Juarez adapter then maps that semantic state to shipped action IDs and invokes the
-existing `GameInputController.InputAction.Translate` route, preserving the game's configured target
-device/code/sign contract instead of synthesizing process-global keyboard/mouse input. Loss of scene
-focus, dashboard ownership or invalid tracking produces a neutral state so prior actions are
-released. The CoJ action IDs/JVM route remain game-specific and are not a Chrome Engine contract.
-
-The first exact-build body adapter keeps ChromeEngine ownership game-specific. It attaches to the
-existing Java 1.4 VM through `JNI_GetCreatedJavaVMs` and resolves the current `NetPlayer.m_Being`.
-`Session.sm_LocalPlayer` remains the primary source. Shipped `Session.class` shows that field is set
-only when `NetPlayer.GetNetIsOwner()` is true, so campaign may leave it null; in that case the
-adapter accepts `Session.sm_Players[0]` only when the session contains exactly one player. Any
-zero-player or multi-player ambiguity fails closed. When that happens, the camera/body composition
-also fails closed: HMD orientation and stereo eye offsets remain active, but physical tracking
-translation is neutralized until a native actor can be proven and reconciled. The adapter uses
-shipped `MeshObject` methods rather than hard-coded bone-memory offsets. Joint geometry still comes
-from `GetBoneJointPos`, while arm write composition now reads the exact mesh-element world frame
-with `GetElementPos`, `GetElementLeftVector` and `GetElementUpVector`.
-`ChromeEngine3.dll` disassembly shows that `GetElementForwardVector` writes its output vector but
-returns false unconditionally, so production reconstructs forward from the paired stored +X/up
-axes instead of treating that return value as success. The same disassembly shows
-`FromUpForwardPosElementWorld` normalizes forward, derives the first axis as `up x forward`, rebuilds
-up and stores the complete element world position/orientation.
-
-Arm lengths therefore come from the live animated shoulder/elbow/wrist joints, while native element
-origins and axes remain separate mesh/bind state. A game-neutral two-bone solver places the
-elbow/wrist targets. Runs through `20260917T223157Z-8061a216a065` established that correct
-world-space targets are still insufficient when solved poses are written as absolute mesh-element
-world transforms: both arms can track the Sense controllers yet remain reversed/contorted.
-
-Run `20260918T160300Z-cd4137a48fca` closed the `BoneRotate(BLVector;FZ)V` question: 96 sampled
-`body_arm_write_probe` records and 192 sampled `body_arm_render_probe` records all remained equal to
-the natural arm geometry even though the JNI calls and inverse restores returned success. Tracking,
-head-anchored targets and the two-bone solution remained valid. `BoneRotate` is therefore not an
-active visible-mesh writer for this build and must not be retried without contradictory native
-evidence.
-
-The current exact-game candidate instead uses the shipped
-`RotateElementWithChildren(ILVector;F)V` path at RVA `0x0009A070`. Exact-build disassembly shows that
-it reads the element's existing world matrix, composes an axis/angle rotation onto that matrix,
-invalidates the element/descendant matrix chain and refreshes attached child objects. It does not
-replace the native element origin with a bone joint and does not rebuild the base animation pose.
-The related `RotateElement` handler performs the same relative matrix composition without the final
-child-object refresh; `RotateElementWithAnim` changes the animation-side transform, while
-`CopyXformAnimToElement` copies an animation transform back into an element. Those latter routes are
-kept as research evidence rather than mixed into the first render-element candidate.
-
-The CoJ adapter still derives the shortest-arc upper-arm delta from natural shoulder->elbow to the
-solved segment, applies that parent delta mathematically before deriving the forearm delta, and then
-writes upper element before forearm element. Run `20260918T165754Z-845101e7557b` proved that the
-writer reaches the visible mesh but rejected the initial axis convention: the native handler
-post-multiplies its matrix and consumes an element-local axis, while the failed candidate supplied
-world-space axes. Current source converts the upper axis through its live element frame, applies the
-parent, re-reads the resulting forearm frame and converts the child axis there. The overlay is
-transactional around the two stereo eye draws and is undone forearm-before-upper after capture.
-Runtime validation now requires four
-observable geometry stages: natural immediately before write, changed immediately after a non-zero
-write, the same changed geometry after each complete eye render, and the original natural geometry
-after restore. It also requires elbow/wrist agreement with the solved targets, preventing an
-arbitrarily changed but misoriented mesh from passing. Inverse drift is corrected from the captured
-complete natural element frames and verified; failure of both restore paths fail-closes the writer.
-The controller-orientation extension also reads the native hand element and calibrates the animated
-hand basis against the controller orientation at the current recenter/actor generation. Run
-`20260918T233902Z-0cb2e565e886` proved the controller/gameplay route physically but rejected the arm
-appearance: target reach could be correct while wrist/forearm anatomy remained badly twisted.
-Inspection of the shipped `EBones.class` explains a concrete hierarchy mistake in that candidate:
-the exact chains are left `upper=7 -> forearm=8 -> foretwist=9 -> hand=10` and right
-`upper=12 -> forearm=13 -> foretwist=14 -> hand=15`. Controller pronation/supination therefore
-belongs to the dedicated FORETWIST element rather than directly to the forearm element. Current
-host source derives the relative controller delta and routes pronation/supination through FORETWIST.
-Run `20260919T011421Z-bef5076cd07e` showed that positional IK, FORETWIST and restoration can all stay
-healthy while the extra residual hand rotation still produces unacceptable anatomy. The current
-candidate therefore lets the FORETWIST write propagate through the real native hierarchy, re-reads
-the hand frame and computes the remaining hand residual for diagnostics only. It does not write that
-residual to the hand element: the hand keeps its native child relation to FORETWIST. Mutation/
-persistence and natural-frame verification still include FORETWIST, restoration remains child-first,
-and elbow/wrist positional target agreement is still mandatory. Telemetry names the experiment
-`hand_rotation_mode=foretwist_only` and requires the applied hand rotation to be a no-op. This keeps
-the physically accepted hand-position mapping unchanged while making the next physical gate isolate
-whether the residual wrist writer itself caused the deformation. Pelvis/leg writers remain disabled.
-
-The PS VR2 Sense pose contract is now explicit. Body IK consumes the OpenVR
-`/pose/handgrip` action for each hand because that pose represents the controller's anatomical grip
-frame. The SteamVR compositor's own PS VR2 binding uses `/pose/tip` for its laser pointer; that pose
-is also exposed separately to the exact CoJ weapon-aim adapter and is never reused as the body-hand
-frame. The adapter converts each valid tip orientation into the native camera basis and writes the
-corresponding `m_avLookDirDevForHand` entry after the game's normal look/aim update and before stereo
-rendering. Native `GetFireDirForWeapon` spread/accuracy, `GetFireOriginForWeapon` origin and the
-network-forced attack branch remain game-owned. This ownership path is host-tested; physical firing
-direction has not yet been validated. Raw
-tracked-device role poses remain diagnostic only: if either handgrip action is inactive or invalid,
-body hand tracking fails closed instead of silently falling back to `/pose/raw`. A successful
-explicit recenter invalidates the controller-to-hand orientation calibration. A previously latched
-arm-writer fault may only be cleared at that boundary when no arm write transaction is active and
-freshly read natural arm geometry is valid.
-
-First-person ownership boundaries remain deliberately separate from arm IK. Local head/hair
-suppression is now implemented as an exact-game visibility transaction: only resolved Ray/Billy
-head and hair elements that were originally visible are hidden, and only VR-owned changes are
-restored on tracking loss/shutdown. Its HMD and shadow result still needs physical validation.
-Physical crouch remains planned: it should be derived from calibrated HMD height and enter the game
-through the existing exact-game crouch action/state rather than by moving the camera independently
-of the actor. Firearm shot-direction ownership is implemented through the `/pose/tip` path described
-above and remains below live-tested state until firing is observed physically.
-
-The OpenVR presenter treats SteamVR's dashboard as a system-owned layer, but dashboard visibility
-does not stop valid scene submission. The presenter keeps feeding the latest game stereo content,
-continues global action/pose polling so recenter and handgrip tracking can recover across an overlay
-transition, and neutralizes gameplay actions while the dashboard owns interaction. This avoids
-turning an unavoidable startup/dashboard transition into a stalled scene producer. The dashboard
-can still remain visibly stuck over a correctly submitting CoJ scene, so overlay ownership/focus is
-tracked as a separate presentation problem rather than an arm-IK failure.
-
-The lower-body preflight uses the same exact skeleton readers without writing any lower-body
-element. The game-specific adapter records the native actor position plus animated pelvis offset,
-reads hip/knee/ankle and current thigh/shin/foot bases, and runs the same measured two-bone solver
-with reach clamping. The knee pole comes from the live animated knee plane, falling back only when
-that plane degenerates, while foot orientation remains the native animated basis. Sampled
-`body_lower_tracking` telemetry exposes both sides, measured lengths, pelvis target, clamp state and
-knee-plane validity. This is host-tested observation/preflight only until the arm composition gate
-passes physically.
-
-Run `20260916T153109Z-8976b8f77775` also demonstrates that modal/flat UI is a separate
-presentation boundary: the game menu was not visible through the current native gameplay stereo
-path, while returning to gameplay resumed HMD-driven rendering. Current source implements that
-boundary as `flat_theater`: the device `Present` capture supplies ordinary 2D content, with the
-swap-chain slot retained for explicit-swap-chain callers,
-the OpenVR presenter anchors it to a stable HMD pose and Create can re-anchor it, while native stereo
-automatically retakes ownership when the game resumes the exact two-eye render path.
-
-Flat-theater interaction is a separate contract from gameplay input. The shared OpenVR action layer
-owns dedicated left/right UI-select booleans and controller aim poses. The presenter owns ray/plane
-intersection, black-border/source-pixel mapping, smoothing and the visible crosshair because those
-operations are renderer/presentation semantics. The exact CoJ adapter owns the legacy menu seam: it
-maps the normalized hit into the foreground game HWND and issues Win32 cursor plus left-button input.
-That bridge is disabled outside `flat_theater`, releases on ray/focus/shutdown failure, and carries a
-release fence into native gameplay so a shared physical trigger cannot click through into firing.
-Keyboard/mouse remain available as fallback. This architecture is **host-tested only** until a fresh
-physical run proves pointer alignment, selection, re-anchor behavior and transition back to stereo.
+Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
+
+## Weapon ownership
+
+The controller `/pose/tip` drives per-hand aim direction and visual origin through exact game fields:
+
+- direction: `m_avLookDirDevForHand[hand]`;
+- visual origin: `m_avAimFromPoint[hand]`;
+- ordinary ballistic origin: `Being.m_vLookFromPoint`;
+- native spread/accuracy remains downstream in the game weapon code;
+- the network-forced attack branch remains untouched.
+
+For local fire, controller-derived ballistic origin may replace `Being.m_vLookFromPoint` only for the synchronous fire `InputDigital.Translate` call. The adapter captures the native value first and restores it immediately after the call, including the first press. No controller-owned ballistic origin persists across frames, and normal gameplay no longer creates a diagnostic `LaserPointer` object.
+
+The transactional fire-origin path is host-tested. The latest gameplay process recorded 55 fire-pressed samples and reached normal `run_end`, so previous first-shot termination was not reproduced; however, visible/ballistic origin and direction remain physically rejected and no firing gate advances.
+
+## D3D9 transport cost
+
+The active classic-D3D9 path still performs CPU readback before publishing a stereo frame. To reduce avoidable cost without changing that structural boundary, the presenter samples eye-distinction hashes instead of doing a full RGB comparison every frame, and the mailbox recycles consumed CPU-frame storage so stable-resolution frames reuse their buffers. Telemetry exposes `cpu_storage_reused` plus readback/copy/producer timing.
+
+Latest gameplay evidence measured CPU copy at 7.432 ms median, 8.994 ms p95 and 9.644 ms max for a 1920x1080-per-eye source while SteamVR recommended 3400x3468. A 120 Hz frame is about 8.33 ms, so this transport can consume the whole budget before remaining game/presenter work. A GPU-resident or lower-copy transport is the architectural priority before a large eye-resolution increase.
+
+OFXR-Bridge is not part of the active architecture. It is an experimental OpenXR optical-flow frame-generation API layer; Call of Juarez currently submits through OpenVR after classic-D3D9 readback. It may be revisited only on a future OpenXR path and cannot remove the current D3D9 GPU->CPU boundary.
+
+## Evidence and lifecycle
+
+Every physical candidate correlates source state, build manifest, deployed proxy, run ID, runtime telemetry and retained evidence metadata. One staged run ID represents one game process; a second launch requires a new prepare cycle.
+
+Validation states are:
+
+`planned` -> `implemented` -> `host-tested` -> `live-tested` -> `headset-validated` -> `supported`
+
+The current outer runtime can reach `run_end`, but recent body/playability runs still report incomplete inner presenter shutdown. That remains an open lifecycle issue and must not be described as resolved.
 
 ## Primary validation hardware
 
-The primary headset target is PlayStation VR2 on PC through OpenVR -> SteamVR. The primary motion-controller target is the paired PS VR2 Sense controllers.
-
-Physical headset/controller validation is intentionally later than host and game-observation gates. Do not require the user to wear the headset for evidence that can be obtained from structured game/runtime telemetry.
+Current physical development uses PS VR2 through SteamVR with PS VR2 Sense controllers. Hardware-specific bindings belong to assets/runtime input; game logic consumes logical actions and tracked poses.

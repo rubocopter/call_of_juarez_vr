@@ -1,442 +1,86 @@
-# Audit remediation plan
+# Audit remediation plan — maintained baseline
 
-This plan turns the findings in `docs/TECHNICAL_AUDIT.md` into an ordered implementation program. It is the default execution order for Codex and human work during the current stabilization phase.
+The original audit remediation phases are no longer an implementation backlog. Their accepted results form the stabilization baseline for current product work. This file keeps the acceptance contracts agents must preserve.
 
-Do not skip phases because a later change appears more likely to fix the headset. The purpose of this plan is to make each subsequent runtime test discriminating and reproducible.
+## Phase status
 
-## Phase 0 — Freeze an auditable baseline
-
-**Goal:** make every future result traceable from source snapshot to deployed artifact and run evidence.
-
-### Work
-
-- Inventory tracked/untracked state before changing code.
-- Record repository HEAD and dirty state.
-- Add a build/run manifest containing source identity and hashes of relevant artifacts.
-- Preserve existing logs instead of deleting them during staging.
-- Record exact identities for `CoJ.exe`, `ChromeEngine3.dll`, proxy DLL, `openvr_api.dll` and diagnostic mode.
-- Separate "known binary" from "supported integration" terminology.
-- Add a run-evidence collector that can package manifest, stage state and produced logs without launching the game.
-
-Known exact identities currently used by the project:
-
-- `CoJ.exe`: `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`
-- inspected `ChromeEngine3.dll`: `DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8`
-
-### Acceptance
-
-Another checkout can identify and rebuild the same source snapshot, and any manual run can be tied to one exact build/package/deployment manifest.
-
-## Phase 1 — Repair build and host-test validity
-
-**Goal:** make a clean host build/test result meaningful before interpreting new runtime evidence.
-
-### Work
-
-- Separate neutral runtime, build/game identity and OpenVR/OpenXR adapters.
-- Allow OpenXR to be disabled without blocking OpenVR.
-- Bootstrap every enabled dependency in CI; in particular, CI must prepare pinned OpenVR when OpenVR targets are enabled.
-- Require Win32/x86 explicitly for the proxy/game-integration artifacts.
-- Ensure native D3D9 tests load the system runtime intentionally and assert the loaded module path.
-- Keep proxy-loading tests separate from native-D3D9 tests.
-- Use isolated log/temp directories per test.
-- Represent unavailable HAL/runtime prerequisites as `SKIP`, not positive evidence.
-- Update proxy smoke coverage so the active `BeginScene`/`EndScene` path is actually exercised where relevant.
-- Rebuild all targets from current sources before CTest.
-- Add regression coverage for changing readback patterns, orientation/stride and temporal updates.
-
-### Acceptance
-
-- clean Debug and Release builds from a fresh checkout;
-- CI can configure from zero with only enabled dependencies;
-- host tests are bound to freshly built artifacts;
-- no native test can accidentally use the local project proxy;
-- PASS/FAIL/SKIP semantics are explicit.
-
-## Phase 2 — Replace ad-hoc vtable patching with safe hook infrastructure
-
-**Goal:** make hook installation, ownership, rollback and integrity deterministic.
-
-### Components
-
-- `VtablePatch`
-- `HookRegistry`
-- per-vtable/per-device records
-
-### Patch contract
-
-A patch operation must distinguish at least:
-
-```text
-no modification
-applied
-protection failure
-conflict / unexpected current target
-rollback incomplete
-```
-
-### Requirements
-
-- conditional compare/exchange semantics rather than blind overwrite;
-- retain original targets while any installed wrapper may still be reachable;
-- roll back every entry that was actually modified;
-- restore only entries still owned by this project;
-- support more than one vtable/device;
-- define synchronization/reentrancy policy;
-- verify integrity after installation;
-- never silently reinstall over another component's hook;
-- ensure the module remains loaded while patched entries reference it.
-
-Apply the same safety model to any swapchain hook that remains necessary.
-
-### Required tests
-
-- failure before replacement;
-- failure after replacement/protection change;
-- conflicting existing hook;
-- second vtable/device;
-- reinstall attempt;
-- partial rollback;
-- callback during transition;
-- native HRESULT returned unchanged.
-
-### Acceptance
-
-No failed installation path can leave a vtable entry targeting project code without a valid retained original and ownership record.
-
-## Phase 3 — Close factory/device discovery and COM-identity gaps
-
-**Goal:** know which factory/device/swapchain actually owns rendering without creating split COM identity.
-
-### Direction
-
-Prefer preserving native D3D9 COM objects and intercepting device creation through registered native factories using the Phase 2 hook infrastructure.
-
-A full `IDirect3DDevice9` forwarding wrapper is not the default solution. It may be considered only if evidence requires it and COM identity/lifetime behavior is explicitly validated.
-
-### Work
-
-- observe device creation from every registered/reachable factory;
-- verify `GetDirect3D` round-trips and factory identity;
-- assign stable diagnostic IDs to factory, device and swapchain instances;
-- record creation thread and device generation;
-- record module ownership of intercepted/replacement function targets;
-- detect new devices and device generations after Reset/recreation;
-- isolate the D3D9Ex substitution as a laboratory artifact with no accidental activation path in the classic runtime.
-
-### Acceptance
-
-Creating a device through a factory recovered from another native D3D9 object remains observable, and COM identity relationships match native behavior.
-
-Do not add hooks for unused interfaces without evidence that they are part of the live render path.
-
-## Phase 4 — Build structured render/run observability
-
-**Goal:** a single run must be sufficient to distinguish hook loss, stage failure, stage stall, device change and lack of new content.
-
-### Minimum events
-
-```text
-run_start
-build/deployment_identified
-device_created
-generation_changed
-hook_installed
-hook_conflict
-hook_integrity_lost
-callback_enter
-callback_exit
-capture_begin
-capture_end
-frame_published
-upload_begin
-upload_end
-wait_poses_begin
-wait_poses_end
-submit_left
-submit_right
-runtime_state_changed
-periodic_summary
-run_end
-```
-
-### Minimum fields
-
-- `run_id`
-- source/build manifest identity
-- PID/TID
-- monotonic timestamp
-- factory/device/swapchain ID
-- device generation
-- callback/capture/content/upload/submit sequence
-- stage duration
-- HRESULT/runtime result
-
-### Rules
-
-- exact counters, with detailed per-event sampling bounded to avoid excessive logging;
-- periodic summary generated outside critical draw calls where possible;
-- every blocking stage records entry before work and exit after work;
-- absence of final summary marks the run incomplete;
-- `Present`, `EndScene` and swapchain activity are measured before any is discarded;
-- `BeginScene`/`Clear`/draw probes may establish activity but must not perform VR submission per draw;
-- a repeated OpenVR texture increments submit sequence but not capture/content sequence.
-
-### Acceptance
-
-One run log can answer: which device rendered, whether hooks remained owned, how many callbacks occurred, how many new frames were captured, where progress stopped, and whether OpenVR continued presenting after capture stopped.
-
-Only after this phase should another manual game observation run be requested.
-
-## Phase 5 — Separate D3D9 capture from OpenVR presentation
-
-**Goal:** decouple the Chrome Engine render clock from the SteamVR compositor clock while preserving correct D3D9 thread ownership.
-
-**Current status:** host acceptance complete and live-exercised by the later native-stereo runs.
-Resize, explicit pre-Reset invalidation/post-Reset generation recovery, identical-format new-device
-ownership and controlled paused-producer repeat classification are covered by host tests. Sustained
-frame pacing remains a product/runtime gate rather than an unfinished Phase 5 acceptance item.
-
-### Components
-
-- `D3D9Capture`
-- `FrameMailbox`
-- `OpenVrPresenter`
-
-### Frame contract
-
-```text
-Frame
-  device_id
-  generation
-  capture_sequence
-  capture_time
-  width / height
-  stride
-  explicit pixel format
-  owned pixel storage
-```
-
-### Requirements
-
-- all D3D9 calls remain on the correct game/render thread;
-- resources are keyed by device and generation;
-- no D3D9 COM resource crosses to the presenter thread;
-- locked/mapped resources use RAII;
-- use a canonical explicit pixel format and alpha/X-channel policy;
-- bounded small mailbox; stale pending frames may be replaced rather than blocking the producer indefinitely;
-- one owner for D3D11 immediate context and OpenVR;
-- Reset/recreation invalidates the old generation;
-- presenter rejects stale frames;
-- repeated last-frame presentation is identified as repetition;
-- teardown occurs outside `DllMain` and cannot race callbacks/presenter work.
-
-### Required tests
-
-- asymmetric image patterns;
-- content changing every frame;
-- nontrivial stride;
-- resize;
-- Reset;
-- new device with identical dimensions/format;
-- stopped producer with active presenter;
-- slow consumer;
-- bounded memory use.
-
-### Acceptance
-
-The presenter can remain alive and measurable when capture pauses, while logs clearly show that no new game frame was produced.
-
-## Phase 6 — Formalize OpenVR ownership, state and synchronization
-
-**Goal:** make sustained compositor behavior and failure recovery observable and deterministic.
-
-**Current status:** host/simulated acceptance complete. The runtime has explicit lifecycle,
-connection, focus, tracking, presenting and shutdown state; process-owner conflict/release,
-move-safety, failure simulation and controlled `none`/`Flush`/event-query D3D11 synchronization are
-host-tested. The animated physical probe has not been rerun, so these changes have not received a
-new live/headset promotion.
-
-### Work
-
-- separate runtime initialized/connected/focused/tracking-valid/presenting/shutdown states;
-- process relevant runtime events;
-- define one OpenVR initialization owner per process;
-- record per-eye submit results and available compositor timing/timeout information;
-- review move semantics and ownership of native handles;
-- review `noexcept` boundaries so allocation/reporting failures cannot unexpectedly terminate the process;
-- define explicit D3D11 upload/synchronization/handoff order;
-- compare GPU synchronization strategies through controlled tests instead of adding unconditional global waits;
-- make the visible OpenVR probe duration configurable or manually stoppable and use a recognizable animated pattern/counter.
-
-### Acceptance
-
-Host/simulated tests cover focus loss, one-eye submit failure, invalid tracking, runtime disconnect and shutdown; the physical probe produces interpretable run evidence when manually executed.
-
-## Phase 7 — Make deployment and verification transactional
-
-**Goal:** guarantee recoverability and prevent stale evidence from validating a new build.
-
-**Current status:** host-tested acceptance complete.
-Active-game rejection, Win32/x86 preflight, run-bound stale-evidence rejection,
-journal-before-mutation, verified temporary installation and interrupted stage/unstage recovery are
-implemented. Helper tests cover clean/original/temporary/partial-directory/missing-backup and
-external-change recovery paths. `tools/test_deployment_transactions.ps1` additionally exercises the
-real stage/unstage scripts against isolated copies of the exact installed game/engine binaries. The
-current matrix recovers all 15 scripted staging failure checkpoints, all 10 scripted unstaging
-failure checkpoints, completes two repeated full stage/unstage cycles, and `provenance_tools`
-verifies that an active `CoJ.exe` is rejected before mutation. No game or SteamVR process is launched
-by this evidence.
-
-### Work
-
-- complete preflight before mutating the game directory;
-- reject active game processes;
-- validate executable build, proxy architecture/mode/hash and dependency hashes;
-- write a recovery journal before the first mutation;
-- install temporary files and verify them before controlled replacement;
-- mark staging complete only after every operation succeeds;
-- recover interrupted staging/unstaging from the journal;
-- preserve logs/evidence under run-specific paths;
-- bind post-run verification to `run_id`, manifest and deployed hashes.
-
-### Required tests
-
-- clean installation;
-- pre-existing original DLL;
-- missing backup;
-- externally changed file;
-- failure after each transaction step;
-- repeated stage/unstage;
-- active game process.
-
-### Acceptance
-
-Any interruption either leaves originals intact or provides an unambiguous recovery path; an old log cannot pass verification for a new candidate.
-
-## Phase 8 — Lock neutral math contracts before real stereo cameras
-
-**Goal:** ensure game-neutral VR transforms mean the same thing across runtime backends before camera integration.
-
-**Current status:** host-tested neutral math/semantic acceptance complete. OpenXR runtime/handle
-lifetime remains a separate Phase 6/A10 ownership concern and is not promoted by this result.
-
-### Work
-
-- distinguish eye-to-head transform from an eye pose in tracking/reference space;
-- document meters, coordinate axes, handedness and transform-composition convention;
-- verify asymmetric FOV conversion against reference projection matrices;
-- reject non-finite/invalid transforms;
-- keep OpenXR isolated until its handle/lifetime ownership is corrected.
-
-### Acceptance
-
-The same neutral field has one documented semantic meaning for every producer and consumer, with
-tests covering asymmetric stereo projection. `EyeView` is static eye-to-head optics,
-`LocatedEyeView` is a time-located `tracking_from_eye` pose, and render-size recommendations use the
-separate `EyeRenderRecommendation` type. The neutral convention is right-handed `+X` right, `+Y` up,
-`-Z` forward, metres, `(x,y,z,w)` quaternions and destination-from-source transform naming. OpenVR
-and OpenXR adapters reject invalid/non-finite eye data, and reference-projection tests cover
-asymmetric FOV plus invalid near/far/FOV inputs.
-
-## Execution order
-
-Historical default critical path:
-
-```text
-Phase 0
-  -> Phase 1
-  -> Phase 2
-  -> Phase 3
-  -> Phase 4
-  -> manual game observation gate
-  -> Phases 5 and 6
-  -> Phase 7
-  -> flat integration validation
-  -> camera/stereo work
-```
-
-The project has already advanced beyond the historical flat/camera ordering through exact-build
-live evidence. The current continuation is:
-
-```text
-Phases 0-4 host baseline
-  -> exact CoJ camera/native-stereo live proof
-  -> Phase 5 host acceptance complete / live-exercised
-  -> Phase 6 host acceptance complete
-  -> Phase 7 transactional deployment host acceptance complete
-  -> Phase 8 neutral math/semantic host acceptance complete
-  -> positional 6DOF and exact CoJ gameplay-controller route live-tested
-  -> recenter and exact +/-45-degree snap turn headset-validated
-  -> visible arm writer/restoration and tracked-hand positional mapping live-tested
-  -> diagnostic multiprocess run 20260919T162808Z-fb75cb34977a exposes startup scene-focus failure
-  -> swap-chain-only flat fallback rejected by run 20260919T174647Z-67b3c560acd0
-  -> device-Present flat_theater fallback and Sense menu interaction host-tested
-  -> run 20260919T213924Z-d5d149a5bf46 live-proves device-Present flat startup,
-     scene ownership and pointer/select/re-anchor; binocular fusion and load crash fail
-     before native_stereo
-  -> host-tested per-eye 1.5 m flat projection + Reset-safe immediate flat readback
-  -> fresh one-process fusion/load -> native_stereo gate
-  -> physical Body IK anatomy/head-suppression/aim gates
-  -> physical crouch, lower-body writing and rebuilt VR interactions
-  -> remaining backend-specific lifetime/general portability hardening before broader runtime reuse
-```
-
-Phase 8's neutral math contract is now host-tested. Remaining OpenXR lifetime/state ownership stays
-tracked independently under A10; it does not retroactively block the already-proven exact Call of
-Juarez/OpenVR stereo path. Run `20260919T174647Z-67b3c560acd0` is finalized/unstaged and rejected
-the swap-chain-only producer. The device-Present correction remains host-tested until one clean
-physical process proves the flat startup/menu interaction and transition gate. Body IK, local-head suppression and controller-owned firing are promoted only
-by their own physical acceptance evidence.
-
-Run `20260919T213924Z-d5d149a5bf46` is finalized/unstaged. It promoted the device-Present producer,
-scene ownership and flat-menu interaction to live-tested, but the user saw binocular doubling and the
-process crashed in `MeshObject.LoadMesh()` during level load before native stereo. Current source has
-host-tested per-eye flat-plane placement plus an immediate flat readback path whose integration test
-survives classic D3D9 Reset without explicit invalidation. A fresh physical run must prove binocular
-fusion and load survival before the same-process native-stereo transition can promote.
-
-### Camera/render boundary proof — live-tested
-
-The user explicitly deferred another Steam-Overlay-disabled repetition of the Phase 0-4
-observation gate in favor of a more discriminating engine-boundary experiment. Call of
-Juarez (2006) has now passed this narrow exact-build diagnostic gate:
-
-```text
-exact CoJ.exe + exact ChromeEngine3.dll
-  -> CBaseCamera render update / FOV boundary
-  -> view + projection matrix update
-  -> ChromeEngine3 renderer camera ownership
-  -> externally commanded FOV/yaw/pitch proof
-```
-
-Run `20260915T150554Z-7e0d7da45949` proved visible external FOV/yaw/pitch control,
-renderer-camera correlation, natural-basis restoration, disabled passthrough and clean
-hook restoration. Follow-on HMD runs refined the native paired world/view camera contract,
-right-handed source basis and game-specific yaw sign. The current host-tested candidate also
-uses the exact ChromeEngine render-view boundary for two per-eye passes with eye-to-head
-translation and asymmetric projection. That camera-boundary run alone did not promote stereo,
-positional 6DOF or motion controls; later exact-build runs now provide live evidence for native
-stereo, positional reconciliation and the exact CoJ gameplay-input route, while Body IK still fails
-visual anatomy acceptance. The Steam Overlay A/B remains unresolved evidence for the D3D9 interception
-finding and may be resumed later if presentation work returns to that boundary. Exact
-static/live evidence and constraints are recorded in `docs/research/COJ_CAMERA_PATH.md`.
-
-## Validation gates
-
-| Gate | Required evidence | User action |
+| Phase | Contract | State |
 | --- | --- | --- |
-| Host | hooks/resources/states/transfer pass controlled and failure-injection tests | none |
-| Camera boundary | exact engine profile, camera-vtable ownership, external FOV/orientation command, renderer-camera correlation and clean restore | one manual game launch; headset/SteamVR unnecessary |
-| HMD rotation + native stereo | valid HMD pose/recenter, corrected continuous yaw/pitch, stable scene, two native eye passes with distinct eye content/asymmetric projection, visible stereo, disable passthrough, renderer-camera correlation and clean restore | manual SteamVR + game + physical HMD motion/headset observation |
-| Game observation | sustained callback/device/generation coverage with structured evidence | manual game launch; headset unnecessary |
-| Game capture | changing images, correct orientation/stride/content | manual game launch; headset unnecessary |
-| Isolated compositor | sustained timing/submission and recognizable visible pattern | manual SteamVR + physical headset confirmation |
-| Flat integration | changing gameplay visible in headset across menus/loading/gameplay | physical test |
-| Positional tracking / later stereo hardening | positional camera ownership, culling and final render-target transport validated after the current native-stereo gate | later physical phase |
+| 0 | auditable source/build/deploy/run provenance | host-tested and used by physical workflow |
+| 1 | trustworthy Win32 build and host-test baseline | host-tested; current Debug/Release suites green |
+| 2 | safe hook ownership/restoration | host-tested and physically exercised |
+| 3 | factory/device/generation identity | host-tested and physically exercised |
+| 4 | structured run/render telemetry | host-tested and physically exercised |
+| 5 | capture/presenter separation | host-tested and physically exercised |
+| 6 | OpenVR ownership/state/synchronization | physically exercised; inner presenter finalization remains open |
+| 7 | transactional stage/verify/restore workflow | host-tested and used for physical runs |
+| 8 | neutral VR math/unit contracts | host-tested and physically exercised |
 
-## Stop conditions for agents
+## Non-regression acceptance
 
-An agent should stop and hand off only when the next evidence genuinely requires a user-launched game, SteamVR or physical headset/controller validation. Before stopping, it must prepare the exact artifact, staging path, verifier and evidence expectations.
+### Provenance
 
-Do not ask for another headset test merely because code changed. Reach the relevant gate first.
+Every physical candidate must bind:
+
+- source commit and dirty state;
+- exact supported-game binary identity;
+- build manifest;
+- deployed proxy hash;
+- unique run ID;
+- runtime log/evidence result;
+- staging/restoration state.
+
+A run ID reused by a second game process is diagnostic only.
+
+### Hook/device ownership
+
+Hooks must know the object/generation they own, preserve foreign hooks, restore only their own mutations and fail closed on ambiguous ownership. Reset/new-device paths must invalidate/recreate resources safely.
+
+### Capture/presentation
+
+Game render callbacks produce/capture frames. The presenter owns compositor cadence, repeat behavior, scene focus and OpenVR submission. Repeated frames carry the exact render pose associated with their image; frames without valid pose ownership fail closed.
+
+Classic D3D9 reset must not depend on persistent default-pool flat-capture resources.
+
+### Camera/math
+
+The game camera is authoritative. VR state is applied transiently around the render path and restored. Use the exact source right/up/forward basis. Convert XR metres to Call of Juarez centimetres only in the exact-game adapter.
+
+### Deployment
+
+`tools/vr_test.ps1 prepare` is the physical-test front door. It must build/test, create provenance and stage a candidate transactionally. `finish` must collect/verify available evidence and restore staging/video settings even when the physical gate fails.
+
+SteamVR and Call of Juarez are launched and closed manually.
+
+## Current product-remediation gate
+
+The next candidate must preserve all baseline contracts while physically validating the follow-up work after multiprocess diagnostic rejection `20260920T214629Z-351c27f434d5`:
+
+1. controller-origin flat-menu beam plus real hover through the Win32 mouse path, while the logical `UICursorGame` remains synchronized;
+2. Cross accept, Circle back through normal Escape semantics and L2/R2 ray-select without layer loss, freeze or flat-mode lockup;
+3. reliable startup skip, paused-hint handling without JNI exceptions and `GameUILoading.OnInputKey` continuation from Sense;
+4. visible subtitles, after distinguishing `Settings.bSubtitles` state from UI/presentation loss;
+5. level horizon after recenter and no pitch/roll baked into tracking reference;
+6. smooth locomotion/jump while separating native movement semantics from measured classic-D3D9 CPU-readback stutter;
+7. physical crouch with first-person local-mesh ownership preserved even though physical crouch does not press the native crouch action;
+8. stable body-arm writer/restoration with plausible hand orientation and reload behavior; do not lengthen bones without measured justification;
+9. repeated-fire stability plus controller-owned visual/ballistic origin and direction checks;
+10. flat/native presentation transitions and shutdown/finalization.
+
+The active 1920x1080-per-eye classic-D3D9 CPU path measured 7.432 ms median and 8.994 ms p95 copy time in the latest gameplay process while SteamVR recommended 3400x3468. Removing/reducing GPU->CPU transport cost takes priority over a large resolution increase. OFXR-Bridge remains future OpenXR/frame-generation research and is not a remediation for the active OpenVR readback path.
+
+Passing host tests is required before this gate, but cannot promote it.
+
+## Promotion rules
+
+- `implemented`: code exists.
+- `host-tested`: relevant host tests/builds pass.
+- `live-tested`: exact game/runtime path executed with correlated evidence.
+- `headset-validated`: user-observed HMD/controller behavior satisfies the acceptance gesture.
+- `supported`: feature is intentionally shipped and covered by the supported product contract.
+
+Do not promote from documentation, static bytecode/disassembly, synthetic tests or an invalid multiprocess run alone.
+
+## Stop conditions
+
+Fail closed and diagnose instead of continuing game-specific mutation when exact build identity, object/generation identity, camera basis, tracked pose validity, restoration or provenance is ambiguous.

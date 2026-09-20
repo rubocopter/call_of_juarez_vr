@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "cojvr-physical-video-evidence",
+  "runId": "20260920T204507Z-6db13f3107e0",
+  "promotionStatus": "diagnostic_single_process_rejected_playability_gate",
+  "candidate": {
+    "sourceCommit": "e4e86eeb72a4e2cb2827a1952796a16b82094a4c",
+    "sourceDirty": true,
+    "buildManifestId": "79E42575ABF4DA4C8906CB43C85837DFDA137F2EC27DF62FD53FE348E49C8005",
+    "proxySha256": "E46B413F7F5F5C7528072D271253F2CBFDBE4B15F7BA72E59EFEED12706BD48D"
+  },
+  "video": {
+    "path": "C:\\Users\\onita\\Videos\\clip_1.789.937.320.810.mp4",
+    "sha256": "B71A01F216DA8B6D1E0CFEBCF7E390AE2268C57860F6B0C78D727D64A6EB9C53",
+    "durationSeconds": 80.984333,
+    "sizeBytes": 158409527,
+    "width": 1920,
+    "height": 1080,
+    "averageFrameRate": "approximately 60"
+  },
+  "evidence": {
+    "runtimeLogSha256": "45EF53E182CA4A19ADB48CFD9DFCE018B5001F26A394A523DDC93FBD161FE5B1",
+    "runtimeEnded": true,
+    "incomplete": false
+  },
+  "telemetry": {
+    "framesFenced": 2187,
+    "framesCollected": 2187,
+    "captureRingDrops": 0,
+    "framesUploaded": 4811,
+    "newSubmissions": 4811,
+    "repeatSubmissions": 3245,
+    "submitFailures": 0,
+    "cpuCopyAverageMs": 9.726,
+    "cpuCopyP95Ms": 12.45,
+    "producerCollectAverageMs": 9.731,
+    "producerCollectP95Ms": 12.457,
+    "diagnosticHashAverageMs": 6.733,
+    "presenterShutdownComplete": false,
+    "outerRuntimeEnded": true,
+    "firePressedTelemetryObserved": false
+  },
+  "observations": [
+    "Sense trigger input successfully skipped the startup videos.",
+    "The flat-menu beam moved, but the highlighted menu item did not follow hover; only the already-highlighted option could be accepted reliably.",
+    "The post-load press-a-key prompt still required keyboard input.",
+    "Walking remained severely jerky. Producer collection averaged 9.731 ms with a 12.457 ms p95, dominated by CPU copy, which is larger than a 120 Hz frame budget at the upper samples.",
+    "The clip showed a visibly rolled horizon and the full player avatar moving in front of the HMD during physical crouch.",
+    "The user reported that the first shot terminated the game. The runtime emitted no fire_left/right=true gameplay-input record before exit, so the exact failing call is not proven by telemetry.",
+    "The process nevertheless reached normal outer run_end; inner presenter shutdown completion was not observed."
+  ]
+}

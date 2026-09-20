@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "cojvr-physical-video-evidence",
+  "runId": "20260920T161307Z-474f0b054338",
+  "promotionStatus": "diagnostic_single_process_rejected_playability_gate",
+  "candidate": {
+    "sourceCommit": "e4e86eeb72a4e2cb2827a1952796a16b82094a4c",
+    "sourceDirty": false,
+    "buildManifestId": "5745E129561D41ED8D2BA1FD2A23E432994D9FB93C82CD5931E17A1E4142B6C3",
+    "proxySha256": "383416860C82DCDA38F0E78740BA08418CFFC80BDF89BF9FF24AC95BF03C38A4"
+  },
+  "video": {
+    "path": "C:\\Users\\onita\\Videos\\clip_1.789.922.120.407.mp4",
+    "sha256": "8C7D00EC3A00495D23BD47F49A1118E58B97D69F9A9A19B4ADDA6F1DBBAC4C8A",
+    "durationSeconds": 164.984667,
+    "sizeBytes": 295822786,
+    "width": 1920,
+    "height": 1080,
+    "averageFrameRate": "approximately 60"
+  },
+  "evidencePackage": {
+    "sha256": "736A3354279F9D65907A2563A0D8B0BE265F78325F9634469BAD82CCF84A2DFB",
+    "sizeBytes": 5995941,
+    "runtimeLogSha256": "A646684713C575531A835C9F557FCE1BF9510F3B0CEDCD496C6A3117E85C82B5",
+    "runtimeEnded": true,
+    "incomplete": false
+  },
+  "telemetry": {
+    "flatUiSelectApplied": 4,
+    "flatUiSelectFailed": 38,
+    "gameplayInputAppliedSamples": 317,
+    "armTrackingRecords": 11192,
+    "armRestoreRecords": 11192,
+    "leftArmSamples": 5596,
+    "rightArmSamples": 5596,
+    "leftTargetClampPercent": 27.09,
+    "rightTargetClampPercent": 70.82,
+    "nativeArmChainGameUnits": 49.843,
+    "framesFenced": 5596,
+    "framesCollected": 5595,
+    "captureRingDrops": 0,
+    "framesUploaded": 9799,
+    "newSubmissions": 9799,
+    "repeatSubmissions": 5740,
+    "submitFailures": 0,
+    "cpuCopyAverageMs": 9.746,
+    "cpuCopyP95Ms": 11.771,
+    "diagnosticHashAverageMs": 6.61,
+    "presenterShutdownComplete": false,
+    "outerRuntimeEnded": true
+  },
+  "observations": [
+    "The single CoJ process reached normal outer run_end and produced a complete evidence package, but the user rejected the playability gate visually and interactively.",
+    "Menus still lacked useful controller semantics: only the already-selected/default option could be activated reliably, the pointer did not drive the hovered item, there was no distinct accept/back mapping, and startup content still could not be skipped reliably.",
+    "The visible flat-theater ray did not originate from the Sense controller as expected.",
+    "Walking, running and jumping remained visibly jerky; the user reproduced the same poor motion with keyboard input, which makes the high-volume synchronous VR instrumentation path a concrete performance suspect rather than a controller-only mapping problem.",
+    "The arms still felt too short. The measured native two-bone chain remained approximately 49.843 game units, but clamp was strongly asymmetric at 27.09 percent left versus 70.82 percent right; this does not support simply scaling both bones.",
+    "Shots still originated from the gaze/native player point rather than the weapon/controller.",
+    "Physical crouch moved the HMD behind/outside the avatar so the user could see the whole body; expected behavior is to enter the native crouch state and bend the avatar legs while preserving first-person ownership."
+  ]
+}

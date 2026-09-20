@@ -1,185 +1,89 @@
-# CoJ arm skinning and shot ownership — 2026-09-19
+# Call of Juarez arm skinning and weapon ownership research
 
-## Evidence
+This document keeps the exact-game conclusions that still govern Body IK and aiming. Superseded writer experiments and raw video/log chronology were removed after their conclusions were captured.
 
-### 2026-09-20 shot-origin follow-up
+## Measured arm contract
 
-Diagnostic run `20260920T120157Z-ec17bbca3a2b` again showed that controller direction alone does not
-move the visible/ballistic shot origin to the Sense controller. The run is multiprocess and cannot
-promote a gate, but it motivated exact bytecode inspection of the attack boundary.
+Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Recent evidence shows strongly asymmetric reach clamp, so the data does not justify simply lengthening both bones.
 
-`WeaponFire.AttackFire()` first calls `GetOwnerAttackOrigin`, `GetOwnerAttackDir`,
-`GetOwnerAttackOriginVisualization` and `GetOwnerAttackDirVisualization`. For the local armed player,
-ordinary ballistic origin reaches `ArmedPlayerBeing.GetFireOriginForWeapon()` and then
-`Being.GetBeingLookFromPoint()`, which copies the global `Being.m_vLookFromPoint`. The network-forced
-branch instead uses `m_vNetAttackFirePos` and remains untouched. Visualization is different:
-`GetFireOriginVisualizationForWeapon()` resolves the actual weapon hand and copies
-`m_avAimFromPoint[hand]`. Shipped `EnumInvHand.class` remains authoritative: right=0, left=1.
+If the next physical candidate still feels short, clavicle/shoulder participation is the preferred controlled experiment because shipped `EBones` exposes dedicated clavicle elements.
 
-Current host source maps `/pose/tip` position through the same leveled CoJ camera basis and
-metres-to-game-units conversion used by the tracked-hand contract. It writes that point to
-`m_avAimFromPoint[hand]` before gameplay input. For a local L2/R2 fire edge it also substitutes
-`Being.m_vLookFromPoint` only while the matching `InputDigital.Translate` call is executing and
-restores the captured native vector immediately afterward. `/pose/tip` direction continues to write
-`m_avLookDirDevForHand`; native spread and accuracy remain downstream of that direction. This avoids
-persistent mutation of the global look-from point and preserves the network-forced branch.
+## Effective hierarchy
 
-The exact weapon state machine can defer automatic fire after the original digital edge, so this
-implementation remains **host-tested only**. The next physical run must distinguish direct press
-shots from held/automatic shots and verify both ballistic and visual origin before any shot-origin
-promotion.
+`EBones` ordering is semantic numbering, not proof of parentage.
 
-Run `20260919T085408Z-327dd354bc4f` is finalized and unstaged. Source was `1805753`,
-proxy SHA-256 `3BD0B476810B15FBD935FA96F539E7303439B372F6BC45DA57BB40595CCE693F`.
-It recorded 5,050 applied arms and 5,050 successful restores, zero arm restore/write failures,
-and one successful recenter recovery. The user's 26.84-second video
-`C:\Users\onita\Videos\clip_1.789.819.360.960.mp4` still shows collapsed/twisted arm skin.
-Video SHA-256: `0DC300AA8AC5FD30CFD8AACF948FEE2D69FFEFBBE837D683D123CAC1AF2AE3E2`.
-Runtime log SHA-256: `E9F615515ADEDCE955EF97B515956E499A9D3E3A8972D03D9A791062893C7BB5`.
+Replay of live natural/write probes established the effective visible propagation for the observed exact model:
 
-The video shows the deliberate T-pose, forward palms-down/up and lowering sequence. Controller
-overlays help show physical placement; no precise video-to-log time synchronization is claimed.
+- forearm inherits upper-arm motion;
+- FORETWIST inherits upper-arm motion but not forearm swing;
+- hand follows forearm;
+- hand does not inherit FORETWIST roll.
 
-### Diagnostic multiprocess follow-up
+The practical model is therefore FORETWIST as a sibling of forearm beneath upper, with the hand on the forearm branch. This is model/build evidence, not a reusable Chrome Engine skeleton rule.
 
-Candidate `20260919T122155Z-c534d86926a9` was later launched three times under the same run ID.
-Because that violates the one-process promotion boundary, the evidence is retained as diagnostic
-only. The third process (PID 448) corresponds to the user's 87.79-second video
-`C:\Users\onita\Videos\clip_1.789.829.493.853.mp4`, which exercises forward palms toward the body,
-forward palms down/up, flexed elbows, T-pose palms down/up, raised arm flexion and repeated recenter.
-Video SHA-256: `6BA5556AF95EFB3D598FB77BA900A8BE64065AF568EEF0FFB5B4A523289017F5`.
+## Visible writer
 
-That process completed 11,406 arm applications and 11,406 restores with zero arm writer/restore
-failures. Reach clamping occurred 6,072 times (53.24%). Sampled natural chain lengths averaged
-26.6857 upper-arm units and 23.1577 lower-arm units, 49.8434 total. This is strong evidence that the
-reported short-arm feel is a real native-chain reach constraint under the current head/shoulder
-anchoring policy. It does not justify changing the already validated tracking axes; the next reach
-experiment should make shoulder/body anchoring or controlled extension explicit and measurable.
+Earlier absolute-orientation and `BoneRotate` approaches did not produce reliable visible-mesh ownership. Exact-build `RotateElementWithChildren(ILVector;F)V` was then shown physically to change the rendered arm.
 
-Current host source now implements that experiment without changing the validated axes or native
-segment lengths. Targets beyond the measured arm reach are pulled back by a bounded amount (maximum
-12 game units for the live-sized chain) before the existing hard clamp. Telemetry records raw and
-effective target distance plus the adjustment, and extreme targets remain hard-clamped. The same
-candidate caps shared FORETWIST/hand axial roll at 100 degrees while leaving the rejected full
-post-FORETWIST wrist residual diagnostic-only. Physical anatomy remains unpromoted until a fresh
-run measures clamp frequency and visual reach.
+Disassembly established that the helper post-multiplies the current element matrix and consumes an **element-local axis**. Supplying a solver world axis directly caused incorrect orientation/deformation.
 
-The video still rejects visual anatomy, although the earlier catastrophic mesh corruption is absent.
-It also confirms recurring local head/hair intrusion. Repeated recenter sometimes changed hand
-orientation in this artifact because the then-current policy discarded controller-to-hand
-calibration and rebuilt it from the current animated natural hand. Current host source preserves the
-last visible hand target and rebases the post-recenter controller reference against that target;
-this fix is host-tested only. The first two process starts also had the SteamVR interface stuck over
-the game while the third did not, so no focus/dashboard promotion follows from this evidence.
+The current writer therefore:
 
-Runtime-log SHA-256 at capture:
-`4745C85DDA63CD7B7EACE93B49F71EA58DB465ABDA6F78D9E651402BD23348F6`. Diagnostic package SHA-256:
-`09A1F3AC5B30E3238B35311CFD525FBD4443413D2793F0C0E3DEBEAAD189BF17`. Repository evidence metadata
-is stored in `docs/research/evidence/20260919T122155Z-c534d86926a9.json`.
+1. reads the natural complete element frames;
+2. solves shoulder/elbow/wrist targets from measured geometry;
+3. converts each required world-space rotation axis into the live element-local frame;
+4. applies upper rotation;
+5. re-reads the parent-adjusted child frame before applying the forearm rotation;
+6. transports FORETWIST/hand orientation according to the observed sibling contract;
+7. verifies joint/axis agreement;
+8. restores child-before-parent and verifies the captured natural state.
 
-### Clean single-process follow-up
+If inverse restoration drifts beyond tolerance, exact natural frames are reapplied. Failure of both restoration paths disables further writes.
 
-Run `20260919T153546Z-705460dca03b` then exercised the corrected recenter/snap source in one clean
-process (PID 7756). Source was `32e979709bbb13780cf885c82770a0e8c1649631`; build-manifest ID
-`9B5DDBEED941B6C1F5A1E45D39837F2B7BB491CE4C5F6AB8934F86DE255CD671`; proxy SHA-256
-`8864D3DFEE42537D0A4E0CBCC230B4E27B48AC273287BFA9FAF508FA0323B97A`. The user's 52.678-second
-video is `C:\Users\onita\Videos\clip_1.789.832.536.546.mp4`, SHA-256
-`B132BD5709B79E8396CF4048B98A88EA70FF0FFFC88F4EE6C27255E5657ACB11`.
+The writer/restoration mechanism is live-exercised; visual Body IK remains unpromoted because anatomy/reach still fails acceptance.
 
-The run completed 8,452 arm applications and 8,452 restores with zero writer/restore failures. Visual
-anatomy is substantially improved: the earlier collapse/catastrophic corruption is absent, and the
-arms generally occupy plausible body-relative space. Acceptance is still incomplete. Reach clamped
-3,695/8,452 applications (43.72%; left 45.41%, right 42.03%), and several wrist/hand poses remain
-visibly forced. The native chain remains about 26.686 upper + 23.158 lower = 49.843 game units, so
-the next reach experiment should address shoulder/body anchoring or explicit controlled extension.
+## Target space and body yaw
 
-Two Create recenter recoveries report `calibration_preserved=true`; four immediate arm samples use
-`orientation_calibration_mode=preserved_target_rebase`, proving the new rebase path reached the live
-writer. The user also tested snap turning: telemetry recorded 23 exact calls through
-`PlayerBeing.RotateHorizontally(F)` (13 at -45 degrees, 10 at +45 degrees), matching the deliberate
-screen jumps in the video. The exact snap behavior is therefore headset-validated.
+A failed candidate mapped recentered controller positions around tracking-space origin while the live skeleton was far away in game world coordinates. Current mapping anchors hand targets to the live head/body neighborhood and transforms `(tracked hand - tracked head)` through the exact Call of Juarez camera basis.
 
-The video still shows severe local hair/head intrusion, especially in sampled frames around 18 s and
-30 s. Weapon frames around 42-48 s also remain governed by the native weapon/shot path; this run does
-not establish controller-owned muzzle/shot direction. Evidence package SHA-256:
-`0AF7723484528C368549F0DB46FE0C682F078B3120CCA3E67F7EA3DD4A1C4BE8`; packaged runtime-log SHA-256:
-`57E56F94F963AA121B63BD4DD5C23644655A46C3285069ACC02471DBCA647BE7`.
+Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping and leaves room-scale translation camera-owned while native actor position/grounding stay game-owned.
 
-For the separate local-head intrusion issue, shipped `PlayerBeing.SetupMeshAfterLoad()` provides
-static evidence that the exact game can hide individual mesh elements: it calls
-`GetElementID(String)` followed by `HideElement(int)` for `RayCap`. This is a candidate visibility
-boundary for VR. Static mesh inspection identifies `RayHead`, `RayHair`, `RayCap`, `BillyHead`,
-`BillyHair` and `BillyTress`; current source resolves those names, preserves prior hidden state,
-hides only visible entries and restores only VR-owned changes through `UnhideElement(int)`. HMD and
-shadow behavior still require physical validation.
+## Telemetry cost
 
-## The previous hierarchy assumption is false
+Run `20260920T161307Z-474f0b054338` emitted 11,192 successful arm-tracking and 11,192 successful restore records while the user observed jerky movement even with keyboard. Latest diagnostic evidence `20260920T214629Z-351c27f434d5` remained severely jerky after routine telemetry/hash sampling and CPU-buffer reuse. Its gameplay process measured classic-D3D9 CPU copy at 7.432 ms median and 8.994 ms p95, so the renderer transport is now a measured performance problem independent of arm logging.
 
-`EBones` assigns semantic IDs; it does not prove parentage. Earlier documentation described
-`upper -> forearm -> FORETWIST -> hand`, which the live transformations contradict.
-`tools/analyze_arm_hierarchy.py` pairs natural/application and immediate post-write probes by
-frame/side. For each basis axis it applies Rodrigues rotations using logged world-space upper and
-forearm deltas. It reconstructs the FORETWIST rotation's world axis from its observed final basis
-and logged local axis (an axis is invariant under its own rotation), then undoes that rotation.
-There are 58 paired arm samples, or 116 up/forward axis comparisons per hypothesis:
+Routine arm telemetry remains sampled; write failures, rollback and restoration faults remain unconditional. Arm solving still has to be evaluated independently from renderer frame pacing.
 
-| Observed frame | Predicted propagation | Mean axis error | Maximum |
-| --- | --- | ---: | ---: |
-| Forearm | Upper + forearm | 0.000001 | 0.000008 |
-| FORETWIST, own roll undone | Upper only | 0.000001 | 0.000007 |
-| FORETWIST, own roll undone | Upper + forearm | 0.583441 | 1.733806 |
-| Hand, unchanged by FORETWIST | Upper + forearm | 0.000001 | 0.000008 |
-| Hand, hypothetical inherited FORETWIST undone | Upper + forearm | 0.825442 | 1.891457 |
+## Weapon direction and origins
 
-This proves the effective writer propagation for the observed exact model: FORETWIST behaves as
-a sibling of forearm beneath upper; hand follows forearm and is unaffected by FORETWIST writes.
-It does not establish a reusable Chrome Engine skeleton layout. The old writer bent the forearm
-while leaving its weighted FORETWIST frame behind, then rolled FORETWIST while leaving the hand
-behind. Joint target reach alone cannot detect that skinning disagreement.
+Exact shipped bytecode establishes separate ownership paths:
 
-## Correction
+- per-hand fire direction ultimately reads `m_avLookDirDevForHand[hand]` and native accuracy/spread remains downstream;
+- visual origin uses `m_avAimFromPoint[hand]`;
+- ordinary local ballistic origin reaches `Being.m_vLookFromPoint`;
+- the network-forced branch uses separate network state and remains untouched.
 
-`BuildArmSkinningPlan` transports the complete natural FORETWIST basis through the exact upper
-and forearm rotations, then applies the requested axial roll. Its natural bind rotation survives.
-The writer computes a relative basis delta from the *observed* post-IK FORETWIST frame to that
-target, using the existing element-local `RotateElementWithChildren` path. The independently
-parented hand receives the same axial roll; the remaining full-controller wrist residual stays
-diagnostic. No absolute pivot/world-position replacement is introduced.
+Controller `/pose/tip` supplies the exact per-hand direction and mapped visual origin after normal game look/aim update.
 
-Before accepting an application, all four FORETWIST/hand axes must agree with the composed target
-within 0.02 unit-vector distance. Telemetry records `hand_rotation_mode=sibling_shared_roll`,
-`skinning_contract=foretwist_sibling_swing_hand_shared_roll`, `skinning_frames_reached` and the
-measured `skinning_axis_error`. Elbow/wrist reach, both-eye persistence and complete natural
-restoration remain required. Rollback and normal restore include the hand before FORETWIST,
-forearm and upper. Host tests exercise missing 90-degree elbow swing, positive/negative shared
-roll, native bind-roll preservation and invalid inputs. Physical visual acceptance remains pending.
+Run `20260920T204507Z-6db13f3107e0` ended immediately after the user's first shot attempt, before post-input telemetry recorded `fire_left/right=true`. The previous implementation already marked the pressed hand as cross-frame owner on that first press, so it could overwrite global `Being.m_vLookFromPoint` without first capturing/restoring the native value. That ownership was removed.
 
-## Aiming ownership recovered from shipped bytecode
+Current source allows controller-derived ballistic origin only around a synchronous fire `InputDigital.Translate` transition: read native `Being.m_vLookFromPoint`, write the selected controller origin, translate the input, then restore the captured native value immediately. Unchanged held frames do not mutate the field. The gameplay `LaserPointer` diagnostic path has also been removed.
 
-Inspection uses `tools/inspect_java_bytecode.py` against the exact installed `code.pak`:
+In the latest gameplay process under reused run ID `20260920T214629Z-351c27f434d5`, 55 fire-pressed samples were recorded and the process reached normal outer `run_end`. This shows that the earlier first-shot termination was not reproduced, but the user still judged the shots to originate/travel incorrectly. Because that run ID covered three processes, it is diagnostic stability evidence only and cannot promote firing.
 
-- `Weapon.GetOwnerAttackDir(Vector)` delegates to `PawnArmed.GetFireDirForWeapon(Weapon,Vector)`.
-- `ArmedPlayerBeing.GetFireDirForWeapon(Weapon,Vector)` delegates to its `(Weapon,boolean,Vector)`
-  overload, which reads `GetBeingLookDirDevForHand` and applies native accuracy/spread.
-- `GetBeingLookDirDevForHand(int,Vector)` copies `m_avLookDirDevForHand[hand]`.
-- `UpdateLookAndAimDirs(float)` recalculates both entries with `ComputeLookDirDevForHand`.
-- `GetFireOriginForWeapon` uses `GetBeingLookFromPoint` in the ordinary player path. It does not
-  obtain the visible barrel position. The network-forced branch is separate and must not be
-  repurposed as a VR shortcut.
+The next aim investigation must distinguish four independently owned values/orderings: controller tip mapping, `m_avAimFromPoint[hand]` visual origin, `Being.m_vLookFromPoint` synchronous ballistic origin and `m_avLookDirDevForHand[hand]` direction. Do not treat “no crash” as proof that any of those values are correct.
 
-Therefore moving the visible weapon during the transient render overlay cannot aim its bullets.
-Current source now uses a different path: OpenVR exposes left/right `/pose/tip`, shipped
-`EnumInvHand` proves `_RIGHT=0` and `_LEFT=1`, and the Java bridge writes the tip-derived game-world
-direction into `m_avLookDirDevForHand[0/1]` at the post-game-update/pre-render boundary. The native
-`GetFireDirForWeapon` path still owns accuracy/spread, ordinary fire origin remains
-`GetBeingLookFromPoint`, and the network-forced attack branch is untouched. This is an implemented
-aim-direction candidate, not proof of shot ownership: a live firing run must establish that the
-field survives at the actual attack boundary and that each hand's bullets follow its Sense tip.
+## Latest anatomy rejection
 
-## Other observations
+The latest clip still shows arms that feel too short and visibly contort during reload. Telemetry does not support solving this by scaling the upper/forearm chain globally:
 
-Transport recorded 2,843 new and 2,274 repeated submissions, zero submit failures, CPU-copy
-average 10.375 ms / p95 14.998 ms. Head/hair intrusion remains visible. The log reports
-`native_stereo_factory_hook: status=incomplete` and `shutdown_complete=false` despite `run_end`;
-no inner presenter shutdown markers appear. Evidence packaging being complete does not promote
-clean shutdown or body anatomy. Those defects remain open.
+- many poses have controller targets inside the ~49.843-unit measured native reach;
+- elbow and wrist positional targets are often reached with very small residual error;
+- `hand_orientation_reached=false` remains common with large up/forward orientation error;
+- reload introduces a visible conflict between native animation and VR-driven element rotation.
+
+The next controlled experiments are clavicle/shoulder participation and animation ownership during reload, with hand orientation measured separately from positional reach.
+
+## Current body acceptance boundary
+
+Do not promote Body IK based on write counts alone. Acceptance requires visually plausible arms across representative poses, stable first-person ownership, verified restoration and no degradation of tracking/recenter behavior. Lower-body writing remains blocked until the upper-body/body-anchor contract is acceptable.
