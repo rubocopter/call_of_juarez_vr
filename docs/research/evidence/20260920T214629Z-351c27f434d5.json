@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "cojvr-physical-video-evidence",
+  "runId": "20260920T214629Z-351c27f434d5",
+  "promotionStatus": "diagnostic_multiprocess_rejected_playability_gate",
+  "candidate": {
+    "sourceCommit": "e4e86eeb72a4e2cb2827a1952796a16b82094a4c",
+    "sourceDirty": true,
+    "buildManifestId": "88DA5F3070D4244D49AD41A2636AE6820F97222A4FCD9F7205CC898405BD16DF",
+    "proxySha256": "118899A325EED9C5415F7F321D79E31E06550554867F3A668F6C9F70BAD5A896"
+  },
+  "video": {
+    "path": "C:\\Users\\onita\\Videos\\clip_1.789.941.232.066.mp4",
+    "sha256": "05CD84C0E9CA454980C04F774F364661BCE97900D9D4DD5EA79E296A8C90C19D",
+    "durationSeconds": 119.669333,
+    "sizeBytes": 234569053,
+    "width": 1920,
+    "height": 1080,
+    "averageFrameRate": "approximately 59.78"
+  },
+  "evidence": {
+    "runtimeLogSha256": "29E24EFF8233B907F48582A78386C4C632B9979DAE5DF3B747D249B7E6F968DC",
+    "runtimeEnded": true,
+    "incomplete": false,
+    "runIdReuse": true,
+    "processIds": [12048, 8600, 4688]
+  },
+  "telemetry": {
+    "gameplayProcessId": 4688,
+    "recommendedEye": "3400x3468",
+    "captureEyeSurface": "1920x1080",
+    "cpuCopySampleCount": 70,
+    "cpuCopyAverageMs": 7.401,
+    "cpuCopyMedianMs": 7.432,
+    "cpuCopyP95Ms": 8.994,
+    "cpuCopyMaxMs": 9.644,
+    "gameReportedAverageFps": 71.967,
+    "hintManagerNoSuchFieldErrors": 202,
+    "firePressedSamples": 55,
+    "jumpPressedSamples": 29,
+    "physicalCrouchSamples": 6,
+    "presenterShutdownComplete": false,
+    "outerRuntimeEnded": true
+  },
+  "observations": [
+    "The same staged run ID was reused across three CoJ process launches after menu/back failures, so this evidence is diagnostic only and cannot promote a physical gate.",
+    "Sense input skipped startup videos successfully.",
+    "Subtitles were not visible. Static inspection shows DialogSubtitle.Show returns when Settings.bSubtitles is false, but this run does not prove whether the runtime setting was disabled or subtitle rendering was lost in UI/presentation.",
+    "The VR pointer moved visually over the main menu, but hover selection did not follow it. Moving the physical mouse updated hover, and the trigger activated the game's currently selected item rather than the item under the VR ray.",
+    "Circle/back caused menu layers to disappear or reappear, froze the game and left a flat frozen presentation, forcing multiple relaunches.",
+    "Walking remained slow and visibly jerky. Jump input reached the game repeatedly, but the physical result still looked extremely low and cut short.",
+    "Physical crouch exposed the full local avatar even though telemetry recorded physical_crouch=true with native crouch=false, disproving the earlier double-native-crouch explanation and leaving first-person camera/mesh ownership open.",
+    "Arms still appeared too short and deformed, especially during reload animation. Positional IK frequently reaches elbow/wrist targets with small residuals while controller hand orientation remains visually unresolved.",
+    "The gameplay process recorded 55 fire-pressed samples and reached normal run_end, so the previous first-shot process termination was not reproduced. Weapon origin/direction remained visually rejected.",
+    "The active classic-D3D9 path renders/captures 1920x1080 per eye while SteamVR recommends 3400x3468. CPU copy alone measured 7.432 ms median and 8.994 ms p95 in the gameplay process, making the readback path a structural frame-pacing constraint at 120 Hz.",
+    "The game log contained 202 java.lang.NoSuchFieldError: m_cHintManager exceptions from the paused-hint JNI lookup.",
+    "Inner presenter shutdown still reported shutdown_complete=false despite normal outer run_end."
+  ]
+}
