@@ -60,10 +60,35 @@ bool FrameMailbox::WaitConsumeLatest(
     }
 }
 
+void FrameMailbox::Recycle(StereoCpuFrame frame) noexcept {
+    try {
+        std::lock_guard lock(mutex_);
+        if (stopped_) return;
+        recycled_ = std::move(frame);
+        has_recycled_ = true;
+    } catch (...) {
+    }
+}
+
+bool FrameMailbox::TryAcquireRecycled(StereoCpuFrame& frame) noexcept {
+    try {
+        std::lock_guard lock(mutex_);
+        if (stopped_ || !has_recycled_) return false;
+        frame = std::move(recycled_);
+        recycled_ = {};
+        has_recycled_ = false;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 void FrameMailbox::Stop() noexcept {
     try {
         std::lock_guard lock(mutex_);
         stopped_ = true;
+        recycled_ = {};
+        has_recycled_ = false;
         wake_.notify_all();
     } catch (...) {
     }
@@ -74,6 +99,8 @@ void FrameMailbox::Reset() noexcept {
         std::lock_guard lock(mutex_);
         pending_ = {};
         has_pending_ = false;
+        recycled_ = {};
+        has_recycled_ = false;
         stopped_ = false;
         last_published_sequence_ = 0;
         stats_ = {};

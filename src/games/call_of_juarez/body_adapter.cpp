@@ -555,6 +555,31 @@ RoomScaleTranslationUpdate BuildCollisionSafeRoomScaleTranslation(
     return result;
 }
 
+bool CoJPhysicalCrouchState::Update(
+    const bool tracking_active,
+    const bool recentered,
+    const float relative_head_y_m) noexcept {
+    constexpr float kEngageDropMetres = -0.25F;
+    constexpr float kReleaseDropMetres = -0.17F;
+    if (!tracking_active || recentered || !std::isfinite(relative_head_y_m)) {
+        crouched_ = false;
+        return false;
+    }
+    if (crouched_) {
+        if (relative_head_y_m >= kReleaseDropMetres) crouched_ = false;
+    } else if (relative_head_y_m <= kEngageDropMetres) {
+        crouched_ = true;
+    }
+    return crouched_;
+}
+
+bool ResolveCoJCrouchAction(
+    const bool requested_native_crouch,
+    const bool physical_crouch_detected) noexcept {
+    (void)physical_crouch_detected;
+    return requested_native_crouch;
+}
+
 PlayerSpaceReconciliation ReconcilePlayerSpace(
     const cojvr::runtime::Vec3 current_actor_position,
     cojvr::runtime::Vec3 camera_right,

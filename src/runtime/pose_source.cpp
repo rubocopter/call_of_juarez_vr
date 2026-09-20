@@ -3,12 +3,60 @@
 #include "runtime/vr_math.hpp"
 
 #include <array>
+#include <cmath>
 
 namespace cojvr::runtime {
 namespace {
 
 float Dot(const Vec3 lhs, const Vec3 rhs) noexcept {
     return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+}
+
+Vec3 Cross(const Vec3 lhs, const Vec3 rhs) noexcept {
+    return {
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x,
+    };
+}
+
+bool NormalizeHorizontal(Vec3 value, Vec3& normalized) noexcept {
+    value.y = 0.0F;
+    const float length_squared = Dot(value, value);
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-8F) return false;
+    const float inverse_length = 1.0F / std::sqrt(length_squared);
+    normalized = {value.x * inverse_length, 0.0F, value.z * inverse_length};
+    return true;
+}
+
+void BuildLeveledRecenterBasis(
+    const Vec3 current_x,
+    const Vec3 current_z,
+    Vec3& base_x,
+    Vec3& base_y,
+    Vec3& base_z) noexcept {
+    constexpr Vec3 kGravityUp{0.0F, 1.0F, 0.0F};
+    Vec3 horizontal_forward{};
+    if (NormalizeHorizontal(current_z, horizontal_forward)) {
+        base_z = horizontal_forward;
+        base_y = kGravityUp;
+        base_x = Cross(base_y, base_z);
+        return;
+    }
+
+    // Looking almost exactly along gravity leaves forward yaw undefined. The
+    // projected right axis still carries the same yaw information in that case.
+    Vec3 horizontal_right{};
+    if (NormalizeHorizontal(current_x, horizontal_right)) {
+        base_x = horizontal_right;
+        base_y = kGravityUp;
+        base_z = Cross(base_x, base_y);
+        return;
+    }
+
+    base_x = {1.0F, 0.0F, 0.0F};
+    base_y = kGravityUp;
+    base_z = {0.0F, 0.0F, 1.0F};
 }
 
 } // namespace
@@ -47,9 +95,7 @@ bool RelativePoseTracker::Update(const PoseSample& sample) noexcept {
     last_sample_sequence_ = sample.sequence;
 
     if (!base_valid_ || recenter_pending_) {
-        base_x_ = current_x;
-        base_y_ = current_y;
-        base_z_ = current_z;
+        BuildLeveledRecenterBasis(current_x, current_z, base_x_, base_y_, base_z_);
         base_position_ = sample.pose.position;
         base_position_valid_ = sample.pose.position_valid;
         base_valid_ = true;

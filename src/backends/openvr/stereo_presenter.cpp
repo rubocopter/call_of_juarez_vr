@@ -108,6 +108,10 @@ struct OpenVrStereoPresenter::Impl {
     bool latest_ui_select_right = false;
     bool ui_select_left_pressed_pending = false;
     bool ui_select_right_pressed_pending = false;
+    bool latest_ui_accept = false;
+    bool latest_ui_back = false;
+    bool ui_accept_pressed_pending = false;
+    bool ui_back_pressed_pending = false;
 
     mutable std::mutex error_mutex;
     std::string error;
@@ -280,18 +284,10 @@ struct OpenVrStereoPresenter::Impl {
             SetError("presenter rejected truncated stereo CPU frame pixels");
             return false;
         }
-        const bool identical_eye_content = d3d9::BgrxSurfacesEqualIgnoringAlpha(
-                left.pixels.data(), left.stride,
-                right.pixels.data(), right.stride,
-                left.width, left.height);
-        if (!flat_theater && identical_eye_content) {
-            SetError("presenter rejected identical left/right eye RGB content");
-            return false;
-        }
-
         // Full-frame hashes are evidence telemetry, not a presentation primitive.
         // Preserve them for the sampled frames that are logged while keeping them
-        // off the per-frame hot path. RGB equality is still checked on every frame.
+        // off the per-frame hot path. Sampled stereo hashes also prove that the
+        // retained evidence frames contain distinct left/right eye content.
         if (ShouldLogSequence(frame.capture_sequence)) {
             const auto hash_begin = std::chrono::steady_clock::now();
             left_hash = d3d9::HashBgrxSurfaceIgnoringAlpha(
@@ -339,8 +335,15 @@ struct OpenVrStereoPresenter::Impl {
                     const std::uint32_t center_y = std::min(
                         flat_ui_pointer.pixel_y, source.height - 1U);
                     runtime::FlatTheaterPointerBeam beam{};
+                    const std::uint32_t beam_origin_x = flat_ui_pointer.beam_origin_valid
+                        ? std::min(flat_ui_pointer.beam_origin_x, source.width - 1U)
+                        : center_x;
+                    const std::uint32_t beam_origin_y = flat_ui_pointer.beam_origin_valid
+                        ? std::min(flat_ui_pointer.beam_origin_y, source.height - 1U)
+                        : center_y;
                     if (!runtime::ComputeFlatTheaterPointerBeam(
-                            center_x, center_y, source.width, source.height, beam)) {
+                            beam_origin_x, beam_origin_y, center_x, center_y,
+                            source.width, source.height, beam)) {
                         SetError("presenter could not build flat-theater pointer beam");
                         return false;
                     }
@@ -392,9 +395,7 @@ struct OpenVrStereoPresenter::Impl {
                     const std::uint32_t local_x = center_x - patch_left;
                     const std::uint32_t local_y = center_y - patch_top;
 
-                    // Penumbra-style high-contrast controller laser: a short
-                    // cyan beam segment ends at the menu reticle. Keeping the
-                    // segment bounded avoids another full-frame CPU copy.
+                    // Projected Sense origin -> menu hit on the same theater plane.
                     std::int32_t x0 = static_cast<std::int32_t>(beam.start_x - patch_left);
                     std::int32_t y0 = static_cast<std::int32_t>(beam.start_y - patch_top);
                     const std::int32_t x1 = static_cast<std::int32_t>(local_x);
@@ -719,6 +720,9 @@ struct OpenVrStereoPresenter::Impl {
                             pointer.v = projected.v;
                             pointer.pixel_x = projected.pixel_x;
                             pointer.pixel_y = projected.pixel_y;
+                            pointer.beam_origin_valid = projected.beam_origin_valid;
+                            pointer.beam_origin_x = projected.beam_origin_x;
+                            pointer.beam_origin_y = projected.beam_origin_y;
                             pointer.source_width = active_source_width;
                             pointer.source_height = active_source_height;
                             pointer.ray_distance_m = projected.ray_distance_m;
@@ -763,6 +767,14 @@ struct OpenVrStereoPresenter::Impl {
                              << ";u=" << std::fixed << std::setprecision(4) << flat_ui_pointer.u
                              << ";v=" << flat_ui_pointer.v
                              << ";pixel=" << flat_ui_pointer.pixel_x << ',' << flat_ui_pointer.pixel_y
+                             << ";beam_origin=";
+                        if (flat_ui_pointer.beam_origin_valid) {
+                            line << flat_ui_pointer.beam_origin_x << ','
+                                 << flat_ui_pointer.beam_origin_y;
+                        } else {
+                            line << "invalid";
+                        }
+                        line
                              << ";source=" << flat_ui_pointer.source_width << 'x'
                              << flat_ui_pointer.source_height
                              << ";select=" << (flat_ui_pointer.select_down ? "true" : "false")
@@ -817,11 +829,19 @@ struct OpenVrStereoPresenter::Impl {
                         latest_gameplay = gameplay;
                         latest_ui_select_left = actions.ui_select_left;
                         latest_ui_select_right = actions.ui_select_right;
+                        latest_ui_accept = actions.ui_accept;
+                        latest_ui_back = actions.ui_back;
                         if (actions.ui_select_left_pressed) {
                             ui_select_left_pressed_pending = true;
                         }
                         if (actions.ui_select_right_pressed) {
                             ui_select_right_pressed_pending = true;
+                        }
+                        if (actions.ui_accept_pressed) {
+                            ui_accept_pressed_pending = true;
+                        }
+                        if (actions.ui_back_pressed) {
+                            ui_back_pressed_pending = true;
                         }
                         ++pose_sequence;
                         if (recenter) recenter_pending = true;
@@ -948,7 +968,7 @@ struct OpenVrStereoPresenter::Impl {
                                      << ";distinct_check="
                                      << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
                                              ? "not_required_flat_theater"
-                                             : "rgb_compare_every_frame")
+                                             : "sampled_hash")
                                      << ";hash_mode=sampled_telemetry"
                                      << std::fixed << std::setprecision(3)
                                      << ";hash_ms=" << hash_ms
@@ -961,6 +981,7 @@ struct OpenVrStereoPresenter::Impl {
                                 std::to_string(frame.capture_sequence) + ";error=" + ErrorCopy());
                         }
                     }
+                    mailbox.Recycle(std::move(frame));
                 }
 
                 if (!cadence.presentable()) continue;
@@ -1133,10 +1154,14 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_gameplay = {};
             impl_->latest_ui_select_left = false;
             impl_->latest_ui_select_right = false;
+            impl_->latest_ui_accept = false;
+            impl_->latest_ui_back = false;
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;
             impl_->ui_select_left_pressed_pending = false;
             impl_->ui_select_right_pressed_pending = false;
+            impl_->ui_accept_pressed_pending = false;
+            impl_->ui_back_pressed_pending = false;
         }
         impl_->pose_updates.store(0, std::memory_order_release);
         impl_->frames_uploaded.store(0, std::memory_order_release);
@@ -1186,6 +1211,16 @@ bool OpenVrStereoPresenter::Publish(d3d9::StereoCpuFrame frame) noexcept {
     return impl_->mailbox.Publish(std::move(frame));
 }
 
+bool OpenVrStereoPresenter::TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept {
+    if (!impl_->running.load(std::memory_order_acquire)) return false;
+    return impl_->mailbox.TryAcquireRecycled(frame);
+}
+
+void OpenVrStereoPresenter::RecycleFrame(d3d9::StereoCpuFrame frame) noexcept {
+    if (!impl_->running.load(std::memory_order_acquire)) return;
+    impl_->mailbox.Recycle(std::move(frame));
+}
+
 bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcept {
     sample = {};
     try {
@@ -1203,9 +1238,15 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.ui_select_right = impl_->latest_ui_select_right;
         sample.ui_select_left_pressed = impl_->ui_select_left_pressed_pending;
         sample.ui_select_right_pressed = impl_->ui_select_right_pressed_pending;
+        sample.ui_accept = impl_->latest_ui_accept;
+        sample.ui_back = impl_->latest_ui_back;
+        sample.ui_accept_pressed = impl_->ui_accept_pressed_pending;
+        sample.ui_back_pressed = impl_->ui_back_pressed_pending;
         impl_->recenter_pending = false;
         impl_->ui_select_left_pressed_pending = false;
         impl_->ui_select_right_pressed_pending = false;
+        impl_->ui_accept_pressed_pending = false;
+        impl_->ui_back_pressed_pending = false;
         return true;
     } catch (...) {
         return false;

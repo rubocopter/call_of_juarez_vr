@@ -51,6 +51,17 @@ cojvr::runtime::Quaternion AxisAngle(
     return cojvr::runtime::NormalizeQuaternion({x * sine, y * sine, z * sine, std::cos(half)});
 }
 
+cojvr::runtime::Quaternion MultiplyQuaternion(
+    const cojvr::runtime::Quaternion lhs,
+    const cojvr::runtime::Quaternion rhs) {
+    return cojvr::runtime::NormalizeQuaternion({
+        lhs.w * rhs.x + lhs.x * rhs.w + lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.w * rhs.y - lhs.x * rhs.z + lhs.y * rhs.w + lhs.z * rhs.x,
+        lhs.w * rhs.z + lhs.x * rhs.y - lhs.y * rhs.x + lhs.z * rhs.w,
+        lhs.w * rhs.w - lhs.x * rhs.x - lhs.y * rhs.y - lhs.z * rhs.z,
+    });
+}
+
 } // namespace
 
 int main() {
@@ -242,6 +253,48 @@ int main() {
         !Near(relative.position.x, 0.0F) || !Near(relative.position.y, 0.0F) ||
         !Near(relative.position.z, 0.0F)) {
         std::cerr << "recentered pose was not available\n";
+        return 1;
+    }
+
+    // Recenter is a standing-space calibration. Pitch/roll at the instant the
+    // user presses recenter must not tilt the tracking coordinate system away
+    // from gravity. Returning the head to level at the same yaw should therefore
+    // produce a level relative orientation and keep vertical motion vertical.
+    cojvr::runtime::RelativePoseTracker tilted_recenter_tracker;
+    tilted_recenter_tracker.SetEnabled(true);
+    cojvr::runtime::PoseSample tilted_base{};
+    tilted_base.sequence = 10;
+    const auto yaw_30 = AxisAngle(0.0F, 1.0F, 0.0F, 30.0F);
+    tilted_base.pose.orientation = MultiplyQuaternion(
+        yaw_30,
+        MultiplyQuaternion(
+            AxisAngle(1.0F, 0.0F, 0.0F, -25.0F),
+            AxisAngle(0.0F, 0.0F, 1.0F, 15.0F)));
+    tilted_base.pose.orientation_valid = true;
+    tilted_base.pose.position = {4.0F, 1.5F, -2.0F};
+    tilted_base.pose.position_valid = true;
+    if (!tilted_recenter_tracker.Update(tilted_base)) {
+        std::cerr << "tilted recenter pose was rejected\n";
+        return 1;
+    }
+    cojvr::runtime::PoseSample leveled_after_recenter = tilted_base;
+    leveled_after_recenter.sequence = 11;
+    leveled_after_recenter.pose.orientation = yaw_30;
+    leveled_after_recenter.pose.position = {4.0F, 1.7F, -2.0F};
+    if (!tilted_recenter_tracker.Update(leveled_after_recenter) ||
+        !tilted_recenter_tracker.CurrentPose(relative) ||
+        !relative.orientation_valid || !relative.position_valid) {
+        std::cerr << "leveled pose after tilted recenter was rejected\n";
+        return 1;
+    }
+    const CameraProbeBasis level_after_tilted_recenter = ApplyCameraPoseOrientation(
+        {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}, relative.orientation);
+    if (!NearVector(level_after_tilted_recenter.forward, {0.0F, 0.0F, 1.0F}, 0.002F) ||
+        !NearVector(level_after_tilted_recenter.up, {0.0F, 1.0F, 0.0F}, 0.002F) ||
+        !Near(relative.position.x, 0.0F, 0.002F) ||
+        !Near(relative.position.y, 0.20F, 0.002F) ||
+        !Near(relative.position.z, 0.0F, 0.002F)) {
+        std::cerr << "tilted recenter leaked pitch/roll into relative orientation or gravity axes\n";
         return 1;
     }
     cojvr::runtime::Pose absolute_controller{};

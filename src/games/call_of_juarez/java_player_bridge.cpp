@@ -135,15 +135,47 @@ void DeleteLocal(void* env, void* value) noexcept {
 
 const char* CoJUiDispatchRouteName(const CoJUiDispatchRoute route) noexcept {
     switch (route) {
-    case CoJUiDispatchRoute::paused_hint: return "HintManager.DisableCurrentHint";
+    case CoJUiDispatchRoute::paused_hint:
+        return "LawmanModule.GetHintManager.DisableCurrentHint";
     case CoJUiDispatchRoute::global_menu:
         return "GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter";
     case CoJUiDispatchRoute::active_game_menu:
         return "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter";
+    case CoJUiDispatchRoute::loading_ui:
+        return "GameUILoading.OnInputKey";
     case CoJUiDispatchRoute::intro_skip:
         return "GameWithMenu.sm_cIntroModule.OnInputKey";
     default: return "none";
     }
+}
+
+const char* CoJUiBackDispatchRouteName(const CoJUiDispatchRoute route) noexcept {
+    switch (route) {
+    case CoJUiDispatchRoute::global_menu:
+        return "GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)";
+    case CoJUiDispatchRoute::active_game_menu:
+        return "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.CallOnInputKeyGlobal(Escape)";
+    default: return "none";
+    }
+}
+
+CoJUiBackDispatchPolicy BuildCoJUiBackDispatchPolicy(
+    const bool current_ui_available) noexcept {
+    return {
+        .dispatch = current_ui_available,
+        .key_code = 1,
+        .press = true,
+        .release = true,
+    };
+}
+
+CoJUiPointerDispatchPolicy BuildCoJUiPointerDispatchPolicy(
+    const bool menu_available,
+    const bool current_ui_available) noexcept {
+    return {
+        .dispatch_cursor = menu_available,
+        .dispatch_process_mouse = menu_available && current_ui_available,
+    };
 }
 
 std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
@@ -216,6 +248,22 @@ float CoJSnapTurnState::Update(
     if (latched || std::fabs(turn_x) < kEngageThreshold) return 0.0F;
     latched = true;
     return turn_x > 0.0F ? kSnapDegrees : -kSnapDegrees;
+}
+
+CoJFireOriginMutationPolicy BuildCoJFireOriginMutationPolicy(
+    const int action,
+    const bool current_pressed,
+    const bool digital_transition,
+    const bool origin_valid) noexcept {
+    constexpr int kRightHand = 0;
+    constexpr int kLeftHand = 1;
+    const int hand = action == 9 ? kLeftHand : (action == 10 ? kRightHand : -1);
+    const bool scoped_override = hand >= 0 && current_pressed && digital_transition && origin_valid;
+    return {
+        .hand = hand,
+        .override_for_translate = scoped_override,
+        .restore_after_translate = scoped_override,
+    };
 }
 
 CoJLoadingUiInputResult CoJLoadingUiInputGate::Update(
@@ -890,6 +938,12 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             current_pressed != previous_pressed;
         const bool needs_analog_update = !gameplay_input_applied_ ||
             std::fabs(item.value - previous_item.value) > 0.005F;
+        const int fire_hand = item.action == 9 ? 1 : (item.action == 10 ? 0 : -1);
+        const auto fire_origin_policy = BuildCoJFireOriginMutationPolicy(
+            item.action,
+            current_pressed,
+            needs_digital_update,
+            fire_hand >= 0 && fire_origin_valid_[static_cast<std::size_t>(fire_hand)]);
         if (UseDirectAnalogCoJLocomotion(item.action)) {
             if (!needs_analog_update) {
                 DeleteLocal(env, action);
@@ -962,7 +1016,11 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             DeleteLocal(env, action);
             return invoked;
         }
-        if ((digital && !needs_digital_update) || (analog && !needs_analog_update)) {
+        if (digital && !needs_digital_update) {
+            DeleteLocal(env, action);
+            return true;
+        }
+        if (analog && !needs_analog_update) {
             DeleteLocal(env, action);
             return true;
         }
@@ -1001,16 +1059,10 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                 // GameObject.CallOnInputGameController. Scope the global
                 // Being look-from point to the matching controller origin only
                 // around that call, then restore it before returning to CoJ.
-                constexpr int kRightHand = 0;
-                constexpr int kLeftHand = 1;
-                const int fire_hand = item.action == 9
-                    ? kLeftHand
-                    : (item.action == 10 ? kRightHand : -1);
                 void* look_from_point = nullptr;
                 JavaPlayerPosition native_look_from{};
                 bool fire_origin_overridden = false;
-                if (current_pressed && fire_hand >= 0 &&
-                    fire_origin_valid_[static_cast<std::size_t>(fire_hand)]) {
+                if (fire_origin_policy.override_for_translate) {
                     if ((!being_ && !Refresh(error)) ||
                         !EnsureFireOriginAccess(env, error)) {
                         DeleteLocal(env, target);
@@ -1020,12 +1072,19 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                     look_from_point = get_object_field(env, being_, look_from_point_field_);
                     if (!look_from_point ||
                         ClearException(env, error, "Being.m_vLookFromPoint read failed") ||
-                        !ReadVector(env, look_from_point, native_look_from, error) ||
-                        !WriteVector(
+                        !ReadVector(env, look_from_point, native_look_from, error)) {
+                        DeleteLocal(env, look_from_point);
+                        DeleteLocal(env, target);
+                        DeleteLocal(env, action);
+                        return false;
+                    }
+                    if (!WriteVector(
                             env,
                             look_from_point,
-                            fire_origins_[static_cast<std::size_t>(fire_hand)],
+                            fire_origins_[static_cast<std::size_t>(fire_origin_policy.hand)],
                             error)) {
+                        std::string restore_error;
+                        (void)WriteVector(env, look_from_point, native_look_from, &restore_error);
                         DeleteLocal(env, look_from_point);
                         DeleteLocal(env, target);
                         DeleteLocal(env, action);
@@ -1048,7 +1107,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                 const bool translate_failed =
                     ClearException(env, error, "InputAction.Translate failed");
                 bool restore_ok = true;
-                if (fire_origin_overridden) {
+                if (fire_origin_overridden && fire_origin_policy.restore_after_translate) {
                     std::string restore_error;
                     restore_ok = WriteVector(
                         env, look_from_point, native_look_from, &restore_error);
@@ -1251,6 +1310,91 @@ bool JavaPlayerBridge::TryResolveCurrentGameUi(
     return false;
 }
 
+bool JavaPlayerBridge::TryResolveMenuForUiRoute(
+    void* env,
+    const CoJUiDispatchRoute route,
+    void*& menu,
+    std::string* error) noexcept {
+    menu = nullptr;
+    if (!env) {
+        SetError(error, "JNI environment is unavailable for menu lookup");
+        return false;
+    }
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    if (!find_class || !get_static_field || !get_static_object || !get_class ||
+        !get_field || !get_object) {
+        SetError(error, "required JNI menu lookup functions are unavailable");
+        return false;
+    }
+
+    if (route == CoJUiDispatchRoute::global_menu) {
+        void* game_with_menu_class = find_class(env, "GameWithMenu");
+        if (!game_with_menu_class ||
+            ClearException(env, error, "FindClass(GameWithMenu) failed for menu route")) {
+            DeleteLocal(env, game_with_menu_class);
+            return false;
+        }
+        void* menu_field = get_static_field(
+            env, game_with_menu_class, "sm_cMenuModule", "LMainMenuModule;");
+        if (!menu_field || ClearException(
+                env, error, "GameWithMenu.sm_cMenuModule lookup failed for menu route")) {
+            DeleteLocal(env, game_with_menu_class);
+            return false;
+        }
+        menu = get_static_object(env, game_with_menu_class, menu_field);
+        DeleteLocal(env, game_with_menu_class);
+        if (ClearException(env, error, "GameWithMenu.sm_cMenuModule read failed for menu route") ||
+            !menu) {
+            DeleteLocal(env, menu);
+            menu = nullptr;
+            SetError(error, "global MainMenuModule is unavailable");
+            return false;
+        }
+        return true;
+    }
+
+    if (route == CoJUiDispatchRoute::active_game_menu) {
+        if (!EnsureCampaignAccess(env, error)) return false;
+        void* module = get_static_object(env, lawman_game_class_, active_game_module_field_);
+        if (ClearException(env, error, "LawmanGame.sm_cActiveGameModule menu route read failed") ||
+            !module) {
+            DeleteLocal(env, module);
+            SetError(error, "active LawmanModule is unavailable for menu route");
+            return false;
+        }
+        void* module_class = get_class(env, module);
+        if (!module_class || ClearException(
+                env, error, "active LawmanModule class lookup failed for menu route")) {
+            DeleteLocal(env, module_class);
+            DeleteLocal(env, module);
+            return false;
+        }
+        void* menu_field = get_field(env, module_class, "cMenu", "LMainMenuModule;");
+        DeleteLocal(env, module_class);
+        if (!menu_field || ClearException(env, error, "LawmanModule.cMenu lookup failed for menu route")) {
+            DeleteLocal(env, module);
+            return false;
+        }
+        menu = get_object(env, module, menu_field);
+        DeleteLocal(env, module);
+        if (ClearException(env, error, "LawmanModule.cMenu read failed for menu route") || !menu) {
+            DeleteLocal(env, menu);
+            menu = nullptr;
+            SetError(error, "active MainMenuModule is unavailable");
+            return false;
+        }
+        return true;
+    }
+
+    SetError(error, "UI route has no MainMenuModule owner");
+    return false;
+}
+
 bool JavaPlayerBridge::TryDispatchIntroSkip(
     void* env,
     std::string* error) noexcept {
@@ -1317,14 +1461,12 @@ bool JavaPlayerBridge::TryDismissPausedHint(
 
     const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
-    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
-    const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
     const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
     const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
-    if (!get_static_object || !get_class || !get_field || !get_object || !get_method ||
-        !call_object || !call_boolean || !call_void) {
+    if (!get_static_object || !get_class || !get_method || !call_object ||
+        !call_boolean || !call_void) {
         SetError(error, "required JNI paused-hint functions are unavailable");
         return false;
     }
@@ -1342,17 +1484,17 @@ bool JavaPlayerBridge::TryDismissPausedHint(
         DeleteLocal(env, module);
         return false;
     }
-    void* hint_manager_field =
-        get_field(env, module_class, "m_cHintManager", "LHintManager;");
+    void* get_hint_manager =
+        get_method(env, module_class, "GetHintManager", "()LHintManager;");
     DeleteLocal(env, module_class);
-    if (!hint_manager_field ||
-        ClearException(env, error, "GameMode.m_cHintManager lookup failed")) {
+    if (!get_hint_manager ||
+        ClearException(env, error, "LawmanModule.GetHintManager lookup failed")) {
         DeleteLocal(env, module);
         return false;
     }
-    void* manager = get_object(env, module, hint_manager_field);
+    void* manager = call_object(env, module, get_hint_manager, nullptr);
     DeleteLocal(env, module);
-    if (ClearException(env, error, "GameMode.m_cHintManager read failed")) {
+    if (ClearException(env, error, "LawmanModule.GetHintManager call failed")) {
         DeleteLocal(env, manager);
         return false;
     }
@@ -1416,20 +1558,124 @@ bool JavaPlayerBridge::TryDismissPausedHint(
     return true;
 }
 
-bool JavaPlayerBridge::TryProcessUiPointer(std::string* error) noexcept {
+bool JavaPlayerBridge::TryProcessUiPointer(
+    const float pixel_x,
+    const float pixel_y,
+    std::string* error) noexcept {
+    if (!std::isfinite(pixel_x) || !std::isfinite(pixel_y) || pixel_x < 0.0F || pixel_y < 0.0F) {
+        SetError(error, "game UI pointer coordinates are invalid");
+        return false;
+    }
     void* env = Environment(error);
     if (!env) return false;
-    void* ui = nullptr;
-    CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
-    if (!TryResolveCurrentGameUi(env, ui, route, error)) return false;
 
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
     const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
-    if (!get_class || !get_method || !call_void) {
-        DeleteLocal(env, ui);
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    if (!get_class || !get_method || !call_object || !call_void || !new_object) {
         SetError(error, "required JNI game-UI mouse functions are unavailable");
         return false;
+    }
+
+    // The main-menu cursor can exist while GetCurrentUI() is null. Resolve its
+    // owning menu directly so pointer motion is not gated on an unrelated UI
+    // object. This is the state observed in the 20260920 headset run.
+    void* menu = nullptr;
+    CoJUiDispatchRoute menu_route = CoJUiDispatchRoute::global_menu;
+    std::string menu_error;
+    if (!TryResolveMenuForUiRoute(env, menu_route, menu, &menu_error)) {
+        menu_route = CoJUiDispatchRoute::active_game_menu;
+        if (!TryResolveMenuForUiRoute(env, menu_route, menu, &menu_error)) {
+            SetError(error, menu_error.c_str());
+            return false;
+        }
+    }
+    const auto pointer_policy = BuildCoJUiPointerDispatchPolicy(menu != nullptr, false);
+    if (!pointer_policy.dispatch_cursor) {
+        DeleteLocal(env, menu);
+        SetError(error, "MainMenuModule is unavailable for cursor dispatch");
+        return false;
+    }
+    void* menu_class = get_class(env, menu);
+    if (!menu_class || ClearException(env, error, "MainMenuModule class lookup failed for cursor")) {
+        DeleteLocal(env, menu_class);
+        DeleteLocal(env, menu);
+        return false;
+    }
+    void* get_cursor = get_method(env, menu_class, "GetGlobalCursor", "()LUICursorGame;");
+    DeleteLocal(env, menu_class);
+    if (!get_cursor || ClearException(env, error, "MainMenuModule.GetGlobalCursor lookup failed")) {
+        DeleteLocal(env, menu);
+        return false;
+    }
+    void* cursor = call_object(env, menu, get_cursor, nullptr);
+    DeleteLocal(env, menu);
+    if (!cursor || ClearException(env, error, "MainMenuModule.GetGlobalCursor call failed")) {
+        DeleteLocal(env, cursor);
+        SetError(error, "global UICursorGame is unavailable");
+        return false;
+    }
+    void* cursor_class = get_class(env, cursor);
+    if (!cursor_class || ClearException(env, error, "UICursorGame class lookup failed")) {
+        DeleteLocal(env, cursor_class);
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    void* set_cursor = get_method(env, cursor_class, "SetPos", "(LVector;)V");
+    void* move_cursor = get_method(env, cursor_class, "OnMouseMove", "(FFI)V");
+    DeleteLocal(env, cursor_class);
+    if (!set_cursor || !move_cursor ||
+        ClearException(env, error, "UICursor.SetPos/OnMouseMove lookup failed")) {
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    if (!EnsureVectorAccess(env, error)) {
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    void* logical_position = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (!logical_position ||
+        ClearException(env, error, "Vector construction for UI cursor failed")) {
+        DeleteLocal(env, logical_position);
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    if (!WriteVector(env, logical_position, {pixel_x, pixel_y, 0.0F}, error)) {
+        DeleteLocal(env, logical_position);
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    JValue set_args[1]{};
+    set_args[0].l = logical_position;
+    call_void(env, cursor, set_cursor, set_args);
+    DeleteLocal(env, logical_position);
+    if (ClearException(env, error, "UICursor.SetPos call failed")) {
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    JValue move_args[3]{};
+    move_args[0].f = pixel_x;
+    move_args[1].f = pixel_y;
+    move_args[2].i = 0;
+    call_void(env, cursor, move_cursor, move_args);
+    DeleteLocal(env, cursor);
+    if (ClearException(env, error, "UICursorGame.OnMouseMove call failed")) {
+        return false;
+    }
+
+    // Mouse processing augments the cursor when a concrete UI exists, but the
+    // cursor update above remains successful in the menu state where it does not.
+    void* ui = nullptr;
+    CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
+    std::string ui_error;
+    const bool current_ui_available = TryResolveCurrentGameUi(env, ui, ui_route, &ui_error);
+    const auto final_policy = BuildCoJUiPointerDispatchPolicy(true, current_ui_available);
+    if (!final_policy.dispatch_process_mouse) {
+        DeleteLocal(env, ui);
+        SetError(error, "");
+        return true;
     }
     void* ui_class = get_class(env, ui);
     if (!ui_class || ClearException(env, error, "GameUserInterface class lookup failed")) {
@@ -1445,7 +1691,63 @@ bool JavaPlayerBridge::TryProcessUiPointer(std::string* error) noexcept {
     }
     call_void(env, ui, process_mouse, nullptr);
     DeleteLocal(env, ui);
-    return !ClearException(env, error, "GameUserInterface.SetProcessMouse call failed");
+    if (ClearException(env, error, "GameUserInterface.SetProcessMouse call failed")) return false;
+    SetError(error, "");
+    return true;
+}
+
+bool JavaPlayerBridge::TryDispatchUiBackPress(
+    std::string* error,
+    CoJUiDispatchRoute* route) noexcept {
+    if (route) *route = CoJUiDispatchRoute::none;
+    void* env = Environment(error);
+    if (!env) return false;
+    void* ui = nullptr;
+    CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
+    if (!TryResolveCurrentGameUi(env, ui, ui_route, error)) return false;
+    const auto policy = BuildCoJUiBackDispatchPolicy(ui != nullptr);
+    if (!policy.dispatch) {
+        DeleteLocal(env, ui);
+        SetError(error, "current game UI is unavailable for Escape dispatch");
+        return false;
+    }
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    if (!get_class || !get_method || !call_void) {
+        DeleteLocal(env, ui);
+        SetError(error, "required JNI game-UI back functions are unavailable");
+        return false;
+    }
+    void* ui_class = get_class(env, ui);
+    if (!ui_class || ClearException(env, error, "GameUserInterface class lookup failed for back")) {
+        DeleteLocal(env, ui_class);
+        DeleteLocal(env, ui);
+        return false;
+    }
+    void* call_input = get_method(env, ui_class, "CallOnInputKeyGlobal", "(IZI)V");
+    DeleteLocal(env, ui_class);
+    if (!call_input || ClearException(env, error, "GameUserInterface.CallOnInputKeyGlobal lookup failed")) {
+        DeleteLocal(env, ui);
+        return false;
+    }
+
+    JValue args[3]{};
+    args[0].i = policy.key_code;
+    args[1].z = policy.press ? 1 : 0;
+    args[2].i = 0;
+    call_void(env, ui, call_input, args);
+    if (ClearException(env, error, "GameUserInterface Escape press failed")) {
+        DeleteLocal(env, ui);
+        return false;
+    }
+    args[1].z = policy.release ? 0 : 1;
+    call_void(env, ui, call_input, args);
+    DeleteLocal(env, ui);
+    if (ClearException(env, error, "GameUserInterface Escape release failed")) return false;
+    if (route) *route = ui_route;
+    SetError(error, "");
+    return true;
 }
 
 bool JavaPlayerBridge::TryDispatchUiSelectPress(
@@ -1524,6 +1826,24 @@ bool JavaPlayerBridge::TryDispatchUiSelectPress(
         DeleteLocal(env, ui_class);
         DeleteLocal(env, ui);
         return false;
+    }
+    if (is_loading) {
+        void* on_input_key = get_method(env, ui_class, "OnInputKey", "(IZC)V");
+        DeleteLocal(env, ui_class);
+        if (!on_input_key || ClearException(env, error, "GameUILoading.OnInputKey lookup failed")) {
+            DeleteLocal(env, ui);
+            return false;
+        }
+        JValue loading_args[3]{};
+        loading_args[0].i = 1;
+        loading_args[1].z = 0;
+        loading_args[2].c = 0;
+        call_void(env, ui, on_input_key, loading_args);
+        DeleteLocal(env, ui);
+        if (ClearException(env, error, "GameUILoading.OnInputKey call failed")) return false;
+        if (route) *route = CoJUiDispatchRoute::loading_ui;
+        SetError(error, "");
+        return true;
     }
     void* press = get_method(env, ui_class, "CallEnterKeyPressed", "()V");
     void* release = get_method(env, ui_class, "CallEnterKeyReleased", "()V");

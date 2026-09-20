@@ -223,9 +223,10 @@ struct D3D9StereoCapture::Impl {
         output.format = CpuPixelFormat::bgrx8_unorm;
         const auto* source_row = static_cast<const std::uint8_t*>(locked.pBits);
         if (source_pitch == row_bytes) {
-            // Use resize + memcpy to avoid value-initialization overhead of assign().
-            output.pixels.resize(total_bytes);
-            std::memcpy(output.pixels.data(), source_row, total_bytes);
+            // Range assignment constructs directly from the readback bytes. On a
+            // recycled vector this reuses capacity; on a cold vector it avoids a
+            // separate zero-initialization pass before the copy.
+            output.pixels.assign(source_row, source_row + total_bytes);
         } else {
             output.pixels.clear();
             output.pixels.reserve(total_bytes);
@@ -507,7 +508,23 @@ bool D3D9StereoCapture::EndFrame(
 }
 
 bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
-    frame = {};
+    const auto reset_metadata_keep_pixels = [&frame]() noexcept {
+        frame.device_id = 0;
+        frame.generation = 0;
+        frame.capture_sequence = 0;
+        frame.transport_sequence = 0;
+        frame.render_pose_sequence = 0;
+        frame.render_hmd_pose = {};
+        frame.capture_time = {};
+        frame.presentation_mode = FramePresentationMode::native_stereo;
+        for (auto& eye : frame.eyes) {
+            eye.width = 0;
+            eye.height = 0;
+            eye.stride = 0;
+            eye.format = CpuPixelFormat::bgrx8_unorm;
+        }
+    };
+    reset_metadata_keep_pixels();
     try {
         if (!impl_->resources_initialized || !impl_->resource_device.Get()) return false;
         Impl::Slot* slot = impl_->OldestPending();
@@ -531,6 +548,11 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         frame.render_pose_sequence = slot->render_pose_sequence;
         frame.render_hmd_pose = slot->render_hmd_pose;
         frame.capture_time = slot->capture_time;
+        const std::size_t expected_eye_bytes =
+            static_cast<std::size_t>(impl_->source_desc.Width) * 4U * impl_->source_desc.Height;
+        const bool cpu_storage_reused =
+            frame.eyes[0].pixels.capacity() >= expected_eye_bytes &&
+            frame.eyes[1].pixels.capacity() >= expected_eye_bytes;
         double deferred_readback_ms = 0.0;
         double cpu_copy_ms = 0.0;
         for (std::size_t eye = 0; eye < 2; ++eye) {
@@ -543,14 +565,14 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
                 impl_->last_error = Failure("deferred GetRenderTargetData", hr);
                 slot->ResetState();
                 ++impl_->stats.frames_invalidated;
-                frame = {};
+                reset_metadata_keep_pixels();
                 return false;
             }
             const auto copy_begin = std::chrono::steady_clock::now();
             if (!impl_->CopyCpuEye(frame.eyes[eye])) {
                 slot->ResetState();
                 ++impl_->stats.frames_invalidated;
-                frame = {};
+                reset_metadata_keep_pixels();
                 return false;
             }
             const auto copy_end = std::chrono::steady_clock::now();
@@ -568,6 +590,7 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
             << ";generation=" << frame.generation
             << ";eye_surface=" << impl_->source_desc.Width << 'x' << impl_->source_desc.Height
             << ";fence_ready_before_readback=" << (fence_ready ? "true" : "false")
+            << ";cpu_storage_reused=" << (cpu_storage_reused ? "true" : "false")
             << std::fixed << std::setprecision(3)
             << ";fence_poll_ms=" << MillisecondsBetween(poll_begin, poll_end)
             << ";deferred_readback_ms=" << deferred_readback_ms
@@ -580,7 +603,7 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         return true;
     } catch (...) {
         impl_->last_error = "D3D9 deferred stereo readback raised an exception";
-        frame = {};
+        reset_metadata_keep_pixels();
         return false;
     }
 }

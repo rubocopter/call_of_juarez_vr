@@ -139,8 +139,8 @@ int main() {
         &present,
         &device9);
     if (FAILED(hr)) {
-        if (hr == D3DERR_NOTAVAILABLE) {
-            std::cout << "Classic D3D9 readback test skipped: HAL device unavailable\n";
+        if (hr == D3DERR_NOTAVAILABLE || hr == D3DERR_DEVICELOST) {
+            std::cout << "Classic D3D9 readback test skipped: HAL device unavailable or temporarily lost\n";
             return 77;
         }
         return Fail("Classic D3D9 CreateDevice failed", hr);

@@ -403,6 +403,8 @@ try {
         "/actions/global/in/recenter",
         "/actions/global/in/ui_select_left",
         "/actions/global/in/ui_select_right",
+        "/actions/global/in/ui_accept",
+        "/actions/global/in/ui_back",
         "/actions/global/in/left_hand_grip_pose",
         "/actions/global/in/right_hand_grip_pose",
         "/actions/global/in/left_hand_aim_pose",
@@ -446,6 +448,8 @@ try {
     Assert-SenseBinding "/user/hand/left/input/create" "click" "/actions/global/in/recenter"
     Assert-SenseBinding "/user/hand/left/input/l2" "click" "/actions/global/in/ui_select_left"
     Assert-SenseBinding "/user/hand/right/input/r2" "click" "/actions/global/in/ui_select_right"
+    Assert-SenseBinding "/user/hand/right/input/cross" "click" "/actions/global/in/ui_accept"
+    Assert-SenseBinding "/user/hand/right/input/circle" "click" "/actions/global/in/ui_back"
     Assert-SensePose "/user/hand/left/pose/handgrip" "/actions/global/in/left_hand_grip_pose"
     Assert-SensePose "/user/hand/right/pose/handgrip" "/actions/global/in/right_hand_grip_pose"
     Assert-SensePose "/user/hand/left/pose/tip" "/actions/global/in/left_hand_aim_pose"
@@ -826,9 +830,12 @@ try {
         "openvr_scene_state: phase=initialized;process_id=789;scene_focus_process_id=0;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=false;should_reduce_rendering_work=false",
         "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
-        "flat_ui_pointer: status=hit;hand=right;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;source=1920x1080;select=false;smoothing=0.40;visual=cyan_beam_reticle;route=flat_theater_menu_pointer",
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_plus_game_ui_mouse",
+        "flat_ui_pointer: status=hit;hand=right;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;beam_origin=820,700;source=1920x1080;select=false;smoothing=0.40;visual=cyan_beam_reticle;route=flat_theater_menu_pointer",
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position",
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cIntroModule.OnInputKey",
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter",
+        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=MainMenuModule.ShowPrevUI",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter",
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo",
         "native_stereo_factory_hook: status=installed",
@@ -836,7 +843,7 @@ try {
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
         "camera_probe_event: event=camera_probe_install result=installed pose_source=none native_stereo=available",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted detail=generation=2;enabled=false;fov=natural;yaw=0;pitch=0;tracking_enabled=true;body_ik_enabled=true;recenter=false",
-        "camera_probe_event: event=blocking_ui_select result=applied detail=source=right_r2;game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter",
+        "camera_probe_event: event=blocking_ui_select result=applied detail=source=right_r2;game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameUILoading.OnInputKey",
         "camera_probe_event: event=blocking_ui_resume result=observed detail=game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart",
         $StereoTrackingInput,
         $StereoLeftArmNaturalProbe,
@@ -863,9 +870,9 @@ try {
         $StereoFrame2,
         "native_stereo_capture_timing: status=ok frame_sequence=2 eye=left transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.150",
         "native_stereo_capture_timing: status=ok frame_sequence=2 eye=right transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.160",
-        "native_stereo_producer_timing: status=published transport=deferred_d3d9_ring_cpu_mailbox;frame_sequence=2;render_pose_sequence=3;generation=1;eye_surface=2560x1440;fence_ready_before_readback=false;fence_poll_ms=0.010;deferred_readback_ms=8.000;cpu_copy_ms=3.000;producer_collect_ms=11.010",
-        "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;left_hash=111;right_hash=222;distinct_eye_content=true;distinct_check=rgb_compare_every_frame;hash_mode=sampled_telemetry;hash_ms=4.000;upload_ms=1.000",
-        "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;left_hash=333;right_hash=444;distinct_eye_content=true;distinct_check=rgb_compare_every_frame;hash_mode=sampled_telemetry;hash_ms=4.100;upload_ms=1.100",
+        "native_stereo_producer_timing: status=published transport=deferred_d3d9_ring_cpu_mailbox;frame_sequence=2;render_pose_sequence=3;generation=1;eye_surface=2560x1440;fence_ready_before_readback=false;cpu_storage_reused=true;fence_poll_ms=0.010;deferred_readback_ms=8.000;cpu_copy_ms=3.000;producer_collect_ms=11.010",
+        "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;left_hash=111;right_hash=222;distinct_eye_content=true;distinct_check=sampled_hash;hash_mode=sampled_telemetry;hash_ms=4.000;upload_ms=1.000",
+        "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;left_hash=333;right_hash=444;distinct_eye_content=true;distinct_check=sampled_hash;hash_mode=sampled_telemetry;hash_ms=4.100;upload_ms=1.100",
         "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
         "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
         "openvr_scene_state: phase=first_submit;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
@@ -876,8 +883,8 @@ try {
         "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false",
         "camera_probe_event: event=body_player_reconciliation result=camera_only detail=frame_sequence=2;being_generation=1;recentered=false;write_needed=false;write_ok=true;actor_write=false;player_before=(1,2,3);player_desired=(1,2,3);tracking_offset=(0.06,0,0);world_offset=(0,0,0);render_head_position=(0.06,0,0);game_units_per_meter=100;mode=camera_only_collision_safe;collision_owner=native_actor",
         "camera_probe_event: event=body_yaw_tracking result=applied detail=frame_sequence=2;being_generation=1;camera_compensation_degrees=0;actor_delta_degrees=-10;actor_target_degrees=-10;route=PlayerBeing.RotateHorizontally;commit_after_stereo_restore=true",
-        "camera_probe_event: event=controller_aim result=applied detail=frame_sequence=2;pose_source=tip;left_orientation_valid=true;right_orientation_valid=true;left_direction=(0,0,-1);right_direction=(0,0,-1);left_origin_valid=true;right_origin_valid=true;left_origin=(1,2,3);right_origin=(-1,2,3);left_visual_origin_written=true;right_visual_origin_written=true;left_hand_index=1;right_hand_index=0;write_boundary=post_game_update_pre_render;tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_InputDigital_Translate;visual_origin_owner=m_avAimFromPoint;fire_origin_native_restore=true;native_accuracy_spread=preserved;network_forced_branch=unused",
-        "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;interact=false;weapon_next=false;weapon_previous=false;kick=false;blocking_ui_gameplay_suppressed=false;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate",
+        "camera_probe_event: event=controller_aim result=applied detail=frame_sequence=2;pose_source=tip;left_orientation_valid=true;right_orientation_valid=true;left_direction=(0,0,-1);right_direction=(0,0,-1);left_origin_valid=true;right_origin_valid=true;left_origin=(1,2,3);right_origin=(-1,2,3);left_visual_origin_written=true;right_visual_origin_written=true;left_hand_index=1;right_hand_index=0;write_boundary=post_game_update_pre_render;tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_input_translation;visual_origin_owner=m_avAimFromPoint;fire_origin_release=immediate_native_restore;native_accuracy_spread=preserved;network_forced_branch=unused",
+        "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;physical_crouch=true;interact=false;weapon_next=false;weapon_previous=false;kick=false;blocking_ui_gameplay_suppressed=false;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
         "camera_probe_event: event=body_arm_recovery result=ok detail=frame_sequence=3;recenter_sequence=3;previous_fault=false;transaction_active=false;natural_verified=true;calibration_preserved=true",
@@ -903,6 +910,81 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
+
+    $StereoVerifierNoNativeCursorRoute = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "event=flat_ui_pointer_game_route result=applied"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoNativeCursorRoute
+    $MissingNativeCursorRouteRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingNativeCursorRouteRejected = $true
+    }
+    Assert-True $MissingNativeCursorRouteRejected `
+        "Native-stereo verifier accepted flat UI without the native CoJ cursor route."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierNoControllerBeamOrigin = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace ";beam_origin=820,700;", ";beam_origin=invalid;"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoControllerBeamOrigin
+    $MissingControllerBeamOriginRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingControllerBeamOriginRejected = $true
+    }
+    Assert-True $MissingControllerBeamOriginRejected `
+        "Native-stereo verifier accepted a flat-theater beam without a projected controller origin."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierNoCrossAccept = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "event=flat_ui_select result=applied detail=source=right_cross;"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoCrossAccept
+    $MissingCrossAcceptRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingCrossAcceptRejected = $true
+    }
+    Assert-True $MissingCrossAcceptRejected `
+        "Native-stereo verifier accepted flat UI without Cross accept."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierNoCircleBack = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "event=flat_ui_back result=applied detail=source=right_circle;"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoCircleBack
+    $MissingCircleBackRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingCircleBackRejected = $true
+    }
+    Assert-True $MissingCircleBackRejected `
+        "Native-stereo verifier accepted flat UI without Circle back."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierNoPhysicalCrouch = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace ";physical_crouch=true;", ";physical_crouch=false;"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoPhysicalCrouch
+    $MissingPhysicalCrouchRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingPhysicalCrouchRejected = $true
+    }
+    Assert-True $MissingPhysicalCrouchRejected `
+        "Native-stereo verifier accepted gameplay without a physical crouch sample."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierAppliedAfterRollback = @($StereoVerifierLog | ForEach-Object {
         $_ -replace "rollback_attempted=false;rollback_ok=true", "rollback_attempted=true;rollback_ok=true"

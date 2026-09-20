@@ -54,11 +54,70 @@ int main() {
     using namespace cojvr::games::call_of_juarez;
     using namespace cojvr::runtime;
 
-    if (std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::intro_skip)) !=
+    CoJPhysicalCrouchState physical_crouch;
+    if (physical_crouch.Update(true, false, -0.10F)) {
+        std::cerr << "physical crouch engaged above the crouch threshold\n";
+        return 1;
+    }
+    if (!physical_crouch.Update(true, false, -0.27F) ||
+        !physical_crouch.Update(true, false, -0.20F)) {
+        std::cerr << "physical crouch did not engage/hold through hysteresis\n";
+        return 1;
+    }
+    if (physical_crouch.Update(true, false, -0.14F)) {
+        std::cerr << "physical crouch did not release above the release threshold\n";
+        return 1;
+    }
+    if (!physical_crouch.Update(true, false, -0.30F) ||
+        physical_crouch.Update(true, true, -0.30F) ||
+        physical_crouch.Update(false, false, -0.30F)) {
+        std::cerr << "physical crouch did not reset on recenter/tracking loss\n";
+        return 1;
+    }
+    if (ResolveCoJCrouchAction(false, true) ||
+        !ResolveCoJCrouchAction(true, false) ||
+        !ResolveCoJCrouchAction(true, true)) {
+        std::cerr << "physical head-height crouch incorrectly drove the native crouch action\n";
+        return 1;
+    }
+
+    if (std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::paused_hint)) !=
+            "LawmanModule.GetHintManager.DisableCurrentHint" ||
+        std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::intro_skip)) !=
             "GameWithMenu.sm_cIntroModule.OnInputKey" ||
         std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::active_game_menu)) !=
-            "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter") {
+            "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter" ||
+        std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::loading_ui)) !=
+            "GameUILoading.OnInputKey") {
         std::cerr << "exact UI dispatch routes lost their telemetry identities\n";
+        return 1;
+    }
+
+    const auto ui_back_available = BuildCoJUiBackDispatchPolicy(true);
+    const auto ui_back_unavailable = BuildCoJUiBackDispatchPolicy(false);
+    if (!ui_back_available.dispatch || ui_back_available.key_code != 1 ||
+        !ui_back_available.press || !ui_back_available.release ||
+        ui_back_unavailable.dispatch) {
+        std::cerr << "UI back no longer models the shipped Escape press/release path\n";
+        return 1;
+    }
+    if (std::string_view(CoJUiBackDispatchRouteName(CoJUiDispatchRoute::global_menu)) !=
+            "GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)" ||
+        std::string_view(CoJUiBackDispatchRouteName(CoJUiDispatchRoute::active_game_menu)) !=
+            "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.CallOnInputKeyGlobal(Escape)") {
+        std::cerr << "UI back telemetry no longer names the shipped Escape route\n";
+        return 1;
+    }
+
+    const auto cursor_without_current_ui = BuildCoJUiPointerDispatchPolicy(true, false);
+    const auto cursor_with_current_ui = BuildCoJUiPointerDispatchPolicy(true, true);
+    const auto no_menu_cursor = BuildCoJUiPointerDispatchPolicy(false, true);
+    if (!cursor_without_current_ui.dispatch_cursor ||
+        cursor_without_current_ui.dispatch_process_mouse ||
+        !cursor_with_current_ui.dispatch_cursor ||
+        !cursor_with_current_ui.dispatch_process_mouse ||
+        no_menu_cursor.dispatch_cursor || no_menu_cursor.dispatch_process_mouse) {
+        std::cerr << "flat UI cursor still depended on a current GameUserInterface object\n";
         return 1;
     }
 
@@ -644,6 +703,25 @@ int main() {
         std::cerr << "CoJ VR locomotion did not bypass desktop digital action semantics\n";
         return 1;
     }
+
+    const auto left_fire_origin = BuildCoJFireOriginMutationPolicy(9, true, true, true);
+    const auto right_fire_origin = BuildCoJFireOriginMutationPolicy(10, true, true, true);
+    const auto held_fire_origin = BuildCoJFireOriginMutationPolicy(9, true, false, true);
+    const auto released_fire_origin = BuildCoJFireOriginMutationPolicy(9, false, true, true);
+    const auto invalid_fire_origin = BuildCoJFireOriginMutationPolicy(10, true, true, false);
+    const auto non_fire_origin = BuildCoJFireOriginMutationPolicy(18, true, true, true);
+    if (left_fire_origin.hand != 1 || !left_fire_origin.override_for_translate ||
+        !left_fire_origin.restore_after_translate ||
+        right_fire_origin.hand != 0 || !right_fire_origin.override_for_translate ||
+        !right_fire_origin.restore_after_translate ||
+        held_fire_origin.override_for_translate || held_fire_origin.restore_after_translate ||
+        released_fire_origin.override_for_translate || released_fire_origin.restore_after_translate ||
+        invalid_fire_origin.override_for_translate || invalid_fire_origin.restore_after_translate ||
+        non_fire_origin.hand != -1 || non_fire_origin.override_for_translate ||
+        non_fire_origin.restore_after_translate) {
+        std::cerr << "fire origin escaped its synchronous input-translation scope\n";
+        return 1;
+    }
     GameplayInputState inactive_gameplay = gameplay;
     inactive_gameplay.active = false;
     for (const auto& item : BuildCoJGameplayActionValues(inactive_gameplay)) {
@@ -986,7 +1064,7 @@ int main() {
         bridge.TryRotateElementWithChildren(0, {0.0F, 1.0F, 0.0F}, 10.0F) ||
         bridge.TryRotateHorizontally(15.0F) ||
         bridge.TryGetActiveGameTimerFrozen(game_timer_frozen) ||
-        bridge.TryProcessUiPointer() ||
+        bridge.TryProcessUiPointer(0.0F, 0.0F) ||
         bridge.TrySetPerHandAimOrigin(0, {1.0F, 2.0F, 3.0F}) ||
         bridge.TryApplyUpperBodyTracking(0.0F, 0.0F, 0.0F)) {
         std::cerr << "Java player bridge did not fail closed without the game JVM\n";

@@ -104,6 +104,7 @@ cojvr::runtime::PoseSource* g_pose_source = nullptr;
 cojvr::runtime::BodyTracker g_body_tracker;
 JavaPlayerBridge g_java_player_bridge;
 CoJLoadingUiInputGate g_loading_ui_input_gate;
+CoJPhysicalCrouchState g_physical_crouch_state;
 bool g_loading_ui_resume_pending = false;
 cojvr::runtime::Vec3 g_body_applied_world_offset{};
 cojvr::runtime::Vec3 g_body_applied_tracking_offset{};
@@ -2120,7 +2121,10 @@ bool RestoreAppliedArmRotation(
     applied.active = false;
     if (!restored) g_arm_rotation_faulted = true;
 
+    const bool emit_restore_telemetry =
+        !restored || exact_restore_attempted || ShouldObserveBodyFrame(frame_sequence);
     try {
+        if (!emit_restore_telemetry) return restored;
         std::ostringstream detail;
         detail << "frame_sequence=" << frame_sequence
                << ";side=" << (left ? "left" : "right")
@@ -2260,7 +2264,7 @@ void UpdatePlayerArmTracking(
     const CameraProbeBasis tracking_basis = BuildTrackingReferenceBasis(
         basis.forward, basis.up, g_body_owned_yaw_degrees);
     if (!IsCameraProbeBasisRigidRightHanded(tracking_basis)) {
-        if (observe || body_ik_enabled) {
+        if (observe) {
             EmitEvent(
                 "body_arm_tracking", "unavailable",
                 "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2289,7 +2293,7 @@ void UpdatePlayerArmTracking(
             return;
         }
         if (!elements_ready) {
-            if (observe || body_ik_enabled) {
+            if (observe) {
                 EmitEvent(
                     "body_arm_tracking", "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2298,7 +2302,7 @@ void UpdatePlayerArmTracking(
             return;
         }
         if (!head_ready || !tracked_body.head.position_valid) {
-            if (observe || body_ik_enabled) {
+            if (observe) {
                 EmitEvent(
                     "body_arm_tracking", "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2311,7 +2315,7 @@ void UpdatePlayerArmTracking(
             std::string error;
             ArmGeometrySample geometry{};
             if (!ReadArmGeometry(left, geometry, &error)) {
-                if (observe || body_ik_enabled) {
+                if (observe) {
                     EmitEvent(
                         "body_arm_tracking", "unavailable",
                         "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2320,7 +2324,7 @@ void UpdatePlayerArmTracking(
                 return;
             }
             if (!controller.orientation_valid) {
-                if (observe || body_ik_enabled) {
+                if (observe) {
                     EmitEvent(
                         "body_arm_tracking", "unavailable",
                         "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2376,7 +2380,7 @@ void UpdatePlayerArmTracking(
                     camera_up,
                     camera_forward);
             if (!orientation_calibration.reference.valid || !hand_target.valid) {
-                if (observe || body_ik_enabled) {
+                if (observe) {
                     EmitEvent(
                         "body_arm_tracking", "invalid",
                         "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2396,7 +2400,7 @@ void UpdatePlayerArmTracking(
                 kGameUnitsPerMeter,
                 target_valid);
             if (!target_valid) {
-                if (observe || body_ik_enabled) {
+                if (observe) {
                     EmitEvent(
                         "body_arm_tracking", "invalid",
                         "frame_sequence=" + std::to_string(frame_sequence) +
@@ -2608,7 +2612,11 @@ void UpdatePlayerArmTracking(
                 write_error = "prior element writer/restore validation failed; arm writes are fail-closed";
             }
 
-            if (observe || body_ik_enabled) {
+            const bool emit_tracking_telemetry =
+                observe || rollback_attempted ||
+                (body_ik_enabled && write_allowed && !write_ok) ||
+                (body_ik_enabled && g_arm_rotation_faulted);
+            if (emit_tracking_telemetry) {
                 std::ostringstream detail;
                 detail << "frame_sequence=" << frame_sequence
                        << ";being_generation=" << generation
@@ -2894,9 +2902,9 @@ void UpdateControllerAim(
                    << ";write_boundary=post_game_update_pre_render"
                    << ";tracking_basis=level_recenter_minus_actor_yaw"
                    << ";direction_owner=m_avLookDirDevForHand"
-                   << ";fire_origin=controller_tip_scoped_InputDigital_Translate"
+                   << ";fire_origin=controller_tip_scoped_input_translation"
                    << ";visual_origin_owner=m_avAimFromPoint"
-                   << ";fire_origin_native_restore=true"
+                   << ";fire_origin_release=immediate_native_restore"
                    << ";native_accuracy_spread=preserved"
                    << ";network_forced_branch=unused";
             if (!left_error.empty()) detail << ";left_detail=" << left_error;
@@ -3390,7 +3398,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     const std::uint64_t frame_sequence =
         g_stereo_frame_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
     const bool ui_select_pressed =
-        sample.ui_select_left_pressed || sample.ui_select_right_pressed;
+        sample.ui_select_left_pressed || sample.ui_select_right_pressed ||
+        sample.ui_accept_pressed;
     bool game_timer_frozen = false;
     bool game_timer_valid = false;
     std::string game_timer_error;
@@ -3413,7 +3422,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             std::ostringstream detail;
             detail << "frame_sequence=" << frame_sequence
                    << ";source="
-                   << (sample.ui_select_left_pressed ? "left_l2" : "right_r2")
+                   << (sample.ui_accept_pressed
+                           ? "right_cross"
+                           : (sample.ui_select_left_pressed ? "left_l2" : "right_r2"))
                    << ";game_timer_valid=" << (game_timer_valid ? "true" : "false")
                    << ";game_timer_frozen=" << (game_timer_frozen ? "true" : "false")
                    << ";current_ui_is_loading="
@@ -3444,6 +3455,12 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         }
     }
     cojvr::runtime::GameplayInputState gameplay_input = sample.gameplay;
+    const bool physical_crouch = g_physical_crouch_state.Update(
+        sample.gameplay.active && relative_head_pose.position_valid,
+        recentered,
+        relative_head_pose.position.y);
+    gameplay_input.crouch = ResolveCoJCrouchAction(
+        gameplay_input.crouch, physical_crouch);
     if (loading_ui_input.suppress_gameplay) {
         gameplay_input = {};
     } else if (loading_ui_input.suppress_fire) {
@@ -3480,6 +3497,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << ";reload=" << (gameplay_input.reload ? "true" : "false")
                             << ";run=" << (gameplay_input.run ? "true" : "false")
                             << ";crouch=" << (gameplay_input.crouch ? "true" : "false")
+                            << ";physical_crouch=" << (physical_crouch ? "true" : "false")
                             << ";interact=" << (gameplay_input.interact ? "true" : "false")
                             << ";weapon_next="
                             << (gameplay_input.weapon_next ? "true" : "false")
@@ -3764,8 +3782,17 @@ bool DispatchCameraUiSelectPress(
         require_loading_ui, current_ui_is_loading, error, paused_hint_dismissed, route);
 }
 
-bool DispatchCameraUiPointerMotion(std::string* error) noexcept {
-    return g_java_player_bridge.TryProcessUiPointer(error);
+bool DispatchCameraUiPointerMotion(
+    const float pixel_x,
+    const float pixel_y,
+    std::string* error) noexcept {
+    return g_java_player_bridge.TryProcessUiPointer(pixel_x, pixel_y, error);
+}
+
+bool DispatchCameraUiBackPress(
+    std::string* error,
+    CoJUiDispatchRoute* route) noexcept {
+    return g_java_player_bridge.TryDispatchUiBackPress(error, route);
 }
 
 bool ObserveCameraGameTimerFrozen(
@@ -4213,6 +4240,7 @@ void ShutdownCameraProbe() noexcept {
         true);
     g_java_player_bridge.Reset();
     g_loading_ui_input_gate.Reset();
+    g_physical_crouch_state.Reset();
     g_loading_ui_resume_pending = false;
     ResetLocalHeadVisibilityForGeneration(0);
     g_body_applied_world_offset = {};
