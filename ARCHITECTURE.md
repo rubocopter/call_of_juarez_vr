@@ -62,13 +62,13 @@ UI pointing is presentation plus exact-game UI policy:
 
 1. OpenVR supplies `/pose/tip` and global UI actions.
 2. The presenter intersects the Sense ray with the flat screen and reports normalized/source coordinates plus controller and hit positions.
-3. The Call of Juarez adapter resolves `MainMenuModule.GetGlobalCursor()`, updates its logical position with `UICursorGame.SetPos(LVector;)V`, then sends `OnMouseMove(FFI)V`. This keeps the game cursor visual synchronized but does not by itself own menu hover.
-4. The same projected point is mirrored to the game window with Win32 `SetCursorPos` plus `WM_MOUSEMOVE`, because shipped UI hit-testing follows the real mouse position/process-mouse path. Physical evidence showed that moving the real mouse changed hover while logical cursor motion alone did not.
+3. The projected point is currently published to the game window with Win32 `SetCursorPos`, absolute `SendInput` mouse movement and `WM_MOUSEMOVE`. This route reaches shipped hover/select behavior, but the latest complete physical run still found it uncontrollable and required the physical mouse.
+4. The previously discovered `MainMenuModule.GetGlobalCursor() -> UICursorGame.SetPos(LVector;)V -> OnMouseMove(FFI)V` route remains available for diagnostics, but the current candidate does not drive it simultaneously. Run `20260921T163309Z-481defca3401` showed chaotic pointer behavior when the Java cursor and Win32 input path both owned motion.
 5. Cross is global accept, Circle is global back, and L2/R2 remain ray-select inputs.
-6. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`; `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
+6. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
 7. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
 
-The current implementation of this path is host-tested only. The previous physical run rejected the older cursor/selection route.
+The current single-owner Win32 pointer path is host-tested only. The newest physical diagnostic rejected the preceding dual-owner route even though it could finally select menu items.
 
 ## Tracking, locomotion and body ownership
 
@@ -76,9 +76,9 @@ Room-scale HMD translation is camera-owned. The native actor keeps authoritative
 
 Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
 
-Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Run remains boolean and right-stick snap turn is an exact ±45° actor rotation.
+Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. The latest run physically exercised that transaction while locomotion remained unacceptable, so this routing is a proven implementation detail rather than evidence of correct movement semantics. Run remains boolean and right-stick snap turn is an exact ±45° actor rotation.
 
-Physical crouch is detected from calibrated HMD-height change with hysteresis, but the HMD drop does not automatically press the native crouch action. The latest physical evidence still exposed the full local avatar with `physical_crouch=true` and native `crouch=false`, so first-person body visibility is not explained by a double native-crouch transform. Physical vertical viewpoint remains camera-owned; actor position and grounding remain game-owned. Local-mesh suppression/ownership must be solved without losing tracked arms, shadows or future full-body behavior. Explicit controller crouch still uses the native action.
+Physical crouch is detected from calibrated HMD-height change with hysteresis, but the HMD drop does not automatically press the native crouch action. The current candidate applies only the mapped horizontal room-scale component to the local pelvis/skeleton for both eye renders and restores the natural pelvis world basis after the second eye; the latest run observed 64 such writes with zero vertical offset. Vertical actor position, grounding and collision remain game-owned. A separate visual-animation contract is now required: horizontal room-scale displacement should drive a walk animation comparable to stick locomotion without moving the collision actor solely because the player walked inside the tracking area. Explicit controller crouch still uses the native action.
 
 ## Body IK
 
@@ -93,7 +93,7 @@ For the observed exact model:
 - visible writes use exact-build `RotateElementWithChildren(ILVector;F)V` with element-local axes;
 - child/parent restoration is verified against the captured natural state and failures disable further mutation.
 
-The visible writer and restore path are live-exercised, but Body IK remains visually rejected. Latest telemetry frequently reaches elbow/wrist positional targets while controller hand orientation remains far from the rendered hand, and reload animation visibly contorts the arms. Reach, shoulder/clavicle participation, hand orientation and native-animation ownership must therefore be treated as separate problems. Lower-body writing remains unpromoted.
+The visible writer and restore path are live-exercised, but Body IK remains visually rejected. Safety now denies unsafe writes instead of forcing extreme rotations; the latest run denied 43/128 sampled arm updates and the user saw the resulting ownership changes as repeated snap-back to the default game pose. Continuous tracked ownership is therefore a first-class requirement: the solver must remain plausible across normal reachable motion without alternating visibly between VR and native animation. Shoulder/clavicle participation remains a separate measured experiment. Lower-body writing remains unpromoted.
 
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
 
@@ -107,15 +107,15 @@ The controller `/pose/tip` drives per-hand aim direction and visual origin throu
 - native spread/accuracy remains downstream in the game weapon code;
 - the network-forced attack branch remains untouched.
 
-For local fire, controller-derived ballistic origin may replace `Being.m_vLookFromPoint` only for the synchronous fire `InputDigital.Translate` call. The adapter captures the native value first and restores it immediately after the call, including the first press. No controller-owned ballistic origin persists across frames, and normal gameplay no longer creates a diagnostic `LaserPointer` object.
+For local fire, shipped bytecode shows that `InputDigital.Translate` selects the requested hand/fire state while the actual attack runs later through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`. On the fire press transition, the adapter captures the native `Being.m_vLookFromPoint` value and publishes the selected controller origin for that pending native attack. A failed `Translate` rolls the field back immediately; on success, the later shipped `UpdateLookAndAimPoints` pass reclaims normal ownership after the attack transition. Held-fire frames do not repeatedly republish the field, and normal gameplay no longer creates a diagnostic `LaserPointer` object.
 
-The transactional fire-origin path is host-tested. The latest gameplay process recorded 55 fire-pressed samples and reached normal `run_end`, so previous first-shot termination was not reproduced; however, visible/ballistic origin and direction remain physically rejected and no firing gate advances.
+The attack-transition fire-origin path is physically exercised, but visible/ballistic origin and direction remain rejected. Current diagnostics emit `controller_aim_geometry` and `controller_aim_fire_transition`; the latest run produced 120 grip-to-tip axis samples with local `-Z` at `0.939388..0.939389`, strongly confirming the Sense tip direction convention. The remaining weapon contract is therefore downstream: the visible weapon pose, muzzle/barrel origin and ballistic path must agree. A temporary controller-tip gameplay ray may be rendered solely to compare tracked direction against the visible weapon; it is diagnostic and is not the production shot origin.
 
 ## D3D9 transport cost
 
 The active classic-D3D9 path still performs CPU readback before publishing a stereo frame. To reduce avoidable cost without changing that structural boundary, the presenter samples eye-distinction hashes instead of doing a full RGB comparison every frame, and the mailbox recycles consumed CPU-frame storage so stable-resolution frames reuse their buffers. Telemetry exposes `cpu_storage_reused` plus readback/copy/producer timing.
 
-Latest gameplay evidence measured CPU copy at 7.432 ms median, 8.994 ms p95 and 9.644 ms max for a 1920x1080-per-eye source while SteamVR recommended 3400x3468. A 120 Hz frame is about 8.33 ms, so this transport can consume the whole budget before remaining game/presenter work. A GPU-resident or lower-copy transport is the architectural priority before a large eye-resolution increase.
+Latest gameplay evidence measured CPU copy at 7.112 ms median, 9.056 ms p95 and 11.849 ms max for a 1920x1080-per-eye source. A 120 Hz frame is about 8.33 ms, so this transport can consume the whole budget before remaining game/presenter work. A GPU-resident or lower-copy transport is the architectural priority before a large eye-resolution increase.
 
 OFXR-Bridge is not part of the active architecture. It is an experimental OpenXR optical-flow frame-generation API layer; Call of Juarez currently submits through OpenVR after classic-D3D9 readback. It may be revisited only on a future OpenXR path and cannot remove the current D3D9 GPU->CPU boundary.
 

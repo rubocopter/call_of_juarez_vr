@@ -802,12 +802,12 @@ try {
     $StereoRightArm = $StereoRightArm -replace "writer=BoneRotate", "writer=RotateElementWithChildren"
     $StereoLeftArm = $StereoLeftArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
     $StereoRightArm = $StereoRightArm -replace ";forearm_element_forward=\(0.000000,0.000000,1.000000\);", ";forearm_element_forward=(0.000000,0.000000,1.000000);foretwist_element_position=(-6.000000,7.000000,8.000000);foretwist_element_up=(0.000000,1.000000,0.000000);foretwist_element_forward=(0.000000,0.000000,1.000000);hand_element_position=(-7.000000,8.000000,9.000000);hand_element_up=(0.000000,1.000000,0.000000);hand_element_forward=(0.000000,0.000000,1.000000);hand_target_up=(0.000000,1.000000,0.000000);hand_target_forward=(0.000000,0.000000,1.000000);"
-    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_requested_degrees=45;forearm_twist_limit_degrees=0;forearm_twist_limited=true;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=controller_orientation_diagnostic_only;skinning_contract=foretwist_sibling_swing_hand_native_orientation;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
-    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_requested_degrees=45;forearm_twist_limit_degrees=0;forearm_twist_limited=true;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis_diagnostic;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=controller_orientation_diagnostic_only;skinning_contract=foretwist_sibling_swing_hand_native_orientation;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoLeftArm = $StereoLeftArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_requested_degrees=45;forearm_twist_limit_degrees=0;forearm_twist_limited=true;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=bounded_hand_residual;hand_rotation_limit_degrees=30;hand_residual_rejected=true;reach_write_safe=true;skinning_contract=foretwist_sibling_swing_plus_bounded_hand_residual;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
+    $StereoRightArm = $StereoRightArm -replace ";rotation_plan_valid=true;", ";upper_native_axis=(0.000000,0.000000,1.000000);forearm_native_axis=(0.000000,0.000000,1.000000);forearm_twist_native_axis=(1.000000,0.000000,0.000000);forearm_twist_degrees=0;forearm_twist_requested_degrees=45;forearm_twist_limit_degrees=0;forearm_twist_limited=true;forearm_twist_no_op=true;twist_owner=foretwist_element;hand_residual_source=post_foretwist_observed_basis;hand_residual_native_axis=(0.000000,0.000000,1.000000);hand_residual_degrees=45;hand_rotation_mode=bounded_hand_residual;hand_rotation_limit_degrees=30;hand_residual_rejected=true;reach_write_safe=true;skinning_contract=foretwist_sibling_swing_plus_bounded_hand_residual;skinning_frames_reached=true;skinning_axis_error=0;hand_native_axis=(0.000000,0.000000,1.000000);hand_rotation_degrees=0;hand_rotation_no_op=true;native_axis_space=element_local;elbow_target_error=0;wrist_target_error=0;targets_reached=true;hand_up_error=0.5;hand_forward_error=0.5;hand_orientation_reached=false;controller_orientation_valid=true;orientation_calibration_recenter_sequence=1;rotation_plan_valid=true;"
     $StereoLeftArm = $StereoLeftArm -replace ";upper_length=30;lower_length=28;", ";upper_length=30;lower_length=28;raw_target_distance=50;effective_target_distance=50;reach_adjustment=0;reach_adjusted=false;reach_policy=native_chain_hard_clamp;"
     $StereoRightArm = $StereoRightArm -replace ";upper_length=30;lower_length=28;", ";upper_length=30;lower_length=28;raw_target_distance=50;effective_target_distance=50;reach_adjustment=0;reach_adjusted=false;reach_policy=native_chain_hard_clamp;"
-    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_diagnostic_only;"
-    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_diagnostic_only;"
+    $StereoLeftArm = $StereoLeftArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_bounded_hand_residual;"
+    $StereoRightArm = $StereoRightArm -replace ";hand_orientation=natural;", ";tracking_forward=-z_to_negative_native_forward;hand_orientation=calibrated_controller_delta_bounded_hand_residual;"
     $StereoLeftArm = $StereoLeftArm -replace ";basis_source=", ";tracking_basis=level_recenter_minus_actor_yaw;basis_source="
     $StereoRightArm = $StereoRightArm -replace ";basis_source=", ";tracking_basis=level_recenter_minus_actor_yaw;basis_source="
     $StereoLeftArmNaturalProbe = "camera_probe_event: event=body_arm_write_probe result=natural detail=frame_sequence=2;side=left;phase=before_write;writer=RotateElementWithChildren"
@@ -831,11 +831,10 @@ try {
         "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
         "flat_ui_pointer: status=hit;hand=right;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;beam_origin=820,700;source=1920x1080;select=false;smoothing=0.40;visual=cyan_beam_reticle;route=flat_theater_menu_pointer",
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position",
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove",
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cIntroModule.OnInputKey",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter",
-        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=MainMenuModule.ShowPrevUI",
+        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter",
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo",
         "native_stereo_factory_hook: status=installed",
@@ -843,6 +842,7 @@ try {
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
         "camera_probe_event: event=camera_probe_install result=installed pose_source=none native_stereo=available",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted detail=generation=2;enabled=false;fov=natural;yaw=0;pitch=0;tracking_enabled=true;body_ik_enabled=true;recenter=false",
+        "camera_probe_event: event=subtitle_state result=observed detail=frame_sequence=2;subtitles_enabled=true;dialog_playing=true;current_line_visible=true;dialog_subtitle_visible=true;diagnostic=java_visible",
         "camera_probe_event: event=blocking_ui_select result=applied detail=source=right_r2;game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameUILoading.OnInputKey",
         "camera_probe_event: event=blocking_ui_resume result=observed detail=game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=LawmanModule.TimerStart",
         $StereoTrackingInput,
@@ -882,9 +882,14 @@ try {
         "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/{left,right}/pose/handgrip aim_pose=/user/hand/{left,right}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread",
         "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false",
         "camera_probe_event: event=body_player_reconciliation result=camera_only detail=frame_sequence=2;being_generation=1;recentered=false;write_needed=false;write_ok=true;actor_write=false;player_before=(1,2,3);player_desired=(1,2,3);tracking_offset=(0.06,0,0);world_offset=(0,0,0);render_head_position=(0.06,0,0);game_units_per_meter=100;mode=camera_only_collision_safe;collision_owner=native_actor",
+        "camera_probe_event: event=body_visual_roomscale result=applied detail=frame_sequence=2;being_generation=1;pelvis_element=10;tracking_offset=(0.060000,0.000000,0.000000);world_offset=(6.000000,0.000000,0.000000);actor_write=false;scope=stereo_render_only;restore=after_both_eyes",
+        "camera_probe_event: event=body_visual_roomscale_restore result=ok detail=frame_sequence=2;being_generation=1;pelvis_element=10;world_offset=(6.000000,0.000000,0.000000);reason=stereo_complete",
         "camera_probe_event: event=body_yaw_tracking result=applied detail=frame_sequence=2;being_generation=1;camera_compensation_degrees=0;actor_delta_degrees=-10;actor_target_degrees=-10;route=PlayerBeing.RotateHorizontally;commit_after_stereo_restore=true",
-        "camera_probe_event: event=controller_aim result=applied detail=frame_sequence=2;pose_source=tip;left_orientation_valid=true;right_orientation_valid=true;left_direction=(0,0,-1);right_direction=(0,0,-1);left_origin_valid=true;right_origin_valid=true;left_origin=(1,2,3);right_origin=(-1,2,3);left_visual_origin_written=true;right_visual_origin_written=true;left_hand_index=1;right_hand_index=0;write_boundary=post_game_update_pre_render;tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_input_translation;visual_origin_owner=m_avAimFromPoint;fire_origin_release=immediate_native_restore;native_accuracy_spread=preserved;network_forced_branch=unused",
-        "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;physical_crouch=true;interact=false;weapon_next=false;weapon_previous=false;kick=false;blocking_ui_gameplay_suppressed=false;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate",
+        "camera_probe_event: event=controller_aim result=applied detail=frame_sequence=2;pose_source=tip;left_orientation_valid=true;right_orientation_valid=true;left_direction=(0,0,-1);right_direction=(0,0,-1);left_origin_valid=true;right_origin_valid=true;left_origin=(1,2,3);right_origin=(-1,2,3);left_visual_origin_written=true;right_visual_origin_written=true;left_hand_index=1;right_hand_index=0;write_boundary=post_game_update_pre_render;tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_attack_transition;visual_origin_owner=m_avAimFromPoint;fire_origin_release=native_UpdateLookAndAimPoints;native_accuracy_spread=preserved;network_forced_branch=unused",
+        "camera_probe_event: event=controller_aim_geometry result=observed detail=frame_sequence=2;left_valid=true;left_grip_to_tip_distance_m=0.10;left_grip_to_tip_direction=(0,0,-1);left_dot_pos_x=0;left_dot_neg_x=0;left_dot_pos_y=0;left_dot_neg_y=0;left_dot_pos_z=-1;left_dot_neg_z=1;right_valid=true;right_grip_to_tip_distance_m=0.10;right_grip_to_tip_direction=(0,0,-1);right_dot_pos_x=0;right_dot_neg_x=0;right_dot_pos_y=0;right_dot_neg_y=0;right_dot_pos_z=-1;right_dot_neg_z=1;axis_reference=grip_to_tip_tracking_space;aim_axis_assumption=negative_z",
+        "camera_probe_event: event=controller_aim_fire_transition result=applied detail=frame_sequence=2;side=left;hand_index=1;gameplay_translate_applied=true;direction_valid=true;direction=(0,0,-1);origin_valid=true;origin=(1,2,3);being_look_from_write_succeeded=true;translate_succeeded=true;retained_for_attack=true;published_fire_origin=(1,2,3);tip_geometry_valid=true;grip_to_tip_distance_m=0.10;grip_to_tip_direction=(0,0,-1);dot_pos_x=0;dot_neg_x=0;dot_pos_y=0;dot_neg_y=0;dot_pos_z=-1;dot_neg_z=1;aim_axis_assumption=negative_z;direction_owner=m_avLookDirDevForHand;fire_origin_owner=Being.m_vLookFromPoint;attack_order=OnBeingsFrame.UpdateHandStates_before_OnPostBeingsUpdate.UpdateLookAndAimPoints",
+        "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=false;physical_crouch=true;interact=false;weapon_next=false;weapon_previous=false;kick=false;blocking_ui_gameplay_suppressed=false;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate;analog_transaction=LockApplyControllerState+dispatch+UnlockApplyControllerState+ApplyControllerState;",
+        "camera_probe_event: event=native_stereo_ui_back result=applied detail=frame_sequence=2;source=right_circle;route=LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
         "camera_probe_event: event=body_arm_recovery result=ok detail=frame_sequence=3;recenter_sequence=3;previous_fault=false;transaction_active=false;natural_verified=true;calibration_preserved=true",
@@ -911,19 +916,86 @@ try {
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
 
-    $StereoVerifierNoNativeCursorRoute = @($StereoVerifierLog | Where-Object {
-        $_ -notmatch "event=flat_ui_pointer_game_route result=applied"
-    })
-    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNoNativeCursorRoute
-    $MissingNativeCursorRouteRejected = $false
+    $StereoVerifierDualPointerOwner = @($StereoVerifierLog) +
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove"
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierDualPointerOwner
+    $DualPointerOwnerRejected = $false
     try {
         & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
             -GameDirectory $StereoVerifierGame | Out-Null
     } catch {
-        $MissingNativeCursorRouteRejected = $true
+        $DualPointerOwnerRejected = $true
     }
-    Assert-True $MissingNativeCursorRouteRejected `
-        "Native-stereo verifier accepted flat UI without the native CoJ cursor route."
+    Assert-True $DualPointerOwnerRejected `
+        "Native-stereo verifier accepted simultaneous Win32 and logical-Java flat-menu pointer ownership."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierFailedBodyRestore = @($StereoVerifierLog) +
+        "camera_probe_event: event=body_visual_roomscale_restore result=failed detail=frame_sequence=3;being_generation=1;pelvis_element=10;world_offset=(6.000000,0.000000,0.000000);reason=stereo_complete;detail=synthetic_failure"
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierFailedBodyRestore
+    $FailedBodyRestoreRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $FailedBodyRestoreRejected = $true
+    }
+    Assert-True $FailedBodyRestoreRejected `
+        "Native-stereo verifier accepted a failed room-scale pelvis restoration."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierVerticalPelvisOffset = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "event=body_visual_roomscale result=applied") {
+            $_ -replace "world_offset=\(6\.000000,0\.000000,0\.000000\)",
+                "world_offset=(6.000000,-12.000000,0.000000)"
+        } else {
+            $_
+        }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierVerticalPelvisOffset
+    $VerticalPelvisOffsetRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $VerticalPelvisOffsetRejected = $true
+    }
+    Assert-True $VerticalPelvisOffsetRejected `
+        "Native-stereo verifier accepted vertical HMD translation as a visual pelvis room-scale offset."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierExtremeArmDelta = @($StereoVerifierLog | ForEach-Object {
+        if ($_ -match "event=body_arm_tracking result=applied .*;side=right;") {
+            $_ -replace "forearm_rotation_degrees=0;", "forearm_rotation_degrees=150;"
+        } else {
+            $_
+        }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierExtremeArmDelta
+    $ExtremeArmDeltaRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $ExtremeArmDeltaRejected = $true
+    }
+    Assert-True $ExtremeArmDeltaRejected `
+        "Native-stereo verifier accepted a 150-degree forearm takeover as a valid tracked arm write."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    $StereoVerifierMissingAnalogTransaction = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace ";analog_transaction=LockApplyControllerState\+dispatch\+UnlockApplyControllerState\+ApplyControllerState", ""
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierMissingAnalogTransaction
+    $MissingAnalogTransactionRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $MissingAnalogTransactionRejected = $true
+    }
+    Assert-True $MissingAnalogTransactionRejected `
+        "Native-stereo verifier accepted locomotion without the shipped controller-state transaction."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierNoControllerBeamOrigin = @($StereoVerifierLog | ForEach-Object {
@@ -1020,7 +1092,7 @@ try {
 
     $StereoVerifierNaturalHandOrientation = @($StereoVerifierLog | ForEach-Object {
         $_ -replace `
-            "hand_orientation=calibrated_controller_delta_diagnostic_only", `
+            "hand_orientation=calibrated_controller_delta_bounded_hand_residual", `
             "hand_orientation=natural"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierNaturalHandOrientation
@@ -1052,7 +1124,7 @@ try {
 
     $StereoVerifierWrongHandResidualSource = @($StereoVerifierLog | ForEach-Object {
         $_ -replace `
-            "hand_residual_source=post_foretwist_observed_basis_diagnostic", `
+            "hand_residual_source=post_foretwist_observed_basis", `
             "hand_residual_source=precomputed_ideal_basis"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierWrongHandResidualSource
@@ -1067,20 +1139,19 @@ try {
         "Native-stereo verifier accepted a hand residual that was not recomputed from the observed post-FORETWIST basis."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
-    $StereoVerifierAppliedHandResidual = @($StereoVerifierLog | ForEach-Object {
-        $_ -replace "hand_rotation_mode=controller_orientation_diagnostic_only", "hand_rotation_mode=foretwist_plus_hand" `
-           -replace "hand_rotation_no_op=true", "hand_rotation_no_op=false"
+    $StereoVerifierUnboundedHandResidual = @($StereoVerifierLog | ForEach-Object {
+        $_ -replace "hand_rotation_degrees=0;hand_rotation_no_op=true", "hand_rotation_degrees=45;hand_rotation_no_op=false"
     })
-    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierAppliedHandResidual
-    $AppliedHandResidualRejected = $false
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierUnboundedHandResidual
+    $UnboundedHandResidualRejected = $false
     try {
         & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
             -GameDirectory $StereoVerifierGame | Out-Null
     } catch {
-        $AppliedHandResidualRejected = $true
+        $UnboundedHandResidualRejected = $true
     }
-    Assert-True $AppliedHandResidualRejected `
-        "Native-stereo verifier accepted a body candidate that reapplied the diagnostic hand residual."
+    Assert-True $UnboundedHandResidualRejected `
+        "Native-stereo verifier accepted a hand residual above the 30-degree safety bound."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierNonZeroHandRotation = @($StereoVerifierLog | ForEach-Object {

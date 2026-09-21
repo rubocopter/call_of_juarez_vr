@@ -36,9 +36,12 @@ constexpr std::size_t kCallIntMethodA = 51;
 constexpr std::size_t kCallVoidMethodA = 63;
 constexpr std::size_t kGetFieldId = 94;
 constexpr std::size_t kGetObjectField = 95;
+constexpr std::size_t kGetBooleanField = 96;
 constexpr std::size_t kGetIntField = 100;
 constexpr std::size_t kGetFloatField = 102;
 constexpr std::size_t kSetFloatField = 111;
+constexpr std::size_t kGetStaticMethodId = 113;
+constexpr std::size_t kCallStaticIntMethodA = 131;
 constexpr std::size_t kGetStaticFieldId = 144;
 constexpr std::size_t kGetStaticObjectField = 145;
 constexpr std::size_t kNewStringUtf = 167;
@@ -109,9 +112,13 @@ using CallIntMethodAFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*, const
 using CallVoidMethodAFn = void(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using GetFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
+using GetBooleanFieldFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetIntFieldFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetFloatFieldFn = float(COJVR_JNICALL*)(void*, void*, void*);
 using SetFloatFieldFn = void(COJVR_JNICALL*)(void*, void*, void*, float);
+using GetStaticMethodIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
+using CallStaticIntMethodAFn =
+    std::int32_t(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using GetStaticFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetStaticObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
 using NewStringUtfFn = void*(COJVR_JNICALL*)(void*, const char*);
@@ -141,6 +148,8 @@ const char* CoJUiDispatchRouteName(const CoJUiDispatchRoute route) noexcept {
         return "GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter";
     case CoJUiDispatchRoute::active_game_menu:
         return "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter";
+    case CoJUiDispatchRoute::active_game_module:
+        return "LawmanGame.sm_cActiveGameModule.OnInputKey";
     case CoJUiDispatchRoute::loading_ui:
         return "GameUILoading.OnInputKey";
     case CoJUiDispatchRoute::intro_skip:
@@ -155,18 +164,25 @@ const char* CoJUiBackDispatchRouteName(const CoJUiDispatchRoute route) noexcept 
         return "GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)";
     case CoJUiDispatchRoute::active_game_menu:
         return "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.CallOnInputKeyGlobal(Escape)";
+    case CoJUiDispatchRoute::active_game_module:
+        return "LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)";
     default: return "none";
     }
 }
 
 CoJUiBackDispatchPolicy BuildCoJUiBackDispatchPolicy(
     const bool current_ui_available) noexcept {
+    (void)current_ui_available;
     return {
-        .dispatch = current_ui_available,
+        .dispatch = true,
         .key_code = 1,
         .press = true,
         .release = true,
     };
+}
+
+bool ShouldFallbackCoJUiBack(const CoJCurrentUiResolution resolution) noexcept {
+    return resolution == CoJCurrentUiResolution::unavailable;
 }
 
 CoJUiPointerDispatchPolicy BuildCoJUiPointerDispatchPolicy(
@@ -230,6 +246,23 @@ bool UseDirectAnalogCoJLocomotion(const int action) noexcept {
     return action >= 4 && action <= 7;
 }
 
+CoJGameplayTargetSelection BuildCoJGameplayTargetSelection(
+    const int action,
+    const int target_type,
+    const int target_count) noexcept {
+    return {
+        .action = action,
+        .index = target_type,
+        .valid = action >= 0 && target_type >= 0 && target_type < target_count,
+    };
+}
+
+bool ShouldYieldCoJArmIkForNativeReload(
+    const bool observation_available,
+    const bool reloading) noexcept {
+    return observation_available && reloading;
+}
+
 float CoJSnapTurnState::Update(
     const cojvr::runtime::GameplayInputState& state) noexcept {
     constexpr float kEngageThreshold = 0.70F;
@@ -262,7 +295,7 @@ CoJFireOriginMutationPolicy BuildCoJFireOriginMutationPolicy(
     return {
         .hand = hand,
         .override_for_translate = scoped_override,
-        .restore_after_translate = scoped_override,
+        .restore_after_translate = false,
     };
 }
 
@@ -368,6 +401,11 @@ void JavaPlayerBridge::Reset() noexcept {
                 delete_global(env, input_analog_class_);
             }
         }
+        if (input_settings_class_) {
+            if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+                delete_global(env, input_settings_class_);
+            }
+        }
         if (game_object_class_) {
             if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
                 delete_global(env, game_object_class_);
@@ -416,6 +454,11 @@ void JavaPlayerBridge::Reset() noexcept {
     input_controller_field_ = nullptr;
     controller_actions_field_ = nullptr;
     controller_targets_field_ = nullptr;
+    controller_lock_apply_method_ = nullptr;
+    controller_unlock_apply_method_ = nullptr;
+    controller_apply_method_ = nullptr;
+    input_settings_class_ = nullptr;
+    input_target_type_method_ = nullptr;
     input_digital_class_ = nullptr;
     input_analog_class_ = nullptr;
     digital_device_field_ = nullptr;
@@ -433,6 +476,7 @@ void JavaPlayerBridge::Reset() noexcept {
     look_dir_for_hand_field_ = nullptr;
     aim_from_point_field_ = nullptr;
     look_from_point_field_ = nullptr;
+    is_weapon_reloading_method_ = nullptr;
     bone_read_lookup_attempted_ = false;
     element_world_read_lookup_attempted_ = false;
     element_world_basis_lookup_attempted_ = false;
@@ -441,6 +485,7 @@ void JavaPlayerBridge::Reset() noexcept {
     element_visibility_lookup_attempted_ = false;
     aim_lookup_attempted_ = false;
     fire_origin_lookup_attempted_ = false;
+    weapon_reload_lookup_attempted_ = false;
     single_player_fallback_used_ = false;
     campaign_module_fallback_used_ = false;
     vm_ = nullptr;
@@ -449,6 +494,7 @@ void JavaPlayerBridge::Reset() noexcept {
     gameplay_input_applied_ = false;
     snap_turn_state_ = {};
     last_snap_turn_degrees_ = 0.0F;
+    last_analog_transaction_applied_ = false;
     fire_origins_ = {};
     fire_origin_valid_ = {};
     // Detach current thread if it was attached by this bridge
@@ -627,6 +673,9 @@ bool JavaPlayerBridge::EnsureCampaignAccess(void* env, std::string* error) noexc
 
 bool JavaPlayerBridge::EnsureGameplayInputAccess(void* env, std::string* error) noexcept {
     if (input_controller_field_ && controller_actions_field_ && controller_targets_field_ &&
+        controller_lock_apply_method_ && controller_unlock_apply_method_ &&
+        controller_apply_method_ &&
+        input_settings_class_ && input_target_type_method_ &&
         input_digital_class_ && input_analog_class_ && digital_device_field_ &&
         digital_button_field_ && digital_translate_method_ && analog_device_field_ &&
         analog_axis_field_ && analog_axis_sign_field_ && analog_translate_method_ &&
@@ -639,12 +688,13 @@ bool JavaPlayerBridge::EnsureGameplayInputAccess(void* env, std::string* error) 
 
     const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
     const auto new_global = EnvFunction<NewGlobalRefFn>(env, kNewGlobalRef);
+    const auto get_static_method = EnvFunction<GetStaticMethodIdFn>(env, kGetStaticMethodId);
     const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
     const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
-    if (!find_class || !new_global || !get_static_field || !get_static_object ||
+    if (!find_class || !new_global || !get_static_method || !get_static_field || !get_static_object ||
         !get_class || !get_field || !get_method) {
         SetError(error, "required JNI gameplay-input lookup functions are unavailable");
         return false;
@@ -674,29 +724,52 @@ bool JavaPlayerBridge::EnsureGameplayInputAccess(void* env, std::string* error) 
         env, controller_class, "m_Actions", "[LInputAction;");
     controller_targets_field_ = get_field(
         env, controller_class, "m_Targets", "[LEInputTargetItem;");
+    controller_lock_apply_method_ = get_method(
+        env, controller_class, "LockApplyControllerState", "([LEInputTargetItem;)V");
+    controller_unlock_apply_method_ = get_method(
+        env, controller_class, "UnlockApplyControllerState", "([LEInputTargetItem;)V");
+    controller_apply_method_ = get_method(
+        env, controller_class, "ApplyControllerState", "([LEInputTargetItem;)V");
     DeleteLocal(env, controller_class);
     DeleteLocal(env, controller);
     if (!controller_actions_field_ || !controller_targets_field_ ||
+        !controller_lock_apply_method_ || !controller_unlock_apply_method_ ||
+        !controller_apply_method_ ||
         ClearException(env, error, "GameInputController action/target lookup failed")) {
         controller_actions_field_ = nullptr;
         controller_targets_field_ = nullptr;
+        controller_lock_apply_method_ = nullptr;
+        controller_unlock_apply_method_ = nullptr;
+        controller_apply_method_ = nullptr;
         return false;
     }
 
+    void* settings_local = find_class(env, "InputSettings");
     void* digital_local = find_class(env, "InputDigital");
     void* analog_local = find_class(env, "InputAnalog");
-    if (!digital_local || !analog_local ||
-        ClearException(env, error, "InputDigital/InputAnalog class lookup failed")) {
+    if (!settings_local || !digital_local || !analog_local ||
+        ClearException(env, error, "InputSettings/InputDigital/InputAnalog class lookup failed")) {
+        DeleteLocal(env, settings_local);
         DeleteLocal(env, digital_local);
         DeleteLocal(env, analog_local);
         return false;
     }
+    input_settings_class_ = new_global(env, settings_local);
     input_digital_class_ = new_global(env, digital_local);
     input_analog_class_ = new_global(env, analog_local);
+    DeleteLocal(env, settings_local);
     DeleteLocal(env, digital_local);
     DeleteLocal(env, analog_local);
-    if (!input_digital_class_ || !input_analog_class_ ||
+    if (!input_settings_class_ || !input_digital_class_ || !input_analog_class_ ||
         ClearException(env, error, "gameplay input class global-ref creation failed")) {
+        return false;
+    }
+
+    input_target_type_method_ = get_static_method(
+        env, input_settings_class_, "GetTargetTypeForAction", "(I)I");
+    if (!input_target_type_method_ ||
+        ClearException(env, error, "InputSettings.GetTargetTypeForAction lookup failed")) {
+        input_target_type_method_ = nullptr;
         return false;
     }
 
@@ -856,10 +929,155 @@ bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
     return true;
 }
 
+bool JavaPlayerBridge::TryObserveSubtitleState(
+    CoJSubtitleRuntimeState& state,
+    std::string* error) noexcept {
+    state = {};
+    void* env = Environment(error);
+    if (!env) return false;
+
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto get_object_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_boolean = EnvFunction<GetBooleanFieldFn>(env, kGetBooleanField);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!find_class || !get_static_field || !get_static_object || !get_object_class ||
+        !get_field || !get_boolean || !get_method || !call_boolean) {
+        SetError(error, "required JNI subtitle observation functions are unavailable");
+        return false;
+    }
+
+    void* lawman_game = find_class(env, "LawmanGame");
+    if (!lawman_game || ClearException(env, error, "FindClass(LawmanGame) for subtitles failed")) {
+        DeleteLocal(env, lawman_game);
+        return false;
+    }
+    void* settings_field = get_static_field(env, lawman_game, "sm_cSettings", "LSettings;");
+    if (!settings_field || ClearException(env, error, "LawmanGame.sm_cSettings lookup failed")) {
+        DeleteLocal(env, lawman_game);
+        return false;
+    }
+    void* settings = get_static_object(env, lawman_game, settings_field);
+    DeleteLocal(env, lawman_game);
+    if (!settings || ClearException(env, error, "LawmanGame.sm_cSettings read failed")) {
+        DeleteLocal(env, settings);
+        return false;
+    }
+    void* settings_class = get_object_class(env, settings);
+    void* subtitles_field = settings_class
+        ? get_field(env, settings_class, "bSubtitles", "Z")
+        : nullptr;
+    if (!settings_class || !subtitles_field ||
+        ClearException(env, error, "Settings.bSubtitles lookup failed")) {
+        DeleteLocal(env, settings_class);
+        DeleteLocal(env, settings);
+        return false;
+    }
+    state.subtitles_enabled = get_boolean(env, settings, subtitles_field) != 0;
+    const bool settings_read_failed =
+        ClearException(env, error, "Settings.bSubtitles read failed");
+    DeleteLocal(env, settings_class);
+    DeleteLocal(env, settings);
+    if (settings_read_failed) return false;
+
+    void* dialog_class = find_class(env, "Dialog");
+    if (!dialog_class || ClearException(env, error, "FindClass(Dialog) failed")) {
+        DeleteLocal(env, dialog_class);
+        return false;
+    }
+    void* playing_dialog_field =
+        get_static_field(env, dialog_class, "cPlayingDialog", "LDialog;");
+    if (!playing_dialog_field ||
+        ClearException(env, error, "Dialog.cPlayingDialog lookup failed")) {
+        DeleteLocal(env, dialog_class);
+        return false;
+    }
+    void* dialog = get_static_object(env, dialog_class, playing_dialog_field);
+    if (ClearException(env, error, "Dialog.cPlayingDialog read failed")) {
+        DeleteLocal(env, dialog);
+        DeleteLocal(env, dialog_class);
+        return false;
+    }
+    state.dialog_playing = dialog != nullptr;
+    if (!dialog) {
+        DeleteLocal(env, dialog_class);
+        return true;
+    }
+
+    void* current_line_field = get_field(env, dialog_class, "m_bCurrentLineVisible", "Z");
+    void* subtitles_visible_method = get_method(env, dialog_class, "AreSubtitlesVisible", "()Z");
+    if (!current_line_field || !subtitles_visible_method ||
+        ClearException(env, error, "Dialog subtitle-state lookup failed")) {
+        DeleteLocal(env, dialog);
+        DeleteLocal(env, dialog_class);
+        return false;
+    }
+    state.current_line_visible = get_boolean(env, dialog, current_line_field) != 0;
+    state.dialog_subtitle_visible =
+        call_boolean(env, dialog, subtitles_visible_method, nullptr) != 0;
+    const bool dialog_read_failed =
+        ClearException(env, error, "Dialog subtitle-state read failed");
+    DeleteLocal(env, dialog);
+    DeleteLocal(env, dialog_class);
+    return !dialog_read_failed;
+}
+
+bool JavaPlayerBridge::TryGetWeaponReloading(
+    bool& reloading,
+    std::string* error) noexcept {
+    reloading = false;
+    if (!being_ && !Refresh(error)) return false;
+
+    void* env = Environment(error);
+    if (!env || !being_) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    if (!get_class || !get_method || !call_boolean) {
+        SetError(error, "required JNI weapon-reload observation functions are unavailable");
+        return false;
+    }
+
+    if (!weapon_reload_lookup_attempted_) {
+        weapon_reload_lookup_attempted_ = true;
+        void* player_class = get_class(env, being_);
+        if (!player_class ||
+            ClearException(env, error, "GetObjectClass(player weapon reload) failed")) {
+            DeleteLocal(env, player_class);
+            return false;
+        }
+        is_weapon_reloading_method_ =
+            get_method(env, player_class, "IsWeaponReloading", "()Z");
+        DeleteLocal(env, player_class);
+        if (!is_weapon_reloading_method_ ||
+            ClearException(env, error, "ArmedPlayerBeing.IsWeaponReloading lookup failed")) {
+            is_weapon_reloading_method_ = nullptr;
+            return false;
+        }
+    }
+    if (!is_weapon_reloading_method_) {
+        SetError(error, "player weapon-reload observation route is unavailable");
+        return false;
+    }
+
+    const std::uint8_t value =
+        call_boolean(env, being_, is_weapon_reloading_method_, nullptr);
+    if (ClearException(env, error, "ArmedPlayerBeing.IsWeaponReloading call failed")) {
+        return false;
+    }
+    reloading = value != 0;
+    return true;
+}
+
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
     std::string* error) noexcept {
     last_snap_turn_degrees_ = 0.0F;
+    last_analog_transaction_applied_ = false;
+    last_fire_origin_transitions_ = {};
     const float snap_turn_degrees = snap_turn_state_.Update(state);
     if (!state.active && !gameplay_input_applied_) return true;
 
@@ -877,10 +1095,11 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     const auto get_element = EnvFunction<GetObjectArrayElementFn>(env, kGetObjectArrayElement);
     const auto get_int = EnvFunction<GetIntFieldFn>(env, kGetIntField);
     const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    const auto call_static_int = EnvFunction<CallStaticIntMethodAFn>(env, kCallStaticIntMethodA);
     const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
     const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
     if (!get_static_object || !get_object_field || !get_length || !get_element || !get_int ||
-        !is_instance || !call_boolean || !call_void) {
+        !is_instance || !call_static_int || !call_boolean || !call_void) {
         SetError(error, "required JNI gameplay-input functions are unavailable");
         return false;
     }
@@ -916,6 +1135,31 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     const auto previous_values = gameplay_input_applied_
         ? BuildCoJGameplayActionValues(last_gameplay_input_)
         : BuildCoJGameplayActionValues({});
+    bool analog_transaction_needed = false;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (UseDirectAnalogCoJLocomotion(values[index].action) &&
+            (!gameplay_input_applied_ ||
+             std::fabs(values[index].value - previous_values[index].value) > 0.005F)) {
+            analog_transaction_needed = true;
+            break;
+        }
+    }
+
+    JValue controller_state_args[1]{};
+    controller_state_args[0].l = targets;
+    bool analog_transaction_locked = false;
+    if (analog_transaction_needed) {
+        call_void(env, controller, controller_lock_apply_method_, controller_state_args);
+        if (ClearException(
+                env, error,
+                "GameInputController.LockApplyControllerState VR locomotion failed")) {
+            DeleteLocal(env, actions);
+            DeleteLocal(env, targets);
+            DeleteLocal(env, controller);
+            return false;
+        }
+        analog_transaction_locked = true;
+    }
 
     const auto apply_value = [&](const CoJGameplayActionValue& item,
                                  const CoJGameplayActionValue& previous_item) noexcept {
@@ -944,74 +1188,94 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             current_pressed,
             needs_digital_update,
             fire_hand >= 0 && fire_origin_valid_[static_cast<std::size_t>(fire_hand)]);
+        const auto resolve_target_item = [&](void*& target_item) noexcept {
+            target_item = nullptr;
+            JValue target_type_args[1]{};
+            target_type_args[0].i = item.action;
+            const std::int32_t target_type = call_static_int(
+                env, input_settings_class_, input_target_type_method_, target_type_args);
+            if (ClearException(env, error, "InputSettings.GetTargetTypeForAction call failed")) {
+                return false;
+            }
+            const auto selection = BuildCoJGameplayTargetSelection(
+                item.action, target_type, target_count);
+            if (!selection.valid) {
+                SetError(error, "InputSettings returned an invalid gameplay target category");
+                return false;
+            }
+            target_item = get_element(env, targets, selection.index);
+            if (ClearException(env, error, "selected gameplay target access failed")) {
+                DeleteLocal(env, target_item);
+                target_item = nullptr;
+                return false;
+            }
+            return true;
+        };
         if (UseDirectAnalogCoJLocomotion(item.action)) {
             if (!needs_analog_update) {
                 DeleteLocal(env, action);
                 return true;
             }
 
+            void* target_item = nullptr;
+            if (!resolve_target_item(target_item)) {
+                DeleteLocal(env, action);
+                return false;
+            }
             bool invoked = false;
-            for (std::int32_t index = 0; index < target_count; ++index) {
-                void* target_item = get_element(env, targets, index);
-                if (ClearException(env, error, "VR locomotion target-list access failed")) {
+            unsigned int depth = 0;
+            while (target_item && depth++ < 256U) {
+                void* target = get_object_field(
+                    env, target_item, input_target_item_target_field_);
+                void* next = get_object_field(
+                    env, target_item, input_target_item_next_field_);
+                if (ClearException(env, error, "VR locomotion target traversal failed")) {
+                    DeleteLocal(env, target);
+                    DeleteLocal(env, next);
                     DeleteLocal(env, target_item);
                     DeleteLocal(env, action);
                     return false;
                 }
-                unsigned int depth = 0;
-                while (target_item && depth++ < 256U) {
-                    void* target = get_object_field(
-                        env, target_item, input_target_item_target_field_);
-                    void* next = get_object_field(
-                        env, target_item, input_target_item_next_field_);
-                    if (ClearException(env, error, "VR locomotion target traversal failed")) {
+                if (target) {
+                    const bool executable =
+                        call_boolean(env, target, input_target_can_execute_method_, nullptr) != 0;
+                    const bool game_object =
+                        is_instance(env, target, game_object_class_) != 0;
+                    if (ClearException(env, error, "VR locomotion target eligibility failed")) {
                         DeleteLocal(env, target);
                         DeleteLocal(env, next);
                         DeleteLocal(env, target_item);
                         DeleteLocal(env, action);
                         return false;
                     }
-                    if (target) {
-                        const bool executable =
-                            call_boolean(env, target, input_target_can_execute_method_, nullptr) != 0;
-                        const bool game_object =
-                            is_instance(env, target, game_object_class_) != 0;
-                        if (ClearException(env, error, "VR locomotion target eligibility failed")) {
+                    if (executable && game_object) {
+                        JValue direct_args[3]{};
+                        direct_args[0].i = item.action;
+                        direct_args[1].f = item.value;
+                        direct_args[2].l = action;
+                        call_void(
+                            env, target, game_object_controller_input_method_, direct_args);
+                        if (ClearException(
+                                env, error,
+                                "GameObject.CallOnInputGameController VR locomotion failed")) {
                             DeleteLocal(env, target);
                             DeleteLocal(env, next);
                             DeleteLocal(env, target_item);
                             DeleteLocal(env, action);
                             return false;
                         }
-                        if (executable && game_object) {
-                            JValue direct_args[3]{};
-                            direct_args[0].i = item.action;
-                            direct_args[1].f = item.value;
-                            direct_args[2].l = action;
-                            call_void(
-                                env, target, game_object_controller_input_method_, direct_args);
-                            if (ClearException(
-                                    env, error,
-                                    "GameObject.CallOnInputGameController VR locomotion failed")) {
-                                DeleteLocal(env, target);
-                                DeleteLocal(env, next);
-                                DeleteLocal(env, target_item);
-                                DeleteLocal(env, action);
-                                return false;
-                            }
-                            invoked = true;
-                        }
+                        invoked = true;
                     }
-                    DeleteLocal(env, target);
-                    DeleteLocal(env, target_item);
-                    target_item = next;
                 }
-                if (target_item) {
-                    DeleteLocal(env, target_item);
-                    DeleteLocal(env, action);
-                    SetError(error, "VR locomotion target list exceeded safety bound");
-                    return false;
-                }
+                DeleteLocal(env, target);
+                DeleteLocal(env, target_item);
+                target_item = next;
+            }
+            if (target_item) {
+                DeleteLocal(env, target_item);
+                DeleteLocal(env, action);
+                SetError(error, "VR locomotion target list exceeded safety bound");
+                return false;
             }
             DeleteLocal(env, action);
             return invoked;
@@ -1043,26 +1307,34 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             return false;
         }
 
-        bool invoked = false;
-        for (std::int32_t index = 0; index < target_count; ++index) {
-            void* target = get_element(env, targets, index);
-            if (ClearException(env, error, "InputTarget array access failed")) {
-                DeleteLocal(env, target);
-                DeleteLocal(env, action);
-                return false;
-            }
-            if (!target) continue;
-            if (digital) {
+        void* target = nullptr;
+        if (!resolve_target_item(target)) {
+            DeleteLocal(env, action);
+            return false;
+        }
+        if (!target) {
+            DeleteLocal(env, action);
+            SetError(error, "selected gameplay target category is empty");
+            return false;
+        }
+        if (digital) {
                 // Data/InputActions.def is exact for this build: action 9 fires
                 // the left-hand weapon and action 10 the right-hand weapon.
-                // InputDigital.Translate synchronously reaches
-                // GameObject.CallOnInputGameController. Scope the global
-                // Being look-from point to the matching controller origin only
-                // around that call, then restore it before returning to CoJ.
+                // InputDigital.Translate only selects the requested hand state.
+                // The actual WeaponAttack runs from UpdateHandStates on the next
+                // game update and GetFireOriginForWeapon then reads the global
+                // Being look-from point. Publish the matching controller origin
+                // on the press transition and let CoJ's later
+                // UpdateLookAndAimPoints pass naturally reclaim the field.
                 void* look_from_point = nullptr;
                 JavaPlayerPosition native_look_from{};
                 bool fire_origin_overridden = false;
                 if (fire_origin_policy.override_for_translate) {
+                    auto& transition = last_fire_origin_transitions_[
+                        static_cast<std::size_t>(fire_origin_policy.hand)];
+                    transition.attempted = true;
+                    transition.origin = fire_origins_[
+                        static_cast<std::size_t>(fire_origin_policy.hand)];
                     if ((!being_ && !Refresh(error)) ||
                         !EnsureFireOriginAccess(env, error)) {
                         DeleteLocal(env, target);
@@ -1091,6 +1363,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                         return false;
                     }
                     fire_origin_overridden = true;
+                    transition.write_succeeded = true;
                 }
                 const JValue args[3]{
                     {.l = target},
@@ -1106,43 +1379,50 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                     env, action, digital_translate_method_, digital_args);
                 const bool translate_failed =
                     ClearException(env, error, "InputAction.Translate failed");
-                bool restore_ok = true;
-                if (fire_origin_overridden && fire_origin_policy.restore_after_translate) {
+                if (fire_origin_overridden) {
+                    auto& transition = last_fire_origin_transitions_[
+                        static_cast<std::size_t>(fire_origin_policy.hand)];
+                    transition.translate_succeeded = !translate_failed;
+                    transition.retained_for_attack = !translate_failed;
+                }
+                bool rollback_ok = true;
+                if (fire_origin_overridden && translate_failed) {
                     std::string restore_error;
-                    restore_ok = WriteVector(
+                    rollback_ok = WriteVector(
                         env, look_from_point, native_look_from, &restore_error);
-                    DeleteLocal(env, look_from_point);
-                    if (!restore_ok) {
+                    if (!rollback_ok) {
                         SetError(
                             error,
                             restore_error.empty()
-                                ? "Being.m_vLookFromPoint restoration failed"
+                                ? "Being.m_vLookFromPoint rollback failed"
                                 : restore_error.c_str());
                     }
+                    last_fire_origin_transitions_[
+                        static_cast<std::size_t>(fire_origin_policy.hand)]
+                        .retained_for_attack = false;
                 }
-                if (translate_failed || !restore_ok) {
+                DeleteLocal(env, look_from_point);
+                if (translate_failed || !rollback_ok) {
                     DeleteLocal(env, target);
                     DeleteLocal(env, action);
                     return false;
                 }
-            } else {
-                JValue analog_args[4]{};
-                analog_args[0].l = target;
-                analog_args[1].i = device;
-                analog_args[2].i = code;
-                analog_args[3].f = item.value * (axis_sign < 0 ? -1.0F : 1.0F);
-                (void)call_boolean(
-                    env, action, analog_translate_method_, analog_args);
-            }
-            DeleteLocal(env, target);
-            if (!digital && ClearException(env, error, "InputAction.Translate failed")) {
-                DeleteLocal(env, action);
-                return false;
-            }
-            invoked = true;
+        } else {
+            JValue analog_args[4]{};
+            analog_args[0].l = target;
+            analog_args[1].i = device;
+            analog_args[2].i = code;
+            analog_args[3].f = item.value * (axis_sign < 0 ? -1.0F : 1.0F);
+            (void)call_boolean(
+                env, action, analog_translate_method_, analog_args);
+        }
+        DeleteLocal(env, target);
+        if (!digital && ClearException(env, error, "InputAction.Translate failed")) {
+            DeleteLocal(env, action);
+            return false;
         }
         DeleteLocal(env, action);
-        return invoked;
+        return true;
     };
 
     bool ok = true;
@@ -1151,6 +1431,27 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             !apply_value(values[index], previous_values[index])) {
             ok = false;
             break;
+        }
+    }
+
+    if (analog_transaction_locked) {
+        std::string transaction_error;
+        call_void(env, controller, controller_unlock_apply_method_, controller_state_args);
+        const bool unlock_failed = ClearException(
+            env, &transaction_error,
+            "GameInputController.UnlockApplyControllerState VR locomotion failed");
+        bool apply_failed = false;
+        if (!unlock_failed) {
+            call_void(env, controller, controller_apply_method_, controller_state_args);
+            apply_failed = ClearException(
+                env, &transaction_error,
+                "GameInputController.ApplyControllerState VR locomotion failed");
+        }
+        if (unlock_failed || apply_failed) {
+            if (ok) SetError(error, transaction_error.c_str());
+            ok = false;
+        } else if (ok) {
+            last_analog_transaction_applied_ = true;
         }
     }
 
@@ -1189,7 +1490,7 @@ bool JavaPlayerBridge::TryRotateHorizontally(
     return !ClearException(env, error, "PlayerBeing.RotateHorizontally VR rotation failed");
 }
 
-bool JavaPlayerBridge::TryResolveCurrentGameUi(
+CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
     void* env,
     void*& ui,
     CoJUiDispatchRoute& route,
@@ -1198,7 +1499,7 @@ bool JavaPlayerBridge::TryResolveCurrentGameUi(
     route = CoJUiDispatchRoute::none;
     if (!env) {
         SetError(error, "JNI environment is unavailable for game UI lookup");
-        return false;
+        return CoJCurrentUiResolution::error;
     }
     const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
     const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
@@ -1211,68 +1512,72 @@ bool JavaPlayerBridge::TryResolveCurrentGameUi(
     if (!find_class || !get_static_field || !get_static_object || !get_class ||
         !get_method || !call_object || !get_field || !get_object) {
         SetError(error, "required JNI current-game-UI lookup functions are unavailable");
-        return false;
+        return CoJCurrentUiResolution::error;
     }
 
     const auto resolve_menu_ui = [&](void* menu,
                                      const CoJUiDispatchRoute candidate_route) noexcept {
-        if (!menu) return false;
+        if (!menu) return CoJCurrentUiResolution::unavailable;
         void* menu_class = get_class(env, menu);
         if (!menu_class || ClearException(env, error, "MainMenuModule class lookup failed")) {
             DeleteLocal(env, menu_class);
-            return false;
+            return CoJCurrentUiResolution::error;
         }
         void* get_current_ui = get_method(
             env, menu_class, "GetCurrentUI", "()LGameUserInterface;");
         DeleteLocal(env, menu_class);
         if (!get_current_ui || ClearException(
                 env, error, "MainMenuModule.GetCurrentUI lookup failed")) {
-            return false;
+            return CoJCurrentUiResolution::error;
         }
         ui = call_object(env, menu, get_current_ui, nullptr);
         if (ClearException(env, error, "MainMenuModule.GetCurrentUI call failed")) {
             DeleteLocal(env, ui);
             ui = nullptr;
-            return false;
+            return CoJCurrentUiResolution::error;
         }
-        if (!ui) return false;
+        if (!ui) return CoJCurrentUiResolution::unavailable;
         route = candidate_route;
-        return true;
+        return CoJCurrentUiResolution::resolved;
     };
 
     void* game_with_menu_class = find_class(env, "GameWithMenu");
     if (!game_with_menu_class ||
         ClearException(env, error, "FindClass(GameWithMenu) failed")) {
         DeleteLocal(env, game_with_menu_class);
-        return false;
+        return CoJCurrentUiResolution::error;
     }
     void* menu_field = get_static_field(
         env, game_with_menu_class, "sm_cMenuModule", "LMainMenuModule;");
     if (!menu_field ||
         ClearException(env, error, "GameWithMenu.sm_cMenuModule lookup failed")) {
         DeleteLocal(env, game_with_menu_class);
-        return false;
+        return CoJCurrentUiResolution::error;
     }
     void* menu = get_static_object(env, game_with_menu_class, menu_field);
     DeleteLocal(env, game_with_menu_class);
     if (ClearException(env, error, "GameWithMenu.sm_cMenuModule read failed")) {
         DeleteLocal(env, menu);
-        return false;
+        return CoJCurrentUiResolution::error;
     }
-    const bool global_resolved = resolve_menu_ui(menu, CoJUiDispatchRoute::global_menu);
+    const CoJCurrentUiResolution global_result =
+        resolve_menu_ui(menu, CoJUiDispatchRoute::global_menu);
     DeleteLocal(env, menu);
-    if (global_resolved) {
+    if (global_result == CoJCurrentUiResolution::resolved) {
         SetError(error, "");
-        return true;
+        return CoJCurrentUiResolution::resolved;
+    }
+    if (global_result == CoJCurrentUiResolution::error) {
+        return CoJCurrentUiResolution::error;
     }
 
     // Escape/loading screens may be owned by the active campaign module while
     // the global menu pointer is null.
-    if (!EnsureCampaignAccess(env, error)) return false;
+    if (!EnsureCampaignAccess(env, error)) return CoJCurrentUiResolution::error;
     void* module = get_static_object(env, lawman_game_class_, active_game_module_field_);
     if (ClearException(env, error, "LawmanGame.sm_cActiveGameModule menu read failed")) {
         DeleteLocal(env, module);
-        return false;
+        return CoJCurrentUiResolution::error;
     }
     if (module) {
         void* module_class = get_class(env, module);
@@ -1280,34 +1585,37 @@ bool JavaPlayerBridge::TryResolveCurrentGameUi(
                 env, error, "active LawmanModule class lookup failed")) {
             DeleteLocal(env, module_class);
             DeleteLocal(env, module);
-            return false;
+            return CoJCurrentUiResolution::error;
         }
         void* active_menu_field = get_field(
             env, module_class, "cMenu", "LMainMenuModule;");
         DeleteLocal(env, module_class);
         if (!active_menu_field || ClearException(env, error, "LawmanModule.cMenu lookup failed")) {
             DeleteLocal(env, module);
-            return false;
+            return CoJCurrentUiResolution::error;
         }
         menu = get_object(env, module, active_menu_field);
         DeleteLocal(env, module);
         if (ClearException(env, error, "LawmanModule.cMenu read failed")) {
             DeleteLocal(env, menu);
-            return false;
+            return CoJCurrentUiResolution::error;
         }
-        const bool active_resolved = resolve_menu_ui(
+        const CoJCurrentUiResolution active_result = resolve_menu_ui(
             menu, CoJUiDispatchRoute::active_game_menu);
         DeleteLocal(env, menu);
-        if (active_resolved) {
+        if (active_result == CoJCurrentUiResolution::resolved) {
             SetError(error, "");
-            return true;
+            return CoJCurrentUiResolution::resolved;
+        }
+        if (active_result == CoJCurrentUiResolution::error) {
+            return CoJCurrentUiResolution::error;
         }
     } else {
         DeleteLocal(env, module);
     }
 
     SetError(error, "current global/active game UI is unavailable");
-    return false;
+    return CoJCurrentUiResolution::unavailable;
 }
 
 bool JavaPlayerBridge::TryResolveMenuForUiRoute(
@@ -1670,7 +1978,10 @@ bool JavaPlayerBridge::TryProcessUiPointer(
     void* ui = nullptr;
     CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
     std::string ui_error;
-    const bool current_ui_available = TryResolveCurrentGameUi(env, ui, ui_route, &ui_error);
+    const CoJCurrentUiResolution ui_resolution =
+        TryResolveCurrentGameUi(env, ui, ui_route, &ui_error);
+    const bool current_ui_available =
+        ui_resolution == CoJCurrentUiResolution::resolved && ui != nullptr;
     const auto final_policy = BuildCoJUiPointerDispatchPolicy(true, current_ui_available);
     if (!final_policy.dispatch_process_mouse) {
         DeleteLocal(env, ui);
@@ -1704,21 +2015,71 @@ bool JavaPlayerBridge::TryDispatchUiBackPress(
     if (!env) return false;
     void* ui = nullptr;
     CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
-    if (!TryResolveCurrentGameUi(env, ui, ui_route, error)) return false;
-    const auto policy = BuildCoJUiBackDispatchPolicy(ui != nullptr);
-    if (!policy.dispatch) {
+    std::string ui_error;
+    const CoJCurrentUiResolution ui_resolution =
+        TryResolveCurrentGameUi(env, ui, ui_route, &ui_error);
+    if (ui_resolution == CoJCurrentUiResolution::error) {
         DeleteLocal(env, ui);
-        SetError(error, "current game UI is unavailable for Escape dispatch");
+        SetError(error, ui_error.c_str());
         return false;
     }
+    const bool current_ui_available =
+        ui_resolution == CoJCurrentUiResolution::resolved && ui != nullptr;
+    const auto policy = BuildCoJUiBackDispatchPolicy(current_ui_available && ui != nullptr);
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
-    if (!get_class || !get_method || !call_void) {
+    const auto get_static_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    if (!get_class || !get_method || !call_void || !get_static_object) {
         DeleteLocal(env, ui);
         SetError(error, "required JNI game-UI back functions are unavailable");
         return false;
     }
+
+    if (ShouldFallbackCoJUiBack(ui_resolution)) {
+        DeleteLocal(env, ui);
+        if (!EnsureCampaignAccess(env, error)) return false;
+        void* module = get_static_object(env, lawman_game_class_, active_game_module_field_);
+        if (!module ||
+            ClearException(env, error, "LawmanGame.sm_cActiveGameModule Escape read failed")) {
+            DeleteLocal(env, module);
+            if (error && !ui_error.empty()) {
+                try { *error += "; ui=" + ui_error; } catch (...) {}
+            }
+            return false;
+        }
+        void* module_class = get_class(env, module);
+        if (!module_class ||
+            ClearException(env, error, "active LawmanModule class lookup failed for Escape")) {
+            DeleteLocal(env, module_class);
+            DeleteLocal(env, module);
+            return false;
+        }
+        void* on_input_key = get_method(env, module_class, "OnInputKey", "(IZC)V");
+        DeleteLocal(env, module_class);
+        if (!on_input_key ||
+            ClearException(env, error, "LawmanModule.OnInputKey lookup failed for Escape")) {
+            DeleteLocal(env, module);
+            return false;
+        }
+        JValue args[3]{};
+        args[0].i = policy.key_code;
+        args[1].z = policy.press ? 1 : 0;
+        args[2].c = 0;
+        call_void(env, module, on_input_key, args);
+        if (ClearException(env, error, "LawmanModule Escape press failed")) {
+            DeleteLocal(env, module);
+            return false;
+        }
+        args[1].z = policy.release ? 0 : 1;
+        call_void(env, module, on_input_key, args);
+        DeleteLocal(env, module);
+        if (ClearException(env, error, "LawmanModule Escape release failed")) return false;
+        if (route) *route = CoJUiDispatchRoute::active_game_module;
+        SetError(error, "");
+        return true;
+    }
+
     void* ui_class = get_class(env, ui);
     if (!ui_class || ClearException(env, error, "GameUserInterface class lookup failed for back")) {
         DeleteLocal(env, ui_class);
@@ -1783,7 +2144,9 @@ bool JavaPlayerBridge::TryDispatchUiSelectPress(
 
     void* ui = nullptr;
     CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
-    if (!TryResolveCurrentGameUi(env, ui, ui_route, error)) {
+    const CoJCurrentUiResolution ui_resolution =
+        TryResolveCurrentGameUi(env, ui, ui_route, error);
+    if (ui_resolution != CoJCurrentUiResolution::resolved) {
         if (!require_loading_ui && TryDispatchIntroSkip(env, error)) {
             if (route) *route = CoJUiDispatchRoute::intro_skip;
             return true;
@@ -2016,6 +2379,8 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     aim_from_point_field_ = nullptr;
     fire_origin_lookup_attempted_ = false;
     look_from_point_field_ = nullptr;
+    weapon_reload_lookup_attempted_ = false;
+    is_weapon_reloading_method_ = nullptr;
     fire_origins_ = {};
     fire_origin_valid_ = {};
 }

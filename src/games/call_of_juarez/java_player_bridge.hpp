@@ -19,13 +19,33 @@ struct CoJGameplayActionValue {
     float value = 0.0F;
 };
 
+struct CoJGameplayTargetSelection {
+    int action = -1;
+    int index = -1;
+    bool valid = false;
+};
+
+struct CoJSubtitleRuntimeState {
+    bool subtitles_enabled = false;
+    bool dialog_playing = false;
+    bool current_line_visible = false;
+    bool dialog_subtitle_visible = false;
+};
+
 enum class CoJUiDispatchRoute {
     none,
     paused_hint,
     global_menu,
     active_game_menu,
+    active_game_module,
     loading_ui,
     intro_skip,
+};
+
+enum class CoJCurrentUiResolution {
+    resolved,
+    unavailable,
+    error,
 };
 
 [[nodiscard]] const char* CoJUiDispatchRouteName(CoJUiDispatchRoute route) noexcept;
@@ -40,6 +60,8 @@ struct CoJUiBackDispatchPolicy {
 
 [[nodiscard]] CoJUiBackDispatchPolicy BuildCoJUiBackDispatchPolicy(
     bool current_ui_available) noexcept;
+[[nodiscard]] bool ShouldFallbackCoJUiBack(
+    CoJCurrentUiResolution resolution) noexcept;
 
 struct CoJUiPointerDispatchPolicy {
     bool dispatch_cursor = false;
@@ -65,9 +87,18 @@ struct CoJFireOriginMutationPolicy {
     bool restore_after_translate = false;
 };
 
+struct CoJFireOriginTransitionObservation {
+    JavaPlayerPosition origin{};
+    bool attempted = false;
+    bool write_succeeded = false;
+    bool translate_succeeded = false;
+    bool retained_for_attack = false;
+};
+
 // Being.m_vLookFromPoint is global even though CoJ tracks weapon direction per
-// hand. Controller ownership is therefore allowed only around the synchronous
-// fire InputDigital.Translate call and must be restored before control returns.
+// hand. Publish the controller origin only on a fire press transition. The
+// shipped hand-state update consumes it in WeaponAttack before the later
+// UpdateLookAndAimPoints pass naturally restores native ownership.
 [[nodiscard]] CoJFireOriginMutationPolicy BuildCoJFireOriginMutationPolicy(
     int action,
     bool current_pressed,
@@ -121,6 +152,13 @@ private:
 [[nodiscard]] std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
     const cojvr::runtime::GameplayInputState& state) noexcept;
 [[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
+[[nodiscard]] CoJGameplayTargetSelection BuildCoJGameplayTargetSelection(
+    int action,
+    int target_type,
+    int target_count) noexcept;
+[[nodiscard]] bool ShouldYieldCoJArmIkForNativeReload(
+    bool observation_available,
+    bool reloading) noexcept;
 
 // Thin adapter over the Java 1.4 VM already owned by ChromeEngine3. It never
 // creates or loads a second VM. All lookups fail closed when the current game
@@ -174,6 +212,10 @@ public:
         std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetActiveGameTimerFrozen(
         bool& frozen, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveSubtitleState(
+        CoJSubtitleRuntimeState& state, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryGetWeaponReloading(
+        bool& reloading, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryApplyUpperBodyTracking(
         float head_horizontal_offset_degrees,
         float spine_horizontal_offset_degrees,
@@ -227,16 +269,26 @@ public:
         int hand,
         const JavaPlayerPosition& origin,
         std::string* error = nullptr) noexcept;
-    // Cache the controller-derived world origin for one inventory hand. When
-    // that hand's digital fire action is translated, TryApplyGameplayInput
-    // substitutes Being.m_vLookFromPoint only for the synchronous input call
-    // and restores the native value immediately afterwards.
+    // Cache the controller-derived world origin for one inventory hand. On the
+    // hand's digital fire press transition TryApplyGameplayInput publishes it to
+    // Being.m_vLookFromPoint for the upcoming native WeaponAttack. CoJ reclaims
+    // that field later in the same game update through UpdateLookAndAimPoints.
     void SetPerHandFireOrigin(
         int hand,
         const JavaPlayerPosition& origin,
         bool valid) noexcept;
     [[nodiscard]] float last_snap_turn_degrees() const noexcept {
         return last_snap_turn_degrees_;
+    }
+    [[nodiscard]] bool last_analog_transaction_applied() const noexcept {
+        return last_analog_transaction_applied_;
+    }
+    [[nodiscard]] const CoJFireOriginTransitionObservation&
+    last_fire_origin_transition(int hand) const noexcept {
+        static const CoJFireOriginTransitionObservation empty{};
+        return hand >= 0 && hand < static_cast<int>(last_fire_origin_transitions_.size())
+            ? last_fire_origin_transitions_[static_cast<std::size_t>(hand)]
+            : empty;
     }
 
     // Detach the current thread from the JVM if it was attached by this bridge.
@@ -271,7 +323,7 @@ private:
     [[nodiscard]] bool EnsureFireOriginAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureGameplayInputAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureVectorAccess(void* env, std::string* error) noexcept;
-    [[nodiscard]] bool TryResolveCurrentGameUi(
+    [[nodiscard]] CoJCurrentUiResolution TryResolveCurrentGameUi(
         void* env,
         void*& ui,
         CoJUiDispatchRoute& route,
@@ -335,6 +387,11 @@ private:
     void* input_controller_field_ = nullptr;
     void* controller_actions_field_ = nullptr;
     void* controller_targets_field_ = nullptr;
+    void* controller_lock_apply_method_ = nullptr;
+    void* controller_unlock_apply_method_ = nullptr;
+    void* controller_apply_method_ = nullptr;
+    void* input_settings_class_ = nullptr;
+    void* input_target_type_method_ = nullptr;
     void* input_digital_class_ = nullptr;
     void* input_analog_class_ = nullptr;
     void* digital_device_field_ = nullptr;
@@ -352,6 +409,7 @@ private:
     void* look_dir_for_hand_field_ = nullptr;
     void* aim_from_point_field_ = nullptr;
     void* look_from_point_field_ = nullptr;
+    void* is_weapon_reloading_method_ = nullptr;
     bool bone_read_lookup_attempted_ = false;
     bool element_world_read_lookup_attempted_ = false;
     bool element_world_basis_lookup_attempted_ = false;
@@ -360,6 +418,7 @@ private:
     bool element_visibility_lookup_attempted_ = false;
     bool aim_lookup_attempted_ = false;
     bool fire_origin_lookup_attempted_ = false;
+    bool weapon_reload_lookup_attempted_ = false;
     bool body_rotation_lookup_attempted_ = false;
     bool single_player_fallback_used_ = false;
     bool campaign_module_fallback_used_ = false;
@@ -368,8 +427,10 @@ private:
     bool gameplay_input_applied_ = false;
     CoJSnapTurnState snap_turn_state_{};
     float last_snap_turn_degrees_ = 0.0F;
+    bool last_analog_transaction_applied_ = false;
     std::array<JavaPlayerPosition, 2> fire_origins_{};
     std::array<bool, 2> fire_origin_valid_{};
+    std::array<CoJFireOriginTransitionObservation, 2> last_fire_origin_transitions_{};
 };
 
 } // namespace cojvr::games::call_of_juarez

@@ -54,20 +54,20 @@ SteamVR and Call of Juarez are launched and closed manually.
 
 ## Current product-remediation gate
 
-The next candidate must preserve all baseline contracts while physically validating the follow-up work after multiprocess diagnostic rejection `20260920T214629Z-351c27f434d5`:
+The next code change must preserve all baseline contracts while addressing evidence from complete single-process diagnostic run `20260921T192639Z-1d70905cb4f8`. Do not stage another headset candidate until at least one of these diagnosed boundaries changes:
 
-1. controller-origin flat-menu beam plus real hover through the Win32 mouse path, while the logical `UICursorGame` remains synchronized;
-2. Cross accept, Circle back through normal Escape semantics and L2/R2 ray-select without layer loss, freeze or flat-mode lockup;
+1. replace or isolate the current flat-menu pointer ownership model; the sole Win32 `SetCursorPos` + absolute `SendInput` + `WM_MOUSEMOVE` route is now physically rejected for control quality;
+2. Cross accept, Circle back through normal Escape semantics from both menu and gameplay, and L2/R2 ray-select without layer loss, freeze or flat-mode lockup;
 3. reliable startup skip, paused-hint handling without JNI exceptions and `GameUILoading.OnInputKey` continuation from Sense;
-4. visible subtitles, after distinguishing `Settings.bSubtitles` state from UI/presentation loss;
+4. visible subtitles after enabling the shipped setting; latest evidence already established `Settings.bSubtitles=false`;
 5. level horizon after recenter and no pitch/roll baked into tracking reference;
-6. smooth locomotion/jump while separating native movement semantics from measured classic-D3D9 CPU-readback stutter;
-7. physical crouch with first-person local-mesh ownership preserved even though physical crouch does not press the native crouch action;
-8. stable body-arm writer/restoration with plausible hand orientation and reload behavior; do not lengthen bones without measured justification;
-9. repeated-fire stability plus controller-owned visual/ballistic origin and direction checks;
+6. measure and correct actual game-space locomotion speed/jump displacement; the shipped analog transaction is already physically exercised and did not solve playability;
+7. retain horizontal-only visual-body compensation while making physical horizontal displacement drive the same class of visual walk animation as stick locomotion;
+8. make arm ownership continuous across ordinary tracked motion instead of visibly snapping to native/default poses whenever safety denies a write;
+9. restore a temporary controller-tip diagnostic ray, compare it directly with visible weapon/barrel geometry, and trace the remaining muzzle/ballistic mismatch; local `-Z` is already strongly confirmed by physical geometry;
 10. flat/native presentation transitions and shutdown/finalization.
 
-The active 1920x1080-per-eye classic-D3D9 CPU path measured 7.432 ms median and 8.994 ms p95 copy time in the latest gameplay process while SteamVR recommended 3400x3468. Removing/reducing GPU->CPU transport cost takes priority over a large resolution increase. OFXR-Bridge remains future OpenXR/frame-generation research and is not a remediation for the active OpenVR readback path.
+The active 1920x1080-per-eye classic-D3D9 CPU path measured 7.112 ms median and 9.056 ms p95 copy time in the latest gameplay process. Removing/reducing GPU->CPU transport cost takes priority over a large resolution increase. OFXR-Bridge remains future OpenXR/frame-generation research and is not a remediation for the active OpenVR readback path.
 
 Passing host tests is required before this gate, but cannot promote it.
 

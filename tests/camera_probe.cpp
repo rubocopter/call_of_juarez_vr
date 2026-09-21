@@ -67,6 +67,26 @@ cojvr::runtime::Quaternion MultiplyQuaternion(
 int main() {
     using namespace cojvr::games::call_of_juarez;
 
+    if (ShouldRetainCoJBodyRestoreTransaction(true) ||
+        !ShouldRetainCoJBodyRestoreTransaction(false)) {
+        std::cerr << "failed body restore no longer retains its retry transaction\n";
+        return 1;
+    }
+
+    if (std::string_view(CoJSubtitleDiagnosticStateName(false, false, false, false)) !=
+            "unavailable" ||
+        std::string_view(CoJSubtitleDiagnosticStateName(true, false, true, false)) !=
+            "disabled" ||
+        std::string_view(CoJSubtitleDiagnosticStateName(true, true, false, false)) !=
+            "idle" ||
+        std::string_view(CoJSubtitleDiagnosticStateName(true, true, true, false)) !=
+            "java_hidden" ||
+        std::string_view(CoJSubtitleDiagnosticStateName(true, true, true, true)) !=
+            "java_visible") {
+        std::cerr << "subtitle diagnostic state did not distinguish settings, dialog and Java visibility\n";
+        return 1;
+    }
+
     CameraProbeCommand command{};
     std::string error;
     if (!ParseCameraProbeCommand(

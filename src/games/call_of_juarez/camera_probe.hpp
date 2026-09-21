@@ -102,6 +102,10 @@ struct CameraProbeCommand {
 [[nodiscard]] cojvr::runtime::Pose SuppressPhysicalTrackingTranslation(
     cojvr::runtime::Pose pose) noexcept;
 
+// A failed restore keeps its captured natural basis active so later frames and
+// shutdown can retry the transaction instead of abandoning a shifted skeleton.
+[[nodiscard]] bool ShouldRetainCoJBodyRestoreTransaction(bool restored) noexcept;
+
 [[nodiscard]] bool IsSupportedChromeEngineHash(std::string_view sha256) noexcept;
 
 using CameraProbeEventCallback = void (*)(
@@ -147,6 +151,12 @@ struct CameraStereoFrameSample {
 [[nodiscard]] bool ObserveCameraGameTimerFrozen(
     bool& frozen,
     std::string* error = nullptr) noexcept;
+
+[[nodiscard]] const char* CoJSubtitleDiagnosticStateName(
+    bool observation_available,
+    bool subtitles_enabled,
+    bool dialog_playing,
+    bool dialog_subtitle_visible) noexcept;
 
 // Runtime/transport boundary for the exact-build Chrome Engine integration.
 // EyeView::eye_to_head is static optics; the game adapter never depends on an XR API.

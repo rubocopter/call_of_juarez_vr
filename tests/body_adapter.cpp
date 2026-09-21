@@ -87,6 +87,8 @@ int main() {
             "GameWithMenu.sm_cIntroModule.OnInputKey" ||
         std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::active_game_menu)) !=
             "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter" ||
+        std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::active_game_module)) !=
+            "LawmanGame.sm_cActiveGameModule.OnInputKey" ||
         std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::loading_ui)) !=
             "GameUILoading.OnInputKey") {
         std::cerr << "exact UI dispatch routes lost their telemetry identities\n";
@@ -97,14 +99,23 @@ int main() {
     const auto ui_back_unavailable = BuildCoJUiBackDispatchPolicy(false);
     if (!ui_back_available.dispatch || ui_back_available.key_code != 1 ||
         !ui_back_available.press || !ui_back_available.release ||
-        ui_back_unavailable.dispatch) {
-        std::cerr << "UI back no longer models the shipped Escape press/release path\n";
+        !ui_back_unavailable.dispatch || ui_back_unavailable.key_code != 1 ||
+        !ui_back_unavailable.press || !ui_back_unavailable.release) {
+        std::cerr << "UI back stopped providing Escape when no menu UI is open\n";
+        return 1;
+    }
+    if (!ShouldFallbackCoJUiBack(CoJCurrentUiResolution::unavailable) ||
+        ShouldFallbackCoJUiBack(CoJCurrentUiResolution::resolved) ||
+        ShouldFallbackCoJUiBack(CoJCurrentUiResolution::error)) {
+        std::cerr << "UI back fallback no longer fails closed on lookup errors\n";
         return 1;
     }
     if (std::string_view(CoJUiBackDispatchRouteName(CoJUiDispatchRoute::global_menu)) !=
             "GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)" ||
         std::string_view(CoJUiBackDispatchRouteName(CoJUiDispatchRoute::active_game_menu)) !=
-            "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.CallOnInputKeyGlobal(Escape)") {
+            "LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.CallOnInputKeyGlobal(Escape)" ||
+        std::string_view(CoJUiBackDispatchRouteName(CoJUiDispatchRoute::active_game_module)) !=
+            "LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)") {
         std::cerr << "UI back telemetry no longer names the shipped Escape route\n";
         return 1;
     }
@@ -356,6 +367,12 @@ int main() {
         std::cerr << "arm reach policy shortened an extreme controller target before hard clamp\n";
         return 1;
     }
+    if (!ShouldApplyCoJArmIk(within_reach_plan) ||
+        !ShouldApplyCoJArmIk(soft_overreach_plan) ||
+        ShouldApplyCoJArmIk(extreme_overreach_plan)) {
+        std::cerr << "arm write safety did not reject severe reach clamps\n";
+        return 1;
+    }
 
     const ArmBoneRotationPlan natural_rotations =
         BuildArmBoneRotationPlan(arm_geometry, natural_arm_plan);
@@ -558,6 +575,21 @@ int main() {
         std::cerr << "current CoJ arm experiment still applies controller-driven axial roll\n";
         return 1;
     }
+    if (!Near(CoJHandControllerResidualLimitDegrees(), 30.0F)) {
+        std::cerr << "CoJ hand residual safety limit changed unexpectedly\n";
+        return 1;
+    }
+    const BoneRotationDelta bounded_observed_residual = BuildSafeCoJHandResidual(
+        observed_residual);
+    const BoneRotationDelta bounded_excessive_hand = BuildSafeCoJHandResidual(
+        excessive_twist);
+    if (!bounded_observed_residual.valid || bounded_observed_residual.no_op ||
+        !Near(bounded_observed_residual.angle_degrees, 10.0F, 0.01F) ||
+        !bounded_excessive_hand.valid || !bounded_excessive_hand.no_op ||
+        !Near(bounded_excessive_hand.angle_degrees, 0.0F)) {
+        std::cerr << "CoJ hand residual policy did not preserve small corrections and reject implausible ones\n";
+        return 1;
+    }
     const HandOrientationReference invalid_hand_reference = BuildHandOrientationReference(
         {0.0F, 0.0F, 0.0F, 0.0F},
         {1.0F, 0.0F, 0.0F},
@@ -704,6 +736,26 @@ int main() {
         return 1;
     }
 
+    for (const int action : {4, 5, 6, 7, 11, 16, 18}) {
+        const auto target = BuildCoJGameplayTargetSelection(action, 1, 3);
+        if (!target.valid || target.index != 1) {
+            std::cerr << "CoJ gameplay input did not select the shipped action target category\n";
+            return 1;
+        }
+    }
+    if (BuildCoJGameplayTargetSelection(4, -1, 3).valid ||
+        BuildCoJGameplayTargetSelection(4, 3, 3).valid ||
+        BuildCoJGameplayTargetSelection(4, 0, 0).valid) {
+        std::cerr << "CoJ gameplay input accepted an out-of-range target category\n";
+        return 1;
+    }
+    if (!ShouldYieldCoJArmIkForNativeReload(true, true) ||
+        ShouldYieldCoJArmIkForNativeReload(true, false) ||
+        ShouldYieldCoJArmIkForNativeReload(false, true)) {
+        std::cerr << "CoJ arm IK reload ownership policy did not fail open on observation loss\n";
+        return 1;
+    }
+
     const auto left_fire_origin = BuildCoJFireOriginMutationPolicy(9, true, true, true);
     const auto right_fire_origin = BuildCoJFireOriginMutationPolicy(10, true, true, true);
     const auto held_fire_origin = BuildCoJFireOriginMutationPolicy(9, true, false, true);
@@ -711,15 +763,15 @@ int main() {
     const auto invalid_fire_origin = BuildCoJFireOriginMutationPolicy(10, true, true, false);
     const auto non_fire_origin = BuildCoJFireOriginMutationPolicy(18, true, true, true);
     if (left_fire_origin.hand != 1 || !left_fire_origin.override_for_translate ||
-        !left_fire_origin.restore_after_translate ||
+        left_fire_origin.restore_after_translate ||
         right_fire_origin.hand != 0 || !right_fire_origin.override_for_translate ||
-        !right_fire_origin.restore_after_translate ||
+        right_fire_origin.restore_after_translate ||
         held_fire_origin.override_for_translate || held_fire_origin.restore_after_translate ||
         released_fire_origin.override_for_translate || released_fire_origin.restore_after_translate ||
         invalid_fire_origin.override_for_translate || invalid_fire_origin.restore_after_translate ||
         non_fire_origin.hand != -1 || non_fire_origin.override_for_translate ||
         non_fire_origin.restore_after_translate) {
-        std::cerr << "fire origin escaped its synchronous input-translation scope\n";
+        std::cerr << "fire origin did not transfer to the native attack-transition lifetime\n";
         return 1;
     }
     GameplayInputState inactive_gameplay = gameplay;
@@ -847,6 +899,21 @@ int main() {
         aim_direction_valid);
     if (aim_direction_valid) {
         std::cerr << "invalid /pose/tip orientation produced a CoJ aim direction\n";
+        return 1;
+    }
+
+    const TrackedAimPoseDiagnostics aim_pose_diagnostics = BuildTrackedAimPoseDiagnostics(
+        {0.0F, 0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 0.0F},
+        {0.0F, 0.0F, -0.10F});
+    if (!aim_pose_diagnostics.valid ||
+        !Near(aim_pose_diagnostics.grip_to_tip_distance_m, 0.10F) ||
+        !Near(Distance(aim_pose_diagnostics.grip_to_tip_direction, {0.0F, 0.0F, -1.0F}), 0.0F) ||
+        !Near(aim_pose_diagnostics.dot_negative_z, 1.0F) ||
+        !Near(aim_pose_diagnostics.dot_positive_z, -1.0F) ||
+        !Near(aim_pose_diagnostics.dot_positive_x, 0.0F) ||
+        !Near(aim_pose_diagnostics.dot_positive_y, 0.0F)) {
+        std::cerr << "tip-axis diagnostics did not identify tracking -Z from grip-to-tip geometry\n";
         return 1;
     }
 
