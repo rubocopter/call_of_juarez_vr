@@ -15,39 +15,40 @@
 
 **An experimental native-PCVR conversion for Techland's Call of Juarez games.**
 
-Call of Juarez (2006) is the reference implementation. The target is a native-feeling VR conversion with stereo rendering from the game engine, tracked head and hands, full-body IK and interactions rebuilt around motion controllers.
+Call of Juarez (2006) is the reference implementation. The goal is a native-feeling VR conversion with stereo rendering from the game engine, tracked head and hands, full-body integration and interactions rebuilt around motion controllers.
 
-> **Pre-alpha — no public release yet.** Native stereo and the core HMD path work in-headset, but the current playability candidate is still physically rejected for controller UI, locomotion/jump, continuous arm IK and weapon alignment.
+> **Pre-alpha — no public release yet.** Native stereo and the core HMD path are working in-headset. Current development is focused on the remaining playability and comfort blockers before the first backend can be considered usable end to end.
 
 ## Current state
 
-- Native D3D9 stereo reaches SteamVR with real per-eye rendering, physical eye separation and explicit render-pose submission.
-- HMD yaw/pitch/roll, positional camera offset, recenter and exact ±45° Sense snap turn have physical validation.
-- Startup/menu/loading presentation can fall back to an anchored flat theater and return to native stereo gameplay.
-- PS VR2 Sense poses reach the game-specific hand/body layer; local Ray/Billy head and hair suppression is physically validated in-headset.
-- Latest complete physical run: `20260921T192639Z-1d70905cb4f8`. The menu pointer remained uncontrollable, walking/jump remained unacceptable, arm safety caused visible fallback to native poses, and weapon shots were still misaligned.
-- That run also confirmed horizontal-only room-scale body compensation with zero sampled vertical pelvis offset and strongly confirmed local `-Z` as the Sense tip direction. Neither result promotes the failed playability gates.
-- Classic-D3D9 CPU readback remains a measured performance blocker: 7.112 ms median / 9.056 ms p95 at 1920x1080 per eye in the latest complete run.
-- Current Debug and Release host suites each pass **24 tests + 1 expected classic-D3D9 capability skip**.
+Native D3D9 stereo reaches SteamVR with real per-eye rendering, tracked 6DoF head movement, positional camera offset, recentering and VR presentation transitions between menus/loading and gameplay.
 
-The active physical gate is documented in [Validation](docs/VALIDATION.md). The current implementation checkpoint is in [Codex handoff](docs/internal/CODEX_HANDOFF.md).
+PS VR2 Sense tracking already reaches the game-specific hand/body layer. The active work is now concentrated on controller-driven UI, locomotion and jump behavior, continuous arm IK, weapon alignment and the remaining performance cost of the classic-D3D9 presentation path.
+
+Detailed physical-test evidence belongs in [Validation](docs/VALIDATION.md); the active implementation checkpoint belongs in [Codex handoff](docs/internal/CODEX_HANDOFF.md).
 
 ## Games
 
-| Game | Status |
+| Game | Project state |
 | --- | --- |
-| **Call of Juarez (2006)** | Active reference implementation |
-| **Call of Juarez: Bound in Blood** | Planned; no Chrome Engine assumptions promoted yet |
-| **Call of Juarez: Gunslinger** | Planned; no Chrome Engine assumptions promoted yet |
+| **Call of Juarez (2006)** | Active reference implementation and current physical-test target. |
+| **Call of Juarez: Bound in Blood** | Planned. No Chrome Engine assumptions are promoted until the reference backend is mature enough to justify reuse. |
+| **Call of Juarez: Gunslinger** | Planned. Game-specific work has not started. |
 
 ## Documentation
 
-[Roadmap](ROADMAP.md) · [Architecture](ARCHITECTURE.md) · [Validation](docs/VALIDATION.md) · [Technical audit](docs/TECHNICAL_AUDIT.md) · [Research notes](docs/RESEARCH_NOTES.md)
+[Roadmap](ROADMAP.md) ·
+[Architecture](ARCHITECTURE.md) ·
+[Validation](docs/VALIDATION.md) ·
+[Technical audit](docs/TECHNICAL_AUDIT.md) ·
+[Research notes](docs/RESEARCH_NOTES.md)
+
+The README is intentionally a project landing page. Detailed measurements, run identifiers, temporary debugging conclusions and implementation handoffs are kept in the versioned technical documents instead of being duplicated here.
 
 <details>
-<summary><strong>Developer quick start</strong></summary>
+<summary><strong>Development</strong></summary>
 
-Windows x86/Win32, Visual Studio 2022 / Build Tools and CMake 3.25+ are currently required.
+Native targets are Windows/x86. Development currently requires Visual Studio 2022 / Build Tools with C++ support and CMake 3.25+.
 
 ```powershell
 cmake --preset win32-debug
@@ -55,6 +56,10 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-For a physical candidate use `tools/vr_test.ps1`. SteamVR and Call of Juarez are always launched manually. Read [AGENTS.md](AGENTS.md) before changing runtime integration or promoting validation state.
+For a physical candidate use `tools/vr_test.ps1`. SteamVR and Call of Juarez are launched manually. Read [AGENTS.md](AGENTS.md) before changing runtime integration or promoting validation state.
 
 </details>
+
+## Disclaimer
+
+Call of Juarez VR is an unofficial community project and is not affiliated with or endorsed by Techland, Ubisoft, Valve or Sony Interactive Entertainment.
