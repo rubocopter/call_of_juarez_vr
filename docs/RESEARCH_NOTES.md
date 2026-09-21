@@ -8,13 +8,12 @@ Current authoritative research:
 
 - `docs/research/COJ_CAMERA_PATH.md`: exact camera/render path, stereo wrapper, units and presentation findings.
 - `docs/research/COJ_ARM_SKINNING_AND_AIM.md`: observed skeleton propagation, visible arm writer, reach and weapon-origin ownership.
-- `docs/research/evidence/`: compact metadata for retained physical runs.
 
 The active renderer/runtime path is classic D3D9 + OpenVR/SteamVR. D3D10 remains a later first-class target.
 
-The latest complete-process transport measurement, from `20260921T192639Z-1d70905cb4f8`, measures classic-D3D9 CPU copy at 7.112 ms median and 9.056 ms p95 for a 1920x1080-per-eye source. The GPU->CPU boundary must be reduced or removed before a large render-resolution increase is sensible.
+Classic-D3D9 CPU readback is a demonstrated performance blocker at the current per-eye source resolution. The architectural conclusion is durable even though individual measurements and run metadata remain local: reduce or remove the GPU->CPU boundary before pursuing a large render-resolution increase.
 
-`tig3rmast3r/OFXR-Bridge` was investigated as a performance option. It is an experimental **OpenXR** API layer that inserts color-only optical-flow-generated frames between rendered OpenXR frames. It does not replace the OpenXR runtime and does not receive game motion vectors/depth. Because the current Call of Juarez backend is OpenVR and already pays classic-D3D9 CPU readback before submission, OFXR-Bridge does not remove the active bottleneck or recover detail absent from the 1920x1080 source. Keep it as future OpenXR/frame-generation research, not as a current D3D9/OpenVR performance fix.
+`tig3rmast3r/OFXR-Bridge` was investigated as a performance option. It is an experimental **OpenXR** API layer that inserts color-only optical-flow-generated frames between rendered OpenXR frames. It does not replace the OpenXR runtime and does not receive game motion vectors/depth. Because the current Call of Juarez backend is OpenVR and already pays classic-D3D9 CPU readback before submission, OFXR-Bridge does not remove the active bottleneck or recover detail absent from the source image. Keep it as future OpenXR/frame-generation research, not as a current D3D9/OpenVR performance fix.
 
 ## Bound in Blood
 
@@ -38,3 +37,7 @@ Planned future backend with the same evidence rule. Engine-family similarity is 
 ## Cross-game promotion rule
 
 Call of Juarez (2006) remains the reference implementation. Shared runtime code should contain only renderer/game-neutral policy that can be described without exact game layouts. A Chrome Engine behavior becomes reusable only after a second supported title demonstrates the same semantic boundary.
+
+## Local evidence policy
+
+Run manifests, videos, hashes, process IDs, raw telemetry, temporary disassembly notes and agent handoffs belong under ignored `work/`. Once a durable conclusion is encoded in source, tests or the research documents above, the local evidence may be discarded.
