@@ -5,6 +5,8 @@
 /work/
 /.cache/
 /.codex_*_analysis/
+/docs/internal/
+/docs/research/evidence/
 *.user
 *.suo
 *.VC.db
