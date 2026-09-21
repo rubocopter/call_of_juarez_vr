@@ -23,9 +23,9 @@ Call of Juarez (2006) is the reference implementation. The goal is a native-feel
 
 Native D3D9 stereo reaches SteamVR with real per-eye rendering, tracked 6DoF head movement, positional camera offset, recentering and VR presentation transitions between menus/loading and gameplay.
 
-PS VR2 Sense tracking already reaches the game-specific hand/body layer. The active work is now concentrated on controller-driven UI, locomotion and jump behavior, continuous arm IK, weapon alignment and the remaining performance cost of the classic-D3D9 presentation path.
+PS VR2 Sense tracking already reaches the game-specific hand/body layer. The active work is concentrated on controller-driven UI, locomotion and jump behavior, continuous arm IK, weapon alignment and the remaining performance cost of the classic-D3D9 presentation path.
 
-Detailed physical-test evidence belongs in [Validation](docs/VALIDATION.md); the active implementation checkpoint belongs in [Codex handoff](docs/internal/CODEX_HANDOFF.md).
+[Validation](docs/VALIDATION.md) records the durable physical acceptance state. Per-run logs, videos, telemetry, agent handoffs and temporary evidence remain local under ignored working directories.
 
 ## Games
 
@@ -43,7 +43,7 @@ Detailed physical-test evidence belongs in [Validation](docs/VALIDATION.md); the
 [Technical audit](docs/TECHNICAL_AUDIT.md) ·
 [Research notes](docs/RESEARCH_NOTES.md)
 
-The README is intentionally a project landing page. Detailed measurements, run identifiers, temporary debugging conclusions and implementation handoffs are kept in the versioned technical documents instead of being duplicated here.
+The README is intentionally a project landing page. Detailed run chronology and temporary implementation handoffs are not versioned as project documentation.
 
 <details>
 <summary><strong>Development</strong></summary>
