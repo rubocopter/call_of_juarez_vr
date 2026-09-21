@@ -37,8 +37,8 @@ Detailed physical-test evidence belongs in [Validation](docs/VALIDATION.md); the
 
 ## Documentation
 
-[Roadmap](ROADMAP.md) ·
-[Architecture](ARCHITECTURE.md) ·
+[Roadmap](docs/ROADMAP.md) ·
+[Architecture](docs/ARCHITECTURE.md) ·
 [Validation](docs/VALIDATION.md) ·
 [Technical audit](docs/TECHNICAL_AUDIT.md) ·
 [Research notes](docs/RESEARCH_NOTES.md)
