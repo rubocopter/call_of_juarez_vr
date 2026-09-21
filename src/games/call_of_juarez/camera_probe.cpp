@@ -153,6 +153,17 @@ struct AppliedArmElementRotation {
 AppliedArmElementRotation g_left_arm_rotation{};
 AppliedArmElementRotation g_right_arm_rotation{};
 bool g_arm_rotation_faulted = false;
+struct AppliedRoomScaleBodyOffset {
+    std::uint64_t being_generation = 0;
+    int pelvis_element = -1;
+    JavaPlayerPosition natural_position{};
+    JavaPlayerPosition natural_up{};
+    JavaPlayerPosition natural_forward{};
+    cojvr::runtime::Vec3 applied_world_offset{};
+    bool active = false;
+    bool faulted = false;
+};
+AppliedRoomScaleBodyOffset g_room_scale_body_offset{};
 cojvr::runtime::GameplayInputState g_last_gameplay_telemetry{};
 bool g_gameplay_telemetry_initialized = false;
 struct LocalHeadElementVisibility {
@@ -1488,6 +1499,142 @@ bool ResolveArmElements(const std::uint64_t generation, std::string* error) noex
     return complete;
 }
 
+bool RestoreRoomScaleBodyOffset(
+    const std::uint64_t frame_sequence,
+    const char* reason) noexcept {
+    if (!g_room_scale_body_offset.active) return true;
+    std::string error;
+    const bool restored = g_java_player_bridge.TrySetElementWorldBasis(
+        g_room_scale_body_offset.pelvis_element,
+        g_room_scale_body_offset.natural_up,
+        g_room_scale_body_offset.natural_forward,
+        g_room_scale_body_offset.natural_position,
+        &error);
+    if (!restored) g_room_scale_body_offset.faulted = true;
+    if (!restored || ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";being_generation=" << g_room_scale_body_offset.being_generation
+                   << ";pelvis_element=" << g_room_scale_body_offset.pelvis_element
+                   << ";world_offset="
+                   << RuntimeVectorText(g_room_scale_body_offset.applied_world_offset)
+                   << ";reason=" << (reason ? reason : "unknown");
+            if (!error.empty()) detail << ";detail=" << error;
+            EmitEvent(
+                "body_visual_roomscale_restore",
+                restored ? "ok" : "failed",
+                detail.str());
+        } catch (...) {
+        }
+    }
+    g_room_scale_body_offset.active =
+        ShouldRetainCoJBodyRestoreTransaction(restored);
+    return restored;
+}
+
+bool ApplyRoomScaleBodyOffset(
+    const CameraRenderStateSnapshot& natural_render_state,
+    const cojvr::runtime::Pose& relative_head_pose,
+    const std::uint64_t frame_sequence,
+    std::string* error) noexcept {
+    if (!relative_head_pose.position_valid) {
+        if (error) *error = "relative HMD position is invalid for visual body room scale";
+        return false;
+    }
+    if (g_room_scale_body_offset.active &&
+        !RestoreRoomScaleBodyOffset(frame_sequence, "stale_transaction")) {
+        if (error) *error = "previous visual body room-scale transaction did not restore";
+        return false;
+    }
+
+    CameraProbeBasis natural_basis{};
+    CameraProbeVector natural_camera_position{};
+    if (!ReadNaturalCameraFrame(
+            natural_render_state, natural_basis, natural_camera_position)) {
+        if (error) *error = "natural camera frame unavailable for visual body room scale";
+        return false;
+    }
+    const CameraProbeBasis tracking_basis = BuildTrackingReferenceBasis(
+        natural_basis.forward, natural_basis.up, g_body_owned_yaw_degrees);
+    if (!IsCameraProbeBasisRigidRightHanded(tracking_basis)) {
+        if (error) *error = "tracking basis invalid for visual body room scale";
+        return false;
+    }
+    // The render-only pelvis compensation owns horizontal room-scale motion.
+    // Physical crouch remains a camera/body-state concern; translating the
+    // pelvis vertically with HMD height pulled the torso into the headset in
+    // the 20260921 physical run.
+    const cojvr::runtime::Vec3 horizontal_head_offset{
+        relative_head_pose.position.x,
+        0.0F,
+        relative_head_pose.position.z,
+    };
+    const CameraProbeVector mapped_offset = ApplyCameraEyeOffset(
+        {}, tracking_basis, horizontal_head_offset);
+    const cojvr::runtime::Vec3 world_offset{
+        mapped_offset.x, mapped_offset.y, mapped_offset.z};
+
+    const std::uint64_t generation = g_java_player_bridge.being_generation();
+    if (g_room_scale_body_offset.being_generation != generation ||
+        g_room_scale_body_offset.pelvis_element < 0) {
+        g_room_scale_body_offset = {};
+        g_room_scale_body_offset.being_generation = generation;
+        const SkeletonBinding binding = ExactGameSkeletonBinding();
+        if (!g_java_player_bridge.TryGetMeshElement(
+                static_cast<std::int8_t>(binding.pelvis),
+                g_room_scale_body_offset.pelvis_element,
+                error)) {
+            return false;
+        }
+    }
+    if (g_room_scale_body_offset.faulted) {
+        if (error) *error = "visual body room-scale writes disabled after restore failure";
+        return false;
+    }
+
+    JavaPlayerPosition position{};
+    JavaPlayerPosition up{};
+    JavaPlayerPosition forward{};
+    if (!g_java_player_bridge.TryGetElementWorldBasis(
+            g_room_scale_body_offset.pelvis_element,
+            position, up, forward, error)) {
+        return false;
+    }
+    const JavaPlayerPosition shifted{
+        position.x + world_offset.x,
+        position.y + world_offset.y,
+        position.z + world_offset.z,
+    };
+    if (!g_java_player_bridge.TrySetElementWorldBasis(
+            g_room_scale_body_offset.pelvis_element,
+            up, forward, shifted, error)) {
+        return false;
+    }
+
+    g_room_scale_body_offset.natural_position = position;
+    g_room_scale_body_offset.natural_up = up;
+    g_room_scale_body_offset.natural_forward = forward;
+    g_room_scale_body_offset.applied_world_offset = world_offset;
+    g_room_scale_body_offset.active = true;
+    if (ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";being_generation=" << generation
+                   << ";pelvis_element=" << g_room_scale_body_offset.pelvis_element
+                   << ";tracking_offset=" << RuntimeVectorText(relative_head_pose.position)
+                   << ";world_offset=" << RuntimeVectorText(world_offset)
+                   << ";actor_write=false"
+                   << ";scope=stereo_render_only"
+                   << ";restore=after_both_eyes";
+            EmitEvent("body_visual_roomscale", "applied", detail.str());
+        } catch (...) {
+        }
+    }
+    return true;
+}
+
 bool ReadArmGeometry(
     const bool left,
     ArmGeometrySample& geometry,
@@ -1953,15 +2100,13 @@ bool ApplyArmPlan(
         return false;
     }
 
-    // Only the shared axial roll belongs on the hand. The arbitrary full
-    // controller residual remains diagnostic; it must not bend the wrist.
-    applied_hand_rotation = ConvertWorldRotationToElementLocal(
-        BuildHandResidualRotationDelta(
-            RuntimeVector(hand_up), RuntimeVector(hand_forward), skinning.hand),
-        RuntimeVector(hand_up), RuntimeVector(hand_forward));
+    // Keep the rejected large FORETWIST roll disabled. Apply a small hand
+    // residual in its local frame, but leave the native hand pose untouched
+    // when the controller mismatch exceeds the measured safe bound.
+    applied_hand_rotation = BuildSafeCoJHandResidual(diagnostic_hand_residual);
     if (!applied_hand_rotation.valid ||
         !rotate(hand, applied_hand_rotation, 1.0F, &write_error)) {
-        if (error) *error = "shared hand roll write failed: " + write_error;
+        if (error) *error = "bounded hand residual write failed: " + write_error;
         rollback_chain();
         return false;
     }
@@ -1972,8 +2117,6 @@ bool ApplyArmPlan(
         const float errors[] = {
             RuntimeVectorDistanceSquared(verified.foretwist_element_up, skinning.foretwist.up),
             RuntimeVectorDistanceSquared(verified.foretwist_element_forward, skinning.foretwist.forward),
-            RuntimeVectorDistanceSquared(verified.hand_element_up, skinning.hand.up),
-            RuntimeVectorDistanceSquared(verified.hand_element_forward, skinning.hand.forward),
         };
         skinning_axis_error = 0.0F;
         for (const float squared_error : errors) {
@@ -1985,7 +2128,19 @@ bool ApplyArmPlan(
         }
     }
     if (!skinning_read || !(skinning_axis_error <= 0.02F)) {
-        if (error) *error = "sibling skinning frames did not reach shared swing/roll: " + write_error;
+        if (error) *error = "FORETWIST sibling skinning frame did not reach shared swing: " + write_error;
+        rollback_chain();
+        return false;
+    }
+    const float hand_error_before = std::max(
+        std::sqrt(RuntimeVectorDistanceSquared(RuntimeVector(hand_up), hand_target.up)),
+        std::sqrt(RuntimeVectorDistanceSquared(RuntimeVector(hand_forward), hand_target.forward)));
+    const float hand_error_after = std::max(
+        std::sqrt(RuntimeVectorDistanceSquared(verified.hand_element_up, hand_target.up)),
+        std::sqrt(RuntimeVectorDistanceSquared(verified.hand_element_forward, hand_target.forward)));
+    if (!std::isfinite(hand_error_before) || !std::isfinite(hand_error_after) ||
+        hand_error_after > hand_error_before + 0.02F) {
+        if (error) *error = "bounded hand residual increased controller-orientation error";
         rollback_chain();
         return false;
     }
@@ -2273,6 +2428,12 @@ void UpdatePlayerArmTracking(
         return;
     }
 
+    bool native_weapon_reloading = false;
+    std::string native_reload_error;
+    const bool native_reload_observed = g_java_player_bridge.TryGetWeaponReloading(
+        native_weapon_reloading, &native_reload_error);
+    const bool native_animation_owns_arms = ShouldYieldCoJArmIkForNativeReload(
+        native_reload_observed, native_weapon_reloading);
     const std::uint64_t generation = g_java_player_bridge.being_generation();
     std::string element_error;
     const bool elements_ready = ResolveArmElements(generation, &element_error);
@@ -2466,8 +2627,9 @@ void UpdatePlayerArmTracking(
             bool hand_orientation_reached = false;
             std::string write_error;
             const bool write_allowed =
-                allow_write && !g_arm_rotation_faulted && rotation_plan.valid &&
-                hand_target.valid;
+                allow_write && !native_animation_owns_arms &&
+                !g_arm_rotation_faulted && ShouldApplyCoJArmIk(plan) &&
+                ShouldApplyCoJArmRotationPlan(rotation_plan) && hand_target.valid;
             if (body_ik_enabled && write_allowed && elements_ready && plan.valid) {
                 write_ok = ApplyArmPlan(
                     left,
@@ -2621,6 +2783,12 @@ void UpdatePlayerArmTracking(
                 detail << "frame_sequence=" << frame_sequence
                        << ";being_generation=" << generation
                        << ";side=" << side
+                       << ";native_reload_observed="
+                       << (native_reload_observed ? "true" : "false")
+                       << ";native_weapon_reloading="
+                       << (native_weapon_reloading ? "true" : "false")
+                       << ";native_animation_owns_arms="
+                       << (native_animation_owns_arms ? "true" : "false")
                        << ";head_anchor=" << RuntimeVectorText(RuntimeVector(head_joint))
                        << ";tracked_head=" << RuntimeVectorText(tracked_body.head.position)
                        << ";tracked_hand=" << RuntimeVectorText(controller.position)
@@ -2689,13 +2857,22 @@ void UpdatePlayerArmTracking(
                        << ";forearm_twist_no_op="
                        << (applied_forearm_twist.no_op ? "true" : "false")
                        << ";twist_owner=foretwist_element"
-                       << ";hand_residual_source=post_foretwist_observed_basis_diagnostic"
+                       << ";hand_residual_source=post_foretwist_observed_basis"
                        << ";hand_residual_native_axis="
                        << RuntimeVectorText(diagnostic_hand_residual.axis)
                        << ";hand_residual_degrees="
                        << diagnostic_hand_residual.angle_degrees
-                       << ";hand_rotation_mode=controller_orientation_diagnostic_only"
-                       << ";skinning_contract=foretwist_sibling_swing_hand_native_orientation"
+                       << ";hand_rotation_mode=bounded_hand_residual"
+                       << ";hand_rotation_limit_degrees="
+                       << CoJHandControllerResidualLimitDegrees()
+                       << ";hand_residual_rejected="
+                       << ((!diagnostic_hand_residual.no_op &&
+                            diagnostic_hand_residual.angle_degrees >
+                                CoJHandControllerResidualLimitDegrees())
+                               ? "true" : "false")
+                       << ";reach_write_safe="
+                       << (ShouldApplyCoJArmIk(plan) ? "true" : "false")
+                       << ";skinning_contract=foretwist_sibling_swing_plus_bounded_hand_residual"
                        << ";skinning_frames_reached=" << (write_ok ? "true" : "false")
                        << ";skinning_axis_error=" << skinning_axis_error
                        << ";hand_native_axis="
@@ -2734,10 +2911,13 @@ void UpdatePlayerArmTracking(
                        << ";rollback_attempted=" << (rollback_attempted ? "true" : "false")
                        << ";rollback_ok=" << (rollback_ok ? "true" : "false")
                        << ";tracking_forward=-z_to_negative_native_forward"
-                       << ";hand_orientation=calibrated_controller_delta_diagnostic_only"
+                       << ";hand_orientation=calibrated_controller_delta_bounded_hand_residual"
                        << ";tracking_basis=level_recenter_minus_actor_yaw"
                        << ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector"
                        << ";writer=RotateElementWithChildren";
+                if (!native_reload_observed && !native_reload_error.empty()) {
+                    detail << ";native_reload_detail=" << native_reload_error;
+                }
                 if (body_ik_enabled && write_allowed && plan.valid && !write_ok) {
                     detail << ";detail=" << write_error;
                 } else if (body_ik_enabled && g_arm_rotation_faulted) {
@@ -2767,15 +2947,32 @@ void UpdatePlayerArmTracking(
     }
 }
 
+struct ControllerAimFrameObservation {
+    cojvr::runtime::Vec3 left_direction{};
+    cojvr::runtime::Vec3 right_direction{};
+    cojvr::runtime::Vec3 left_origin{};
+    cojvr::runtime::Vec3 right_origin{};
+    TrackedAimPoseDiagnostics left_pose{};
+    TrackedAimPoseDiagnostics right_pose{};
+    bool left_direction_valid = false;
+    bool right_direction_valid = false;
+    bool left_origin_valid = false;
+    bool right_origin_valid = false;
+};
+
 void UpdateControllerAim(
     const CameraRenderStateSnapshot& natural_render_state,
     const cojvr::runtime::Pose& relative_head_pose,
+    const cojvr::runtime::Pose& left_grip,
+    const cojvr::runtime::Pose& right_grip,
     const cojvr::runtime::Pose& left_aim,
     const cojvr::runtime::Pose& right_aim,
     const bool input_active,
-    const std::uint64_t frame_sequence) noexcept {
+    const std::uint64_t frame_sequence,
+    ControllerAimFrameObservation& observation) noexcept {
     constexpr int kRightHand = 0;
     constexpr int kLeftHand = 1;
+    observation = {};
     if (!input_active) {
         g_java_player_bridge.SetPerHandFireOrigin(kLeftHand, {}, false);
         g_java_player_bridge.SetPerHandFireOrigin(kRightHand, {}, false);
@@ -2855,6 +3052,28 @@ void UpdateControllerAim(
                 right_origin_valid)
             : cojvr::runtime::Vec3{};
 
+        const TrackedAimPoseDiagnostics left_pose =
+            left_grip.position_valid && left_aim.position_valid && left_aim.orientation_valid
+            ? BuildTrackedAimPoseDiagnostics(
+                left_aim.orientation, left_grip.position, left_aim.position)
+            : TrackedAimPoseDiagnostics{};
+        const TrackedAimPoseDiagnostics right_pose =
+            right_grip.position_valid && right_aim.position_valid && right_aim.orientation_valid
+            ? BuildTrackedAimPoseDiagnostics(
+                right_aim.orientation, right_grip.position, right_aim.position)
+            : TrackedAimPoseDiagnostics{};
+
+        observation.left_direction = left_direction;
+        observation.right_direction = right_direction;
+        observation.left_origin = left_origin;
+        observation.right_origin = right_origin;
+        observation.left_pose = left_pose;
+        observation.right_pose = right_pose;
+        observation.left_direction_valid = left_direction_valid;
+        observation.right_direction_valid = right_direction_valid;
+        observation.left_origin_valid = left_origin_valid;
+        observation.right_origin_valid = right_origin_valid;
+
         // Shipped EnumInvHand.class is authoritative for this exact game:
         // _RIGHT=0, _LEFT=1. GetFireDirForWeapon reads the matching entry from
         // m_avLookDirDevForHand and then preserves the game's accuracy/spread.
@@ -2902,9 +3121,9 @@ void UpdateControllerAim(
                    << ";write_boundary=post_game_update_pre_render"
                    << ";tracking_basis=level_recenter_minus_actor_yaw"
                    << ";direction_owner=m_avLookDirDevForHand"
-                   << ";fire_origin=controller_tip_scoped_input_translation"
+                   << ";fire_origin=controller_tip_attack_transition"
                    << ";visual_origin_owner=m_avAimFromPoint"
-                   << ";fire_origin_release=immediate_native_restore"
+                   << ";fire_origin_release=native_UpdateLookAndAimPoints"
                    << ";native_accuracy_spread=preserved"
                    << ";network_forced_branch=unused";
             if (!left_error.empty()) detail << ";left_detail=" << left_error;
@@ -2921,6 +3140,33 @@ void UpdateControllerAim(
                     ? "applied"
                     : "partial",
                 detail.str());
+        }
+        if (ShouldObserveBodyFrame(frame_sequence)) {
+            std::ostringstream geometry;
+            geometry << "frame_sequence=" << frame_sequence
+                     << ";left_valid=" << (left_pose.valid ? "true" : "false")
+                     << ";left_grip_to_tip_distance_m=" << left_pose.grip_to_tip_distance_m
+                     << ";left_grip_to_tip_direction="
+                     << RuntimeVectorText(left_pose.grip_to_tip_direction)
+                     << ";left_dot_pos_x=" << left_pose.dot_positive_x
+                     << ";left_dot_neg_x=" << left_pose.dot_negative_x
+                     << ";left_dot_pos_y=" << left_pose.dot_positive_y
+                     << ";left_dot_neg_y=" << left_pose.dot_negative_y
+                     << ";left_dot_pos_z=" << left_pose.dot_positive_z
+                     << ";left_dot_neg_z=" << left_pose.dot_negative_z
+                     << ";right_valid=" << (right_pose.valid ? "true" : "false")
+                     << ";right_grip_to_tip_distance_m=" << right_pose.grip_to_tip_distance_m
+                     << ";right_grip_to_tip_direction="
+                     << RuntimeVectorText(right_pose.grip_to_tip_direction)
+                     << ";right_dot_pos_x=" << right_pose.dot_positive_x
+                     << ";right_dot_neg_x=" << right_pose.dot_negative_x
+                     << ";right_dot_pos_y=" << right_pose.dot_positive_y
+                     << ";right_dot_neg_y=" << right_pose.dot_negative_y
+                     << ";right_dot_pos_z=" << right_pose.dot_positive_z
+                     << ";right_dot_neg_z=" << right_pose.dot_negative_z
+                     << ";axis_reference=grip_to_tip_tracking_space"
+                     << ";aim_axis_assumption=negative_z";
+            EmitEvent("controller_aim_geometry", "observed", geometry.str());
         }
     } catch (...) {
         g_java_player_bridge.SetPerHandFireOrigin(kLeftHand, {}, false);
@@ -3397,6 +3643,21 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     const std::uint64_t frame_sequence =
         g_stereo_frame_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (sample.ui_back_pressed) {
+        CoJUiDispatchRoute back_route = CoJUiDispatchRoute::none;
+        std::string back_error;
+        const bool backed = g_java_player_bridge.TryDispatchUiBackPress(
+            &back_error, &back_route);
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";source=right_circle;route="
+                   << CoJUiBackDispatchRouteName(back_route);
+            if (!back_error.empty()) detail << ";detail=" << back_error;
+            EmitEvent("native_stereo_ui_back", backed ? "applied" : "failed", detail.str());
+        } catch (...) {
+        }
+    }
     const bool ui_select_pressed =
         sample.ui_select_left_pressed || sample.ui_select_right_pressed ||
         sample.ui_accept_pressed;
@@ -3405,6 +3666,36 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     std::string game_timer_error;
     game_timer_valid = g_java_player_bridge.TryGetActiveGameTimerFrozen(
         game_timer_frozen, &game_timer_error);
+    if (frame_sequence <= 8 || (frame_sequence % 30) == 0) {
+        CoJSubtitleRuntimeState subtitle_state{};
+        std::string subtitle_error;
+        const bool subtitle_observed =
+            g_java_player_bridge.TryObserveSubtitleState(subtitle_state, &subtitle_error);
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";subtitles_enabled="
+                   << (subtitle_state.subtitles_enabled ? "true" : "false")
+                   << ";dialog_playing="
+                   << (subtitle_state.dialog_playing ? "true" : "false")
+                   << ";current_line_visible="
+                   << (subtitle_state.current_line_visible ? "true" : "false")
+                   << ";dialog_subtitle_visible="
+                   << (subtitle_state.dialog_subtitle_visible ? "true" : "false")
+                   << ";diagnostic="
+                   << CoJSubtitleDiagnosticStateName(
+                          subtitle_observed,
+                          subtitle_state.subtitles_enabled,
+                          subtitle_state.dialog_playing,
+                          subtitle_state.dialog_subtitle_visible);
+            if (!subtitle_error.empty()) detail << ";detail=" << subtitle_error;
+            EmitEvent(
+                "subtitle_state",
+                subtitle_observed ? "observed" : "unavailable",
+                detail.str());
+        } catch (...) {
+        }
+    }
     const CoJLoadingUiInputResult loading_ui_input = g_loading_ui_input_gate.Update(
         game_timer_valid,
         game_timer_frozen,
@@ -3467,23 +3758,93 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         gameplay_input.fire_left = false;
         gameplay_input.fire_right = false;
     }
-    // The exact WeaponFire boundary may be reached synchronously from the
-    // digital action translation. Publish the current /pose/tip direction and
-    // origin before forwarding L2/R2 so the same input frame owns the shot.
+    // Publish /pose/tip direction and origin before forwarding L2/R2. The
+    // digital action selects a hand state; the actual WeaponAttack runs on the
+    // next native update and consumes the origin before UpdateLookAndAimPoints
+    // returns ownership to the game's normal camera/body path.
+    ControllerAimFrameObservation aim_observation{};
     if (!loading_ui_input.suppress_gameplay) {
         UpdateControllerAim(
             natural_render_state,
             relative_head_pose,
+            relative_left_controller,
+            relative_right_controller,
             relative_left_aim,
             relative_right_aim,
             gameplay_input.active,
-            frame_sequence);
+            frame_sequence,
+            aim_observation);
     }
     const bool gameplay_changed = !g_gameplay_telemetry_initialized ||
         GameplayInputChanged(gameplay_input, g_last_gameplay_telemetry);
     std::string gameplay_input_error;
     const bool gameplay_input_ok = g_java_player_bridge.TryApplyGameplayInput(
         gameplay_input, &gameplay_input_error);
+    const auto emit_fire_transition = [&](
+        const char* side,
+        const int hand,
+        const cojvr::runtime::Vec3 direction,
+        const bool direction_valid,
+        const cojvr::runtime::Vec3 origin,
+        const bool origin_valid,
+        const TrackedAimPoseDiagnostics& pose) noexcept {
+        const auto& transition = g_java_player_bridge.last_fire_origin_transition(hand);
+        if (!transition.attempted) return;
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";side=" << side
+                   << ";hand_index=" << hand
+                   << ";gameplay_translate_applied="
+                   << (gameplay_input_ok ? "true" : "false")
+                   << ";direction_valid=" << (direction_valid ? "true" : "false")
+                   << ";direction=" << RuntimeVectorText(direction)
+                   << ";origin_valid=" << (origin_valid ? "true" : "false")
+                   << ";origin=" << RuntimeVectorText(origin)
+                   << ";being_look_from_write_succeeded="
+                   << (transition.write_succeeded ? "true" : "false")
+                   << ";translate_succeeded="
+                   << (transition.translate_succeeded ? "true" : "false")
+                   << ";retained_for_attack="
+                   << (transition.retained_for_attack ? "true" : "false")
+                   << ";published_fire_origin="
+                   << RuntimeVectorText(RuntimeVector(transition.origin))
+                   << ";tip_geometry_valid=" << (pose.valid ? "true" : "false")
+                   << ";grip_to_tip_distance_m=" << pose.grip_to_tip_distance_m
+                   << ";grip_to_tip_direction="
+                   << RuntimeVectorText(pose.grip_to_tip_direction)
+                   << ";dot_pos_x=" << pose.dot_positive_x
+                   << ";dot_neg_x=" << pose.dot_negative_x
+                   << ";dot_pos_y=" << pose.dot_positive_y
+                   << ";dot_neg_y=" << pose.dot_negative_y
+                   << ";dot_pos_z=" << pose.dot_positive_z
+                   << ";dot_neg_z=" << pose.dot_negative_z
+                   << ";aim_axis_assumption=negative_z"
+                   << ";direction_owner=m_avLookDirDevForHand"
+                   << ";fire_origin_owner=Being.m_vLookFromPoint"
+                   << ";attack_order=OnBeingsFrame.UpdateHandStates_before_"
+                      "OnPostBeingsUpdate.UpdateLookAndAimPoints";
+            EmitEvent(
+                "controller_aim_fire_transition",
+                gameplay_input_ok && direction_valid && origin_valid &&
+                        transition.write_succeeded && transition.translate_succeeded &&
+                        transition.retained_for_attack
+                    ? "applied"
+                    : "partial",
+                detail.str());
+        } catch (...) {
+        }
+    };
+    emit_fire_transition(
+        "left", 1,
+        aim_observation.left_direction, aim_observation.left_direction_valid,
+        aim_observation.left_origin, aim_observation.left_origin_valid,
+        aim_observation.left_pose);
+    emit_fire_transition(
+        "right", 0,
+        aim_observation.right_direction, aim_observation.right_direction_valid,
+        aim_observation.right_origin, aim_observation.right_origin_valid,
+        aim_observation.right_pose);
     if (!gameplay_input_ok || gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
             std::ostringstream gameplay_detail;
@@ -3510,7 +3871,12 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << ";blocking_ui_gameplay_suppressed="
                             << (loading_ui_input.suppress_gameplay ? "true" : "false")
                             << ";locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04"
-                            << ";route=GameInputController.InputAction.Translate"
+                            << ";route=GameInputController.InputAction.Translate";
+            if (g_java_player_bridge.last_analog_transaction_applied()) {
+                gameplay_detail
+                    << ";analog_transaction=LockApplyControllerState+dispatch+UnlockApplyControllerState+ApplyControllerState";
+            }
+            gameplay_detail
                             << ";snap_turn_degrees="
                             << g_java_player_bridge.last_snap_turn_degrees()
                             << ";snap_turn_route=PlayerBeing.RotateHorizontally";
@@ -3566,6 +3932,22 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             frame_sequence);
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
+    bool visual_body_offset_applied = false;
+    if (body_position_update.positional_6dof && !loading_ui_input.suppress_gameplay) {
+        std::string visual_body_error;
+        visual_body_offset_applied = ApplyRoomScaleBodyOffset(
+            natural_render_state,
+            relative_head_pose,
+            frame_sequence,
+            &visual_body_error);
+        if (!visual_body_offset_applied && !visual_body_error.empty()) {
+            EmitEvent(
+                "body_visual_roomscale",
+                "unavailable",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";detail=" + visual_body_error);
+        }
+    }
     const cojvr::runtime::Pose& render_head_pose = body_position_update.render_head_pose;
     std::uint64_t left_hash = 0;
     std::uint64_t right_hash = 0;
@@ -3630,6 +4012,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 frame_sequence, &right_hash);
         }
         right_state_restored = RestoreCameraRenderState(camera, natural_render_state);
+    }
+
+    if (visual_body_offset_applied) {
+        (void)RestoreRoomScaleBodyOffset(frame_sequence, "stereo_complete");
     }
 
     // The element overlay is relative to the live animated render hierarchy.
@@ -3799,6 +4185,17 @@ bool ObserveCameraGameTimerFrozen(
     bool& frozen,
     std::string* error) noexcept {
     return g_java_player_bridge.TryGetActiveGameTimerFrozen(frozen, error);
+}
+
+const char* CoJSubtitleDiagnosticStateName(
+    const bool observation_available,
+    const bool subtitles_enabled,
+    const bool dialog_playing,
+    const bool dialog_subtitle_visible) noexcept {
+    if (!observation_available) return "unavailable";
+    if (!subtitles_enabled) return "disabled";
+    if (!dialog_playing) return "idle";
+    return dialog_subtitle_visible ? "java_visible" : "java_hidden";
 }
 
 bool ParseCameraProbeCommand(
@@ -4029,6 +4426,10 @@ cojvr::runtime::Pose SuppressPhysicalTrackingTranslation(
     return pose;
 }
 
+bool ShouldRetainCoJBodyRestoreTransaction(const bool restored) noexcept {
+    return !restored;
+}
+
 bool IsSupportedChromeEngineHash(const std::string_view sha256) noexcept {
     if (sha256.size() != kInspectedChromeEngine3Sha256.size()) return false;
     for (std::size_t index = 0; index < sha256.size(); ++index) {
@@ -4238,6 +4639,9 @@ void ShutdownCameraProbe() noexcept {
         false,
         g_stereo_frame_sequence.load(std::memory_order_acquire),
         true);
+    (void)RestoreRoomScaleBodyOffset(
+        g_stereo_frame_sequence.load(std::memory_order_acquire),
+        "shutdown");
     g_java_player_bridge.Reset();
     g_loading_ui_input_gate.Reset();
     g_physical_crouch_state.Reset();
@@ -4254,6 +4658,7 @@ void ShutdownCameraProbe() noexcept {
     g_left_arm_rotation = {};
     g_right_arm_rotation = {};
     g_arm_rotation_faulted = false;
+    g_room_scale_body_offset = {};
     g_last_gameplay_telemetry = {};
     g_gameplay_telemetry_initialized = false;
     g_pose_source = nullptr;

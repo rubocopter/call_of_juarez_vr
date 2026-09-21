@@ -4,6 +4,7 @@
 /dist/
 /work/
 /.cache/
+/.codex_*_analysis/
 *.user
 *.suo
 *.VC.db

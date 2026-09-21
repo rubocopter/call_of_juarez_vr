@@ -8,7 +8,7 @@ A higher state requires direct evidence for that boundary. Static disassembly, s
 
 ## Current repository gate — 2026-09-21
 
-The current working tree is the follow-up candidate after multiprocess diagnostic rejection `20260920T214629Z-351c27f434d5`. It has not been tested in-headset.
+The current source was physically exercised by complete single-process run `20260921T192639Z-1d70905cb4f8`. That run rejects menu-pointer usability, locomotion/jump, continuous Body IK and weapon aiming. It does exercise several technical safeguards successfully: horizontal-only body compensation has zero sampled vertical pelvis displacement, unsafe arm writes fail closed, and Sense tip geometry strongly identifies local `-Z` as the pointing axis.
 
 Fresh current-tree host verification:
 
@@ -28,15 +28,16 @@ One fresh `prepare`, one Call of Juarez process, one `finish`. The run should ex
 | Area | Required observation |
 | --- | --- |
 | Startup/presentation | flat theater visible, stable scene ownership, startup skip works |
-| Menu pointer | beam starts at Sense controller; hovered item follows ray through the real mouse/hit-test path without physical mouse movement |
+| Menu pointer | beam starts at Sense controller and hover is controllable without touching the physical mouse; the current sole Win32 path is already known to fail this gate |
 | Menu actions | Cross accept, Circle normal Escape/back without layer loss/freeze, L2/R2 ray-select |
 | Blocking UI | post-load continue responds to Sense through `GameUILoading.OnInputKey` without actor/body mutation |
-| Subtitles | visible when enabled; if absent, establish runtime `Settings.bSubtitles` state and subtitle-show execution before changing layering |
+| Subtitles | enable the shipped subtitle setting first, then verify visible text; latest evidence already established `Settings.bSubtitles=false` |
 | Recenter/horizon | recenter leaves the world level even if the HMD has pitch/roll at the recenter instant |
-| Locomotion | walk/run/jump smoothness with Sense and keyboard; preserve separate evidence for native input semantics versus D3D9 readback/frame pacing |
-| Crouch | physical HMD drop preserves first-person local-mesh ownership while native crouch remains false; explicit controller crouch still works |
-| Body IK | arms remain stable/restorable; verify shoulder/reach, hand orientation and reload pose separately |
-| Weapon | repeated shots remain process-stable and controller/weapon visual origin, ballistic origin and direction are correct |
+| Locomotion | walk/run speed is acceptable and jump has useful native-scale amplitude; distinguish movement semantics from D3D9 frame pacing rather than changing controller routing again |
+| Room-scale body | physical horizontal displacement keeps actor collision native but drives a plausible visual walk animation comparable to stick locomotion |
+| Crouch | physical HMD drop preserves first-person local-mesh ownership with horizontal-only visual-body compensation while native crouch remains false; explicit controller crouch still works |
+| Body IK | arms track continuously without unsafe deformation or repeated fallback to the default game pose; verify reload separately |
+| Weapon | temporary controller ray and visible weapon barrel can be compared directly; final shots originate from the weapon/barrel and follow the intended controller-aligned direction |
 | Mode transition | flat theater and native stereo switch safely where the game state requires it |
 | Shutdown | outer `run_end` plus inner presenter finalization are both inspected |
 
@@ -55,27 +56,66 @@ Failure of one area does not invalidate independent observations, but it must no
 | Exact ±45° snap turn | headset-validated | `20260919T153546Z-705460dca03b` |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | `20260920T090448Z-b1f54e3cb38e` |
 | Local Ray/Billy head/hair suppression | headset-validated for HMD view | same run; shadow behavior unverified |
-| Analog locomotion through native float actions | host-tested; physical smoothness rejected in previous candidate | current source retains 0.04 per-axis native shaping |
+| Analog locomotion through native float actions | live-exercised / rejected for playability | current run observed 126 shipped lock/dispatch/unlock/apply transactions and `0.999992` input magnitude; routing is no longer the leading explanation for terrible movement |
+| Native jump action 11 | live-exercised / rejected | 5 sampled jump states reached gameplay, but the user reports only about a 2 cm hop |
 | Reduced routine Body IK telemetry | host-tested | introduced after `20260920T161307Z-474f0b054338` |
 | Sampled eye distinction + recycled CPU frame storage | host-tested | reduces current CPU path cost; physical smoothness still pending |
 | Yaw-only/gravity-level recenter reference | host-tested | regression covers tilted-HMD recenter; physical horizon check pending |
-| Native flat-menu cursor route | host-tested | logical global `SetPos` + `OnMouseMove` plus Win32 `SetCursorPos`/`WM_MOUSEMOVE` for shipped hover hit-testing |
-| Cross accept / Circle back / L2-R2 select | host-tested | Circle now uses active-UI Escape press/release; destructive `ShowPrevUI` route removed |
+| Native flat-menu cursor route | live-exercised / rejected | sole Win32 `SetCursorPos` + absolute `SendInput` + `WM_MOUSEMOVE` still produces an uncontrollable pointer; the user had to use the mouse |
+| Cross accept / Circle back / L2-R2 select | host-tested follow-up | Circle uses active-UI Escape and falls back to `LawmanModule.OnInputKey(Escape)` in gameplay |
 | Loading continue via `GameUILoading.OnInputKey` | host-tested | current post-run source only |
 | Paused-hint manager lookup | host-tested | shipped `LawmanModule.GetHintManager()` accessor replaces direct `m_cHintManager` lookup that emitted 202 Java exceptions |
 | Controller-origin flat beam | host-tested | current post-run source only |
-| Subtitle visibility | rejected / unresolved | latest test showed none; runtime setting versus UI/presentation loss not yet distinguished |
-| Physical crouch detection without automatic native crouch | host-tested; physical ownership rejected | latest run still exposed full avatar with `physical_crouch=true`, native `crouch=false` |
+| Subtitle setting diagnosis | live-tested | all 376 latest samples reported `Settings.bSubtitles=false`; presentation remains untested with subtitles enabled |
+| Visual body room-scale ownership | live-exercised technically | 64 sampled render-only offsets all had `world_offset.y=0` and restored; physical walking still lacks stick-equivalent locomotion animation |
 | Visible arm writer/restoration | live-tested | exact writer changes geometry and restores; visual anatomy still fails |
-| Body IK anatomy/reach/orientation | rejected / unpromoted | native chain ~49.843 units; positional targets can be reached while hand orientation/reload still fail |
+| Exact gameplay target routing | host-tested | each action now selects only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`; actions 4-7 keep the direct float path |
+| Body IK anatomy/reach/orientation | live-exercised / rejected for continuity | 43/128 sampled arm updates denied VR writes; the fail-closed policy prevents some unsafe takeover but visibly resets arms to native animation during controller motion |
+| Native reload ownership | host-tested | VR arm writes yield while `ArmedPlayerBeing.IsWeaponReloading()` is true; observation failure leaves normal IK active |
 | Controller-owned weapon direction/visual origin | host-tested | physical firing still required |
-| Scoped ballistic-origin override | host-tested | native `Being.m_vLookFromPoint` is captured and restored around fire input translation only |
+| Ballistic-origin attack-transition ownership | host-tested | fire press publishes controller `Being.m_vLookFromPoint`; native `WeaponAttack` consumes it before `UpdateLookAndAimPoints` reclaims the field |
+| Sense tip-axis/fire-transition diagnostics | live-tested diagnostically | 120 sampled axis values put local `-Z` at `0.939388..0.939389` against grip-to-tip direction; simple axis selection is no longer the main aiming hypothesis |
+| Temporary gameplay controller alignment ray | planned diagnostic | reintroduce a visible controller-tip ray only to compare tracked direction with weapon/barrel geometry before changing ballistic ownership |
 | Gameplay diagnostic shot ray | removed | no runtime `LaserPointer` object is created by the firing path |
 | Outer runtime shutdown | live-exercised | recent runs reach `run_end` |
 | Inner presenter finalization | open | recent body/playability evidence reports `shutdown_complete=false` |
 | Supported end-to-end VR release | planned | pre-alpha |
 
 ## Latest physical evidence
+
+### `20260921T192639Z-1d70905cb4f8` — complete single-process diagnostic rejection
+
+One process (PID 24736), matching `run_start`/`run_end`, intact deployment hashes and a collected evidence package. Video: `C:\Users\onita\Videos\clip_1.790.022.783.959.mp4`, 140.75 s, SHA-256 `D4AC624A58783431E842D0AAB961D3EFD88F1A6A2514CAE1F9B5232CE1421055`.
+
+The sole Win32 menu-pointer route still behaved uncontrollably and the user returned to the physical mouse. Locomotion remained terrible even though movement reached `0.999992` and 126 sampled gameplay updates reported the shipped analog transaction. Five sampled jump states reached gameplay, but the visible jump was only about 2 cm. Classic-D3D9 CPU copy measured 7.112 ms median and 9.056 ms p95.
+
+Horizontal-only room-scale body compensation is technically exercised: all 64 sampled visual-pelvis writes had zero Y offset and restored after both eyes. That fixes the previous full-XYZ mistake, but physical horizontal walking still does not trigger the visual walk animation expected from stick locomotion.
+
+Arm safety is also exercised but not accepted: 83 sampled arm updates applied VR writes while 43 denied them, including 32 reach-unsafe cases; 80 samples rejected the hand residual. The user sees this fail-closed behavior as the arms repeatedly snapping back to the game's default pose when moving the Sense controllers. Body IK remains rejected.
+
+Aim diagnostics narrow the weapon problem. Across 120 grip-to-tip axis samples, `dot(-Z)` stays at `0.939388..0.939389`, strongly confirming local `-Z` as the Sense tip convention. Twenty-one fire transitions successfully published changing controller directions/origins, yet the user still saw nonsensical shots. The remaining fault is therefore downstream of simple tip-axis selection. The next diagnostic must temporarily render a controller-tip ray and compare it directly with the visible weapon/barrel; production shots are required to originate from the weapon barrel rather than from an arbitrary controller point.
+
+Inner presenter finalization still reported `shutdown_complete=false`. No playability gate advances. Metadata: `docs/research/evidence/20260921T192639Z-1d70905cb4f8.json`.
+
+### `20260921T163309Z-481defca3401` — reused-run diagnostic rejection
+
+The first launch had a stuck SteamVR UI and the game was started again without preparing a new run ID, so the staged identity spans PIDs 2372 and 14492 and cannot promote any gate. PID 14492 is the useful gameplay process. Video: `C:\Users\onita\Videos\clip_1.790.013.828.839.mp4`.
+
+The VR menu pointer could finally select items but moved chaotically and was difficult to control. Walking and jumping remained unacceptable even though movement again reached `0.999992`. The local model still entered the headset view, including after recenter; shooting remained impossible to aim reliably; and the right arm still contorted visibly.
+
+Telemetry in the useful process reached `119.548°` upper-arm rotation, `175.008°` forearm rotation, `179.47°` hand residual and `12.892973` game units of vertical visual-pelvis room-scale displacement. These observations drove the current single-owner pointer path, native analog transaction, horizontal-only visual-body compensation, arm rotation-plan safety and tip-axis/fire-transition diagnostics. No validation state advances.
+
+Metadata: `docs/research/evidence/20260921T163309Z-481defca3401.json`.
+
+### `20260920T235112Z-6b2d91cda4a5` — single-process diagnostic rejection
+
+Complete dirty-source run tied to build manifest `DE2AEC43078653EC49E5A7CF686B5C472594D1F07E423273265C5AD6E73D1E93`, one process (PID 19572), matching `run_start`/`run_end`, and the supplied 126.629-second video. It is valid diagnostic evidence but rejects every exercised playability gate.
+
+Menu hover changed only while the physical mouse moved, despite logical cursor, `SetCursorPos` and posted `WM_MOUSEMOVE` routes. Circle could not open an exit/pause path from native-stereo gameplay. Physical steps and crouch exposed the local avatar. Walking and jump remained slow and poor; however, movement reached 0.999623/0.999992 maximum axis magnitude, so input range was not clipped. All 376 subtitle observations reported `Settings.bSubtitles=false`.
+
+The right arm visibly deformed. Telemetry observed targets up to 75.800 units against the 49.843-unit native chain and hand residuals up to 175.967 degrees. Arm transactions still restored cleanly in the sampled telemetry. D3D9 CPU copy measured 6.890 ms median and 9.692 ms p95 at 1920x1080 per eye, and inner presenter shutdown still reported `shutdown_complete=false`. No validation state advances.
+
+Metadata: `docs/research/evidence/20260920T235112Z-6b2d91cda4a5.json`.
 
 ### `20260920T214629Z-351c27f434d5` — multiprocess diagnostic rejection
 

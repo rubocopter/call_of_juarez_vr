@@ -46,11 +46,11 @@ The writer/restoration mechanism is live-exercised; visual Body IK remains unpro
 
 A failed candidate mapped recentered controller positions around tracking-space origin while the live skeleton was far away in game world coordinates. Current mapping anchors hand targets to the live head/body neighborhood and transforms `(tracked hand - tracked head)` through the exact Call of Juarez camera basis.
 
-Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping and leaves room-scale translation camera-owned while native actor position/grounding stay game-owned.
+Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
 
 ## Telemetry cost
 
-Run `20260920T161307Z-474f0b054338` emitted 11,192 successful arm-tracking and 11,192 successful restore records while the user observed jerky movement even with keyboard. Latest diagnostic evidence `20260920T214629Z-351c27f434d5` remained severely jerky after routine telemetry/hash sampling and CPU-buffer reuse. Its gameplay process measured classic-D3D9 CPU copy at 7.432 ms median and 8.994 ms p95, so the renderer transport is now a measured performance problem independent of arm logging.
+Run `20260920T161307Z-474f0b054338` emitted 11,192 successful arm-tracking and 11,192 successful restore records while the user observed jerky movement even with keyboard. Latest complete single-process evidence `20260921T192639Z-1d70905cb4f8` still rejects movement and measures classic-D3D9 CPU copy at 7.112 ms median and 9.056 ms p95, so renderer transport remains a measured performance problem independent of arm logging.
 
 Routine arm telemetry remains sampled; write failures, rollback and restoration faults remain unconditional. Arm solving still has to be evaluated independently from renderer frame pacing.
 
@@ -67,22 +67,22 @@ Controller `/pose/tip` supplies the exact per-hand direction and mapped visual o
 
 Run `20260920T204507Z-6db13f3107e0` ended immediately after the user's first shot attempt, before post-input telemetry recorded `fire_left/right=true`. The previous implementation already marked the pressed hand as cross-frame owner on that first press, so it could overwrite global `Being.m_vLookFromPoint` without first capturing/restoring the native value. That ownership was removed.
 
-Current source allows controller-derived ballistic origin only around a synchronous fire `InputDigital.Translate` transition: read native `Being.m_vLookFromPoint`, write the selected controller origin, translate the input, then restore the captured native value immediately. Unchanged held frames do not mutate the field. The gameplay `LaserPointer` diagnostic path has also been removed.
+Further bytecode inspection established that `InputDigital.Translate` selects the requested hand/fire state but does not synchronously execute the final shot. The actual attack follows through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`, whose ordinary local origin reaches `GetFireOriginForWeapon -> Being.m_vLookFromPoint`. Current source therefore captures the native value and publishes the selected controller origin on the fire press transition so that the later native attack can consume it. If `Translate` fails the captured native value is restored immediately; after a successful transition, shipped `UpdateLookAndAimPoints` reclaims normal ownership. Unchanged held frames do not republish the field. The gameplay `LaserPointer` diagnostic path has also been removed.
 
-In the latest gameplay process under reused run ID `20260920T214629Z-351c27f434d5`, 55 fire-pressed samples were recorded and the process reached normal outer `run_end`. This shows that the earlier first-shot termination was not reproduced, but the user still judged the shots to originate/travel incorrectly. Because that run ID covered three processes, it is diagnostic stability evidence only and cannot promote firing.
+The latest complete single-process run records 24 sampled fire states and 21 explicit fire-transition publications while reaching normal outer `run_end`; first-shot process termination is no longer the active problem. Aiming remains visibly wrong.
 
-The next aim investigation must distinguish four independently owned values/orderings: controller tip mapping, `m_avAimFromPoint[hand]` visual origin, `Being.m_vLookFromPoint` synchronous ballistic origin and `m_avLookDirDevForHand[hand]` direction. Do not treat “no crash” as proof that any of those values are correct.
+The controller-axis question is now mostly closed: 120 sampled `handgrip -> tip` comparisons put local `-Z` at `0.939388..0.939389`, far above the other local axes. The next aim investigation must therefore distinguish `m_avAimFromPoint[hand]` visual origin, the visible weapon/barrel transform, `Being.m_vLookFromPoint` ballistic origin and `m_avLookDirDevForHand[hand]` direction. Reintroduce a temporary controller-tip ray so the tracked direction can be seen beside the rendered weapon. The ray is instrumentation only; production shots must originate from the visible weapon barrel/muzzle.
 
 ## Latest anatomy rejection
 
-The latest clip still shows arms that feel too short and visibly contort during reload. Telemetry does not support solving this by scaling the upper/forearm chain globally:
+The newest clip shows a different failure mode: safety blocks some extreme writes, but the arms repeatedly return to the native/default game pose as the Sense controllers move. Telemetry does not support solving this by scaling the upper/forearm chain globally:
 
-- many poses have controller targets inside the ~49.843-unit measured native reach;
-- elbow and wrist positional targets are often reached with very small residual error;
-- `hand_orientation_reached=false` remains common with large up/forward orientation error;
+- retained formal evidence sampled controller targets up to 75.800 units against the ~49.843-unit measured native reach;
+- the latest run denied 43/128 sampled arm updates, including 32 reach-unsafe samples, while 80 samples rejected the hand residual;
+- elbow and wrist positional targets can still be reached while the resulting orientation is anatomically invalid;
 - reload introduces a visible conflict between native animation and VR-driven element rotation.
 
-The next controlled experiments are clavicle/shoulder participation and animation ownership during reload, with hand orientation measured separately from positional reach.
+The current candidate applies a hand residual only when the original mismatch is at most 30 degrees, rejects arm writes more than 10% beyond measured reach, requires a conservative upper/forearm rotation plan, keeps FORETWIST roll disabled and yields to shipped reload ownership. Unsafe plans return ownership to native animation. That fail-closed behavior is technically safer but visually discontinuous; the next solver work must maintain plausible continuous ownership across ordinary controller motion before adding more body scope. Clavicle/shoulder participation remains a measured experiment, with hand orientation kept separate from positional reach.
 
 ## Current body acceptance boundary
 

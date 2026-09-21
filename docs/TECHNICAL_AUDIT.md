@@ -1,6 +1,6 @@
 # Technical audit — current baseline
 
-Last refreshed: 2026-09-20.
+Last refreshed: 2026-09-21.
 
 This document describes the current engineering baseline and the findings that still matter. Historical investigation details were intentionally removed once their conclusions became enforced contracts or retained evidence.
 
@@ -27,9 +27,9 @@ The repository has moved beyond the original blank-headset/bootstrap problem. Cu
 - exact visible arm mutation/restoration against the live skeleton;
 - physically validated local head/hair suppression for the exercised Ray/Billy path.
 
-The latest physical playability evidence is run ID `20260920T214629Z-351c27f434d5`. It is a **multiprocess diagnostic rejection** because the same staged run ID was reused by PIDs 12048, 8600 and 4688 after Circle/back failures forced relaunches. Sense input skipped the intro videos, but subtitles were invisible, menu hover still did not follow the controller ray, Circle could corrupt/freeze the menu presentation, locomotion and jump remained unacceptable, physical crouch exposed the full avatar, and arm/reload anatomy remained rejected. The gameplay process recorded repeated fire input and reached outer `run_end`, so the previous first-shot termination was not reproduced, but weapon origin/direction still looked wrong. No gate is promoted from this evidence.
+The newest physical diagnostic is complete single-process run `20260921T192639Z-1d70905cb4f8`, correlated with `clip_1.790.022.783.959.mp4`. The sole Win32 pointer is still unusable, locomotion/jump remain unacceptable after the shipped analog controller-state transaction, arm safety produces visible fallback to native poses, and weapon shots remain wrong. At the same time, the run proves two useful technical facts: horizontal-only visual-pelvis compensation now has zero sampled Y displacement, and Sense grip-to-tip geometry strongly identifies local `-Z` as the tip direction. These narrow the remaining failures without promoting playability.
 
-The current source contains follow-up fixes for those observations and passes current Debug and Release suites at **24 PASS + 1 expected classic-D3D9 shared-texture capability SKIP**. These changes are host-tested only.
+The current source is the physically rejected candidate from that run and still passes Debug and Release at **24 PASS + 1 expected classic-D3D9 shared-texture capability SKIP**. Host success therefore cannot be treated as evidence of UI, locomotion, anatomy or aiming quality.
 
 ## Audit findings
 
@@ -52,43 +52,43 @@ The current source contains follow-up fixes for those observations and passes cu
 
 ### UI ownership
 
-The latest physical route drew a usable Sense beam but did not move the highlighted menu option with hover. Moving the real mouse immediately updated hover, proving that moving the `UICursorGame` sprite is not sufficient. Static bytecode inspection agrees: `UICursor.OnMouseMove(FFI)` moves the cursor visual, while window hit-testing/process-mouse paths consume the engine/Win32 mouse position. Current host source therefore keeps `UICursorGame.SetPos(LVector;)V` + `OnMouseMove(FFI)V` for logical synchronization and also publishes the projected ray through Win32 `SetCursorPos` + `WM_MOUSEMOVE` to the game window.
+The dual-owner Java+Win32 route could select but was chaotic. The next candidate removed Java ownership and left only `SetCursorPos` + absolute `SendInput` + `WM_MOUSEMOVE`; run `20260921T192639Z-1d70905cb4f8` still found the pointer uncontrollable and required the physical mouse. Pointer instability therefore is not explained solely by competing owners. Treat the current projection/input ownership model as unresolved rather than stacking another cursor route on top.
 
-Circle was also bound to the wrong semantic route. `MainMenuModule.ShowPrevUI()` is not equivalent to normal Escape and matched the observed layer disappearance/frozen-flat behavior. Current host source dispatches an Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal(1, ...)` path instead. Cross remains accept, L2/R2 remain ray-select, and `GameUILoading.OnInputKey(IZC)V` owns the blocking post-load continue path.
+Circle used normal Escape only while a current menu UI existed. Native-stereo gameplay had no current UI and therefore no usable exit path. Current host source retains `GameUserInterface.CallOnInputKeyGlobal(1, ...)` for existing UI and falls back to `LawmanGame.sm_cActiveGameModule.OnInputKey(1, ...)` so the shipped module creates the pause menu. Cross remains accept, L2/R2 remain ray-select, and `GameUILoading.OnInputKey(IZC)V` owns the blocking post-load continue path.
 
 The same run produced 202 `java.lang.NoSuchFieldError: m_cHintManager` exceptions from direct inherited-field lookup in the paused-hint helper. Current source uses the shipped `LawmanModule.GetHintManager()` accessor before `HintManager.DisableCurrentHint`, avoiding that known exception route. These UI changes are host-tested only.
 
-This is the next physical UI gate.
+This remains an open UI architecture/debugging problem rather than a host-only gate.
 
 ### Subtitles
 
-Subtitles were not visible in the latest headset test. `DialogSubtitle.Show(String)` first checks `Settings.bSubtitles`, then creates/positions the subtitle text and moves it to the top of its UI layer. The options menu writes `Settings.bSubtitles` and saves settings. The evidence does not yet establish whether the runtime flag was false or whether valid subtitle UI was lost by layering/capture. Do not force-enable or relocate subtitles until the next diagnostic distinguishes those cases.
+Retained diagnostic run `20260920T235112Z-6b2d91cda4a5` recorded 376 subtitle states with `Settings.bSubtitles=false`. `DialogSubtitle.Show(String)` exits when that setting is false, so that run explains its subtitle absence without evidence of a layering/capture defect. Enable subtitles through the shipped setting before judging presentation; do not force-enable or relocate them in the adapter.
 
 ### Shared playability stutter
 
-Run `20260920T161307Z-474f0b054338` contained 11,192 successful `body_arm_tracking` and 11,192 successful `body_arm_restore` records. The latest gameplay process still felt severely jerky after telemetry/hash reduction and CPU-buffer reuse. Its 70 sampled D3D9 CPU copies measured 7.432 ms median, 8.994 ms p95 and 9.644 ms maximum while rendering/capturing 1920x1080 per eye; SteamVR recommended 3400x3468. At 120 Hz the entire frame budget is about 8.33 ms, so classic-D3D9 GPU->CPU readback is now a measured structural bottleneck rather than merely a logging hypothesis.
+The latest complete-process transport sample, `20260921T192639Z-1d70905cb4f8`, measured D3D9 CPU copy at 7.112 ms median, 9.056 ms p95 and 11.849 ms maximum while rendering/capturing 1920x1080 per eye. At 120 Hz the entire frame budget is about 8.33 ms, so classic-D3D9 GPU->CPU readback remains a measured structural bottleneck.
 
-Locomotion input itself reaches the game as continuous native action values and jump presses are recorded, so movement semantics still need separate investigation. Do not remove walk animation or alter jump physics merely from appearance until their exact native route is established.
+Locomotion again reached `0.999992`, and 126 sampled updates explicitly reported the shipped `LockApplyControllerState -> Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. That correction did not make locomotion acceptable, so missing transaction semantics are ruled out as the primary cause. Five sampled jump states also reach exact native digital action 11, yet the observed hop is only about 2 cm. The next investigation must measure game-space speed/jump displacement and renderer cadence separately instead of continuing guess-and-check input changes.
 
 OFXR-Bridge is not a direct fix for this active path. It is an experimental OpenXR API layer that inserts optical-flow-generated frames between OpenXR submissions; the current backend is classic D3D9 + OpenVR and pays the CPU readback before compositor submission. OFXR therefore cannot remove this D3D9 readback or recover source detail that was never rendered. Keep it as future OpenXR/frame-generation research after a GPU-resident transport exists.
 
 ### Recenter level reference
 
-The latest clip visibly showed a rolled horizon. The old recenter tracker captured the complete HMD basis, so pitch/roll present during recenter could become part of relative tracking space. Current host source derives the recenter reference from gravity plus HMD yaw only; a tilted-recenter regression test covers this boundary.
+Earlier evidence visibly showed a rolled horizon. The old recenter tracker captured the complete HMD basis, so pitch/roll present during recenter could become part of relative tracking space. Current host source derives the recenter reference from gravity plus HMD yaw only; a tilted-recenter regression test covers this boundary.
 
 ### Body anatomy
 
-The exact visible writer is proven live, but visual anatomy is not. The latest clip still shows arms that feel short and visibly deform/contort, especially during reload. Telemetry frequently reaches elbow/wrist positional targets with tiny residuals while `hand_orientation_reached=false` and orientation errors remain large. Many sampled controller targets are within the measured ~49.843-unit upper+forearm reach, so the data does not support blindly scaling both bones. Clavicle/shoulder participation and conflict between the native reload animation and the VR writer are the next controlled anatomy questions.
+The exact visible writer is proven live, but current safety ownership is not usable. In the latest run, 43/128 sampled arm updates denied VR writes and 32 were reach-unsafe; 80 samples rejected hand residuals. The user sees this as the arms repeatedly snapping back to the default game pose while moving the Sense controllers. The safety guard is doing its fail-closed job, but the remaining anatomy problem is now continuity/ownership as much as raw rotation limits.
 
 ### Weapon origin and direction
 
-Static bytecode and host tests establish distinct direction/visual-origin/ballistic-origin ownership. The earlier run `20260920T204507Z-6db13f3107e0` ended on the first shot attempt before post-input fire telemetry was emitted, motivating transactional ownership of global `Being.m_vLookFromPoint`. Current source captures the native value, overrides it only for the synchronous fire `InputDigital.Translate` call and immediately restores it; the gameplay `LaserPointer` diagnostic path is removed.
+Static bytecode and host tests establish distinct direction/visual-origin/ballistic-origin ownership. `InputDigital.Translate` selects the hand/fire state and the actual native attack later follows `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`, where `GetFireOriginForWeapon` reads `Being.m_vLookFromPoint`. Full method-order inspection further establishes that `ArmedPlayerBeing.OnBeingsFrame()` executes `UpdateHandStates` before `OnPostBeingsUpdate()` later executes `UpdateLookAndAimDirs` and `UpdateLookAndAimPoints`; the native post-update recomputation therefore cannot erase the published fire transition before `WeaponAttack`. Translation failure rolls back the captured native value.
 
-In the latest gameplay process, 55 fire-pressed samples were recorded and the process reached normal outer `run_end`, so the previous first-shot termination was not reproduced. This is useful stability evidence but not an aiming promotion: the user still rejected shot origin/direction. The next investigation must identify whether the remaining error is visual origin, ballistic origin, per-hand direction or call ordering.
+The newest run resolves the simple Sense-axis question: 120 grip-to-tip comparisons put local `-Z` at `0.939388..0.939389`, and 21 fire transitions successfully publish varying controller directions/origins. Shots are still visibly wrong, so a guessed controller-axis offset is no longer justified. Reintroduce a temporary controller-tip ray only as a visual diagnostic, then compare that ray with the visible weapon/barrel and trace the mismatch through weapon visual transform, muzzle origin and ballistic ownership. Production shots must originate from the visible barrel/muzzle.
 
 ### Physical crouch
 
-The latest physical run disproves the previous double-crouch explanation. Telemetry recorded `physical_crouch=true` while native `crouch=false`, yet lowering the HMD still exposed the full local avatar. The remaining problem is first-person camera/model ownership: room-scale vertical head motion can move the camera into/through body geometry while only the local head/hair are suppressed. Explicit controller crouch still uses the native action. Any mesh-visibility change must preserve tracked arms, shadows and the future full-body path.
+The previous full-XYZ pelvis error is now technically corrected: 64 sampled room-scale writes in the latest run all had zero vertical world offset and restored after both eyes. The new gap is animation ownership. Physical horizontal HMD displacement moves the visual body anchor but does not trigger the walking animation expected from stick movement. Add this as a distinct body requirement while keeping native actor position, grounding and collision authoritative.
 
 ### Presenter finalization
 

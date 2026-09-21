@@ -90,6 +90,9 @@ if ($RequireOpenVrRuntimeState) {
 Assert-LogMatch `
     "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/\{left,right\}/pose/handgrip aim_pose=/user/hand/\{left,right\}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread" `
     "The native-stereo OpenVR global/gameplay input action sets did not initialize."
+Assert-LogMatch `
+    "camera_probe_event: event=subtitle_state result=observed detail=.*;subtitles_enabled=(true|false);dialog_playing=(true|false);current_line_visible=(true|false);dialog_subtitle_visible=(true|false);diagnostic=(disabled|idle|java_hidden|java_visible)" `
+    "The run did not capture the native Java subtitle setting/dialog visibility state."
 if ($RequireFlatTheaterUi) {
     Assert-LogMatch `
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
@@ -98,11 +101,11 @@ if ($RequireFlatTheaterUi) {
         "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;beam_origin=[0-9]+,[0-9]+;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
         "No valid Sense ray produced a flat-theater beam from the projected controller origin."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_position" `
-        "The flat-theater pointer did not reach the game-window cursor position."
-    Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos\+OnMouseMove" `
-        "The projected Sense pointer never reached CoJ's logical cursor position plus mouse-move route."
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_position\+SendInput_absolute\+WM_MOUSEMOVE" `
+        "The flat-theater pointer did not reach the real Windows mouse-input path."
+    Assert-LogNotMatch `
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied" `
+        "The flat-menu pointer had simultaneous Win32 and logical-Java cursor owners."
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
         "No Sense trigger press reached an exact CoJ UI/select route."
@@ -110,8 +113,8 @@ if ($RequireFlatTheaterUi) {
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
         "Cross did not reach an exact CoJ accept/select route."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=MainMenuModule.ShowPrevUI" `
-        "Circle did not reach MainMenuModule.ShowPrevUI for menu back."
+        "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=(GameWithMenu\.sm_cMenuModule\.GetCurrentUI|LawmanGame\.sm_cActiveGameModule\.cMenu\.GetCurrentUI)\.CallOnInputKeyGlobal\(Escape\)" `
+        "Circle did not reach the active UI's normal Escape press/release route for menu back."
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=GameWithMenu.sm_cIntroModule.OnInputKey" `
         "No Sense trigger press skipped a startup video through IntroModule.OnInputKey."
@@ -403,6 +406,24 @@ if ($RequirePositional6Dof) {
     if (-not $MeaningfulPositionObserved) {
         throw "Telemetry did not capture at least 3 cm of valid physical HMD translation for the 6DOF gate."
     }
+
+    $RoomScaleBodyLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=body_visual_roomscale result=applied"
+    })
+    foreach ($Line in $RoomScaleBodyLines) {
+        $WorldOffsetMatch = [regex]::Match(
+            $Line,
+            "world_offset=\(([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)\)")
+        if (-not $WorldOffsetMatch.Success) {
+            throw "A visual body room-scale sample did not report its world offset."
+        }
+        $VerticalOffset = [double]::Parse(
+            $WorldOffsetMatch.Groups[2].Value,
+            [System.Globalization.CultureInfo]::InvariantCulture)
+        if (-not [double]::IsFinite($VerticalOffset) -or [Math]::Abs($VerticalOffset) -gt 0.001) {
+            throw "Visual body room-scale compensation applied vertical HMD translation to the pelvis."
+        }
+    }
 }
 
 if ($RequireBodyIk) {
@@ -424,7 +445,7 @@ if ($RequireBodyIk) {
             if ($Line -notmatch ";plan_valid=true;" -or
                 $Line -notmatch ";rotation_plan_valid=true;" -or
                 $Line -notmatch ";write_enabled=true;write_allowed=true;write_ok=true;" -or
-                $Line -notmatch ";hand_orientation=calibrated_controller_delta_diagnostic_only;" -or
+                $Line -notmatch ";hand_orientation=calibrated_controller_delta_bounded_hand_residual;" -or
                 $Line -notmatch ";tracking_basis=level_recenter_minus_actor_yaw;" -or
                 $Line -notmatch ";controller_orientation_valid=true;" -or
                 $Line -notmatch ";orientation_calibration_recenter_sequence=[0-9]+;" -or
@@ -442,16 +463,19 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";forearm_native_axis=\(" -or
                 $Line -notmatch ";forearm_twist_native_axis=\(" -or
                 $Line -notmatch ";twist_owner=foretwist_element;" -or
-                $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis_diagnostic;" -or
+                $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis;" -or
                 $Line -notmatch ";hand_residual_native_axis=\(" -or
                 $Line -notmatch ";hand_residual_degrees=[-+0-9.eE]+;" -or
-                $Line -notmatch ";hand_rotation_mode=controller_orientation_diagnostic_only;" -or
+                $Line -notmatch ";hand_rotation_mode=bounded_hand_residual;" -or
+                $Line -notmatch ";hand_rotation_limit_degrees=30(?:\.0+)?;" -or
+                $Line -notmatch ";hand_residual_rejected=(?:true|false);" -or
+                $Line -notmatch ";reach_write_safe=true;" -or
                 $Line -notmatch ";hand_native_axis=\(" -or
                 $Line -notmatch ";hand_rotation_degrees=[-+0-9.eE]+;" -or
-                $Line -notmatch ";hand_rotation_no_op=true;" -or
+                $Line -notmatch ";hand_rotation_no_op=(?:true|false);" -or
                 $Line -notmatch ";forearm_twist_limit_degrees=0;" -or
                 $Line -notmatch ";forearm_twist_no_op=true;" -or
-                $Line -notmatch ";skinning_contract=foretwist_sibling_swing_hand_native_orientation;" -or
+                $Line -notmatch ";skinning_contract=foretwist_sibling_swing_plus_bounded_hand_residual;" -or
                 $Line -notmatch ";skinning_frames_reached=true;" -or
                 $Line -notmatch ";native_axis_space=element_local;" -or
                 $Line -notmatch ";targets_reached=true;" -or
@@ -467,6 +491,32 @@ if ($RequireBodyIk) {
             $SkinError = [double]::Parse($SkinErrorMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
             if (-not [double]::IsFinite($SkinError) -or $SkinError -lt 0 -or $SkinError -gt 0.02) {
                 throw "Sibling skinning frame mismatch exceeded tolerance."
+            }
+            $HandRotationMatch = [regex]::Match($Line, ";hand_rotation_degrees=([-+0-9.eE]+);")
+            if (-not $HandRotationMatch.Success) { throw "Missing bounded hand residual angle." }
+            $HandRotation = [double]::Parse($HandRotationMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            if (-not [double]::IsFinite($HandRotation) -or $HandRotation -lt 0 -or $HandRotation -gt 30.001) {
+                throw "Controller-driven hand residual exceeded the 30-degree safety bound."
+            }
+            $HandResidualMatch = [regex]::Match($Line, ";hand_residual_degrees=([-+0-9.eE]+);")
+            $HandNoOp = $Line -match ";hand_rotation_no_op=true;"
+            $HandRejected = $Line -match ";hand_residual_rejected=true;"
+            if (-not $HandResidualMatch.Success) { throw "Missing observed hand residual angle." }
+            $HandResidual = [double]::Parse($HandResidualMatch.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+            if ($HandResidual -gt 30.001 -and
+                (-not $HandRejected -or -not $HandNoOp -or $HandRotation -gt 0.001)) {
+                throw "An excessive controller hand mismatch was partially applied instead of preserving the native wrist pose."
+            }
+            foreach ($RotationField in @("upper_rotation_degrees", "forearm_rotation_degrees")) {
+                $RotationMatch = [regex]::Match($Line, ";$RotationField=([-+0-9.eE]+);")
+                if (-not $RotationMatch.Success) { throw "Missing $RotationField arm safety telemetry." }
+                $RotationDegrees = [double]::Parse(
+                    $RotationMatch.Groups[1].Value,
+                    [System.Globalization.CultureInfo]::InvariantCulture)
+                if (-not [double]::IsFinite($RotationDegrees) -or
+                    $RotationDegrees -lt 0 -or $RotationDegrees -gt 120.001) {
+                    throw "A tracked arm write exceeded the 120-degree native-animation takeover bound."
+                }
             }
         }
     }
@@ -540,6 +590,15 @@ if ($RequireBodyIk) {
     }) {
         throw "The body IK gate recorded a failed element-hierarchy restore."
     }
+    Assert-LogMatch `
+        "camera_probe_event: event=body_visual_roomscale result=applied detail=.*;actor_write=false;scope=stereo_render_only;restore=after_both_eyes" `
+        "The body IK gate did not move the local visual body with room-scale HMD translation."
+    Assert-LogMatch `
+        "camera_probe_event: event=body_visual_roomscale_restore result=ok detail=.*;reason=stereo_complete" `
+        "The room-scale local-body overlay did not restore after both eye renders."
+    Assert-LogNotMatch `
+        "camera_probe_event: event=body_visual_roomscale_restore result=failed" `
+        "The room-scale local-body overlay recorded a failed pelvis restoration."
 
     $LowerBodyLines = @($Lines | Where-Object {
         $_ -match "camera_probe_event: event=body_lower_tracking result=observed"
@@ -564,8 +623,17 @@ if ($RequireBodyIk) {
 
 if ($RequireGameplayInput) {
     Assert-LogMatch `
-        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_scoped_input_translation;visual_origin_owner=m_avAimFromPoint;fire_origin_release=immediate_native_restore;native_accuracy_spread=preserved" `
+        "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_circle;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
+        "Circle did not open the shipped in-game Escape menu from native-stereo gameplay."
+    Assert-LogMatch `
+        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_attack_transition;visual_origin_owner=m_avAimFromPoint;fire_origin_release=native_UpdateLookAndAimPoints;native_accuracy_spread=preserved" `
         "Controller tip direction/origin did not reach the exact per-hand CoJ aiming fields with deferred weapon-state ownership."
+    Assert-LogMatch `
+        "camera_probe_event: event=controller_aim_geometry result=observed detail=.*left_grip_to_tip_distance_m=.*;left_dot_neg_z=.*;right_grip_to_tip_distance_m=.*;right_dot_neg_z=.*;axis_reference=grip_to_tip_tracking_space" `
+        "The gameplay gate did not capture grip-to-tip geometry needed to validate the runtime tip-axis convention."
+    Assert-LogMatch `
+        "camera_probe_event: event=controller_aim_fire_transition result=applied detail=.*;side=(left|right);.*;direction=\(.*\);.*;origin=\(.*\);.*;grip_to_tip_direction=\(.*\);.*;dot_neg_z=.*;aim_axis_assumption=negative_z;direction_owner=m_avLookDirDevForHand;fire_origin_owner=Being.m_vLookFromPoint" `
+        "A fire press did not preserve the exact controller aim/origin and tip-axis diagnostics at the native attack transition."
     Assert-LogMatch `
         "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=false;physical_crouch=true;.*;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate" `
         "The gameplay gate did not keep physical crouch separate from the native crouch action."
@@ -594,6 +662,10 @@ if ($RequireGameplayInput) {
             $First = [Math]::Abs([double]::Parse($Match.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture))
             $Second = [Math]::Abs([double]::Parse($Match.Groups[2].Value, [System.Globalization.CultureInfo]::InvariantCulture))
             if ($First -ge 0.15 -or $Second -ge 0.15) { $AxisActive = $true }
+        }
+        if ($AxisActive -and
+            $Line -notmatch ";analog_transaction=LockApplyControllerState\+dispatch\+UnlockApplyControllerState\+ApplyControllerState;") {
+            throw "Active analog locomotion did not reproduce the shipped controller-state transaction."
         }
         if ($AxisActive -or $DigitalPressed) {
             $MeaningfulGameplayInput = $true

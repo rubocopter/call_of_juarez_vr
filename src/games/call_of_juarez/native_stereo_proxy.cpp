@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -113,6 +114,27 @@ void NeutralizeFlatUiPointer(const char* reason) noexcept {
     }
 }
 
+bool SendAbsoluteMouseMove(const POINT screen) noexcept {
+    const LONG left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const LONG top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    const LONG width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    const LONG height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    if (width <= 1 || height <= 1) return false;
+
+    const auto normalize = [](const LONG value, const LONG origin, const LONG extent) noexcept {
+        const double relative = static_cast<double>(value - origin);
+        const double scaled = relative * 65535.0 / static_cast<double>(extent - 1);
+        return static_cast<LONG>(std::lround(std::max(0.0, std::min(65535.0, scaled))));
+    };
+
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    input.mi.dx = normalize(screen.x, left, width);
+    input.mi.dy = normalize(screen.y, top, height);
+    input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+    return SendInput(1, &input, sizeof(input)) == 1;
+}
+
 void FlatUiPointer(
     void*,
     const cojvr::backends::openvr::FlatUiPointerSample& sample) noexcept {
@@ -146,13 +168,15 @@ void FlatUiPointer(
             static_cast<LONG>(std::lround(sample.v * static_cast<float>(height - 1))),
         };
         POINT screen = client_pointer;
-        if (!ClientToScreen(root, &screen) || !SetCursorPos(screen.x, screen.y)) {
+        if (!ClientToScreen(root, &screen) || !SetCursorPos(screen.x, screen.y) ||
+            !SendAbsoluteMouseMove(screen)) {
             NeutralizeFlatUiPointer("cursor_move_failed");
             return;
         }
-        // Chrome Engine's UI hit-testing reacts to the window mouse-move path.
-        // SetCursorPos alone updates the OS cursor but did not produce hover in
-        // the 20260920 headset run until a physical mouse movement arrived.
+        // Chrome Engine's UI hit-testing also consumes the real mouse-input
+        // stream. A posted WM_MOUSEMOVE plus cursor relocation still required a
+        // physical mouse nudge in the 20260921 headset clip, so publish an
+        // absolute SendInput move before synchronizing the window message.
         if (!PostMessageW(
                 root, WM_MOUSEMOVE, 0,
                 MAKELPARAM(client_pointer.x, client_pointer.y))) {
@@ -165,7 +189,7 @@ void FlatUiPointer(
             std::ostringstream detail;
             detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
                    << ";source=" << sample.source_width << 'x' << sample.source_height
-                   << ";route=win32_cursor_position+WM_MOUSEMOVE";
+                   << ";route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE";
             CameraEvent("flat_ui_pointer", "active", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = true;
@@ -325,45 +349,11 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         }
 
         const bool pointer_active = FlatUiPointerActive();
-        if (pointer_active) {
-            std::uint32_t pointer_x = 0;
-            std::uint32_t pointer_y = 0;
-            std::string pointer_error;
-            const bool pointer_dispatched = ReadFlatUiPointer(pointer_x, pointer_y) &&
-                cojvr::games::call_of_juarez::DispatchCameraUiPointerMotion(
-                    static_cast<float>(pointer_x), static_cast<float>(pointer_y),
-                    &pointer_error);
-            if (!pointer_dispatched && !pointer_error.empty()) {
-                bool log_error = false;
-                {
-                    std::lock_guard lock(g_stereo.flat_ui_mutex);
-                    if (!g_stereo.flat_ui_pointer_game_error_logged) {
-                        g_stereo.flat_ui_pointer_game_error_logged = true;
-                        log_error = true;
-                    }
-                }
-                if (log_error) {
-                    CameraEvent(
-                        "flat_ui_pointer_game_route", "unavailable", pointer_error.c_str());
-                }
-            } else if (pointer_dispatched) {
-                bool log_route = false;
-                {
-                    std::lock_guard lock(g_stereo.flat_ui_mutex);
-                    g_stereo.flat_ui_pointer_game_error_logged = false;
-                    if (!g_stereo.flat_ui_pointer_game_route_logged) {
-                        g_stereo.flat_ui_pointer_game_route_logged = true;
-                        log_route = true;
-                    }
-                }
-                if (log_route) {
-                    CameraEvent(
-                        "flat_ui_pointer_game_route",
-                        "applied",
-                        "route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove");
-                }
-            }
-        }
+        // Once the projected Sense ray has entered the real Windows mouse
+        // stream, let that stream be the sole owner of CoJ's menu cursor.  The
+        // 20260921 physical run showed that simultaneously forcing UICursorGame
+        // through JNI made hover/select oscillate even though SendInput itself
+        // finally reached the shipped menu input path.
 
         if (tracking.ui_back_pressed) {
             cojvr::games::call_of_juarez::CoJUiDispatchRoute back_route =

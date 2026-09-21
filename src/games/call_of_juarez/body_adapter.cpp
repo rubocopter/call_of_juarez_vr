@@ -732,6 +732,17 @@ ArmIkPlan BuildArmIkPlan(
     return result;
 }
 
+bool ShouldApplyCoJArmIk(const ArmIkPlan& plan) noexcept {
+    if (!plan.valid || !std::isfinite(plan.raw_target_distance) ||
+        !std::isfinite(plan.upper_length) || !std::isfinite(plan.lower_length)) {
+        return false;
+    }
+    if (!plan.target_clamped) return true;
+    const float native_reach = plan.upper_length + plan.lower_length;
+    if (!std::isfinite(native_reach) || native_reach <= 0.0F) return false;
+    return plan.raw_target_distance - native_reach <= native_reach * 0.10F;
+}
+
 ArmBoneRotationPlan BuildArmBoneRotationPlan(
     const ArmGeometrySample& geometry,
     const ArmIkPlan& plan) noexcept {
@@ -767,6 +778,17 @@ ArmBoneRotationPlan BuildArmBoneRotationPlan(
         lower_after_parent, desired_lower, geometry.forearm_element_forward);
     result.valid = result.forearm.valid;
     return result;
+}
+
+bool ShouldApplyCoJArmRotationPlan(const ArmBoneRotationPlan& plan) noexcept {
+    constexpr float kMaximumOverlayRotationDegrees = 120.0F;
+    if (!plan.valid || !plan.upper_arm.valid || !plan.forearm.valid ||
+        !std::isfinite(plan.upper_arm.angle_degrees) ||
+        !std::isfinite(plan.forearm.angle_degrees)) {
+        return false;
+    }
+    return plan.upper_arm.angle_degrees <= kMaximumOverlayRotationDegrees &&
+        plan.forearm.angle_degrees <= kMaximumOverlayRotationDegrees;
 }
 
 BoneRotationDelta ConvertWorldRotationToElementLocal(
@@ -963,6 +985,24 @@ float CoJArmControllerTwistLimitDegrees() noexcept {
     return 0.0F;
 }
 
+float CoJHandControllerResidualLimitDegrees() noexcept {
+    // FORETWIST controller roll remains disabled after the live corkscrewing
+    // rejection.  A smaller correction on the hand element can recover wrist
+    // orientation without rotating the upper/forearm chain. Physical evidence
+    // showed that clipping a 120-158 degree mismatch to this limit still
+    // deformed the wrist, so residuals beyond the limit now stay native.
+    return 30.0F;
+}
+
+BoneRotationDelta BuildSafeCoJHandResidual(BoneRotationDelta residual) noexcept {
+    if (!residual.valid || !std::isfinite(residual.angle_degrees)) return {};
+    const float limit = CoJHandControllerResidualLimitDegrees();
+    if (residual.no_op || residual.angle_degrees <= limit) return residual;
+    residual.angle_degrees = 0.0F;
+    residual.no_op = true;
+    return residual;
+}
+
 cojvr::runtime::Vec3 BuildTrackedHandTarget(
     const cojvr::runtime::Vec3 head_world_target,
     const cojvr::runtime::Vec3 camera_right,
@@ -1022,6 +1062,44 @@ cojvr::runtime::Vec3 BuildTrackedAimDirection(
     world = Normalize(world);
     valid = Finite(world) && Length(world) > 0.99F;
     return valid ? world : cojvr::runtime::Vec3{};
+}
+
+TrackedAimPoseDiagnostics BuildTrackedAimPoseDiagnostics(
+    const cojvr::runtime::Quaternion tip_orientation,
+    const cojvr::runtime::Vec3 grip_position,
+    const cojvr::runtime::Vec3 tip_position) noexcept {
+    TrackedAimPoseDiagnostics result{};
+    cojvr::runtime::Quaternion orientation{};
+    if (!NormalizeQuaternionChecked(tip_orientation, orientation) ||
+        !Finite(grip_position) || !Finite(tip_position)) {
+        return result;
+    }
+
+    const cojvr::runtime::Vec3 grip_to_tip = Subtract(tip_position, grip_position);
+    result.grip_to_tip_distance_m = Length(grip_to_tip);
+    if (!std::isfinite(result.grip_to_tip_distance_m) ||
+        result.grip_to_tip_distance_m <= 0.0001F) {
+        return result;
+    }
+    result.grip_to_tip_direction = Normalize(grip_to_tip);
+
+    const cojvr::runtime::Vec3 axis_x =
+        cojvr::runtime::RotateVector(orientation, {1.0F, 0.0F, 0.0F});
+    const cojvr::runtime::Vec3 axis_y =
+        cojvr::runtime::RotateVector(orientation, {0.0F, 1.0F, 0.0F});
+    const cojvr::runtime::Vec3 axis_z =
+        cojvr::runtime::RotateVector(orientation, {0.0F, 0.0F, 1.0F});
+    if (!Finite(axis_x) || !Finite(axis_y) || !Finite(axis_z)) return result;
+
+    result.dot_positive_x = Dot(result.grip_to_tip_direction, axis_x);
+    result.dot_negative_x = -result.dot_positive_x;
+    result.dot_positive_y = Dot(result.grip_to_tip_direction, axis_y);
+    result.dot_negative_y = -result.dot_positive_y;
+    result.dot_positive_z = Dot(result.grip_to_tip_direction, axis_z);
+    result.dot_negative_z = -result.dot_positive_z;
+    result.valid = std::isfinite(result.dot_positive_x) &&
+        std::isfinite(result.dot_positive_y) && std::isfinite(result.dot_positive_z);
+    return result;
 }
 
 PelvisLocomotionAnchor BuildPelvisLocomotionAnchor(

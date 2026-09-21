@@ -80,6 +80,18 @@ struct RoomScaleTranslationUpdate {
     bool valid = false;
 };
 
+struct TrackedAimPoseDiagnostics {
+    cojvr::runtime::Vec3 grip_to_tip_direction{};
+    float grip_to_tip_distance_m = 0.0F;
+    float dot_positive_x = 0.0F;
+    float dot_negative_x = 0.0F;
+    float dot_positive_y = 0.0F;
+    float dot_negative_y = 0.0F;
+    float dot_positive_z = 0.0F;
+    float dot_negative_z = 0.0F;
+    bool valid = false;
+};
+
 // Physical room-scale crouch is detected from calibrated HMD height for body
 // policy/telemetry. Native gameplay crouch remains a separate explicit action:
 // applying both at once double-crouches the avatar relative to the physical
@@ -257,6 +269,11 @@ struct LegIkPlan {
     const ArmGeometrySample& geometry,
     cojvr::runtime::Vec3 controller_target) noexcept;
 
+// Preserve small native reach clamps, but fail closed when a controller target
+// is far enough beyond the measured arm chain to force a visibly rigid or
+// contorted pose. Clavicle participation is the future owner of that reach.
+[[nodiscard]] bool ShouldApplyCoJArmIk(const ArmIkPlan& plan) noexcept;
+
 // Converts the solved world-space arm chain into the relative hierarchy
 // rotations consumed by Call of Juarez's render-element writer. The forearm
 // delta is computed after applying the upper-arm delta to the natural lower
@@ -264,6 +281,13 @@ struct LegIkPlan {
 [[nodiscard]] ArmBoneRotationPlan BuildArmBoneRotationPlan(
     const ArmGeometrySample& geometry,
     const ArmIkPlan& plan) noexcept;
+
+// A controller target can be positionally reachable while still requiring an
+// anatomically absurd takeover from the current shipped animation.  Bound the
+// single-frame upper/forearm overlay independently from reach and hand-roll
+// safety so the native pose wins when the solve would flip a joint.
+[[nodiscard]] bool ShouldApplyCoJArmRotationPlan(
+    const ArmBoneRotationPlan& plan) noexcept;
 
 // RotateElementWithChildren post-multiplies the element world matrix, so the
 // Java axis argument is expressed in the element's current local frame. Convert
@@ -319,6 +343,9 @@ struct LegIkPlan {
     BoneRotationDelta rotation,
     float max_degrees) noexcept;
 [[nodiscard]] float CoJArmControllerTwistLimitDegrees() noexcept;
+[[nodiscard]] float CoJHandControllerResidualLimitDegrees() noexcept;
+[[nodiscard]] BoneRotationDelta BuildSafeCoJHandResidual(
+    BoneRotationDelta residual) noexcept;
 
 // Maps a recentered tracked hand around the native animated head joint. The
 // controller and HMD positions are in the same tracking space; subtracting the
@@ -343,6 +370,14 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 camera_up,
     cojvr::runtime::Vec3 camera_forward,
     bool& valid) noexcept;
+
+// Compares the runtime's /pose/tip orientation axes against the physical
+// displacement from /pose/handgrip to /pose/tip. This is diagnostic only: it
+// does not choose or modify the gameplay aim axis.
+[[nodiscard]] TrackedAimPoseDiagnostics BuildTrackedAimPoseDiagnostics(
+    cojvr::runtime::Quaternion tip_orientation,
+    cojvr::runtime::Vec3 grip_position,
+    cojvr::runtime::Vec3 tip_position) noexcept;
 
 // Keeps the pelvis rooted in the native locomotion owner while exposing the
 // animated pelvis offset separately. The first lower-body pass is observation
