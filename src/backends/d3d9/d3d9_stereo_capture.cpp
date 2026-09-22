@@ -49,15 +49,26 @@ double MillisecondsBetween(
 } // namespace
 
 struct D3D9StereoCapture::Impl {
+    enum class TransportMode : std::uint8_t {
+        classic_cpu_fallback,
+        d3d9ex_shared_texture,
+    };
+
     struct Slot {
+        std::array<ComPtr<IDirect3DTexture9>, 2> gpu_textures{};
         std::array<ComPtr<IDirect3DSurface9>, 2> gpu_eyes{};
+        std::array<ComPtr<IDirect3DSurface9>, 2> system_eyes{};
+        std::array<bool, 2> system_eye_locked{};
+        std::array<std::uintptr_t, 2> shared_handles{};
         ComPtr<IDirect3DQuery9> fence;
+        std::shared_ptr<ProducerFrameReleaseState> release_state{};
         std::array<bool, 2> eye_captured{};
         std::uint64_t frame_sequence = 0;
         std::uint64_t render_pose_sequence = 0;
         runtime::Pose render_hmd_pose{};
         std::chrono::steady_clock::time_point capture_time{};
         bool pending = false;
+        bool fence_flush_issued = false;
 
         void ResetState() noexcept {
             eye_captured = {};
@@ -66,11 +77,12 @@ struct D3D9StereoCapture::Impl {
             render_hmd_pose = {};
             capture_time = {};
             pending = false;
+            fence_flush_issued = false;
+            release_state.reset();
         }
     };
 
     std::array<Slot, kCaptureRingSize> slots{};
-    ComPtr<IDirect3DSurface9> system_memory;
     ComPtr<IDirect3DDevice9> resource_device;
     D3DSURFACE_DESC source_desc{};
     std::uintptr_t device_id = 0;
@@ -81,22 +93,69 @@ struct D3D9StereoCapture::Impl {
     std::string last_error;
     std::string capture_description;
     std::string collect_description;
+    std::string fallback_reason;
+    TransportMode transport_mode = TransportMode::classic_cpu_fallback;
     bool resources_initialized = false;
 
-    void ReleaseResources() noexcept {
+    [[nodiscard]] std::uint32_t RingDepth() const noexcept {
+        std::uint32_t depth = 0;
+        for (const auto& slot : slots) {
+            if (slot.pending || slot.release_state) ++depth;
+        }
+        return depth;
+    }
+
+    void UpdateRingDepth() noexcept {
+        stats.ring_depth = RingDepth();
+        stats.ring_depth_peak = std::max(stats.ring_depth_peak, stats.ring_depth);
+    }
+
+    void ReclaimConsumerSlots() noexcept {
         for (auto& slot : slots) {
+            if (slot.release_state &&
+                slot.release_state->consumer_done.load(std::memory_order_acquire)) {
+                for (std::size_t eye = 0; eye < slot.system_eyes.size(); ++eye) {
+                    if (slot.system_eye_locked[eye] && slot.system_eyes[eye]) {
+                        const HRESULT unlock = slot.system_eyes[eye]->UnlockRect();
+                        if (FAILED(unlock)) {
+                            last_error = Failure("capture ring deferred UnlockRect", unlock);
+                            ++stats.frames_invalidated;
+                        }
+                    }
+                    slot.system_eye_locked[eye] = false;
+                }
+                slot.ResetState();
+                ++stats.consumer_releases;
+            }
+        }
+        UpdateRingDepth();
+    }
+
+    void ReleaseResources() noexcept {
+        ReclaimConsumerSlots();
+        for (auto& slot : slots) {
+            for (std::size_t eye = 0; eye < slot.system_eyes.size(); ++eye) {
+                if (slot.system_eye_locked[eye] && slot.system_eyes[eye]) {
+                    (void)slot.system_eyes[eye]->UnlockRect();
+                }
+                slot.system_eye_locked[eye] = false;
+                slot.system_eyes[eye].Reset();
+            }
+            for (auto& texture : slot.gpu_textures) texture.Reset();
             for (auto& surface : slot.gpu_eyes) surface.Reset();
+            slot.shared_handles = {};
             slot.fence.Reset();
-            if (slot.pending) ++stats.frames_invalidated;
+            if (slot.pending || slot.release_state) ++stats.frames_invalidated;
             slot.ResetState();
         }
-        system_memory.Reset();
         resource_device.Reset();
         source_desc = {};
         device_id = 0;
         generation = 0;
         current_slot = kCaptureRingSize;
         current_frame = 0;
+        fallback_reason.clear();
+        transport_mode = TransportMode::classic_cpu_fallback;
         resources_initialized = false;
     }
 
@@ -124,36 +183,101 @@ struct D3D9StereoCapture::Impl {
             return true;
         }
 
-        ReleaseResources();
-        hr = device->CreateOffscreenPlainSurface(
-            desc.Width,
-            desc.Height,
-            desc.Format,
-            D3DPOOL_SYSTEMMEM,
-            &system_memory,
-            nullptr);
-        if (FAILED(hr) || !system_memory) {
-            last_error = Failure("capture staging system-memory surface creation", hr);
-            ReleaseResources();
-            return false;
+        ReclaimConsumerSlots();
+        for (const auto& slot : slots) {
+            if (slot.release_state) {
+                last_error =
+                    "capture resource transition deferred while consumer owns a producer slot";
+                UpdateRingDepth();
+                return false;
+            }
         }
-        for (auto& slot : slots) {
-            for (std::size_t eye = 0; eye < slot.gpu_eyes.size(); ++eye) {
-                hr = device->CreateRenderTarget(
-                    desc.Width,
-                    desc.Height,
-                    desc.Format,
-                    D3DMULTISAMPLE_NONE,
-                    0,
-                    FALSE,
-                    &slot.gpu_eyes[eye],
-                    nullptr);
-                if (FAILED(hr) || !slot.gpu_eyes[eye]) {
-                    last_error = Failure("capture ring render-target creation", hr);
-                    ReleaseResources();
-                    return false;
+        ReleaseResources();
+
+        ComPtr<IDirect3DDevice9Ex> ex_device;
+        const bool is_d3d9ex = SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&ex_device))) &&
+            ex_device;
+        bool shared_ready = is_d3d9ex;
+        HRESULT shared_failure = S_OK;
+        if (shared_ready) {
+            for (auto& slot : slots) {
+                for (std::size_t eye = 0; eye < slot.gpu_eyes.size(); ++eye) {
+                    HANDLE shared_handle = nullptr;
+                    hr = device->CreateTexture(
+                        desc.Width,
+                        desc.Height,
+                        1,
+                        D3DUSAGE_RENDERTARGET,
+                        desc.Format,
+                        D3DPOOL_DEFAULT,
+                        &slot.gpu_textures[eye],
+                        &shared_handle);
+                    if (FAILED(hr) || !slot.gpu_textures[eye] || !shared_handle) {
+                        shared_failure = FAILED(hr) ? hr : E_FAIL;
+                        shared_ready = false;
+                        break;
+                    }
+                    hr = slot.gpu_textures[eye]->GetSurfaceLevel(0, &slot.gpu_eyes[eye]);
+                    if (FAILED(hr) || !slot.gpu_eyes[eye]) {
+                        shared_failure = FAILED(hr) ? hr : E_FAIL;
+                        shared_ready = false;
+                        break;
+                    }
+                    slot.shared_handles[eye] =
+                        reinterpret_cast<std::uintptr_t>(shared_handle);
+                }
+                if (!shared_ready) break;
+            }
+        }
+
+        if (!shared_ready) {
+            for (auto& slot : slots) {
+                for (auto& texture : slot.gpu_textures) texture.Reset();
+                for (auto& surface : slot.gpu_eyes) surface.Reset();
+                slot.shared_handles = {};
+            }
+            fallback_reason = !is_d3d9ex
+                ? "classic_d3d9_device_has_no_shared_resource_interop"
+                : Failure("D3D9Ex shared render-target texture creation", shared_failure);
+            ++stats.fallback_activations;
+            for (auto& slot : slots) {
+                for (std::size_t eye = 0; eye < slot.gpu_eyes.size(); ++eye) {
+                    auto& surface = slot.gpu_eyes[eye];
+                    hr = device->CreateRenderTarget(
+                        desc.Width,
+                        desc.Height,
+                        desc.Format,
+                        D3DMULTISAMPLE_NONE,
+                        0,
+                        FALSE,
+                        &surface,
+                        nullptr);
+                    if (FAILED(hr) || !surface) {
+                        last_error = Failure("capture ring render-target creation", hr);
+                        ReleaseResources();
+                        return false;
+                    }
+                    hr = device->CreateOffscreenPlainSurface(
+                        desc.Width,
+                        desc.Height,
+                        desc.Format,
+                        D3DPOOL_SYSTEMMEM,
+                        &slot.system_eyes[eye],
+                        nullptr);
+                    if (FAILED(hr) || !slot.system_eyes[eye]) {
+                        last_error = Failure(
+                            "capture ring system-memory surface creation", hr);
+                        ReleaseResources();
+                        return false;
+                    }
                 }
             }
+            transport_mode = TransportMode::classic_cpu_fallback;
+        } else {
+            transport_mode = TransportMode::d3d9ex_shared_texture;
+        }
+
+        for (auto& slot : slots) {
             hr = device->CreateQuery(D3DQUERYTYPE_EVENT, &slot.fence);
             if (FAILED(hr) || !slot.fence) {
                 last_error = Failure("capture ring event-query creation", hr);
@@ -172,10 +296,12 @@ struct D3D9StereoCapture::Impl {
 
     bool AcquireSlot(const std::uint64_t frame_sequence) noexcept {
         if (current_frame == frame_sequence && current_slot < slots.size()) return true;
+        ReclaimConsumerSlots();
         current_frame = 0;
         current_slot = slots.size();
         for (std::size_t index = 0; index < slots.size(); ++index) {
-            if (!slots[index].pending && slots[index].frame_sequence == 0) {
+            if (!slots[index].pending && !slots[index].release_state &&
+                slots[index].frame_sequence == 0) {
                 current_slot = index;
                 current_frame = frame_sequence;
                 slots[index].frame_sequence = frame_sequence;
@@ -185,6 +311,7 @@ struct D3D9StereoCapture::Impl {
             }
         }
         ++stats.frames_dropped_no_slot;
+        UpdateRingDepth();
         last_error = "capture ring saturated; no completed slot is available";
         return false;
     }
@@ -201,48 +328,6 @@ struct D3D9StereoCapture::Impl {
         return oldest;
     }
 
-    bool CopyCpuEye(CpuEyeFrame& output) {
-        D3DLOCKED_RECT locked{};
-        HRESULT hr = system_memory->LockRect(&locked, nullptr, D3DLOCK_READONLY);
-        if (FAILED(hr) || !locked.pBits || locked.Pitch <= 0) {
-            if (SUCCEEDED(hr)) (void)system_memory->UnlockRect();
-            last_error = Failure("capture ring LockRect", FAILED(hr) ? hr : E_FAIL);
-            return false;
-        }
-        const std::size_t row_bytes = static_cast<std::size_t>(source_desc.Width) * 4U;
-        const std::size_t source_pitch = static_cast<std::size_t>(locked.Pitch);
-        if (source_pitch < row_bytes) {
-            (void)system_memory->UnlockRect();
-            last_error = "capture ring returned a pitch smaller than the pixel row";
-            return false;
-        }
-        const std::size_t total_bytes = row_bytes * source_desc.Height;
-        output.width = source_desc.Width;
-        output.height = source_desc.Height;
-        output.stride = static_cast<std::uint32_t>(row_bytes);
-        output.format = CpuPixelFormat::bgrx8_unorm;
-        const auto* source_row = static_cast<const std::uint8_t*>(locked.pBits);
-        if (source_pitch == row_bytes) {
-            // Range assignment constructs directly from the readback bytes. On a
-            // recycled vector this reuses capacity; on a cold vector it avoids a
-            // separate zero-initialization pass before the copy.
-            output.pixels.assign(source_row, source_row + total_bytes);
-        } else {
-            output.pixels.clear();
-            output.pixels.reserve(total_bytes);
-            for (UINT row = 0; row < source_desc.Height; ++row) {
-                output.pixels.insert(
-                    output.pixels.end(), source_row, source_row + row_bytes);
-                source_row += source_pitch;
-            }
-        }
-        hr = system_memory->UnlockRect();
-        if (FAILED(hr)) {
-            last_error = Failure("capture ring UnlockRect", hr);
-            return false;
-        }
-        return true;
-    }
 };
 
 D3D9StereoCapture::D3D9StereoCapture() : impl_(std::make_unique<Impl>()) {}
@@ -312,7 +397,10 @@ bool D3D9StereoCapture::CaptureEyeSurface(
         const auto end = std::chrono::steady_clock::now();
 
         std::ostringstream out;
-        out << "transport=deferred_d3d9_ring_cpu_mailbox"
+        out << "transport="
+            << (impl_->transport_mode == Impl::TransportMode::d3d9ex_shared_texture
+                    ? "d3d9ex_shared_texture_ring"
+                    : "classic_d3d9_locked_systemmem_fallback")
             << ";capture_source=render_target0"
             << ";source_is_backbuffer=" << (source_is_backbuffer ? "true" : "false")
             << ";eye_surface=" << impl_->source_desc.Width << 'x' << impl_->source_desc.Height
@@ -324,8 +412,17 @@ bool D3D9StereoCapture::CaptureEyeSurface(
             out << "unavailable";
         }
         out << ";format=" << static_cast<unsigned>(impl_->source_desc.Format)
+            << ";source_pool=" << static_cast<unsigned>(impl_->source_desc.Pool)
             << ";source_msaa=" << static_cast<unsigned>(impl_->source_desc.MultiSampleType)
+            << ";capture_pool=default"
+            << ";capture_usage=render_target"
+            << ";capture_msaa=0"
             << ";ring_slots=" << impl_->slots.size()
+            << ";ring_depth=" << impl_->stats.ring_depth;
+        if (!impl_->fallback_reason.empty()) {
+            out << ";fallback_reason=" << impl_->fallback_reason;
+        }
+        out
             << std::fixed << std::setprecision(3)
             << ";gpu_copy_queue_ms=" << MillisecondsBetween(begin, end);
         impl_->capture_description = out.str();
@@ -498,6 +595,7 @@ bool D3D9StereoCapture::EndFrame(
         }
         slot.pending = true;
         ++impl_->stats.frames_fenced;
+        impl_->UpdateRingDepth();
         impl_->current_frame = 0;
         impl_->current_slot = impl_->slots.size();
         return true;
@@ -509,6 +607,7 @@ bool D3D9StereoCapture::EndFrame(
 
 bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
     const auto reset_metadata_keep_pixels = [&frame]() noexcept {
+        frame.producer_lease.Release();
         frame.device_id = 0;
         frame.generation = 0;
         frame.capture_sequence = 0;
@@ -517,11 +616,14 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         frame.render_hmd_pose = {};
         frame.capture_time = {};
         frame.presentation_mode = FramePresentationMode::native_stereo;
+        frame.transport = StereoFrameTransport::cpu_bgrx;
+        frame.shared_eyes = {};
         for (auto& eye : frame.eyes) {
             eye.width = 0;
             eye.height = 0;
             eye.stride = 0;
             eye.format = CpuPixelFormat::bgrx8_unorm;
+            eye.borrowed_pixels = nullptr;
         }
     };
     reset_metadata_keep_pixels();
@@ -531,16 +633,46 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         if (!slot) return false;
         const auto poll_begin = std::chrono::steady_clock::now();
         BOOL event_complete = FALSE;
-        const HRESULT ready = slot->fence->GetData(
-            &event_complete, static_cast<DWORD>(sizeof(event_complete)), 0);
+        HRESULT ready = slot->fence->GetData(
+            &event_complete,
+            static_cast<DWORD>(sizeof(event_complete)),
+            0);
+        bool flushed = false;
+        if (ready == S_FALSE && !slot->fence_flush_issued) {
+            ready = slot->fence->GetData(
+                &event_complete,
+                static_cast<DWORD>(sizeof(event_complete)),
+                D3DGETDATA_FLUSH);
+            slot->fence_flush_issued = true;
+            flushed = true;
+            ++impl_->stats.query_flushes;
+        }
         const auto poll_end = std::chrono::steady_clock::now();
         if (FAILED(ready)) {
             impl_->last_error = Failure("capture ring fence GetData", ready);
             slot->ResetState();
             ++impl_->stats.frames_invalidated;
+            impl_->UpdateRingDepth();
             return false;
         }
         const bool fence_ready = ready == S_OK && event_complete != FALSE;
+        if (!fence_ready) {
+            ++impl_->stats.query_not_ready;
+            std::ostringstream not_ready;
+            not_ready << "transport="
+                << (impl_->transport_mode == Impl::TransportMode::d3d9ex_shared_texture
+                        ? "d3d9ex_shared_texture_ring"
+                        : "classic_d3d9_locked_systemmem_fallback")
+                << ";status=gpu_pending"
+                << ";frame_sequence=" << slot->frame_sequence
+                << ";ring_depth=" << impl_->stats.ring_depth
+                << ";command_flush=" << (flushed ? "true" : "false")
+                << std::fixed << std::setprecision(3)
+                << ";fence_poll_ms=" << MillisecondsBetween(poll_begin, poll_end)
+                << ";producer_wait_ms=0.000";
+            impl_->collect_description = not_ready.str();
+            return false;
+        }
 
         frame.device_id = impl_->device_id;
         frame.generation = impl_->generation;
@@ -548,58 +680,136 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         frame.render_pose_sequence = slot->render_pose_sequence;
         frame.render_hmd_pose = slot->render_hmd_pose;
         frame.capture_time = slot->capture_time;
-        const std::size_t expected_eye_bytes =
-            static_cast<std::size_t>(impl_->source_desc.Width) * 4U * impl_->source_desc.Height;
-        const bool cpu_storage_reused =
-            frame.eyes[0].pixels.capacity() >= expected_eye_bytes &&
-            frame.eyes[1].pixels.capacity() >= expected_eye_bytes;
+        if (impl_->transport_mode == Impl::TransportMode::d3d9ex_shared_texture) {
+            auto release_state = std::make_shared<ProducerFrameReleaseState>();
+            for (std::size_t eye = 0; eye < 2; ++eye) {
+                frame.shared_eyes[eye] = SharedTextureEyeFrame{
+                    .shared_handle = slot->shared_handles[eye],
+                    .width = impl_->source_desc.Width,
+                    .height = impl_->source_desc.Height,
+                    .d3d_format = static_cast<std::uint32_t>(impl_->source_desc.Format),
+                };
+            }
+            frame.transport = StereoFrameTransport::d3d9ex_shared_texture;
+            frame.producer_lease = ProducerFrameLease(release_state);
+            slot->release_state = std::move(release_state);
+            slot->eye_captured = {};
+            slot->frame_sequence = 0;
+            slot->render_pose_sequence = 0;
+            slot->render_hmd_pose = {};
+            slot->capture_time = {};
+            slot->pending = false;
+            ++impl_->stats.frames_collected;
+            ++impl_->stats.shared_frames_published;
+            impl_->UpdateRingDepth();
+
+            std::ostringstream out;
+            out << "transport=d3d9ex_shared_texture_ring"
+                << ";frame_sequence=" << frame.capture_sequence
+                << ";render_pose_sequence=" << frame.render_pose_sequence
+                << ";generation=" << frame.generation
+                << ";eye_surface=" << impl_->source_desc.Width << 'x'
+                << impl_->source_desc.Height
+                << ";format=" << static_cast<unsigned>(impl_->source_desc.Format)
+                << ";shared_handles_distinct="
+                << (slot->shared_handles[0] != slot->shared_handles[1] ? "true" : "false")
+                << ";ring_depth=" << impl_->stats.ring_depth
+                << ";ring_depth_peak=" << impl_->stats.ring_depth_peak
+                << ";command_flush=" << (flushed ? "true" : "false")
+                << std::fixed << std::setprecision(3)
+                << ";fence_poll_ms=" << MillisecondsBetween(poll_begin, poll_end)
+                << ";producer_wait_ms=0.000"
+                << ";deferred_readback_ms=0.000"
+                << ";cpu_copy_ms=0.000"
+                << ";producer_collect_ms=" << MillisecondsBetween(
+                    poll_begin, std::chrono::steady_clock::now());
+            impl_->collect_description = out.str();
+            return true;
+        }
+
+        auto release_state = std::make_shared<ProducerFrameReleaseState>();
         double deferred_readback_ms = 0.0;
-        double cpu_copy_ms = 0.0;
+        const auto unlock_slot = [slot]() noexcept {
+            for (std::size_t eye = 0; eye < slot->system_eyes.size(); ++eye) {
+                if (slot->system_eye_locked[eye] && slot->system_eyes[eye]) {
+                    (void)slot->system_eyes[eye]->UnlockRect();
+                    slot->system_eye_locked[eye] = false;
+                }
+            }
+        };
         for (std::size_t eye = 0; eye < 2; ++eye) {
             const auto readback_begin = std::chrono::steady_clock::now();
             const HRESULT hr = impl_->resource_device->GetRenderTargetData(
-                slot->gpu_eyes[eye].Get(), impl_->system_memory.Get());
+                slot->gpu_eyes[eye].Get(), slot->system_eyes[eye].Get());
             const auto readback_end = std::chrono::steady_clock::now();
             deferred_readback_ms += MillisecondsBetween(readback_begin, readback_end);
             if (FAILED(hr)) {
                 impl_->last_error = Failure("deferred GetRenderTargetData", hr);
+                unlock_slot();
                 slot->ResetState();
                 ++impl_->stats.frames_invalidated;
                 reset_metadata_keep_pixels();
                 return false;
             }
-            const auto copy_begin = std::chrono::steady_clock::now();
-            if (!impl_->CopyCpuEye(frame.eyes[eye])) {
+            D3DLOCKED_RECT locked{};
+            const HRESULT lock = slot->system_eyes[eye]->LockRect(
+                &locked, nullptr, D3DLOCK_READONLY);
+            const std::size_t row_bytes =
+                static_cast<std::size_t>(impl_->source_desc.Width) * 4U;
+            if (FAILED(lock) || !locked.pBits || locked.Pitch <= 0 ||
+                static_cast<std::size_t>(locked.Pitch) < row_bytes) {
+                if (SUCCEEDED(lock)) (void)slot->system_eyes[eye]->UnlockRect();
+                impl_->last_error = Failure(
+                    "capture ring deferred LockRect", FAILED(lock) ? lock : E_FAIL);
+                unlock_slot();
                 slot->ResetState();
                 ++impl_->stats.frames_invalidated;
                 reset_metadata_keep_pixels();
                 return false;
             }
-            const auto copy_end = std::chrono::steady_clock::now();
-            cpu_copy_ms += MillisecondsBetween(copy_begin, copy_end);
+            slot->system_eye_locked[eye] = true;
+            frame.eyes[eye].width = impl_->source_desc.Width;
+            frame.eyes[eye].height = impl_->source_desc.Height;
+            frame.eyes[eye].stride = static_cast<std::uint32_t>(locked.Pitch);
+            frame.eyes[eye].format = CpuPixelFormat::bgrx8_unorm;
+            frame.eyes[eye].pixels.clear();
+            frame.eyes[eye].borrowed_pixels =
+                static_cast<const std::uint8_t*>(locked.pBits);
         }
-        // Note: Each eye is read back sequentially into the same system memory surface,
-        // but CopyCpuEye is called immediately after each GetRenderTargetData to copy
-        // the data to the output frame before the next eye overwrites the staging surface.
+        frame.transport = StereoFrameTransport::classic_d3d9_locked_systemmem;
+        frame.producer_lease = ProducerFrameLease(release_state);
+        slot->release_state = std::move(release_state);
+        slot->eye_captured = {};
+        slot->frame_sequence = 0;
+        slot->render_pose_sequence = 0;
+        slot->render_hmd_pose = {};
+        slot->capture_time = {};
+        slot->pending = false;
         const auto collect_end = std::chrono::steady_clock::now();
 
         std::ostringstream out;
-        out << "transport=deferred_d3d9_ring_cpu_mailbox"
+        out << "transport=classic_d3d9_locked_systemmem_fallback"
             << ";frame_sequence=" << frame.capture_sequence
             << ";render_pose_sequence=" << frame.render_pose_sequence
             << ";generation=" << frame.generation
             << ";eye_surface=" << impl_->source_desc.Width << 'x' << impl_->source_desc.Height
             << ";fence_ready_before_readback=" << (fence_ready ? "true" : "false")
-            << ";cpu_storage_reused=" << (cpu_storage_reused ? "true" : "false")
+            << ";systemmem_surfaces=per_slot_per_eye"
+            << ";cpu_pixels=borrowed_locked_surface"
+            << ";fallback_reason=" << impl_->fallback_reason
+            << ";ring_depth=" << impl_->stats.ring_depth
+            << ";command_flush=" << (flushed ? "true" : "false")
             << std::fixed << std::setprecision(3)
             << ";fence_poll_ms=" << MillisecondsBetween(poll_begin, poll_end)
+            << ";producer_wait_ms=0.000"
             << ";deferred_readback_ms=" << deferred_readback_ms
-            << ";cpu_copy_ms=" << cpu_copy_ms
+            << ";cpu_copy_ms=0.000"
             << ";producer_collect_ms=" << MillisecondsBetween(poll_begin, collect_end);
         impl_->collect_description = out.str();
 
-        slot->ResetState();
         ++impl_->stats.frames_collected;
+        ++impl_->stats.cpu_fallback_frames;
+        impl_->UpdateRingDepth();
         return true;
     } catch (...) {
         impl_->last_error = "D3D9 deferred stereo readback raised an exception";
@@ -610,12 +820,25 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
 
 void D3D9StereoCapture::InvalidateResources() noexcept {
     if (!impl_) return;
+    impl_->ReclaimConsumerSlots();
+    for (const auto& slot : impl_->slots) {
+        if (slot.release_state) {
+            impl_->last_error =
+                "capture resource invalidation deferred while consumer owns a producer slot";
+            impl_->UpdateRingDepth();
+            return;
+        }
+    }
     impl_->ReleaseResources();
 }
 
 void D3D9StereoCapture::Shutdown() noexcept { InvalidateResources(); }
 
 D3D9StereoCaptureStats D3D9StereoCapture::stats() const noexcept { return impl_->stats; }
+bool D3D9StereoCapture::gpu_resident_active() const noexcept {
+    return impl_->resources_initialized &&
+        impl_->transport_mode == Impl::TransportMode::d3d9ex_shared_texture;
+}
 std::string_view D3D9StereoCapture::last_error() const noexcept { return impl_->last_error; }
 std::string_view D3D9StereoCapture::capture_description() const noexcept {
     return impl_->capture_description;

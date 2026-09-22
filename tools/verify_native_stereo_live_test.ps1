@@ -48,6 +48,12 @@ Assert-LogMatch `
 Assert-LogMatch `
     "native_stereo_presenter: status=started owner_thread=openvr\+d3d11 mode=(latest_frame_repeat|flat_theater_to_native_stereo)" `
     "The dedicated OpenVR/D3D11 presenter thread did not initialize."
+Assert-LogMatch `
+    "native_stereo_d3d9_factory: status=d3d9ex_primary fallback=classic_create_device transport=d3d9ex_shared_texture_ring" `
+    "The candidate did not select the D3D9Ex factory required for GPU-resident transport."
+Assert-LogMatch `
+    "native_stereo_device: status=observed .*device_api=d3d9ex" `
+    "The game device fell back to classic D3D9 instead of D3D9Ex."
 
 $RequireOpenVrRuntimeState = [bool]$Run.validation.requireOpenVrRuntimeState
 $RequireOpenVrFocusCycle = [bool]$Run.validation.requireOpenVrFocusCycle
@@ -65,13 +71,18 @@ $RequireFlatTheaterUi = if ($null -ne $Run.validation.requireFlatTheaterUi) {
 } else {
     $false
 }
+$RequireExplicitPassthroughDisable = if ($null -ne $Run.validation.requireExplicitPassthroughDisable) {
+    [bool]$Run.validation.requireExplicitPassthroughDisable
+} else {
+    $true
+}
 $RequirePositional6Dof = [bool]$Run.validation.requirePositional6Dof
 $RequireBodyIk = [bool]$Run.validation.requireBodyIk
 $RequireGameplayInput = [bool]$Run.validation.requireGameplayInput
 if ($RequireProductionGpuSyncNone) {
     Assert-LogMatch `
-        "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff" `
-        "The production presenter did not report the expected no-global-wait D3D11/OpenVR handoff."
+        "openvr_gpu_handoff: native_stereo=D3D9Ex_shared_texture\+CopyResource;flat_fallback=UpdateSubresource;producer_sync=nonblocking_D3D9_event_query;consumer_sync=nonblocking_D3D11_event_query;submit=Submit_TextureWithPose;handoff=PostPresentHandoff" `
+        "The production presenter did not report the expected nonblocking GPU-resident handoff."
 }
 if ($RequireOpenVrRuntimeState) {
     Assert-LogMatch `
@@ -173,14 +184,17 @@ Assert-LogMatch `
     "native_stereo_capture: status=source eye=right .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
     "The right eye did not report a valid D3D9 viewport at its capture boundary."
 Assert-LogMatch `
-    "native_stereo_capture_timing: status=ok .*eye=left .*transport=deferred_d3d9_ring_cpu_mailbox.*gpu_copy_queue_ms=[0-9.]+" `
-    "The left-eye deferred transport did not report GPU-copy queue timing."
+    "native_stereo_capture_timing: status=ok .*eye=left .*transport=d3d9ex_shared_texture_ring.*capture_pool=default.*gpu_copy_queue_ms=[0-9.]+" `
+    "The left eye did not use the D3D9Ex shared DEFAULT-pool transport."
 Assert-LogMatch `
-    "native_stereo_capture_timing: status=ok .*eye=right .*transport=deferred_d3d9_ring_cpu_mailbox.*gpu_copy_queue_ms=[0-9.]+" `
-    "The right-eye deferred transport did not report GPU-copy queue timing."
+    "native_stereo_capture_timing: status=ok .*eye=right .*transport=d3d9ex_shared_texture_ring.*capture_pool=default.*gpu_copy_queue_ms=[0-9.]+" `
+    "The right eye did not use the D3D9Ex shared DEFAULT-pool transport."
 Assert-LogMatch `
-    "native_stereo_producer_timing: status=published .*transport=deferred_d3d9_ring_cpu_mailbox.*cpu_storage_reused=true;fence_poll_ms=[0-9.]+;deferred_readback_ms=[0-9.]+;cpu_copy_ms=[0-9.]+;producer_collect_ms=[0-9.]+" `
-    "The producer did not prove recycled CPU storage and deferred readback/copy timing."
+    "native_stereo_producer_timing: status=published .*transport=d3d9ex_shared_texture_ring.*producer_wait_ms=0.000;deferred_readback_ms=0.000;cpu_copy_ms=0.000;producer_collect_ms=[0-9.]+" `
+    "The producer did not prove zero-wait, zero-readback GPU-resident publication."
+Assert-LogNotMatch `
+    "native_stereo_producer_timing: status=published .*transport=classic_d3d9_locked_systemmem_fallback" `
+    "The native-stereo producer fell back to the classic D3D9 CPU path."
 Assert-LogMatch `
     "native_stereo_presenter_timing: status=ok .*render_pose_sequence=[1-9][0-9]*;pose_mode=explicit_render_pose;content=new.*left_result=0;right_result=0.*wait_pose_ms=[0-9.]+;submit_ms=[0-9.]+" `
     "The presenter did not report a successful new-frame OpenVR submission bound to its exact render pose."
@@ -308,19 +322,22 @@ foreach ($Line in $StereoLines) {
 
 $PresentedStereoLines = @($Lines | Where-Object {
     $_ -match "native_stereo_presenter_frame: status=new" -and
-    $_ -match "distinct_eye_content=true"
+    $_ -match "transport=d3d9ex_shared_texture_ring"
 })
 if ($PresentedStereoLines.Count -lt 2) {
-    throw "Too few distinct native-stereo frames reached the OpenVR presenter."
+    throw "Too few GPU-resident native-stereo frames reached the OpenVR presenter."
 }
 foreach ($Line in $PresentedStereoLines) {
-    if ($Line -notmatch "left_hash=[1-9][0-9]*" -or
-        $Line -notmatch "right_hash=[1-9][0-9]*" -or
-        $Line -notmatch "distinct_check=sampled_hash" -or
-        $Line -notmatch "hash_mode=sampled_telemetry" -or
-        $Line -notmatch "hash_ms=[0-9.]+" -or
-        $Line -notmatch "upload_ms=[0-9.]+") {
-        throw "A sampled presenter frame did not prove sampled stereo distinction, diagnostic hashing and D3D11 upload timing."
+    if ($Line -notmatch "transport=d3d9ex_shared_texture_ring" -or
+        $Line -notmatch "distinct_eye_content=not_cpu_sampled" -or
+        $Line -notmatch "eye_resources_distinct=true" -or
+        $Line -notmatch "distinct_check=separate_shared_eye_resources" -or
+        $Line -notmatch "hash_mode=disabled_gpu_resident" -or
+        $Line -notmatch "consumer_gpu_copy_queue_ms=[0-9.]+" -or
+        $Line -notmatch "consumer_wait_ms=0.000" -or
+        $Line -notmatch "consumer_pending_fences=[0-9]+" -or
+        $Line -notmatch "frame_age_ms=[0-9.]+") {
+        throw "A sampled presenter frame did not prove separate GPU eye resources, zero consumer wait and frame-age telemetry."
     }
 }
 
@@ -677,12 +694,14 @@ if ($RequireGameplayInput) {
     }
 }
 
-Assert-LogMatch `
-    "camera_probe_event: event=camera_probe_passthrough result=disabled" `
-    "Tracking was not explicitly disabled back to natural camera passthrough."
-Assert-LogMatch `
-    "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=false" `
-    "No command explicitly disabled HMD tracking for this run."
+if ($RequireExplicitPassthroughDisable) {
+    Assert-LogMatch `
+        "camera_probe_event: event=camera_probe_passthrough result=disabled" `
+        "Tracking was not explicitly disabled back to natural camera passthrough."
+    Assert-LogMatch `
+        "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=false" `
+        "No command explicitly disabled HMD tracking for this run."
+}
 Assert-LogMatch `
     "camera_probe_event: event=camera_probe_restore result=restored .*view_restored_slots=1" `
     "The camera/render-view hooks were not cleanly restored on normal exit."
@@ -696,8 +715,11 @@ Assert-LogMatch `
     "native_stereo_shutdown: stage=presenter_end" `
     "The proxy did not join the presenter during finalization."
 Assert-LogMatch `
-    "native_stereo_transport_summary: .*frames_collected=[1-9][0-9]*.*frames_uploaded=[1-9][0-9]*.*new_submissions=[1-9][0-9]*.*repeat_submissions=[0-9]+.*submit_failures=0" `
-    "The deferred transport summary did not prove captured/uploaded/submitted content with zero submit failures."
+    "native_stereo_transport_summary: .*frames_collected=[1-9][0-9]*.*shared_frames_published=[1-9][0-9]*.*cpu_fallback_frames=0.*fallback_activations=0.*frames_uploaded=[1-9][0-9]*.*new_submissions=[1-9][0-9]*.*shared_frames_copied=[1-9][0-9]*.*shared_open_failures=0.*shared_copy_failures=0.*submit_failures=0" `
+    "The transport summary did not prove a zero-fallback GPU-resident capture/copy/submission path."
+Assert-LogMatch `
+    "native_stereo_gpu_transport_summary: frames_copied=[1-9][0-9]*;resources_opened=[1-9][0-9]*;copy_fences_completed=[1-9][0-9]*;.*open_failures=0;copy_failures=0" `
+    "The presenter did not retire shared-copy fences without transport failures."
 if ($RequireRepeatedPresentation) {
     Assert-LogMatch `
         "native_stereo_transport_summary: .*repeat_submissions=[1-9][0-9]*" `

@@ -9,11 +9,18 @@ Current authoritative research:
 - `docs/research/COJ_CAMERA_PATH.md`: exact camera/render path, stereo wrapper, units and presentation findings.
 - `docs/research/COJ_ARM_SKINNING_AND_AIM.md`: observed skeleton propagation, visible arm writer, reach and weapon-origin ownership.
 
-The active renderer/runtime path is classic D3D9 + OpenVR/SteamVR. D3D10 remains a later first-class target.
+The active renderer/runtime path is the D3D9 API + OpenVR/SteamVR. The preferred
+native-stereo transport substitutes a D3D9Ex device to create shared
+DEFAULT-pool eye textures; classic D3D9 is an explicit CPU fallback. D3D10
+remains a later first-class target.
 
-Classic-D3D9 CPU readback is a demonstrated performance blocker at the current per-eye source resolution. The architectural conclusion is durable even though individual measurements and run metadata remain local: reduce or remove the GPU->CPU boundary before pursuing a large render-resolution increase.
+Classic-D3D9 CPU readback is a demonstrated performance blocker at the current
+per-eye source resolution. D3D9Ex-to-D3D11 handle sharing is host-tested and
+removes that boundary for native stereo. This requires D3D9Ex specifically:
+classic D3D9 cannot create the DXGI-shareable DEFAULT resources used by the
+presenter. Exact-game stability and physical cadence remain unvalidated.
 
-`tig3rmast3r/OFXR-Bridge` was investigated as a performance option. It is an experimental **OpenXR** API layer that inserts color-only optical-flow-generated frames between rendered OpenXR frames. It does not replace the OpenXR runtime and does not receive game motion vectors/depth. Because the current Call of Juarez backend is OpenVR and already pays classic-D3D9 CPU readback before submission, OFXR-Bridge does not remove the active bottleneck or recover detail absent from the source image. Keep it as future OpenXR/frame-generation research, not as a current D3D9/OpenVR performance fix.
+`tig3rmast3r/OFXR-Bridge` was investigated as a performance option. It is an experimental **OpenXR** API layer that inserts color-only optical-flow-generated frames between rendered OpenXR frames. It does not replace the OpenXR runtime and does not receive game motion vectors/depth. Because the current Call of Juarez backend is OpenVR, OFXR-Bridge neither implements the required D3D9Ex resource handoff nor recovers detail absent from the source image. Keep it as future OpenXR/frame-generation research, not as a current D3D9/OpenVR transport fix.
 
 ## Bound in Blood
 

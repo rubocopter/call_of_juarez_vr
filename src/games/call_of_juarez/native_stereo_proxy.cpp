@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
+#include "backends/d3d9/d3d9ex_forwarder.hpp"
 #include "backends/d3d9/device_vtable_hook.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
 #include "backends/d3d9/swapchain_vtable_hook.hpp"
@@ -582,6 +583,9 @@ void AfterCreateDevice(
         }
         const std::uint64_t generation =
             g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+        Microsoft::WRL::ComPtr<IDirect3DDevice9Ex> ex_device;
+        const bool is_d3d9ex =
+            SUCCEEDED(replacement->QueryInterface(IID_PPV_ARGS(&ex_device))) && ex_device;
         g_stereo.flat_capture_active.store(false, std::memory_order_release);
         g_stereo.last_native_stereo_tick_ms.store(0, std::memory_order_release);
         if (previous) previous->Release();
@@ -602,6 +606,7 @@ void AfterCreateDevice(
         line << "native_stereo_device: status=observed device=0x" << std::hex
              << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
              << " generation=" << generation
+             << " device_api=" << (is_d3d9ex ? "d3d9ex" : "classic_d3d9_fallback")
              << " device_present_hook="
              << ((device_hook.result == cojvr::backends::d3d9::HookRegistryResult::Installed ||
                      device_hook.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled)
@@ -658,8 +663,6 @@ bool BeginStereoFrame(
     cojvr::backends::d3d9::StereoCpuFrame completed{};
     const bool capture_enabled =
         state->capture_readback_enabled.load(std::memory_order_acquire);
-    const bool reused_cpu_storage = capture_enabled &&
-        state->presenter.TryAcquireReusableFrame(completed);
     if (capture_enabled && state->capture.TryCollectReady(completed)) {
         const std::uint64_t sequence = completed.capture_sequence;
         if (PublishCapturedFrame(
@@ -672,8 +675,6 @@ bool BeginStereoFrame(
                     std::string(state->capture.collect_description()));
             }
         }
-    } else if (reused_cpu_storage) {
-        state->presenter.RecycleFrame(std::move(completed));
     }
     sample.hmd_pose.pose = tracking.pose;
     sample.hmd_pose.sequence = tracking.sequence;
@@ -755,7 +756,10 @@ bool SubmitStereoFrame(
     } else if (ShouldLogStereoTiming(frame_sequence)) {
         std::ostringstream line;
         line << "native_stereo_frame_queue: status=ok frame_sequence="
-             << frame_sequence << " transport=deferred_d3d9_ring_cpu_mailbox";
+             << frame_sequence << " transport="
+             << (state->capture.gpu_resident_active()
+                     ? "d3d9ex_shared_texture_ring"
+                     : "classic_d3d9_locked_systemmem_fallback");
         LogLine(line.str());
     }
     return accepted;
@@ -767,7 +771,6 @@ void SetCaptureReadbackEnabled(void* context, const bool enabled) noexcept {
     const bool previous = state->capture_readback_enabled.exchange(
         enabled, std::memory_order_acq_rel);
     if (previous == enabled) return;
-    if (!enabled) state->capture.InvalidateResources();
     LogLine(std::string("native_stereo_diagnostic_capture: status=") +
         (enabled ? "enabled" : "disabled") +
         ";readback=" + (enabled ? "active" : "bypassed") +
@@ -849,10 +852,6 @@ void Finalize() noexcept {
         LogLine(std::string("native_stereo_factory_hook: status=") +
             (restored ? "restored" : "incomplete"));
     }
-    LogLine("native_stereo_shutdown: stage=capture_begin");
-    g_stereo.capture.Shutdown();
-    g_stereo.flat_capture.Shutdown();
-    LogLine("native_stereo_shutdown: stage=capture_end");
     LogLine("native_stereo_shutdown: stage=presenter_begin");
     g_stereo.presenter.Stop();
     NeutralizeFlatUiPointer("presenter_stopped");
@@ -861,6 +860,10 @@ void Finalize() noexcept {
     LogLine(std::string("native_stereo_presenter_stop: shutdown_complete=") +
         (presenter_stop_stats.shutdown_complete ? "true" : "false"));
     LogLine("native_stereo_shutdown: stage=presenter_end");
+    LogLine("native_stereo_shutdown: stage=capture_begin");
+    g_stereo.capture.Shutdown();
+    g_stereo.flat_capture.Shutdown();
+    LogLine("native_stereo_shutdown: stage=capture_end");
     try {
         const auto capture_stats = g_stereo.capture.stats();
         const auto presenter_stats = g_stereo.presenter.stats();
@@ -869,11 +872,29 @@ void Finalize() noexcept {
              << capture_stats.frames_fenced
              << ";frames_collected=" << capture_stats.frames_collected
              << ";capture_ring_drops=" << capture_stats.frames_dropped_no_slot
+             << ";capture_query_not_ready=" << capture_stats.query_not_ready
+             << ";capture_query_flushes=" << capture_stats.query_flushes
+             << ";shared_frames_published=" << capture_stats.shared_frames_published
+             << ";cpu_fallback_frames=" << capture_stats.cpu_fallback_frames
+             << ";fallback_activations=" << capture_stats.fallback_activations
+             << ";consumer_releases=" << capture_stats.consumer_releases
+             << ";capture_ring_depth=" << capture_stats.ring_depth
+             << ";capture_ring_depth_peak=" << capture_stats.ring_depth_peak
              << ";mailbox_published=" << presenter_stats.mailbox.published
              << ";mailbox_replaced=" << presenter_stats.mailbox.replaced_pending
              << ";frames_uploaded=" << presenter_stats.frames_uploaded
              << ";new_submissions=" << presenter_stats.new_frame_submissions
              << ";repeat_submissions=" << presenter_stats.repeated_frame_submissions
+             << ";shared_frames_copied=" << presenter_stats.shared_frames_copied
+             << ";shared_resources_opened=" << presenter_stats.shared_resources_opened
+             << ";shared_copy_fences_completed="
+             << presenter_stats.shared_copy_fences_completed
+             << ";shared_pending_copy_fences="
+             << presenter_stats.shared_pending_copy_fences
+             << ";shared_pending_copy_fences_peak="
+             << presenter_stats.shared_pending_copy_fences_peak
+             << ";shared_open_failures=" << presenter_stats.shared_open_failures
+             << ";shared_copy_failures=" << presenter_stats.shared_copy_failures
              << ";submit_failures=" << presenter_stats.submit_failures;
         LogLine(line.str());
     } catch (...) {
@@ -955,9 +976,38 @@ void ObserveFactory(IDirect3D9* factory) noexcept {
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(const UINT sdk_version) {
     EnsureStarted();
     const auto create = cojvr::backends::d3d9::SystemDirect3DCreate9();
-    IDirect3D9* factory = create ? create(sdk_version) : nullptr;
-    ObserveFactory(factory);
-    return factory;
+    IDirect3D9* classic_factory = create ? create(sdk_version) : nullptr;
+
+    const auto create_ex = cojvr::backends::d3d9::SystemDirect3DCreate9Ex();
+    IDirect3D9Ex* ex_factory = nullptr;
+    const HRESULT ex_result = create_ex
+        ? create_ex(sdk_version, &ex_factory)
+        : E_NOINTERFACE;
+    if (SUCCEEDED(ex_result) && ex_factory) {
+        try {
+            auto* forwarder = new cojvr::backends::d3d9::Direct3D9ExForwarder(
+                ex_factory, classic_factory);
+            ex_factory->Release();
+            if (classic_factory) classic_factory->Release();
+            LogLine(
+                "native_stereo_d3d9_factory: status=d3d9ex_primary "
+                "fallback=classic_create_device transport=d3d9ex_shared_texture_ring");
+            ObserveFactory(forwarder);
+            return forwarder;
+        } catch (...) {
+            ex_factory->Release();
+            LogLine(
+                "native_stereo_d3d9_factory: status=classic_fallback "
+                "reason=d3d9ex_forwarder_allocation_failed");
+        }
+    } else {
+        LogLine(
+            "native_stereo_d3d9_factory: status=classic_fallback "
+            "reason=Direct3DCreate9Ex_unavailable_or_failed");
+    }
+
+    ObserveFactory(classic_factory);
+    return classic_factory;
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {

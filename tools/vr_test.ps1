@@ -180,7 +180,7 @@ switch ($Action) {
             -AllowDirty
         if ($LASTEXITCODE -ne 0) { throw "Build-manifest generation failed." }
 
-        $ValidationProfile = if ($BodyIkAtStart) { "full" } else { "performance" }
+        $ValidationProfile = if ($BodyIkAtStart) { "full" } else { "transport" }
         try {
             & (Join-Path $PSScriptRoot "stage_d3d9_proxy.ps1") `
                 -GameDirectory $ResolvedGameDirectory `
@@ -215,13 +215,13 @@ switch ($Action) {
                     [System.Text.UTF8Encoding]::new($false))
             }
 
-            # Native stereo remains on the live-proven classic-D3D9 CPU path.
-            # D3D9Ex substitution previously crashed the exact game build and is
-            # not part of this physical gate.
+            # Native stereo owns its D3D9Ex-primary shared-texture transport and
+            # a classic CreateDevice fallback internally. Remove the obsolete
+            # marker so the generic proxy cannot alter the factory policy.
             if (Test-Path -LiteralPath $ExBridgeMarkerPath -PathType Leaf) {
                 Remove-Item -LiteralPath $ExBridgeMarkerPath -Force
             }
-            Write-Host "D3D9Ex bridge: disabled (classic-D3D9 native-stereo path)"
+            Write-Host "D3D9 transport: integrated D3D9Ex shared-texture primary (classic creation fallback)"
         } catch {
             $PrepareError = $_.Exception.Message
             try { [void](Restore-VrVideoProfile) } catch { $PrepareError += " Video profile rollback failed: $($_.Exception.Message)" }
@@ -245,26 +245,28 @@ switch ($Action) {
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { '1920x1080, FSAA 0 (restored by finish)' })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
-        Write-Host "At the first flat menu, confirm the cyan beam starts at the Sense controller and moving it changes CoJ's highlighted/hovered option."
-        Write-Host "UI controls for this gate: Cross accepts, Circle goes back, and L2/R2 select the option under the ray. Exercise all three paths and skip at least one startup item with Sense input."
-        Write-Host "After loading a save, confirm the press-a-key continuation accepts a Sense action without using the keyboard."
-        Write-Host "Release the trigger after ray-select and confirm Create re-anchors the flat view without breaking cursor alignment."
-        Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller, including once with a small HMD pitch/roll, and confirm the world remains level afterwards."
         if ($BodyIkAtStart) {
+            Write-Host "At the first flat menu, confirm the cyan beam starts at the Sense controller and moving it changes CoJ's highlighted/hovered option."
+            Write-Host "UI controls for this gate: Cross accepts, Circle goes back, and L2/R2 select the option under the ray. Exercise all three paths and skip at least one startup item with Sense input."
+            Write-Host "After loading a save, confirm the press-a-key continuation accepts a Sense action without using the keyboard."
+            Write-Host "Release the trigger after ray-select and confirm Create re-anchors the flat view without breaking cursor alignment."
+            Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller, including once with a small HMD pitch/roll, and confirm the world remains level afterwards."
             Write-Host "Body/full-profile run: do not open the SteamVR dashboard for this gate; keep focus on CoJ and exercise both Sense controllers plus physical HMD translation."
             Write-Host "Body IK is already enabled, so no Alt+Tab or terminal toggle is required while the game is running."
-            Write-Host "In gameplay, walk/run/jump with Sense, then repeat briefly with keyboard and compare smoothness; finish will retain producer/readback timing and CPU-storage-reuse telemetry."
+            Write-Host "In gameplay, walk/run/jump with Sense, then repeat briefly with keyboard and compare smoothness; finish will retain GPU transport, frame-age, cadence and producer/consumer wait telemetry."
             Write-Host "Physically crouch by lowering the HMD: first-person ownership should remain stable and the full avatar must not move in front of the camera. Test explicit controller crouch separately."
             Write-Host "Fire one direct shot first and confirm the process remains stable. Then try repeated/held fire where supported and judge origin/direction against the weapon/controller."
             Write-Host "Move both hands through comfortable reach and note whether either arm still feels shortened or clamps early."
         } else {
-            Write-Host "Performance-profile run: during stable gameplay, open the SteamVR dashboard once, leave it visible briefly, then close it and confirm VR presentation resumes."
-            Write-Host "Include slow head turns, fast head turns and mouse rotation after the dashboard cycle."
-            Write-Host "Body IK/positional-6DOF promotion is not part of this performance gate."
+            Write-Host "Transport-profile run: keep this short. Reach native-stereo gameplay, confirm both eyes are current/distinct, then do slow/fast head turns plus a few seconds of ordinary movement."
+            Write-Host "Do not repeat the locomotion battery, UI acceptance, recenter, body/weapon testing or SteamVR dashboard cycle for this gate."
+            Write-Host "The acceptance target is stable tracking/stereo plus clearly improved update/stereo cadence with zero classic-D3D9 fallback/readback."
         }
         Write-Host "Diagnostic fallback: pwsh -File tools\vr_test.ps1 recenter"
-        Write-Host "If switching windows is stable, disable before closing to satisfy the live passthrough gate: pwsh -File tools\vr_test.ps1 disable"
-        Write-Host "If Alt+Tab stalls/crashes CoJ, do not switch windows just for this command; close normally and finish will preserve the partial evidence and report the missing gate."
+        if ($ValidationProfile -ne "transport") {
+            Write-Host "If switching windows is stable, disable before closing to satisfy the live passthrough gate: pwsh -File tools\vr_test.ps1 disable"
+            Write-Host "If Alt+Tab stalls/crashes CoJ, do not switch windows just for this command; close normally and finish will preserve the partial evidence and report the missing gate."
+        }
         Write-Host "After closing the game: pwsh -File tools\vr_test.ps1 finish"
         break
     }

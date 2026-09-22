@@ -21,7 +21,12 @@ The architecture intentionally mirrors the useful separation already proven in t
 
 Game-specific mutation is SHA-256 gated. A recognized filename is never sufficient to authorize exact offsets or bytecode/native seams. Unknown builds may use safe generic diagnostics only.
 
-The active Call of Juarez integration is Windows x86 and classic D3D9. D3D10 is a later renderer target. OpenVR/SteamVR is the primary runtime for the PS VR2 path; OpenXR remains separate and experimental.
+The active Call of Juarez integration is Windows x86 and the D3D9 API. The
+native-stereo candidate supplies an `IDirect3D9Ex` factory/device so eye images
+can be shared with the presenter; classic D3D9 remains an explicit creation
+fallback, not the preferred transport. D3D10 is a later renderer target.
+OpenVR/SteamVR is the primary runtime for the PS VR2 path; OpenXR remains
+separate and experimental.
 
 ## Camera and stereo
 
@@ -76,7 +81,7 @@ Room-scale HMD translation is camera-owned. The native actor keeps authoritative
 
 Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
 
-Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. The latest run physically exercised that transaction while locomotion remained unacceptable, so this routing is a proven implementation detail rather than evidence of correct movement semantics. Run remains boolean and right-stick snap turn is an exact ±45° actor rotation.
+Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. Physical comparison now establishes native normal/walk speed and jump apex/duration parity with vanilla; movement/input/physics tuning is closed. The earlier visual impression of slow locomotion came from presentation cadence. Run remains boolean and right-stick snap turn is an exact ±45° actor rotation.
 
 Physical crouch is detected from calibrated HMD-height change with hysteresis, but the HMD drop does not automatically press the native crouch action. The current candidate applies only the mapped horizontal room-scale component to the local pelvis/skeleton for both eye renders and restores the natural pelvis world basis after the second eye; the latest run observed 64 such writes with zero vertical offset. Vertical actor position, grounding and collision remain game-owned. A separate visual-animation contract is now required: horizontal room-scale displacement should drive a walk animation comparable to stick locomotion without moving the collision actor solely because the player walked inside the tracking area. Explicit controller crouch still uses the native action.
 
@@ -111,13 +116,82 @@ For local fire, shipped bytecode shows that `InputDigital.Translate` selects the
 
 The attack-transition fire-origin path is physically exercised, but visible/ballistic origin and direction remain rejected. Current diagnostics emit `controller_aim_geometry` and `controller_aim_fire_transition`; the latest run produced 120 grip-to-tip axis samples with local `-Z` at `0.939388..0.939389`, strongly confirming the Sense tip direction convention. The remaining weapon contract is therefore downstream: the visible weapon pose, muzzle/barrel origin and ballistic path must agree. A temporary controller-tip gameplay ray may be rendered solely to compare tracked direction against the visible weapon; it is diagnostic and is not the production shot origin.
 
-## D3D9 transport cost
+## D3D9 native-stereo transport
 
-The active classic-D3D9 path still performs CPU readback before publishing a stereo frame. To reduce avoidable cost without changing that structural boundary, the presenter samples eye-distinction hashes instead of doing a full RGB comparison every frame, and the mailbox recycles consumed CPU-frame storage so stable-resolution frames reuse their buffers. Telemetry exposes `cpu_storage_reused` plus readback/copy/producer timing.
+The previous native-stereo path was:
 
-Latest gameplay evidence measured CPU copy at 7.112 ms median, 9.056 ms p95 and 11.849 ms max for a 1920x1080-per-eye source. A 120 Hz frame is about 8.33 ms, so this transport can consume the whole budget before remaining game/presenter work. A GPU-resident or lower-copy transport is the architectural priority before a large eye-resolution increase.
+`DEFAULT render target -> StretchRect DEFAULT ring target -> GetRenderTargetData SYSTEMMEM -> LockRect/CPU copy -> mailbox -> D3D11 UpdateSubresource -> OpenVR`
 
-OFXR-Bridge is not part of the active architecture. It is an experimental OpenXR optical-flow frame-generation API layer; Call of Juarez currently submits through OpenVR after classic-D3D9 readback. It may be revisited only on a future OpenXR path and cannot remove the current D3D9 GPU->CPU boundary.
+At the physically exercised 1920x1080-per-eye source, readback/copy cost was
+about 7-7.5 ms median, 9-9.5 ms p95 and 10-12 ms maximum. Disabling only that
+boundary, while retaining both complete ChromeEngine eye renders, changed game
+update cadence from about 83 Hz to 138 Hz. This is the demonstrated bottleneck.
+
+The host-tested candidate replaces it with:
+
+`DEFAULT render target -> StretchRect D3D9Ex shared DEFAULT texture ring -> mailbox(handle + pose + lease) -> D3D11 OpenSharedResource -> CopyResource presenter texture -> OpenVR`
+
+The ring has three slots, each containing separate left/right
+`IDirect3DTexture9` render targets (`D3DUSAGE_RENDERTARGET`, `D3DPOOL_DEFAULT`,
+non-MSAA) and an event query. The currently observed game source is render
+target 0/backbuffer, `D3DFMT_A8R8G8B8`, `D3DPOOL_DEFAULT`, non-MSAA. `StretchRect`
+is therefore one GPU copy per eye, not an MSAA resolve in the demonstrated
+configuration. A future multisampled source would be resolved by that same
+operation into the non-MSAA shared texture.
+
+The producer ends a D3D9 event query after both eyes. At a later frame it first
+polls without flushing. If the query has not yet been submitted, that slot gets
+one `D3DGETDATA_FLUSH` poll; this submits pending commands but never waits, and
+subsequent `S_FALSE` results leave the slot GPU-owned. A ready pair is published atomically with the exact
+render pose and capture time. The presenter opens each shared handle on its
+matching-adapter D3D11 device, queues one `CopyResource` per eye into its stable
+OpenVR submission textures, ends a D3D11 event query and submits without a CPU
+wait. The lease keeps both source textures unavailable to the producer until
+that D3D11 query completes. A mailbox replacement or failure releases the same
+lease safely; ring exhaustion drops/skips production rather than stalling the
+game thread.
+
+Resource lifetime is also host-tested across teardown and producer transitions.
+A size/device/generation rebuild or explicit invalidation is deferred while a
+consumer still owns a producer slot. Disabling diagnostic capture therefore no
+longer destroys the ring. During finalization producer callbacks are stopped and
+hooks restored first, then the presenter is joined so pending mailbox/bridge
+leases are released before the D3D9 capture rings are destroyed. Steady-state
+presentation never waits on those D3D11 event queries. Shutdown is the sole
+exception: if copies are still pending, the presenter issues one bounded
+D3D11 event-query completion barrier after them before releasing their leases.
+If that drain fails or times out, the bridge retains the leases until its D3D11
+session is destroyed instead of recycling D3D9 resources prematurely.
+
+The native-stereo GPU path removes `GetRenderTargetData`, SYSTEMMEM staging,
+`LockRect`, the approximately 16 MiB stereo CPU copy, sampled CPU eye hashes and
+`UpdateSubresource`. It retains two necessary GPU copies per eye: the game
+target-to-shared `StretchRect` and shared-to-presenter `CopyResource`.
+`OpenSharedResource` itself does not copy. Both synchronization points are
+nonblocking during steady-state presentation and telemetry reports
+producer/consumer waits, queue/ring depth, drops, overwrites, frame age,
+copy-fence retirement, submissions and repeats. The bounded shutdown-only drain
+described above is not part of the frame loop.
+
+Full GPU sharing is not available from a classic `IDirect3D9` device: shared
+DEFAULT-pool handles for DXGI/D3D11 interop require D3D9Ex. If the game cannot
+create or run on the substituted Ex device, the candidate fails over at device
+creation to the prior classic-D3D9 deferred CPU path and reports the reason.
+That fallback still uses `GetRenderTargetData` and is not acceptable for the
+current physical transport gate. `GetRenderTargetData` also remains in the
+transient flat-theater/menu capture, currently sampled every second `Present`,
+because that path composes CPU-side pointer/UI content and avoids persistent
+DEFAULT resources across resets. It is not used by native stereo when the
+D3D9Ex path is active.
+
+A previous D3D9Ex substitution crashed the exact game during physical testing.
+The current implementation has stronger factory/device fallback, resource
+lifetime and producer/consumer ownership, but only a fresh correlated run can
+establish that the game remains stable after device creation.
+
+OFXR-Bridge is not part of the active architecture. It is an experimental
+OpenXR optical-flow frame-generation layer and cannot replace this D3D9/OpenVR
+resource boundary.
 
 ## Evidence and lifecycle
 

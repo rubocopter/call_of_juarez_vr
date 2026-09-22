@@ -66,9 +66,13 @@ try {
         "camera_probe_event: event=movement_trace_sample result=ok detail=phase=vr-full;timestamp_us=1120000;game_update=12;game_delta=0.010000;actor=(0,0,2.5);delta=(0,-40,0);horizontal_speed=0;native_vertical_speed=10;forward_speed=0;wanted_local_speed=(0,0,0);run=false;can_run=false;speed_state=0;grounded=true;jumping=true",
         "camera_probe_event: event=movement_trace_sample result=ok detail=phase=vr-full;timestamp_us=1130000;game_update=13;game_delta=0.010000;actor=(0,0,2.5);delta=(0,0,0);horizontal_speed=0;native_vertical_speed=10;forward_speed=0;wanted_local_speed=(0,0,0);run=false;can_run=false;speed_state=0;grounded=true;jumping=false",
         "camera_probe_event: event=movement_render_sample result=ok detail=phase=vr-full;timestamp_us=1010000;left_rendered=true;right_rendered=true;submitted=true;frames_uploaded=10;new_submissions=20;repeat_submissions=2",
-        "native_stereo_producer_timing: status=published deferred_readback_ms=3.000;cpu_copy_ms=7.000",
+        "native_stereo_capture_timing: status=ok gpu_copy_queue_ms=0.200",
+        "native_stereo_producer_timing: status=published ring_depth=2;producer_wait_ms=0.000;deferred_readback_ms=3.000;cpu_copy_ms=7.000",
+        "native_stereo_presenter_frame: status=new consumer_gpu_copy_queue_ms=0.300;consumer_wait_ms=0.000;consumer_pending_fences=1;frame_age_ms=4.000",
         "camera_probe_event: event=movement_render_sample result=ok detail=phase=vr-full;timestamp_us=1040000;left_rendered=true;right_rendered=true;submitted=true;frames_uploaded=12;new_submissions=22;repeat_submissions=3",
-        "native_stereo_producer_timing: status=published deferred_readback_ms=5.000;cpu_copy_ms=9.000",
+        "native_stereo_capture_timing: status=ok gpu_copy_queue_ms=0.400",
+        "native_stereo_producer_timing: status=published ring_depth=3;producer_wait_ms=0.000;deferred_readback_ms=5.000;cpu_copy_ms=9.000",
+        "native_stereo_presenter_frame: status=new consumer_gpu_copy_queue_ms=0.500;consumer_wait_ms=0.000;consumer_pending_fences=2;frame_age_ms=6.000",
         "camera_probe_event: event=movement_jump_summary result=complete detail=phase=vr-full;timestamp_us=1130000;start_y=0;max_y=42;final_y=0;apex_height_cm=42;duration_s=0.040;time_to_apex_s=0.010;max_vertical_velocity=400;requested_jump_height=60;stair_height=35",
         "camera_probe_event: event=movement_trace_phase result=end detail=phase=vr-full;timestamp_us=2000000;duration_s=1.000000;game_updates=13;reason=disabled"
     )
@@ -80,7 +84,7 @@ try {
         -GameDirectory $TestDirectory -OutputPath $OutputPath | Out-Null
     $Report = Get-Content -LiteralPath $OutputPath -Raw | ConvertFrom-Json
     $Phase = @($Report.phases)[0]
-    if ($Report.schemaVersion -ne 2 -or
+    if ($Report.schemaVersion -ne 3 -or
         $Report.manifestType -ne "cojvr-movement-diagnostic-summary" -or
         $Phase.phase -ne "vr-full" -or $Phase.gameUpdates -ne 14 -or
         [Math]::Abs([double]$Phase.updateHz - 100.0) -gt 0.001 -or
@@ -93,7 +97,14 @@ try {
         $Phase.stereoPairs -ne 2 -or $Phase.presenterRepeatedSubmissions -ne 1 -or
         $Phase.jumps.Count -ne 1 -or $Phase.jumpApexCm.p50 -ne 42 -or
         $Phase.readbackMs.p50 -ne 3 -or $Phase.readbackMs.p95 -ne 3 -or
-        $Phase.readbackMs.max -ne 5 -or $Phase.cpuCopyMs.max -ne 9) {
+        $Phase.readbackMs.max -ne 5 -or $Phase.cpuCopyMs.max -ne 9 -or
+        $Phase.producerGpuCopyQueueMs.max -ne 0.4 -or
+        $Phase.producerWaitMs.max -ne 0 -or
+        $Phase.consumerGpuCopyQueueMs.max -ne 0.5 -or
+        $Phase.consumerWaitMs.max -ne 0 -or
+        $Phase.endToEndFrameAgeMs.max -ne 6 -or
+        $Phase.captureRingDepth.max -ne 3 -or
+        $Phase.consumerPendingCopyFences.max -ne 2) {
         throw "Movement diagnostic summary did not preserve the synthetic phase metrics."
     }
 

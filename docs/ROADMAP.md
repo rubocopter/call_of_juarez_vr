@@ -4,14 +4,20 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-The active Call of Juarez backend is in native stereo and physically usable enough to exercise the full HMD/controller path, but four playability areas remain open:
+The immediate physical gate is the host-tested D3D9Ex shared-texture transport.
+It must preserve current stereo/tracking while replacing the old per-frame CPU
+readback and raising native-stereo cadence above the approximately 83 Hz
+baseline toward the 138 Hz readback-off reference.
+
+Three separate playability areas remain open after that transport gate:
 
 - menu pointer ownership and controller-only UI usability;
-- acceptable locomotion and jump behavior;
 - continuous tracked-arm ownership without visible fallback or deformation;
 - weapon/barrel origin and direction alignment.
 
-The next candidate must improve at least one diagnosed boundary before another headset pass. Independent stereo, tracking, recenter and snap-turn contracts remain the stable baseline.
+Native movement speed and jump amplitude/duration now match vanilla in physical
+measurements; locomotion/input/physics investigation is closed. Independent
+stereo, tracking, recenter and snap-turn contracts remain the stable baseline.
 
 ## Stabilization baseline
 
@@ -39,7 +45,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Explicit render-pose submission for head-turn stability: **headset-validated**.
 - Controller recenter: **headset-validated**.
 - Startup/loading flat theater and transition to native stereo: **headset-validated for the exercised path**.
-- Frame pacing/transport cost: **open structural blocker**; classic-D3D9 CPU readback remains too expensive for a large render-resolution increase.
+- Frame pacing/transport cost: **host-tested candidate / physical gate**; D3D9Ex shared DEFAULT textures and nonblocking steady-state D3D9/D3D11 queries eliminate native-stereo CPU readback on the preferred path. A bounded D3D11 completion barrier exists only for draining pending copies during shutdown.
 - Inner presenter shutdown/finalization: **open regression**.
 
 ## Milestone 2 — player body and comfort
@@ -48,8 +54,8 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Room-scale camera translation with native actor position/grounding preserved: **host-tested follow-up after physical rejection**.
 - HMD/body-yaw comfort ownership: **host-tested follow-up**.
 - Exact snap turn: **headset-validated**.
-- Native analog locomotion through the shipped float-input path: **live-exercised / physically rejected for playability**. The routing itself is present, so further blind remapping is not justified.
-- Native jump action: **live-exercised / physically rejected for amplitude**.
+- Native analog locomotion through the shipped float-input path: **headset-validated diagnostically** for vanilla-equivalent normal/walk speed. No further movement/input changes are planned.
+- Native jump action: **headset-validated diagnostically** for vanilla-equivalent apex and duration. No further jump/physics changes are planned.
 - Horizontal-only visual body room-scale overlay with native vertical actor/grounding/collision ownership: **live-exercised technically**. Physical displacement still needs stick-equivalent visual locomotion animation.
 - Physical-walk visual animation from HMD horizontal movement: **planned/open**.
 - Local Ray/Billy head/hair suppression: **headset-validated for HMD view**; shadow behavior remains unverified.
@@ -81,7 +87,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 ## Milestone 5 — additional renderers and games
 
-- OpenXR/frame-generation experiments: **future research only**; they do not remove the active classic-D3D9/OpenVR readback boundary.
+- OpenXR/frame-generation experiments: **future research only**; they do not replace validation of the active D3D9Ex/OpenVR shared-texture path.
 - D3D10 renderer path for Call of Juarez: **planned**.
 - Bound in Blood integration: **planned**.
 - Gunslinger integration: **planned**.
@@ -89,4 +95,4 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 ## Release direction
 
-A public release requires the reference backend to clear the controller-only UI, locomotion/comfort, body IK, weapon alignment, presentation-performance and shutdown gates in representative gameplay without regressing validated stereo/tracking behavior.
+A public release requires the reference backend to clear the controller-only UI, body IK, weapon alignment, presentation-performance and shutdown gates in representative gameplay without regressing validated stereo, tracking or native locomotion behavior.

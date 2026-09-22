@@ -10,140 +10,56 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
-The current backend is physically rejected for four playability areas:
+The active gate is the new D3D9Ex GPU-resident native-stereo transport. It is
+implemented and host-tested, but has not yet run in the exact game/headset. A
+previous D3D9Ex substitution was physically unstable, so successful host interop
+does not promote compatibility with the game executable.
 
-- flat-menu pointer control is not yet reliable enough to replace the physical mouse;
-- locomotion and jump behavior remain unacceptable even though native input reaches the game;
-- tracked arm ownership is not continuous enough and can fall back visibly to native poses;
-- weapon origin/direction is not yet aligned reliably with the visible weapon barrel.
+Locomotion diagnosis is closed. Physical measurements established that native
+normal movement, the walk modifier and jump are not materially reduced in VR.
+The decisive comparison was `139.949 Hz` vanilla versus `138.117 Hz` with both
+VR eye renders active and only readback/copy disabled. The old full transport
+ran at about `83.473 Hz`. This causally localizes the perceived slowdown to the
+old capture/presentation boundary; movement, input and physics are not an active
+remediation target.
 
-Independent stereo, tracking, recenter and snap-turn results remain valid. A rejected playability gate does not invalidate unrelated capabilities that were already physically accepted.
+Independent stereo, tracking, recenter, snap-turn and locomotion/jump parity
+remain valid. The separate menu-pointer, arm-continuity, weapon-alignment and
+shutdown product gates also remain open, but are outside this transport gate.
 
 ## Next physical acceptance gate
 
-One fresh `prepare`, one Call of Juarez process, one `finish`. The candidate should exercise:
+One fresh `prepare`, one Call of Juarez process, one `finish`. Keep the run
+short and exercise only the transport acceptance gesture:
 
 | Area | Required observation |
 | --- | --- |
-| Startup/presentation | flat theater visible, stable scene ownership, startup skip works |
-| Menu pointer | Sense-driven hover is controllable without touching the physical mouse |
-| Menu actions | Cross accept, Circle normal Escape/back, L2/R2 ray-select |
-| Blocking UI | post-load continue responds through the native loading-input path |
-| Subtitles | shipped subtitle setting enabled first; visible text verified separately from capture/presentation |
-| Recenter/horizon | recenter leaves the world level even if the HMD is tilted at the instant of recenter |
-| Locomotion | walk/run speed is acceptable and jump has useful native-scale amplitude |
-| Room scale | horizontal physical displacement preserves native collision/grounding and drives plausible visual walking |
-| Crouch | physical HMD drop remains visually coherent while explicit controller crouch still works |
-| Body IK | arms track continuously without unsafe deformation or repeated fallback to native poses |
-| Weapon | tracked direction, visible barrel and final shot origin/direction agree |
-| Mode transition | flat theater and native stereo switch safely where game state requires it |
-| Shutdown | outer runtime and inner presenter finalization both complete cleanly |
+| Startup | process reaches flat theater without a D3D9Ex/device crash |
+| Native stereo | both eyes show distinct, correctly paired current images |
+| Tracking/pose | normal head rotation/translation remains stable with no pull/snap-back |
+| Minimal gameplay | a few seconds of ordinary movement remain responsive; do not repeat the locomotion battery |
+| Cadence | update/stereo-pair rate clearly exceeds the old approximately 83 Hz path and approaches the 138 Hz readback-off reference |
+| Transport | shared frames and D3D11 copies advance; producer/consumer wait stay zero; no classic fallback, readback, eye mismatch or ring exhaustion |
+| Shutdown | game closes normally, presenter reports `shutdown_complete=true`, pending GPU copies drain without abandoned leases, and transport/presenter summaries are emitted |
 
 Failure in one area does not promote that area, but independent observations may still be recorded.
 
-## Locomotion divergence diagnostic protocol
+## Closed locomotion diagnosis
 
-This protocol measures the current rejected locomotion/jump gate. It does not
-promote gameplay support and must not be used to tune movement constants. Use
-one instrumented non-VR baseline process, then one VR candidate/process for all
-VR phases. The probe stops a trace automatically after 180 seconds.
+The retained diagnostic tools may be used to report update/stereo cadence for a
+transport run, but the comparative locomotion protocol is complete and must not
+be repeated as an input-tuning exercise. Durable physical results are:
 
-Build and host-test once:
+| Mode | Update Hz | Stereo-pair Hz | Normal / walk cm/s | Jump |
+| --- | ---: | ---: | ---: | --- |
+| Vanilla | 139.949 | n/a | 503.056 / 256.109 | 58.7-60.8 cm, 0.77-0.78 s |
+| VR full, old CPU transport | 83.473 | 83.502 | 498.451 / 248.325 | 3 observed |
+| VR input-off | 70.692 | 70.726 | 489.064 / 247.893 | 62.623 cm average, 0.781 s average |
+| VR readback-off | 138.117 | 137.705 | 499.113 / 248.360 | 3 observed |
 
-```powershell
-cmake --build build-win32 --config Release
-ctest --test-dir build-win32 --output-on-failure -C Release
-```
-
-For the instrumented vanilla baseline, create and stage the read-only camera
-probe. It loads no XR runtime and owns no gameplay input:
-
-```powershell
-pwsh -File tools/new_build_manifest.ps1 -RepositoryRoot . -Configuration Release -DiagnosticMode d3d9_camera_probe -ProxyPath build-win32/Release/d3d9_camera_probe.dll -OutputPath build-win32/Release/d3d9_camera_probe.build-manifest.json -AllowDirty
-pwsh -File tools/stage_d3d9_proxy.ps1 -GameDirectory "C:\path\to\Call of Juarez" -ProxyPath build-win32/Release/d3d9_camera_probe.dll -BuildManifestPath build-win32/Release/d3d9_camera_probe.build-manifest.json
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode vanilla
-```
-
-Start the game manually, load the same save and stand on the same flat ground.
-Wait still for 3 seconds, hold `W` for 5 seconds for normal fast movement
-(native `Trot`), release it for 2 seconds, hold `Shift+W` for 5 seconds for the
-walk modifier (native `Walk`), release it for 2 seconds, then perform three
-separate standing jumps and let each one land. `Shift+W` is not sprint in this
-game. Disable the trace, close the game normally, summarize, collect and restore
-staging:
-
-```powershell
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode off
-pwsh -File tools/summarize_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez"
-pwsh -File tools/collect_run_evidence.ps1 -GameDirectory "C:\path\to\Call of Juarez"
-pwsh -File tools/unstage_d3d9_proxy.ps1 -GameDirectory "C:\path\to\Call of Juarez"
-```
-
-Prepare one fresh VR candidate using the normal workflow. Start SteamVR and the
-game manually. With every key and controller control released, select
-`vr-full`, repeat the exact sequence above, then select `vr-input-off` and
-repeat it. `vr-input-off` makes the game the exclusive owner of keyboard and
-gamepad input: VR does not apply or neutralize any `InputAction` during that
-phase.
-
-```powershell
-pwsh -File tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez"
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode vr-full
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode vr-input-off
-```
-
-Only if native-exclusive input does not explain the divergence, select
-`vr-readback-off` and repeat. This keeps both eye renders and camera tracking,
-discards pending capture surfaces, bypasses `GetRenderTargetData` and CPU pixel
-copy, and lets the presenter repeat its last frame. Only if that is still
-inconclusive, select `vr-single-eye` and repeat; this executes only the first
-full render wrapper and also bypasses capture transport. Neither optional mode
-is intended to be usable in the headset.
-
-```powershell
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode vr-readback-off
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode vr-single-eye
-pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode off
-```
-
-Close the game normally and run `tools/vr_test.ps1 finish`. The evidence package
-contains `analysis/movement-summary.json`. Each phase reports duration,
-distance, mean/max horizontal speed, normal-movement/walk-modifier speed and
-ratio, jump apex and duration, update Hz, eye/pair cadence, presenter
-new/repeated submissions, and readback/copy p50/p95/max. The normal movement
-metric requires full forward input in native speed state 129 (`Trot`); the walk
-modifier metric requires full forward input in state 128 (`Walk`). `GetRun()` is
-a separate native Run request and does not classify these two protocol bouts.
-
-Interpret the comparison as follows:
-
-- Input ownership is causal if `vr-input-off` returns normal movement, the walk
-  modifier and jump near the vanilla baseline while `vr-full` diverges and
-  update cadence is otherwise comparable.
-- Simulation cadence is causal if VR game-update Hz falls or gameplay delta
-  rises against vanilla, with proportional loss of distance or jump evolution,
-  including in `vr-input-off`.
-- Readback is causal if `vr-readback-off` restores update cadence and physical
-  movement while the two eye-render counts remain active.
-- The second render is causal if recovery appears only in `vr-single-eye`.
-- The remaining fault is presentation stutter if actor speed, normal/walk
-  ratio, jump apex/duration and update cadence agree with vanilla while
-  stereo-pair or new-submission cadence is lower and repeated presenter
-  submissions rise.
-
-Movement sampling runs synchronously from the demonstrated native camera-update
-boundary after a fully formed renderer-owned natural camera exists. The bridge
-revalidates the current player before every candidate sample, and accepts at
-most one sample for each distinct native game-time value; no independent JNI
-worker thread observes gameplay. The exact-build `ODEWalk` state and
-`IsJumping` transition identify the physical jump interval. Loss of ODE ground
-contact creates only a candidate; the diagnostic emits a jump only after the
-game reports `IsJumping=true`, follows ascent/apex/descent, observes landing,
-and sees `IsJumping=false` again. This rejects terrain micro-airborne intervals
-without a timing debounce. The diagnostic does not detour or call `PerformJump`
-or `ODEWalk_Jump`. Requested normal jump height uses side-effect-free
-`PropGetJumpHeight - ODEWalk_GetStairHeight`; `GetJumpHeight` is not called
-because it can consume the one-shot big-jump flag.
+These measurements rule out native movement speed, native jump amplitude,
+duplicated gameplay-input ownership and the second eye render as the primary
+cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 
 ## Current feature state
 
@@ -158,11 +74,12 @@ because it can consume the one-shot big-jump flag.
 | Exact snap turn | headset-validated | controller turn exercised physically |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | startup and level transition reached gameplay safely |
 | Local head/hair suppression | headset-validated for HMD view | shadow behavior remains separate |
-| Classic-D3D9 presentation transport | open performance blocker | CPU readback remains structurally expensive; prefer a lower-copy/GPU-resident path before major resolution increases |
+| D3D9Ex GPU-resident native-stereo transport | host-tested / physical gate | shared DEFAULT-pool eye textures and nonblocking steady-state D3D9/D3D11 queries pass host interop; pending shutdown copies use a bounded completion drain; exact-game/headset stability and cadence pending |
+| Classic-D3D9 CPU transport fallback | implemented / unpromoted | retained only when D3D9Ex/device sharing is unavailable; any use during the physical gate is a failure |
 | Inner presenter finalization | open | recent physical testing exposed incomplete shutdown behavior |
-| Native analog locomotion | live-exercised / rejected for playability | native routing is present; further blind remapping is not justified |
-| Native jump action | live-exercised / rejected | input reaches gameplay but useful jump amplitude is not achieved |
-| Locomotion divergence instrumentation | host-tested | native-update trace, input/readback/second-render toggles and phase summarizer pass host tests; physical comparison is pending |
+| Native analog locomotion | headset-validated diagnostically | normal/walk speed matches vanilla within the measured transport runs; do not retune input or movement |
+| Native jump action | headset-validated diagnostically | measured apex/duration matches vanilla; do not retune jump or physics |
+| Locomotion divergence instrumentation | host-tested and physically completed | retained for cadence reporting; causal investigation is closed |
 | Room-scale visual body compensation | live-exercised technically | vertical pelvis drift was removed; visual walking parity remains open |
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |

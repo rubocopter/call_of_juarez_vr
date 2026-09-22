@@ -60,12 +60,20 @@ struct OpenVrPresenterStats {
     std::uint64_t repeated_frame_submissions = 0;
     std::uint64_t rejected_frames = 0;
     std::uint64_t submit_failures = 0;
+    std::uint64_t shared_frames_copied = 0;
+    std::uint64_t shared_resources_opened = 0;
+    std::uint64_t shared_copy_fences_completed = 0;
+    std::uint64_t shared_open_failures = 0;
+    std::uint64_t shared_copy_failures = 0;
+    std::uint64_t shared_pending_copy_fences = 0;
+    std::uint64_t shared_pending_copy_fences_peak = 0;
     bool shutdown_complete = false;
     d3d9::FrameMailboxStats mailbox{};
 };
 
 // Owns OpenVR and the D3D11 immediate context on one dedicated thread. The
-// game/render thread only publishes owned CPU frames and reads the latest pose.
+// game/render thread publishes either owned CPU fallback frames or leased
+// D3D9Ex shared textures and reads the latest pose.
 class OpenVrStereoPresenter final {
 public:
     OpenVrStereoPresenter();

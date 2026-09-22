@@ -131,17 +131,29 @@ int main() {
         !frame.render_hmd_pose.position_valid ||
         std::fabs(frame.render_hmd_pose.position.y - 1.65F) > 0.0001F ||
         frame.eyes[0].width != 65 || frame.eyes[0].height != 37 ||
-        frame.eyes[0].stride != 65 * 4 || frame.eyes[1].stride != 65 * 4) {
-        return Fail("Deferred capture returned incorrect owned-frame metadata");
+        frame.eyes[0].stride < 65 * 4 || frame.eyes[1].stride < 65 * 4 ||
+        frame.transport != cojvr::backends::d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem ||
+        !frame.producer_lease.valid() || !frame.eyes[0].borrowed_pixels ||
+        !frame.eyes[1].borrowed_pixels || !frame.eyes[0].pixels.empty() ||
+        !frame.eyes[1].pixels.empty()) {
+        return Fail("Deferred capture returned incorrect leased-system-memory metadata");
     }
     const std::uint64_t left_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
-        frame.eyes[0].pixels.data(), frame.eyes[0].stride,
+        frame.eyes[0].borrowed_pixels, frame.eyes[0].stride,
         frame.eyes[0].width, frame.eyes[0].height);
     const std::uint64_t right_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
-        frame.eyes[1].pixels.data(), frame.eyes[1].stride,
+        frame.eyes[1].borrowed_pixels, frame.eyes[1].stride,
         frame.eyes[1].width, frame.eyes[1].height);
     if (left_hash == 0 || right_hash == 0 || left_hash == right_hash) {
         return Fail("Deferred capture did not preserve distinct left/right pixels");
+    }
+
+    const auto invalidated_before_active_lease = capture.stats().frames_invalidated;
+    capture.InvalidateResources();
+    if (capture.stats().frames_invalidated != invalidated_before_active_lease ||
+        capture.last_error() !=
+            "capture resource invalidation deferred while consumer owns a producer slot") {
+        return Fail("capture invalidated producer resources while a consumer lease was active");
     }
 
     // A source-size change on the same device/generation must rebuild capture
@@ -153,6 +165,13 @@ int main() {
     if (FAILED(hr) || !resized_target) return Fail("resized render target creation failed", hr);
     hr = device->SetRenderTarget(0, resized_target.Get());
     if (FAILED(hr)) return Fail("SetRenderTarget for resize coverage failed", hr);
+
+    // A resource transition must not destroy the old ring while the consumer
+    // still owns a borrowed/system-memory or shared-texture producer lease.
+    if (capture.CaptureEyeSurface(
+            device.Get(), resized_target.Get(), cojvr::runtime::Eye::left, 2, 1)) {
+        return Fail("capture rebuilt producer resources while a consumer lease was active");
+    }
     frame = {};
     if (!CaptureAndCollect(capture, device.Get(), resized_target.Get(), 2, 1, frame) ||
         frame.eyes[0].width != 71 || frame.eyes[0].height != 39 ||
@@ -166,6 +185,7 @@ int main() {
 
     // The owner must invalidate capture resources before a classic D3D9 Reset;
     // after Reset a new generation must rebuild all default-pool resources.
+    frame = {};
     capture.InvalidateResources();
     back_buffer.Reset();
     present.BackBufferWidth = 83;
@@ -268,7 +288,7 @@ int main() {
         return Fail("Deferred capture accounting is inconsistent");
     }
 
-    std::cout << "Deferred D3D9 stereo ring -> owned CPU frame passed: "
+    std::cout << "Deferred D3D9 stereo ring -> leased SYSTEMMEM frame passed: "
               << capture.collect_description() << '\n';
     return 0;
 }

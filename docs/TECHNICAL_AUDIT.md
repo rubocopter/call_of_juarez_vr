@@ -1,6 +1,6 @@
 # Technical audit — current baseline
 
-Last refreshed: 2026-09-21.
+Last refreshed: 2026-09-22.
 
 This document describes the current engineering baseline and the findings that still matter. Historical investigation details were intentionally removed once their conclusions became enforced contracts or retained evidence.
 
@@ -27,9 +27,20 @@ The repository has moved beyond the original blank-headset/bootstrap problem. Cu
 - exact visible arm mutation/restoration against the live skeleton;
 - physically validated local head/hair suppression for the exercised Ray/Billy path.
 
-The newest physical diagnostic is complete single-process run `20260921T192639Z-1d70905cb4f8`, correlated with `clip_1.790.022.783.959.mp4`. The sole Win32 pointer is still unusable, locomotion/jump remain unacceptable after the shipped analog controller-state transaction, arm safety produces visible fallback to native poses, and weapon shots remain wrong. At the same time, the run proves two useful technical facts: horizontal-only visual-pelvis compensation now has zero sampled Y displacement, and Sense grip-to-tip geometry strongly identifies local `-Z` as the tip direction. These narrow the remaining failures without promoting playability.
+Subsequent physical cadence/locomotion comparison closes the earlier locomotion
+ambiguity. Vanilla normal/walk movement measured `503.056/256.109 cm/s` and VR
+measured approximately `489-499/248 cm/s`; vanilla jump measured about
+`58.7-60.8 cm` over `0.77-0.78 s`, while VR input-off measured `62.623 cm` over
+`0.781 s`. Native locomotion and jump are therefore not reduced. The decisive
+performance comparison is `139.949 Hz` vanilla, `83.473 Hz` old VR full and
+`138.117 Hz` with both complete eye renders active but capture readback/copy
+disabled. The perceived locomotion slowdown is presentation stutter caused by
+the old transport, not a movement/input/physics defect.
 
-The current source is the physically rejected candidate from that run and still passes Debug and Release at **24 PASS + 1 expected classic-D3D9 shared-texture capability SKIP**. Host success therefore cannot be treated as evidence of UI, locomotion, anatomy or aiming quality.
+The current source contains a D3D9Ex shared-texture replacement that is
+**host-tested only**. Win32 Release passes **26 tests + 1 expected classic-D3D9
+shared-texture capability SKIP**. Host success cannot prove exact-game D3D9Ex
+stability, headset image correctness, cadence, UI, anatomy, aiming or shutdown.
 
 ## Audit findings
 
@@ -64,13 +75,43 @@ This remains an open UI architecture/debugging problem rather than a host-only g
 
 Retained diagnostic run `20260920T235112Z-6b2d91cda4a5` recorded 376 subtitle states with `Settings.bSubtitles=false`. `DialogSubtitle.Show(String)` exits when that setting is false, so that run explains its subtitle absence without evidence of a layering/capture defect. Enable subtitles through the shipped setting before judging presentation; do not force-enable or relocate them in the adapter.
 
-### Shared playability stutter
+### D3D9 presentation transport
 
-The latest complete-process transport sample, `20260921T192639Z-1d70905cb4f8`, measured D3D9 CPU copy at 7.112 ms median, 9.056 ms p95 and 11.849 ms maximum while rendering/capturing 1920x1080 per eye. At 120 Hz the entire frame budget is about 8.33 ms, so classic-D3D9 GPU->CPU readback remains a measured structural bottleneck.
+The old complete-process samples measured approximately 7-7.5 ms median,
+9-9.5 ms p95 and 10-12 ms maximum readback/copy cost at 1920x1080 per eye. A
+120 Hz frame is about 8.33 ms, so that boundary could consume the whole budget.
+The readback-off physical run restored approximately vanilla cadence with both
+eye renders still active, proving causality.
 
-Locomotion again reached `0.999992`, and 126 sampled updates explicitly reported the shipped `LockApplyControllerState -> Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. That correction did not make locomotion acceptable, so missing transaction semantics are ruled out as the primary cause. Five sampled jump states also reach exact native digital action 11, yet the observed hop is only about 2 cm. The next investigation must measure game-space speed/jump displacement and renderer cadence separately instead of continuing guess-and-check input changes.
+The candidate now requests a D3D9Ex device, captures each eye with `StretchRect`
+into separate shared DEFAULT-pool render-target textures, publishes handles plus
+the exact pose through the mailbox, opens them on the presenter's matching D3D11
+adapter and queues `CopyResource` into stable OpenVR textures. During normal
+presentation D3D9 and D3D11 EVENT queries are polled without waiting; three
+producer slots plus a consumer lease prevent overwrite and preserve
+left/right/pose pairing. Presenter shutdown uses one bounded D3D11 completion
+barrier only when copies remain pending, and retains leases on drain failure
+rather than releasing producer resources early. The preferred
+path contains no `GetRenderTargetData`, SYSTEMMEM surface, CPU pixel copy,
+diagnostic eye hash or `UpdateSubresource`.
 
-OFXR-Bridge is not a direct fix for this active path. It is an experimental OpenXR API layer that inserts optical-flow-generated frames between OpenXR submissions; the current backend is classic D3D9 + OpenVR and pays the CPU readback before compositor submission. OFXR therefore cannot remove this D3D9 readback or recover source detail that was never rendered. Keep it as future OpenXR/frame-generation research after a GPU-resident transport exists.
+Classic D3D9 cannot supply the DXGI-shareable DEFAULT resources required by
+this interop, so the full GPU path requires D3D9Ex. The factory falls back to
+classic device creation if `CreateDeviceEx` fails; capture then reports and uses
+the old deferred CPU route. That fallback is functional but fails the current
+performance gate. Immediate flat-theater capture still uses transient
+`GetRenderTargetData` because it owns CPU-side UI/pointer composition and reset
+safety; native stereo does not use it while D3D9Ex sharing is active.
+
+The main unresolved risk is compatibility: an earlier D3D9Ex substitution
+crashed the exact game after staging. The new candidate has explicit factory
+fallback and tested ring/resource lifetime, but it cannot recover from a crash
+that occurs after successful Ex device creation. A fresh correlated physical
+run must settle that boundary before the transport advances beyond host-tested.
+
+OFXR-Bridge is not a direct fix for this path. It is an experimental OpenXR
+optical-flow layer and cannot replace D3D9Ex/OpenVR resource interop or recover
+source detail that was never rendered.
 
 ### Recenter level reference
 
@@ -108,4 +149,8 @@ See `docs/research/COJ_CAMERA_PATH.md` and `docs/research/COJ_ARM_SKINNING_AND_A
 
 ## Current acceptance boundary
 
-The repository is no longer blocked on discovering whether native stereo is possible. It is blocked on making the current exact-game VR ownership usable and physically correct: controller UI, subtitles, GPU/CPU presentation cost and smooth locomotion/jump, first-person crouch/body ownership, weapon origin/direction, arm/reload anatomy and lifecycle finalization.
+The repository is no longer blocked on discovering whether native stereo or
+native locomotion is correct. Its immediate gate is exact-game/headset
+validation of the D3D9Ex GPU-resident transport. Remaining product work is
+controller UI, subtitles, first-person body ownership, weapon origin/direction,
+arm/reload anatomy and lifecycle finalization.
