@@ -23,7 +23,12 @@ Call of Juarez (2006) is the reference implementation. The goal is a native-feel
 
 Native D3D9 stereo reaches SteamVR with real per-eye rendering, tracked 6DoF head movement, positional camera offset, recentering and VR presentation transitions between menus/loading and gameplay.
 
-PS VR2 Sense tracking already reaches the game-specific hand/body layer. The active work is concentrated on controller-driven UI, locomotion and jump behavior, continuous arm IK, weapon alignment and the remaining performance cost of the classic-D3D9 presentation path.
+PS VR2 Sense tracking already reaches the game-specific hand/body layer.
+Physical measurement has confirmed vanilla-equivalent native movement and jump
+behavior; their earlier apparent slowdown was presentation cadence. The current
+physical gate is a host-tested D3D9Ex shared-texture transport that removes
+native-stereo GPU-to-CPU readback. Controller-driven UI, continuous arm IK,
+weapon alignment and shutdown remain separate open product areas.
 
 [Validation](docs/VALIDATION.md) records the durable physical acceptance state. Per-run logs, videos, telemetry, agent handoffs and temporary evidence remain local under ignored working directories.
 
