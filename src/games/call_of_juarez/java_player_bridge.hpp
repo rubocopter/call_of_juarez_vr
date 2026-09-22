@@ -14,6 +14,27 @@ struct JavaPlayerPosition {
     float z = 0.0F;
 };
 
+struct CoJMovementObservation {
+    JavaPlayerPosition position{};
+    JavaPlayerPosition wanted_local_speed{};
+    float game_time = 0.0F;
+    float game_time_delta = 0.0F;
+    float forward_speed = 0.0F;
+    float side_speed = 0.0F;
+    float current_vertical_speed = 0.0F;
+    float jump_height = 0.0F;
+    float stair_height = 0.0F;
+    int speed_state = 0;
+    int ode_walk_state = 0;
+    bool run = false;
+    bool can_run = false;
+    bool can_jump = false;
+    bool jumping = false;
+};
+
+[[nodiscard]] const char* CoJMovementSpeedStateName(int speed_state) noexcept;
+[[nodiscard]] bool CoJOdeWalkStateGrounded(int ode_walk_state) noexcept;
+
 struct CoJGameplayActionValue {
     int action = -1;
     float value = 0.0F;
@@ -171,6 +192,13 @@ public:
     [[nodiscard]] bool Refresh(std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetPosition(
         JavaPlayerPosition& position, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveMovement(
+        CoJMovementObservation& observation,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryGetMovementClock(
+        float& game_time,
+        float& game_time_delta,
+        std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TrySetPosition(
         const JavaPlayerPosition& position, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetMeshElement(
@@ -322,6 +350,8 @@ private:
     [[nodiscard]] bool EnsureAimAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureFireOriginAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureGameplayInputAccess(void* env, std::string* error) noexcept;
+    [[nodiscard]] bool EnsureMovementObservationAccess(
+        void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureVectorAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] CoJCurrentUiResolution TryResolveCurrentGameUi(
         void* env,
@@ -374,6 +404,20 @@ private:
     void* get_position_vector_method_ = nullptr;
     void* set_position_method_ = nullptr;
     void* rotate_horizontally_method_ = nullptr;
+    void* get_time_method_ = nullptr;
+    void* get_time_delta_method_ = nullptr;
+    void* get_forward_speed_method_ = nullptr;
+    void* get_side_speed_method_ = nullptr;
+    void* get_current_vertical_speed_method_ = nullptr;
+    void* get_wanted_local_speed_method_ = nullptr;
+    void* get_run_method_ = nullptr;
+    void* can_run_method_ = nullptr;
+    void* get_speed_state_method_ = nullptr;
+    void* can_jump_method_ = nullptr;
+    void* is_jumping_method_ = nullptr;
+    void* get_jump_height_method_ = nullptr;
+    void* get_stair_height_method_ = nullptr;
+    void* get_ode_walk_state_method_ = nullptr;
     void* update_body_rotation_method_ = nullptr;
     void* current_head_vertical_field_ = nullptr;
     void* current_head_horizontal_field_ = nullptr;
@@ -420,6 +464,7 @@ private:
     bool fire_origin_lookup_attempted_ = false;
     bool weapon_reload_lookup_attempted_ = false;
     bool body_rotation_lookup_attempted_ = false;
+    bool movement_observation_lookup_attempted_ = false;
     bool single_player_fallback_used_ = false;
     bool campaign_module_fallback_used_ = false;
     std::uint64_t being_generation_ = 0;

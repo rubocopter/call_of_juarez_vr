@@ -292,6 +292,12 @@ switch ($Action) {
             Write-Host "Tracking enabled: $([bool]$Control.trackingEnabled)"
             Write-Host "Body IK enabled: $([bool]$Control.bodyIkEnabled)"
             Write-Host "Recenter requested: $([bool]$Control.recenter)"
+            if ($null -ne $Control.PSObject.Properties['movementTraceEnabled']) {
+                Write-Host "Movement trace: $([bool]$Control.movementTraceEnabled) ($([string]$Control.movementTracePhase))"
+                Write-Host "VR gameplay input: $([bool]$Control.vrGameplayInputEnabled)"
+                Write-Host "Capture/readback: $([bool]$Control.captureReadbackEnabled)"
+                Write-Host "Second eye render: $([bool]$Control.secondEyeRenderEnabled)"
+            }
         }
         if (Test-Path -LiteralPath $VideoProfileStatePath -PathType Leaf) {
             $VideoState = Get-Content -LiteralPath $VideoProfileStatePath -Raw | ConvertFrom-Json
@@ -320,6 +326,8 @@ switch ($Action) {
         $SummaryError = $null
         try {
             & (Join-Path $PSScriptRoot "summarize_native_stereo_run.ps1") `
+                -GameDirectory $ResolvedGameDirectory
+            & (Join-Path $PSScriptRoot "summarize_movement_diagnostic.ps1") `
                 -GameDirectory $ResolvedGameDirectory
         } catch {
             $SummaryError = $_.Exception.Message
@@ -360,6 +368,10 @@ switch ($Action) {
         $SummaryPath = Join-Path $ResolvedGameDirectory "cojvr-native-stereo-summary.json"
         if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) {
             Remove-Item -LiteralPath $SummaryPath -Force
+        }
+        $MovementSummaryPath = Join-Path $ResolvedGameDirectory "cojvr-movement-summary.json"
+        if (Test-Path -LiteralPath $MovementSummaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $MovementSummaryPath -Force
         }
 
         if ($CollectionError) {

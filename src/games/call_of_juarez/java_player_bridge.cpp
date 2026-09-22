@@ -33,6 +33,7 @@ constexpr std::size_t kGetMethodId = 33;
 constexpr std::size_t kCallObjectMethodA = 36;
 constexpr std::size_t kCallBooleanMethodA = 39;
 constexpr std::size_t kCallIntMethodA = 51;
+constexpr std::size_t kCallFloatMethodA = 57;
 constexpr std::size_t kCallVoidMethodA = 63;
 constexpr std::size_t kGetFieldId = 94;
 constexpr std::size_t kGetObjectField = 95;
@@ -109,6 +110,7 @@ using GetMethodIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const cha
 using CallObjectMethodAFn = void*(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using CallBooleanMethodAFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using CallIntMethodAFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
+using CallFloatMethodAFn = float(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using CallVoidMethodAFn = void(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using GetFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
@@ -139,6 +141,26 @@ void DeleteLocal(void* env, void* value) noexcept {
 }
 
 } // namespace
+
+const char* CoJMovementSpeedStateName(const int speed_state) noexcept {
+    // EBeingSpeedStates uses bit 7 for the moving family and the low nibble
+    // for Walk/Trot/Run/Sprint. Keep the raw value in telemetry as well.
+    if ((speed_state & 0x80) == 0) return "other";
+    switch (speed_state & 0x0F) {
+    case 0: return "walk";
+    case 1: return "trot";
+    case 2: return "run";
+    case 3: return "sprint";
+    default: return "other";
+    }
+}
+
+bool CoJOdeWalkStateGrounded(const int ode_walk_state) noexcept {
+    // Creature.CanSetJumpState and UpdateMoveState use bit 1 for the native
+    // flying interval. Report its inverse as the exact-build grounded state;
+    // the raw ODE state remains in every sample for auditability.
+    return (ode_walk_state & 0x02) == 0;
+}
 
 const char* CoJUiDispatchRouteName(const CoJUiDispatchRoute route) noexcept {
     switch (route) {
@@ -2362,12 +2384,27 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     get_position_vector_method_ = nullptr;
     set_position_method_ = nullptr;
     rotate_horizontally_method_ = nullptr;
+    get_time_method_ = nullptr;
+    get_time_delta_method_ = nullptr;
+    get_forward_speed_method_ = nullptr;
+    get_side_speed_method_ = nullptr;
+    get_current_vertical_speed_method_ = nullptr;
+    get_wanted_local_speed_method_ = nullptr;
+    get_run_method_ = nullptr;
+    can_run_method_ = nullptr;
+    get_speed_state_method_ = nullptr;
+    can_jump_method_ = nullptr;
+    is_jumping_method_ = nullptr;
+    get_jump_height_method_ = nullptr;
+    get_stair_height_method_ = nullptr;
+    get_ode_walk_state_method_ = nullptr;
     update_body_rotation_method_ = nullptr;
     current_head_vertical_field_ = nullptr;
     current_head_horizontal_field_ = nullptr;
     current_spine_vertical_field_ = nullptr;
     current_spine_horizontal_field_ = nullptr;
     body_rotation_lookup_attempted_ = false;
+    movement_observation_lookup_attempted_ = false;
     bone_read_lookup_attempted_ = false;
     element_world_read_lookup_attempted_ = false;
     element_world_basis_lookup_attempted_ = false;
@@ -2383,6 +2420,64 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     is_weapon_reloading_method_ = nullptr;
     fire_origins_ = {};
     fire_origin_valid_ = {};
+}
+
+bool JavaPlayerBridge::EnsureMovementObservationAccess(
+    void* env, std::string* error) noexcept {
+    if (movement_observation_lookup_attempted_) {
+        if (get_time_method_ && get_time_delta_method_ && get_forward_speed_method_ &&
+            get_side_speed_method_ && get_current_vertical_speed_method_ &&
+            get_wanted_local_speed_method_ && get_run_method_ && can_run_method_ &&
+            get_speed_state_method_ && can_jump_method_ && is_jumping_method_ &&
+            get_jump_height_method_ && get_stair_height_method_ &&
+            get_ode_walk_state_method_) {
+            return EnsureVectorAccess(env, error);
+        }
+        SetError(error, "player movement observation path is unavailable");
+        return false;
+    }
+    movement_observation_lookup_attempted_ = true;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    if (!get_class || !get_method || !being_) {
+        SetError(error, "required JNI movement lookup functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (!player_class || ClearException(env, error, "GetObjectClass(movement) failed")) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    get_time_method_ = get_method(env, player_class, "GetTime", "()F");
+    get_time_delta_method_ = get_method(env, player_class, "GetTimeDelta", "()F");
+    get_forward_speed_method_ = get_method(env, player_class, "GetForwardSpeed", "()F");
+    get_side_speed_method_ = get_method(env, player_class, "GetSideSpeed", "()F");
+    get_current_vertical_speed_method_ =
+        get_method(env, player_class, "GetCurrentVertSpeed", "()F");
+    get_wanted_local_speed_method_ =
+        get_method(env, player_class, "ODEWalk_GetWantedLocalSpeed", "(LVector;)V");
+    get_run_method_ = get_method(env, player_class, "GetRun", "()Z");
+    can_run_method_ = get_method(env, player_class, "CanRun", "()Z");
+    get_speed_state_method_ = get_method(env, player_class, "GetSpeedState", "()I");
+    can_jump_method_ = get_method(env, player_class, "CanJump", "()Z");
+    is_jumping_method_ = get_method(env, player_class, "IsJumping", "()Z");
+    // PropGetJumpHeight is side-effect free. PlayerBeing.GetJumpHeight clears
+    // the one-shot big-jump flag and must never be called by diagnostics.
+    get_jump_height_method_ = get_method(env, player_class, "PropGetJumpHeight", "()F");
+    get_stair_height_method_ =
+        get_method(env, player_class, "ODEWalk_GetStairHeight", "()F");
+    get_ode_walk_state_method_ = get_method(env, player_class, "ODEWalk_GetState", "()I");
+    const bool failed = ClearException(env, error, "movement method lookup failed");
+    DeleteLocal(env, player_class);
+    if (failed || !get_time_method_ || !get_time_delta_method_ ||
+        !get_forward_speed_method_ || !get_side_speed_method_ ||
+        !get_current_vertical_speed_method_ || !get_wanted_local_speed_method_ ||
+        !get_run_method_ || !can_run_method_ || !get_speed_state_method_ ||
+        !can_jump_method_ || !is_jumping_method_ || !get_jump_height_method_ ||
+        !get_stair_height_method_ || !get_ode_walk_state_method_) {
+        return false;
+    }
+    return EnsureVectorAccess(env, error);
 }
 
 bool JavaPlayerBridge::ResolveBeingMethods(
@@ -3486,6 +3581,106 @@ bool JavaPlayerBridge::TryGetPosition(
     const bool failed = ClearException(env, error, "Vector position read failed");
     DeleteLocal(env, vector);
     return !failed;
+}
+
+bool JavaPlayerBridge::TryObserveMovement(
+    CoJMovementObservation& observation,
+    std::string* error) noexcept {
+    observation = {};
+    if (!TryGetPosition(observation.position, error)) return false;
+
+    void* env = Environment(error);
+    if (!env || !being_ || !EnsureMovementObservationAccess(env, error)) return false;
+    const auto call_float = EnvFunction<CallFloatMethodAFn>(env, kCallFloatMethodA);
+    const auto call_bool = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    if (!call_float || !call_bool || !call_int || !call_void || !new_object) {
+        SetError(error, "required JNI movement observation functions are unavailable");
+        return false;
+    }
+
+    void* wanted = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (!wanted || ClearException(env, error, "Vector allocation for movement failed")) {
+        DeleteLocal(env, wanted);
+        return false;
+    }
+    JValue wanted_arg{};
+    wanted_arg.l = wanted;
+    call_void(env, being_, get_wanted_local_speed_method_, &wanted_arg);
+    if (ClearException(env, error, "ODEWalk_GetWantedLocalSpeed call failed") ||
+        !ReadVector(env, wanted, observation.wanted_local_speed, error)) {
+        DeleteLocal(env, wanted);
+        return false;
+    }
+    DeleteLocal(env, wanted);
+
+    observation.game_time = call_float(env, being_, get_time_method_, nullptr);
+    observation.game_time_delta = call_float(env, being_, get_time_delta_method_, nullptr);
+    observation.forward_speed = call_float(env, being_, get_forward_speed_method_, nullptr);
+    observation.side_speed = call_float(env, being_, get_side_speed_method_, nullptr);
+    observation.current_vertical_speed =
+        call_float(env, being_, get_current_vertical_speed_method_, nullptr);
+    const float property_jump_height =
+        call_float(env, being_, get_jump_height_method_, nullptr);
+    observation.stair_height = call_float(env, being_, get_stair_height_method_, nullptr);
+    observation.jump_height = property_jump_height - observation.stair_height;
+    observation.speed_state = call_int(env, being_, get_speed_state_method_, nullptr);
+    observation.ode_walk_state = call_int(env, being_, get_ode_walk_state_method_, nullptr);
+    observation.run = call_bool(env, being_, get_run_method_, nullptr) != 0;
+    observation.can_run = call_bool(env, being_, can_run_method_, nullptr) != 0;
+    observation.can_jump = call_bool(env, being_, can_jump_method_, nullptr) != 0;
+    observation.jumping = call_bool(env, being_, is_jumping_method_, nullptr) != 0;
+    if (ClearException(env, error, "movement observation call failed")) return false;
+
+    const float values[]{
+        observation.position.x,
+        observation.position.y,
+        observation.position.z,
+        observation.wanted_local_speed.x,
+        observation.wanted_local_speed.y,
+        observation.wanted_local_speed.z,
+        observation.game_time,
+        observation.game_time_delta,
+        observation.forward_speed,
+        observation.side_speed,
+        observation.current_vertical_speed,
+        observation.jump_height,
+        observation.stair_height,
+    };
+    if (!std::all_of(std::begin(values), std::end(values), [](const float value) {
+            return std::isfinite(value);
+        })) {
+        SetError(error, "movement observation contained non-finite values");
+        return false;
+    }
+    if (error) error->clear();
+    return true;
+}
+
+bool JavaPlayerBridge::TryGetMovementClock(
+    float& game_time,
+    float& game_time_delta,
+    std::string* error) noexcept {
+    game_time = 0.0F;
+    game_time_delta = 0.0F;
+    void* env = Environment(error);
+    if (!env || !being_ || !EnsureMovementObservationAccess(env, error)) return false;
+    const auto call_float = EnvFunction<CallFloatMethodAFn>(env, kCallFloatMethodA);
+    if (!call_float) {
+        SetError(error, "JNI CallFloatMethodA is unavailable");
+        return false;
+    }
+    game_time = call_float(env, being_, get_time_method_, nullptr);
+    game_time_delta = call_float(env, being_, get_time_delta_method_, nullptr);
+    if (ClearException(env, error, "movement clock call failed") ||
+        !std::isfinite(game_time) || !std::isfinite(game_time_delta)) {
+        SetError(error, "movement clock contained non-finite values");
+        return false;
+    }
+    if (error) error->clear();
+    return true;
 }
 
 bool JavaPlayerBridge::TrySetPosition(

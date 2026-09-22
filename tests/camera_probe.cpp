@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/java_player_bridge.hpp"
 #include "runtime/vr_math.hpp"
 
 #include <cmath>
@@ -93,7 +94,10 @@ int main() {
             R"({"enabled":true,"fovDegrees":110,"yawDegrees":30,"pitchDegrees":-10})",
             command, &error) ||
         !command.enabled || !command.override_fov || !Near(command.fov_degrees, 110.0F) ||
-        !Near(command.yaw_degrees, 30.0F) || !Near(command.pitch_degrees, -10.0F)) {
+        !Near(command.yaw_degrees, 30.0F) || !Near(command.pitch_degrees, -10.0F) ||
+        command.movement_trace_enabled || command.movement_trace_phase != "off" ||
+        !command.vr_gameplay_input_enabled || !command.capture_readback_enabled ||
+        !command.second_eye_render_enabled) {
         std::cerr << "valid control command was not parsed: " << error << '\n';
         return 1;
     }
@@ -112,6 +116,32 @@ int main() {
         command.enabled || !command.tracking_enabled || !command.body_ik_enabled ||
         !command.recenter) {
         std::cerr << "tracking control command was not parsed: " << error << '\n';
+        return 1;
+    }
+
+    if (!ParseCameraProbeCommand(
+            R"({"enabled":true,"trackingEnabled":true,"movementTraceEnabled":true,"movementTracePhase":"vr-input-off","vrGameplayInputEnabled":false,"captureReadbackEnabled":false,"secondEyeRenderEnabled":false})",
+            command, &error) ||
+        !command.movement_trace_enabled || command.movement_trace_phase != "vr-input-off" ||
+        command.vr_gameplay_input_enabled || command.capture_readback_enabled ||
+        command.second_eye_render_enabled) {
+        std::cerr << "movement diagnostic controls were not parsed: " << error << '\n';
+        return 1;
+    }
+
+    if (ParseCameraProbeCommand(
+            R"({"enabled":true,"movementTracePhase":"bad phase"})",
+            command, &error)) {
+        std::cerr << "invalid movement phase label was accepted\n";
+        return 1;
+    }
+
+    if (std::string_view(CoJMovementSpeedStateName(0x80)) != "walk" ||
+        std::string_view(CoJMovementSpeedStateName(0x82)) != "run" ||
+        std::string_view(CoJMovementSpeedStateName(0x83)) != "sprint" ||
+        std::string_view(CoJMovementSpeedStateName(11)) != "other" ||
+        !CoJOdeWalkStateGrounded(0) || CoJOdeWalkStateGrounded(2)) {
+        std::cerr << "movement state diagnostics do not preserve exact-build semantics\n";
         return 1;
     }
 

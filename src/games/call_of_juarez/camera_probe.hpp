@@ -49,6 +49,13 @@ struct CameraProbeCommand {
     bool tracking_enabled = false;
     bool body_ik_enabled = false;
     bool recenter = false;
+    // Diagnostic controls are opt-in and preserve the production path when
+    // omitted from the control file.
+    bool movement_trace_enabled = false;
+    std::string movement_trace_phase = "off";
+    bool vr_gameplay_input_enabled = true;
+    bool capture_readback_enabled = true;
+    bool second_eye_render_enabled = true;
 };
 
 [[nodiscard]] bool ParseCameraProbeCommand(
@@ -132,6 +139,14 @@ struct CameraStereoFrameSample {
     bool ui_back_pressed = false;
 };
 
+struct CameraStereoDiagnosticCounters {
+    std::uint64_t frames_fenced = 0;
+    std::uint64_t frames_collected = 0;
+    std::uint64_t frames_uploaded = 0;
+    std::uint64_t new_submissions = 0;
+    std::uint64_t repeat_submissions = 0;
+};
+
 // Exact-game UI input seam.  Selection is delivered through the currently
 // visible GameUserInterface's shipped Enter helper rather than process-global
 // Win32 mouse/keyboard synthesis.
@@ -172,6 +187,10 @@ struct CameraStereoRuntimeCallbacks {
         void* context,
         std::uint64_t frame_sequence,
         const cojvr::runtime::PoseSample& render_hmd_pose) noexcept = nullptr;
+    void (*set_capture_readback_enabled)(void* context, bool enabled) noexcept = nullptr;
+    bool (*diagnostic_counters)(
+        void* context,
+        CameraStereoDiagnosticCounters& counters) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

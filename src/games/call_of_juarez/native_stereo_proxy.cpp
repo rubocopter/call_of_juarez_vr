@@ -62,6 +62,7 @@ struct NativeStereoState {
     bool flat_ui_select_release_required = false;
     cojvr::games::call_of_juarez::CoJUiSelectRetryState flat_ui_select_retry{};
     std::array<bool, 2> capture_source_logged{};
+    std::atomic_bool capture_readback_enabled{true};
     bool runtime_ready = false;
 };
 
@@ -655,8 +656,11 @@ bool BeginStereoFrame(
     }
 
     cojvr::backends::d3d9::StereoCpuFrame completed{};
-    const bool reused_cpu_storage = state->presenter.TryAcquireReusableFrame(completed);
-    if (state->capture.TryCollectReady(completed)) {
+    const bool capture_enabled =
+        state->capture_readback_enabled.load(std::memory_order_acquire);
+    const bool reused_cpu_storage = capture_enabled &&
+        state->presenter.TryAcquireReusableFrame(completed);
+    if (capture_enabled && state->capture.TryCollectReady(completed)) {
         const std::uint64_t sequence = completed.capture_sequence;
         if (PublishCapturedFrame(
                 *state, std::move(completed),
@@ -702,6 +706,7 @@ bool CaptureStereoEye(
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state || !content_hash) return false;
     *content_hash = 0;
+    if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
     IDirect3DDevice9* device = RetainCurrentDevice();
     if (!device) {
         LogTransportFailure(frame_sequence, "capture", "D3D9 device unavailable");
@@ -742,6 +747,7 @@ bool SubmitStereoFrame(
     const cojvr::runtime::PoseSample& render_hmd_pose) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return false;
+    if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
     const bool accepted = state->capture.EndFrame(
         frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence);
     if (!accepted) {
@@ -753,6 +759,39 @@ bool SubmitStereoFrame(
         LogLine(line.str());
     }
     return accepted;
+}
+
+void SetCaptureReadbackEnabled(void* context, const bool enabled) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state) return;
+    const bool previous = state->capture_readback_enabled.exchange(
+        enabled, std::memory_order_acq_rel);
+    if (previous == enabled) return;
+    if (!enabled) state->capture.InvalidateResources();
+    LogLine(std::string("native_stereo_diagnostic_capture: status=") +
+        (enabled ? "enabled" : "disabled") +
+        ";readback=" + (enabled ? "active" : "bypassed") +
+        ";presenter=repeat_last_frame");
+}
+
+bool QueryDiagnosticCounters(
+    void* context,
+    cojvr::games::call_of_juarez::CameraStereoDiagnosticCounters& counters) noexcept {
+    counters = {};
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state) return false;
+    try {
+        const auto capture = state->capture.stats();
+        const auto presenter = state->presenter.stats();
+        counters.frames_fenced = capture.frames_fenced;
+        counters.frames_collected = capture.frames_collected;
+        counters.frames_uploaded = presenter.frames_uploaded;
+        counters.new_submissions = presenter.new_frame_submissions;
+        counters.repeat_submissions = presenter.repeated_frame_submissions;
+        return true;
+    } catch (...) {
+        return false;
+    }
 }
 
 bool StartStereoRuntime() noexcept {
@@ -872,6 +911,8 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.begin_frame = &BeginStereoFrame;
                 stereo_callbacks.capture_eye = &CaptureStereoEye;
                 stereo_callbacks.submit_frame = &SubmitStereoFrame;
+                stereo_callbacks.set_capture_readback_enabled = &SetCaptureReadbackEnabled;
+                stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
             }
 
             const auto control_path = GameDirectory() / L"cojvr-camera-control.json";
