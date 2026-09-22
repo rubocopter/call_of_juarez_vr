@@ -15,10 +15,12 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -103,6 +105,34 @@ CameraProbeEventCallback g_event_callback = nullptr;
 cojvr::runtime::PoseSource* g_pose_source = nullptr;
 cojvr::runtime::BodyTracker g_body_tracker;
 JavaPlayerBridge g_java_player_bridge;
+std::atomic_uint64_t g_diagnostic_left_eye_renders{0};
+std::atomic_uint64_t g_diagnostic_right_eye_renders{0};
+std::atomic_uint64_t g_diagnostic_stereo_pairs{0};
+std::atomic_uint64_t g_diagnostic_game_updates{0};
+std::mutex g_diagnostic_actor_mutex;
+JavaPlayerPosition g_diagnostic_actor_position{};
+bool g_diagnostic_actor_valid = false;
+struct MovementTraceObserverState {
+    JavaPlayerBridge bridge;
+    bool phase_active = false;
+    bool exhausted = false;
+    std::string phase;
+    std::uint64_t phase_start_us = 0;
+    std::uint64_t update_count = 0;
+    std::uint64_t being_generation = 0;
+    std::uint64_t last_failure_log_us = 0;
+    CoJMovementObservation previous{};
+    bool previous_valid = false;
+    CoJMovementJumpPhase jump_phase = CoJMovementJumpPhase::grounded_stable;
+    bool jump_confirmed = false;
+    std::uint64_t jump_start_us = 0;
+    std::uint64_t jump_apex_us = 0;
+    float jump_initial_y = 0.0F;
+    float jump_max_y = 0.0F;
+    float jump_max_vertical_speed = 0.0F;
+    std::string last_completed_step = "idle";
+};
+MovementTraceObserverState g_movement_trace_observer;
 CoJLoadingUiInputGate g_loading_ui_input_gate;
 CoJPhysicalCrouchState g_physical_crouch_state;
 bool g_loading_ui_resume_pending = false;
@@ -439,6 +469,33 @@ bool ReadFloat(
     return parsed.ec == std::errc{} && parsed.ptr != begin && std::isfinite(value);
 }
 
+bool ReadString(
+    const std::string_view text,
+    const std::string_view key,
+    std::string& value,
+    bool& present) noexcept {
+    present = false;
+    const auto offset = ValueOffset(text, key);
+    if (!offset) return true;
+    present = true;
+    if (*offset >= text.size() || text[*offset] != '"') return false;
+    const std::size_t end = text.find('"', *offset + 1);
+    if (end == std::string_view::npos || end - *offset - 1 > 48) return false;
+    const auto candidate = text.substr(*offset + 1, end - *offset - 1);
+    if (candidate.empty() || !std::all_of(candidate.begin(), candidate.end(), [](const char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') || c == '-' || c == '_';
+        })) {
+        return false;
+    }
+    try {
+        value.assign(candidate);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 float Length(const CameraProbeVector value) noexcept {
     return std::sqrt(value.x * value.x + value.y * value.y + value.z * value.z);
 }
@@ -682,7 +739,16 @@ void RefreshCommandLocked() noexcept {
                << ";pitch=" << parsed.pitch_degrees
                << ";tracking_enabled=" << (parsed.tracking_enabled ? "true" : "false")
                << ";body_ik_enabled=" << (parsed.body_ik_enabled ? "true" : "false")
-               << ";recenter=" << (parsed.recenter ? "true" : "false");
+               << ";recenter=" << (parsed.recenter ? "true" : "false")
+               << ";movement_trace_enabled="
+               << (parsed.movement_trace_enabled ? "true" : "false")
+               << ";movement_trace_phase=" << parsed.movement_trace_phase
+               << ";vr_gameplay_input_enabled="
+               << (parsed.vr_gameplay_input_enabled ? "true" : "false")
+               << ";capture_readback_enabled="
+               << (parsed.capture_readback_enabled ? "true" : "false")
+               << ";second_eye_render_enabled="
+               << (parsed.second_eye_render_enabled ? "true" : "false");
         EmitEvent("camera_probe_control_loaded", "accepted", detail.str());
     } catch (...) {
         DisableCommandLocked(
@@ -698,6 +764,373 @@ CommandSnapshot CurrentCommand() noexcept {
     } catch (...) {
         return {};
     }
+}
+
+std::uint64_t MonotonicMicroseconds() noexcept {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+void ClearDiagnosticActor() noexcept {
+    std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+    g_diagnostic_actor_position = {};
+    g_diagnostic_actor_valid = false;
+}
+
+void PublishDiagnosticActor(const JavaPlayerPosition position) noexcept {
+    std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+    g_diagnostic_actor_position = position;
+    g_diagnostic_actor_valid = true;
+}
+
+void EmitMovementTraceFailure(
+    const MovementTraceObserverState& state,
+    const char* operation,
+    const std::string& failure,
+    const char* exception) noexcept {
+    try {
+        const CoJJniDiagnosticState jni = state.bridge.jni_diagnostic_state();
+        std::ostringstream detail;
+        detail << "phase=" << (state.phase.empty() ? "off" : state.phase)
+               << ";operation=" << (operation ? operation : "unknown")
+               << ";exception=" << (exception && *exception ? exception : "none")
+               << ";failure=" << (failure.empty() ? "unspecified" : failure)
+               << ";jvm_cached=" << (jni.vm_cached ? "true" : "false")
+               << ";jni_environment_observed="
+               << (jni.environment_observed ? "true" : "false")
+               << ";thread_attached_by_bridge="
+               << (jni.thread_attached_by_bridge ? "true" : "false")
+               << ";being_generation=" << jni.being_generation
+               << ";last_completed_step=" << state.last_completed_step;
+        EmitEvent("movement_trace_observer", "failed", detail.str());
+    } catch (...) {
+    }
+}
+
+void EndMovementJump(
+    MovementTraceObserverState& state,
+    const CoJMovementObservation& current,
+    const std::uint64_t now_us) noexcept {
+    if (!state.jump_confirmed) return;
+    try {
+        std::ostringstream detail;
+        detail << std::fixed << std::setprecision(6)
+               << "phase=" << state.phase
+               << ";timestamp_us=" << now_us
+               << ";start_y=" << state.jump_initial_y
+               << ";max_y=" << state.jump_max_y
+               << ";final_y=" << current.position.y
+               << ";apex_height_cm=" << (state.jump_max_y - state.jump_initial_y)
+               << ";duration_s=" << ((now_us - state.jump_start_us) / 1000000.0)
+               << ";time_to_apex_s="
+               << ((state.jump_apex_us - state.jump_start_us) / 1000000.0)
+               << ";max_vertical_velocity=" << state.jump_max_vertical_speed
+               << ";requested_jump_height=" << current.jump_height
+               << ";stair_height=" << current.stair_height
+               << ";confirmation=is_jumping_true_through_flight_and_native_release";
+        EmitEvent("movement_jump_summary", "complete", detail.str());
+    } catch (...) {
+    }
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
+}
+
+void EndMovementTracePhase(
+    MovementTraceObserverState& state,
+    const std::uint64_t now_us,
+    const char* reason,
+    const bool release_jni) noexcept {
+    if (!state.phase_active) return;
+    if (state.jump_confirmed) {
+        try {
+            EmitEvent(
+                "movement_jump_summary",
+                "incomplete",
+                "phase=" + state.phase + ";timestamp_us=" + std::to_string(now_us) +
+                    ";reason=trace_phase_ended_before_native_jump_release");
+        } catch (...) {
+        }
+    }
+    try {
+        std::ostringstream detail;
+        detail << "phase=" << state.phase
+               << ";timestamp_us=" << now_us
+               << ";duration_s=" << std::fixed << std::setprecision(6)
+               << ((now_us - state.phase_start_us) / 1000000.0)
+               << ";game_updates=" << state.update_count
+               << ";reason=" << reason
+               << ";observer_boundary=render_camera_update";
+        EmitEvent("movement_trace_phase", "end", detail.str());
+    } catch (...) {
+    }
+    state.phase_active = false;
+    state.previous_valid = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
+    state.being_generation = 0;
+    state.last_completed_step = "phase_ended";
+    ClearDiagnosticActor();
+    if (release_jni) state.bridge.Reset();
+}
+
+void StartMovementTracePhase(
+    MovementTraceObserverState& state,
+    const CommandSnapshot& command,
+    const std::uint64_t now_us) noexcept {
+    state.bridge.SetDetailedExceptionDiagnostics(true);
+    state.phase = command.command.movement_trace_phase;
+    state.phase_start_us = now_us;
+    state.update_count = 0;
+    state.being_generation = 0;
+    state.last_failure_log_us = 0;
+    state.previous = {};
+    state.previous_valid = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
+    state.last_completed_step = "phase_started";
+    state.phase_active = true;
+    g_diagnostic_game_updates.store(0, std::memory_order_release);
+    ClearDiagnosticActor();
+    try {
+        std::ostringstream detail;
+        detail << "phase=" << state.phase
+               << ";timestamp_us=" << now_us
+               << ";vr_gameplay_input_enabled="
+               << (command.command.vr_gameplay_input_enabled ? "true" : "false")
+               << ";capture_readback_enabled="
+               << (command.command.capture_readback_enabled ? "true" : "false")
+               << ";second_eye_render_enabled="
+               << (command.command.second_eye_render_enabled ? "true" : "false")
+               << ";observer_boundary=render_camera_update"
+               << ";native_game_time_dedup=true"
+               << ";max_duration_s=180";
+        EmitEvent("movement_trace_phase", "start", detail.str());
+    } catch (...) {
+    }
+}
+
+void ObserveMovementTraceAtCameraBoundary(
+    const CommandSnapshot& command,
+    const bool camera_ready) noexcept {
+    auto& state = g_movement_trace_observer;
+    const std::uint64_t now_us = MonotonicMicroseconds();
+    try {
+        const bool phase_changed = state.phase_active &&
+            command.command.movement_trace_phase != state.phase;
+        if (phase_changed || (state.phase_active && !command.command.movement_trace_enabled)) {
+            EndMovementTracePhase(
+                state, now_us, phase_changed ? "phase_changed" : "disabled", true);
+            state.exhausted = false;
+        }
+        if (!command.command.movement_trace_enabled) {
+            state.exhausted = false;
+            ClearDiagnosticActor();
+            return;
+        }
+        if (!camera_ready) {
+            ClearDiagnosticActor();
+            state.last_completed_step = "camera_not_ready";
+            return;
+        }
+        if (!state.phase_active && !state.exhausted) {
+            StartMovementTracePhase(state, command, now_us);
+        }
+        if (!state.phase_active) return;
+        if (now_us - state.phase_start_us >= 180000000ULL) {
+            EndMovementTracePhase(state, now_us, "duration_limit", true);
+            state.exhausted = true;
+            return;
+        }
+
+        state.last_completed_step = "camera_ready";
+        std::string error;
+        // Re-resolve on every candidate sample. A Java GlobalRef can outlive
+        // the native player peer across menu/loading/gameplay transitions.
+        if (!state.bridge.Refresh(&error)) {
+            ClearDiagnosticActor();
+            if (state.last_failure_log_us == 0 || now_us - state.last_failure_log_us >= 1000000ULL) {
+                EmitMovementTraceFailure(state, "player_refresh", error, "none");
+                state.last_failure_log_us = now_us;
+            }
+            return;
+        }
+        state.last_completed_step = "player_refreshed";
+
+        const std::uint64_t generation = state.bridge.being_generation();
+        if (generation != state.being_generation) {
+            state.being_generation = generation;
+            state.previous_valid = false;
+            state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+            state.jump_confirmed = false;
+            try {
+                EmitEvent(
+                    "movement_trace_generation", "changed",
+                    "phase=" + state.phase + ";being_generation=" +
+                        std::to_string(generation));
+            } catch (...) {
+            }
+        }
+
+        float observed_game_time = 0.0F;
+        float observed_game_delta = 0.0F;
+        if (!state.bridge.TryGetMovementClock(
+                observed_game_time, observed_game_delta, &error)) {
+            ClearDiagnosticActor();
+            EmitMovementTraceFailure(state, "movement_clock", error, "none");
+            state.bridge.Reset();
+            state.being_generation = 0;
+            state.previous_valid = false;
+            return;
+        }
+        (void)observed_game_delta;
+        state.last_completed_step = "movement_clock";
+        if (state.previous_valid &&
+            std::fabs(observed_game_time - state.previous.game_time) <= 1.0e-7F) {
+            PublishDiagnosticActor(state.previous.position);
+            state.last_completed_step = "duplicate_game_time_skipped";
+            return;
+        }
+
+        CoJMovementObservation current{};
+        if (!state.bridge.TryObserveMovement(current, &error)) {
+            ClearDiagnosticActor();
+            EmitMovementTraceFailure(state, "movement_observation", error, "none");
+            state.bridge.Reset();
+            state.being_generation = 0;
+            state.previous_valid = false;
+            return;
+        }
+        state.last_completed_step = "movement_observed";
+
+        ++state.update_count;
+        g_diagnostic_game_updates.store(state.update_count, std::memory_order_release);
+        PublishDiagnosticActor(current.position);
+        const float dx = state.previous_valid ? current.position.x - state.previous.position.x : 0.0F;
+        const float dy = state.previous_valid ? current.position.y - state.previous.position.y : 0.0F;
+        const float dz = state.previous_valid ? current.position.z - state.previous.position.z : 0.0F;
+        const float dt = current.game_time_delta > 1.0e-7F ? current.game_time_delta : 0.0F;
+        const float horizontal_speed = dt > 0.0F ? std::sqrt(dx * dx + dz * dz) / dt : 0.0F;
+        const float calculated_vertical_speed = dt > 0.0F ? dy / dt : 0.0F;
+        const bool grounded = CoJOdeWalkStateGrounded(current.ode_walk_state);
+        const CoJMovementJumpTransition jump_transition = state.previous_valid
+            ? AdvanceCoJMovementJumpPhase(
+                  state.jump_phase,
+                  grounded,
+                  current.jumping,
+                  current.current_vertical_speed)
+            : CoJMovementJumpTransition{state.jump_phase};
+        state.jump_phase = jump_transition.phase;
+        if (jump_transition.begin_candidate) {
+            state.jump_start_us = now_us;
+            state.jump_apex_us = now_us;
+            state.jump_initial_y = state.previous.position.y;
+            state.jump_max_y = current.position.y;
+            state.jump_max_vertical_speed = current.current_vertical_speed;
+        }
+        if (jump_transition.confirm_jump) {
+            state.jump_confirmed = true;
+            try {
+                std::ostringstream detail;
+                detail << std::fixed << std::setprecision(6)
+                       << "phase=" << state.phase
+                       << ";timestamp_us=" << state.jump_start_us
+                       << ";confirmation_timestamp_us=" << now_us
+                       << ";game_update=" << state.update_count
+                       << ";confirmation=is_jumping_true"
+                       << ";requested_jump_height=" << current.jump_height
+                       << ";stair_height=" << current.stair_height
+                       << ";initial_y=" << state.jump_initial_y;
+                EmitEvent("movement_jump_edge", "observed", detail.str());
+            } catch (...) {
+            }
+        }
+        if (jump_transition.reject_candidate) {
+            state.jump_confirmed = false;
+            try {
+                std::ostringstream detail;
+                detail << "phase=" << state.phase
+                       << ";timestamp_us=" << now_us
+                       << ";game_update=" << state.update_count
+                       << ";reason=ground_contact_without_native_is_jumping";
+                EmitEvent("movement_jump_candidate", "rejected", detail.str());
+            } catch (...) {
+            }
+        }
+        if (state.jump_phase != CoJMovementJumpPhase::grounded_stable ||
+            state.jump_confirmed) {
+            if (current.position.y > state.jump_max_y) {
+                state.jump_max_y = current.position.y;
+                state.jump_apex_us = now_us;
+            }
+            state.jump_max_vertical_speed = std::max(
+                state.jump_max_vertical_speed, current.current_vertical_speed);
+        }
+
+        try {
+            std::ostringstream detail;
+            detail << std::fixed << std::setprecision(6)
+                   << "phase=" << state.phase
+                   << ";timestamp_us=" << now_us
+                   << ";game_update=" << state.update_count
+                   << ";game_time=" << current.game_time
+                   << ";game_delta=" << current.game_time_delta
+                   << ";being_generation=" << state.being_generation
+                   << ";actor=(" << current.position.x << ',' << current.position.y << ','
+                   << current.position.z << ')'
+                   << ";delta=(" << dx << ',' << dy << ',' << dz << ')'
+                   << ";horizontal_speed=" << horizontal_speed
+                   << ";calculated_vertical_speed=" << calculated_vertical_speed
+                   << ";native_vertical_speed=" << current.current_vertical_speed
+                   << ";forward_speed=" << current.forward_speed
+                   << ";side_speed=" << current.side_speed
+                   << ";wanted_local_speed=(" << current.wanted_local_speed.x << ','
+                   << current.wanted_local_speed.y << ',' << current.wanted_local_speed.z << ')'
+                   << ";movement_state=" << CoJMovementSpeedStateName(current.speed_state)
+                   << ";run=" << (current.run ? "true" : "false")
+                   << ";can_run=" << (current.can_run ? "true" : "false")
+                   << ";speed_state=" << current.speed_state
+                   << ";ode_walk_state=" << current.ode_walk_state
+                   << ";grounded=" << (grounded ? "true" : "false")
+                   << ";can_jump=" << (current.can_jump ? "true" : "false")
+                   << ";jumping=" << (current.jumping ? "true" : "false")
+                   << ";jump_candidate="
+                   << (state.jump_phase != CoJMovementJumpPhase::grounded_stable
+                           ? "true" : "false")
+                   << ";jump_active=" << (state.jump_confirmed ? "true" : "false")
+                   << ";observer_boundary=render_camera_update";
+            EmitEvent("movement_trace_sample", "ok", detail.str());
+            if (state.jump_confirmed) EmitEvent("movement_jump_sample", "ok", detail.str());
+        } catch (...) {
+        }
+
+        if (jump_transition.complete_jump && state.jump_confirmed) {
+            EndMovementJump(state, current, now_us);
+        }
+        state.previous = current;
+        state.previous_valid = true;
+        state.last_completed_step = "sample_emitted";
+    } catch (const std::exception& exception) {
+        ClearDiagnosticActor();
+        EmitMovementTraceFailure(state, "observer", "c++ exception", exception.what());
+    } catch (...) {
+        ClearDiagnosticActor();
+        EmitMovementTraceFailure(state, "observer", "unknown c++ exception", "unknown");
+    }
+}
+
+void ShutdownMovementTraceObserverNoJni() noexcept {
+    // Process teardown may already be dismantling the legacy JVM. Do not call
+    // Reset(), emit derived jump telemetry or allocate new diagnostic state.
+    // The process owns any remaining GlobalRefs until exit.
+    auto& state = g_movement_trace_observer;
+    state.phase_active = false;
+    state.previous_valid = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
+    state.being_generation = 0;
+    g_diagnostic_game_updates.store(0, std::memory_order_release);
+    ClearDiagnosticActor();
 }
 
 bool FirstForGeneration(std::atomic_uint64_t& marker, const std::uint64_t generation) noexcept {
@@ -846,6 +1279,11 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
     auto* far_plane = reinterpret_cast<float*>(bytes + kCameraFarOffset);
     const bool stereo_active = g_stereo_eye_override.active &&
         g_stereo_eye_override.camera == camera && g_stereo_eye_override.eye != nullptr;
+    const bool readable_source_basis =
+        IsReadable(source_right, sizeof(CameraProbeVector)) &&
+        IsReadable(source_up, sizeof(CameraProbeVector)) &&
+        IsReadable(source_forward, sizeof(CameraProbeVector)) &&
+        IsReadable(source_position, sizeof(CameraProbeVector));
     const bool writable_basis = IsWritable(source_right, sizeof(CameraProbeVector)) &&
         IsWritable(source_up, sizeof(CameraProbeVector)) &&
         IsWritable(source_forward, sizeof(CameraProbeVector)) &&
@@ -908,6 +1346,46 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
     if (!orientation_active || !writable_basis || !readable_frustum ||
         (stereo_active && !writable_frustum)) {
         original(camera);
+        bool movement_camera_ready = false;
+        if (!stereo_active && RendererReferencesCamera(camera) && readable_source_basis &&
+            IsReadable(source_world_matrix, kCameraMatrixBytes) &&
+            IsReadable(source_view_matrix, kCameraMatrixBytes)) {
+            const CameraProbeBasis observed_basis{
+                *source_forward, *source_up, *source_right};
+            movement_camera_ready = IsMovementTraceCameraReady(
+                observed_basis,
+                true,
+                SourceMatrixHasNativeHomogeneousLayout(source_world_matrix),
+                SourceMatrixHasNativeHomogeneousLayout(source_view_matrix));
+        }
+        ObserveMovementTraceAtCameraBoundary(snapshot, movement_camera_ready);
+        if (snapshot.command.movement_trace_enabled && movement_camera_ready) {
+            try {
+                JavaPlayerPosition actor_position{};
+                bool actor_valid = false;
+                {
+                    std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+                    actor_position = g_diagnostic_actor_position;
+                    actor_valid = g_diagnostic_actor_valid;
+                }
+                const CameraProbeVector natural_position = *source_position;
+                std::ostringstream detail;
+                detail << std::fixed << std::setprecision(6)
+                       << "phase=" << snapshot.command.movement_trace_phase
+                       << ";timestamp_us=" << MonotonicMicroseconds()
+                       << ";actor_valid=" << (actor_valid ? "true" : "false")
+                       << ";actor=(" << actor_position.x << ',' << actor_position.y << ','
+                       << actor_position.z << ')'
+                       << ";natural_camera=(" << natural_position.x << ','
+                       << natural_position.y << ',' << natural_position.z << ')'
+                       << ";final_camera=(" << natural_position.x << ','
+                       << natural_position.y << ',' << natural_position.z << ')'
+                       << ";camera_ready=true"
+                       << ";stereo=false";
+                EmitEvent("movement_camera_sample", "ok", detail.str());
+            } catch (...) {
+            }
+        }
         if (FirstForGeneration(g_passthrough_logged_generation, snapshot.generation)) {
             const char* result = "disabled";
             if (!writable_basis) result = "basis_unavailable";
@@ -1073,6 +1551,13 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
             natural_view_projection_matrix.data(), view_projection_matrix,
             natural_view_projection_matrix.size()) != 0;
     const bool renderer_camera_match = RendererReferencesCamera(camera);
+    ObserveMovementTraceAtCameraBoundary(
+        snapshot,
+        IsMovementTraceCameraReady(
+            natural_basis,
+            renderer_camera_match,
+            source_world_homogeneous_layout,
+            source_view_homogeneous_layout));
     g_render_update_override = {};
     if (!stereo_active) {
         *source_right = natural_right;
@@ -3552,8 +4037,16 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
 
     const CommandSnapshot snapshot = CurrentCommand();
+    if (g_stereo_callbacks.set_capture_readback_enabled) {
+        g_stereo_callbacks.set_capture_readback_enabled(
+            g_stereo_callbacks.context,
+            snapshot.command.capture_readback_enabled &&
+                snapshot.command.second_eye_render_enabled);
+    }
     if (!snapshot.command.tracking_enabled || !StereoCallbacksReady()) {
-        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
+        if (snapshot.command.vr_gameplay_input_enabled) {
+            (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
+        }
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
@@ -3581,7 +4074,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         !sample.hmd_pose.pose.orientation_valid || sample.hmd_pose.sequence == 0 ||
         sample.eyes[0].eye != cojvr::runtime::Eye::left ||
         sample.eyes[1].eye != cojvr::runtime::Eye::right) {
-        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
+        if (snapshot.command.vr_gameplay_input_enabled) {
+            (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
+        }
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
@@ -3608,7 +4103,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     cojvr::runtime::Pose relative_head_pose{};
     if (!g_pose_tracker.Update(sample.hmd_pose) ||
         !g_pose_tracker.CurrentPose(relative_head_pose)) {
-        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
+        if (snapshot.command.vr_gameplay_input_enabled) {
+            (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
+        }
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
@@ -3778,8 +4275,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     const bool gameplay_changed = !g_gameplay_telemetry_initialized ||
         GameplayInputChanged(gameplay_input, g_last_gameplay_telemetry);
     std::string gameplay_input_error;
-    const bool gameplay_input_ok = g_java_player_bridge.TryApplyGameplayInput(
-        gameplay_input, &gameplay_input_error);
+    const bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
+        g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error);
     const auto emit_fire_transition = [&](
         const char* side,
         const int hand,
@@ -3788,6 +4285,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         const cojvr::runtime::Vec3 origin,
         const bool origin_valid,
         const TrackedAimPoseDiagnostics& pose) noexcept {
+        if (!snapshot.command.vr_gameplay_input_enabled) return;
         const auto& transition = g_java_player_bridge.last_fire_origin_transition(hand);
         if (!transition.attempted) return;
         try {
@@ -3845,7 +4343,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         aim_observation.right_direction, aim_observation.right_direction_valid,
         aim_observation.right_origin, aim_observation.right_origin_valid,
         aim_observation.right_pose);
-    if (!gameplay_input_ok || gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
+    if ((snapshot.command.vr_gameplay_input_enabled && !gameplay_input_ok) ||
+        gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
             std::ostringstream gameplay_detail;
             gameplay_detail << "frame_sequence=" << frame_sequence
@@ -3870,6 +4369,12 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << (loading_ui_input.suppress_fire ? "true" : "false")
                             << ";blocking_ui_gameplay_suppressed="
                             << (loading_ui_input.suppress_gameplay ? "true" : "false")
+                            << ";vr_gameplay_input_enabled="
+                            << (snapshot.command.vr_gameplay_input_enabled ? "true" : "false")
+                            << ";input_ownership="
+                            << (snapshot.command.vr_gameplay_input_enabled
+                                    ? "shared_vr_game"
+                                    : "native_game_exclusive")
                             << ";locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04"
                             << ";route=GameInputController.InputAction.Translate";
             if (g_java_player_bridge.last_analog_transaction_applied()) {
@@ -3885,12 +4390,14 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             }
             EmitEvent(
                 "gameplay_input",
-                gameplay_input_ok ? "applied" : "unavailable",
+                !snapshot.command.vr_gameplay_input_enabled
+                    ? "native_only"
+                    : (gameplay_input_ok ? "applied" : "unavailable"),
                 gameplay_detail.str());
         } catch (...) {
         }
     }
-    if (gameplay_input_ok) {
+    if (gameplay_input_ok || !snapshot.command.vr_gameplay_input_enabled) {
         g_last_gameplay_telemetry = gameplay_input;
         g_gameplay_telemetry_initialized = true;
     }
@@ -3966,6 +4473,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         frame_sequence,
         sample.hmd_pose.sequence);
     original(owner, view);
+    g_diagnostic_left_eye_renders.fetch_add(1, std::memory_order_acq_rel);
     ObserveAppliedArmRenderState(
         true, g_left_arm_rotation, frame_sequence, "left_eye_complete");
     ObserveAppliedArmRenderState(
@@ -3986,7 +4494,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     bool right_renderer_camera_match = false;
     CameraProbeVector right_applied_position{};
     CameraProbeFrustum right_applied_frustum{};
-    if (left_captured && left_state_restored && RenderOwnerStillUsesView(owner, view)) {
+    if (snapshot.command.second_eye_render_enabled && left_captured &&
+        left_state_restored && RenderOwnerStillUsesView(owner, view)) {
         ConfigureStereoEyeOverride(
             camera,
             render_head_pose,
@@ -3996,6 +4505,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             sample.hmd_pose.sequence);
         right_full_view_pass = ReplayFullRenderViewForStereoEye(
             original, owner, view, right_view_guard_restored);
+        if (right_full_view_pass) {
+            g_diagnostic_right_eye_renders.fetch_add(1, std::memory_order_acq_rel);
+        }
         ObserveAppliedArmRenderState(
             true, g_left_arm_rotation, frame_sequence, "right_eye_complete");
         ObserveAppliedArmRenderState(
@@ -4027,7 +4539,74 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         submitted = g_stereo_callbacks.submit_frame(
             g_stereo_callbacks.context, frame_sequence, sample.hmd_pose);
     }
+    if (left_camera_applied && right_rendered) {
+        g_diagnostic_stereo_pairs.fetch_add(1, std::memory_order_acq_rel);
+    }
     CommitBodyYawOwnership(body_position_update, frame_sequence);
+
+    if (snapshot.command.movement_trace_enabled) {
+        try {
+            CameraProbeBasis natural_basis{};
+            CameraProbeVector natural_position{};
+            const bool natural_camera_valid = ReadNaturalCameraFrame(
+                natural_render_state, natural_basis, natural_position);
+            CameraStereoDiagnosticCounters counters{};
+            const bool counters_valid = g_stereo_callbacks.diagnostic_counters &&
+                g_stereo_callbacks.diagnostic_counters(
+                    g_stereo_callbacks.context, counters);
+            JavaPlayerPosition actor_position{};
+            bool actor_valid = false;
+            {
+                std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+                actor_position = g_diagnostic_actor_position;
+                actor_valid = g_diagnostic_actor_valid;
+            }
+            std::ostringstream detail;
+            detail << std::fixed << std::setprecision(6)
+                   << "phase=" << snapshot.command.movement_trace_phase
+                   << ";timestamp_us=" << MonotonicMicroseconds()
+                   << ";frame_sequence=" << frame_sequence
+                   << ";game_update_count="
+                   << g_diagnostic_game_updates.load(std::memory_order_acquire)
+                   << ";left_eye_render_count="
+                   << g_diagnostic_left_eye_renders.load(std::memory_order_acquire)
+                   << ";right_eye_render_count="
+                   << g_diagnostic_right_eye_renders.load(std::memory_order_acquire)
+                   << ";stereo_pair_count="
+                   << g_diagnostic_stereo_pairs.load(std::memory_order_acquire)
+                   << ";left_rendered=" << (left_camera_applied ? "true" : "false")
+                   << ";right_rendered=" << (right_rendered ? "true" : "false")
+                   << ";submitted=" << (submitted ? "true" : "false")
+                   << ";capture_readback_enabled="
+                   << (snapshot.command.capture_readback_enabled ? "true" : "false")
+                   << ";effective_capture_readback_enabled="
+                   << (snapshot.command.capture_readback_enabled &&
+                               snapshot.command.second_eye_render_enabled
+                           ? "true"
+                           : "false")
+                   << ";second_eye_render_enabled="
+                   << (snapshot.command.second_eye_render_enabled ? "true" : "false")
+                   << ";natural_camera_valid="
+                   << (natural_camera_valid ? "true" : "false")
+                   << ";actor_valid=" << (actor_valid ? "true" : "false")
+                   << ";actor=(" << actor_position.x << ',' << actor_position.y << ','
+                   << actor_position.z << ')'
+                   << ";natural_camera=(" << natural_position.x << ',' << natural_position.y
+                   << ',' << natural_position.z << ')'
+                   << ";left_final_camera=(" << left_applied_position.x << ','
+                   << left_applied_position.y << ',' << left_applied_position.z << ')'
+                   << ";right_final_camera=(" << right_applied_position.x << ','
+                   << right_applied_position.y << ',' << right_applied_position.z << ')'
+                   << ";transport_counters_valid=" << (counters_valid ? "true" : "false")
+                   << ";frames_fenced=" << counters.frames_fenced
+                   << ";frames_collected=" << counters.frames_collected
+                   << ";frames_uploaded=" << counters.frames_uploaded
+                   << ";new_submissions=" << counters.new_submissions
+                   << ";repeat_submissions=" << counters.repeat_submissions;
+            EmitEvent("movement_render_sample", "ok", detail.str());
+        } catch (...) {
+        }
+    }
 
     g_stereo_eye_override = {};
     if (ShouldLogStereoFrame(frame_sequence) || !submitted) {
@@ -4241,11 +4820,51 @@ bool ParseCameraProbeCommand(
         SetError(error, "recenter must be true or false");
         return false;
     }
+    bool movement_trace_present = false;
+    if (!ReadBool(
+            text, "movementTraceEnabled", parsed.movement_trace_enabled,
+            movement_trace_present)) {
+        SetError(error, "movementTraceEnabled must be true or false");
+        return false;
+    }
+    bool movement_phase_present = false;
+    if (!ReadString(
+            text, "movementTracePhase", parsed.movement_trace_phase,
+            movement_phase_present)) {
+        SetError(error, "movementTracePhase must be a 1-48 character label");
+        return false;
+    }
+    bool gameplay_input_present = false;
+    if (!ReadBool(
+            text, "vrGameplayInputEnabled", parsed.vr_gameplay_input_enabled,
+            gameplay_input_present)) {
+        SetError(error, "vrGameplayInputEnabled must be true or false");
+        return false;
+    }
+    bool capture_readback_present = false;
+    if (!ReadBool(
+            text, "captureReadbackEnabled", parsed.capture_readback_enabled,
+            capture_readback_present)) {
+        SetError(error, "captureReadbackEnabled must be true or false");
+        return false;
+    }
+    bool second_eye_present = false;
+    if (!ReadBool(
+            text, "secondEyeRenderEnabled", parsed.second_eye_render_enabled,
+            second_eye_present)) {
+        SetError(error, "secondEyeRenderEnabled must be true or false");
+        return false;
+    }
     (void)yaw_present;
     (void)pitch_present;
     (void)tracking_present;
     (void)body_ik_present;
     (void)recenter_present;
+    (void)movement_trace_present;
+    (void)movement_phase_present;
+    (void)gameplay_input_present;
+    (void)capture_readback_present;
+    (void)second_eye_present;
 
     if (parsed.override_fov &&
         (parsed.fov_degrees < 30.0F || parsed.fov_degrees > 140.0F)) {
@@ -4348,6 +4967,70 @@ bool IsCameraProbeBasisRigidRightHanded(const CameraProbeBasis basis) noexcept {
         std::fabs(Dot(basis.right, basis.forward)) <= kOrthogonalTolerance &&
         std::fabs(Dot(basis.up, basis.forward)) <= kOrthogonalTolerance &&
         std::fabs(determinant - 1.0F) <= kDeterminantTolerance;
+}
+
+bool IsMovementTraceCameraReady(
+    const CameraProbeBasis basis,
+    const bool renderer_camera_match,
+    const bool source_world_homogeneous_layout,
+    const bool source_view_homogeneous_layout) noexcept {
+    return renderer_camera_match && IsCameraProbeBasisRigidRightHanded(basis) &&
+        source_world_homogeneous_layout && source_view_homogeneous_layout;
+}
+
+CoJMovementJumpTransition AdvanceCoJMovementJumpPhase(
+    const CoJMovementJumpPhase phase,
+    const bool grounded,
+    const bool jumping,
+    const float native_vertical_speed) noexcept {
+    CoJMovementJumpTransition result{phase};
+    switch (phase) {
+    case CoJMovementJumpPhase::grounded_stable:
+        if (jumping) {
+            result.begin_candidate = true;
+            result.confirm_jump = true;
+            result.phase = native_vertical_speed > 0.0F
+                ? CoJMovementJumpPhase::airborne_ascending
+                : CoJMovementJumpPhase::airborne_descending;
+        } else if (!grounded) {
+            result.begin_candidate = true;
+            result.phase = CoJMovementJumpPhase::awaiting_native_confirmation;
+        }
+        break;
+    case CoJMovementJumpPhase::awaiting_native_confirmation:
+        if (jumping) {
+            result.confirm_jump = true;
+            result.phase = native_vertical_speed > 0.0F
+                ? CoJMovementJumpPhase::airborne_ascending
+                : CoJMovementJumpPhase::airborne_descending;
+        } else if (grounded) {
+            result.reject_candidate = true;
+            result.phase = CoJMovementJumpPhase::grounded_stable;
+        }
+        break;
+    case CoJMovementJumpPhase::airborne_ascending:
+        if (grounded) {
+            result.phase = CoJMovementJumpPhase::landed_waiting_release;
+        } else if (native_vertical_speed <= 0.0F) {
+            result.reached_apex = true;
+            result.phase = CoJMovementJumpPhase::airborne_descending;
+        }
+        break;
+    case CoJMovementJumpPhase::airborne_descending:
+        if (grounded) {
+            result.phase = CoJMovementJumpPhase::landed_waiting_release;
+        }
+        break;
+    case CoJMovementJumpPhase::landed_waiting_release:
+        if (!grounded && jumping) {
+            result.phase = CoJMovementJumpPhase::airborne_descending;
+        } else if (grounded && !jumping) {
+            result.complete_jump = true;
+            result.phase = CoJMovementJumpPhase::grounded_stable;
+        }
+        break;
+    }
+    return result;
 }
 
 bool BuildCameraProbeFrustum(
@@ -4598,6 +5281,7 @@ CameraProbeHookState InspectCameraProbe() noexcept {
 }
 
 void ShutdownCameraProbe() noexcept {
+    ShutdownMovementTraceObserverNoJni();
     try {
         bool view_restored = true;
         std::size_t view_restored_slots = 0;
@@ -4669,6 +5353,15 @@ void ShutdownCameraProbe() noexcept {
     g_meaningful_roll_logged.store(false, std::memory_order_release);
     g_stereo_frame_sequence.store(0, std::memory_order_release);
     g_stereo_logged_count.store(0, std::memory_order_release);
+    g_diagnostic_left_eye_renders.store(0, std::memory_order_release);
+    g_diagnostic_right_eye_renders.store(0, std::memory_order_release);
+    g_diagnostic_stereo_pairs.store(0, std::memory_order_release);
+    g_diagnostic_game_updates.store(0, std::memory_order_release);
+    {
+        std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+        g_diagnostic_actor_position = {};
+        g_diagnostic_actor_valid = false;
+    }
 }
 
 const char* CameraProbeInstallStatusName(const CameraProbeInstallStatus status) noexcept {

@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/java_player_bridge.hpp"
 #include "runtime/vr_math.hpp"
 
 #include <cmath>
@@ -93,7 +94,10 @@ int main() {
             R"({"enabled":true,"fovDegrees":110,"yawDegrees":30,"pitchDegrees":-10})",
             command, &error) ||
         !command.enabled || !command.override_fov || !Near(command.fov_degrees, 110.0F) ||
-        !Near(command.yaw_degrees, 30.0F) || !Near(command.pitch_degrees, -10.0F)) {
+        !Near(command.yaw_degrees, 30.0F) || !Near(command.pitch_degrees, -10.0F) ||
+        command.movement_trace_enabled || command.movement_trace_phase != "off" ||
+        !command.vr_gameplay_input_enabled || !command.capture_readback_enabled ||
+        !command.second_eye_render_enabled) {
         std::cerr << "valid control command was not parsed: " << error << '\n';
         return 1;
     }
@@ -112,6 +116,81 @@ int main() {
         command.enabled || !command.tracking_enabled || !command.body_ik_enabled ||
         !command.recenter) {
         std::cerr << "tracking control command was not parsed: " << error << '\n';
+        return 1;
+    }
+
+    if (!ParseCameraProbeCommand(
+            R"({"enabled":true,"trackingEnabled":true,"movementTraceEnabled":true,"movementTracePhase":"vr-input-off","vrGameplayInputEnabled":false,"captureReadbackEnabled":false,"secondEyeRenderEnabled":false})",
+            command, &error) ||
+        !command.movement_trace_enabled || command.movement_trace_phase != "vr-input-off" ||
+        command.vr_gameplay_input_enabled || command.capture_readback_enabled ||
+        command.second_eye_render_enabled) {
+        std::cerr << "movement diagnostic controls were not parsed: " << error << '\n';
+        return 1;
+    }
+
+    if (ParseCameraProbeCommand(
+            R"({"enabled":true,"movementTracePhase":"bad phase"})",
+            command, &error)) {
+        std::cerr << "invalid movement phase label was accepted\n";
+        return 1;
+    }
+
+    if (std::string_view(CoJMovementSpeedStateName(0x80)) != "walk" ||
+        std::string_view(CoJMovementSpeedStateName(0x81)) != "trot" ||
+        std::string_view(CoJMovementSpeedStateName(0x82)) != "run" ||
+        std::string_view(CoJMovementSpeedStateName(0x83)) != "sprint" ||
+        std::string_view(CoJMovementSpeedStateName(11)) != "other" ||
+        !CoJOdeWalkStateGrounded(0) || CoJOdeWalkStateGrounded(2)) {
+        std::cerr << "movement state diagnostics do not preserve exact-build semantics\n";
+        return 1;
+    }
+
+    CoJMovementJumpPhase jump_phase = CoJMovementJumpPhase::grounded_stable;
+    auto jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, false, 25.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.begin_candidate || jump_step.confirm_jump ||
+        jump_phase != CoJMovementJumpPhase::awaiting_native_confirmation) {
+        std::cerr << "ground loss did not remain an unconfirmed jump candidate\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, false, -10.0F);
+    jump_phase = jump_step.phase;
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, true, false, 20.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.reject_candidate || jump_step.confirm_jump ||
+        jump_phase != CoJMovementJumpPhase::grounded_stable) {
+        std::cerr << "micro-airborne terrain contact was accepted as a jump\n";
+        return 1;
+    }
+
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, false, 420.0F);
+    jump_phase = jump_step.phase;
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, true, 390.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.confirm_jump ||
+        jump_phase != CoJMovementJumpPhase::airborne_ascending) {
+        std::cerr << "native IsJumping did not confirm the physical jump\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, true, -5.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.reached_apex ||
+        jump_phase != CoJMovementJumpPhase::airborne_descending) {
+        std::cerr << "confirmed jump did not enter descent at the apex\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, true, true, 10.0F);
+    jump_phase = jump_step.phase;
+    if (jump_step.complete_jump ||
+        jump_phase != CoJMovementJumpPhase::landed_waiting_release) {
+        std::cerr << "landing completed before native jump state released\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, true, false, 10.0F);
+    if (!jump_step.complete_jump ||
+        jump_step.phase != CoJMovementJumpPhase::grounded_stable) {
+        std::cerr << "landed jump did not complete on native jump release\n";
         return 1;
     }
 
@@ -157,6 +236,15 @@ int main() {
         !Near(CameraProbeBasisDeterminant(reflected_identity), -1.0F) ||
         IsCameraProbeBasisRigidRightHanded(reflected_identity)) {
         std::cerr << "camera handedness guard did not distinguish native and reflected bases\n";
+        return 1;
+    }
+
+    if (!IsMovementTraceCameraReady(native_identity, true, true, true) ||
+        IsMovementTraceCameraReady({}, true, true, true) ||
+        IsMovementTraceCameraReady(native_identity, false, true, true) ||
+        IsMovementTraceCameraReady(native_identity, true, false, true) ||
+        IsMovementTraceCameraReady(native_identity, true, true, false)) {
+        std::cerr << "movement trace camera gate accepted a loading/incomplete camera\n";
         return 1;
     }
 

@@ -49,6 +49,13 @@ struct CameraProbeCommand {
     bool tracking_enabled = false;
     bool body_ik_enabled = false;
     bool recenter = false;
+    // Diagnostic controls are opt-in and preserve the production path when
+    // omitted from the control file.
+    bool movement_trace_enabled = false;
+    std::string movement_trace_phase = "off";
+    bool vr_gameplay_input_enabled = true;
+    bool capture_readback_enabled = true;
+    bool second_eye_render_enabled = true;
 };
 
 [[nodiscard]] bool ParseCameraProbeCommand(
@@ -79,6 +86,41 @@ struct CameraProbeCommand {
 [[nodiscard]] float CameraProbeBasisDeterminant(CameraProbeBasis basis) noexcept;
 
 [[nodiscard]] bool IsCameraProbeBasisRigidRightHanded(CameraProbeBasis basis) noexcept;
+
+// Movement diagnostics become valid only after the renderer owns a fully
+// formed natural camera. This prevents loading/menu player objects from being
+// published as gameplay actors before the camera transition has completed.
+[[nodiscard]] bool IsMovementTraceCameraReady(
+    CameraProbeBasis basis,
+    bool renderer_camera_match,
+    bool source_world_homogeneous_layout,
+    bool source_view_homogeneous_layout) noexcept;
+
+// A loss of ODE ground contact is only a jump candidate. The exact game keeps
+// IsJumping true for the complete accepted jump, including its landing settle,
+// so diagnostics require that native confirmation before emitting an event.
+enum class CoJMovementJumpPhase {
+    grounded_stable,
+    awaiting_native_confirmation,
+    airborne_ascending,
+    airborne_descending,
+    landed_waiting_release,
+};
+
+struct CoJMovementJumpTransition {
+    CoJMovementJumpPhase phase = CoJMovementJumpPhase::grounded_stable;
+    bool begin_candidate = false;
+    bool confirm_jump = false;
+    bool reject_candidate = false;
+    bool reached_apex = false;
+    bool complete_jump = false;
+};
+
+[[nodiscard]] CoJMovementJumpTransition AdvanceCoJMovementJumpPhase(
+    CoJMovementJumpPhase phase,
+    bool grounded,
+    bool jumping,
+    float native_vertical_speed) noexcept;
 
 [[nodiscard]] bool BuildCameraProbeFrustum(
     cojvr::runtime::EyeFov fov,
@@ -132,6 +174,14 @@ struct CameraStereoFrameSample {
     bool ui_back_pressed = false;
 };
 
+struct CameraStereoDiagnosticCounters {
+    std::uint64_t frames_fenced = 0;
+    std::uint64_t frames_collected = 0;
+    std::uint64_t frames_uploaded = 0;
+    std::uint64_t new_submissions = 0;
+    std::uint64_t repeat_submissions = 0;
+};
+
 // Exact-game UI input seam.  Selection is delivered through the currently
 // visible GameUserInterface's shipped Enter helper rather than process-global
 // Win32 mouse/keyboard synthesis.
@@ -172,6 +222,10 @@ struct CameraStereoRuntimeCallbacks {
         void* context,
         std::uint64_t frame_sequence,
         const cojvr::runtime::PoseSample& render_hmd_pose) noexcept = nullptr;
+    void (*set_capture_readback_enabled)(void* context, bool enabled) noexcept = nullptr;
+    bool (*diagnostic_counters)(
+        void* context,
+        CameraStereoDiagnosticCounters& counters) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

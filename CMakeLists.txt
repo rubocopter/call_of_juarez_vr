@@ -392,6 +392,15 @@ if(COJVR_BUILD_TESTS)
             -BinaryDirectory "${CMAKE_BINARY_DIR}"
     )
 
+    add_test(
+        NAME movement_diagnostic_tools
+        COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tests/movement_diagnostic_tools.ps1"
+            -SourceDirectory "${CMAKE_SOURCE_DIR}"
+            -BinaryDirectory "${CMAKE_BINARY_DIR}"
+    )
+
     add_executable(cojvr_build_identity_tests tests/runtime_tests.cpp)
     target_link_libraries(cojvr_build_identity_tests PRIVATE cojvr_build_identity)
     target_compile_features(cojvr_build_identity_tests PRIVATE cxx_std_20)
@@ -563,6 +572,7 @@ if(COJVR_BUILD_TESTS)
         tests/frame_mailbox.cpp
         src/backends/d3d9/frame_mailbox.cpp
     )
+
     target_include_directories(cojvr_frame_mailbox_test PRIVATE src)
     target_compile_features(cojvr_frame_mailbox_test PRIVATE cxx_std_20)
     if(MSVC)

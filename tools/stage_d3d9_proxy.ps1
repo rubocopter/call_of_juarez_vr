@@ -66,6 +66,7 @@ $D3D9ExMarker = Join-Path $GameDirectory ".cojvr-d3d9-ex-bridge"
 $CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
 $CameraControlBackup = Join-Path $GameDirectory "cojvr-camera-control.cojvr-backup.json"
 $NativeStereoSummary = Join-Path $GameDirectory "cojvr-native-stereo-summary.json"
+$MovementSummary = Join-Path $GameDirectory "cojvr-movement-summary.json"
 $OpenVrDestination = Join-Path $GameDirectory "openvr_api.dll"
 $OpenVrBackup = Join-Path $GameDirectory "openvr_api.cojvr-backup.dll"
 $OpenVrInputDestination = Join-Path $GameDirectory "cojvr_openvr_input"
@@ -249,7 +250,7 @@ $HadOriginal = Test-Path -LiteralPath $Destination -PathType Leaf
 $HadOriginalCameraControl = $IsCameraIntegration -and (Test-Path -LiteralPath $CameraControl -PathType Leaf)
 $HadOriginalOpenVr = $IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
 $HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container)
-$CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"bodyIkEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0`n}`n"
+$CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"bodyIkEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0,`n  `"movementTraceEnabled`": false,`n  `"movementTracePhase`": `"off`",`n  `"vrGameplayInputEnabled`": true,`n  `"captureReadbackEnabled`": true,`n  `"secondEyeRenderEnabled`": true`n}`n"
 $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
 $CameraControlHashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($CameraControlBytes)
 $CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.ToString("X2") })
@@ -308,7 +309,8 @@ $HistoricalFiles = @(
     $Log,
     (Join-Path $GameDirectory "callstack.txt"),
     $CurrentRun,
-    $NativeStereoSummary
+    $NativeStereoSummary,
+    $MovementSummary
 )
 foreach ($HistoricalFile in $HistoricalFiles) {
     if (Test-Path -LiteralPath $HistoricalFile -PathType Leaf) {
@@ -514,6 +516,7 @@ if ($IsReadbackDiagnostic) {
 } elseif ($IsCameraProbe) {
     Write-Host "Control file: '$CameraControl'."
     Write-Host "While gameplay is visible, run tools\set_camera_probe_control.ps1 to apply FOV/yaw/pitch."
+    Write-Host "Movement baseline: tools\set_movement_diagnostic.ps1 -GameDirectory '$GameDirectory' -Mode vanilla"
     Write-Host "After exit run tools\verify_camera_probe_live_test.ps1 -GameDirectory '$GameDirectory'."
 } elseif ($IsHmdCamera) {
     Write-Host "Start SteamVR manually before launching the game so the OpenVR pose source can initialize."
@@ -525,6 +528,7 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Control file: '$CameraControl'."
     Write-Host "In-headset recenter: press Create on the left PS VR2 Sense controller."
     Write-Host "Terminal recenter remains available through tools\set_hmd_camera_control.ps1 as a diagnostic fallback."
+    Write-Host "Movement phases: tools\set_movement_diagnostic.ps1 -GameDirectory '$GameDirectory' -Mode vr-full|vr-input-off|vr-readback-off|vr-single-eye"
     Write-Host "After exit run tools\verify_native_stereo_live_test.ps1 -GameDirectory '$GameDirectory'."
 } else {
     Write-Host "After exit run tools\verify_d3d9_live_test.ps1 -GameDirectory '$GameDirectory'."

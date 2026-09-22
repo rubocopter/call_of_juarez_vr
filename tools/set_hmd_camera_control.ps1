@@ -53,6 +53,26 @@ $Control = [ordered]@{
     recenter = (-not $BodyMode) -and ($Mode -in @("enable", "recenter"))
     yawDegrees = 0.0
     pitchDegrees = 0.0
+    movementTraceEnabled = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['movementTraceEnabled']) {
+        [bool]$ExistingControl.movementTraceEnabled
+    } else { $false }
+    movementTracePhase = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['movementTracePhase']) {
+        [string]$ExistingControl.movementTracePhase
+    } else { "off" }
+    vrGameplayInputEnabled = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['vrGameplayInputEnabled']) {
+        [bool]$ExistingControl.vrGameplayInputEnabled
+    } else { $true }
+    captureReadbackEnabled = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['captureReadbackEnabled']) {
+        [bool]$ExistingControl.captureReadbackEnabled
+    } else { $true }
+    secondEyeRenderEnabled = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['secondEyeRenderEnabled']) {
+        [bool]$ExistingControl.secondEyeRenderEnabled
+    } else { $true }
 }
 
 try {
