@@ -65,10 +65,12 @@ pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of 
 ```
 
 Start the game manually, load the same save and stand on the same flat ground.
-Wait still for 3 seconds, hold `W` for 5 seconds, release it for 2 seconds,
-hold `Shift+W` for 5 seconds, release it for 2 seconds, then perform three
-separate standing jumps and let each one land. Disable the trace, close the game
-normally, summarize, collect and restore staging:
+Wait still for 3 seconds, hold `W` for 5 seconds for normal fast movement
+(native `Trot`), release it for 2 seconds, hold `Shift+W` for 5 seconds for the
+walk modifier (native `Walk`), release it for 2 seconds, then perform three
+separate standing jumps and let each one land. `Shift+W` is not sprint in this
+game. Disable the trace, close the game normally, summarize, collect and restore
+staging:
 
 ```powershell
 pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode off
@@ -106,34 +108,40 @@ pwsh -File tools/set_movement_diagnostic.ps1 -GameDirectory "C:\path\to\Call of 
 
 Close the game normally and run `tools/vr_test.ps1 finish`. The evidence package
 contains `analysis/movement-summary.json`. Each phase reports duration,
-distance, mean/max horizontal speed, walk/sprint speed and ratio, jump apex and
-duration, update Hz, eye/pair cadence, presenter new/repeated submissions, and
-readback/copy p50/p95/max.
+distance, mean/max horizontal speed, normal-movement/walk-modifier speed and
+ratio, jump apex and duration, update Hz, eye/pair cadence, presenter
+new/repeated submissions, and readback/copy p50/p95/max. The normal movement
+metric requires full forward input in native speed state 129 (`Trot`); the walk
+modifier metric requires full forward input in state 128 (`Walk`). `GetRun()` is
+a separate native Run request and does not classify these two protocol bouts.
 
 Interpret the comparison as follows:
 
-- Input ownership is causal if `vr-input-off` returns walk, sprint and jump near
-  the vanilla baseline while `vr-full` diverges and update cadence is otherwise
-  comparable.
+- Input ownership is causal if `vr-input-off` returns normal movement, the walk
+  modifier and jump near the vanilla baseline while `vr-full` diverges and
+  update cadence is otherwise comparable.
 - Simulation cadence is causal if VR game-update Hz falls or gameplay delta
   rises against vanilla, with proportional loss of distance or jump evolution,
   including in `vr-input-off`.
 - Readback is causal if `vr-readback-off` restores update cadence and physical
   movement while the two eye-render counts remain active.
 - The second render is causal if recovery appears only in `vr-single-eye`.
-- The remaining fault is presentation stutter if actor speed, sprint ratio,
-  jump apex/duration and update cadence agree with vanilla while stereo-pair or
-  new-submission cadence is lower and repeated presenter submissions rise.
+- The remaining fault is presentation stutter if actor speed, normal/walk
+  ratio, jump apex/duration and update cadence agree with vanilla while
+  stereo-pair or new-submission cadence is lower and repeated presenter
+  submissions rise.
 
 Movement sampling runs synchronously from the demonstrated native camera-update
 boundary after a fully formed renderer-owned natural camera exists. The bridge
 revalidates the current player before every candidate sample, and accepts at
 most one sample for each distinct native game-time value; no independent JNI
 worker thread observes gameplay. The exact-build `ODEWalk` state and
-`IsJumping` transition identify the physical jump interval. `PerformJump` and
-successful `ODEWalk_Jump` are reported as inferred at the accepted
-ground-to-air transition; the diagnostic deliberately does not detour or call
-either mutating method. Requested normal jump height uses side-effect-free
+`IsJumping` transition identify the physical jump interval. Loss of ODE ground
+contact creates only a candidate; the diagnostic emits a jump only after the
+game reports `IsJumping=true`, follows ascent/apex/descent, observes landing,
+and sees `IsJumping=false` again. This rejects terrain micro-airborne intervals
+without a timing debounce. The diagnostic does not detour or call `PerformJump`
+or `ODEWalk_Jump`. Requested normal jump height uses side-effect-free
 `PropGetJumpHeight - ODEWalk_GetStairHeight`; `GetJumpHeight` is not called
 because it can consume the one-shot big-jump flag.
 

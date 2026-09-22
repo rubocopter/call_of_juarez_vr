@@ -137,11 +137,60 @@ int main() {
     }
 
     if (std::string_view(CoJMovementSpeedStateName(0x80)) != "walk" ||
+        std::string_view(CoJMovementSpeedStateName(0x81)) != "trot" ||
         std::string_view(CoJMovementSpeedStateName(0x82)) != "run" ||
         std::string_view(CoJMovementSpeedStateName(0x83)) != "sprint" ||
         std::string_view(CoJMovementSpeedStateName(11)) != "other" ||
         !CoJOdeWalkStateGrounded(0) || CoJOdeWalkStateGrounded(2)) {
         std::cerr << "movement state diagnostics do not preserve exact-build semantics\n";
+        return 1;
+    }
+
+    CoJMovementJumpPhase jump_phase = CoJMovementJumpPhase::grounded_stable;
+    auto jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, false, 25.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.begin_candidate || jump_step.confirm_jump ||
+        jump_phase != CoJMovementJumpPhase::awaiting_native_confirmation) {
+        std::cerr << "ground loss did not remain an unconfirmed jump candidate\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, false, -10.0F);
+    jump_phase = jump_step.phase;
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, true, false, 20.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.reject_candidate || jump_step.confirm_jump ||
+        jump_phase != CoJMovementJumpPhase::grounded_stable) {
+        std::cerr << "micro-airborne terrain contact was accepted as a jump\n";
+        return 1;
+    }
+
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, false, 420.0F);
+    jump_phase = jump_step.phase;
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, true, 390.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.confirm_jump ||
+        jump_phase != CoJMovementJumpPhase::airborne_ascending) {
+        std::cerr << "native IsJumping did not confirm the physical jump\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, false, true, -5.0F);
+    jump_phase = jump_step.phase;
+    if (!jump_step.reached_apex ||
+        jump_phase != CoJMovementJumpPhase::airborne_descending) {
+        std::cerr << "confirmed jump did not enter descent at the apex\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, true, true, 10.0F);
+    jump_phase = jump_step.phase;
+    if (jump_step.complete_jump ||
+        jump_phase != CoJMovementJumpPhase::landed_waiting_release) {
+        std::cerr << "landing completed before native jump state released\n";
+        return 1;
+    }
+    jump_step = AdvanceCoJMovementJumpPhase(jump_phase, true, false, 10.0F);
+    if (!jump_step.complete_jump ||
+        jump_step.phase != CoJMovementJumpPhase::grounded_stable) {
+        std::cerr << "landed jump did not complete on native jump release\n";
         return 1;
     }
 

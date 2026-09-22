@@ -96,6 +96,32 @@ struct CameraProbeCommand {
     bool source_world_homogeneous_layout,
     bool source_view_homogeneous_layout) noexcept;
 
+// A loss of ODE ground contact is only a jump candidate. The exact game keeps
+// IsJumping true for the complete accepted jump, including its landing settle,
+// so diagnostics require that native confirmation before emitting an event.
+enum class CoJMovementJumpPhase {
+    grounded_stable,
+    awaiting_native_confirmation,
+    airborne_ascending,
+    airborne_descending,
+    landed_waiting_release,
+};
+
+struct CoJMovementJumpTransition {
+    CoJMovementJumpPhase phase = CoJMovementJumpPhase::grounded_stable;
+    bool begin_candidate = false;
+    bool confirm_jump = false;
+    bool reject_candidate = false;
+    bool reached_apex = false;
+    bool complete_jump = false;
+};
+
+[[nodiscard]] CoJMovementJumpTransition AdvanceCoJMovementJumpPhase(
+    CoJMovementJumpPhase phase,
+    bool grounded,
+    bool jumping,
+    float native_vertical_speed) noexcept;
+
 [[nodiscard]] bool BuildCameraProbeFrustum(
     cojvr::runtime::EyeFov fov,
     float near_plane,

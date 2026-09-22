@@ -123,7 +123,8 @@ struct MovementTraceObserverState {
     std::uint64_t last_failure_log_us = 0;
     CoJMovementObservation previous{};
     bool previous_valid = false;
-    bool jump_active = false;
+    CoJMovementJumpPhase jump_phase = CoJMovementJumpPhase::grounded_stable;
+    bool jump_confirmed = false;
     std::uint64_t jump_start_us = 0;
     std::uint64_t jump_apex_us = 0;
     float jump_initial_y = 0.0F;
@@ -811,7 +812,7 @@ void EndMovementJump(
     MovementTraceObserverState& state,
     const CoJMovementObservation& current,
     const std::uint64_t now_us) noexcept {
-    if (!state.jump_active) return;
+    if (!state.jump_confirmed) return;
     try {
         std::ostringstream detail;
         detail << std::fixed << std::setprecision(6)
@@ -827,12 +828,12 @@ void EndMovementJump(
                << ";max_vertical_velocity=" << state.jump_max_vertical_speed
                << ";requested_jump_height=" << current.jump_height
                << ";stair_height=" << current.stair_height
-               << ";perform_jump_call=observed_from_native_jump_transition"
-               << ";ode_walk_jump_result=accepted_inferred_from_airborne_motion";
+               << ";confirmation=is_jumping_true_through_flight_and_native_release";
         EmitEvent("movement_jump_summary", "complete", detail.str());
     } catch (...) {
     }
-    state.jump_active = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
 }
 
 void EndMovementTracePhase(
@@ -841,8 +842,15 @@ void EndMovementTracePhase(
     const char* reason,
     const bool release_jni) noexcept {
     if (!state.phase_active) return;
-    if (state.jump_active && state.previous_valid) {
-        EndMovementJump(state, state.previous, now_us);
+    if (state.jump_confirmed) {
+        try {
+            EmitEvent(
+                "movement_jump_summary",
+                "incomplete",
+                "phase=" + state.phase + ";timestamp_us=" + std::to_string(now_us) +
+                    ";reason=trace_phase_ended_before_native_jump_release");
+        } catch (...) {
+        }
     }
     try {
         std::ostringstream detail;
@@ -858,7 +866,8 @@ void EndMovementTracePhase(
     }
     state.phase_active = false;
     state.previous_valid = false;
-    state.jump_active = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
     state.being_generation = 0;
     state.last_completed_step = "phase_ended";
     ClearDiagnosticActor();
@@ -877,7 +886,8 @@ void StartMovementTracePhase(
     state.last_failure_log_us = 0;
     state.previous = {};
     state.previous_valid = false;
-    state.jump_active = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
     state.last_completed_step = "phase_started";
     state.phase_active = true;
     g_diagnostic_game_updates.store(0, std::memory_order_release);
@@ -951,7 +961,8 @@ void ObserveMovementTraceAtCameraBoundary(
         if (generation != state.being_generation) {
             state.being_generation = generation;
             state.previous_valid = false;
-            state.jump_active = false;
+            state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+            state.jump_confirmed = false;
             try {
                 EmitEvent(
                     "movement_trace_generation", "changed",
@@ -1002,26 +1013,31 @@ void ObserveMovementTraceAtCameraBoundary(
         const float horizontal_speed = dt > 0.0F ? std::sqrt(dx * dx + dz * dz) / dt : 0.0F;
         const float calculated_vertical_speed = dt > 0.0F ? dy / dt : 0.0F;
         const bool grounded = CoJOdeWalkStateGrounded(current.ode_walk_state);
-        const bool previous_grounded = state.previous_valid &&
-            CoJOdeWalkStateGrounded(state.previous.ode_walk_state);
-        const bool jump_edge = state.previous_valid &&
-            ((!state.previous.jumping && current.jumping) ||
-             (previous_grounded && !grounded && current.current_vertical_speed > 0.0F));
-        if (jump_edge && !state.jump_active) {
-            state.jump_active = true;
+        const CoJMovementJumpTransition jump_transition = state.previous_valid
+            ? AdvanceCoJMovementJumpPhase(
+                  state.jump_phase,
+                  grounded,
+                  current.jumping,
+                  current.current_vertical_speed)
+            : CoJMovementJumpTransition{state.jump_phase};
+        state.jump_phase = jump_transition.phase;
+        if (jump_transition.begin_candidate) {
             state.jump_start_us = now_us;
             state.jump_apex_us = now_us;
             state.jump_initial_y = state.previous.position.y;
             state.jump_max_y = current.position.y;
             state.jump_max_vertical_speed = current.current_vertical_speed;
+        }
+        if (jump_transition.confirm_jump) {
+            state.jump_confirmed = true;
             try {
                 std::ostringstream detail;
                 detail << std::fixed << std::setprecision(6)
                        << "phase=" << state.phase
-                       << ";timestamp_us=" << now_us
+                       << ";timestamp_us=" << state.jump_start_us
+                       << ";confirmation_timestamp_us=" << now_us
                        << ";game_update=" << state.update_count
-                       << ";perform_jump_call=observed_from_native_jump_transition"
-                       << ";ode_walk_jump_result=accepted_inferred_from_airborne_motion"
+                       << ";confirmation=is_jumping_true"
                        << ";requested_jump_height=" << current.jump_height
                        << ";stair_height=" << current.stair_height
                        << ";initial_y=" << state.jump_initial_y;
@@ -1029,7 +1045,20 @@ void ObserveMovementTraceAtCameraBoundary(
             } catch (...) {
             }
         }
-        if (state.jump_active) {
+        if (jump_transition.reject_candidate) {
+            state.jump_confirmed = false;
+            try {
+                std::ostringstream detail;
+                detail << "phase=" << state.phase
+                       << ";timestamp_us=" << now_us
+                       << ";game_update=" << state.update_count
+                       << ";reason=ground_contact_without_native_is_jumping";
+                EmitEvent("movement_jump_candidate", "rejected", detail.str());
+            } catch (...) {
+            }
+        }
+        if (state.jump_phase != CoJMovementJumpPhase::grounded_stable ||
+            state.jump_confirmed) {
             if (current.position.y > state.jump_max_y) {
                 state.jump_max_y = current.position.y;
                 state.jump_apex_us = now_us;
@@ -1065,15 +1094,17 @@ void ObserveMovementTraceAtCameraBoundary(
                    << ";grounded=" << (grounded ? "true" : "false")
                    << ";can_jump=" << (current.can_jump ? "true" : "false")
                    << ";jumping=" << (current.jumping ? "true" : "false")
-                   << ";jump_active=" << (state.jump_active ? "true" : "false")
+                   << ";jump_candidate="
+                   << (state.jump_phase != CoJMovementJumpPhase::grounded_stable
+                           ? "true" : "false")
+                   << ";jump_active=" << (state.jump_confirmed ? "true" : "false")
                    << ";observer_boundary=render_camera_update";
             EmitEvent("movement_trace_sample", "ok", detail.str());
-            if (state.jump_active) EmitEvent("movement_jump_sample", "ok", detail.str());
+            if (state.jump_confirmed) EmitEvent("movement_jump_sample", "ok", detail.str());
         } catch (...) {
         }
 
-        if (state.jump_active && grounded && !current.jumping &&
-            now_us - state.jump_start_us > 50000ULL) {
+        if (jump_transition.complete_jump && state.jump_confirmed) {
             EndMovementJump(state, current, now_us);
         }
         state.previous = current;
@@ -1095,7 +1126,8 @@ void ShutdownMovementTraceObserverNoJni() noexcept {
     auto& state = g_movement_trace_observer;
     state.phase_active = false;
     state.previous_valid = false;
-    state.jump_active = false;
+    state.jump_phase = CoJMovementJumpPhase::grounded_stable;
+    state.jump_confirmed = false;
     state.being_generation = 0;
     g_diagnostic_game_updates.store(0, std::memory_order_release);
     ClearDiagnosticActor();
@@ -4944,6 +4976,61 @@ bool IsMovementTraceCameraReady(
     const bool source_view_homogeneous_layout) noexcept {
     return renderer_camera_match && IsCameraProbeBasisRigidRightHanded(basis) &&
         source_world_homogeneous_layout && source_view_homogeneous_layout;
+}
+
+CoJMovementJumpTransition AdvanceCoJMovementJumpPhase(
+    const CoJMovementJumpPhase phase,
+    const bool grounded,
+    const bool jumping,
+    const float native_vertical_speed) noexcept {
+    CoJMovementJumpTransition result{phase};
+    switch (phase) {
+    case CoJMovementJumpPhase::grounded_stable:
+        if (jumping) {
+            result.begin_candidate = true;
+            result.confirm_jump = true;
+            result.phase = native_vertical_speed > 0.0F
+                ? CoJMovementJumpPhase::airborne_ascending
+                : CoJMovementJumpPhase::airborne_descending;
+        } else if (!grounded) {
+            result.begin_candidate = true;
+            result.phase = CoJMovementJumpPhase::awaiting_native_confirmation;
+        }
+        break;
+    case CoJMovementJumpPhase::awaiting_native_confirmation:
+        if (jumping) {
+            result.confirm_jump = true;
+            result.phase = native_vertical_speed > 0.0F
+                ? CoJMovementJumpPhase::airborne_ascending
+                : CoJMovementJumpPhase::airborne_descending;
+        } else if (grounded) {
+            result.reject_candidate = true;
+            result.phase = CoJMovementJumpPhase::grounded_stable;
+        }
+        break;
+    case CoJMovementJumpPhase::airborne_ascending:
+        if (grounded) {
+            result.phase = CoJMovementJumpPhase::landed_waiting_release;
+        } else if (native_vertical_speed <= 0.0F) {
+            result.reached_apex = true;
+            result.phase = CoJMovementJumpPhase::airborne_descending;
+        }
+        break;
+    case CoJMovementJumpPhase::airborne_descending:
+        if (grounded) {
+            result.phase = CoJMovementJumpPhase::landed_waiting_release;
+        }
+        break;
+    case CoJMovementJumpPhase::landed_waiting_release:
+        if (!grounded && jumping) {
+            result.phase = CoJMovementJumpPhase::airborne_descending;
+        } else if (grounded && !jumping) {
+            result.complete_jump = true;
+            result.phase = CoJMovementJumpPhase::grounded_stable;
+        }
+        break;
+    }
+    return result;
 }
 
 bool BuildCameraProbeFrustum(
