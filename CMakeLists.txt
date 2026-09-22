@@ -135,6 +135,7 @@ if(COJVR_ENABLE_OPENVR)
 
     add_library(cojvr_openvr_d3d11_backend STATIC
         src/backends/openvr/d3d11_compositor.cpp
+        src/backends/openvr/d3d9_shared_texture_bridge.cpp
         src/backends/openvr/d3d11_sync.cpp
         src/backends/openvr/d3d11_session.cpp
         src/backends/openvr/stereo_presenter.cpp
@@ -662,6 +663,26 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9_d3d11_shared_texture COMMAND cojvr_d3d9_d3d11_shared_texture_test)
     set_tests_properties(d3d9_d3d11_shared_texture PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(
+        cojvr_d3d9ex_gpu_transport_test
+        tests/d3d9ex_gpu_transport.cpp
+        src/backends/d3d9/d3d9_stereo_capture.cpp
+        src/backends/d3d9/system_d3d9.cpp
+        src/backends/openvr/d3d11_sync.cpp
+        src/backends/openvr/d3d9_shared_texture_bridge.cpp
+    )
+    target_include_directories(cojvr_d3d9ex_gpu_transport_test PRIVATE src)
+    target_compile_features(cojvr_d3d9ex_gpu_transport_test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d9ex_gpu_transport_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cojvr_d3d9ex_gpu_transport_test PRIVATE d3d11 dxgi)
+    if(MSVC)
+        target_compile_options(
+            cojvr_d3d9ex_gpu_transport_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME d3d9ex_gpu_transport COMMAND cojvr_d3d9ex_gpu_transport_test)
+    set_tests_properties(d3d9ex_gpu_transport PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(cojvr_d3d9_classic_d3d11_shared_texture_test
         tests/d3d9_classic_d3d11_shared_texture.cpp

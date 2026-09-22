@@ -14,6 +14,25 @@ bool FrameMailbox::Publish(StereoCpuFrame frame) noexcept {
             !frame.render_hmd_pose.position_valid) {
             return false;
         }
+        if (frame.transport == StereoFrameTransport::d3d9ex_shared_texture) {
+            if (!frame.producer_lease.valid() ||
+                frame.shared_eyes[0].shared_handle == 0 ||
+                frame.shared_eyes[1].shared_handle == 0 ||
+                frame.shared_eyes[0].width == 0 || frame.shared_eyes[0].height == 0 ||
+                frame.shared_eyes[0].width != frame.shared_eyes[1].width ||
+                frame.shared_eyes[0].height != frame.shared_eyes[1].height) {
+                return false;
+            }
+        } else if (frame.transport ==
+                   StereoFrameTransport::classic_d3d9_locked_systemmem) {
+            if (!frame.producer_lease.valid() ||
+                !frame.eyes[0].borrowed_pixels || !frame.eyes[1].borrowed_pixels ||
+                frame.eyes[0].width == 0 || frame.eyes[0].height == 0 ||
+                frame.eyes[0].width != frame.eyes[1].width ||
+                frame.eyes[0].height != frame.eyes[1].height) {
+                return false;
+            }
+        }
         std::lock_guard lock(mutex_);
         if (stopped_) return false;
         const std::uint64_t ordering_sequence =
@@ -62,6 +81,7 @@ bool FrameMailbox::WaitConsumeLatest(
 
 void FrameMailbox::Recycle(StereoCpuFrame frame) noexcept {
     try {
+        if (frame.transport != StereoFrameTransport::cpu_bgrx) return;
         std::lock_guard lock(mutex_);
         if (stopped_) return;
         recycled_ = std::move(frame);
@@ -87,6 +107,8 @@ void FrameMailbox::Stop() noexcept {
     try {
         std::lock_guard lock(mutex_);
         stopped_ = true;
+        pending_ = {};
+        has_pending_ = false;
         recycled_ = {};
         has_recycled_ = false;
         wake_.notify_all();

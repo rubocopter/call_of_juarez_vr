@@ -67,8 +67,50 @@ try {
     Assert-True (-not ($VrTestSource -match 'New-Item\s+-ItemType\s+File\s+-Path\s+\$ExBridgeMarkerPath')) `
         "vr_test re-enables the rejected D3D9Ex game path."
 
+    $NativeStereoProxySource = Get-Content -LiteralPath (
+        Join-Path $SourceDirectory "src\games\call_of_juarez\native_stereo_proxy.cpp") -Raw
+    $SharedBridgeSource = Get-Content -LiteralPath (
+        Join-Path $SourceDirectory "src\backends\openvr\d3d9_shared_texture_bridge.cpp") -Raw
+    $FinalizeStart = $NativeStereoProxySource.IndexOf("void Finalize() noexcept")
+    $PresenterStop = $NativeStereoProxySource.IndexOf("g_stereo.presenter.Stop();", $FinalizeStart)
+    $CaptureShutdown = $NativeStereoProxySource.IndexOf("g_stereo.capture.Shutdown();", $FinalizeStart)
+    Assert-True ($FinalizeStart -ge 0 -and $PresenterStop -ge 0 -and $CaptureShutdown -ge 0 -and
+        $PresenterStop -lt $CaptureShutdown) `
+        "Native-stereo shutdown destroys producer capture resources before the presenter releases leased frames."
+
+    $ReadbackToggleStart = $NativeStereoProxySource.IndexOf(
+        "void SetCaptureReadbackEnabled(void* context, const bool enabled) noexcept")
+    $ReadbackToggleEnd = $NativeStereoProxySource.IndexOf(
+        "bool QueryDiagnosticCounters(", $ReadbackToggleStart)
+    Assert-True ($ReadbackToggleStart -ge 0 -and $ReadbackToggleEnd -gt $ReadbackToggleStart) `
+        "Could not isolate SetCaptureReadbackEnabled for lifetime regression checking."
+    $ReadbackToggleBody = $NativeStereoProxySource.Substring(
+        $ReadbackToggleStart, $ReadbackToggleEnd - $ReadbackToggleStart)
+    Assert-True (-not $ReadbackToggleBody.Contains("InvalidateResources()")) `
+        "Disabling native-stereo capture invalidates producer resources while presenter leases may still be active."
+
+    $BridgeShutdownStart = $SharedBridgeSource.IndexOf(
+        "void D3D9SharedTextureBridge::Shutdown(ID3D11DeviceContext* context) noexcept")
+    $BridgeShutdownEnd = $SharedBridgeSource.IndexOf(
+        "D3D9SharedTextureBridgeStats D3D9SharedTextureBridge::stats()", $BridgeShutdownStart)
+    Assert-True ($BridgeShutdownStart -ge 0 -and $BridgeShutdownEnd -gt $BridgeShutdownStart) `
+        "Could not isolate D3D9SharedTextureBridge::Shutdown for lifetime regression checking."
+    $BridgeShutdownBody = $SharedBridgeSource.Substring(
+        $BridgeShutdownStart, $BridgeShutdownEnd - $BridgeShutdownStart)
+    Assert-True ($BridgeShutdownBody.Contains("SynchronizeD3D11") -and
+        $BridgeShutdownBody.Contains("D3D11SyncStrategy::event_query")) `
+        "Shared-texture shutdown releases producer leases without a bounded D3D11 completion barrier."
+
     $StageSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\stage_d3d9_proxy.ps1") -Raw
     $UnstageSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\unstage_d3d9_proxy.ps1") -Raw
+    Assert-True ($StageSource.Contains('[ValidateSet("full", "performance", "transport")]')) `
+        "Native-stereo staging has no dedicated short transport validation profile."
+    Assert-True ($VrTestSource.Contains('$ValidationProfile = if ($BodyIkAtStart) { "full" } else { "transport" }')) `
+        "vr_test does not select the short transport profile by default."
+    Assert-True ($StageSource.Contains('requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
+        "Transport validation still requires unrelated flat-theater UI acceptance."
+    Assert-True ($StageSource.Contains('requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
+        "Transport validation still requires an unrelated live tracking-disable step."
     $RequiredStageCheckpoints = @(
         "stage_proxy_backup_created",
         "stage_proxy_published",
@@ -826,7 +868,7 @@ try {
         "run_start: run_id=$StereoVerifierRunId build_manifest_id=$($StereoBuildManifest.manifestId) pid=789",
         "native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=flat_theater_to_native_stereo",
         "native_stereo_runtime: status=started backend=openvr owner=presenter_thread recommended_eye=2000x2040 left_eye_x=-0.032 right_eye_x=0.032 pose_semantics=eye_to_head",
-        "openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff",
+        "openvr_gpu_handoff: native_stereo=D3D9Ex_shared_texture+CopyResource;flat_fallback=UpdateSubresource;producer_sync=nonblocking_D3D9_event_query;consumer_sync=nonblocking_D3D11_event_query;submit=Submit_TextureWithPose;handoff=PostPresentHandoff",
         "openvr_scene_state: phase=initialized;process_id=789;scene_focus_process_id=0;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=false;should_reduce_rendering_work=false",
         "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
@@ -837,8 +879,9 @@ try {
         "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter",
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo",
+        "native_stereo_d3d9_factory: status=d3d9ex_primary fallback=classic_create_device transport=d3d9ex_shared_texture_ring",
         "native_stereo_factory_hook: status=installed",
-        "native_stereo_device: status=observed device=0x1234 generation=1",
+        "native_stereo_device: status=observed device=0x1234 generation=1 device_api=d3d9ex",
         "camera_probe_bootstrap: status=installed system_d3d9=expected",
         "camera_probe_event: event=camera_probe_install result=installed pose_source=none native_stereo=available",
         "camera_probe_event: event=camera_probe_control_loaded result=accepted detail=generation=2;enabled=false;fov=natural;yaw=0;pitch=0;tracking_enabled=true;body_ik_enabled=true;recenter=false",
@@ -862,17 +905,17 @@ try {
         $StereoRightLeg,
         "camera_probe_event: event=camera_probe_control_loaded result=accepted generation=1 tracking_enabled=true",
         "camera_probe_event: event=camera_hmd_recentered result=ok generation=1 pose_sequence=1 stereo=true",
-        "native_stereo_capture: status=source eye=left transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.150",
-        "native_stereo_capture: status=source eye=right transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.160",
+        "native_stereo_capture: status=source eye=left transport=d3d9ex_shared_texture_ring;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_pool=0;source_msaa=0;capture_pool=default;capture_usage=render_target;capture_msaa=0;ring_slots=3;ring_depth=1;gpu_copy_queue_ms=0.150",
+        "native_stereo_capture: status=source eye=right transport=d3d9ex_shared_texture_ring;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_pool=0;source_msaa=0;capture_pool=default;capture_usage=render_target;capture_msaa=0;ring_slots=3;ring_depth=1;gpu_copy_queue_ms=0.160",
         $StereoOrientation1,
         $StereoFrame1,
         $StereoOrientation2,
         $StereoFrame2,
-        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=left transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.150",
-        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=right transport=deferred_d3d9_ring_cpu_mailbox;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_msaa=0;ring_slots=3;gpu_copy_queue_ms=0.160",
-        "native_stereo_producer_timing: status=published transport=deferred_d3d9_ring_cpu_mailbox;frame_sequence=2;render_pose_sequence=3;generation=1;eye_surface=2560x1440;fence_ready_before_readback=false;cpu_storage_reused=true;fence_poll_ms=0.010;deferred_readback_ms=8.000;cpu_copy_ms=3.000;producer_collect_ms=11.010",
-        "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;left_hash=111;right_hash=222;distinct_eye_content=true;distinct_check=sampled_hash;hash_mode=sampled_telemetry;hash_ms=4.000;upload_ms=1.000",
-        "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;left_hash=333;right_hash=444;distinct_eye_content=true;distinct_check=sampled_hash;hash_mode=sampled_telemetry;hash_ms=4.100;upload_ms=1.100",
+        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=left transport=d3d9ex_shared_texture_ring;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_pool=0;source_msaa=0;capture_pool=default;capture_usage=render_target;capture_msaa=0;ring_slots=3;ring_depth=1;gpu_copy_queue_ms=0.150",
+        "native_stereo_capture_timing: status=ok frame_sequence=2 eye=right transport=d3d9ex_shared_texture_ring;capture_source=render_target0;source_is_backbuffer=true;eye_surface=2560x1440;viewport=0,0,2560,1440,0,1;format=21;source_pool=0;source_msaa=0;capture_pool=default;capture_usage=render_target;capture_msaa=0;ring_slots=3;ring_depth=1;gpu_copy_queue_ms=0.160",
+        "native_stereo_producer_timing: status=published transport=d3d9ex_shared_texture_ring;frame_sequence=2;render_pose_sequence=3;generation=1;eye_surface=2560x1440;format=21;shared_handles_distinct=true;ring_depth=1;ring_depth_peak=2;fence_poll_ms=0.010;producer_wait_ms=0.000;deferred_readback_ms=0.000;cpu_copy_ms=0.000;producer_collect_ms=0.020",
+        "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;presentation_mode=native_stereo;transport=d3d9ex_shared_texture_ring;left_hash=0;right_hash=0;distinct_eye_content=not_cpu_sampled;eye_resources_distinct=true;distinct_check=separate_shared_eye_resources;hash_mode=disabled_gpu_resident;hash_ms=0.000;upload_ms=0.200;shared_open_ms=0.050;consumer_gpu_copy_queue_ms=0.150;consumer_wait_ms=0.000;consumer_pending_fences=1;frame_age_ms=2.500",
+        "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;presentation_mode=native_stereo;transport=d3d9ex_shared_texture_ring;left_hash=0;right_hash=0;distinct_eye_content=not_cpu_sampled;eye_resources_distinct=true;distinct_check=separate_shared_eye_resources;hash_mode=disabled_gpu_resident;hash_ms=0.000;upload_ms=0.190;shared_open_ms=0.040;consumer_gpu_copy_queue_ms=0.140;consumer_wait_ms=0.000;consumer_pending_fences=1;frame_age_ms=2.400",
         "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
         "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
         "openvr_scene_state: phase=first_submit;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
@@ -897,8 +940,6 @@ try {
         "camera_probe_event: event=camera_probe_passthrough result=disabled",
         "camera_probe_event: event=camera_probe_restore result=restored camera_restored_slots=2;view_restored_slots=1",
         "native_stereo_factory_hook: status=restored",
-        "native_stereo_shutdown: stage=capture_begin",
-        "native_stereo_shutdown: stage=capture_end",
         "native_stereo_shutdown: stage=presenter_begin",
         "native_stereo_presenter_shutdown: stage=d3d11_begin",
         "native_stereo_presenter_shutdown: stage=d3d11_end",
@@ -908,7 +949,10 @@ try {
         "native_stereo_presenter: status=stopped",
         "native_stereo_presenter_stop: shutdown_complete=true",
         "native_stereo_shutdown: stage=presenter_end",
-        "native_stereo_transport_summary: frames_fenced=3;frames_collected=2;capture_ring_drops=0;mailbox_published=2;mailbox_replaced=0;frames_uploaded=2;new_submissions=2;repeat_submissions=4;submit_failures=0",
+        "native_stereo_shutdown: stage=capture_begin",
+        "native_stereo_shutdown: stage=capture_end",
+        "native_stereo_gpu_transport_summary: frames_copied=2;resources_opened=4;copy_fences_completed=2;copy_fence_poll_pending=1;pending_fences_peak=2;open_failures=0;copy_failures=0;abandoned_on_shutdown=0;last_copy_completion_ms=0.500;max_copy_completion_ms=0.700",
+        "native_stereo_transport_summary: frames_fenced=3;frames_collected=2;capture_ring_drops=0;capture_query_not_ready=1;capture_query_flushes=1;shared_frames_published=2;cpu_fallback_frames=0;fallback_activations=0;consumer_releases=2;capture_ring_depth=0;capture_ring_depth_peak=2;mailbox_published=2;mailbox_replaced=0;frames_uploaded=2;new_submissions=2;repeat_submissions=4;shared_frames_copied=2;shared_resources_opened=4;shared_copy_fences_completed=2;shared_pending_copy_fences=0;shared_pending_copy_fences_peak=2;shared_open_failures=0;shared_copy_failures=0;submit_failures=0",
         "native_stereo_runtime: status=stopped",
         "run_end: run_id=$StereoVerifierRunId"
     )
@@ -1251,8 +1295,13 @@ try {
     Assert-True ([string]$StereoSummary.runId -eq $StereoVerifierRunId) `
         "Native-stereo summary was not bound to the current run."
     Assert-True ([int]$StereoSummary.metricsMs.cpuCopy.count -eq 1 -and
-        [double]$StereoSummary.metricsMs.cpuCopy.p50 -eq 3.0) `
-        "Native-stereo summary did not preserve CPU-copy timing."
+        [double]$StereoSummary.metricsMs.cpuCopy.p50 -eq 0.0 -and
+        [double]$StereoSummary.metricsMs.producerWait.p50 -eq 0.0 -and
+        [double]$StereoSummary.metricsMs.consumerWait.p50 -eq 0.0) `
+        "Native-stereo summary did not preserve zero-wait GPU transport timing."
+    Assert-True ([double]$StereoSummary.metricsMs.consumerGpuCopyQueue.p50 -gt 0.0 -and
+        [double]$StereoSummary.metricsMs.frameAge.p50 -gt 0.0) `
+        "Native-stereo summary did not preserve GPU-copy or frame-age timing."
     Assert-True ([int]$StereoSummary.motion.headTranslationMetres.count -eq 2 -and
         [double]$StereoSummary.motion.headTranslationMetres.max -gt 0.10) `
         "Native-stereo summary did not preserve physical head-translation evidence."
@@ -1262,8 +1311,12 @@ try {
         "Native-stereo summary did not recognize the dashboard cycle."
     Assert-True ([bool]$StereoSummary.runtime.shutdownCompleteObserved) `
         "Native-stereo summary did not recognize shutdown completion."
-    Assert-True ([uint64]$StereoSummary.transport.framesCollected -eq 2) `
-        "Native-stereo summary did not preserve transport counters."
+    Assert-True ([uint64]$StereoSummary.transport.framesCollected -eq 2 -and
+        [uint64]$StereoSummary.transport.sharedFramesPublished -eq 2 -and
+        [uint64]$StereoSummary.transport.cpuFallbackFrames -eq 0 -and
+        [uint64]$StereoSummary.transport.sharedFramesCopied -eq 2 -and
+        [uint64]$StereoSummary.transport.sharedCopyFailures -eq 0) `
+        "Native-stereo summary did not preserve GPU-resident transport counters."
 
     $StereoPackagePath = Join-Path $TestRoot "$StereoVerifierRunId.zip"
     & (Join-Path $SourceDirectory "tools\collect_run_evidence.ps1") `
@@ -1394,7 +1447,7 @@ try {
         "Native-stereo verifier accepted an arm restore with a visible residual axis error."
 
     $StereoVerifierFlat = @($StereoVerifierLog | ForEach-Object {
-        $_ -replace "distinct_eye_content=true", "distinct_eye_content=false"
+        $_ -replace "eye_resources_distinct=true", "eye_resources_distinct=false"
     })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierFlat
     $FlatStereoRejected = $false
@@ -1405,7 +1458,7 @@ try {
         $FlatStereoRejected = $true
     }
     Assert-True $FlatStereoRejected `
-        "Native-stereo verifier accepted identical left/right eye content."
+        "Native-stereo verifier accepted aliased/non-distinct left/right GPU eye resources."
 
     $StereoVerifierWrongCamera = @($StereoVerifierLog | ForEach-Object {
         if ($_ -match "camera_native_stereo_frame result=ok frame_sequence=1") {

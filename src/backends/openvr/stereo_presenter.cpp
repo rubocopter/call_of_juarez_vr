@@ -3,11 +3,13 @@
 #include "backends/d3d9/content_hash.hpp"
 #include "backends/openvr/d3d11_compositor.hpp"
 #include "backends/openvr/d3d11_session.hpp"
+#include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
 #include "runtime/openvr_runtime.hpp"
 #include "runtime/vr_math.hpp"
 
 #include <d3d11.h>
+#include <d3d9.h>
 #include <wrl/client.h>
 
 #include <atomic>
@@ -76,6 +78,33 @@ std::uint32_t FlatTextureExtent(
             (static_cast<std::uint64_t>(source_extent) * 135U) / 100U));
 }
 
+std::uint32_t FrameWidth(const d3d9::StereoCpuFrame& frame) noexcept {
+    return frame.transport == d3d9::StereoFrameTransport::d3d9ex_shared_texture
+        ? frame.shared_eyes[0].width
+        : frame.eyes[0].width;
+}
+
+std::uint32_t FrameHeight(const d3d9::StereoCpuFrame& frame) noexcept {
+    return frame.transport == d3d9::StereoFrameTransport::d3d9ex_shared_texture
+        ? frame.shared_eyes[0].height
+        : frame.eyes[0].height;
+}
+
+DXGI_FORMAT FrameDxgiFormat(const d3d9::StereoCpuFrame& frame) noexcept {
+    if (frame.transport != d3d9::StereoFrameTransport::d3d9ex_shared_texture) {
+        return DXGI_FORMAT_B8G8R8A8_UNORM;
+    }
+    switch (static_cast<D3DFORMAT>(frame.shared_eyes[0].d3d_format)) {
+    case D3DFMT_A8R8G8B8: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case D3DFMT_X8R8G8B8: return DXGI_FORMAT_B8G8R8X8_UNORM;
+    default: return DXGI_FORMAT_UNKNOWN;
+    }
+}
+
+const std::uint8_t* CpuEyeData(const d3d9::CpuEyeFrame& eye) noexcept {
+    return eye.borrowed_pixels ? eye.borrowed_pixels : eye.pixels.data();
+}
+
 } // namespace
 
 struct OpenVrStereoPresenter::Impl {
@@ -122,6 +151,13 @@ struct OpenVrStereoPresenter::Impl {
     std::atomic_uint64_t repeated_frame_submissions{0};
     std::atomic_uint64_t rejected_frames{0};
     std::atomic_uint64_t submit_failures{0};
+    std::atomic_uint64_t shared_frames_copied{0};
+    std::atomic_uint64_t shared_resources_opened{0};
+    std::atomic_uint64_t shared_copy_fences_completed{0};
+    std::atomic_uint64_t shared_open_failures{0};
+    std::atomic_uint64_t shared_copy_failures{0};
+    std::atomic_uint64_t shared_pending_copy_fences{0};
+    std::atomic_uint64_t shared_pending_copy_fences_peak{0};
     std::atomic_bool shutdown_complete{false};
 
     std::string action_manifest_path;
@@ -208,27 +244,55 @@ struct OpenVrStereoPresenter::Impl {
         const d3d9::StereoCpuFrame& frame,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         std::uint32_t& texture_width,
-        std::uint32_t& texture_height) noexcept {
+        std::uint32_t& texture_height,
+        DXGI_FORMAT& texture_format) noexcept {
         const auto& left = frame.eyes[0];
         const auto& right = frame.eyes[1];
-        if (left.width == 0 || left.height == 0 ||
-            left.width != right.width || left.height != right.height ||
-            left.stride < left.width * 4U || right.stride < right.width * 4U ||
-            left.format != d3d9::CpuPixelFormat::bgrx8_unorm ||
-            right.format != d3d9::CpuPixelFormat::bgrx8_unorm) {
-            SetError("presenter rejected inconsistent stereo CPU frame layout");
-            return false;
+        const bool shared =
+            frame.transport == d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+        if (shared) {
+            const auto& shared_left = frame.shared_eyes[0];
+            const auto& shared_right = frame.shared_eyes[1];
+            if (shared_left.shared_handle == 0 || shared_right.shared_handle == 0 ||
+                shared_left.width == 0 || shared_left.height == 0 ||
+                shared_left.width != shared_right.width ||
+                shared_left.height != shared_right.height ||
+                shared_left.d3d_format != shared_right.d3d_format) {
+                SetError("presenter rejected inconsistent D3D9Ex shared stereo frame layout");
+                return false;
+            }
+        } else {
+            if (left.width == 0 || left.height == 0 ||
+                left.width != right.width || left.height != right.height ||
+                left.stride < left.width * 4U || right.stride < right.width * 4U ||
+                left.format != d3d9::CpuPixelFormat::bgrx8_unorm ||
+                right.format != d3d9::CpuPixelFormat::bgrx8_unorm) {
+                SetError("presenter rejected inconsistent stereo CPU frame layout");
+                return false;
+            }
         }
         const bool flat_theater =
             frame.presentation_mode == d3d9::FramePresentationMode::flat_theater;
+        if (shared && flat_theater) {
+            SetError("flat theater currently requires the CPU composition fallback");
+            return false;
+        }
+        const std::uint32_t source_width = FrameWidth(frame);
+        const std::uint32_t source_height = FrameHeight(frame);
         const std::uint32_t desired_width = flat_theater
-            ? FlatTextureExtent(left.width, eyes[0].width)
-            : left.width;
+            ? FlatTextureExtent(source_width, eyes[0].width)
+            : source_width;
         const std::uint32_t desired_height = flat_theater
-            ? FlatTextureExtent(left.height, eyes[0].height)
-            : left.height;
+            ? FlatTextureExtent(source_height, eyes[0].height)
+            : source_height;
+        const DXGI_FORMAT desired_format = FrameDxgiFormat(frame);
+        if (desired_format == DXGI_FORMAT_UNKNOWN) {
+            SetError("presenter rejected unsupported D3D9Ex shared texture format");
+            return false;
+        }
         if (textures[0] && textures[1] &&
-            texture_width == desired_width && texture_height == desired_height) {
+            texture_width == desired_width && texture_height == desired_height &&
+            texture_format == desired_format) {
             return true;
         }
         for (auto& texture : textures) texture.Reset();
@@ -237,7 +301,7 @@ struct OpenVrStereoPresenter::Impl {
         desc.Height = desired_height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.Format = desired_format;
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -259,28 +323,51 @@ struct OpenVrStereoPresenter::Impl {
         }
         texture_width = desired_width;
         texture_height = desired_height;
+        texture_format = desired_format;
         return true;
     }
 
     bool UploadFrame(
         D3D11SessionBridge& d3d11,
-        const d3d9::StereoCpuFrame& frame,
+        D3D9SharedTextureBridge& shared_bridge,
+        d3d9::StereoCpuFrame& frame,
         const FlatUiPointerSample& flat_ui_pointer,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         std::uint32_t& texture_width,
         std::uint32_t& texture_height,
+        DXGI_FORMAT& texture_format,
         std::uint64_t& left_hash,
         std::uint64_t& right_hash,
         double& hash_ms,
-        double& upload_ms) noexcept {
-        if (!EnsureTextures(d3d11, frame, textures, texture_width, texture_height)) return false;
+        double& upload_ms,
+        D3D9SharedTextureCopyTiming& shared_timing) noexcept {
+        if (!EnsureTextures(
+                d3d11, frame, textures, texture_width, texture_height, texture_format)) {
+            return false;
+        }
+        if (frame.transport == d3d9::StereoFrameTransport::d3d9ex_shared_texture) {
+            const std::array<ID3D11Texture2D*, 2> destination{
+                textures[0].Get(), textures[1].Get()};
+            if (!shared_bridge.CopyFrame(
+                    d3d11.device(), d3d11.context(), frame,
+                    destination, shared_timing)) {
+                SetError(std::string(shared_bridge.last_error()));
+                return false;
+            }
+            upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
+            return true;
+        }
         const auto& left = frame.eyes[0];
         const auto& right = frame.eyes[1];
         const bool flat_theater =
             frame.presentation_mode == d3d9::FramePresentationMode::flat_theater;
         const std::size_t left_required = static_cast<std::size_t>(left.stride) * left.height;
         const std::size_t right_required = static_cast<std::size_t>(right.stride) * right.height;
-        if (left.pixels.size() < left_required || right.pixels.size() < right_required) {
+        const bool borrowed = frame.transport ==
+            d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem;
+        if ((!borrowed &&
+             (left.pixels.size() < left_required || right.pixels.size() < right_required)) ||
+            (borrowed && (!left.borrowed_pixels || !right.borrowed_pixels))) {
             SetError("presenter rejected truncated stereo CPU frame pixels");
             return false;
         }
@@ -291,9 +378,9 @@ struct OpenVrStereoPresenter::Impl {
         if (ShouldLogSequence(frame.capture_sequence)) {
             const auto hash_begin = std::chrono::steady_clock::now();
             left_hash = d3d9::HashBgrxSurfaceIgnoringAlpha(
-                left.pixels.data(), left.stride, left.width, left.height);
+                CpuEyeData(left), left.stride, left.width, left.height);
             right_hash = d3d9::HashBgrxSurfaceIgnoringAlpha(
-                right.pixels.data(), right.stride, right.width, right.height);
+                CpuEyeData(right), right.stride, right.width, right.height);
             const auto hash_end = std::chrono::steady_clock::now();
             hash_ms = MillisecondsBetween(hash_begin, hash_end);
             if (left_hash == 0 || right_hash == 0 ||
@@ -324,7 +411,7 @@ struct OpenVrStereoPresenter::Impl {
                 box.bottom = top_offset + source.height;
                 box.back = 1;
                 d3d11.context()->UpdateSubresource(
-                    textures[eye].Get(), 0, &box, source.pixels.data(), source.stride, 0);
+                    textures[eye].Get(), 0, &box, CpuEyeData(source), source.stride, 0);
 
                 if (flat_ui_pointer.active &&
                     flat_ui_pointer.source_width == source.width &&
@@ -371,7 +458,7 @@ struct OpenVrStereoPresenter::Impl {
                     std::vector<std::uint8_t> patch(
                         static_cast<std::size_t>(patch_width) * patch_height * 4U);
                     for (std::uint32_t row = 0; row < patch_height; ++row) {
-                        const auto* source_row = source.pixels.data() +
+                        const auto* source_row = CpuEyeData(source) +
                             static_cast<std::size_t>(patch_top + row) * source.stride +
                             static_cast<std::size_t>(patch_left) * 4U;
                         std::memcpy(
@@ -454,7 +541,7 @@ struct OpenVrStereoPresenter::Impl {
                 }
             } else {
                 d3d11.context()->UpdateSubresource(
-                    textures[eye].Get(), 0, nullptr, source.pixels.data(), source.stride, 0);
+                    textures[eye].Get(), 0, nullptr, CpuEyeData(source), source.stride, 0);
             }
         }
         const auto upload_end = std::chrono::steady_clock::now();
@@ -505,9 +592,11 @@ struct OpenVrStereoPresenter::Impl {
     void Worker() noexcept {
         runtime::OpenVrRuntime runtime;
         D3D11SessionBridge d3d11;
+        D3D9SharedTextureBridge shared_bridge;
         std::array<ComPtr<ID3D11Texture2D>, 2> textures{};
         std::uint32_t texture_width = 0;
         std::uint32_t texture_height = 0;
+        DXGI_FORMAT texture_format = DXGI_FORMAT_UNKNOWN;
         std::uint64_t active_device_id = 0;
         std::uint64_t active_generation = 0;
         std::uint64_t active_capture_sequence = 0;
@@ -569,7 +658,7 @@ struct OpenVrStereoPresenter::Impl {
             running.store(true, std::memory_order_release);
             SignalInitialization(true);
             Log("native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=flat_theater_to_native_stereo");
-            Log("openvr_gpu_handoff: upload=UpdateSubresource;gpu_sync=none;submit=Submit_TextureWithPose;handoff=PostPresentHandoff");
+            Log("openvr_gpu_handoff: native_stereo=D3D9Ex_shared_texture+CopyResource;flat_fallback=UpdateSubresource;producer_sync=nonblocking_D3D9_event_query;consumer_sync=nonblocking_D3D11_event_query;submit=Submit_TextureWithPose;handoff=PostPresentHandoff");
             if (runtime.ReadPresentationState(previous_presentation_state)) {
                 have_previous_presentation_state = true;
                 LogPresentationState(previous_presentation_state, "initialized");
@@ -579,6 +668,24 @@ struct OpenVrStereoPresenter::Impl {
             LogRuntimeState(previous_runtime_state, "initialized");
 
             while (!stop_requested.load(std::memory_order_acquire)) {
+                shared_bridge.Poll(d3d11.context());
+                {
+                    const auto shared_stats = shared_bridge.stats();
+                    shared_frames_copied.store(
+                        shared_stats.frames_copied, std::memory_order_release);
+                    shared_resources_opened.store(
+                        shared_stats.resources_opened, std::memory_order_release);
+                    shared_copy_fences_completed.store(
+                        shared_stats.copy_fences_completed, std::memory_order_release);
+                    shared_open_failures.store(
+                        shared_stats.open_failures, std::memory_order_release);
+                    shared_copy_failures.store(
+                        shared_stats.copy_failures, std::memory_order_release);
+                    shared_pending_copy_fences.store(
+                        shared_stats.pending_copy_fences, std::memory_order_release);
+                    shared_pending_copy_fences_peak.store(
+                        shared_stats.pending_copy_fences_peak, std::memory_order_release);
+                }
                 const auto pose_begin = std::chrono::steady_clock::now();
                 runtime::OpenVrTrackedPoses tracked_poses{};
                 // Enter compositor pacing as soon as either flat-theater or native
@@ -859,6 +966,7 @@ struct OpenVrStereoPresenter::Impl {
                 std::uint64_t right_hash = 0;
                 double hash_ms = 0.0;
                 double upload_ms = 0.0;
+                D3D9SharedTextureCopyTiming shared_timing{};
                 if (have_new_frame) {
                     const std::uint64_t incoming_transport_sequence =
                         frame.transport_sequence != 0
@@ -878,8 +986,10 @@ struct OpenVrStereoPresenter::Impl {
                         if (frame.generation != active_generation ||
                             frame.device_id != active_device_id) {
                             for (auto& texture : textures) texture.Reset();
+                            shared_bridge.ResetOpenedResources();
                             texture_width = 0;
                             texture_height = 0;
+                            texture_format = DXGI_FORMAT_UNKNOWN;
                             active_generation = frame.generation;
                             active_device_id = frame.device_id;
                             active_transport_sequence = 0;
@@ -898,9 +1008,9 @@ struct OpenVrStereoPresenter::Impl {
                             flat_theater_anchor_valid = true;
                         }
                         if (UploadFrame(
-                                d3d11, frame, flat_ui_pointer,
-                                textures, texture_width, texture_height,
-                                left_hash, right_hash, hash_ms, upload_ms)) {
+                                d3d11, shared_bridge, frame, flat_ui_pointer,
+                                textures, texture_width, texture_height, texture_format,
+                                left_hash, right_hash, hash_ms, upload_ms, shared_timing)) {
                             const bool first_presentable_frame = !cadence.presentable();
                             const bool mode_changed = !have_active_presentation_mode ||
                                 active_presentation_mode != frame.presentation_mode;
@@ -909,8 +1019,8 @@ struct OpenVrStereoPresenter::Impl {
                             active_capture_time = frame.capture_time;
                             active_render_pose_sequence = frame.render_pose_sequence;
                             active_render_hmd_pose = frame.render_hmd_pose;
-                            active_source_width = frame.eyes[0].width;
-                            active_source_height = frame.eyes[0].height;
+                            active_source_width = FrameWidth(frame);
+                            active_source_height = FrameHeight(frame);
                             active_presentation_mode = frame.presentation_mode;
                             have_active_presentation_mode = true;
                             cadence.FrameUploaded();
@@ -925,17 +1035,17 @@ struct OpenVrStereoPresenter::Impl {
                                     runtime::FlatTheaterEyePlacement left_placement{};
                                     runtime::FlatTheaterEyePlacement right_placement{};
                                     if (runtime::ComputeFlatTheaterEyePlacement(
-                                            eyes[0], frame.eyes[0].width, frame.eyes[0].height,
+                                            eyes[0], FrameWidth(frame), FrameHeight(frame),
                                             texture_width, texture_height, left_placement) &&
                                         runtime::ComputeFlatTheaterEyePlacement(
-                                            eyes[1], frame.eyes[1].width, frame.eyes[1].height,
+                                            eyes[1], FrameWidth(frame), FrameHeight(frame),
                                             texture_width, texture_height, right_placement)) {
                                         std::ostringstream geometry;
                                         geometry << "native_stereo_flat_theater_geometry: status=active"
                                                  << ";plane_distance_m=1.500"
                                                  << ";texture=" << texture_width << 'x' << texture_height
-                                                 << ";source=" << frame.eyes[0].width << 'x'
-                                                 << frame.eyes[0].height
+                                                 << ";source=" << FrameWidth(frame) << 'x'
+                                                 << FrameHeight(frame)
                                                  << ";left_offset=" << left_placement.left << ','
                                                  << left_placement.top
                                                  << ";right_offset=" << right_placement.left << ','
@@ -950,29 +1060,54 @@ struct OpenVrStereoPresenter::Impl {
                                 LogPresentationState(runtime, "frame_ready");
                             }
                             if (ShouldLogSequence(frame.capture_sequence)) {
+                                const bool shared_frame = frame.transport ==
+                                    d3d9::StereoFrameTransport::d3d9ex_shared_texture;
                                 std::ostringstream line;
                                 line << "native_stereo_presenter_frame: status=new frame_sequence="
                                      << frame.capture_sequence
                                      << ";render_pose_sequence=" << frame.render_pose_sequence
                                      << ";generation=" << frame.generation
                                      << ";presentation_mode="
-                                     << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
-                                             ? "flat_theater"
-                                             : "native_stereo")
+                                      << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
+                                              ? "flat_theater"
+                                              : "native_stereo")
+                                     << ";transport=";
+                                if (shared_frame) {
+                                    line << "d3d9ex_shared_texture_ring";
+                                } else if (frame.transport ==
+                                           d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem) {
+                                    line << "classic_d3d9_locked_systemmem_fallback";
+                                } else {
+                                    line << "cpu_bgrx";
+                                }
+                                line
                                      << ";left_hash=" << left_hash
                                      << ";right_hash=" << right_hash
                                      << ";distinct_eye_content="
                                      << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
-                                             ? "false"
-                                             : "true")
+                                             ? "not_required"
+                                             : (shared_frame ? "not_cpu_sampled" : "true"))
+                                     << ";eye_resources_distinct="
+                                     << (shared_frame ? "true" : "not_applicable")
                                      << ";distinct_check="
                                      << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
-                                             ? "not_required_flat_theater"
-                                             : "sampled_hash")
-                                     << ";hash_mode=sampled_telemetry"
+                                              ? "not_required_flat_theater"
+                                              : (shared_frame
+                                                     ? "separate_shared_eye_resources"
+                                                     : "sampled_hash"))
+                                     << ";hash_mode="
+                                     << (shared_frame ? "disabled_gpu_resident" : "sampled_telemetry")
                                      << std::fixed << std::setprecision(3)
                                      << ";hash_ms=" << hash_ms
-                                     << ";upload_ms=" << upload_ms;
+                                     << ";upload_ms=" << upload_ms
+                                     << ";shared_open_ms=" << shared_timing.open_ms
+                                     << ";consumer_gpu_copy_queue_ms="
+                                     << shared_timing.copy_queue_ms
+                                     << ";consumer_wait_ms=" << shared_timing.consumer_wait_ms
+                                     << ";consumer_pending_fences="
+                                     << shared_timing.pending_copy_fences
+                                     << ";frame_age_ms="
+                                     << PoseAgeMilliseconds(frame.capture_time);
                                 Log(line.str());
                             }
                         } else {
@@ -981,7 +1116,9 @@ struct OpenVrStereoPresenter::Impl {
                                 std::to_string(frame.capture_sequence) + ";error=" + ErrorCopy());
                         }
                     }
-                    mailbox.Recycle(std::move(frame));
+                    if (frame.transport == d3d9::StereoFrameTransport::cpu_bgrx) {
+                        mailbox.Recycle(std::move(frame));
+                    }
                 }
 
                 if (!cadence.presentable()) continue;
@@ -1089,6 +1226,42 @@ struct OpenVrStereoPresenter::Impl {
 
         PublishFlatUiPointer({});
         running.store(false, std::memory_order_release);
+        shared_bridge.Shutdown(d3d11.context());
+        {
+            const auto shared_stats = shared_bridge.stats();
+            shared_frames_copied.store(shared_stats.frames_copied, std::memory_order_release);
+            shared_resources_opened.store(
+                shared_stats.resources_opened, std::memory_order_release);
+            shared_copy_fences_completed.store(
+                shared_stats.copy_fences_completed, std::memory_order_release);
+            shared_open_failures.store(
+                shared_stats.open_failures, std::memory_order_release);
+            shared_copy_failures.store(
+                shared_stats.copy_failures, std::memory_order_release);
+            shared_pending_copy_fences.store(
+                shared_stats.pending_copy_fences, std::memory_order_release);
+            shared_pending_copy_fences_peak.store(
+                shared_stats.pending_copy_fences_peak, std::memory_order_release);
+            std::ostringstream summary;
+            summary << "native_stereo_gpu_transport_summary: frames_copied="
+                    << shared_stats.frames_copied
+                    << ";resources_opened=" << shared_stats.resources_opened
+                    << ";copy_fences_completed=" << shared_stats.copy_fences_completed
+                    << ";copy_fence_poll_pending="
+                    << shared_stats.copy_fence_poll_pending
+                    << ";pending_fences_peak="
+                    << shared_stats.pending_copy_fences_peak
+                    << ";open_failures=" << shared_stats.open_failures
+                    << ";copy_failures=" << shared_stats.copy_failures
+                    << ";abandoned_on_shutdown="
+                    << shared_stats.abandoned_on_shutdown
+                    << std::fixed << std::setprecision(3)
+                    << ";last_copy_completion_ms="
+                    << shared_stats.last_copy_completion_ms
+                    << ";max_copy_completion_ms="
+                    << shared_stats.max_copy_completion_ms;
+            Log(summary.str());
+        }
         for (auto& texture : textures) texture.Reset();
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
         d3d11.Shutdown();
@@ -1169,6 +1342,13 @@ bool OpenVrStereoPresenter::Start(
         impl_->repeated_frame_submissions.store(0, std::memory_order_release);
         impl_->rejected_frames.store(0, std::memory_order_release);
         impl_->submit_failures.store(0, std::memory_order_release);
+        impl_->shared_frames_copied.store(0, std::memory_order_release);
+        impl_->shared_resources_opened.store(0, std::memory_order_release);
+        impl_->shared_copy_fences_completed.store(0, std::memory_order_release);
+        impl_->shared_open_failures.store(0, std::memory_order_release);
+        impl_->shared_copy_failures.store(0, std::memory_order_release);
+        impl_->shared_pending_copy_fences.store(0, std::memory_order_release);
+        impl_->shared_pending_copy_fences_peak.store(0, std::memory_order_release);
         impl_->shutdown_complete.store(false, std::memory_order_release);
         impl_->worker = std::thread([state = impl_.get()] { state->Worker(); });
 
@@ -1282,6 +1462,20 @@ OpenVrPresenterStats OpenVrStereoPresenter::stats() const noexcept {
         impl_->repeated_frame_submissions.load(std::memory_order_acquire);
     result.rejected_frames = impl_->rejected_frames.load(std::memory_order_acquire);
     result.submit_failures = impl_->submit_failures.load(std::memory_order_acquire);
+    result.shared_frames_copied =
+        impl_->shared_frames_copied.load(std::memory_order_acquire);
+    result.shared_resources_opened =
+        impl_->shared_resources_opened.load(std::memory_order_acquire);
+    result.shared_copy_fences_completed =
+        impl_->shared_copy_fences_completed.load(std::memory_order_acquire);
+    result.shared_open_failures =
+        impl_->shared_open_failures.load(std::memory_order_acquire);
+    result.shared_copy_failures =
+        impl_->shared_copy_failures.load(std::memory_order_acquire);
+    result.shared_pending_copy_fences =
+        impl_->shared_pending_copy_fences.load(std::memory_order_acquire);
+    result.shared_pending_copy_fences_peak =
+        impl_->shared_pending_copy_fences_peak.load(std::memory_order_acquire);
     result.shutdown_complete = impl_->shutdown_complete.load(std::memory_order_acquire);
     result.mailbox = impl_->mailbox.stats();
     return result;

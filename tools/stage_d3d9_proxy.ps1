@@ -6,7 +6,7 @@ param(
     [string]$BuildManifestPath = "",
     [string]$RunId = "",
 
-    [ValidateSet("full", "performance")]
+    [ValidateSet("full", "performance", "transport")]
     [string]$ValidationProfile = "full"
 )
 
@@ -463,7 +463,8 @@ if ($HadOriginal) {
             requireProductionGpuSyncNone = $IsNativeStereo
             requirePerformanceSummary = $IsNativeStereo
             requireRepeatedPresentation = $IsNativeStereo
-            requireFlatTheaterUi = $IsNativeStereo
+            requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport"
+            requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport"
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
             requireGameplayInput = $RequireBodyValidation

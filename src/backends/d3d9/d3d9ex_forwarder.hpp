@@ -9,8 +9,12 @@ namespace cojvr::backends::d3d9 {
 // while we observe device creation through the Ex path.
 class Direct3D9ExForwarder final : public IDirect3D9Ex {
 public:
-    explicit Direct3D9ExForwarder(IDirect3D9Ex* inner) noexcept : inner_(inner) {
+    explicit Direct3D9ExForwarder(
+        IDirect3D9Ex* inner,
+        IDirect3D9* classic_fallback = nullptr) noexcept
+        : inner_(inner), classic_fallback_(classic_fallback) {
         if (inner_) inner_->AddRef();
+        if (classic_fallback_) classic_fallback_->AddRef();
     }
 
     virtual ~Direct3D9ExForwarder() noexcept = default;
@@ -34,6 +38,7 @@ public:
         const ULONG remaining = --references_;
         if (remaining == 0) {
             inner_->Release();
+            if (classic_fallback_) classic_fallback_->Release();
             delete this;
         }
         return remaining;
@@ -128,13 +133,18 @@ public:
         }
 
         IDirect3DDevice9Ex* ex_device = nullptr;
-        const HRESULT result = inner_->CreateDeviceEx(
+        HRESULT result = inner_->CreateDeviceEx(
             adapter, device_type, focus_window, behavior_flags,
             presentation_parameters, fullscreen_mode_ptr, &ex_device);
         if (SUCCEEDED(result) && ex_device != nullptr) {
             *returned_device = static_cast<IDirect3DDevice9*>(ex_device);
-        } else if (ex_device != nullptr) {
-            ex_device->Release();
+            return result;
+        }
+        if (ex_device != nullptr) ex_device->Release();
+        if (classic_fallback_) {
+            result = classic_fallback_->CreateDevice(
+                adapter, device_type, focus_window, behavior_flags,
+                presentation_parameters, returned_device);
         }
         return result;
     }
@@ -172,6 +182,7 @@ public:
 private:
     std::atomic<ULONG> references_{1};
     IDirect3D9Ex* inner_ = nullptr;
+    IDirect3D9* classic_fallback_ = nullptr;
 };
 
 } // namespace cojvr::backends::d3d9

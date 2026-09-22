@@ -83,6 +83,23 @@ int main() {
     }
 
     mailbox.Reset();
+    auto release_state =
+        std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+    StereoCpuFrame leased = MakeFrame(101);
+    leased.transport =
+        cojvr::backends::d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem;
+    leased.eyes[0].borrowed_pixels = leased.eyes[0].pixels.data();
+    leased.eyes[1].borrowed_pixels = leased.eyes[1].pixels.data();
+    leased.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(release_state);
+    if (!mailbox.Publish(std::move(leased))) {
+        return Fail("mailbox rejected a valid leased pending frame");
+    }
+    mailbox.Stop();
+    if (!release_state->consumer_done.load(std::memory_order_acquire)) {
+        return Fail("mailbox Stop retained a pending producer lease");
+    }
+
+    mailbox.Reset();
     StereoCpuFrame flat = MakeFrame(10);
     flat.transport_sequence = 1;
     flat.presentation_mode = cojvr::backends::d3d9::FramePresentationMode::flat_theater;

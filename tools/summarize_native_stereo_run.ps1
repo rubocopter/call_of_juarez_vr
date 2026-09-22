@@ -133,9 +133,17 @@ $TransportLine = @($Lines | Where-Object {
     $_ -match "^native_stereo_transport_summary:"
 } | Select-Object -Last 1)
 $TransportText = if ($TransportLine.Count -gt 0) { [string]$TransportLine[0] } else { "" }
+$GpuTransportLine = @($Lines | Where-Object {
+    $_ -match "^native_stereo_gpu_transport_summary:"
+} | Select-Object -Last 1)
+$GpuTransportText = if ($GpuTransportLine.Count -gt 0) {
+    [string]$GpuTransportLine[0]
+} else {
+    ""
+}
 
 $Report = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     manifestType = "cojvr-native-stereo-summary"
     runId = $RunId
     buildManifestId = [string]$Provenance.BuildManifestId
@@ -146,8 +154,13 @@ $Report = [ordered]@{
         deferredReadback = Get-Stats (Get-NumericValues $Lines "^native_stereo_producer_timing: status=published" "deferred_readback_ms")
         cpuCopy = Get-Stats (Get-NumericValues $Lines "^native_stereo_producer_timing: status=published" "cpu_copy_ms")
         producerCollect = Get-Stats (Get-NumericValues $Lines "^native_stereo_producer_timing: status=published" "producer_collect_ms")
+        producerWait = Get-Stats (Get-NumericValues $Lines "^native_stereo_producer_timing: status=published" "producer_wait_ms")
         diagnosticHash = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "hash_ms")
         d3d11Upload = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "upload_ms")
+        sharedOpen = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "shared_open_ms")
+        consumerGpuCopyQueue = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "consumer_gpu_copy_queue_ms")
+        consumerWait = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "consumer_wait_ms")
+        frameAge = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_frame: status=new" "frame_age_ms")
         waitPose = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_timing: status=ok" "wait_pose_ms")
         submit = Get-Stats (Get-NumericValues $Lines "^native_stereo_presenter_timing: status=ok" "submit_ms")
     }
@@ -160,12 +173,29 @@ $Report = [ordered]@{
         framesFenced = Get-IntegerField $TransportText "frames_fenced"
         framesCollected = Get-IntegerField $TransportText "frames_collected"
         captureRingDrops = Get-IntegerField $TransportText "capture_ring_drops"
+        captureQueryNotReady = Get-IntegerField $TransportText "capture_query_not_ready"
+        captureQueryFlushes = Get-IntegerField $TransportText "capture_query_flushes"
+        sharedFramesPublished = Get-IntegerField $TransportText "shared_frames_published"
+        cpuFallbackFrames = Get-IntegerField $TransportText "cpu_fallback_frames"
+        fallbackActivations = Get-IntegerField $TransportText "fallback_activations"
+        consumerReleases = Get-IntegerField $TransportText "consumer_releases"
+        captureRingDepth = Get-IntegerField $TransportText "capture_ring_depth"
+        captureRingDepthPeak = Get-IntegerField $TransportText "capture_ring_depth_peak"
         mailboxPublished = Get-IntegerField $TransportText "mailbox_published"
         mailboxReplaced = Get-IntegerField $TransportText "mailbox_replaced"
         framesUploaded = Get-IntegerField $TransportText "frames_uploaded"
         newSubmissions = Get-IntegerField $TransportText "new_submissions"
         repeatSubmissions = Get-IntegerField $TransportText "repeat_submissions"
+        sharedFramesCopied = Get-IntegerField $TransportText "shared_frames_copied"
+        sharedResourcesOpened = Get-IntegerField $TransportText "shared_resources_opened"
+        sharedCopyFencesCompleted = Get-IntegerField $TransportText "shared_copy_fences_completed"
+        sharedPendingCopyFences = Get-IntegerField $TransportText "shared_pending_copy_fences"
+        sharedPendingCopyFencesPeak = Get-IntegerField $TransportText "shared_pending_copy_fences_peak"
+        sharedOpenFailures = Get-IntegerField $TransportText "shared_open_failures"
+        sharedCopyFailures = Get-IntegerField $TransportText "shared_copy_failures"
         submitFailures = Get-IntegerField $TransportText "submit_failures"
+        copyFencePollPending = Get-IntegerField $GpuTransportText "copy_fence_poll_pending"
+        abandonedOnShutdown = Get-IntegerField $GpuTransportText "abandoned_on_shutdown"
     }
     runtime = [ordered]@{
         stateSamples = $RuntimeStateLines.Count
@@ -187,7 +217,10 @@ $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
     [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Native-stereo performance/state summary: $OutputPath"
-foreach ($MetricName in @("deferredReadback", "cpuCopy", "producerCollect", "d3d11Upload", "waitPose", "submit")) {
+foreach ($MetricName in @(
+        "deferredReadback", "cpuCopy", "producerCollect", "producerWait",
+        "sharedOpen", "consumerGpuCopyQueue", "consumerWait", "frameAge",
+        "d3d11Upload", "waitPose", "submit")) {
     $Stats = $Report.metricsMs[$MetricName]
     if ($null -eq $Stats) { continue }
     Write-Host ("{0}: n={1} avg={2} ms p50={3} ms p95={4} ms max={5} ms" -f `

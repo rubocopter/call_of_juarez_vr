@@ -232,6 +232,13 @@ function New-Phase([string]$Name) {
         emittedJumps = [Collections.Generic.List[object]]::new()
         readback = [Collections.Generic.List[double]]::new()
         copy = [Collections.Generic.List[double]]::new()
+        producerGpuCopyQueue = [Collections.Generic.List[double]]::new()
+        producerWait = [Collections.Generic.List[double]]::new()
+        consumerGpuCopyQueue = [Collections.Generic.List[double]]::new()
+        consumerWait = [Collections.Generic.List[double]]::new()
+        frameAge = [Collections.Generic.List[double]]::new()
+        ringDepth = [Collections.Generic.List[double]]::new()
+        consumerPendingFences = [Collections.Generic.List[double]]::new()
     }
 }
 
@@ -316,11 +323,33 @@ foreach ($Line in $Lines) {
         continue
     }
     if ($null -ne $ActivePhase -and
+        $Line -match "^native_stereo_capture_timing: status=ok ") {
+        $GpuCopyQueue = Get-Number $Line "gpu_copy_queue_ms"
+        if ($null -ne $GpuCopyQueue) { $ActivePhase.producerGpuCopyQueue.Add($GpuCopyQueue) }
+        continue
+    }
+    if ($null -ne $ActivePhase -and
         $Line -match "^native_stereo_producer_timing: status=published ") {
         $Readback = Get-Number $Line "deferred_readback_ms"
         $Copy = Get-Number $Line "cpu_copy_ms"
+        $ProducerWait = Get-Number $Line "producer_wait_ms"
+        $RingDepth = Get-Number $Line "ring_depth"
         if ($null -ne $Readback) { $ActivePhase.readback.Add($Readback) }
         if ($null -ne $Copy) { $ActivePhase.copy.Add($Copy) }
+        if ($null -ne $ProducerWait) { $ActivePhase.producerWait.Add($ProducerWait) }
+        if ($null -ne $RingDepth) { $ActivePhase.ringDepth.Add($RingDepth) }
+        continue
+    }
+    if ($null -ne $ActivePhase -and
+        $Line -match "^native_stereo_presenter_frame: status=new ") {
+        $ConsumerCopy = Get-Number $Line "consumer_gpu_copy_queue_ms"
+        $ConsumerWait = Get-Number $Line "consumer_wait_ms"
+        $FrameAge = Get-Number $Line "frame_age_ms"
+        $PendingFences = Get-Number $Line "consumer_pending_fences"
+        if ($null -ne $ConsumerCopy) { $ActivePhase.consumerGpuCopyQueue.Add($ConsumerCopy) }
+        if ($null -ne $ConsumerWait) { $ActivePhase.consumerWait.Add($ConsumerWait) }
+        if ($null -ne $FrameAge) { $ActivePhase.frameAge.Add($FrameAge) }
+        if ($null -ne $PendingFences) { $ActivePhase.consumerPendingFences.Add($PendingFences) }
     }
 }
 
@@ -455,6 +484,13 @@ foreach ($Entry in $Phases.GetEnumerator()) {
         jumpDurationSeconds = Get-Stats @($Jumps | ForEach-Object durationSeconds)
         readbackMs = Get-Stats @($Phase.readback)
         cpuCopyMs = Get-Stats @($Phase.copy)
+        producerGpuCopyQueueMs = Get-Stats @($Phase.producerGpuCopyQueue)
+        producerWaitMs = Get-Stats @($Phase.producerWait)
+        consumerGpuCopyQueueMs = Get-Stats @($Phase.consumerGpuCopyQueue)
+        consumerWaitMs = Get-Stats @($Phase.consumerWait)
+        endToEndFrameAgeMs = Get-Stats @($Phase.frameAge)
+        captureRingDepth = Get-Stats @($Phase.ringDepth)
+        consumerPendingCopyFences = Get-Stats @($Phase.consumerPendingFences)
     })
 }
 
@@ -464,7 +500,7 @@ if (Test-Path -LiteralPath $RunManifestPath -PathType Leaf) {
     $RunId = [string]((Get-Content -LiteralPath $RunManifestPath -Raw | ConvertFrom-Json).runId)
 }
 $Report = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     manifestType = "cojvr-movement-diagnostic-summary"
     runId = $RunId
     generatedUtc = [DateTime]::UtcNow.ToString("o")

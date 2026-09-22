@@ -16,14 +16,21 @@ struct D3D9StereoCaptureStats {
     std::uint64_t frames_collected = 0;
     std::uint64_t frames_dropped_no_slot = 0;
     std::uint64_t frames_invalidated = 0;
+    std::uint64_t query_not_ready = 0;
+    std::uint64_t query_flushes = 0;
+    std::uint64_t shared_frames_published = 0;
+    std::uint64_t cpu_fallback_frames = 0;
+    std::uint64_t consumer_releases = 0;
+    std::uint64_t fallback_activations = 0;
+    std::uint32_t ring_depth = 0;
+    std::uint32_t ring_depth_peak = 0;
 };
 
-// Classic-D3D9 producer side of the native-stereo transport. Eye capture queues
-// GPU-to-GPU copies into a small ring. CPU readback is deferred until a later
-// frame, so the engine no longer waits for each eye at its render-view boundary.
-// An event query records whether the driver had already retired the copy; it is
-// diagnostic only because classic-D3D9 drivers do not reliably expose that
-// completion without a flushing GetData call.
+// Producer side of the native-stereo transport. A D3D9Ex device keeps frames
+// GPU-resident in shared DEFAULT-pool render-target textures. The classic-D3D9
+// fallback retains deferred CPU readback. Both routes use event queries polled
+// without waiting. A slot that has not yet been submitted gets one explicit
+// D3DGETDATA_FLUSH poll; subsequent S_FALSE results remain nonblocking.
 class D3D9StereoCapture final {
 public:
     D3D9StereoCapture();
@@ -67,6 +74,7 @@ public:
     void Shutdown() noexcept;
 
     [[nodiscard]] D3D9StereoCaptureStats stats() const noexcept;
+    [[nodiscard]] bool gpu_resident_active() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
     [[nodiscard]] std::string_view capture_description() const noexcept;
     [[nodiscard]] std::string_view collect_description() const noexcept;

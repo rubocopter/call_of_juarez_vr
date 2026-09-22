@@ -905,6 +905,7 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdk_version) {
 
         try {
             auto* forwarder = new cojvr::backends::d3d9::Direct3D9ExForwarder(real_d3d_ex);
+            real_d3d_ex->Release();
             LogLine("d3d9 D3D9Ex bridge: forwarding wrapper active (IDirect3D9 + IDirect3D9Ex)");
 
             // Install factory hook on the forwarder to observe CreateDevice calls
