@@ -87,6 +87,15 @@ struct CameraProbeCommand {
 
 [[nodiscard]] bool IsCameraProbeBasisRigidRightHanded(CameraProbeBasis basis) noexcept;
 
+// Movement diagnostics become valid only after the renderer owns a fully
+// formed natural camera. This prevents loading/menu player objects from being
+// published as gameplay actors before the camera transition has completed.
+[[nodiscard]] bool IsMovementTraceCameraReady(
+    CameraProbeBasis basis,
+    bool renderer_camera_match,
+    bool source_world_homogeneous_layout,
+    bool source_view_homogeneous_layout) noexcept;
+
 [[nodiscard]] bool BuildCameraProbeFrustum(
     cojvr::runtime::EyeFov fov,
     float near_plane,

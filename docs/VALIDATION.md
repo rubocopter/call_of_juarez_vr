@@ -125,8 +125,11 @@ Interpret the comparison as follows:
   jump apex/duration and update cadence agree with vanilla while stereo-pair or
   new-submission cadence is lower and repeated presenter submissions rise.
 
-Jump sampling is driven by changes in native game time on a dedicated read-only
-JNI observer, not render frames. The exact-build `ODEWalk` state and
+Movement sampling runs synchronously from the demonstrated native camera-update
+boundary after a fully formed renderer-owned natural camera exists. The bridge
+revalidates the current player before every candidate sample, and accepts at
+most one sample for each distinct native game-time value; no independent JNI
+worker thread observes gameplay. The exact-build `ODEWalk` state and
 `IsJumping` transition identify the physical jump interval. `PerformJump` and
 successful `ODEWalk_Jump` are reported as inferred at the accepted
 ground-to-air transition; the diagnostic deliberately does not detour or call

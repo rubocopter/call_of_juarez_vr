@@ -190,6 +190,15 @@ int main() {
         return 1;
     }
 
+    if (!IsMovementTraceCameraReady(native_identity, true, true, true) ||
+        IsMovementTraceCameraReady({}, true, true, true) ||
+        IsMovementTraceCameraReady(native_identity, false, true, true) ||
+        IsMovementTraceCameraReady(native_identity, true, false, true) ||
+        IsMovementTraceCameraReady(native_identity, true, true, false)) {
+        std::cerr << "movement trace camera gate accepted a loading/incomplete camera\n";
+        return 1;
+    }
+
     const CameraProbeBasis scaled_identity{
         native_identity.forward,
         native_identity.up,

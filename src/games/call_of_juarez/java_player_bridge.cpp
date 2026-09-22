@@ -46,6 +46,8 @@ constexpr std::size_t kCallStaticIntMethodA = 131;
 constexpr std::size_t kGetStaticFieldId = 144;
 constexpr std::size_t kGetStaticObjectField = 145;
 constexpr std::size_t kNewStringUtf = 167;
+constexpr std::size_t kGetStringUtfChars = 169;
+constexpr std::size_t kReleaseStringUtfChars = 170;
 constexpr std::size_t kGetArrayLength = 171;
 constexpr std::size_t kGetObjectArrayElement = 173;
 
@@ -124,6 +126,8 @@ using CallStaticIntMethodAFn =
 using GetStaticFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetStaticObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
 using NewStringUtfFn = void*(COJVR_JNICALL*)(void*, const char*);
+using GetStringUtfCharsFn = const char*(COJVR_JNICALL*)(void*, void*, std::uint8_t*);
+using ReleaseStringUtfCharsFn = void(COJVR_JNICALL*)(void*, void*, const char*);
 using GetArrayLengthFn = std::int32_t(COJVR_JNICALL*)(void*, void*);
 using GetObjectArrayElementFn = void*(COJVR_JNICALL*)(void*, void*, std::int32_t);
 
@@ -138,6 +142,59 @@ void SetError(std::string* error, const char* value) noexcept {
 void DeleteLocal(void* env, void* value) noexcept {
     if (!env || !value) return;
     if (const auto fn = EnvFunction<DeleteLocalRefFn>(env, kDeleteLocalRef)) fn(env, value);
+}
+
+std::string DescribeClearedJavaException(void* env, void* exception) noexcept {
+    if (!env || !exception) return {};
+    try {
+        const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+        const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+        const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+        const auto get_chars = EnvFunction<GetStringUtfCharsFn>(env, kGetStringUtfChars);
+        const auto release_chars =
+            EnvFunction<ReleaseStringUtfCharsFn>(env, kReleaseStringUtfChars);
+        const auto occurred = EnvFunction<ExceptionOccurredFn>(env, kExceptionOccurred);
+        const auto clear = EnvFunction<ExceptionClearFn>(env, kExceptionClear);
+        if (!get_class || !get_method || !call_object || !get_chars || !release_chars ||
+            !occurred || !clear) {
+            return {};
+        }
+
+        void* exception_class = get_class(env, exception);
+        if (!exception_class || occurred(env)) {
+            clear(env);
+            DeleteLocal(env, exception_class);
+            return {};
+        }
+        void* to_string = get_method(env, exception_class, "toString", "()Ljava/lang/String;");
+        if (!to_string || occurred(env)) {
+            clear(env);
+            DeleteLocal(env, exception_class);
+            return {};
+        }
+        void* text = call_object(env, exception, to_string, nullptr);
+        if (!text || occurred(env)) {
+            clear(env);
+            DeleteLocal(env, text);
+            DeleteLocal(env, exception_class);
+            return {};
+        }
+        const char* chars = get_chars(env, text, nullptr);
+        if (!chars || occurred(env)) {
+            clear(env);
+            if (chars) release_chars(env, text, chars);
+            DeleteLocal(env, text);
+            DeleteLocal(env, exception_class);
+            return {};
+        }
+        std::string description(chars);
+        release_chars(env, text, chars);
+        DeleteLocal(env, text);
+        DeleteLocal(env, exception_class);
+        return description;
+    } catch (...) {
+        return {};
+    }
 }
 
 } // namespace
@@ -510,7 +567,6 @@ void JavaPlayerBridge::Reset() noexcept {
     weapon_reload_lookup_attempted_ = false;
     single_player_fallback_used_ = false;
     campaign_module_fallback_used_ = false;
-    vm_ = nullptr;
     being_generation_ = 0;
     last_gameplay_input_ = {};
     gameplay_input_applied_ = false;
@@ -519,8 +575,11 @@ void JavaPlayerBridge::Reset() noexcept {
     last_analog_transaction_applied_ = false;
     fire_origins_ = {};
     fire_origin_valid_ = {};
-    // Detach current thread if it was attached by this bridge
+    // Preserve the VM until detach completes. Clearing vm_ first made this a
+    // no-op and left bridge-owned daemon threads attached to the game JVM.
     DetachCurrentThread();
+    vm_ = nullptr;
+    jni_environment_observed_ = false;
 }
 
 void* JavaPlayerBridge::Environment(std::string* error) noexcept {
@@ -534,7 +593,10 @@ void* JavaPlayerBridge::Environment(std::string* error) noexcept {
 
     void* env = nullptr;
     const std::int32_t result = get_env(vm_, &env, kJniVersion14);
-    if (result == kJniOk && env) return env;
+    if (result == kJniOk && env) {
+        jni_environment_observed_ = true;
+        return env;
+    }
     if (result != kJniDetached) {
         SetError(error, "JavaVM GetEnv failed");
         return nullptr;
@@ -546,6 +608,7 @@ void* JavaPlayerBridge::Environment(std::string* error) noexcept {
         return nullptr;
     }
     g_jni_thread_attached = true;
+    jni_environment_observed_ = true;
     return env;
 }
 
@@ -558,6 +621,15 @@ void JavaPlayerBridge::DetachCurrentThread() noexcept {
     }
 }
 
+CoJJniDiagnosticState JavaPlayerBridge::jni_diagnostic_state() const noexcept {
+    return {
+        vm_ != nullptr,
+        jni_environment_observed_,
+        g_jni_thread_attached,
+        being_generation_,
+    };
+}
+
 bool JavaPlayerBridge::ClearException(
     void* env, std::string* error, const char* stage) noexcept {
     const auto occurred = EnvFunction<ExceptionOccurredFn>(env, kExceptionOccurred);
@@ -565,8 +637,20 @@ bool JavaPlayerBridge::ClearException(
     void* exception = occurred(env);
     if (!exception) return false;
     if (const auto clear = EnvFunction<ExceptionClearFn>(env, kExceptionClear)) clear(env);
+    const std::string description = detailed_exception_diagnostics_
+        ? DescribeClearedJavaException(env, exception)
+        : std::string{};
     DeleteLocal(env, exception);
-    SetError(error, stage);
+    if (error) {
+        try {
+            *error = stage ? stage : "JNI exception";
+            if (!description.empty()) {
+                *error += ": ";
+                *error += description;
+            }
+        } catch (...) {
+        }
+    }
     return true;
 }
 

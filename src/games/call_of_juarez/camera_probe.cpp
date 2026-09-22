@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -28,7 +29,6 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace cojvr::games::call_of_juarez {
@@ -105,8 +105,6 @@ CameraProbeEventCallback g_event_callback = nullptr;
 cojvr::runtime::PoseSource* g_pose_source = nullptr;
 cojvr::runtime::BodyTracker g_body_tracker;
 JavaPlayerBridge g_java_player_bridge;
-std::jthread g_movement_trace_worker;
-std::mutex g_movement_trace_worker_mutex;
 std::atomic_uint64_t g_diagnostic_left_eye_renders{0};
 std::atomic_uint64_t g_diagnostic_right_eye_renders{0};
 std::atomic_uint64_t g_diagnostic_stereo_pairs{0};
@@ -114,6 +112,26 @@ std::atomic_uint64_t g_diagnostic_game_updates{0};
 std::mutex g_diagnostic_actor_mutex;
 JavaPlayerPosition g_diagnostic_actor_position{};
 bool g_diagnostic_actor_valid = false;
+struct MovementTraceObserverState {
+    JavaPlayerBridge bridge;
+    bool phase_active = false;
+    bool exhausted = false;
+    std::string phase;
+    std::uint64_t phase_start_us = 0;
+    std::uint64_t update_count = 0;
+    std::uint64_t being_generation = 0;
+    std::uint64_t last_failure_log_us = 0;
+    CoJMovementObservation previous{};
+    bool previous_valid = false;
+    bool jump_active = false;
+    std::uint64_t jump_start_us = 0;
+    std::uint64_t jump_apex_us = 0;
+    float jump_initial_y = 0.0F;
+    float jump_max_y = 0.0F;
+    float jump_max_vertical_speed = 0.0F;
+    std::string last_completed_step = "idle";
+};
+MovementTraceObserverState g_movement_trace_observer;
 CoJLoadingUiInputGate g_loading_ui_input_gate;
 CoJPhysicalCrouchState g_physical_crouch_state;
 bool g_loading_ui_resume_pending = false;
@@ -753,209 +771,282 @@ std::uint64_t MonotonicMicroseconds() noexcept {
             std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
-void MovementTraceWorker(const std::stop_token stop) noexcept {
-    JavaPlayerBridge bridge;
-    bool phase_active = false;
-    bool exhausted = false;
-    std::string phase;
-    std::uint64_t phase_start_us = 0;
-    std::uint64_t update_count = 0;
-    CoJMovementObservation previous{};
-    bool previous_valid = false;
-    bool jump_active = false;
-    std::uint64_t jump_start_us = 0;
-    std::uint64_t jump_apex_us = 0;
-    float jump_initial_y = 0.0F;
-    float jump_max_y = 0.0F;
-    float jump_max_vertical_speed = 0.0F;
+void ClearDiagnosticActor() noexcept {
+    std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+    g_diagnostic_actor_position = {};
+    g_diagnostic_actor_valid = false;
+}
 
-    const auto end_jump = [&](const CoJMovementObservation& current,
-                              const std::uint64_t now_us) noexcept {
-        if (!jump_active) return;
-        try {
-            std::ostringstream detail;
-            detail << std::fixed << std::setprecision(6)
-                   << "phase=" << phase
-                   << ";timestamp_us=" << now_us
-                   << ";start_y=" << jump_initial_y
-                   << ";max_y=" << jump_max_y
-                   << ";final_y=" << current.position.y
-                   << ";apex_height_cm=" << (jump_max_y - jump_initial_y)
-                   << ";duration_s=" << ((now_us - jump_start_us) / 1000000.0)
-                   << ";time_to_apex_s=" << ((jump_apex_us - jump_start_us) / 1000000.0)
-                   << ";max_vertical_velocity=" << jump_max_vertical_speed
-                   << ";requested_jump_height=" << current.jump_height
-                   << ";stair_height=" << current.stair_height
-                   << ";perform_jump_call=observed_from_native_jump_transition"
-                   << ";ode_walk_jump_result=accepted_inferred_from_airborne_motion";
-            EmitEvent("movement_jump_summary", "complete", detail.str());
-        } catch (...) {
-        }
-        jump_active = false;
-    };
-    const auto end_phase = [&](const CoJMovementObservation* current,
-                               const std::uint64_t now_us,
-                               const char* reason) noexcept {
-        if (!phase_active) return;
-        if (jump_active && current) end_jump(*current, now_us);
-        try {
-            std::ostringstream detail;
-            detail << "phase=" << phase
-                   << ";timestamp_us=" << now_us
-                   << ";duration_s=" << std::fixed << std::setprecision(6)
-                   << ((now_us - phase_start_us) / 1000000.0)
-                   << ";game_updates=" << update_count
-                   << ";reason=" << reason;
-            EmitEvent("movement_trace_phase", "end", detail.str());
-        } catch (...) {
-        }
-        phase_active = false;
-        previous_valid = false;
-        jump_active = false;
-        bridge.Reset();
-    };
+void PublishDiagnosticActor(const JavaPlayerPosition position) noexcept {
+    std::lock_guard actor_lock(g_diagnostic_actor_mutex);
+    g_diagnostic_actor_position = position;
+    g_diagnostic_actor_valid = true;
+}
 
-    while (!stop.stop_requested()) {
-        const CommandSnapshot command = CurrentCommand();
-        const std::uint64_t now_us = MonotonicMicroseconds();
-        const bool phase_changed = phase_active &&
-            command.command.movement_trace_phase != phase;
-        if (phase_changed || (phase_active && !command.command.movement_trace_enabled)) {
-            end_phase(previous_valid ? &previous : nullptr, now_us,
-                      phase_changed ? "phase_changed" : "disabled");
-            exhausted = false;
+void EmitMovementTraceFailure(
+    const MovementTraceObserverState& state,
+    const char* operation,
+    const std::string& failure,
+    const char* exception) noexcept {
+    try {
+        const CoJJniDiagnosticState jni = state.bridge.jni_diagnostic_state();
+        std::ostringstream detail;
+        detail << "phase=" << (state.phase.empty() ? "off" : state.phase)
+               << ";operation=" << (operation ? operation : "unknown")
+               << ";exception=" << (exception && *exception ? exception : "none")
+               << ";failure=" << (failure.empty() ? "unspecified" : failure)
+               << ";jvm_cached=" << (jni.vm_cached ? "true" : "false")
+               << ";jni_environment_observed="
+               << (jni.environment_observed ? "true" : "false")
+               << ";thread_attached_by_bridge="
+               << (jni.thread_attached_by_bridge ? "true" : "false")
+               << ";being_generation=" << jni.being_generation
+               << ";last_completed_step=" << state.last_completed_step;
+        EmitEvent("movement_trace_observer", "failed", detail.str());
+    } catch (...) {
+    }
+}
+
+void EndMovementJump(
+    MovementTraceObserverState& state,
+    const CoJMovementObservation& current,
+    const std::uint64_t now_us) noexcept {
+    if (!state.jump_active) return;
+    try {
+        std::ostringstream detail;
+        detail << std::fixed << std::setprecision(6)
+               << "phase=" << state.phase
+               << ";timestamp_us=" << now_us
+               << ";start_y=" << state.jump_initial_y
+               << ";max_y=" << state.jump_max_y
+               << ";final_y=" << current.position.y
+               << ";apex_height_cm=" << (state.jump_max_y - state.jump_initial_y)
+               << ";duration_s=" << ((now_us - state.jump_start_us) / 1000000.0)
+               << ";time_to_apex_s="
+               << ((state.jump_apex_us - state.jump_start_us) / 1000000.0)
+               << ";max_vertical_velocity=" << state.jump_max_vertical_speed
+               << ";requested_jump_height=" << current.jump_height
+               << ";stair_height=" << current.stair_height
+               << ";perform_jump_call=observed_from_native_jump_transition"
+               << ";ode_walk_jump_result=accepted_inferred_from_airborne_motion";
+        EmitEvent("movement_jump_summary", "complete", detail.str());
+    } catch (...) {
+    }
+    state.jump_active = false;
+}
+
+void EndMovementTracePhase(
+    MovementTraceObserverState& state,
+    const std::uint64_t now_us,
+    const char* reason,
+    const bool release_jni) noexcept {
+    if (!state.phase_active) return;
+    if (state.jump_active && state.previous_valid) {
+        EndMovementJump(state, state.previous, now_us);
+    }
+    try {
+        std::ostringstream detail;
+        detail << "phase=" << state.phase
+               << ";timestamp_us=" << now_us
+               << ";duration_s=" << std::fixed << std::setprecision(6)
+               << ((now_us - state.phase_start_us) / 1000000.0)
+               << ";game_updates=" << state.update_count
+               << ";reason=" << reason
+               << ";observer_boundary=render_camera_update";
+        EmitEvent("movement_trace_phase", "end", detail.str());
+    } catch (...) {
+    }
+    state.phase_active = false;
+    state.previous_valid = false;
+    state.jump_active = false;
+    state.being_generation = 0;
+    state.last_completed_step = "phase_ended";
+    ClearDiagnosticActor();
+    if (release_jni) state.bridge.Reset();
+}
+
+void StartMovementTracePhase(
+    MovementTraceObserverState& state,
+    const CommandSnapshot& command,
+    const std::uint64_t now_us) noexcept {
+    state.bridge.SetDetailedExceptionDiagnostics(true);
+    state.phase = command.command.movement_trace_phase;
+    state.phase_start_us = now_us;
+    state.update_count = 0;
+    state.being_generation = 0;
+    state.last_failure_log_us = 0;
+    state.previous = {};
+    state.previous_valid = false;
+    state.jump_active = false;
+    state.last_completed_step = "phase_started";
+    state.phase_active = true;
+    g_diagnostic_game_updates.store(0, std::memory_order_release);
+    ClearDiagnosticActor();
+    try {
+        std::ostringstream detail;
+        detail << "phase=" << state.phase
+               << ";timestamp_us=" << now_us
+               << ";vr_gameplay_input_enabled="
+               << (command.command.vr_gameplay_input_enabled ? "true" : "false")
+               << ";capture_readback_enabled="
+               << (command.command.capture_readback_enabled ? "true" : "false")
+               << ";second_eye_render_enabled="
+               << (command.command.second_eye_render_enabled ? "true" : "false")
+               << ";observer_boundary=render_camera_update"
+               << ";native_game_time_dedup=true"
+               << ";max_duration_s=180";
+        EmitEvent("movement_trace_phase", "start", detail.str());
+    } catch (...) {
+    }
+}
+
+void ObserveMovementTraceAtCameraBoundary(
+    const CommandSnapshot& command,
+    const bool camera_ready) noexcept {
+    auto& state = g_movement_trace_observer;
+    const std::uint64_t now_us = MonotonicMicroseconds();
+    try {
+        const bool phase_changed = state.phase_active &&
+            command.command.movement_trace_phase != state.phase;
+        if (phase_changed || (state.phase_active && !command.command.movement_trace_enabled)) {
+            EndMovementTracePhase(
+                state, now_us, phase_changed ? "phase_changed" : "disabled", true);
+            state.exhausted = false;
         }
         if (!command.command.movement_trace_enabled) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
+            state.exhausted = false;
+            ClearDiagnosticActor();
+            return;
         }
-        if (!phase_active && !exhausted) {
-            phase = command.command.movement_trace_phase;
-            phase_start_us = now_us;
-            update_count = 0;
-            g_diagnostic_game_updates.store(0, std::memory_order_release);
-            {
-                std::lock_guard actor_lock(g_diagnostic_actor_mutex);
-                g_diagnostic_actor_position = {};
-                g_diagnostic_actor_valid = false;
+        if (!camera_ready) {
+            ClearDiagnosticActor();
+            state.last_completed_step = "camera_not_ready";
+            return;
+        }
+        if (!state.phase_active && !state.exhausted) {
+            StartMovementTracePhase(state, command, now_us);
+        }
+        if (!state.phase_active) return;
+        if (now_us - state.phase_start_us >= 180000000ULL) {
+            EndMovementTracePhase(state, now_us, "duration_limit", true);
+            state.exhausted = true;
+            return;
+        }
+
+        state.last_completed_step = "camera_ready";
+        std::string error;
+        // Re-resolve on every candidate sample. A Java GlobalRef can outlive
+        // the native player peer across menu/loading/gameplay transitions.
+        if (!state.bridge.Refresh(&error)) {
+            ClearDiagnosticActor();
+            if (state.last_failure_log_us == 0 || now_us - state.last_failure_log_us >= 1000000ULL) {
+                EmitMovementTraceFailure(state, "player_refresh", error, "none");
+                state.last_failure_log_us = now_us;
             }
-            previous_valid = false;
-            jump_active = false;
-            phase_active = true;
+            return;
+        }
+        state.last_completed_step = "player_refreshed";
+
+        const std::uint64_t generation = state.bridge.being_generation();
+        if (generation != state.being_generation) {
+            state.being_generation = generation;
+            state.previous_valid = false;
+            state.jump_active = false;
             try {
-                std::ostringstream detail;
-                detail << "phase=" << phase
-                       << ";timestamp_us=" << now_us
-                       << ";vr_gameplay_input_enabled="
-                       << (command.command.vr_gameplay_input_enabled ? "true" : "false")
-                       << ";capture_readback_enabled="
-                       << (command.command.capture_readback_enabled ? "true" : "false")
-                       << ";second_eye_render_enabled="
-                       << (command.command.second_eye_render_enabled ? "true" : "false")
-                       << ";max_duration_s=180";
-                EmitEvent("movement_trace_phase", "start", detail.str());
+                EmitEvent(
+                    "movement_trace_generation", "changed",
+                    "phase=" + state.phase + ";being_generation=" +
+                        std::to_string(generation));
             } catch (...) {
             }
         }
-        if (!phase_active) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
-        if (now_us - phase_start_us >= 180000000ULL) {
-            end_phase(previous_valid ? &previous : nullptr, now_us, "duration_limit");
-            exhausted = true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
 
-        std::string error;
-        if (!bridge.player_available() && !bridge.Refresh(&error)) {
-            if (update_count == 0 && ((now_us - phase_start_us) % 1000000ULL) < 2000ULL) {
-                EmitEvent("movement_trace_sample", "unavailable", "phase=" + phase + ";detail=" + error);
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
         float observed_game_time = 0.0F;
         float observed_game_delta = 0.0F;
-        if (!bridge.TryGetMovementClock(observed_game_time, observed_game_delta, &error)) {
-            bridge.Reset();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
+        if (!state.bridge.TryGetMovementClock(
+                observed_game_time, observed_game_delta, &error)) {
+            ClearDiagnosticActor();
+            EmitMovementTraceFailure(state, "movement_clock", error, "none");
+            state.bridge.Reset();
+            state.being_generation = 0;
+            state.previous_valid = false;
+            return;
         }
         (void)observed_game_delta;
-        if (previous_valid && std::fabs(observed_game_time - previous.game_time) <= 1.0e-7F) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
-        }
-        CoJMovementObservation current{};
-        if (!bridge.TryObserveMovement(current, &error)) {
-            bridge.Reset();
-            if (update_count == 0 && ((now_us - phase_start_us) % 1000000ULL) < 2000ULL) {
-                EmitEvent("movement_trace_sample", "unavailable", "phase=" + phase + ";detail=" + error);
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
+        state.last_completed_step = "movement_clock";
+        if (state.previous_valid &&
+            std::fabs(observed_game_time - state.previous.game_time) <= 1.0e-7F) {
+            PublishDiagnosticActor(state.previous.position);
+            state.last_completed_step = "duplicate_game_time_skipped";
+            return;
         }
 
-        ++update_count;
-        g_diagnostic_game_updates.store(update_count, std::memory_order_release);
-        {
-            std::lock_guard actor_lock(g_diagnostic_actor_mutex);
-            g_diagnostic_actor_position = current.position;
-            g_diagnostic_actor_valid = true;
+        CoJMovementObservation current{};
+        if (!state.bridge.TryObserveMovement(current, &error)) {
+            ClearDiagnosticActor();
+            EmitMovementTraceFailure(state, "movement_observation", error, "none");
+            state.bridge.Reset();
+            state.being_generation = 0;
+            state.previous_valid = false;
+            return;
         }
-        const float dx = previous_valid ? current.position.x - previous.position.x : 0.0F;
-        const float dy = previous_valid ? current.position.y - previous.position.y : 0.0F;
-        const float dz = previous_valid ? current.position.z - previous.position.z : 0.0F;
+        state.last_completed_step = "movement_observed";
+
+        ++state.update_count;
+        g_diagnostic_game_updates.store(state.update_count, std::memory_order_release);
+        PublishDiagnosticActor(current.position);
+        const float dx = state.previous_valid ? current.position.x - state.previous.position.x : 0.0F;
+        const float dy = state.previous_valid ? current.position.y - state.previous.position.y : 0.0F;
+        const float dz = state.previous_valid ? current.position.z - state.previous.position.z : 0.0F;
         const float dt = current.game_time_delta > 1.0e-7F ? current.game_time_delta : 0.0F;
         const float horizontal_speed = dt > 0.0F ? std::sqrt(dx * dx + dz * dz) / dt : 0.0F;
         const float calculated_vertical_speed = dt > 0.0F ? dy / dt : 0.0F;
         const bool grounded = CoJOdeWalkStateGrounded(current.ode_walk_state);
-        const bool previous_grounded = previous_valid &&
-            CoJOdeWalkStateGrounded(previous.ode_walk_state);
-        const bool jump_edge = previous_valid &&
-            ((!previous.jumping && current.jumping) ||
+        const bool previous_grounded = state.previous_valid &&
+            CoJOdeWalkStateGrounded(state.previous.ode_walk_state);
+        const bool jump_edge = state.previous_valid &&
+            ((!state.previous.jumping && current.jumping) ||
              (previous_grounded && !grounded && current.current_vertical_speed > 0.0F));
-        if (jump_edge && !jump_active) {
-            jump_active = true;
-            jump_start_us = now_us;
-            jump_apex_us = now_us;
-            jump_initial_y = previous.position.y;
-            jump_max_y = current.position.y;
-            jump_max_vertical_speed = current.current_vertical_speed;
+        if (jump_edge && !state.jump_active) {
+            state.jump_active = true;
+            state.jump_start_us = now_us;
+            state.jump_apex_us = now_us;
+            state.jump_initial_y = state.previous.position.y;
+            state.jump_max_y = current.position.y;
+            state.jump_max_vertical_speed = current.current_vertical_speed;
             try {
                 std::ostringstream detail;
                 detail << std::fixed << std::setprecision(6)
-                       << "phase=" << phase
+                       << "phase=" << state.phase
                        << ";timestamp_us=" << now_us
-                       << ";game_update=" << update_count
+                       << ";game_update=" << state.update_count
                        << ";perform_jump_call=observed_from_native_jump_transition"
                        << ";ode_walk_jump_result=accepted_inferred_from_airborne_motion"
                        << ";requested_jump_height=" << current.jump_height
                        << ";stair_height=" << current.stair_height
-                       << ";initial_y=" << jump_initial_y;
+                       << ";initial_y=" << state.jump_initial_y;
                 EmitEvent("movement_jump_edge", "observed", detail.str());
             } catch (...) {
             }
         }
-        if (jump_active) {
-            if (current.position.y > jump_max_y) {
-                jump_max_y = current.position.y;
-                jump_apex_us = now_us;
+        if (state.jump_active) {
+            if (current.position.y > state.jump_max_y) {
+                state.jump_max_y = current.position.y;
+                state.jump_apex_us = now_us;
             }
-            jump_max_vertical_speed = std::max(
-                jump_max_vertical_speed, current.current_vertical_speed);
+            state.jump_max_vertical_speed = std::max(
+                state.jump_max_vertical_speed, current.current_vertical_speed);
         }
 
         try {
             std::ostringstream detail;
             detail << std::fixed << std::setprecision(6)
-                   << "phase=" << phase
+                   << "phase=" << state.phase
                    << ";timestamp_us=" << now_us
-                   << ";game_update=" << update_count
+                   << ";game_update=" << state.update_count
                    << ";game_time=" << current.game_time
                    << ";game_delta=" << current.game_time_delta
+                   << ";being_generation=" << state.being_generation
                    << ";actor=(" << current.position.x << ',' << current.position.y << ','
                    << current.position.z << ')'
                    << ";delta=(" << dx << ',' << dy << ',' << dz << ')'
@@ -974,46 +1065,40 @@ void MovementTraceWorker(const std::stop_token stop) noexcept {
                    << ";grounded=" << (grounded ? "true" : "false")
                    << ";can_jump=" << (current.can_jump ? "true" : "false")
                    << ";jumping=" << (current.jumping ? "true" : "false")
-                   << ";jump_active=" << (jump_active ? "true" : "false");
+                   << ";jump_active=" << (state.jump_active ? "true" : "false")
+                   << ";observer_boundary=render_camera_update";
             EmitEvent("movement_trace_sample", "ok", detail.str());
-            if (jump_active) EmitEvent("movement_jump_sample", "ok", detail.str());
+            if (state.jump_active) EmitEvent("movement_jump_sample", "ok", detail.str());
         } catch (...) {
         }
 
-        if (jump_active && grounded && !current.jumping &&
-            now_us - jump_start_us > 50000ULL) {
-            end_jump(current, now_us);
+        if (state.jump_active && grounded && !current.jumping &&
+            now_us - state.jump_start_us > 50000ULL) {
+            EndMovementJump(state, current, now_us);
         }
-        previous = current;
-        previous_valid = true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    end_phase(previous_valid ? &previous : nullptr, MonotonicMicroseconds(), "shutdown");
-    bridge.Reset();
-    bridge.DetachCurrentThread();
-}
-
-void StartMovementTraceWorker() noexcept {
-    try {
-        std::lock_guard lock(g_movement_trace_worker_mutex);
-        if (!g_movement_trace_worker.joinable()) {
-            g_movement_trace_worker = std::jthread(MovementTraceWorker);
-        }
+        state.previous = current;
+        state.previous_valid = true;
+        state.last_completed_step = "sample_emitted";
+    } catch (const std::exception& exception) {
+        ClearDiagnosticActor();
+        EmitMovementTraceFailure(state, "observer", "c++ exception", exception.what());
     } catch (...) {
-        EmitEvent("movement_trace_worker", "start_failed", "reason=exception");
+        ClearDiagnosticActor();
+        EmitMovementTraceFailure(state, "observer", "unknown c++ exception", "unknown");
     }
 }
 
-void StopMovementTraceWorker() noexcept {
-    try {
-        std::lock_guard lock(g_movement_trace_worker_mutex);
-        if (g_movement_trace_worker.joinable()) {
-            g_movement_trace_worker.request_stop();
-            g_movement_trace_worker.join();
-        }
-    } catch (...) {
-        EmitEvent("movement_trace_worker", "stop_failed", "reason=exception");
-    }
+void ShutdownMovementTraceObserverNoJni() noexcept {
+    // Process teardown may already be dismantling the legacy JVM. Do not call
+    // Reset(), emit derived jump telemetry or allocate new diagnostic state.
+    // The process owns any remaining GlobalRefs until exit.
+    auto& state = g_movement_trace_observer;
+    state.phase_active = false;
+    state.previous_valid = false;
+    state.jump_active = false;
+    state.being_generation = 0;
+    g_diagnostic_game_updates.store(0, std::memory_order_release);
+    ClearDiagnosticActor();
 }
 
 bool FirstForGeneration(std::atomic_uint64_t& marker, const std::uint64_t generation) noexcept {
@@ -1162,6 +1247,11 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
     auto* far_plane = reinterpret_cast<float*>(bytes + kCameraFarOffset);
     const bool stereo_active = g_stereo_eye_override.active &&
         g_stereo_eye_override.camera == camera && g_stereo_eye_override.eye != nullptr;
+    const bool readable_source_basis =
+        IsReadable(source_right, sizeof(CameraProbeVector)) &&
+        IsReadable(source_up, sizeof(CameraProbeVector)) &&
+        IsReadable(source_forward, sizeof(CameraProbeVector)) &&
+        IsReadable(source_position, sizeof(CameraProbeVector));
     const bool writable_basis = IsWritable(source_right, sizeof(CameraProbeVector)) &&
         IsWritable(source_up, sizeof(CameraProbeVector)) &&
         IsWritable(source_forward, sizeof(CameraProbeVector)) &&
@@ -1224,9 +1314,20 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
     if (!orientation_active || !writable_basis || !readable_frustum ||
         (stereo_active && !writable_frustum)) {
         original(camera);
-        if (snapshot.command.movement_trace_enabled && !stereo_active &&
-            RendererReferencesCamera(camera) &&
-            IsReadable(source_position, sizeof(CameraProbeVector))) {
+        bool movement_camera_ready = false;
+        if (!stereo_active && RendererReferencesCamera(camera) && readable_source_basis &&
+            IsReadable(source_world_matrix, kCameraMatrixBytes) &&
+            IsReadable(source_view_matrix, kCameraMatrixBytes)) {
+            const CameraProbeBasis observed_basis{
+                *source_forward, *source_up, *source_right};
+            movement_camera_ready = IsMovementTraceCameraReady(
+                observed_basis,
+                true,
+                SourceMatrixHasNativeHomogeneousLayout(source_world_matrix),
+                SourceMatrixHasNativeHomogeneousLayout(source_view_matrix));
+        }
+        ObserveMovementTraceAtCameraBoundary(snapshot, movement_camera_ready);
+        if (snapshot.command.movement_trace_enabled && movement_camera_ready) {
             try {
                 JavaPlayerPosition actor_position{};
                 bool actor_valid = false;
@@ -1247,6 +1348,7 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
                        << natural_position.y << ',' << natural_position.z << ')'
                        << ";final_camera=(" << natural_position.x << ','
                        << natural_position.y << ',' << natural_position.z << ')'
+                       << ";camera_ready=true"
                        << ";stereo=false";
                 EmitEvent("movement_camera_sample", "ok", detail.str());
             } catch (...) {
@@ -1417,6 +1519,13 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
             natural_view_projection_matrix.data(), view_projection_matrix,
             natural_view_projection_matrix.size()) != 0;
     const bool renderer_camera_match = RendererReferencesCamera(camera);
+    ObserveMovementTraceAtCameraBoundary(
+        snapshot,
+        IsMovementTraceCameraReady(
+            natural_basis,
+            renderer_camera_match,
+            source_world_homogeneous_layout,
+            source_view_homogeneous_layout));
     g_render_update_override = {};
     if (!stereo_active) {
         *source_right = natural_right;
@@ -4828,6 +4937,15 @@ bool IsCameraProbeBasisRigidRightHanded(const CameraProbeBasis basis) noexcept {
         std::fabs(determinant - 1.0F) <= kDeterminantTolerance;
 }
 
+bool IsMovementTraceCameraReady(
+    const CameraProbeBasis basis,
+    const bool renderer_camera_match,
+    const bool source_world_homogeneous_layout,
+    const bool source_view_homogeneous_layout) noexcept {
+    return renderer_camera_match && IsCameraProbeBasisRigidRightHanded(basis) &&
+        source_world_homogeneous_layout && source_view_homogeneous_layout;
+}
+
 bool BuildCameraProbeFrustum(
     const cojvr::runtime::EyeFov fov,
     const float near_plane,
@@ -5038,7 +5156,6 @@ CameraProbeInstallStatus InitializeCameraProbe(
             }
         }
         g_installed.store(true, std::memory_order_release);
-        StartMovementTraceWorker();
         std::ostringstream detail;
         detail << "engine_sha256=" << *engine_hash
                << ";vtable_rva=0x" << std::hex << kBaseCameraVtableRva
@@ -5077,7 +5194,7 @@ CameraProbeHookState InspectCameraProbe() noexcept {
 }
 
 void ShutdownCameraProbe() noexcept {
-    StopMovementTraceWorker();
+    ShutdownMovementTraceObserverNoJni();
     try {
         bool view_restored = true;
         std::size_t view_restored_slots = 0;

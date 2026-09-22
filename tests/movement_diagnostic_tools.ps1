@@ -8,6 +8,42 @@ $TestDirectory = Join-Path ([IO.Path]::GetFullPath($BinaryDirectory)) "movement-
 $OutputPath = Join-Path $TestDirectory "summary.json"
 try {
     New-Item -ItemType Directory -Path $TestDirectory -Force | Out-Null
+
+    $CameraProbeSource = Get-Content -LiteralPath `
+        (Join-Path $SourceDirectory "src/games/call_of_juarez/camera_probe.cpp") -Raw
+    if ($CameraProbeSource.Contains("std::jthread") -or
+        $CameraProbeSource.Contains("MovementTraceWorker") -or
+        $CameraProbeSource.Contains("StartMovementTraceWorker") -or
+        $CameraProbeSource.Contains("StopMovementTraceWorker")) {
+        throw "Movement diagnostics reintroduced an independent JNI worker thread."
+    }
+    if (-not $CameraProbeSource.Contains("observer_boundary=render_camera_update") -or
+        -not $CameraProbeSource.Contains("state.bridge.Refresh(&error)")) {
+        throw "Movement diagnostics no longer revalidate the player on the camera-update observer boundary."
+    }
+    foreach ($RequiredFailureField in @(
+        "phase=", "operation=", "exception=", "jvm_cached=",
+        "jni_environment_observed=", "thread_attached_by_bridge=",
+        "being_generation=", "last_completed_step=")) {
+        if (-not $CameraProbeSource.Contains($RequiredFailureField)) {
+            throw "Movement observer failure telemetry lost required field: $RequiredFailureField"
+        }
+    }
+
+    $JavaBridgeSource = Get-Content -LiteralPath `
+        (Join-Path $SourceDirectory "src/games/call_of_juarez/java_player_bridge.cpp") -Raw
+    $ResetStart = $JavaBridgeSource.IndexOf("void JavaPlayerBridge::Reset() noexcept")
+    $ResetEnd = $JavaBridgeSource.IndexOf("void* JavaPlayerBridge::Environment", $ResetStart)
+    if ($ResetStart -lt 0 -or $ResetEnd -le $ResetStart) {
+        throw "JavaPlayerBridge::Reset could not be located for the JNI lifetime regression test."
+    }
+    $ResetBody = $JavaBridgeSource.Substring($ResetStart, $ResetEnd - $ResetStart)
+    $DetachIndex = $ResetBody.IndexOf("DetachCurrentThread();")
+    $ClearVmIndex = $ResetBody.IndexOf("vm_ = nullptr;")
+    if ($DetachIndex -lt 0 -or $ClearVmIndex -lt 0 -or $DetachIndex -gt $ClearVmIndex) {
+        throw "JavaPlayerBridge::Reset clears the VM before detaching a bridge-owned thread."
+    }
+
     $Lines = @(
         "camera_probe_event: event=movement_trace_phase result=start detail=phase=vr-full;timestamp_us=1000000;vr_gameplay_input_enabled=true;capture_readback_enabled=true;second_eye_render_enabled=true",
         "camera_probe_event: event=movement_trace_sample result=ok detail=phase=vr-full;timestamp_us=1010000;game_update=1;game_delta=0.010000;actor=(0,0,0);delta=(0,0,1);horizontal_speed=100;run=false;grounded=true",

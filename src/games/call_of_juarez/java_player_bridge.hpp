@@ -14,6 +14,13 @@ struct JavaPlayerPosition {
     float z = 0.0F;
 };
 
+struct CoJJniDiagnosticState {
+    bool vm_cached = false;
+    bool environment_observed = false;
+    bool thread_attached_by_bridge = false;
+    std::uint64_t being_generation = 0;
+};
+
 struct CoJMovementObservation {
     JavaPlayerPosition position{};
     JavaPlayerPosition wanted_local_speed{};
@@ -323,6 +330,12 @@ public:
     // Should be called when a thread that used JNI operations is about to exit.
     void DetachCurrentThread() noexcept;
 
+    // Cached state only: failure telemetry must not make new JNI calls.
+    [[nodiscard]] CoJJniDiagnosticState jni_diagnostic_state() const noexcept;
+    void SetDetailedExceptionDiagnostics(bool enabled) noexcept {
+        detailed_exception_diagnostics_ = enabled;
+    }
+
     [[nodiscard]] bool player_available() const noexcept { return being_ != nullptr; }
     [[nodiscard]] std::uint64_t being_generation() const noexcept { return being_generation_; }
     [[nodiscard]] bool single_player_fallback_used() const noexcept {
@@ -467,6 +480,8 @@ private:
     bool movement_observation_lookup_attempted_ = false;
     bool single_player_fallback_used_ = false;
     bool campaign_module_fallback_used_ = false;
+    bool jni_environment_observed_ = false;
+    bool detailed_exception_diagnostics_ = false;
     std::uint64_t being_generation_ = 0;
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     bool gameplay_input_applied_ = false;
