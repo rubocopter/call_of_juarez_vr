@@ -274,6 +274,7 @@ if(COJVR_ENABLE_OPENVR)
 
     add_library(cojvr_d3d9_native_stereo_proxy SHARED
         src/games/call_of_juarez/native_stereo_proxy.cpp
+        src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
         src/games/call_of_juarez/d3d9_native_stereo_proxy.def
         src/backends/d3d9/d3d9_stereo_capture.cpp
         src/backends/d3d9/system_d3d9.cpp
@@ -700,6 +701,39 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9_classic_d3d11_shared_texture COMMAND cojvr_d3d9_classic_d3d11_shared_texture_test)
     set_tests_properties(d3d9_classic_d3d11_shared_texture PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(cojvr_d3d9ex_legacy_resource_contract_test
+        tests/d3d9ex_legacy_resource_contract.cpp
+        src/backends/d3d9/system_d3d9.cpp
+    )
+    target_include_directories(cojvr_d3d9ex_legacy_resource_contract_test PRIVATE src)
+    target_compile_features(cojvr_d3d9ex_legacy_resource_contract_test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d9ex_legacy_resource_contract_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(MSVC)
+        target_compile_options(
+            cojvr_d3d9ex_legacy_resource_contract_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME d3d9ex_legacy_resource_contract COMMAND cojvr_d3d9ex_legacy_resource_contract_test)
+    set_tests_properties(d3d9ex_legacy_resource_contract PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(cojvr_d3d9ex_legacy_resource_compat_test
+        tests/d3d9ex_legacy_resource_compat.cpp
+        src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
+        src/backends/d3d9/system_d3d9.cpp
+    )
+    target_include_directories(cojvr_d3d9ex_legacy_resource_compat_test PRIVATE src)
+    target_compile_features(cojvr_d3d9ex_legacy_resource_compat_test PRIVATE cxx_std_20)
+    target_compile_definitions(
+        cojvr_d3d9ex_legacy_resource_compat_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(
+        cojvr_d3d9ex_legacy_resource_compat_test PRIVATE cojvr_d3d9_hooks dxguid)
+    if(MSVC)
+        target_compile_options(
+            cojvr_d3d9ex_legacy_resource_compat_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME d3d9ex_legacy_resource_compat COMMAND cojvr_d3d9ex_legacy_resource_compat_test)
+    set_tests_properties(d3d9ex_legacy_resource_compat PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(cojvr_d3d9_classic_readback_d3d11_test
         tests/d3d9_classic_readback_d3d11.cpp

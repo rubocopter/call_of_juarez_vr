@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/d3d9ex_legacy_resource_compat.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
@@ -44,6 +45,8 @@ struct NativeStereoState {
     IDirect3D9* factory = nullptr;
     IDirect3DDevice9* device = nullptr;
     std::atomic_uint64_t device_generation{0};
+    std::atomic_uint64_t present_telemetry_sequence{0};
+    std::atomic_uint64_t capture_resources_generation_logged{0};
     std::atomic_uint64_t transport_sequence{0};
     std::atomic_uint64_t flat_capture_sequence{0};
     std::atomic_uint64_t last_native_stereo_tick_ms{0};
@@ -92,6 +95,69 @@ std::filesystem::path LogPath() noexcept {
 void LogLine(const std::string_view line) noexcept {
     const auto path = LogPath();
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
+}
+
+std::uintptr_t ModuleRva(const std::uintptr_t address) noexcept {
+    if (address == 0) return 0;
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(address), &module) ||
+        !module) {
+        return 0;
+    }
+    return address - reinterpret_cast<std::uintptr_t>(module);
+}
+
+const char* LegacyTextureKindName(
+    const cojvr::games::call_of_juarez::LegacyTextureKind kind) noexcept {
+    using Kind = cojvr::games::call_of_juarez::LegacyTextureKind;
+    switch (kind) {
+    case Kind::texture_2d: return "texture2d";
+    case Kind::volume_texture: return "volume_texture";
+    case Kind::cube_texture: return "cube_texture";
+    }
+    return "unknown";
+}
+
+void LegacyTextureEvent(
+    void*,
+    const cojvr::games::call_of_juarez::LegacyTextureCreateEvent& event) noexcept {
+    try {
+        std::ostringstream line;
+        line << "native_stereo_startup_event: event=legacy_texture_create"
+             << ";phase="
+             << (event.phase ==
+                         cojvr::games::call_of_juarez::LegacyTextureCreatePhase::enter
+                     ? "enter"
+                     : "result")
+             << ";sequence=" << event.sequence
+             << ";thread_id=" << event.thread_id
+             << ";device=0x" << std::hex << event.device
+             << ";caller=0x" << event.caller
+             << ";caller_rva=0x" << ModuleRva(event.caller)
+             << std::dec
+             << ";kind=" << LegacyTextureKindName(event.kind)
+             << ";width=" << event.width
+             << ";height=" << event.height
+             << ";depth=" << event.depth
+             << ";levels=" << event.levels
+             << ";requested_usage=0x" << std::hex << event.requested_usage
+             << ";effective_usage=0x" << event.effective_usage
+             << std::dec
+             << ";format=" << static_cast<unsigned>(event.format)
+             << ";requested_pool=" << static_cast<unsigned>(event.requested_pool)
+             << ";effective_pool=" << static_cast<unsigned>(event.effective_pool)
+             << ";translated=" << (event.translated ? "true" : "false");
+        if (event.phase ==
+            cojvr::games::call_of_juarez::LegacyTextureCreatePhase::result) {
+            line << ";hr=0x" << std::hex << static_cast<unsigned long>(event.result)
+                 << std::dec;
+        }
+        LogLine(line.str());
+    } catch (...) {
+    }
 }
 
 void CameraEvent(const char* event, const char* result, const char* detail) noexcept;
@@ -303,11 +369,27 @@ bool PublishCapturedFrame(
         frame.transport_sequence =
             state.transport_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
         const std::uint64_t capture_sequence = frame.capture_sequence;
+        const bool shared_frame =
+            frame.transport ==
+            cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+        const std::uintptr_t device_id = frame.device_id;
+        const std::uint64_t generation = frame.generation;
+        const std::uint32_t producer_slot = frame.producer_slot;
         if (!state.presenter.Publish(std::move(frame))) {
             LogTransportFailure(
                 capture_sequence, source,
                 "presenter mailbox rejected completed CPU frame");
             return false;
+        }
+        if (shared_frame) {
+            std::ostringstream line;
+            line << "native_stereo_startup_event: event=shared_frame_published"
+                 << ";thread_id=" << GetCurrentThreadId()
+                 << ";device=0x" << std::hex << device_id << std::dec
+                 << ";generation=" << generation
+                 << ";frame_sequence=" << capture_sequence
+                 << ";slot=" << producer_slot;
+            LogLine(line.str());
         }
         return true;
     } catch (...) {
@@ -489,16 +571,107 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
 }
 
 thread_local std::uint32_t g_device_present_depth = 0;
+thread_local std::uint64_t g_device_present_sequence = 0;
 
 void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
     ++g_device_present_depth;
     if (g_device_present_depth == 1) {
+        g_device_present_sequence =
+            g_stereo.present_telemetry_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+        if (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0) {
+            try {
+                std::ostringstream line;
+                line << "native_stereo_startup_event: event=present_enter"
+                     << ";thread_id=" << GetCurrentThreadId()
+                     << ";device=0x" << std::hex
+                     << reinterpret_cast<std::uintptr_t>(device) << std::dec
+                     << ";generation="
+                     << g_stereo.device_generation.load(std::memory_order_acquire)
+                     << ";frame_sequence=" << g_device_present_sequence;
+                LogLine(line.str());
+            } catch (...) {
+            }
+        }
         BeforePresentBoundary(device, "device_present");
     }
 }
 
-void AfterDevicePresent(IDirect3DDevice9*, HRESULT) noexcept {
+void AfterDevicePresent(IDirect3DDevice9* device, const HRESULT result) noexcept {
+    if (g_device_present_depth == 1 &&
+        (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0)) {
+        try {
+            std::ostringstream line;
+            line << "native_stereo_startup_event: event=present_exit"
+                 << ";thread_id=" << GetCurrentThreadId()
+                 << ";device=0x" << std::hex
+                 << reinterpret_cast<std::uintptr_t>(device) << std::dec
+                 << ";generation="
+                 << g_stereo.device_generation.load(std::memory_order_acquire)
+                 << ";frame_sequence=" << g_device_present_sequence
+                 << ";hr=0x" << std::hex << static_cast<unsigned long>(result) << std::dec;
+            LogLine(line.str());
+        } catch (...) {
+        }
+    }
     if (g_device_present_depth > 0) --g_device_present_depth;
+}
+
+void BeforeDeviceReset(
+    IDirect3DDevice9* device,
+    D3DPRESENT_PARAMETERS* parameters) noexcept {
+    try {
+        std::ostringstream line;
+        line << "native_stereo_startup_event: event=reset_enter"
+             << ";thread_id=" << GetCurrentThreadId()
+             << ";device=0x" << std::hex << reinterpret_cast<std::uintptr_t>(device)
+             << std::dec
+             << ";generation="
+             << g_stereo.device_generation.load(std::memory_order_acquire);
+        if (parameters) {
+            line << ";backbuffer=" << parameters->BackBufferWidth << 'x'
+                 << parameters->BackBufferHeight
+                 << ";format=" << static_cast<unsigned>(parameters->BackBufferFormat)
+                 << ";windowed=" << (parameters->Windowed ? "true" : "false")
+                 << ";swap_effect=" << static_cast<unsigned>(parameters->SwapEffect);
+        }
+        LogLine(line.str());
+    } catch (...) {
+    }
+}
+
+void AfterDeviceReset(
+    IDirect3DDevice9* device,
+    D3DPRESENT_PARAMETERS*,
+    const HRESULT result) noexcept {
+    try {
+        std::uint64_t generation =
+            g_stereo.device_generation.load(std::memory_order_acquire);
+        if (SUCCEEDED(result)) {
+            generation = g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
+            g_stereo.flat_capture_active.store(false, std::memory_order_release);
+            g_stereo.last_native_stereo_tick_ms.store(0, std::memory_order_release);
+            g_stereo.capture_source_logged = {};
+        }
+        std::ostringstream line;
+        line << "native_stereo_startup_event: event=reset_exit"
+             << ";thread_id=" << GetCurrentThreadId()
+             << ";device=0x" << std::hex << reinterpret_cast<std::uintptr_t>(device)
+             << std::dec
+             << ";generation=" << generation
+             << ";hr=0x" << std::hex << static_cast<unsigned long>(result) << std::dec;
+        LogLine(line.str());
+        if (SUCCEEDED(result)) {
+            std::ostringstream changed;
+            changed << "native_stereo_startup_event: event=resource_generation_changed"
+                    << ";thread_id=" << GetCurrentThreadId()
+                    << ";device=0x" << std::hex
+                    << reinterpret_cast<std::uintptr_t>(device) << std::dec
+                    << ";generation=" << generation
+                    << ";reason=reset_success";
+            LogLine(changed.str());
+        }
+    } catch (...) {
+    }
 }
 
 void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
@@ -514,6 +687,8 @@ void MaintainDevicePresentHook(const std::stop_token stop_token) noexcept {
         if (device) {
             const auto outcome =
                 cojvr::backends::d3d9::ReacquireDeviceVtableHookDetailed(device);
+            (void)cojvr::games::call_of_juarez::
+                ReacquireD3D9ExLegacyTextureCompatibility(device);
             device->Release();
             if (outcome.result ==
                     cojvr::backends::d3d9::HookRegistryResult::Installed &&
@@ -558,6 +733,39 @@ void StopPresentHookWorker() noexcept {
     }
 }
 
+void BeforeCreateDevice(
+    IDirect3D9* factory,
+    const UINT adapter,
+    const D3DDEVTYPE device_type,
+    HWND focus_window,
+    const DWORD behavior_flags,
+    D3DPRESENT_PARAMETERS* presentation_parameters) noexcept {
+    try {
+        std::ostringstream line;
+        line << "native_stereo_startup_event: event=create_device_enter"
+             << ";thread_id=" << GetCurrentThreadId()
+             << ";factory=0x" << std::hex << reinterpret_cast<std::uintptr_t>(factory)
+             << std::dec
+             << ";adapter=" << adapter
+             << ";device_type=" << static_cast<unsigned>(device_type)
+             << ";focus_window=0x" << std::hex
+             << reinterpret_cast<std::uintptr_t>(focus_window)
+             << ";behavior_flags=0x" << behavior_flags << std::dec;
+        if (presentation_parameters) {
+            line << ";backbuffer=" << presentation_parameters->BackBufferWidth << 'x'
+                 << presentation_parameters->BackBufferHeight
+                 << ";format="
+                 << static_cast<unsigned>(presentation_parameters->BackBufferFormat)
+                 << ";windowed="
+                 << (presentation_parameters->Windowed ? "true" : "false")
+                 << ";swap_effect="
+                 << static_cast<unsigned>(presentation_parameters->SwapEffect);
+        }
+        LogLine(line.str());
+    } catch (...) {
+    }
+}
+
 void AfterCreateDevice(
     IDirect3D9*,
     UINT,
@@ -567,9 +775,25 @@ void AfterCreateDevice(
     D3DPRESENT_PARAMETERS*,
     IDirect3DDevice9** returned_device,
     const HRESULT result) noexcept {
-    if (FAILED(result) || !returned_device || !*returned_device) return;
+    IDirect3DDevice9* observed = returned_device ? *returned_device : nullptr;
+    Microsoft::WRL::ComPtr<IDirect3DDevice9Ex> observed_ex;
+    const bool returned_ex = observed &&
+        SUCCEEDED(observed->QueryInterface(IID_PPV_ARGS(&observed_ex))) && observed_ex;
     try {
-        IDirect3DDevice9* replacement = *returned_device;
+        std::ostringstream result_line;
+        result_line << "native_stereo_startup_event: event=create_device_ex_result"
+                    << ";thread_id=" << GetCurrentThreadId()
+                    << ";device=0x" << std::hex
+                    << reinterpret_cast<std::uintptr_t>(observed)
+                    << ";hr=0x" << static_cast<unsigned long>(result) << std::dec
+                    << ";device_api="
+                    << (returned_ex ? "d3d9ex" : (observed ? "classic_d3d9" : "none"));
+        LogLine(result_line.str());
+    } catch (...) {
+    }
+    if (FAILED(result) || !observed) return;
+    try {
+        IDirect3DDevice9* replacement = observed;
         HWND root = focus_window ? GetAncestor(focus_window, GA_ROOT) : nullptr;
         if (!root) root = focus_window;
         g_stereo.game_window.store(
@@ -583,15 +807,21 @@ void AfterCreateDevice(
         }
         const std::uint64_t generation =
             g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
-        Microsoft::WRL::ComPtr<IDirect3DDevice9Ex> ex_device;
-        const bool is_d3d9ex =
-            SUCCEEDED(replacement->QueryInterface(IID_PPV_ARGS(&ex_device))) && ex_device;
+        const bool is_d3d9ex = returned_ex;
         g_stereo.flat_capture_active.store(false, std::memory_order_release);
         g_stereo.last_native_stereo_tick_ms.store(0, std::memory_order_release);
         if (previous) previous->Release();
+        const bool legacy_compat = is_d3d9ex &&
+            cojvr::games::call_of_juarez::InstallD3D9ExLegacyTextureCompatibility(
+                replacement,
+                cojvr::games::call_of_juarez::LegacyTextureCompatibilityCallbacks{
+                    .event = &LegacyTextureEvent,
+                });
         const cojvr::backends::d3d9::DeviceHookCallbacks device_callbacks{
             .before_present = &BeforeDevicePresent,
             .after_present = &AfterDevicePresent,
+            .before_reset = &BeforeDeviceReset,
+            .after_reset = &AfterDeviceReset,
         };
         const auto device_hook =
             cojvr::backends::d3d9::InstallDeviceVtableHookDetailed(
@@ -602,6 +832,41 @@ void AfterCreateDevice(
         const auto swapchain_hook =
             cojvr::backends::d3d9::InstallSwapChainVtableHookDetailed(
                 replacement, swapchain_callbacks);
+        {
+            std::ostringstream hook_line;
+            hook_line << "native_stereo_startup_event: event=device_hook_installed"
+                      << ";thread_id=" << GetCurrentThreadId()
+                      << ";device=0x" << std::hex
+                      << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
+                      << ";generation=" << generation
+                      << ";result=" << static_cast<unsigned>(device_hook.result)
+                      << ";modified_slots=" << device_hook.modified_slots;
+            LogLine(hook_line.str());
+        }
+        {
+            std::ostringstream hook_line;
+            hook_line << "native_stereo_startup_event: event=swapchain_hook_installed"
+                      << ";thread_id=" << GetCurrentThreadId()
+                      << ";device=0x" << std::hex
+                      << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
+                      << ";generation=" << generation
+                      << ";result=" << static_cast<unsigned>(swapchain_hook.result)
+                      << ";modified_slots=" << swapchain_hook.modified_slots;
+            LogLine(hook_line.str());
+        }
+        {
+            std::ostringstream observed_line;
+            observed_line << "native_stereo_startup_event: event=device_observed"
+                          << ";thread_id=" << GetCurrentThreadId()
+                          << ";device=0x" << std::hex
+                          << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
+                          << ";generation=" << generation
+                          << ";device_api="
+                          << (is_d3d9ex ? "d3d9ex" : "classic_d3d9_fallback")
+                          << ";legacy_texture_compat="
+                          << (legacy_compat ? "installed" : "unavailable");
+            LogLine(observed_line.str());
+        }
         std::ostringstream line;
         line << "native_stereo_device: status=observed device=0x" << std::hex
              << reinterpret_cast<std::uintptr_t>(replacement) << std::dec
@@ -715,10 +980,30 @@ bool CaptureStereoEye(
     }
     const std::uint64_t generation =
         state->device_generation.load(std::memory_order_acquire);
+    const std::uintptr_t device_id = reinterpret_cast<std::uintptr_t>(device);
     const bool captured = state->capture.CaptureEye(
         device, eye, frame_sequence, generation);
     device->Release();
     if (captured) {
+        std::uint64_t previously_logged =
+            state->capture_resources_generation_logged.load(std::memory_order_acquire);
+        if (generation != 0 && previously_logged != generation &&
+            state->capture_resources_generation_logged.compare_exchange_strong(
+                previously_logged, generation,
+                std::memory_order_acq_rel)) {
+            try {
+                std::ostringstream line;
+                line << "native_stereo_startup_event: event=capture_resources_created"
+                     << ";thread_id=" << GetCurrentThreadId()
+                     << ";device=0x" << std::hex << device_id << std::dec
+                     << ";generation=" << generation
+                     << ";frame_sequence=" << frame_sequence
+                     << ";slot=all"
+                     << ";detail=" << state->capture.capture_description();
+                LogLine(line.str());
+            } catch (...) {
+            }
+        }
         const std::size_t eye_index = eye == cojvr::runtime::Eye::left ? 0U : 1U;
         if (!state->capture_source_logged[eye_index]) {
             state->capture_source_logged[eye_index] = true;
@@ -838,6 +1123,10 @@ void Finalize() noexcept {
     g_stereo.runtime_ready = false;
     StopPresentHookWorker();
     cojvr::games::call_of_juarez::ShutdownCameraProbe();
+    const bool legacy_texture_restored =
+        cojvr::games::call_of_juarez::RestoreD3D9ExLegacyTextureCompatibility();
+    LogLine(std::string("native_stereo_legacy_texture_hook: status=") +
+        (legacy_texture_restored ? "restored" : "incomplete"));
     const bool device_restored =
         cojvr::backends::d3d9::RestoreAllDeviceVtableHooks();
     LogLine(std::string("native_stereo_device_hook: status=") +
@@ -960,6 +1249,7 @@ void ObserveFactory(IDirect3D9* factory) noexcept {
             g_stereo.factory = factory;
         }
         const cojvr::backends::d3d9::FactoryHookCallbacks callbacks{
+            .before_create_device = &BeforeCreateDevice,
             .after_create_device = &AfterCreateDevice,
         };
         const bool installed =
@@ -983,10 +1273,30 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(const UINT sdk_version) {
     const HRESULT ex_result = create_ex
         ? create_ex(sdk_version, &ex_factory)
         : E_NOINTERFACE;
+    {
+        std::ostringstream line;
+        line << "native_stereo_startup_event: event=factory_ex_created"
+             << ";thread_id=" << GetCurrentThreadId()
+             << ";factory=0x" << std::hex
+             << reinterpret_cast<std::uintptr_t>(ex_factory)
+             << ";hr=0x" << static_cast<unsigned long>(ex_result) << std::dec;
+        LogLine(line.str());
+    }
     if (SUCCEEDED(ex_result) && ex_factory) {
         try {
             auto* forwarder = new cojvr::backends::d3d9::Direct3D9ExForwarder(
                 ex_factory, classic_factory);
+            {
+                std::ostringstream line;
+                line << "native_stereo_startup_event: event=forwarder_created"
+                     << ";thread_id=" << GetCurrentThreadId()
+                     << ";factory=0x" << std::hex
+                     << reinterpret_cast<std::uintptr_t>(forwarder)
+                     << ";inner_ex=0x" << reinterpret_cast<std::uintptr_t>(ex_factory)
+                     << ";classic_fallback=0x"
+                     << reinterpret_cast<std::uintptr_t>(classic_factory) << std::dec;
+                LogLine(line.str());
+            }
             ex_factory->Release();
             if (classic_factory) classic_factory->Release();
             LogLine(

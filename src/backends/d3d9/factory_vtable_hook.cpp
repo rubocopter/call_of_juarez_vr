@@ -50,6 +50,12 @@ HRESULT STDMETHODCALLTYPE HookCreateDevice(
         g_registry.OriginalTarget(vtable, kCreateDeviceIndex));
     if (!original) return D3DERR_INVALIDCALL;
 
+    if (callbacks.before_create_device) {
+        callbacks.before_create_device(
+            factory, adapter, device_type, focus_window, behavior_flags,
+            presentation_parameters);
+    }
+
     const HRESULT result = original(
         factory, adapter, device_type, focus_window, behavior_flags,
         presentation_parameters, returned_device);
@@ -74,7 +80,7 @@ HookRegistryOutcome InstallFactoryVtableHookDetailed(
     IDirect3D9* factory, FactoryHookCallbacks callbacks) noexcept {
     HookRegistryOutcome failed{};
     void** vtable = FactoryVtable(factory);
-    if (!vtable || !callbacks.after_create_device) return failed;
+    if (!vtable || (!callbacks.before_create_device && !callbacks.after_create_device)) return failed;
     if (!PinModuleForAddress(reinterpret_cast<void*>(&HookCreateDevice))) {
         failed.result = HookRegistryResult::ProtectionFailure;
         return failed;

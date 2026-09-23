@@ -76,6 +76,21 @@ $RequireExplicitPassthroughDisable = if ($null -ne $Run.validation.requireExplic
 } else {
     $true
 }
+$RequireSubtitleState = if ($null -ne $Run.validation.requireSubtitleState) {
+    [bool]$Run.validation.requireSubtitleState
+} else {
+    $true
+}
+$RequireRecenter = if ($null -ne $Run.validation.requireRecenter) {
+    [bool]$Run.validation.requireRecenter
+} else {
+    $true
+}
+$RequireStereoGeometry = if ($null -ne $Run.validation.requireStereoGeometry) {
+    [bool]$Run.validation.requireStereoGeometry
+} else {
+    $true
+}
 $RequirePositional6Dof = [bool]$Run.validation.requirePositional6Dof
 $RequireBodyIk = [bool]$Run.validation.requireBodyIk
 $RequireGameplayInput = [bool]$Run.validation.requireGameplayInput
@@ -101,9 +116,11 @@ if ($RequireOpenVrRuntimeState) {
 Assert-LogMatch `
     "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/\{left,right\}/pose/handgrip aim_pose=/user/hand/\{left,right\}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread" `
     "The native-stereo OpenVR global/gameplay input action sets did not initialize."
-Assert-LogMatch `
-    "camera_probe_event: event=subtitle_state result=observed detail=.*;subtitles_enabled=(true|false);dialog_playing=(true|false);current_line_visible=(true|false);dialog_subtitle_visible=(true|false);diagnostic=(disabled|idle|java_hidden|java_visible)" `
-    "The run did not capture the native Java subtitle setting/dialog visibility state."
+if ($RequireSubtitleState) {
+    Assert-LogMatch `
+        "camera_probe_event: event=subtitle_state result=observed detail=.*;subtitles_enabled=(true|false);dialog_playing=(true|false);current_line_visible=(true|false);dialog_subtitle_visible=(true|false);diagnostic=(disabled|idle|java_hidden|java_visible)" `
+        "The run did not capture the native Java subtitle setting/dialog visibility state."
+}
 if ($RequireFlatTheaterUi) {
     Assert-LogMatch `
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
@@ -157,15 +174,17 @@ Assert-LogMatch `
 Assert-LogMatch `
     "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true" `
     "No command enabled HMD tracking for this run."
-Assert-LogMatch `
-    "camera_probe_event: event=camera_hmd_recentered result=ok .*stereo=true" `
-    "No stereo HMD base orientation/recenter was observed."
-Assert-LogMatch `
-    "openvr_input_event: action=recenter result=pressed source=global_action" `
-    "No PS VR2 Sense/global-action recenter press was observed."
-Assert-LogMatch `
-    "camera_probe_event: event=camera_hmd_recenter_requested result=ok .*source=openvr_global_action" `
-    "The controller recenter press did not reach the XR-neutral camera recenter boundary."
+if ($RequireRecenter) {
+    Assert-LogMatch `
+        "camera_probe_event: event=camera_hmd_recentered result=ok .*stereo=true" `
+        "No stereo HMD base orientation/recenter was observed."
+    Assert-LogMatch `
+        "openvr_input_event: action=recenter result=pressed source=global_action" `
+        "No PS VR2 Sense/global-action recenter press was observed."
+    Assert-LogMatch `
+        "camera_probe_event: event=camera_hmd_recenter_requested result=ok .*source=openvr_global_action" `
+        "The controller recenter press did not reach the XR-neutral camera recenter boundary."
+}
 if ($RequireBodyIk) {
     Assert-LogMatch `
         "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false" `
@@ -177,12 +196,14 @@ if ($RequireBodyIk) {
         "camera_probe_event: event=body_arm_recovery result=ok .*transaction_active=false.*calibration_preserved=true" `
         "Create recenter did not safely preserve the arm target across the recovery boundary."
 }
-Assert-LogMatch `
-    "native_stereo_capture: status=source eye=left .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
-    "The left eye did not report a valid D3D9 viewport at its capture boundary."
-Assert-LogMatch `
-    "native_stereo_capture: status=source eye=right .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
-    "The right eye did not report a valid D3D9 viewport at its capture boundary."
+if ($RequireStereoGeometry) {
+    Assert-LogMatch `
+        "native_stereo_capture: status=source eye=left .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
+        "The left eye did not report a valid D3D9 viewport at its capture boundary."
+    Assert-LogMatch `
+        "native_stereo_capture: status=source eye=right .*viewport=[0-9]+,[0-9]+,[0-9]+,[0-9]+,[-+0-9.eE]+,[-+0-9.eE]+" `
+        "The right eye did not report a valid D3D9 viewport at its capture boundary."
+}
 Assert-LogMatch `
     "native_stereo_capture_timing: status=ok .*eye=left .*transport=d3d9ex_shared_texture_ring.*capture_pool=default.*gpu_copy_queue_ms=[0-9.]+" `
     "The left eye did not use the D3D9Ex shared DEFAULT-pool transport."
@@ -199,13 +220,14 @@ Assert-LogMatch `
     "native_stereo_presenter_timing: status=ok .*render_pose_sequence=[1-9][0-9]*;pose_mode=explicit_render_pose;content=new.*left_result=0;right_result=0.*wait_pose_ms=[0-9.]+;submit_ms=[0-9.]+" `
     "The presenter did not report a successful new-frame OpenVR submission bound to its exact render pose."
 
-$StereoLines = @($Lines | Where-Object {
-    $_ -match "camera_probe_event: event=camera_native_stereo_frame result=ok"
-})
-if ($StereoLines.Count -lt 2) {
-    throw "Too few successfully submitted native-stereo frames were recorded."
-}
-foreach ($Line in $StereoLines) {
+if ($RequireStereoGeometry) {
+    $StereoLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=camera_native_stereo_frame result=ok"
+    })
+    if ($StereoLines.Count -lt 2) {
+        throw "Too few successfully submitted native-stereo frames were recorded."
+    }
+    foreach ($Line in $StereoLines) {
     if ($Line -notmatch "left_camera_applied=true" -or
         $Line -notmatch "left_projection_applied=true" -or
         $Line -notmatch "left_captured=true" -or
@@ -302,21 +324,22 @@ foreach ($Line in $StereoLines) {
     $RightFrustumMatch = [regex]::Match(
         $Line,
         "right_frustum=([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+),([-+0-9.eE]+)")
-    if (-not $LeftFrustumMatch.Success -or -not $RightFrustumMatch.Success) {
-        throw "A stereo frame did not report both applied off-center frusta."
-    }
-    $LeftFrustum = @(1..6 | ForEach-Object {
-        [double]::Parse($LeftFrustumMatch.Groups[$_].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-    })
-    $RightFrustum = @(1..6 | ForEach-Object {
-        [double]::Parse($RightFrustumMatch.Groups[$_].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-    })
-    if ($LeftFrustum[4] -le 0 -or $LeftFrustum[5] -le $LeftFrustum[4] -or
-        [Math]::Abs($LeftFrustum[4] - $RightFrustum[4]) -gt 0.0001 -or
-        [Math]::Abs($LeftFrustum[5] - $RightFrustum[5]) -gt 0.01 -or
-        ([Math]::Abs($LeftFrustum[0] - $RightFrustum[0]) -lt 0.0001 -and
-         [Math]::Abs($LeftFrustum[1] - $RightFrustum[1]) -lt 0.0001)) {
-        throw "The applied per-eye frusta were invalid, inconsistent, or not horizontally asymmetric."
+        if (-not $LeftFrustumMatch.Success -or -not $RightFrustumMatch.Success) {
+            throw "A stereo frame did not report both applied off-center frusta."
+        }
+        $LeftFrustum = @(1..6 | ForEach-Object {
+            [double]::Parse($LeftFrustumMatch.Groups[$_].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        })
+        $RightFrustum = @(1..6 | ForEach-Object {
+            [double]::Parse($RightFrustumMatch.Groups[$_].Value, [System.Globalization.CultureInfo]::InvariantCulture)
+        })
+        if ($LeftFrustum[4] -le 0 -or $LeftFrustum[5] -le $LeftFrustum[4] -or
+            [Math]::Abs($LeftFrustum[4] - $RightFrustum[4]) -gt 0.0001 -or
+            [Math]::Abs($LeftFrustum[5] - $RightFrustum[5]) -gt 0.01 -or
+            ([Math]::Abs($LeftFrustum[0] - $RightFrustum[0]) -lt 0.0001 -and
+             [Math]::Abs($LeftFrustum[1] - $RightFrustum[1]) -lt 0.0001)) {
+            throw "The applied per-eye frusta were invalid, inconsistent, or not horizontally asymmetric."
+        }
     }
 }
 
@@ -341,13 +364,14 @@ foreach ($Line in $PresentedStereoLines) {
     }
 }
 
-$OrientationLines = @($Lines | Where-Object {
-    $_ -match "camera_probe_event: event=camera_hmd_orientation_applied result=ok"
-})
-if ($OrientationLines.Count -lt 2) {
-    throw "Too few HMD-driven camera samples were recorded during native stereo."
-}
-foreach ($Line in $OrientationLines) {
+if ($RequireStereoGeometry) {
+    $OrientationLines = @($Lines | Where-Object {
+        $_ -match "camera_probe_event: event=camera_hmd_orientation_applied result=ok"
+    })
+    if ($OrientationLines.Count -lt 2) {
+        throw "Too few HMD-driven camera samples were recorded during native stereo."
+    }
+    foreach ($Line in $OrientationLines) {
     if ($Line -notmatch "native_homogeneous_layout=true" -or
         $Line -notmatch "roll_mode=native_camera_basis" -or
         $Line -notmatch "leveled_forward=\(" -or
@@ -369,32 +393,33 @@ foreach ($Line in $OrientationLines) {
         [Math]::Abs($AppliedDeterminant - 1.0) -gt 0.02) {
         throw "An HMD stereo sample used a reflected or non-rigid camera basis."
     }
-}
-if (-not ($OrientationLines | Where-Object {
-    $_ -match "view_matrix_changed=true" -and
-    $_ -match "projection_matrix_changed=true" -and
-    $_ -match "view_projection_changed=true"
-})) {
-    throw "Stereo telemetry never observed view, asymmetric projection and view-projection changes together."
-}
+    }
+    if (-not ($OrientationLines | Where-Object {
+        $_ -match "view_matrix_changed=true" -and
+        $_ -match "projection_matrix_changed=true" -and
+        $_ -match "view_projection_changed=true"
+    })) {
+        throw "Stereo telemetry never observed view, asymmetric projection and view-projection changes together."
+    }
 
-$YawSamples = @($OrientationLines | ForEach-Object {
-    if ($_ -match "yaw_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
-})
-$PitchSamples = @($OrientationLines | ForEach-Object {
-    if ($_ -match "pitch_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
-})
-$RollSamples = @($OrientationLines | ForEach-Object {
-    if ($_ -match "roll_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
-})
-if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
-    throw "Telemetry did not capture a meaningful physical yaw movement."
-}
-if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
-    throw "Telemetry did not capture a meaningful physical pitch movement."
-}
-if (-not ($RollSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
-    throw "Telemetry did not capture a meaningful physical head tilt through the native camera roll path."
+    $YawSamples = @($OrientationLines | ForEach-Object {
+        if ($_ -match "yaw_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+    })
+    $PitchSamples = @($OrientationLines | ForEach-Object {
+        if ($_ -match "pitch_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+    })
+    $RollSamples = @($OrientationLines | ForEach-Object {
+        if ($_ -match "roll_degrees=([-+0-9.eE]+)") { [double]$Matches[1] }
+    })
+    if (-not ($YawSamples | Where-Object { [Math]::Abs($_) -ge 5.0 })) {
+        throw "Telemetry did not capture a meaningful physical yaw movement."
+    }
+    if (-not ($PitchSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
+        throw "Telemetry did not capture a meaningful physical pitch movement."
+    }
+    if (-not ($RollSamples | Where-Object { [Math]::Abs($_) -ge 3.0 })) {
+        throw "Telemetry did not capture a meaningful physical head tilt through the native camera roll path."
+    }
 }
 if ($RequirePositional6Dof) {
     Assert-LogMatch `
@@ -781,9 +806,13 @@ $EscapedRunId = [Regex]::Escape([string]$Provenance.RunId)
 Assert-LogMatch "run_end: run_id=$EscapedRunId(?:\s|$)" "The run did not end normally."
 
 Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified."
-Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
+if ($RequireRecenter) {
+    Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
+}
 Write-Host "PASS - ChromeEngine eye passes were queued through the deferred D3D9 ring and distinct frames reached the presenter."
-Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
+if ($RequireStereoGeometry) {
+    Write-Host "PASS - metre-to-centimetre eye baseline, viewport, asymmetric frusta and HMD camera matrices verified."
+}
 if ($RequirePositional6Dof) {
     Write-Host "PASS - valid recentered HMD translation and at least 3 cm of physical 6DOF movement verified."
 }

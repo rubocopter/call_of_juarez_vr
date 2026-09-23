@@ -677,6 +677,8 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         frame.device_id = impl_->device_id;
         frame.generation = impl_->generation;
         frame.capture_sequence = slot->frame_sequence;
+        frame.producer_slot = static_cast<std::uint32_t>(
+            slot - impl_->slots.data());
         frame.render_pose_sequence = slot->render_pose_sequence;
         frame.render_hmd_pose = slot->render_hmd_pose;
         frame.capture_time = slot->capture_time;

@@ -111,6 +111,8 @@ try {
         "Transport validation still requires unrelated flat-theater UI acceptance."
     Assert-True ($StageSource.Contains('requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
         "Transport validation still requires an unrelated live tracking-disable step."
+    Assert-True ($StageSource.Contains('requireStereoGeometry = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
+        "Transport validation still requires camera/stereo geometry acceptance."
     $RequiredStageCheckpoints = @(
         "stage_proxy_backup_created",
         "stage_proxy_published",
@@ -959,6 +961,51 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
+
+    $TransportRun = Get-Content -LiteralPath (Join-Path $StereoVerifierGame ".cojvr-run.json") -Raw | ConvertFrom-Json
+    $TransportRun.validation | Add-Member -NotePropertyName profile -NotePropertyValue "transport" -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireOpenVrDashboardCycle -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireFlatTheaterUi -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireExplicitPassthroughDisable -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requirePositional6Dof -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireBodyIk -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireGameplayInput -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireSubtitleState -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireRecenter -NotePropertyValue $false -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireStereoGeometry -NotePropertyValue $false -Force
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    $TransportOnlyLog = @($StereoVerifierLog | Where-Object {
+        $_ -notmatch "event=subtitle_state" -and
+        $_ -notmatch "event=camera_hmd_recentered" -and
+        $_ -notmatch "action=recenter" -and
+        $_ -notmatch "event=camera_hmd_recenter_requested" -and
+        $_ -notmatch "event=camera_native_stereo_frame" -and
+        $_ -notmatch "event=camera_hmd_orientation_applied" -and
+        $_ -notmatch "phase=dashboard_opened" -and
+        $_ -notmatch "phase=dashboard_closed" -and
+        $_ -notmatch "event=flat_ui_" -and
+        $_ -notmatch "event=blocking_ui_" -and
+        $_ -notmatch "event=body_" -and
+        $_ -notmatch "event=controller_aim" -and
+        $_ -notmatch "event=gameplay_input" -and
+        $_ -notmatch "event=native_stereo_ui_back"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $TransportOnlyLog
+    & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+        -GameDirectory $StereoVerifierGame | Out-Null
+
+    $TransportRun.validation.profile = "full"
+    $TransportRun.validation.requireOpenVrDashboardCycle = $true
+    $TransportRun.validation.requireFlatTheaterUi = $true
+    $TransportRun.validation.requireExplicitPassthroughDisable = $true
+    $TransportRun.validation.requirePositional6Dof = $true
+    $TransportRun.validation.requireBodyIk = $true
+    $TransportRun.validation.requireGameplayInput = $true
+    $TransportRun.validation.requireSubtitleState = $true
+    $TransportRun.validation.requireRecenter = $true
+    $TransportRun.validation.requireStereoGeometry = $true
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierDualPointerOwner = @($StereoVerifierLog) +
         "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove"

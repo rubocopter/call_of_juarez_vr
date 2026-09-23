@@ -465,6 +465,9 @@ if ($HadOriginal) {
             requireRepeatedPresentation = $IsNativeStereo
             requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport"
             requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport"
+            requireSubtitleState = $IsNativeStereo -and $ValidationProfile -ne "transport"
+            requireRecenter = $IsNativeStereo -and $ValidationProfile -ne "transport"
+            requireStereoGeometry = $IsNativeStereo -and $ValidationProfile -ne "transport"
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
             requireGameplayInput = $RequireBodyValidation

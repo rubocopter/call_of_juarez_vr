@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -93,6 +94,7 @@ struct StereoCpuFrame {
     std::uintptr_t device_id = 0;
     std::uint64_t generation = 0;
     std::uint64_t capture_sequence = 0;
+    std::uint32_t producer_slot = std::numeric_limits<std::uint32_t>::max();
     // Optional owner-assigned ordering sequence. This lets two producer paths
     // (startup flat capture and native stereo) share the same latest-frame
     // mailbox without conflating their independent capture counters.
