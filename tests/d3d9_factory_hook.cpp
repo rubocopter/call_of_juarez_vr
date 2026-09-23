@@ -11,10 +11,21 @@
 namespace {
 
 std::atomic_uint32_t g_create_callbacks{0};
+std::atomic_uint32_t g_create_enter_callbacks{0};
 std::atomic_uint32_t g_success_callbacks{0};
 cojvr::backends::d3d9::D3D9DiagnosticContextRegistry g_contexts;
 cojvr::backends::d3d9::DeviceDiagnosticContext g_first_context{};
 cojvr::backends::d3d9::DeviceDiagnosticContext g_second_context{};
+
+void BeforeCreateDevice(
+    IDirect3D9* factory,
+    UINT,
+    D3DDEVTYPE,
+    HWND,
+    DWORD,
+    D3DPRESENT_PARAMETERS*) noexcept {
+    if (factory) g_create_enter_callbacks.fetch_add(1, std::memory_order_relaxed);
+}
 
 void AfterCreateDevice(
     IDirect3D9* factory,
@@ -80,6 +91,7 @@ int main() {
     if (!factory) return Fail("Direct3DCreate9 failed");
     const auto initial_factory_context = g_contexts.RegisterCreatedFactory(factory);
     const cojvr::backends::d3d9::FactoryHookCallbacks callbacks{
+        .before_create_device = BeforeCreateDevice,
         .after_create_device = AfterCreateDevice,
     };
     if (!cojvr::backends::d3d9::InstallFactoryVtableHook(factory, callbacks) ||
@@ -172,6 +184,7 @@ int main() {
 
     if (first_result != D3D_OK || second_result != D3D_OK ||
         g_create_callbacks.load(std::memory_order_relaxed) != 2 ||
+        g_create_enter_callbacks.load(std::memory_order_relaxed) != 2 ||
         g_success_callbacks.load(std::memory_order_relaxed) != 2 ||
         initial_factory_context.factory_id == 0 ||
         g_first_context.factory_id != initial_factory_context.factory_id ||

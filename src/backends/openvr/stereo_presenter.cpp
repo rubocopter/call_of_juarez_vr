@@ -17,6 +17,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <deque>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -620,6 +621,34 @@ struct OpenVrStereoPresenter::Impl {
         runtime::OpenVrPresentationState previous_presentation_state{};
         bool have_previous_presentation_state = false;
         std::uint64_t presentation_poll_sequence = 0;
+        struct LeaseTelemetry {
+            std::uintptr_t device_id = 0;
+            std::uint64_t generation = 0;
+            std::uint64_t frame_sequence = 0;
+            std::uint32_t slot = 0;
+        };
+        std::deque<LeaseTelemetry> pending_lease_telemetry;
+        std::uint64_t logged_copy_fences_completed = 0;
+
+        const auto log_retired_leases = [&](const std::uint64_t completed) noexcept {
+            try {
+                while (logged_copy_fences_completed < completed) {
+                    ++logged_copy_fences_completed;
+                    if (pending_lease_telemetry.empty()) continue;
+                    const LeaseTelemetry retired = pending_lease_telemetry.front();
+                    pending_lease_telemetry.pop_front();
+                    std::ostringstream line;
+                    line << "native_stereo_startup_event: event=lease_retired"
+                         << ";thread_id=" << GetCurrentThreadId()
+                         << ";device=0x" << std::hex << retired.device_id << std::dec
+                         << ";generation=" << retired.generation
+                         << ";frame_sequence=" << retired.frame_sequence
+                         << ";slot=" << retired.slot;
+                    Log(line.str());
+                }
+            } catch (...) {
+            }
+        };
 
         try {
             if (!runtime.Initialize("Call of Juarez VR native stereo presenter")) {
@@ -671,6 +700,7 @@ struct OpenVrStereoPresenter::Impl {
                 shared_bridge.Poll(d3d11.context());
                 {
                     const auto shared_stats = shared_bridge.stats();
+                    log_retired_leases(shared_stats.copy_fences_completed);
                     shared_frames_copied.store(
                         shared_stats.frames_copied, std::memory_order_release);
                     shared_resources_opened.store(
@@ -1007,10 +1037,59 @@ struct OpenVrStereoPresenter::Impl {
                             flat_theater_anchor_pose = frame.render_hmd_pose;
                             flat_theater_anchor_valid = true;
                         }
-                        if (UploadFrame(
+                        const bool shared_frame = frame.transport ==
+                            d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+                        const auto shared_stats_before = shared_bridge.stats();
+                        const bool uploaded = UploadFrame(
                                 d3d11, shared_bridge, frame, flat_ui_pointer,
                                 textures, texture_width, texture_height, texture_format,
-                                left_hash, right_hash, hash_ms, upload_ms, shared_timing)) {
+                                left_hash, right_hash, hash_ms, upload_ms, shared_timing);
+                        const auto shared_stats_after = shared_bridge.stats();
+                        log_retired_leases(shared_stats_after.copy_fences_completed);
+                        if (uploaded) {
+                            if (shared_frame) {
+                                const LeaseTelemetry lease{
+                                    .device_id = frame.device_id,
+                                    .generation = frame.generation,
+                                    .frame_sequence = frame.capture_sequence,
+                                    .slot = frame.producer_slot,
+                                };
+                                pending_lease_telemetry.push_back(lease);
+                                std::ostringstream acquired;
+                                acquired << "native_stereo_startup_event: event=lease_acquired"
+                                         << ";thread_id=" << GetCurrentThreadId()
+                                         << ";device=0x" << std::hex << frame.device_id << std::dec
+                                         << ";generation=" << frame.generation
+                                         << ";frame_sequence=" << frame.capture_sequence
+                                         << ";slot=" << frame.producer_slot;
+                                Log(acquired.str());
+
+                                if (shared_stats_after.resources_opened >
+                                    shared_stats_before.resources_opened) {
+                                    std::ostringstream opened;
+                                    opened << "native_stereo_startup_event: event=shared_resource_opened"
+                                           << ";thread_id=" << GetCurrentThreadId()
+                                           << ";device=0x" << std::hex << frame.device_id << std::dec
+                                           << ";generation=" << frame.generation
+                                           << ";frame_sequence=" << frame.capture_sequence
+                                           << ";slot=" << frame.producer_slot
+                                           << ";count="
+                                           << (shared_stats_after.resources_opened -
+                                               shared_stats_before.resources_opened)
+                                           << ";hr=0x0";
+                                    Log(opened.str());
+                                }
+                                std::ostringstream queued;
+                                queued << "native_stereo_startup_event: event=copy_resource_queued"
+                                       << ";thread_id=" << GetCurrentThreadId()
+                                       << ";device=0x" << std::hex << frame.device_id << std::dec
+                                       << ";generation=" << frame.generation
+                                       << ";frame_sequence=" << frame.capture_sequence
+                                       << ";slot=" << frame.producer_slot
+                                       << ";pending_fences="
+                                       << shared_timing.pending_copy_fences;
+                                Log(queued.str());
+                            }
                             const bool first_presentable_frame = !cadence.presentable();
                             const bool mode_changed = !have_active_presentation_mode ||
                                 active_presentation_mode != frame.presentation_mode;
@@ -1060,7 +1139,7 @@ struct OpenVrStereoPresenter::Impl {
                                 LogPresentationState(runtime, "frame_ready");
                             }
                             if (ShouldLogSequence(frame.capture_sequence)) {
-                                const bool shared_frame = frame.transport ==
+                                const bool frame_uses_shared_transport = frame.transport ==
                                     d3d9::StereoFrameTransport::d3d9ex_shared_texture;
                                 std::ostringstream line;
                                 line << "native_stereo_presenter_frame: status=new frame_sequence="
@@ -1072,7 +1151,7 @@ struct OpenVrStereoPresenter::Impl {
                                               ? "flat_theater"
                                               : "native_stereo")
                                      << ";transport=";
-                                if (shared_frame) {
+                                if (frame_uses_shared_transport) {
                                     line << "d3d9ex_shared_texture_ring";
                                 } else if (frame.transport ==
                                            d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem) {
@@ -1086,17 +1165,17 @@ struct OpenVrStereoPresenter::Impl {
                                      << ";distinct_eye_content="
                                      << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
                                              ? "not_required"
-                                             : (shared_frame ? "not_cpu_sampled" : "true"))
+                                             : (frame_uses_shared_transport ? "not_cpu_sampled" : "true"))
                                      << ";eye_resources_distinct="
-                                     << (shared_frame ? "true" : "not_applicable")
+                                     << (frame_uses_shared_transport ? "true" : "not_applicable")
                                      << ";distinct_check="
                                      << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
                                               ? "not_required_flat_theater"
-                                              : (shared_frame
+                                              : (frame_uses_shared_transport
                                                      ? "separate_shared_eye_resources"
                                                      : "sampled_hash"))
                                      << ";hash_mode="
-                                     << (shared_frame ? "disabled_gpu_resident" : "sampled_telemetry")
+                                     << (frame_uses_shared_transport ? "disabled_gpu_resident" : "sampled_telemetry")
                                      << std::fixed << std::setprecision(3)
                                      << ";hash_ms=" << hash_ms
                                      << ";upload_ms=" << upload_ms

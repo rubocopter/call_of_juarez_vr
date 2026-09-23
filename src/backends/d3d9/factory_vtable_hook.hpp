@@ -8,6 +8,13 @@
 namespace cojvr::backends::d3d9 {
 
 struct FactoryHookCallbacks {
+    void (*before_create_device)(
+        IDirect3D9* factory,
+        UINT adapter,
+        D3DDEVTYPE device_type,
+        HWND focus_window,
+        DWORD behavior_flags,
+        D3DPRESENT_PARAMETERS* presentation_parameters) noexcept = nullptr;
     void (*after_create_device)(
         IDirect3D9* factory,
         UINT adapter,
