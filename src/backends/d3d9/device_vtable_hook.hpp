@@ -2,6 +2,7 @@
 
 #include "backends/d3d9/hook_diagnostics.hpp"
 #include "backends/d3d9/hook_registry.hpp"
+#include "backends/d3d9/com_trace.hpp"
 
 #include <d3d9.h>
 
@@ -17,6 +18,12 @@ struct DeviceHookCallbacks {
     void (*before_reset)(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* parameters) noexcept = nullptr;
     void (*after_reset)(
         IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* parameters, HRESULT result) noexcept = nullptr;
+    ComTraceCallback com_trace = nullptr;
+    void (*method_trace)(
+        IDirect3DDevice9* device, const char* method, bool entering, HRESULT result) noexcept = nullptr;
+    // Borrowed factory. The owner must retain it until this device hook is restored.
+    IDirect3D9* get_direct3d_factory = nullptr;
+    IDirect3DDevice9* get_direct3d_device = nullptr;
 };
 
 struct DeviceVtableHookStatus {

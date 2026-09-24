@@ -42,6 +42,56 @@ function Assert-LogNotMatch([string]$Pattern, [string]$Failure) {
     if ([bool]($Lines -match $Pattern)) { throw $Failure }
 }
 
+if ([string]$Run.validation.profile -eq "startup") {
+    Assert-LogMatch `
+        "native_stereo_d3d9_factory: status=d3d9ex_primary fallback=classic_create_device transport=d3d9ex_shared_texture_ring" `
+        "Startup did not select the native D3D9Ex factory."
+    Assert-LogMatch `
+        "native_stereo_device: status=observed .*device_api=d3d9ex" `
+        "Startup did not retain a D3D9Ex device."
+    Assert-LogMatch `
+        "native_stereo_startup_event: event=factory_identity;.*;matches=true" `
+        "The Ex device did not return the same COM factory identity as the game received."
+    Assert-LogMatch `
+        "native_stereo_startup_event: event=present_exit;.*frame_sequence=(90|[1-9][0-9]{2,});hr=0x0" `
+        "The game did not sustain at least 90 successful D3D9Ex Presents."
+    Assert-LogMatch `
+        "native_stereo_flat_theater: status=captured .*" `
+        "Startup video/menu content was not captured for flat theater."
+    Assert-LogMatch `
+        "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
+        "Startup content did not reach flat theater presentation."
+    Assert-LogMatch `
+        "native_stereo_startup_event: event=device_method_enter;.*;method=Present" `
+        "The diagnostic device-method trace was not active."
+    Assert-LogMatch `
+        "native_stereo_startup_event: event=device_method_exit;.*;method=Present" `
+        "The diagnostic device-method trace did not record a completed Present."
+    Assert-LogMatch `
+        "native_stereo_factory_hook: status=restored" `
+        "The startup factory hook was not restored on exit."
+    Assert-LogMatch `
+        "native_stereo_device_hook: status=restored" `
+        "The startup device hook was not restored on exit."
+    Assert-LogMatch `
+        "native_stereo_swapchain_hook: status=restored" `
+        "The startup swapchain hook was not restored on exit."
+    Assert-LogMatch `
+        "native_stereo_runtime: status=stopped" `
+        "The startup runtime did not report shutdown."
+    Assert-LogMatch `
+        "run_end: run_id=$([regex]::Escape([string]$Run.runId))" `
+        "The startup run did not reach normal proxy finalization."
+    $ResetEntered = [bool]($Lines -match "native_stereo_startup_event: event=reset_enter")
+    $ResetExited = [bool]($Lines -match "native_stereo_startup_event: event=reset_exit")
+    if ($ResetEntered -ne $ResetExited) {
+        throw "A startup Reset did not have a matching enter/exit result."
+    }
+    Write-Host "PASS - D3D9Ex factory identity, sustained Present, flat content and normal proxy finalization observed."
+    Write-Host "Confirm startup videos/menu visually; this profile does not validate native stereo or GPU transport."
+    return
+}
+
 Assert-LogMatch `
     "native_stereo_runtime: status=started backend=openvr owner=presenter_thread .*pose_semantics=eye_to_head" `
     "The native-stereo OpenVR runtime/eye configuration did not initialize."
@@ -84,6 +134,13 @@ $RequireSubtitleState = if ($null -ne $Run.validation.requireSubtitleState) {
 $RequireRecenter = if ($null -ne $Run.validation.requireRecenter) {
     [bool]$Run.validation.requireRecenter
 } else {
+    $true
+}
+$RequireHmdTracking = if ($null -ne $Run.validation.requireHmdTracking) {
+    [bool]$Run.validation.requireHmdTracking
+} else {
+    # Existing manifests predate the explicit XR tracking gate. Preserve the
+    # previous behavior for full native-stereo validation profiles.
     $true
 }
 $RequireStereoGeometry = if ($null -ne $Run.validation.requireStereoGeometry) {
@@ -171,9 +228,11 @@ Assert-LogMatch `
 Assert-LogMatch `
     "camera_probe_event: event=camera_probe_install result=installed .*native_stereo=available" `
     "The exact ChromeEngine render-view profile was not enabled for native stereo."
-Assert-LogMatch `
-    "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true" `
-    "No command enabled HMD tracking for this run."
+if ($RequireHmdTracking) {
+    Assert-LogMatch `
+        "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true" `
+        "No command enabled HMD tracking for this run."
+}
 if ($RequireRecenter) {
     Assert-LogMatch `
         "camera_probe_event: event=camera_hmd_recentered result=ok .*stereo=true" `

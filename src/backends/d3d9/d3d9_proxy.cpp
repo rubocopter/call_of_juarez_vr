@@ -1,7 +1,6 @@
 #include "backends/d3d9/classic_readback_bridge.hpp"
 #include "backends/d3d9/diagnostic_context.hpp"
 #include "backends/d3d9/device_vtable_hook.hpp"
-#include "backends/d3d9/d3d9ex_forwarder.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
 #include "backends/d3d9/swapchain_vtable_hook.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
@@ -903,24 +902,22 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdk_version) {
         const cojvr::runtime::TelemetryContext telemetry_context{
             factory_context.factory_id, 0, 0, 0};
 
-        try {
-            auto* forwarder = new cojvr::backends::d3d9::Direct3D9ExForwarder(real_d3d_ex);
+        LogLine("d3d9 D3D9Ex bridge: native Ex factory active");
+        const cojvr::backends::d3d9::FactoryHookCallbacks ex_callbacks{
+            .prefer_ex_device = true,
+            .after_create_device = &ObserveCreatedDevice,
+        };
+        const auto ex_factory_hook_outcome =
+            cojvr::backends::d3d9::InstallFactoryVtableHookDetailed(real_d3d_ex, ex_callbacks);
+        EmitHookOutcome(ex_factory_hook_outcome, telemetry_context, nullptr);
+        if (ex_factory_hook_outcome.result !=
+                cojvr::backends::d3d9::HookRegistryResult::Installed &&
+            ex_factory_hook_outcome.result !=
+                cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled) {
             real_d3d_ex->Release();
-            LogLine("d3d9 D3D9Ex bridge: forwarding wrapper active (IDirect3D9 + IDirect3D9Ex)");
-
-            // Install factory hook on the forwarder to observe CreateDevice calls
-            const cojvr::backends::d3d9::FactoryHookCallbacks ex_callbacks{
-                .after_create_device = &ObserveCreatedDevice,
-            };
-            const auto ex_factory_hook_outcome =
-                cojvr::backends::d3d9::InstallFactoryVtableHookDetailed(forwarder, ex_callbacks);
-            EmitHookOutcome(ex_factory_hook_outcome, telemetry_context, nullptr);
-
-            return forwarder;
-        } catch (...) {
-            LogLine("d3d9 D3D9Ex bridge: wrapper allocation failed");
-            return static_cast<IDirect3D9*>(real_d3d_ex);
+            return nullptr;
         }
+        return real_d3d_ex;
     }
 
     const auto create = cojvr::backends::d3d9::SystemDirect3DCreate9();

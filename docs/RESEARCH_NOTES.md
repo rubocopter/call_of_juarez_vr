@@ -8,10 +8,17 @@ Current authoritative research:
 
 - `docs/research/COJ_CAMERA_PATH.md`: exact camera/render path, stereo wrapper, units and presentation findings.
 - `docs/research/COJ_ARM_SKINNING_AND_AIM.md`: observed skeleton propagation, visible arm writer, reach and weapon-origin ownership.
+- `docs/research/COJ_D3D9_RESOURCE_CENSUS.md`: measured classic-D3D9 pool requests and current capture-coverage limit.
 
-The active renderer/runtime path is the D3D9 API + OpenVR/SteamVR. The preferred
-native-stereo transport substitutes a D3D9Ex device to create shared
-DEFAULT-pool eye textures; classic D3D9 is an explicit CPU fallback. D3D10
+The active renderer/runtime path is the D3D9 API + OpenVR/SteamVR. The current
+native-stereo D3D9Ex shared-texture transport is an experimental,
+host-tested candidate; exact-game startup and transport remain physically
+blocked. A classic-D3D9 gameplay probe confirmed successful `D3DPOOL_MANAGED`
+2D and cube texture creation, so an unmodified D3D9Ex device is incompatible.
+The capture covered only three creation calls over more than 4,000 rendered
+frames. The resource census is incomplete, and the amount of emulation needed
+is unknown. Keep the current classic-D3D9 behavior as the compatibility
+reference until a complete census informs the device/transport decision. D3D10
 remains a later first-class target.
 
 Classic-D3D9 CPU readback is a demonstrated performance blocker at the current

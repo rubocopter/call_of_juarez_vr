@@ -22,9 +22,13 @@ The architecture intentionally mirrors the useful separation already proven in t
 Game-specific mutation is SHA-256 gated. A recognized filename is never sufficient to authorize exact offsets or bytecode/native seams. Unknown builds may use safe generic diagnostics only.
 
 The active Call of Juarez integration is Windows x86 and the D3D9 API. The
-native-stereo candidate supplies an `IDirect3D9Ex` factory/device so eye images
-can be shared with the presenter; classic D3D9 remains an explicit creation
-fallback, not the preferred transport. D3D10 is a later renderer target.
+native-stereo implementation currently has an experimental
+`IDirect3D9Ex` factory/device path for shared eye images. Exact-game Ex startup
+is unresolved, and a live classic-D3D9 probe confirms successful
+`D3DPOOL_MANAGED` texture creation, which an Ex device does not support. The
+resource census is incomplete, so classic D3D9 remains the compatibility
+reference while the transport/device decision is open. D3D10 is a later
+renderer target.
 OpenVR/SteamVR is the primary runtime for the PS VR2 path; OpenXR remains
 separate and experimental.
 
@@ -127,7 +131,7 @@ about 7-7.5 ms median, 9-9.5 ms p95 and 10-12 ms maximum. Disabling only that
 boundary, while retaining both complete ChromeEngine eye renders, changed game
 update cadence from about 83 Hz to 138 Hz. This is the demonstrated bottleneck.
 
-The host-tested candidate replaces it with:
+The host-tested D3D9Ex candidate replaces it with:
 
 `DEFAULT render target -> StretchRect D3D9Ex shared DEFAULT texture ring -> mailbox(handle + pose + lease) -> D3D11 OpenSharedResource -> CopyResource presenter texture -> OpenVR`
 
@@ -185,9 +189,16 @@ DEFAULT resources across resets. It is not used by native stereo when the
 D3D9Ex path is active.
 
 A previous D3D9Ex substitution crashed the exact game during physical testing.
-The current implementation has stronger factory/device fallback, resource
-lifetime and producer/consumer ownership, but only a fresh correlated run can
-establish that the game remains stable after device creation.
+Two later candidates reached three Presents but stopped before videos or
+transport; the latest has a host-tested COM factory-identity hook. Separately,
+the classic-D3D9 resource probe observed successful MANAGED 2D and cube
+textures, although its three captured calls are too sparse to quantify the
+engine's pool use. The current compatibility code rewrites MANAGED 2D, cube
+and volume texture requests to `DEFAULT | DYNAMIC` and tracks release, but does
+not provide a system-memory backing copy or demonstrate full managed-resource
+semantics. There is no corresponding vertex/index-buffer translation. A
+complete census and semantic validation are required before the Ex path can be
+considered a compatible replacement.
 
 OFXR-Bridge is not part of the active architecture. It is an experimental
 OpenXR optical-flow frame-generation layer and cannot replace this D3D9/OpenVR

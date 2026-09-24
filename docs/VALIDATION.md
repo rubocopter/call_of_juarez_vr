@@ -10,10 +10,21 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
-The active gate is the new D3D9Ex GPU-resident native-stereo transport. It is
-implemented and host-tested, but has not yet run in the exact game/headset. A
-previous D3D9Ex substitution was physically unstable, so successful host interop
-does not promote compatibility with the game executable.
+The D3D9Ex shared-texture implementation is experimental and host-tested. Two
+physical Ex attempts completed three Presents and stopped before videos or
+shared transport. A host-tested `GetDirect3D` hook addresses the factory COM
+identity mismatch observed in the second attempt, but exact-game startup is
+still unverified.
+
+A separate classic-D3D9 gameplay run loaded a save, ran about 42 seconds and
+rendered 4,311 frames. The probe observed two successful `D3DPOOL_MANAGED`
+texture creations, proving that a verbatim Ex device is incompatible. It
+captured only three creations total, so pool prevalence and complete resource
+coverage are unknown. The current MANAGED-to-DEFAULT texture translation does
+not establish preservation of system-memory backing, locking or reset
+semantics; managed vertex/index-buffer requests were not measured. The next
+gate is a complete classic-D3D9 resource census and a decision on the required
+emulation before further physical D3D9Ex transport work.
 
 Locomotion diagnosis is closed. Physical measurements established that native
 normal movement, the walk modifier and jump are not materially reduced in VR.
@@ -27,10 +38,17 @@ Independent stereo, tracking, recenter, snap-turn and locomotion/jump parity
 remain valid. The separate menu-pointer, arm-continuity, weapon-alignment and
 shutdown product gates also remain open, but are outside this transport gate.
 
-## Next physical acceptance gate
+## Deferred D3D9Ex startup gate
 
-One fresh `prepare`, one Call of Juarez process, one `finish`. Keep the run
-short and exercise only the transport acceptance gesture:
+After the resource census and architecture decision, one fresh `prepare -StartupOnly`, one Call of Juarez process, one `finish`.
+Observe startup videos and the main menu, then close the game normally. Do not
+enter gameplay or validate VR in this run. The startup verifier requires the
+game-visible Ex factory/device identity, at least 90 successful Presents, flat content
+capture and proxy finalization. It does not promote shared transport or headset
+state. If startup succeeds, the separate transport acceptance gesture below
+becomes the next gate.
+
+### Deferred transport acceptance
 
 | Area | Required observation |
 | --- | --- |
@@ -74,7 +92,8 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Exact snap turn | headset-validated | controller turn exercised physically |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | startup and level transition reached gameplay safely |
 | Local head/hair suppression | headset-validated for HMD view | shadow behavior remains separate |
-| D3D9Ex GPU-resident native-stereo transport | host-tested / physical gate | shared DEFAULT-pool eye textures and nonblocking steady-state D3D9/D3D11 queries pass host interop; pending shutdown copies use a bounded completion drain; exact-game/headset stability and cadence pending |
+| D3D9Ex GPU-resident native-stereo transport | host-tested / blocked on startup gate | shared DEFAULT-pool eye textures and nonblocking steady-state D3D9/D3D11 queries pass host interop; exact-game/headset stability and cadence pending |
+| Classic-D3D9 resource pool census | live-exercised / incomplete coverage | DX9 gameplay shows successful MANAGED 2D and cube textures; only three creations were captured, so prevalence and full emulation scope remain unknown |
 | Classic-D3D9 CPU transport fallback | implemented / unpromoted | retained only when D3D9Ex/device sharing is unavailable; any use during the physical gate is a failure |
 | Inner presenter finalization | open | recent physical testing exposed incomplete shutdown behavior |
 | Native analog locomotion | headset-validated diagnostically | normal/walk speed matches vanilla within the measured transport runs; do not retune input or movement |

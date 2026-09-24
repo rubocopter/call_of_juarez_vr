@@ -43,6 +43,9 @@ using LegacyTextureEventCallback =
 struct LegacyTextureCompatibilityCallbacks {
     void* context = nullptr;
     LegacyTextureEventCallback event = nullptr;
+    void (*resource_destroy)(
+        void* context, std::uintptr_t resource, LegacyTextureKind kind,
+        ULONG refcount) noexcept = nullptr;
 };
 
 [[nodiscard]] bool InstallD3D9ExLegacyTextureCompatibility(

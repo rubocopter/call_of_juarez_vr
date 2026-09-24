@@ -6,6 +6,8 @@ param(
 
     [switch]$BodyIkAtStart,
 
+    [switch]$StartupOnly,
+
     [switch]$KeepVideoSettings
 )
 
@@ -151,6 +153,9 @@ $ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 switch ($Action) {
     "prepare" {
         Assert-GameClosed
+        if ($BodyIkAtStart -and $StartupOnly) {
+            throw "StartupOnly and BodyIkAtStart cannot be combined."
+        }
         if (Test-Path -LiteralPath $StageStatePath -PathType Leaf) {
             $Existing = Get-Content -LiteralPath $StageStatePath -Raw | ConvertFrom-Json
             throw "A candidate is already staged (run '$($Existing.runId)'). Run 'tools\vr_test.ps1 finish' after closing the game before preparing another one."
@@ -180,7 +185,7 @@ switch ($Action) {
             -AllowDirty
         if ($LASTEXITCODE -ne 0) { throw "Build-manifest generation failed." }
 
-        $ValidationProfile = if ($BodyIkAtStart) { "full" } else { "transport" }
+        $ValidationProfile = if ($StartupOnly) { "startup" } elseif ($BodyIkAtStart) { "full" } else { "transport" }
         try {
             & (Join-Path $PSScriptRoot "stage_d3d9_proxy.ps1") `
                 -GameDirectory $ResolvedGameDirectory `
@@ -191,7 +196,7 @@ switch ($Action) {
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
                 -GameDirectory $ResolvedGameDirectory `
-                -Mode enable
+                -Mode $(if ($StartupOnly) { "disable" } else { "enable" })
 
             if ($BodyIkAtStart) {
                 & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -240,12 +245,14 @@ switch ($Action) {
         Write-Host "Native-stereo VR test candidate ready."
         Write-Host "Run ID: $($Run.runId)"
         Write-Host "Validation profile: $ValidationProfile"
-        Write-Host "Tracking/stereo: enabled; first valid HMD pose becomes the base orientation."
+        Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { '1920x1080, FSAA 0 (restored by finish)' })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
-        if ($BodyIkAtStart) {
+        if ($StartupOnly) {
+            Write-Host "Startup-only run: confirm videos and the main menu appear, then close the game normally. Do not enter gameplay or validate VR."
+        } elseif ($BodyIkAtStart) {
             Write-Host "At the first flat menu, confirm the cyan beam starts at the Sense controller and moving it changes CoJ's highlighted/hovered option."
             Write-Host "UI controls for this gate: Cross accepts, Circle goes back, and L2/R2 select the option under the ray. Exercise all three paths and skip at least one startup item with Sense input."
             Write-Host "After loading a save, confirm the press-a-key continuation accepts a Sense action without using the keyboard."
@@ -263,7 +270,7 @@ switch ($Action) {
             Write-Host "The acceptance target is stable tracking/stereo plus clearly improved update/stereo cadence with zero classic-D3D9 fallback/readback."
         }
         Write-Host "Diagnostic fallback: pwsh -File tools\vr_test.ps1 recenter"
-        if ($ValidationProfile -ne "transport") {
+        if ($ValidationProfile -notin @("transport", "startup")) {
             Write-Host "If switching windows is stable, disable before closing to satisfy the live passthrough gate: pwsh -File tools\vr_test.ps1 disable"
             Write-Host "If Alt+Tab stalls/crashes CoJ, do not switch windows just for this command; close normally and finish will preserve the partial evidence and report the missing gate."
         }

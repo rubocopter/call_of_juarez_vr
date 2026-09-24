@@ -6,7 +6,7 @@ param(
     [string]$BuildManifestPath = "",
     [string]$RunId = "",
 
-    [ValidateSet("full", "performance", "transport")]
+    [ValidateSet("full", "performance", "transport", "startup")]
     [string]$ValidationProfile = "full"
 )
 
@@ -59,6 +59,7 @@ $ChromeEngine = Join-Path $GameDirectory "ChromeEngine3.dll"
 $Destination = Join-Path $GameDirectory "d3d9.dll"
 $Backup = Join-Path $GameDirectory "d3d9.cojvr-backup.dll"
 $Log = Join-Path $GameDirectory "cojvr.log"
+$PoolProbeLog = Join-Path $GameDirectory "cojvr-d3d9-pool-probe.csv"
 $State = Join-Path $GameDirectory ".cojvr-d3d9-stage.json"
 $CurrentRun = Join-Path $GameDirectory ".cojvr-run.json"
 $EvidenceRoot = Join-Path $GameDirectory ".cojvr-evidence"
@@ -91,6 +92,7 @@ $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
+$IsPoolProbe = $ProxyLeaf -ieq "d3d9_pool_probe.dll"
 $IsCameraIntegration = $IsCameraProbe -or $IsHmdCamera -or $IsNativeStereo
 $IsOpenVrIntegration = $IsHmdCamera -or $IsNativeStereo
 $DiagnosticMode = if ($IsReadbackDiagnostic) {
@@ -103,6 +105,8 @@ $DiagnosticMode = if ($IsReadbackDiagnostic) {
     "d3d9_hmd_camera"
 } elseif ($IsNativeStereo) {
     "d3d9_native_stereo"
+} elseif ($IsPoolProbe) {
+    "d3d9_pool_probe"
 } else {
     "d3d9_forwarding"
 }
@@ -206,10 +210,10 @@ $ChromeEngineHash = if (Test-Path -LiteralPath $ChromeEngine -PathType Leaf) {
     $null
 }
 
-if ($IsCameraIntegration -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
-    throw "Camera probe requires the exact inspected ChromeEngine3.dll. Expected $ExpectedChromeEngineHash, got '$ChromeEngineHash'."
+if (($IsCameraIntegration -or $IsPoolProbe) -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
+    throw "Diagnostic requires the exact inspected ChromeEngine3.dll. Expected $ExpectedChromeEngineHash, got '$ChromeEngineHash'."
 }
-if ($IsCameraIntegration) {
+if ($IsCameraIntegration -or $IsPoolProbe) {
     Assert-Win32Pe $ChromeEngine "ChromeEngine3.dll"
 }
 
@@ -312,6 +316,7 @@ $HistoricalFiles = @(
     $NativeStereoSummary,
     $MovementSummary
 )
+if ($IsPoolProbe) { $HistoricalFiles += $PoolProbeLog }
 foreach ($HistoricalFile in $HistoricalFiles) {
     if (Test-Path -LiteralPath $HistoricalFile -PathType Leaf) {
         New-Item -ItemType Directory -Path $HistoricalDirectory -Force | Out-Null
@@ -452,7 +457,7 @@ if ($HadOriginal) {
         validation = [ordered]@{
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
             requireExactChromeEngine = $IsCameraIntegration
-            requireOpenVrRuntimeState = $IsNativeStereo
+            requireOpenVrRuntimeState = $IsNativeStereo -and $ValidationProfile -ne "startup"
             requireOpenVrFocusCycle = $false
             # The full/body profile is intentionally isolated from the SteamVR
             # dashboard. Dashboard focus is a presentation/lifecycle gate and
@@ -460,14 +465,15 @@ if ($HadOriginal) {
             # body-composition run can make the scene non-interactive and
             # contaminate the IK evidence. Keep it on the performance profile.
             requireOpenVrDashboardCycle = $IsNativeStereo -and $ValidationProfile -eq "performance"
-            requireProductionGpuSyncNone = $IsNativeStereo
-            requirePerformanceSummary = $IsNativeStereo
-            requireRepeatedPresentation = $IsNativeStereo
-            requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport"
-            requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport"
-            requireSubtitleState = $IsNativeStereo -and $ValidationProfile -ne "transport"
-            requireRecenter = $IsNativeStereo -and $ValidationProfile -ne "transport"
-            requireStereoGeometry = $IsNativeStereo -and $ValidationProfile -ne "transport"
+            requireProductionGpuSyncNone = $IsNativeStereo -and $ValidationProfile -ne "startup"
+            requirePerformanceSummary = $IsNativeStereo -and $ValidationProfile -ne "startup"
+            requireRepeatedPresentation = $IsNativeStereo -and $ValidationProfile -ne "startup"
+            requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
+            requireExplicitPassthroughDisable = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
+            requireSubtitleState = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
+            requireRecenter = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
+            requireHmdTracking = $IsNativeStereo -and $ValidationProfile -ne "startup"
+            requireStereoGeometry = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
             requireGameplayInput = $RequireBodyValidation
@@ -503,16 +509,22 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Staged exact-build ChromeEngine3 HMD camera candidate with OpenVR pose input and D3D9 forwarding only."
 } elseif ($IsNativeStereo) {
     Write-Host "Staged exact-build ChromeEngine3 native-stereo candidate with OpenVR pose/optics, PS VR2 Sense recenter and two engine view passes."
+} elseif ($IsPoolProbe) {
+    Write-Host "Staged exact-build classic D3D9 pool probe. Capture: '$PoolProbeLog'."
 } else {
     Write-Host "Staged CoJ VR D3D9 forwarding proxy with Present/Reset observation hooks."
 }
 Write-Host "Build identity: $ActualHash"
 Write-Host "Build manifest ID: $($BuildManifest.manifestId)"
 Write-Host "Run ID: $RunId"
-if (-not $IsCameraIntegration -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
+if (-not $IsCameraIntegration -and -not $IsPoolProbe -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {
     Write-Warning "ChromeEngine3.dll is missing or differs from the inspected baseline; its identity was recorded as '$ChromeEngineHash'."
 }
-Write-Host "Next: launch Call of Juarez manually, load a save, confirm normal rendering, then exit normally."
+if ($ValidationProfile -eq "startup") {
+    Write-Host "Next: launch Call of Juarez manually, observe startup videos and the main menu, then exit normally."
+} else {
+    Write-Host "Next: launch Call of Juarez manually, load a save, confirm normal rendering, then exit normally."
+}
 if ($IsReadbackDiagnostic) {
     Write-Host "After exit run tools\verify_d3d9_readback_live_test.ps1 -GameDirectory '$GameDirectory'."
 } elseif ($IsOpenVrFlatDiagnostic) {
@@ -530,10 +542,14 @@ if ($IsReadbackDiagnostic) {
 } elseif ($IsNativeStereo) {
     Write-Host "Start SteamVR manually before launching the game so the native-stereo runtime can initialize."
     Write-Host "Control file: '$CameraControl'."
-    Write-Host "In-headset recenter: press Create on the left PS VR2 Sense controller."
-    Write-Host "Terminal recenter remains available through tools\set_hmd_camera_control.ps1 as a diagnostic fallback."
-    Write-Host "Movement phases: tools\set_movement_diagnostic.ps1 -GameDirectory '$GameDirectory' -Mode vr-full|vr-input-off|vr-readback-off|vr-single-eye"
+    if ($ValidationProfile -ne "startup") {
+        Write-Host "In-headset recenter: press Create on the left PS VR2 Sense controller."
+        Write-Host "Terminal recenter remains available through tools\set_hmd_camera_control.ps1 as a diagnostic fallback."
+        Write-Host "Movement phases: tools\set_movement_diagnostic.ps1 -GameDirectory '$GameDirectory' -Mode vr-full|vr-input-off|vr-readback-off|vr-single-eye"
+    }
     Write-Host "After exit run tools\verify_native_stereo_live_test.ps1 -GameDirectory '$GameDirectory'."
+} elseif ($IsPoolProbe) {
+    Write-Host "After exit run tools\d3d9_pool_probe.ps1 finish -GameDirectory '$GameDirectory'."
 } else {
     Write-Host "After exit run tools\verify_d3d9_live_test.ps1 -GameDirectory '$GameDirectory'."
 }

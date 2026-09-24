@@ -16,6 +16,15 @@ namespace {
 std::atomic_uint32_t g_enter_events{0};
 std::atomic_uint32_t g_result_events{0};
 std::atomic_uint32_t g_translated_results{0};
+std::atomic_uint32_t g_destroy_events{0};
+
+void ObserveDestroy(void*, std::uintptr_t resource,
+                    cojvr::games::call_of_juarez::LegacyTextureKind,
+                    ULONG refcount) noexcept {
+    if (resource != 0 && refcount == 0) {
+        g_destroy_events.fetch_add(1, std::memory_order_relaxed);
+    }
+}
 
 void ObserveEvent(
     void*,
@@ -80,6 +89,7 @@ int main() {
 
     const cojvr::games::call_of_juarez::LegacyTextureCompatibilityCallbacks callbacks{
         .event = &ObserveEvent,
+        .resource_destroy = &ObserveDestroy,
     };
     if (!cojvr::games::call_of_juarez::InstallD3D9ExLegacyTextureCompatibility(
             device.Get(), callbacks)) {
@@ -113,10 +123,14 @@ int main() {
         return Fail("translated legacy texture could not be rebound after Reset");
     }
     (void)device->SetTexture(0, nullptr);
+    texture.Reset();
+    volume.Reset();
+    cube.Reset();
 
     if (g_enter_events.load(std::memory_order_relaxed) != 3 ||
         g_result_events.load(std::memory_order_relaxed) != 3 ||
-        g_translated_results.load(std::memory_order_relaxed) != 3) {
+        g_translated_results.load(std::memory_order_relaxed) != 3 ||
+        g_destroy_events.load(std::memory_order_relaxed) != 3) {
         return Fail("compatibility telemetry did not describe all translated texture calls");
     }
     if (!cojvr::games::call_of_juarez::ReacquireD3D9ExLegacyTextureCompatibility(device.Get())) {

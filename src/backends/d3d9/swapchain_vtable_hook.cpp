@@ -11,9 +11,14 @@ namespace cojvr::backends::d3d9 {
 namespace {
 
 constexpr std::size_t kPresentIndex = 3;
+constexpr std::size_t kQueryInterfaceIndex = 0;
+constexpr std::size_t kAddRefIndex = 1;
+constexpr std::size_t kReleaseIndex = 2;
 
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(
     IDirect3DSwapChain9*, const RECT*, const RECT*, HWND, const RGNDATA*, DWORD);
+using QueryInterfaceFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DSwapChain9*, REFIID, void**);
+using RefFn = ULONG(STDMETHODCALLTYPE*)(IDirect3DSwapChain9*);
 
 HookRegistry g_registry{};
 std::mutex g_callbacks_mutex;
@@ -33,6 +38,40 @@ SwapChainHookCallbacks CallbacksFor(void** vtable) noexcept {
     }
 }
 
+HRESULT STDMETHODCALLTYPE HookQueryInterface(IDirect3DSwapChain9* swap_chain, REFIID iid, void** object) {
+    void** vtable = SwapChainVtable(swap_chain);
+    const auto original = reinterpret_cast<QueryInterfaceFn>(
+        g_registry.OriginalTarget(vtable, kQueryInterfaceIndex));
+    if (!original) return E_NOINTERFACE;
+    const auto callbacks = CallbacksFor(vtable);
+    if (callbacks.com_trace) callbacks.com_trace(swap_chain, "query_interface_enter", &iid, nullptr, S_OK, 0);
+    const HRESULT result = original(swap_chain, iid, object);
+    if (callbacks.com_trace) callbacks.com_trace(
+        swap_chain, "query_interface_result", &iid,
+        SUCCEEDED(result) && object ? *object : nullptr, result, 0);
+    return result;
+}
+
+ULONG STDMETHODCALLTYPE HookAddRef(IDirect3DSwapChain9* swap_chain) {
+    void** vtable = SwapChainVtable(swap_chain);
+    const auto original = reinterpret_cast<RefFn>(g_registry.OriginalTarget(vtable, kAddRefIndex));
+    if (!original) return 0;
+    const ULONG count = original(swap_chain);
+    const auto callbacks = CallbacksFor(vtable);
+    if (callbacks.com_trace) callbacks.com_trace(swap_chain, "add_ref", nullptr, nullptr, S_OK, count);
+    return count;
+}
+
+ULONG STDMETHODCALLTYPE HookRelease(IDirect3DSwapChain9* swap_chain) {
+    void** vtable = SwapChainVtable(swap_chain);
+    const auto callbacks = CallbacksFor(vtable);
+    const auto original = reinterpret_cast<RefFn>(g_registry.OriginalTarget(vtable, kReleaseIndex));
+    if (!original) return 0;
+    const ULONG count = original(swap_chain);
+    if (callbacks.com_trace) callbacks.com_trace(swap_chain, "release", nullptr, nullptr, S_OK, count);
+    return count;
+}
+
 HRESULT STDMETHODCALLTYPE HookPresent(
     IDirect3DSwapChain9* swap_chain,
     const RECT* source_rect,
@@ -45,6 +84,7 @@ HRESULT STDMETHODCALLTYPE HookPresent(
     const auto original = reinterpret_cast<PresentFn>(
         g_registry.OriginalTarget(vtable, kPresentIndex));
     if (!original) return D3DERR_INVALIDCALL;
+    if (callbacks.method_trace) callbacks.method_trace(swap_chain, "Present", true, S_OK);
 
     IDirect3DDevice9* device = nullptr;
     if ((callbacks.before_present || callbacks.after_present) && swap_chain &&
@@ -55,6 +95,7 @@ HRESULT STDMETHODCALLTYPE HookPresent(
     const HRESULT result = original(
         swap_chain, source_rect, destination_rect, destination_window_override,
         dirty_region, flags);
+    if (callbacks.method_trace) callbacks.method_trace(swap_chain, "Present", false, result);
     if (device) {
         if (callbacks.after_present) callbacks.after_present(device, result);
         device->Release();
@@ -75,7 +116,8 @@ bool InstallSwapChainVtableHook(
 HookRegistryOutcome InstallSwapChainVtableHookDetailed(
     IDirect3DDevice9* device, SwapChainHookCallbacks callbacks) noexcept {
     HookRegistryOutcome failed{};
-    if (!device || (!callbacks.before_present && !callbacks.after_present)) return failed;
+    if (!device || (!callbacks.before_present && !callbacks.after_present &&
+                    !callbacks.com_trace && !callbacks.method_trace)) return failed;
     if (!PinModuleForAddress(reinterpret_cast<void*>(&HookPresent))) {
         failed.result = HookRegistryResult::ProtectionFailure;
         return failed;
@@ -95,9 +137,15 @@ HookRegistryOutcome InstallSwapChainVtableHookDetailed(
         {
             std::lock_guard lock(g_callbacks_mutex);
             g_callbacks_by_vtable.insert_or_assign(vtable, callbacks);
-            const std::array requests{
-                HookSlotRequest{kPresentIndex, reinterpret_cast<void*>(&HookPresent)}};
-            outcome = g_registry.Install(vtable, std::span<const HookSlotRequest>(requests));
+            std::array<HookSlotRequest, 4> requests{};
+            std::size_t request_count = 0;
+            if (callbacks.com_trace) {
+                requests[request_count++] = {kQueryInterfaceIndex, reinterpret_cast<void*>(&HookQueryInterface)};
+                requests[request_count++] = {kAddRefIndex, reinterpret_cast<void*>(&HookAddRef)};
+                requests[request_count++] = {kReleaseIndex, reinterpret_cast<void*>(&HookRelease)};
+            }
+            requests[request_count++] = {kPresentIndex, reinterpret_cast<void*>(&HookPresent)};
+            outcome = g_registry.Install(vtable, std::span<const HookSlotRequest>(requests.data(), request_count));
             if (outcome.result != HookRegistryResult::Installed &&
                 outcome.result != HookRegistryResult::AlreadyInstalled &&
                 !outcome.ownership_record_retained) {
@@ -139,7 +187,10 @@ HookDiagnostics InspectAllSwapChainVtableHooks() noexcept {
             for (const HookSlotStatus& slot : g_registry.Inspect(vtable)) {
                 diagnostics.push_back(HookSlotDiagnostic{
                     .interface_name = "IDirect3DSwapChain9",
-                    .slot_name = slot.index == kPresentIndex ? "Present" : "unknown",
+                    .slot_name = slot.index == kPresentIndex ? "Present" :
+                        slot.index == kQueryInterfaceIndex ? "QueryInterface" :
+                        slot.index == kAddRefIndex ? "AddRef" :
+                        slot.index == kReleaseIndex ? "Release" : "unknown",
                     .vtable = vtable,
                     .index = slot.index,
                     .original = slot.original,

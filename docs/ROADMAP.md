@@ -4,10 +4,20 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-The immediate physical gate is the host-tested D3D9Ex shared-texture transport.
-It must preserve current stereo/tracking while replacing the old per-frame CPU
-readback and raising native-stereo cadence above the approximately 83 Hz
-baseline toward the 138 Hz readback-off reference.
+The D3D9Ex shared-texture path is an experimental, host-tested candidate. Two
+exact-game attempts completed three Ex Presents and stopped before videos or
+shared transport; the latest exposed a factory COM identity mismatch that is
+addressed in host-tested source, but not physically verified. A classic-D3D9
+gameplay probe separately observed successful MANAGED 2D and cube textures,
+proving that verbatim D3D9Ex substitution is incompatible. Its capture covered
+only three resource creations over more than 4,000 rendered frames, so pool
+prevalence and complete emulation scope remain unknown.
+
+The current gate is to obtain a complete resource census from classic D3D9
+and establish the semantics needed for any MANAGED-resource emulation. Do not
+advance the D3D9Ex transport to another physical run until that gate informs
+the architecture decision. Menu, arm-continuity, weapon-alignment and shutdown
+remain separate product gates.
 
 Three separate playability areas remain open after that transport gate:
 
@@ -45,7 +55,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Explicit render-pose submission for head-turn stability: **headset-validated**.
 - Controller recenter: **headset-validated**.
 - Startup/loading flat theater and transition to native stereo: **headset-validated for the exercised path**.
-- Frame pacing/transport cost: **host-tested candidate / physical gate**; D3D9Ex shared DEFAULT textures and nonblocking steady-state D3D9/D3D11 queries eliminate native-stereo CPU readback on the preferred path. A bounded D3D11 completion barrier exists only for draining pending copies during shutdown.
+- Frame pacing/transport cost: **host-tested candidate / physical gate**; D3D9Ex shared DEFAULT textures and nonblocking steady-state D3D9/D3D11 queries eliminate native-stereo CPU readback in the candidate. Exact-game startup and D3D9 managed-resource compatibility remain unresolved. A bounded D3D11 completion barrier exists only for draining pending copies during shutdown.
 - Inner presenter shutdown/finalization: **open regression**.
 
 ## Milestone 2 — player body and comfort
@@ -87,7 +97,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 ## Milestone 5 — additional renderers and games
 
-- OpenXR/frame-generation experiments: **future research only**; they do not replace validation of the active D3D9Ex/OpenVR shared-texture path.
+- OpenXR/frame-generation experiments: **future research only**; they do not replace validation of the experimental D3D9Ex/OpenVR shared-texture path.
 - D3D10 renderer path for Call of Juarez: **planned**.
 - Bound in Blood integration: **planned**.
 - Gunslinger integration: **planned**.

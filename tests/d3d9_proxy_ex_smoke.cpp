@@ -27,6 +27,20 @@ bool FileContains(const std::filesystem::path& path, const char* needle) {
     return contents.find(needle) != std::string::npos;
 }
 
+bool SameComIdentity(IUnknown* left, IUnknown* right) {
+    IUnknown* left_identity = nullptr;
+    IUnknown* right_identity = nullptr;
+    const HRESULT left_result = left->QueryInterface(
+        IID_IUnknown, reinterpret_cast<void**>(&left_identity));
+    const HRESULT right_result = right->QueryInterface(
+        IID_IUnknown, reinterpret_cast<void**>(&right_identity));
+    const bool same = SUCCEEDED(left_result) && SUCCEEDED(right_result) &&
+        left_identity == right_identity;
+    if (left_identity) left_identity->Release();
+    if (right_identity) right_identity->Release();
+    return same;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -85,6 +99,15 @@ int wmain(int argc, wchar_t** argv) {
         D3DCREATE_SOFTWARE_VERTEXPROCESSING, &presentation, &device);
 
     if (device && SUCCEEDED(result)) {
+        IDirect3D9* recovered_factory = nullptr;
+        const HRESULT recovered_result = device->GetDirect3D(&recovered_factory);
+        const bool factory_identity_matches = SUCCEEDED(recovered_result) &&
+            recovered_factory && SameComIdentity(d3d, recovered_factory);
+        if (recovered_factory) recovered_factory->Release();
+        if (!factory_identity_matches) {
+            return Fail("D3D9Ex device GetDirect3D changed the game's factory COM identity");
+        }
+
         const HRESULT begin_result = device->BeginScene();
         if (FAILED(begin_result)) return Fail("BeginScene failed after hook installation");
         const HRESULT clear_result = device->Clear(
@@ -124,13 +147,13 @@ int wmain(int argc, wchar_t** argv) {
     // valid code.
 
     const bool logged_identity = FileContains(log_path, "d3d9 bootstrap: host=");
-    const bool logged_forwarder = FileContains(log_path, "d3d9 D3D9Ex bridge: forwarding wrapper active");
+    const bool logged_factory = FileContains(log_path, "d3d9 D3D9Ex bridge: native Ex factory active");
     const bool logged_device = FileContains(log_path, "d3d9 CreateDevice:");
     const bool logged_hooks = FileContains(log_path, "d3d9 device hooks: Present/Reset active");
     const bool logged_present = FileContains(log_path, "d3d9 Present: frame boundary observed");
     const bool logged_reset = FileContains(log_path, "d3d9 Reset: hr=0x0");
     if (!logged_identity) return Fail("proxy did not log host identity");
-    if (!logged_forwarder) return Fail("proxy did not log forwarding activation");
+    if (!logged_factory) return Fail("proxy did not log native Ex factory activation");
     if (!logged_device) return Fail("proxy did not log device creation");
     if (SUCCEEDED(result) && !logged_hooks) return Fail("proxy did not install D3D9 device hooks");
     if (SUCCEEDED(result) && !logged_present) return Fail("proxy did not observe a D3D9 Present");

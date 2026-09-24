@@ -2,12 +2,16 @@
 
 #include "backends/d3d9/hook_diagnostics.hpp"
 #include "backends/d3d9/hook_registry.hpp"
+#include "backends/d3d9/com_trace.hpp"
 
 #include <d3d9.h>
 
 namespace cojvr::backends::d3d9 {
 
 struct FactoryHookCallbacks {
+    // On an Ex factory, satisfy legacy CreateDevice with CreateDeviceEx while
+    // preserving the native factory identity returned by device->GetDirect3D.
+    bool prefer_ex_device = false;
     void (*before_create_device)(
         IDirect3D9* factory,
         UINT adapter,
@@ -24,6 +28,7 @@ struct FactoryHookCallbacks {
         D3DPRESENT_PARAMETERS* presentation_parameters,
         IDirect3DDevice9** returned_device,
         HRESULT result) noexcept = nullptr;
+    ComTraceCallback com_trace = nullptr;
 };
 
 [[nodiscard]] bool InstallFactoryVtableHook(
