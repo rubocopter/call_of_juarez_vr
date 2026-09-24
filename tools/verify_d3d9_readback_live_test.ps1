@@ -16,7 +16,7 @@ $Checks = [ordered]@{
     "Present/Reset hooks active" = [bool]($Lines -match "d3d9 device hooks: Present/Reset active")
     "Present frame boundary observed" = [bool]($Lines -match "d3d9 Present: frame boundary observed")
     "classic D3D9 readback uploaded to D3D11" = [bool]($Lines -match "d3d9 classic readback -> D3D11: success success backbuffer=")
-    "D3D9Ex substitution inactive" = -not [bool]($Lines -match "d3d9 D3D9Ex bridge: forwarding wrapper active")
+    "D3D9Ex substitution inactive" = -not [bool]($Lines -match "d3d9 D3D9Ex bridge: native Ex factory active")
     "readback diagnostic has no failure" = -not [bool]($Lines -match "d3d9 classic readback -> D3D11: failed")
 }
 

@@ -54,12 +54,20 @@ SteamVR and Call of Juarez are launched and closed manually.
 
 ## Current product-remediation gate
 
-The current code change replaces native-stereo CPU readback with a host-tested
-D3D9Ex shared-texture ring. The next headset run should validate only that
-transport boundary before combining it with unrelated product work. It must
-preserve all baseline contracts and demonstrate a stable D3D9Ex game device,
-distinct paired eyes, exact pose ownership, nonblocking producer/consumer
-handoff, increased cadence and normal shutdown.
+The native-stereo D3D9Ex shared-texture ring is implemented and host-tested,
+but exact-game startup has not passed: two physical Ex runs completed three
+Presents and stopped before videos or transport. The device factory-identity
+hook is host-tested only. Separately, a real classic-D3D9 gameplay capture
+proved successful MANAGED 2D and cube texture creation, so a verbatim Ex device
+is incompatible. That probe captured only three creation calls across more
+than 4,000 rendered frames; it cannot establish the complete resource contract.
+
+The current gate is a complete classic-D3D9 resource census, followed by a
+design decision about whether each observed legacy behavior can be emulated
+without changing the game's resource semantics. Keep D3D9Ex interop host-tested
+and experimental until that gate is closed. The existing startup-only Ex
+workflow remains available for later verification; it does not validate the
+resource contract or promote the transport.
 
 After that gate, remaining product boundaries are:
 

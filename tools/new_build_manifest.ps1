@@ -4,7 +4,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
 
-    [ValidateSet("d3d9_forwarding", "d3d9_readback", "d3d9_openvr_flat", "d3d9_camera_probe", "d3d9_hmd_camera", "d3d9_native_stereo")]
+    [ValidateSet("d3d9_forwarding", "d3d9_readback", "d3d9_openvr_flat", "d3d9_camera_probe", "d3d9_hmd_camera", "d3d9_native_stereo", "d3d9_pool_probe")]
     [string]$DiagnosticMode = "d3d9_forwarding",
 
     [string]$ProxyPath = "",
@@ -49,6 +49,7 @@ $DefaultProxyNames = @{
     d3d9_camera_probe = "d3d9_camera_probe.dll"
     d3d9_hmd_camera = "d3d9_hmd_camera.dll"
     d3d9_native_stereo = "d3d9_native_stereo.dll"
+    d3d9_pool_probe = "d3d9_pool_probe.dll"
 }
 if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
     $ProxyPath = Join-Path $RepositoryRoot "build\win32-debug\$Configuration\$($DefaultProxyNames[$DiagnosticMode])"

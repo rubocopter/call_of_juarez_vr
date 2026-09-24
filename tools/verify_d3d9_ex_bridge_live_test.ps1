@@ -12,7 +12,7 @@ $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
 $Lines = $Provenance.Lines
 $Checks = [ordered]@{
     "known exact build" = [bool]($Lines -match "d3d9 bootstrap: host=Call of Juarez \(Direct3D 9\).*exact_build=known")
-    "D3D9Ex bridge active" = [bool]($Lines -match "d3d9 D3D9Ex bridge: forwarding wrapper active")
+    "D3D9Ex bridge active" = [bool]($Lines -match "d3d9 D3D9Ex bridge: native Ex factory active")
     "CreateDevice observed" = [bool]($Lines -match "d3d9 CreateDevice: .*hr=0x0")
     "Present/Reset hooks active" = [bool]($Lines -match "d3d9 device hooks: Present/Reset active")
     "Present frame boundary observed" = [bool]($Lines -match "d3d9 Present: frame boundary observed")

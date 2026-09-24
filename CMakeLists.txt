@@ -119,6 +119,7 @@ target_compile_definitions(cojvr_diagnostics PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN
 target_include_directories(cojvr_d3d9_hooks PUBLIC src)
 target_compile_features(cojvr_d3d9_hooks PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_d3d9_hooks PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_link_libraries(cojvr_d3d9_hooks PUBLIC dxguid)
 target_include_directories(cojvr_coj_camera_probe PUBLIC src)
 target_compile_features(cojvr_coj_camera_probe PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_coj_camera_probe PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
@@ -216,6 +217,16 @@ target_compile_features(cojvr_d3d9_proxy PRIVATE cxx_std_20)
 target_compile_definitions(cojvr_d3d9_proxy PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_link_libraries(cojvr_d3d9_proxy PRIVATE cojvr_build_identity cojvr_diagnostics cojvr_d3d9_hooks d3d11 dxgi dxguid)
 set_target_properties(cojvr_d3d9_proxy PROPERTIES OUTPUT_NAME d3d9)
+
+add_library(cojvr_d3d9_pool_probe SHARED
+    src/backends/d3d9/d3d9_pool_probe.cpp
+    src/backends/d3d9/d3d9_pool_probe.def
+)
+target_include_directories(cojvr_d3d9_pool_probe PRIVATE src)
+target_compile_features(cojvr_d3d9_pool_probe PRIVATE cxx_std_20)
+target_compile_definitions(cojvr_d3d9_pool_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_link_libraries(cojvr_d3d9_pool_probe PRIVATE cojvr_d3d9_hooks)
+set_target_properties(cojvr_d3d9_pool_probe PROPERTIES OUTPUT_NAME d3d9_pool_probe)
 
 add_library(cojvr_d3d9_readback_proxy SHARED
     src/backends/d3d9/classic_readback_bridge.cpp
@@ -374,6 +385,12 @@ endif()
 
 if(COJVR_BUILD_TESTS)
     enable_testing()
+    add_executable(cojvr_d3d9_pool_probe_smoke tests/d3d9_pool_probe_smoke.cpp)
+    target_compile_features(cojvr_d3d9_pool_probe_smoke PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_d3d9_pool_probe_smoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    target_link_libraries(cojvr_d3d9_pool_probe_smoke PRIVATE d3d9)
+    add_test(NAME d3d9_pool_probe_smoke COMMAND cojvr_d3d9_pool_probe_smoke $<TARGET_FILE:cojvr_d3d9_pool_probe>)
+    set_tests_properties(d3d9_pool_probe_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
     find_program(COJVR_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
     add_test(
@@ -518,6 +535,20 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9_factory_hook COMMAND cojvr_d3d9_factory_hook_test)
     set_tests_properties(d3d9_factory_hook PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(cojvr_d3d9ex_startup_contract_test
+        tests/d3d9ex_startup_contract.cpp
+        src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_d3d9ex_startup_contract_test PRIVATE src)
+    target_link_libraries(cojvr_d3d9ex_startup_contract_test PRIVATE cojvr_d3d9_hooks)
+    target_compile_features(cojvr_d3d9ex_startup_contract_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_d3d9ex_startup_contract_test
+        PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    if(MSVC)
+        target_compile_options(cojvr_d3d9ex_startup_contract_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME d3d9ex_startup_contract COMMAND cojvr_d3d9ex_startup_contract_test)
+    set_tests_properties(d3d9ex_startup_contract PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(
         cojvr_d3d9_device_hook_test

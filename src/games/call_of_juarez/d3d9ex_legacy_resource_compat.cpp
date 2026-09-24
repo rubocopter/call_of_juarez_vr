@@ -18,6 +18,7 @@ namespace {
 constexpr std::size_t kCreateTextureIndex = 23;
 constexpr std::size_t kCreateVolumeTextureIndex = 24;
 constexpr std::size_t kCreateCubeTextureIndex = 25;
+constexpr std::size_t kResourceReleaseIndex = 2;
 
 using CreateTextureFn = HRESULT(STDMETHODCALLTYPE*)(
     IDirect3DDevice9*, UINT, UINT, UINT, DWORD, D3DFORMAT, D3DPOOL,
@@ -28,15 +29,24 @@ using CreateVolumeTextureFn = HRESULT(STDMETHODCALLTYPE*)(
 using CreateCubeTextureFn = HRESULT(STDMETHODCALLTYPE*)(
     IDirect3DDevice9*, UINT, UINT, DWORD, D3DFORMAT, D3DPOOL,
     IDirect3DCubeTexture9**, HANDLE*);
+using ResourceReleaseFn = ULONG(STDMETHODCALLTYPE*)(IDirect3DBaseTexture9*);
 
 struct HookState {
     IDirect3DDevice9* device = nullptr;
     LegacyTextureCompatibilityCallbacks callbacks{};
 };
 
+struct ResourceState {
+    LegacyTextureKind kind = LegacyTextureKind::texture_2d;
+    LegacyTextureCompatibilityCallbacks callbacks{};
+};
+
 cojvr::backends::d3d9::HookRegistry g_registry{};
+cojvr::backends::d3d9::HookRegistry g_resource_registry{};
 std::mutex g_state_mutex;
 std::unordered_map<void**, HookState> g_state_by_vtable;
+std::mutex g_resource_mutex;
+std::unordered_map<IDirect3DBaseTexture9*, ResourceState> g_resources;
 std::atomic_uint64_t g_sequence{0};
 
 void** DeviceVtable(IDirect3DDevice9* device) noexcept {
@@ -59,6 +69,60 @@ void Notify(
     const LegacyTextureCreateEvent& event) noexcept {
     if (state.callbacks.event) {
         state.callbacks.event(state.callbacks.context, event);
+    }
+}
+
+ULONG STDMETHODCALLTYPE HookResourceRelease(IDirect3DBaseTexture9* resource) {
+    void** vtable = resource ? *reinterpret_cast<void***>(resource) : nullptr;
+    const auto original = reinterpret_cast<ResourceReleaseFn>(
+        g_resource_registry.OriginalTarget(vtable, kResourceReleaseIndex));
+    if (!original) return 0;
+    const ULONG count = original(resource);
+    if (count != 0) return count;
+
+    ResourceState state{};
+    bool tracked = false;
+    {
+        std::lock_guard lock(g_resource_mutex);
+        const auto found = g_resources.find(resource);
+        if (found != g_resources.end()) {
+            state = found->second;
+            g_resources.erase(found);
+            tracked = true;
+        }
+    }
+    if (tracked && state.callbacks.resource_destroy) {
+        state.callbacks.resource_destroy(
+            state.callbacks.context, reinterpret_cast<std::uintptr_t>(resource),
+            state.kind, count);
+    }
+    return count;
+}
+
+void TrackResource(
+    IDirect3DBaseTexture9* resource, LegacyTextureKind kind,
+    LegacyTextureCompatibilityCallbacks callbacks) noexcept {
+    if (!resource || !callbacks.resource_destroy ||
+        !cojvr::backends::d3d9::PinModuleForAddress(
+            reinterpret_cast<void*>(&HookResourceRelease))) return;
+    void** vtable = *reinterpret_cast<void***>(resource);
+    if (!vtable) return;
+    try {
+        {
+            std::lock_guard lock(g_resource_mutex);
+            g_resources.insert_or_assign(resource, ResourceState{kind, callbacks});
+        }
+        const std::array requests{
+            cojvr::backends::d3d9::HookSlotRequest{
+                kResourceReleaseIndex, reinterpret_cast<void*>(&HookResourceRelease)}};
+        const auto outcome = g_resource_registry.Install(vtable, std::span(requests));
+        if (outcome.result != cojvr::backends::d3d9::HookRegistryResult::Installed &&
+            outcome.result != cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled &&
+            !outcome.ownership_record_retained) {
+            std::lock_guard lock(g_resource_mutex);
+            g_resources.erase(resource);
+        }
+    } catch (...) {
     }
 }
 
@@ -142,6 +206,10 @@ HRESULT STDMETHODCALLTYPE HookCreateTexture(
         device, width, height, levels, effective_usage, format, effective_pool,
         texture, shared_handle);
     if (state.device) {
+        if (SUCCEEDED(result) && texture && *texture && translated) {
+            TrackResource(static_cast<IDirect3DBaseTexture9*>(*texture),
+                          LegacyTextureKind::texture_2d, state.callbacks);
+        }
         event.phase = LegacyTextureCreatePhase::result;
         event.result = result;
         Notify(state, event);
@@ -181,6 +249,10 @@ HRESULT STDMETHODCALLTYPE HookCreateVolumeTexture(
         device, width, height, depth, levels, effective_usage, format, effective_pool,
         texture, shared_handle);
     if (state.device) {
+        if (SUCCEEDED(result) && texture && *texture && translated) {
+            TrackResource(static_cast<IDirect3DBaseTexture9*>(*texture),
+                          LegacyTextureKind::volume_texture, state.callbacks);
+        }
         event.phase = LegacyTextureCreatePhase::result;
         event.result = result;
         Notify(state, event);
@@ -218,6 +290,10 @@ HRESULT STDMETHODCALLTYPE HookCreateCubeTexture(
         device, edge_length, levels, effective_usage, format, effective_pool,
         texture, shared_handle);
     if (state.device) {
+        if (SUCCEEDED(result) && texture && *texture && translated) {
+            TrackResource(static_cast<IDirect3DBaseTexture9*>(*texture),
+                          LegacyTextureKind::cube_texture, state.callbacks);
+        }
         event.phase = LegacyTextureCreatePhase::result;
         event.result = result;
         Notify(state, event);
@@ -286,9 +362,14 @@ bool RestoreD3D9ExLegacyTextureCompatibility() noexcept {
         for (void** vtable : g_registry.RegisteredVtables()) {
             if (!Successful(g_registry.Restore(vtable).result)) restored = false;
         }
+        for (void** vtable : g_resource_registry.RegisteredVtables()) {
+            if (!Successful(g_resource_registry.Restore(vtable).result)) restored = false;
+        }
         if (restored) {
             std::lock_guard lock(g_state_mutex);
             g_state_by_vtable.clear();
+            std::lock_guard resource_lock(g_resource_mutex);
+            g_resources.clear();
         }
     } catch (...) {
         restored = false;

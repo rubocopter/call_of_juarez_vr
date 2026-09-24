@@ -103,9 +103,9 @@ try {
 
     $StageSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\stage_d3d9_proxy.ps1") -Raw
     $UnstageSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\unstage_d3d9_proxy.ps1") -Raw
-    Assert-True ($StageSource.Contains('[ValidateSet("full", "performance", "transport")]')) `
+    Assert-True ($StageSource.Contains('[ValidateSet("full", "performance", "transport", "startup")]')) `
         "Native-stereo staging has no dedicated short transport validation profile."
-    Assert-True ($VrTestSource.Contains('$ValidationProfile = if ($BodyIkAtStart) { "full" } else { "transport" }')) `
+    Assert-True ($VrTestSource.Contains('$ValidationProfile = if ($StartupOnly) { "startup" } elseif ($BodyIkAtStart) { "full" } else { "transport" }')) `
         "vr_test does not select the short transport profile by default."
     Assert-True ($StageSource.Contains('requireFlatTheaterUi = $IsNativeStereo -and $ValidationProfile -ne "transport"')) `
         "Transport validation still requires unrelated flat-theater UI acceptance."
@@ -993,6 +993,41 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $TransportOnlyLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
+
+    $TransportRun.validation.profile = "startup"
+    $TransportRun.validation | Add-Member -NotePropertyName requireHmdTracking -NotePropertyValue $false -Force
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    $StartupLog = @(
+        "run_start: run_id=$StereoVerifierRunId build_manifest_id=$($StereoBuildManifest.manifestId) pid=789",
+        "native_stereo_d3d9_factory: status=d3d9ex_primary fallback=classic_create_device transport=d3d9ex_shared_texture_ring",
+        "native_stereo_device: status=observed device=0x1234 generation=1 device_api=d3d9ex",
+        "native_stereo_startup_event: event=factory_identity;thread_id=1;factory=0x12;recovered=0x12;device=0x1234;hr=0x0;matches=true",
+        "native_stereo_startup_event: event=present_exit;thread_id=1;device=0x1234;generation=1;frame_sequence=90;hr=0x0",
+        "native_stereo_flat_theater: status=captured transport=immediate_flat_d3d9_cpu_mailbox",
+        "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
+        "native_stereo_startup_event: event=device_method_enter;thread_id=1;object=0x1234;hr=0x0;method=Present",
+        "native_stereo_startup_event: event=device_method_exit;thread_id=1;object=0x1234;hr=0x0;method=Present",
+        "native_stereo_factory_hook: status=restored",
+        "native_stereo_device_hook: status=restored",
+        "native_stereo_swapchain_hook: status=restored",
+        "native_stereo_runtime: status=stopped",
+        "run_end: run_id=$StereoVerifierRunId"
+    )
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StartupLog
+    & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+        -GameDirectory $StereoVerifierGame | Out-Null
+    $StartupLogWithoutSustainedPresent = @($StartupLog | Where-Object {
+        $_ -notmatch "frame_sequence=90"
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StartupLogWithoutSustainedPresent
+    $StartupRejected = $false
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch {
+        $StartupRejected = $true
+    }
+    Assert-True $StartupRejected "Startup validation accepted a run with no sustained D3D9Ex Present."
 
     $TransportRun.validation.profile = "full"
     $TransportRun.validation.requireOpenVrDashboardCycle = $true

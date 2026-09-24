@@ -1,6 +1,6 @@
 # Technical audit — current baseline
 
-Last refreshed: 2026-09-22.
+Last refreshed: 2026-09-24.
 
 This document describes the current engineering baseline and the findings that still matter. Historical investigation details were intentionally removed once their conclusions became enforced contracts or retained evidence.
 
@@ -38,7 +38,7 @@ disabled. The perceived locomotion slowdown is presentation stutter caused by
 the old transport, not a movement/input/physics defect.
 
 The current source contains a D3D9Ex shared-texture replacement that is
-**host-tested only**. Win32 Release passes **26 tests + 1 expected classic-D3D9
+**host-tested only**. Win32 Release passes **30 tests + 1 expected classic-D3D9
 shared-texture capability SKIP**. Host success cannot prove exact-game D3D9Ex
 stability, headset image correctness, cadence, UI, anatomy, aiming or shutdown.
 
@@ -91,8 +91,8 @@ presentation D3D9 and D3D11 EVENT queries are polled without waiting; three
 producer slots plus a consumer lease prevent overwrite and preserve
 left/right/pose pairing. Presenter shutdown uses one bounded D3D11 completion
 barrier only when copies remain pending, and retains leases on drain failure
-rather than releasing producer resources early. The preferred
-path contains no `GetRenderTargetData`, SYSTEMMEM surface, CPU pixel copy,
+rather than releasing producer resources early. The host-tested GPU candidate
+contains no `GetRenderTargetData`, SYSTEMMEM surface, CPU pixel copy,
 diagnostic eye hash or `UpdateSubresource`.
 
 Classic D3D9 cannot supply the DXGI-shareable DEFAULT resources required by
@@ -103,11 +103,21 @@ performance gate. Immediate flat-theater capture still uses transient
 `GetRenderTargetData` because it owns CPU-side UI/pointer composition and reset
 safety; native stereo does not use it while D3D9Ex sharing is active.
 
-The main unresolved risk is compatibility: an earlier D3D9Ex substitution
-crashed the exact game after staging. The new candidate has explicit factory
-fallback and tested ring/resource lifetime, but it cannot recover from a crash
-that occurs after successful Ex device creation. A fresh correlated physical
-run must settle that boundary before the transport advances beyond host-tested.
+The exact-game D3D9Ex candidate remains physically blocked. Two candidates
+created an Ex device and completed three Presents, then stopped before videos
+or shared transport. The second exposed a factory COM identity mismatch and
+the current source hooks `GetDirect3D` to return the game's factory; that fix
+is host-tested but not physically verified.
+
+A separate classic-D3D9 observation run loaded DX9 gameplay and logged 4,311
+rendered frames. It recorded two successful `D3DPOOL_MANAGED` creations, a 2D
+texture and a cube texture, proving that verbatim device substitution is
+semantically incompatible. However, only three resource creations total were
+captured. The observed 66.7% MANAGED share is not representative, and the full
+resource types and emulation requirements remain unknown. The immediate gate
+is a complete resource census and evidence for any managed-resource emulation
+before another D3D9Ex transport attempt. The run report and raw capture remain
+under ignored `work/evidence/d3d9_pool_probe/`.
 
 OFXR-Bridge is not a direct fix for this path. It is an experimental OpenXR
 optical-flow layer and cannot replace D3D9Ex/OpenVR resource interop or recover

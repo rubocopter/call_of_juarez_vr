@@ -47,7 +47,7 @@ $Checks = [ordered]@{
         $Report.RuntimeFailures -eq 0
     "no stage remained active at final summary" = $Report.LastActiveStage -eq "none"
     "D3D9Ex substitution inactive" =
-        -not [bool]($Provenance.Lines -match "d3d9 D3D9Ex bridge: forwarding wrapper active")
+        -not [bool]($Provenance.Lines -match "d3d9 D3D9Ex bridge: native Ex factory active")
 }
 if ($OverlayAbsenceRequired) {
     $Checks["factory CreateDevice original target excludes Steam Overlay"] =
