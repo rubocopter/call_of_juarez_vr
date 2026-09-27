@@ -17,6 +17,25 @@ The supported end state is native stereo rendering, tracked head and hands, full
 
 The architecture intentionally mirrors the useful separation already proven in the Penumbra VR Framework while keeping all HPL-specific implementation details out of this repository.
 
+## Safety and provenance invariants
+
+The stabilization work that made physical testing trustworthy is now a
+baseline contract rather than a separate remediation track:
+
+- every physical candidate binds source commit/dirty state, supported-game
+  SHA-256, build manifest, deployed proxy hash, a fresh run ID and restoration
+  state;
+- a run ID belongs to one game process; a second process requires a new
+  `prepare` cycle;
+- hooks own a specific object/generation, preserve foreign hooks and restore
+  only their own mutations;
+- ambiguous build, object, generation, camera basis, tracked pose, restoration
+  or provenance state fails closed for game-specific mutation;
+- game render callbacks produce frames, while the presenter owns compositor
+  cadence, repeat behavior, scene focus and submission;
+- `tools/vr_test.ps1 prepare` is the physical-test front door and `finish`
+  collects available evidence and restores staging transactionally.
+
 ## Exact-build integration
 
 Game-specific mutation is SHA-256 gated. A recognized filename is never sufficient to authorize exact offsets or bytecode/native seams. Unknown builds may use safe generic diagnostics only.
@@ -206,7 +225,7 @@ resource boundary.
 
 ## Evidence and lifecycle
 
-Every physical candidate correlates source state, build manifest, deployed proxy, run ID, runtime telemetry and retained evidence metadata. One staged run ID represents one game process; a second launch requires a new prepare cycle.
+Every physical candidate correlates source state, build manifest, deployed proxy, run ID, runtime telemetry and retained evidence metadata. Raw run material remains local under ignored `work/` and may be discarded after its durable conclusion is represented by source, tests or the focused research documents.
 
 Validation states are:
 

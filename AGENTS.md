@@ -2,11 +2,12 @@
 
 Read this file before changing code. Then read, in order:
 
-1. `docs/TECHNICAL_AUDIT.md`
-2. `docs/AUDIT_REMEDIATION_PLAN.md`
-3. `docs/VALIDATION.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/ROADMAP.md`
+1. `docs/ARCHITECTURE.md`
+2. `docs/VALIDATION.md`
+3. `docs/ROADMAP.md`
+
+Read the focused documents under `docs/research/` only when their exact-game
+boundary is relevant to the work at hand.
 
 Inspect the repository before acting. Documentation records durable contracts and validation state; source, local staging and fresh test results decide whether an item is still pending.
 
@@ -78,6 +79,6 @@ pwsh -File tools/vr_test.ps1 finish
 
 ## Documentation policy
 
-Versioned documentation is limited to durable architecture, research conclusions, roadmap state, compatibility and validation contracts.
+Versioned documentation is limited to durable architecture, research conclusions, roadmap state, compatibility and validation contracts. `ARCHITECTURE.md`, `VALIDATION.md` and `ROADMAP.md` are the three project-level sources of truth; focused exact-game findings live under `docs/research/`.
 
 Temporary debugging chronology, one-off measurements, raw run metadata, local paths, screenshots, videos, extracted frames, prompts, agent continuity notes and discarded hypotheses belong under ignored `work/`. `docs/internal/` and `docs/research/evidence/` are legacy local-only paths and are ignored defensively if recreated.

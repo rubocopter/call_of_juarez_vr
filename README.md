@@ -44,9 +44,12 @@ weapon alignment and shutdown remain separate open product areas.
 
 [Roadmap](docs/ROADMAP.md) ·
 [Architecture](docs/ARCHITECTURE.md) ·
-[Validation](docs/VALIDATION.md) ·
-[Technical audit](docs/TECHNICAL_AUDIT.md) ·
-[Research notes](docs/RESEARCH_NOTES.md)
+[Validation](docs/VALIDATION.md)
+
+Focused exact-game research:
+[camera/stereo](docs/research/COJ_CAMERA_PATH.md) ·
+[arm/weapon ownership](docs/research/COJ_ARM_SKINNING_AND_AIM.md) ·
+[D3D9 resource census](docs/research/COJ_D3D9_RESOURCE_CENSUS.md)
 
 The README is intentionally a project landing page. Detailed run chronology and temporary implementation handoffs are not versioned as project documentation.
 
