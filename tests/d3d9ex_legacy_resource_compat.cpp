@@ -116,6 +116,62 @@ int main() {
         16, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &cube, nullptr);
     if (FAILED(hr) || !cube) return Fail("MANAGED cube texture compatibility failed", hr);
 
+    ComPtr<IDirect3DVertexBuffer9> vertex_buffer;
+    hr = device->CreateVertexBuffer(
+        262144, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED,
+        &vertex_buffer, nullptr);
+    if (FAILED(hr) || !vertex_buffer) {
+        return Fail("MANAGED vertex-buffer compatibility failed", hr);
+    }
+    D3DVERTEXBUFFER_DESC vertex_desc{};
+    hr = vertex_buffer->GetDesc(&vertex_desc);
+    if (FAILED(hr) || vertex_desc.Pool != D3DPOOL_DEFAULT ||
+        vertex_desc.Usage != D3DUSAGE_WRITEONLY) {
+        return Fail("vertex-buffer compatibility did not preserve usage and select DEFAULT", hr);
+    }
+    void* vertex_bits = nullptr;
+    hr = vertex_buffer->Lock(0, 0, &vertex_bits, 0);
+    if (FAILED(hr) || !vertex_bits) return Fail("translated vertex buffer was not lockable", hr);
+    static_cast<unsigned char*>(vertex_bits)[0] = 0x22;
+    if (FAILED(vertex_buffer->Unlock())) return Fail("translated vertex buffer unlock failed");
+
+    ComPtr<IDirect3DIndexBuffer9> index_buffer;
+    hr = device->CreateIndexBuffer(
+        131072, D3DUSAGE_WRITEONLY, D3DFMT_INDEX16, D3DPOOL_MANAGED,
+        &index_buffer, nullptr);
+    if (FAILED(hr) || !index_buffer) {
+        return Fail("MANAGED index-buffer compatibility failed", hr);
+    }
+    D3DINDEXBUFFER_DESC index_desc{};
+    hr = index_buffer->GetDesc(&index_desc);
+    if (FAILED(hr) || index_desc.Pool != D3DPOOL_DEFAULT ||
+        index_desc.Usage != D3DUSAGE_WRITEONLY || index_desc.Format != D3DFMT_INDEX16) {
+        return Fail("index-buffer compatibility did not preserve usage/format and select DEFAULT", hr);
+    }
+    void* index_bits = nullptr;
+    hr = index_buffer->Lock(0, 0, &index_bits, 0);
+    if (FAILED(hr) || !index_bits) return Fail("translated index buffer was not lockable", hr);
+    static_cast<unsigned char*>(index_bits)[0] = 0x33;
+    if (FAILED(index_buffer->Unlock())) return Fail("translated index buffer unlock failed");
+
+    vertex_buffer.Reset();
+    index_buffer.Reset();
+
+    hr = device->BeginStateBlock();
+    if (FAILED(hr)) return Fail("BeginStateBlock failed", hr);
+    ComPtr<IDirect3DStateBlock9> state_block;
+    hr = device->EndStateBlock(&state_block);
+    if (FAILED(hr) || !state_block) return Fail("EndStateBlock failed", hr);
+
+    ComPtr<IDirect3DVertexBuffer9> post_state_block_vertex;
+    hr = device->CreateVertexBuffer(
+        262144, D3DUSAGE_WRITEONLY, 0, D3DPOOL_MANAGED,
+        &post_state_block_vertex, nullptr);
+    if (FAILED(hr) || !post_state_block_vertex) {
+        return Fail("legacy compatibility hook was lost across BeginStateBlock", hr);
+    }
+    post_state_block_vertex.Reset();
+
     D3DPRESENT_PARAMETERS reset_present = present;
     hr = device->Reset(&reset_present);
     if (FAILED(hr)) return Fail("Reset failed with translated legacy textures retained", hr);

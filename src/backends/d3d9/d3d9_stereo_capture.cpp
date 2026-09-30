@@ -148,6 +148,7 @@ struct D3D9StereoCapture::Impl {
             if (slot.pending || slot.release_state) ++stats.frames_invalidated;
             slot.ResetState();
         }
+        UpdateRingDepth();
         resource_device.Reset();
         source_desc = {};
         device_id = 0;

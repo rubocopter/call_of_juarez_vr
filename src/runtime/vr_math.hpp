@@ -34,6 +34,16 @@ struct FlatTheaterEyePlacement {
     std::uint32_t top = 0;
 };
 
+// Keeps the source rectangle inside both asymmetric eye projections, retaining
+// the recommendation and existing 35% border as minimum extents.
+[[nodiscard]] bool ComputeFlatTheaterTextureExtent(
+    const std::array<EyeView, 2>& eyes,
+    std::uint32_t source_width,
+    std::uint32_t source_height,
+    std::uint32_t& texture_width,
+    std::uint32_t& texture_height,
+    float plane_distance_m = 1.5F) noexcept;
+
 struct FlatTheaterPointerBeam {
     std::uint32_t start_x = 0;
     std::uint32_t start_y = 0;

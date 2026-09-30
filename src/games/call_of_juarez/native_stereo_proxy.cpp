@@ -1,5 +1,6 @@
 #include "games/call_of_juarez/camera_probe.hpp"
 #include "games/call_of_juarez/d3d9ex_legacy_resource_compat.hpp"
+#include "games/call_of_juarez/game_shutdown_hook.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
@@ -35,6 +36,9 @@ namespace {
 std::once_flag g_start_once;
 std::filesystem::path g_game_directory{};
 std::string g_run_id{"unbound"};
+std::atomic_bool g_finalization_started{false};
+std::atomic_bool g_finalization_completed{false};
+wchar_t g_process_exit_log_path[32768]{};
 
 struct NativeStereoState {
     cojvr::backends::d3d9::D3D9StereoCapture capture;
@@ -70,7 +74,10 @@ struct NativeStereoState {
     bool runtime_ready = false;
 };
 
-NativeStereoState g_stereo;
+// Finalize explicitly drains owners before DestroyGame. If abnormal exit bypasses
+// that boundary, Windows owns the remaining allocations; DLL static destruction
+// must not join killed threads or release GPU resources under the loader lock.
+NativeStereoState& g_stereo = *new NativeStereoState;
 
 std::filesystem::path GameDirectory() noexcept {
     try {
@@ -1267,6 +1274,8 @@ bool StartStereoRuntime() noexcept {
 }
 
 void Finalize() noexcept {
+    if (g_finalization_started.exchange(true, std::memory_order_acq_rel)) return;
+    LogLine("native_stereo_pre_exit: stage=begin boundary=CoJ.exe!DestroyGame");
     g_stereo.runtime_ready = false;
     StopPresentHookWorker();
     cojvr::games::call_of_juarez::ShutdownCameraProbe();
@@ -1336,17 +1345,37 @@ void Finalize() noexcept {
     } catch (...) {
     }
     LogLine("native_stereo_runtime: status=stopped");
-    // These COM references are deliberately process-lifetime. The live game has shown
-    // that releasing the retained D3D9 device during CRT teardown can terminate finalization
-    // after hook restoration but before OpenVR shutdown/run_end. Windows reclaims the
-    // remaining process references immediately after atexit completes.
+    // These extra factory/device references remain deliberately process-lifetime.
+    // Capture resources and consumer leases were released above while their owners
+    // were alive. Windows reclaims only the retained roots at process exit.
     {
         std::lock_guard lock(g_stereo.device_mutex);
         g_stereo.device = nullptr;
     }
     g_stereo.factory = nullptr;
     LogLine("native_stereo_d3d9_refs: status=process_lifetime_released_by_os");
+    const bool exit_hook_restored = cojvr::games::call_of_juarez::RestoreGameShutdownHook();
+    LogLine(std::string("native_stereo_pre_exit_hook: status=") +
+        (exit_hook_restored ? "restored" : "incomplete"));
+    LogLine("native_stereo_pre_exit: stage=end boundary=CoJ.exe!DestroyGame");
     LogLine("run_end: run_id=" + g_run_id);
+    g_finalization_completed.store(true, std::memory_order_release);
+}
+
+void BeforeGameDestroy(void*) noexcept { Finalize(); }
+
+void ReportIncompletePreExitShutdown() noexcept {
+    if (g_finalization_completed.load(std::memory_order_acquire)) return;
+    // Do not use the shared logger mutex: a terminated presenter may own it.
+    // Report failure without joining threads, COM calls or promoting run_end.
+    constexpr char message[] =
+        "native_stereo_shutdown: status=incomplete reason=pre_exit_boundary_not_completed\r\n";
+    HANDLE log = CreateFileW(g_process_exit_log_path, FILE_APPEND_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (log == INVALID_HANDLE_VALUE) return;
+    DWORD written{};
+    (void)WriteFile(log, message, sizeof(message) - 1, &written, nullptr);
+    CloseHandle(log);
 }
 
 void EnsureStarted() noexcept {
@@ -1362,8 +1391,17 @@ void EnsureStarted() noexcept {
                   << " pid=" << GetCurrentProcessId();
             LogLine(start.str());
 
+            lstrcpynW(g_process_exit_log_path, LogPath().c_str(), 32768);
+            std::atexit(ReportIncompletePreExitShutdown);
+            const auto exit_hook = cojvr::games::call_of_juarez::InstallCurrentGameShutdownHook(
+                &BeforeGameDestroy, nullptr);
+            LogLine(std::string("native_stereo_pre_exit_hook: status=") +
+                cojvr::games::call_of_juarez::GameShutdownHookStatusName(exit_hook));
+            const bool exit_boundary_ready = exit_hook ==
+                cojvr::games::call_of_juarez::GameShutdownHookStatus::installed;
+
             cojvr::games::call_of_juarez::CameraStereoRuntimeCallbacks stereo_callbacks{};
-            if (StartStereoRuntime()) {
+            if (exit_boundary_ready && StartStereoRuntime()) {
                 stereo_callbacks.context = &g_stereo;
                 stereo_callbacks.begin_frame = &BeginStereoFrame;
                 stereo_callbacks.capture_eye = &CaptureStereoEye;
@@ -1381,7 +1419,6 @@ void EnsureStarted() noexcept {
                 " system_d3d9=" +
                 (cojvr::backends::d3d9::IsExpectedSystemD3D9Module()
                     ? "expected" : "unexpected"));
-            std::atexit(Finalize);
         });
     } catch (...) {
         LogLine("native_stereo_bootstrap: status=exception");

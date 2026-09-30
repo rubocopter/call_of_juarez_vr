@@ -18,6 +18,9 @@ namespace {
 constexpr std::size_t kCreateTextureIndex = 23;
 constexpr std::size_t kCreateVolumeTextureIndex = 24;
 constexpr std::size_t kCreateCubeTextureIndex = 25;
+constexpr std::size_t kCreateVertexBufferIndex = 26;
+constexpr std::size_t kCreateIndexBufferIndex = 27;
+constexpr std::size_t kBeginStateBlockIndex = 60;
 constexpr std::size_t kResourceReleaseIndex = 2;
 
 using CreateTextureFn = HRESULT(STDMETHODCALLTYPE*)(
@@ -29,6 +32,13 @@ using CreateVolumeTextureFn = HRESULT(STDMETHODCALLTYPE*)(
 using CreateCubeTextureFn = HRESULT(STDMETHODCALLTYPE*)(
     IDirect3DDevice9*, UINT, UINT, DWORD, D3DFORMAT, D3DPOOL,
     IDirect3DCubeTexture9**, HANDLE*);
+using CreateVertexBufferFn = HRESULT(STDMETHODCALLTYPE*)(
+    IDirect3DDevice9*, UINT, DWORD, DWORD, D3DPOOL,
+    IDirect3DVertexBuffer9**, HANDLE*);
+using CreateIndexBufferFn = HRESULT(STDMETHODCALLTYPE*)(
+    IDirect3DDevice9*, UINT, DWORD, D3DFORMAT, D3DPOOL,
+    IDirect3DIndexBuffer9**, HANDLE*);
+using BeginStateBlockFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*);
 using ResourceReleaseFn = ULONG(STDMETHODCALLTYPE*)(IDirect3DBaseTexture9*);
 
 struct HookState {
@@ -139,6 +149,18 @@ void TranslateManagedPool(
         effective_pool = D3DPOOL_DEFAULT;
         effective_usage |= D3DUSAGE_DYNAMIC;
     }
+}
+
+void TranslateObservedManagedBufferPool(
+    const D3DPOOL requested_pool,
+    const DWORD requested_usage,
+    const HANDLE* shared_handle,
+    D3DPOOL& effective_pool,
+    bool& translated) noexcept {
+    effective_pool = requested_pool;
+    translated = requested_pool == D3DPOOL_MANAGED &&
+        requested_usage == D3DUSAGE_WRITEONLY && shared_handle == nullptr;
+    if (translated) effective_pool = D3DPOOL_DEFAULT;
 }
 
 LegacyTextureCreateEvent BaseEvent(
@@ -301,6 +323,67 @@ HRESULT STDMETHODCALLTYPE HookCreateCubeTexture(
     return result;
 }
 
+HRESULT STDMETHODCALLTYPE HookCreateVertexBuffer(
+    IDirect3DDevice9* device,
+    UINT length,
+    DWORD usage,
+    DWORD fvf,
+    D3DPOOL pool,
+    IDirect3DVertexBuffer9** buffer,
+    HANDLE* shared_handle) {
+    void** vtable = DeviceVtable(device);
+    const auto original = reinterpret_cast<CreateVertexBufferFn>(
+        g_registry.OriginalTarget(vtable, kCreateVertexBufferIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+
+    const HookState state = StateFor(vtable, device);
+    D3DPOOL effective_pool = pool;
+    bool translated = false;
+    if (state.device) {
+        TranslateObservedManagedBufferPool(
+            pool, usage, shared_handle, effective_pool, translated);
+    }
+    return original(
+        device, length, usage, fvf, effective_pool, buffer, shared_handle);
+}
+
+HRESULT STDMETHODCALLTYPE HookCreateIndexBuffer(
+    IDirect3DDevice9* device,
+    UINT length,
+    DWORD usage,
+    D3DFORMAT format,
+    D3DPOOL pool,
+    IDirect3DIndexBuffer9** buffer,
+    HANDLE* shared_handle) {
+    void** vtable = DeviceVtable(device);
+    const auto original = reinterpret_cast<CreateIndexBufferFn>(
+        g_registry.OriginalTarget(vtable, kCreateIndexBufferIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+
+    const HookState state = StateFor(vtable, device);
+    D3DPOOL effective_pool = pool;
+    bool translated = false;
+    if (state.device) {
+        TranslateObservedManagedBufferPool(
+            pool, usage, shared_handle, effective_pool, translated);
+    }
+    return original(
+        device, length, usage, format, effective_pool, buffer, shared_handle);
+}
+
+HRESULT STDMETHODCALLTYPE HookBeginStateBlock(IDirect3DDevice9* device) {
+    void** vtable = DeviceVtable(device);
+    const auto original = reinterpret_cast<BeginStateBlockFn>(
+        g_registry.OriginalTarget(vtable, kBeginStateBlockIndex));
+    if (!original) return D3DERR_INVALIDCALL;
+
+    const HRESULT result = original(device);
+    if (SUCCEEDED(result)) {
+        (void)g_registry.Reacquire(DeviceVtable(device));
+    }
+    return result;
+}
+
 bool Successful(const cojvr::backends::d3d9::HookRegistryResult result) noexcept {
     return result == cojvr::backends::d3d9::HookRegistryResult::Installed ||
         result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled;
@@ -337,6 +420,12 @@ bool InstallD3D9ExLegacyTextureCompatibility(
                 kCreateVolumeTextureIndex, reinterpret_cast<void*>(&HookCreateVolumeTexture)},
             cojvr::backends::d3d9::HookSlotRequest{
                 kCreateCubeTextureIndex, reinterpret_cast<void*>(&HookCreateCubeTexture)},
+            cojvr::backends::d3d9::HookSlotRequest{
+                kCreateVertexBufferIndex, reinterpret_cast<void*>(&HookCreateVertexBuffer)},
+            cojvr::backends::d3d9::HookSlotRequest{
+                kCreateIndexBufferIndex, reinterpret_cast<void*>(&HookCreateIndexBuffer)},
+            cojvr::backends::d3d9::HookSlotRequest{
+                kBeginStateBlockIndex, reinterpret_cast<void*>(&HookBeginStateBlock)},
         };
         const auto outcome = g_registry.Install(vtable, std::span(requests));
         if (Successful(outcome.result)) return true;

@@ -4,22 +4,57 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-The D3D9Ex shared-texture path is an experimental, host-tested candidate. Two
-exact-game attempts completed three Ex Presents and stopped before videos or
-shared transport; the latest exposed a factory COM identity mismatch that is
-addressed in host-tested source, but not physically verified. A classic-D3D9
-gameplay probe separately observed successful MANAGED 2D and cube textures,
-proving that verbatim D3D9Ex substitution is incompatible. Its capture covered
-only three resource creations over more than 4,000 rendered frames, so pool
-prevalence and complete emulation scope remain unknown.
+The experimental D3D9Ex shared-texture production path is now **live-tested**
+through native-stereo publication, D3D11 copy and explicit-pose new-frame
+submission to both OpenVR eyes. Complete acceptance remains open. Its
+compatibility/startup/reset subpath is **live-tested** on the
+inspected Steam build/host: the manual run sustains Ex Present/capture, completes
+a reset and reaches outer finalization. The corrected full startup gate now
+passes: geometry-derived texture extents support upload/submission with the
+actual asymmetric PS VR2 optics, and the operator confirms videos/menu plus a
+visible pointer in the visor. Flat presentation is **headset-validated for this
+startup path**; normal-quit inner presenter shutdown and finalization are also
+**live-tested**. The bounded cadence target now passes near the readback-off
+reference, and the operator confirms correct stereo depth and stable head turns.
+Sustained pacing, tail latency and pending-frame reset/device loss remain separate.
+Earlier production attempts
+stopped after three Ex Presents, but an
+independent LTR research path on the same game build has since demonstrated the
+required startup compatibility pattern: semantic MANAGED adaptation plus
+immediate `BeginStateBlock` hook restoration reaches a bounded 120-Present
+startup window. Its reset probe keeps all nine tracked adapted resources alive,
+preserves identical contents for four directly hashable textures and observes a
+generation-1 texture still bound in generation 2. Its real two-slot transport
+also survives an engine reset by cancelling the stalled old generation and
+completing 12/12 submissions in the replacement generation with zero sampled
+mismatches. These are **live-tested research results** and do not promote this
+mod's candidate.
 
-The current gate is to obtain a complete resource census from classic D3D9
-and establish the semantics needed for any MANAGED-resource emulation. Do not
-advance the D3D9Ex transport to another physical run until that gate informs
-the architecture decision. Menu, arm-continuity, weapon-alignment and shutdown
-remain separate product gates.
+The production tree now implements the directly reusable compatibility findings:
+the observed MANAGED WRITEONLY VB/IB profiles map to DEFAULT with usage and
+metadata preserved, and `BeginStateBlock` immediately reacquires the owned hook
+slots. Focused host tests cover allocation, Lock/Unlock and post-state-block hook
+retention. The earlier clean-shutdown blocker is closed on this build/host:
+the fresh physical run completes same-owner OpenVR shutdown, GPU-copy drain,
+capture cleanup, hook restoration and final summaries. A corrected telemetry
+verifier accepts genuine successful native submissions and strictly checks
+the final drain counters. A bounded x86 host experiment reproduces owner cleanup
+being skipped at DLL atexit and completing when stopped before process exit.
+The candidate now installs an exact-build pre-`DestroyGame` callback, preserves
+the original call and restores its protected import. Owner cleanup before
+original forwarding/DLL atexit and producer reclamation after pending GPU copies
+drain are **host-tested**, with normal-quit closure now **live-tested** in the
+game. The ring-depth telemetry follow-up is now also **live-tested**, with zero
+final depth after cancelling the last unpublished frame. Measured cadence and
+operator-confirmed stereo depth/head-turn stability complete the bounded transport
+gesture. Preserve that gesture as a regression requirement without repeating it
+or restarting a broad resource census. Product body/UI/weapon work can proceed;
+sustained pacing and abnormal renderer lifecycle remain independent gates.
+Device-loss behavior, non-lockable resources and broader gameplay semantics
+remain open. Menu, arm-continuity and weapon-alignment remain separate product
+gates; abnormal shutdown recovery is unproved.
 
-Three separate playability areas remain open after that transport gate:
+Three separate playability areas remain open after the bounded transport gate:
 
 - menu pointer ownership and controller-only UI usability;
 - continuous tracked-arm ownership without visible fallback or deformation;
@@ -40,7 +75,7 @@ Audit-remediation work established the foundation now used by the project:
 | Safe hook ownership and restoration | host-tested, physically exercised |
 | Factory/device/generation identity | host-tested, physically exercised |
 | Capture/presenter separation | host-tested, physically exercised |
-| OpenVR state/lifecycle ownership | physically exercised; inner presenter shutdown still open |
+| OpenVR state/lifecycle ownership | live-tested normal-quit owner shutdown and finalization; abnormal exit unproved |
 | Transactional stage/finish workflow | host-tested and used for physical runs |
 | Neutral VR math contracts | host-tested and exercised by stereo/recenter paths |
 
@@ -55,8 +90,8 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Explicit render-pose submission for head-turn stability: **headset-validated**.
 - Controller recenter: **headset-validated**.
 - Startup/loading flat theater and transition to native stereo: **headset-validated for the exercised path**.
-- Frame pacing/transport cost: **host-tested candidate / physical gate**; D3D9Ex shared DEFAULT textures and nonblocking steady-state D3D9/D3D11 queries eliminate native-stereo CPU readback in the candidate. Exact-game startup and D3D9 managed-resource compatibility remain unresolved. A bounded D3D11 completion barrier exists only for draining pending copies during shutdown.
-- Inner presenter shutdown/finalization: **open regression**.
+- Frame pacing/transport cost: **performance-validated for bounded production cadence / sustained pacing open**; the shared-texture path approaches the readback-off reference with sampled native CPU readback/copy and producer/consumer waits zero. The operator confirms correct stereo depth and stable head turns. Pair production rate is separate from compositor submission/headset refresh, and ring drops/frame-age outliers remain. Production startup and normal shutdown are live-tested; pending-frame reset/device loss and sustained tail latency remain unproved. The shutdown-only D3D11 drain is outside steady-state presentation.
+- Inner presenter shutdown/finalization: **live-tested normal quit**; exact pre-exit owner join, complete consumer-copy drain, capture cleanup, hook restoration and final summaries verified. Abnormal exit/device loss remain unproved.
 
 ## Milestone 2 — player body and comfort
 
@@ -87,7 +122,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.
-- Controller-origin flat-theater beam: **host-tested**.
+- Controller-origin flat-theater beam: **live-exercised / visible in headset**; alignment and accurate controller-only UI operation remain open.
 - Controller-owned per-hand weapon direction and visual origin: **host-tested**.
 - Ballistic-origin ownership across the native attack transition: **host-tested**.
 - Sense tip direction convention: **live-tested diagnostically**; local `-Z` is the demonstrated pointing direction.

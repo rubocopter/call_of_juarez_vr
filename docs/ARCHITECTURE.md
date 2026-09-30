@@ -43,10 +43,34 @@ Game-specific mutation is SHA-256 gated. A recognized filename is never sufficie
 The active Call of Juarez integration is Windows x86 and the D3D9 API. The
 native-stereo implementation currently has an experimental
 `IDirect3D9Ex` factory/device path for shared eye images. Exact-game Ex startup
-is unresolved, and a live classic-D3D9 probe confirms successful
+is now live-tested for the bounded production startup/reset path on the
+inspected Steam build/host, and a live classic-D3D9 probe confirms successful
 `D3DPOOL_MANAGED` texture creation, which an Ex device does not support. The
 resource census is incomplete, so classic D3D9 remains the compatibility
-reference while the transport/device decision is open. D3D10 is a later
+reference while the transport/device decision is open. An independent
+classic-D3D9 startup probe now establishes successful MANAGED texture, cube,
+vertex-buffer and index-buffer requests, and immediate hook restoration
+after BeginStateBlock prevents the observed loss of creation-hook coverage.
+The native-stereo worker's 100 ms reacquisition is not equivalent to recovery
+before the next engine call. The production Ex compatibility layer is now
+**host-tested** for the exact observed MANAGED WRITEONLY VB/IB profiles: it
+maps them to DEFAULT while preserving usage/format/FVF, and it immediately
+reacquires its HookRegistry slots when BeginStateBlock returns. The host test
+reproduced `D3DERR_INVALIDCALL` before those changes and now exercises
+Lock/Unlock plus post-state-block creation successfully. Texture translation
+remains DEFAULT|DYNAMIC. A manual production run now retains Ex identity,
+completes a reset and sustains Present/capture through normal outer finalization.
+The geometry-based texture extent correction is now live-tested: flat startup
+content reaches the compositor, and videos/menu visibility is headset-validated
+on PS VR2. Production shared native-stereo publication, D3D11 copy and successful
+new-frame submission with an explicit render pose are now **live-tested** in
+gameplay. Normal-quit inner presenter shutdown and complete finalization are
+also **live-tested**. The short-run production cadence target is measured,
+and the operator confirms correct stereo depth and stable head turns in-headset.
+Sustained pacing and tail latency remain separate from that bounded acceptance.
+The exact profiles and evidence limits live in
+[the resource census](research/COJ_D3D9_RESOURCE_CENSUS.md).
+D3D10 is a later
 renderer target.
 OpenVR/SteamVR is the primary runtime for the PS VR2 path; OpenXR remains
 separate and experimental.
@@ -80,7 +104,7 @@ The D3D9 path has two presentation modes:
 
 The device `Present` path can publish flat content when no native-stereo producer is active. The presenter claims and maintains compositor scene ownership, repeats the latest frame at compositor cadence, and returns to native stereo when the game resumes the two-eye render path.
 
-Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Capture is immediate and does not retain default-pool resources across D3D9 reset/loading boundaries.
+Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Texture padding uses both eyes' projected screen centers and asymmetric FOV to keep the entire source rectangle in bounds; the live optical trace confirms that a fixed 35% margin alone could not contain the PS VR2 startup image. The extent correction is live-tested, with videos/menu visibility headset-validated. Capture is immediate and does not retain default-pool resources across D3D9 reset/loading boundaries.
 
 Create on the left Sense controller recenters/reanchors the current VR reference.
 
@@ -96,7 +120,7 @@ UI pointing is presentation plus exact-game UI policy:
 6. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
 7. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
 
-The current single-owner Win32 pointer path is host-tested only. The newest physical diagnostic rejected the preceding dual-owner route even though it could finally select menu items.
+The current single-owner Win32 pointer path is now live-exercised and its pointer is visible in the headset during startup/menu presentation. Accurate pointing and controller-only UI operation remain unvalidated. The preceding dual-owner route was physically rejected even though it could select menu items.
 
 ## Tracking, locomotion and body ownership
 
@@ -150,7 +174,7 @@ about 7-7.5 ms median, 9-9.5 ms p95 and 10-12 ms maximum. Disabling only that
 boundary, while retaining both complete ChromeEngine eye renders, changed game
 update cadence from about 83 Hz to 138 Hz. This is the demonstrated bottleneck.
 
-The host-tested D3D9Ex candidate replaces it with:
+The live-tested D3D9Ex path replaces it with:
 
 `DEFAULT render target -> StretchRect D3D9Ex shared DEFAULT texture ring -> mailbox(handle + pose + lease) -> D3D11 OpenSharedResource -> CopyResource presenter texture -> OpenVR`
 
@@ -196,6 +220,15 @@ producer/consumer waits, queue/ring depth, drops, overwrites, frame age,
 copy-fence retirement, submissions and repeats. The bounded shutdown-only drain
 described above is not part of the frame loop.
 
+The bounded production trace now measures approximately 136 Hz game updates
+and 135.5 rendered stereo pairs/s, close to the readback-off reference and well
+above the old CPU-transport path. Pair production rate is distinct from compositor
+submission and headset refresh. The operator confirms correct depth and stable
+head turns; sampled native CPU readback/copy and producer/consumer waits are zero.
+The mailbox can replace unconsumed pairs, and ring drops and frame-age outliers
+still occur. This establishes the short cadence target, not sustained tail-latency
+or pending-frame reset/device-loss acceptance.
+
 Full GPU sharing is not available from a classic `IDirect3D9` device: shared
 DEFAULT-pool handles for DXGI/D3D11 interop require D3D9Ex. If the game cannot
 create or run on the substituted Ex device, the candidate fails over at device
@@ -207,17 +240,32 @@ because that path composes CPU-side pointer/UI content and avoids persistent
 DEFAULT resources across resets. It is not used by native stereo when the
 D3D9Ex path is active.
 
-A previous D3D9Ex substitution crashed the exact game during physical testing.
-Two later candidates reached three Presents but stopped before videos or
-transport; the latest has a host-tested COM factory-identity hook. Separately,
-the classic-D3D9 resource probe observed successful MANAGED 2D and cube
-textures, although its three captured calls are too sparse to quantify the
-engine's pool use. The current compatibility code rewrites MANAGED 2D, cube
-and volume texture requests to `DEFAULT | DYNAMIC` and tracks release, but does
-not provide a system-memory backing copy or demonstrate full managed-resource
-semantics. There is no corresponding vertex/index-buffer translation. A
-complete census and semantic validation are required before the Ex path can be
-considered a compatible replacement.
+A previous production D3D9Ex candidate crashed the exact game during physical
+testing. Independent LTR research on the same game build has since moved the
+compatibility boundary forward: a semantic adapter maps observed usage-0
+MANAGED 2D/cube textures to `DEFAULT | DYNAMIC`, maps the observed MANAGED
+WRITEONLY vertex/index buffers to DEFAULT while preserving their metadata, and
+restores the device hook set immediately after `BeginStateBlock`. That research
+path is **live-tested** through a bounded 120-Present startup window. A real
+reset kept all nine tracked adapted resources alive; four directly hashable
+textures retained identical contents and a generation-1 texture remained bound
+in generation 2. The same research path also exercised the two-slot x86/x64
+transport across reset: a stalled generation was cancelled and the new
+generation completed 12/12 submissions with matching ready/done values and zero
+sampled mismatches.
+
+The production mod now contains the corresponding bounded VB/IB translation
+and immediate `BeginStateBlock` hook reacquisition alongside its existing
+texture translation. The bounded production compatibility/startup/reset path
+is now **live-tested**: Ex identity, successful translated texture allocation,
+reset, sustained Present and flat capture are observed. The corrected allocation
+now passes the complete startup gate, with compositor uploads/submissions and
+operator-confirmed videos/menu in the visor. Production shared native-stereo
+frames now reach D3D11 and both compositor eyes successfully with their explicit
+render pose. Bounded cadence, operator-confirmed stereo/head-turn stability and
+normal-quit inner shutdown now pass. Texture contents across reset, pending-frame
+production reset and device loss remain unpromoted. The research results are scoped evidence for
+this build/host; they do not establish generic MANAGED or device-loss semantics.
 
 OFXR-Bridge is not part of the active architecture. It is an experimental
 OpenXR optical-flow frame-generation layer and cannot replace this D3D9/OpenVR
@@ -231,7 +279,35 @@ Validation states are:
 
 `planned` -> `implemented` -> `host-tested` -> `live-tested` -> `headset-validated` -> `supported`
 
-The current outer runtime can reach `run_end`, but recent body/playability runs still report incomplete inner presenter shutdown. That remains an open lifecycle issue and must not be described as resolved.
+Earlier shared-stereo gameplay stopped finalization at capture cleanup after
+incomplete inner presenter shutdown. A fresh physical run now completes the
+exact pre-exit boundary, real owning-runtime shutdown, capture cleanup, hook
+restoration and `run_end`. This normal-quit lifecycle is **live-tested**.
+
+The candidate now finalizes before the exact executable's imported
+`ChromeEngine3!DestroyGame`, with both binary hashes, the loaded call site and
+export/import identity checked before mutation. The original call is preserved
+and import restoration respects foreign ownership. This is **implemented /
+host-tested / live-tested**: a real x86 DLL/host exit fixture shows owner cleanup before
+original forwarding and DLL atexit, while its unhooked baseline skips cleanup.
+The GPU fixture also verifies producer resource reclamation after pending
+consumer copies drain. The physical run's unique final GPU/proxy records agree:
+all consumer copies complete, with zero pending copies or abandoned leases and
+all published producer leases reclaimed. Abnormal exit and device loss remain
+**experiment-pending**.
+
+An unpublished final producer frame is cancelled during resource release rather
+than submitted after quit. A **host-tested** telemetry correction refreshes ring
+depth after slot reset; the physical binary's final depth was stale despite
+completed cleanup. A subsequent physical run now reports final depth zero,
+all published leases reclaimed and consumer copies fully drained; the corrected
+final statistic is **live-tested**.
+
+Runtime state has explicit process lifetime; DLL static destruction does not
+repeat GPU/COM/thread cleanup. Atexit only reports incomplete pre-exit shutdown
+through a direct file write that avoids the shared logger mutex. It cannot
+replace the success summary. See the exact contract and evidence limits in
+[the shutdown boundary](research/COJ_SHUTDOWN_BOUNDARY.md).
 
 ## Primary validation hardware
 

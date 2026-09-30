@@ -102,6 +102,7 @@ add_library(cojvr_d3d9_hooks STATIC
 
 add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/camera_probe.cpp
+    src/games/call_of_juarez/game_shutdown_hook.cpp
     src/games/call_of_juarez/body_adapter.cpp
     src/games/call_of_juarez/java_player_bridge.cpp
 )
@@ -765,6 +766,35 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9ex_legacy_resource_compat COMMAND cojvr_d3d9ex_legacy_resource_compat_test)
     set_tests_properties(d3d9ex_legacy_resource_compat PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(cojvr_game_shutdown_hook_test
+        tests/game_shutdown_hook.cpp
+        src/games/call_of_juarez/game_shutdown_hook.cpp
+    )
+    target_include_directories(cojvr_game_shutdown_hook_test PRIVATE src)
+    target_compile_features(cojvr_game_shutdown_hook_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_game_shutdown_hook_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cojvr_game_shutdown_hook_test PRIVATE cojvr_build_identity cojvr_d3d9_hooks)
+    add_test(NAME game_shutdown_hook COMMAND cojvr_game_shutdown_hook_test)
+    if(MSVC)
+        target_compile_options(cojvr_game_shutdown_hook_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+
+    add_library(cojvr_game_shutdown_fixture SHARED
+        tests/game_shutdown_dll.cpp
+        src/games/call_of_juarez/game_shutdown_hook.cpp
+    )
+    target_include_directories(cojvr_game_shutdown_fixture PRIVATE src)
+    target_compile_features(cojvr_game_shutdown_fixture PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_game_shutdown_fixture PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cojvr_game_shutdown_fixture PRIVATE cojvr_build_identity cojvr_d3d9_hooks)
+    add_executable(cojvr_game_shutdown_host tests/game_shutdown_host.cpp)
+    add_test(NAME game_shutdown_dll_lifecycle COMMAND pwsh -NoProfile -File
+        "${CMAKE_SOURCE_DIR}/tests/run_game_shutdown_lifecycle.ps1"
+        -HostPath "$<TARGET_FILE:cojvr_game_shutdown_host>"
+        -FixturePath "$<TARGET_FILE:cojvr_game_shutdown_fixture>"
+    )
+    set_tests_properties(game_shutdown_dll_lifecycle PROPERTIES TIMEOUT 30)
 
     add_executable(cojvr_d3d9_classic_readback_d3d11_test
         tests/d3d9_classic_readback_d3d11.cpp

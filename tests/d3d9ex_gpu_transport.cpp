@@ -242,6 +242,28 @@ int main() {
         shutdown_stats.copy_fences_completed != shutdown_stats.frames_copied) {
         return Fail("shared-texture shutdown did not retire every queued GPU copy before releasing producer leases");
     }
+    // A final game frame can be fenced but never published when quit stops
+    // the producer. Shutdown must cancel it and report an empty ring after
+    // reclaiming the consumer leases, rather than retain pre-release depth.
+    if (!capture.CaptureEyeSurface(
+            device9ex.Get(), source.Get(), cojvr::runtime::Eye::left, 3, 1) ||
+        !capture.CaptureEyeSurface(
+            device9ex.Get(), source.Get(), cojvr::runtime::Eye::right, 3, 1) ||
+        !capture.EndFrame(3, TestPose(), 103)) {
+        return Fail("final unpublished producer frame did not fence for shutdown coverage");
+    }
+    const auto before_shutdown = capture.stats();
+    if (before_shutdown.ring_depth != 1 || before_shutdown.frames_fenced != 3 ||
+        before_shutdown.frames_collected != 2) {
+        return Fail("shutdown fixture did not retain exactly one unpublished frame");
+    }
+    capture.Shutdown();
+    if (capture.gpu_resident_active() || capture.stats().consumer_releases != 2 ||
+        capture.stats().ring_depth != 0 ||
+        capture.stats().frames_invalidated != before_shutdown.frames_invalidated + 1 ||
+        capture.stats().ring_depth_peak != before_shutdown.ring_depth_peak) {
+        return Fail("producer shutdown did not reclaim drained GPU leases and release capture resources");
+    }
 
     std::cout << "D3D9Ex shared ring -> D3D11 GPU copy passed: "
               << capture.collect_description()

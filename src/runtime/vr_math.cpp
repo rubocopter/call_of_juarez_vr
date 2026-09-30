@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace cojvr::runtime {
 namespace {
@@ -147,20 +148,17 @@ Pose PoseFromRigidTransform3x4(const std::array<float, 12>& matrix) noexcept {
     return pose;
 }
 
-bool ComputeFlatTheaterEyePlacement(
+namespace {
+
+bool FlatTheaterEyeCenter(
     const EyeView& eye,
-    const std::uint32_t source_width,
-    const std::uint32_t source_height,
-    const std::uint32_t texture_width,
-    const std::uint32_t texture_height,
-    FlatTheaterEyePlacement& placement,
+    float& center_u,
+    float& center_v,
     const float plane_distance_m) noexcept {
-    placement = {};
     if (!eye.eye_to_head.orientation_valid || !eye.eye_to_head.position_valid ||
         !IsFiniteVec3(eye.eye_to_head.position) ||
         !IsFiniteQuaternion(eye.eye_to_head.orientation) ||
-        !IsValidEyeFov(eye.fov) || source_width == 0 || source_height == 0 ||
-        texture_width < source_width || texture_height < source_height ||
+        !IsValidEyeFov(eye.fov) ||
         !std::isfinite(plane_distance_m) || plane_distance_m <= 0.05F) {
         return false;
     }
@@ -195,8 +193,58 @@ bool ComputeFlatTheaterEyePlacement(
         return false;
     }
 
-    const float center_u = (tangent_x - tangent_left) / tangent_width;
-    const float center_v = (tangent_up - tangent_y) / tangent_height;
+    center_u = (tangent_x - tangent_left) / tangent_width;
+    center_v = (tangent_up - tangent_y) / tangent_height;
+    return std::isfinite(center_u) && std::isfinite(center_v) &&
+        center_u > 0.0F && center_u < 1.0F && center_v > 0.0F && center_v < 1.0F;
+}
+
+} // namespace
+
+bool ComputeFlatTheaterTextureExtent(
+    const std::array<EyeView, 2>& eyes,
+    const std::uint32_t source_width,
+    const std::uint32_t source_height,
+    std::uint32_t& texture_width,
+    std::uint32_t& texture_height,
+    const float plane_distance_m) noexcept {
+    texture_width = texture_height = 0;
+    if (source_width == 0 || source_height == 0) return false;
+    double width = static_cast<double>(source_width) * 1.35;
+    double height = static_cast<double>(source_height) * 1.35;
+    for (const auto& eye : eyes) {
+        float u = 0.0F;
+        float v = 0.0F;
+        if (!FlatTheaterEyeCenter(eye, u, v, plane_distance_m)) return false;
+        // Each side of the projected center needs half the source extent.
+        // One spare pixel protects placement rounding and float precision.
+        width = std::max({width, static_cast<double>(eye.width),
+            std::ceil(source_width / (2.0 * std::min(u, 1.0F - u))) + 1.0});
+        height = std::max({height, static_cast<double>(eye.height),
+            std::ceil(source_height / (2.0 * std::min(v, 1.0F - v))) + 1.0});
+    }
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        width > std::numeric_limits<std::uint32_t>::max() ||
+        height > std::numeric_limits<std::uint32_t>::max()) return false;
+    texture_width = static_cast<std::uint32_t>(std::ceil(width));
+    texture_height = static_cast<std::uint32_t>(std::ceil(height));
+    return true;
+}
+
+bool ComputeFlatTheaterEyePlacement(
+    const EyeView& eye,
+    const std::uint32_t source_width,
+    const std::uint32_t source_height,
+    const std::uint32_t texture_width,
+    const std::uint32_t texture_height,
+    FlatTheaterEyePlacement& placement,
+    const float plane_distance_m) noexcept {
+    placement = {};
+    float center_u = 0.0F;
+    float center_v = 0.0F;
+    if (source_width == 0 || source_height == 0 ||
+        texture_width < source_width || texture_height < source_height ||
+        !FlatTheaterEyeCenter(eye, center_u, center_v, plane_distance_m)) return false;
     const float left = center_u * static_cast<float>(texture_width) -
         static_cast<float>(source_width) * 0.5F;
     const float top = center_v * static_cast<float>(texture_height) -

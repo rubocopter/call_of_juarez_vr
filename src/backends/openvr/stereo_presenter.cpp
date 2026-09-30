@@ -70,15 +70,6 @@ double PoseAgeMilliseconds(const std::chrono::steady_clock::time_point capture_t
     return MillisecondsBetween(capture_time, std::chrono::steady_clock::now());
 }
 
-std::uint32_t FlatTextureExtent(
-    const std::uint32_t source_extent,
-    const std::uint32_t recommended_extent) noexcept {
-    return std::max(
-        recommended_extent,
-        static_cast<std::uint32_t>(
-            (static_cast<std::uint64_t>(source_extent) * 135U) / 100U));
-}
-
 std::uint32_t FrameWidth(const d3d9::StereoCpuFrame& frame) noexcept {
     return frame.transport == d3d9::StereoFrameTransport::d3d9ex_shared_texture
         ? frame.shared_eyes[0].width
@@ -280,12 +271,19 @@ struct OpenVrStereoPresenter::Impl {
         }
         const std::uint32_t source_width = FrameWidth(frame);
         const std::uint32_t source_height = FrameHeight(frame);
-        const std::uint32_t desired_width = flat_theater
-            ? FlatTextureExtent(source_width, eyes[0].width)
-            : source_width;
-        const std::uint32_t desired_height = flat_theater
-            ? FlatTextureExtent(source_height, eyes[0].height)
-            : source_height;
+        std::uint32_t desired_width = source_width;
+        std::uint32_t desired_height = source_height;
+        if (flat_theater &&
+            !runtime::ComputeFlatTheaterTextureExtent(
+                eyes, source_width, source_height, desired_width, desired_height)) {
+            SetError("presenter rejected invalid flat-theater eye geometry");
+            return false;
+        }
+        if (desired_width > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
+            desired_height > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION) {
+            SetError("presenter eye texture exceeds the D3D11 extent limit");
+            return false;
+        }
         const DXGI_FORMAT desired_format = FrameDxgiFormat(frame);
         if (desired_format == DXGI_FORMAT_UNKNOWN) {
             SetError("presenter rejected unsupported D3D9Ex shared texture format");
@@ -663,6 +661,20 @@ struct OpenVrStereoPresenter::Impl {
                 Log("native_stereo_presenter_shutdown: stage=runtime_end init_failed=true");
                 SignalInitialization(false);
                 return;
+            }
+            for (const auto& eye : eyes) {
+                std::ostringstream optics;
+                optics << "native_stereo_eye_optics: eye="
+                       << (eye.eye == runtime::Eye::left ? "left" : "right")
+                       << ";recommended=" << eye.width << 'x' << eye.height
+                       << ";fov=" << eye.fov.angle_left << ',' << eye.fov.angle_right
+                       << ',' << eye.fov.angle_up << ',' << eye.fov.angle_down
+                       << ";eye_to_head_position=" << eye.eye_to_head.position.x
+                       << ',' << eye.eye_to_head.position.y << ',' << eye.eye_to_head.position.z
+                       << ";eye_to_head_orientation=" << eye.eye_to_head.orientation.x
+                       << ',' << eye.eye_to_head.orientation.y << ',' << eye.eye_to_head.orientation.z
+                       << ',' << eye.eye_to_head.orientation.w;
+                Log(optics.str());
             }
             if (!action_manifest_path.empty()) {
                 input_ready.store(

@@ -42,6 +42,15 @@ function Assert-LogNotMatch([string]$Pattern, [string]$Failure) {
     if ([bool]($Lines -match $Pattern)) { throw $Failure }
 }
 
+function Assert-PreExitCompleted {
+    $Failure = 'The runtime did not complete its exact-build pre-exit shutdown boundary.'
+    Assert-LogMatch 'native_stereo_pre_exit_hook: status=installed' $Failure
+    Assert-LogMatch 'native_stereo_pre_exit: stage=begin boundary=CoJ\.exe!DestroyGame' $Failure
+    Assert-LogMatch 'native_stereo_pre_exit_hook: status=restored' $Failure
+    Assert-LogMatch 'native_stereo_pre_exit: stage=end boundary=CoJ\.exe!DestroyGame' $Failure
+    Assert-LogNotMatch 'native_stereo_shutdown: status=incomplete reason=pre_exit_boundary_not_completed' $Failure
+}
+
 if ([string]$Run.validation.profile -eq "startup") {
     Assert-LogMatch `
         "native_stereo_d3d9_factory: status=d3d9ex_primary fallback=classic_create_device transport=d3d9ex_shared_texture_ring" `
@@ -82,6 +91,7 @@ if ([string]$Run.validation.profile -eq "startup") {
     Assert-LogMatch `
         "run_end: run_id=$([regex]::Escape([string]$Run.runId))" `
         "The startup run did not reach normal proxy finalization."
+    Assert-PreExitCompleted
     $ResetEntered = [bool]($Lines -match "native_stereo_startup_event: event=reset_enter")
     $ResetExited = [bool]($Lines -match "native_stereo_startup_event: event=reset_exit")
     if ($ResetEntered -ne $ResetExited) {
@@ -276,7 +286,7 @@ Assert-LogNotMatch `
     "native_stereo_producer_timing: status=published .*transport=classic_d3d9_locked_systemmem_fallback" `
     "The native-stereo producer fell back to the classic D3D9 CPU path."
 Assert-LogMatch `
-    "native_stereo_presenter_timing: status=ok .*render_pose_sequence=[1-9][0-9]*;pose_mode=explicit_render_pose;content=new.*left_result=0;right_result=0.*wait_pose_ms=[0-9.]+;submit_ms=[0-9.]+" `
+    "native_stereo_presenter_timing: status=ok .*render_pose_sequence=[1-9][0-9]*;pose_mode=explicit_render_pose;presentation_mode=native_stereo;content=new;left_result=0;right_result=0;wait_pose_ms=[0-9.]+;submit_ms=[0-9.]+" `
     "The presenter did not report a successful new-frame OpenVR submission bound to its exact render pose."
 
 if ($RequireStereoGeometry) {
@@ -795,6 +805,7 @@ Assert-LogMatch `
 Assert-LogMatch `
     "native_stereo_presenter_stop: shutdown_complete=true" `
     "The joined presenter did not prove that its owning OpenVR runtime completed shutdown."
+Assert-PreExitCompleted
 Assert-LogMatch `
     "native_stereo_shutdown: stage=presenter_end" `
     "The proxy did not join the presenter during finalization."
@@ -804,6 +815,35 @@ Assert-LogMatch `
 Assert-LogMatch `
     "native_stereo_gpu_transport_summary: frames_copied=[1-9][0-9]*;resources_opened=[1-9][0-9]*;copy_fences_completed=[1-9][0-9]*;.*open_failures=0;copy_failures=0" `
     "The presenter did not retire shared-copy fences without transport failures."
+
+$DrainFailure = 'The final GPU transport counters did not prove a complete shutdown drain.'
+function Read-FinalTransportCounters([string]$Record, [string[]]$Names) {
+    $Records = @($Lines | Where-Object { $_ -match ([regex]::Escape($Record) + ': ') })
+    if ($Records.Count -ne 1) { throw $DrainFailure }
+    $Counters = @{}
+    foreach ($Name in $Names) {
+        $CounterMatches = [regex]::Matches($Records[0],
+            '(^|[ ;])' + [regex]::Escape($Name) + '=([0-9]+)(?=;|$)')
+        [UInt64]$Value = 0
+        if ($CounterMatches.Count -ne 1 -or
+            -not [UInt64]::TryParse($CounterMatches[0].Groups[2].Value, [ref]$Value)) {
+            throw $DrainFailure
+        }
+        $Counters[$Name] = $Value
+    }
+    return $Counters
+}
+$GpuCounters = Read-FinalTransportCounters 'native_stereo_gpu_transport_summary' @(
+    'frames_copied', 'copy_fences_completed', 'abandoned_on_shutdown')
+$ProxyCounters = Read-FinalTransportCounters 'native_stereo_transport_summary' @(
+    'shared_frames_copied', 'shared_copy_fences_completed', 'shared_pending_copy_fences')
+if ($GpuCounters.abandoned_on_shutdown -ne 0 -or $ProxyCounters.shared_pending_copy_fences -ne 0 -or
+    $GpuCounters.frames_copied -ne $GpuCounters.copy_fences_completed -or
+    $ProxyCounters.shared_frames_copied -ne $ProxyCounters.shared_copy_fences_completed -or
+    $GpuCounters.frames_copied -ne $ProxyCounters.shared_frames_copied) {
+    throw $DrainFailure
+}
+
 if ($RequireRepeatedPresentation) {
     Assert-LogMatch `
         "native_stereo_transport_summary: .*repeat_submissions=[1-9][0-9]*" `

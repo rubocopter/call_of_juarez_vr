@@ -200,6 +200,55 @@ int main() {
         return Fail("flat-theater eye placement did not encode finite-distance binocular disparity");
     }
 
+    // PS VR2 asymmetric optics + the 1920x1080 startup capture from the
+    // physical run. A symmetric-FOV test does not exercise border clipping.
+    auto psvr_left = left_theater_eye;
+    auto psvr_right = right_theater_eye;
+    psvr_left.fov = FovFromTangents(-1.84F, 0.95F, 1.33F, -1.33F);
+    psvr_right.fov = FovFromTangents(-0.95F, 1.84F, 1.33F, -1.33F);
+    psvr_left.width = psvr_right.width = 2804;
+    psvr_left.height = psvr_right.height = 2860;
+    std::uint32_t flat_width = 0;
+    std::uint32_t flat_height = 0;
+    if (!ComputeFlatTheaterTextureExtent(
+            {psvr_left, psvr_right}, 1920, 1080, flat_width, flat_height) ||
+        !ComputeFlatTheaterEyePlacement(
+            psvr_left, 1920, 1080, flat_width, flat_height, left_placement) ||
+        !ComputeFlatTheaterEyePlacement(
+            psvr_right, 1920, 1080, flat_width, flat_height, right_placement)) {
+        return Fail("PS VR2 startup flat-theater image does not fit both eye textures");
+    }
+    if (flat_width <= 2804 || flat_height != 2860 ||
+        left_placement.left + 1920 > flat_width ||
+        right_placement.left + 1920 > flat_width) {
+        return Fail("asymmetric theater padding did not preserve the complete source");
+    }
+    centered_eye.width = 1350;
+    centered_eye.height = 810;
+    if (!ComputeFlatTheaterTextureExtent(
+            {centered_eye, centered_eye}, 1000, 600, flat_width, flat_height) ||
+        flat_width != 1350 || flat_height != 810) {
+        return Fail("symmetric theater texture extent changed");
+    }
+    // A vertically asymmetric eye and rotated optical basis need margins too.
+    psvr_left.fov = FovFromTangents(-1.84F, 0.95F, 1.8F, -0.6F);
+    psvr_left.eye_to_head.orientation = {0.0F, 0.05F, 0.0F, 0.998749F};
+    if (!ComputeFlatTheaterTextureExtent(
+            {psvr_left, psvr_right}, 1920, 1080, flat_width, flat_height) ||
+        !ComputeFlatTheaterEyePlacement(
+            psvr_left, 1920, 1080, flat_width, flat_height, left_placement) ||
+        !ComputeFlatTheaterEyePlacement(
+            psvr_right, 1920, 1080, flat_width, flat_height, right_placement)) {
+        return Fail("rotated/asymmetric eye clipped the flat-theater source");
+    }
+    auto invalid_eye = psvr_left;
+    invalid_eye.fov = {};
+    if (ComputeFlatTheaterTextureExtent(
+            {invalid_eye, psvr_right}, 1920, 1080, flat_width, flat_height) ||
+        flat_width != 0 || flat_height != 0) {
+        return Fail("invalid optics allocated a flat-theater texture extent");
+    }
+
     if (!ProjectFlatTheaterPointer(
             theater_anchor, controller_aim,
             theater_fov, theater_fov,

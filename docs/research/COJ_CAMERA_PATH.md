@@ -66,8 +66,8 @@ Run `20260920T090448Z-b1f54e3cb38e` physically exercised startup flat theater th
 
 The camera/stereo discovery gate is closed enough for product work. Remaining issues are operational:
 
-- frame pacing/transport cost still affects sustained comfort;
+- the bounded shared-transport cadence target and stereo/head-turn stability now pass; sustained pacing and frame-age outliers remain separate performance questions;
 - flat-menu controller interaction is being revalidated after a rejected physical route;
-- recent body/playability runs reach outer `run_end` but still report incomplete inner presenter shutdown.
+- normal-quit inner shutdown, GPU drain and outer `run_end` are now live-tested through the exact-build pre-`DestroyGame` boundary; abnormal exit/device loss remain unproved. See [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md).
 
 Do not reopen established camera offsets or stereo wrapper choices without contradictory physical/native evidence.

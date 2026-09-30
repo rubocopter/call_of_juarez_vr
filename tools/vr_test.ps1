@@ -166,16 +166,17 @@ switch ($Action) {
 
         Push-Location $RepositoryRoot
         try {
-            Invoke-Checked { cmake --build build-win32 --config Release } "Release build failed."
-            Invoke-Checked { ctest --test-dir build-win32 --output-on-failure -C Release } "Release host tests failed."
+            Invoke-Checked { cmake --preset win32-debug } "Win32 configure failed."
+            Invoke-Checked { cmake --build --preset release } "Release build failed."
+            Invoke-Checked { ctest --preset release } "Release host tests failed."
         } finally {
             Pop-Location
         }
 
         # Provenance must bind the exact artifact produced by the build/test tree
         # above. Do not stage a similarly named DLL from another build directory.
-        $ProxyPath = Join-Path $RepositoryRoot "build-win32\Release\d3d9_native_stereo.dll"
-        $ManifestPath = Join-Path $RepositoryRoot "build-win32\Release\d3d9_native_stereo.build-manifest.json"
+        $ProxyPath = Join-Path $RepositoryRoot "build\win32-debug\Release\d3d9_native_stereo.dll"
+        $ManifestPath = Join-Path $RepositoryRoot "build\win32-debug\Release\d3d9_native_stereo.build-manifest.json"
         & (Join-Path $PSScriptRoot "new_build_manifest.ps1") `
             -RepositoryRoot $RepositoryRoot `
             -Configuration Release `

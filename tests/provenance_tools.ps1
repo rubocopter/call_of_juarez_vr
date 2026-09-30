@@ -60,9 +60,13 @@ try {
     }
 
     $VrTestSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\vr_test.ps1") -Raw
-    Assert-True ($VrTestSource.Contains('cmake --build build-win32 --config Release')) `
-        "vr_test does not build the expected release tree."
-    Assert-True ($VrTestSource.Contains('build-win32\Release\d3d9_native_stereo.dll')) `
+    Assert-True ($VrTestSource.Contains('cmake --preset win32-debug')) `
+        "vr_test does not configure the canonical Win32 build tree."
+    Assert-True ($VrTestSource.Contains('cmake --build --preset release')) `
+        "vr_test does not build the canonical Win32 release preset."
+    Assert-True ($VrTestSource.Contains('ctest --preset release')) `
+        "vr_test does not test the canonical Win32 release preset."
+    Assert-True ($VrTestSource.Contains('build\win32-debug\Release\d3d9_native_stereo.dll')) `
         "vr_test stages a native-stereo DLL from a different tree than it builds/tests."
     Assert-True (-not ($VrTestSource -match 'New-Item\s+-ItemType\s+File\s+-Path\s+\$ExBridgeMarkerPath')) `
         "vr_test re-enables the rejected D3D9Ex game path."
@@ -77,6 +81,10 @@ try {
     Assert-True ($FinalizeStart -ge 0 -and $PresenterStop -ge 0 -and $CaptureShutdown -ge 0 -and
         $PresenterStop -lt $CaptureShutdown) `
         "Native-stereo shutdown destroys producer capture resources before the presenter releases leased frames."
+    Assert-True (-not $NativeStereoProxySource.Contains('std::atexit(Finalize)')) `
+        "Native-stereo owner cleanup still relies on DLL atexit after Windows terminates its worker."
+    Assert-True ($NativeStereoProxySource.Contains('InstallCurrentGameShutdownHook(')) `
+        "Native-stereo owner shutdown is not connected to the exact-build pre-exit boundary."
 
     $ReadbackToggleStart = $NativeStereoProxySource.IndexOf(
         "void SetCaptureReadbackEnabled(void* context, const bool enabled) noexcept")
@@ -918,12 +926,12 @@ try {
         "native_stereo_producer_timing: status=published transport=d3d9ex_shared_texture_ring;frame_sequence=2;render_pose_sequence=3;generation=1;eye_surface=2560x1440;format=21;shared_handles_distinct=true;ring_depth=1;ring_depth_peak=2;fence_poll_ms=0.010;producer_wait_ms=0.000;deferred_readback_ms=0.000;cpu_copy_ms=0.000;producer_collect_ms=0.020",
         "native_stereo_presenter_frame: status=new frame_sequence=1;render_pose_sequence=2;generation=1;presentation_mode=native_stereo;transport=d3d9ex_shared_texture_ring;left_hash=0;right_hash=0;distinct_eye_content=not_cpu_sampled;eye_resources_distinct=true;distinct_check=separate_shared_eye_resources;hash_mode=disabled_gpu_resident;hash_ms=0.000;upload_ms=0.200;shared_open_ms=0.050;consumer_gpu_copy_queue_ms=0.150;consumer_wait_ms=0.000;consumer_pending_fences=1;frame_age_ms=2.500",
         "native_stereo_presenter_frame: status=new frame_sequence=2;render_pose_sequence=3;generation=1;presentation_mode=native_stereo;transport=d3d9ex_shared_texture_ring;left_hash=0;right_hash=0;distinct_eye_content=not_cpu_sampled;eye_resources_distinct=true;distinct_check=separate_shared_eye_resources;hash_mode=disabled_gpu_resident;hash_ms=0.000;upload_ms=0.190;shared_open_ms=0.040;consumer_gpu_copy_queue_ms=0.140;consumer_wait_ms=0.000;consumer_pending_fences=1;frame_age_ms=2.400",
-        "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
+        "native_stereo_presenter_timing: status=ok submit_sequence=2;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;presentation_mode=native_stereo;content=new;left_result=0;right_result=0;wait_pose_ms=5.000;submit_ms=0.400",
         "openvr_runtime_state: phase=transition;lifecycle=ready;initialized=true;connected=true;focused=true;tracking_valid=true;presenting=true;shutdown_requested=false",
         "openvr_scene_state: phase=first_submit;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
         "openvr_scene_state: phase=dashboard_opened;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=true;should_pause=true;should_reduce_rendering_work=true",
         "openvr_scene_state: phase=dashboard_closed;process_id=789;scene_focus_process_id=789;can_render_scene=true;input_available=true;dashboard_visible=false;should_pause=false;should_reduce_rendering_work=false",
-        "native_stereo_presenter_timing: status=ok submit_sequence=3;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;content=repeated;left_result=0;right_result=0;wait_pose_ms=5.100;submit_ms=0.300",
+        "native_stereo_presenter_timing: status=ok submit_sequence=3;capture_sequence=2;render_pose_sequence=3;pose_mode=explicit_render_pose;presentation_mode=native_stereo;content=repeated;left_result=0;right_result=0;wait_pose_ms=5.100;submit_ms=0.300",
         "openvr_input: status=started action_sets=/actions/global,/actions/gameplay recenter=/actions/global/in/recenter hand_pose=/user/hand/{left,right}/pose/handgrip aim_pose=/user/hand/{left,right}/pose/tip gameplay=semantic_sense_profile owner=presenter_thread",
         "openvr_controller_pose: source=handgrip;left_active=true;right_active=true;raw_role_fallback=false",
         "camera_probe_event: event=body_player_reconciliation result=camera_only detail=frame_sequence=2;being_generation=1;recentered=false;write_needed=false;write_ok=true;actor_write=false;player_before=(1,2,3);player_desired=(1,2,3);tracking_offset=(0.06,0,0);world_offset=(0,0,0);render_head_position=(0.06,0,0);game_units_per_meter=100;mode=camera_only_collision_safe;collision_owner=native_actor",
@@ -943,6 +951,8 @@ try {
         "camera_probe_event: event=camera_probe_restore result=restored camera_restored_slots=2;view_restored_slots=1",
         "native_stereo_factory_hook: status=restored",
         "native_stereo_shutdown: stage=presenter_begin",
+        "native_stereo_pre_exit_hook: status=installed",
+        "native_stereo_pre_exit: stage=begin boundary=CoJ.exe!DestroyGame",
         "native_stereo_presenter_shutdown: stage=d3d11_begin",
         "native_stereo_presenter_shutdown: stage=d3d11_end",
         "native_stereo_presenter_shutdown: stage=runtime_begin",
@@ -953,6 +963,8 @@ try {
         "native_stereo_shutdown: stage=presenter_end",
         "native_stereo_shutdown: stage=capture_begin",
         "native_stereo_shutdown: stage=capture_end",
+        "native_stereo_pre_exit_hook: status=restored",
+        "native_stereo_pre_exit: stage=end boundary=CoJ.exe!DestroyGame",
         "native_stereo_gpu_transport_summary: frames_copied=2;resources_opened=4;copy_fences_completed=2;copy_fence_poll_pending=1;pending_fences_peak=2;open_failures=0;copy_failures=0;abandoned_on_shutdown=0;last_copy_completion_ms=0.500;max_copy_completion_ms=0.700",
         "native_stereo_transport_summary: frames_fenced=3;frames_collected=2;capture_ring_drops=0;capture_query_not_ready=1;capture_query_flushes=1;shared_frames_published=2;cpu_fallback_frames=0;fallback_activations=0;consumer_releases=2;capture_ring_depth=0;capture_ring_depth_peak=2;mailbox_published=2;mailbox_replaced=0;frames_uploaded=2;new_submissions=2;repeat_submissions=4;shared_frames_copied=2;shared_resources_opened=4;shared_copy_fences_completed=2;shared_pending_copy_fences=0;shared_pending_copy_fences_peak=2;shared_open_failures=0;shared_copy_failures=0;submit_failures=0",
         "native_stereo_runtime: status=stopped",
@@ -994,6 +1006,69 @@ try {
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
 
+    $MissingPreExitFailure = $null
+    $MissingPreExitLog = @($TransportOnlyLog | Where-Object { $_ -notmatch 'native_stereo_pre_exit' })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $MissingPreExitLog
+    try {
+        & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch { $MissingPreExitFailure = $_.Exception.Message }
+    Assert-True ($MissingPreExitFailure -eq 'The runtime did not complete its exact-build pre-exit shutdown boundary.') `
+        'Native-stereo verifier accepted a run without pre-exit completion or failed for an unrelated reason.'
+
+    foreach ($IncompleteDrain in @('abandoned', 'pending', 'not_completed', 'inconsistent_totals', 'cross_summary', 'missing_abandoned', 'missing_pending')) {
+        $IncompleteDrainLog = @($TransportOnlyLog | ForEach-Object {
+            $RecordLine = $_
+            if ($RecordLine -match 'native_stereo_gpu_transport_summary:') {
+                switch ($IncompleteDrain) {
+                    'abandoned' { $RecordLine -replace 'abandoned_on_shutdown=0;', 'abandoned_on_shutdown=1;' }
+                    'not_completed' { $RecordLine -replace 'copy_fences_completed=2;', 'copy_fences_completed=1;' }
+                    'cross_summary' { $RecordLine -replace 'frames_copied=2;', 'frames_copied=3;' -replace 'copy_fences_completed=2;', 'copy_fences_completed=3;' }
+                    'missing_abandoned' { $RecordLine -replace 'abandoned_on_shutdown=0;', '' }
+                    default { $RecordLine }
+                }
+            } elseif ($RecordLine -match 'native_stereo_transport_summary:') {
+                switch ($IncompleteDrain) {
+                    'pending' { $RecordLine -replace 'shared_pending_copy_fences=0;', 'shared_pending_copy_fences=1;' }
+                    'inconsistent_totals' { $RecordLine -replace 'shared_copy_fences_completed=2;', 'shared_copy_fences_completed=1;' }
+                    'missing_pending' { $RecordLine -replace 'shared_pending_copy_fences=0;', '' }
+                    default { $RecordLine }
+                }
+            } else { $RecordLine }
+        })
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $IncompleteDrainLog
+        $IncompleteDrainFailure = $null
+        try {
+            & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+                -GameDirectory $StereoVerifierGame | Out-Null
+        } catch { $IncompleteDrainFailure = $_.Exception.Message }
+        Assert-True ($IncompleteDrainFailure -eq 'The final GPU transport counters did not prove a complete shutdown drain.') `
+            "Native-stereo verifier accepted '$IncompleteDrain' shutdown or failed for an unrelated reason: $IncompleteDrainFailure"
+    }
+
+    foreach ($InvalidSubmit in @("flat", "zero_pose", "failed_eye", "repeat_only")) {
+        $InvalidSubmitLog = @($TransportOnlyLog | ForEach-Object {
+            $RecordLine = $_
+            if ($RecordLine -match "native_stereo_presenter_timing: status=ok .*content=new;") {
+                switch ($InvalidSubmit) {
+                    "flat" { $RecordLine -replace "presentation_mode=native_stereo", "presentation_mode=flat_theater" }
+                    "zero_pose" { $RecordLine -replace "render_pose_sequence=3;", "render_pose_sequence=0;" }
+                    "failed_eye" { $RecordLine -replace "right_result=0;", "right_result=1;" }
+                    "repeat_only" { $RecordLine -replace "content=new;", "content=repeated;" }
+                }
+            } else { $RecordLine }
+        })
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $InvalidSubmitLog
+        $InvalidSubmitFailure = $null
+        try {
+            & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+                -GameDirectory $StereoVerifierGame | Out-Null
+        } catch { $InvalidSubmitFailure = $_.Exception.Message }
+        Assert-True ($InvalidSubmitFailure -eq "The presenter did not report a successful new-frame OpenVR submission bound to its exact render pose.") `
+            "Submission validation accepted '$InvalidSubmit' or failed for an unrelated reason."
+    }
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $TransportOnlyLog
+
     $TransportRun.validation.profile = "startup"
     $TransportRun.validation | Add-Member -NotePropertyName requireHmdTracking -NotePropertyValue $false -Force
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
@@ -1012,6 +1087,12 @@ try {
         "native_stereo_swapchain_hook: status=restored",
         "native_stereo_runtime: status=stopped",
         "run_end: run_id=$StereoVerifierRunId"
+    )
+    $StartupLog += @(
+        "native_stereo_pre_exit_hook: status=installed",
+        "native_stereo_pre_exit: stage=begin boundary=CoJ.exe!DestroyGame",
+        "native_stereo_pre_exit_hook: status=restored",
+        "native_stereo_pre_exit: stage=end boundary=CoJ.exe!DestroyGame"
     )
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StartupLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
