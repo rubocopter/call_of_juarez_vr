@@ -115,10 +115,11 @@ UI pointing is presentation plus exact-game UI policy:
 1. OpenVR supplies `/pose/tip` and global UI actions.
 2. The presenter automatically intersects the tracked Sense ray with the flat screen and reports normalized/source coordinates plus controller and hit positions. No L1/R1 activation is required. It initially prefers the right tracked hand, retains a valid owner, and a fresh L2/R2 press chooses that hand. Focus/input/pose loss releases the owner. A valid tip missing the screen does not switch to a different grip ray or the other hand.
 3. The presenter publishes a hand/claim/click mailbox. On the game thread, the current UI's native sprite-tree mouse dispatcher receives the previous and projected source-pixel positions, performing the shipped bounds/capture tests and enter/move/leave callbacks. Only then does `MainMenuModule.GetGlobalCursor() -> UICursor.SetPos -> OnMouseMove` update the cursor visual. Native calls require the recognized executable and ChromeEngine SHA-256. There is no desktop cursor warp, `SendInput` movement or `WM_MOUSEMOVE` publication. Exact seams and limits are recorded in [the UI mouse boundary](research/COJ_UI_MOUSE_PATH.md).
-4. Before/after writing, the current UI's `GetMousePos(LVector;)Z` observes native input coordinates in X/Z, normalized to source X/Y. Sprite `UICursor.GetPos` is a distinguishable fallback only when no concrete UI exists during startup. Movement beyond the last accepted VR input position or a held physical mouse button gives the mouse priority for 1.5 seconds after its latest activity; observation continues while the laser is hidden. Native input readback must match within one pixel before accepting delivery.
-5. Cross is global accept, Circle is global back, and L2/R2 select from the owning ray. A queued trigger press retains its target until a subsequent game `Present` observes it still applied. An accepted tap survives ordinary trigger release; failed mouse delivery/readback, ownership/focus loss, Back/Cross navigation and a change in the shipped `MainMenuModule.m_nCurUI` index cancel it. Failed delivery releases the retained target so the automatic ray continues moving. Selection rechecks native input/index and serializes dispatch with mailbox cancellation; an old hand/claim/click completion cannot consume a newer click. Gameplay weapon bindings remain in their existing gameplay action set. A shoulder held through a menu-to-game transition cannot switch weapons until an active released sample is observed.
-6. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
-7. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
+4. UI resolution follows the object that actually owns mouse processing. A visible `MainMenuModule.m_cYesNoDlg` is the input root while `m_bYesNoDlgVisible` is set, because the parent UI disables its own mouse processing. The global `MainMenuModule` current UI is preferred for menu/pause routing; the active-game module remains the fallback when no global UI is available.
+5. Before/after writing, the resolved UI's `GetMousePos(LVector;)Z` observes native input coordinates in X/Z, normalized to source X/Y. Sprite `UICursor.GetPos` is a distinguishable fallback only when no concrete UI exists during startup. Movement beyond the last accepted VR input position or a held physical mouse button gives the mouse priority for 1.5 seconds after its latest activity; observation continues while the laser is hidden. Native input readback must match within one pixel before accepting delivery.
+6. Cross is global accept, Circle is global back, and L2/R2 select from the owning ray. A queued trigger press retains its target until a subsequent game `Present` observes it still applied. An accepted tap survives ordinary trigger release; failed mouse delivery/readback, ownership/focus loss, Back/Cross navigation and a change in the shipped `MainMenuModule.m_nCurUI` index cancel it. Failed delivery releases the retained target so the automatic ray continues moving. Selection rechecks native input/index and serializes dispatch with mailbox cancellation; an old hand/claim/click completion cannot consume a newer click. Gameplay weapon bindings remain in their existing gameplay action set. A shoulder held through a menu-to-game transition cannot switch weapons until an active released sample is observed.
+7. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
+8. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
 
 The earlier sprite-only internal-cursor route is **physically rejected**:
 the cursor sprite moves without option highlighting or usable ray selection.
@@ -128,10 +129,12 @@ not establish delivery to the menu's native mouse consumer. Regression fixtures
 distinguish sprite coordinates from input coordinates and actual hover events.
 Native sprite-tree delivery and failed-click cancellation are **implemented /
 host-tested**. A local exact-binary probe executes the shipped recursive
-dispatcher against synthetic sprites and verifies enter/move/leave callbacks;
-it does not validate the live menu or headset interaction. Physical hover,
-selection and mouse coexistence remain open. Earlier Windows-only and
-simultaneous Java/Windows routes also remain physically rejected.
+dispatcher against synthetic sprites and verifies enter/move/leave callbacks.
+First-level main-menu hover/selection and physical-mouse takeover/resume are
+**headset-validated**. Explicit Yes/No-dialog and gameplay-pause current-UI
+routing are **implemented / host-tested** and remain the next physical UI gate.
+Earlier Windows-only and simultaneous Java/Windows routes remain physically
+rejected.
 
 ## Tracking, locomotion and body ownership
 
@@ -139,11 +142,12 @@ Room-scale HMD translation is camera-owned. The native actor keeps authoritative
 
 Yaw ownership runs even with Body IK disabled. The previous 35-degree engage /
 20-degree residual policy produced actor jumps of at least 15 degrees, matching
-the native body/hand stepping observed during physical head turns. The
-**implemented / host-tested** correction keeps the 35-degree free-look cone and
-absorbs only the excess continuously at its boundary. Rendering still uses
-previous committed ownership, and recenter establishes a fresh baseline.
-Physical comfort acceptance remains pending independently of arm IK.
+the native body/hand stepping observed during physical head turns. The correction
+keeps the 35-degree free-look cone and absorbs only the excess continuously at
+its boundary. Rendering still uses previous committed ownership, and recenter
+establishes a fresh baseline. Slow/fast physical head turns were reported stable
+with Body IK disabled, so this boundary is **headset-validated** for the exercised
+path independently of arm IK.
 
 Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
 
@@ -164,7 +168,18 @@ For the observed exact model:
 - visible writes use exact-build `RotateElementWithChildren(ILVector;F)V` with element-local axes;
 - child/parent restoration is verified against the captured natural state and failures disable further mutation.
 
-The visible writer and restore path are live-exercised, but Body IK remains visually rejected. Safety now denies unsafe writes instead of forcing extreme rotations; the latest run denied 43/128 sampled arm updates and the user saw the resulting ownership changes as repeated snap-back to the default game pose. Continuous tracked ownership is therefore a first-class requirement: the solver must remain plausible across normal reachable motion without alternating visibly between VR and native animation. Shoulder/clavicle participation remains a separate measured experiment. Lower-body writing remains unpromoted.
+The visible writer and restore path are live-exercised, but the previous Body IK
+candidate remains visually rejected. Its positional gate returned ownership to
+native animation whenever the controller target exceeded the measured arm reach
+by more than 10%, even though the two-bone solver already hard-clamps unreachable
+targets to the measured chain. That produced visible ownership alternation.
+Current host code keeps positional ownership for every valid finite solver plan,
+including hard-clamped targets, while the separate conservative upper/forearm
+rotation gate, 30-degree hand-residual limit, disabled FORETWIST controller roll,
+reload yielding, rollback and restoration remain unchanged. This continuity
+change is **implemented / host-tested** and still needs physical anatomy/reach
+validation. Shoulder/clavicle participation remains a separate measured
+experiment. Lower-body writing remains unpromoted.
 
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
 

@@ -82,7 +82,18 @@ The newest clip shows a different failure mode: safety blocks some extreme write
 - elbow and wrist positional targets can still be reached while the resulting orientation is anatomically invalid;
 - reload introduces a visible conflict between native animation and VR-driven element rotation.
 
-The current candidate applies a hand residual only when the original mismatch is at most 30 degrees, rejects arm writes more than 10% beyond measured reach, requires a conservative upper/forearm rotation plan, keeps FORETWIST roll disabled and yields to shipped reload ownership. Unsafe plans return ownership to native animation. That fail-closed behavior is technically safer but visually discontinuous; the next solver work must maintain plausible continuous ownership across ordinary controller motion before adding more body scope. Clavicle/shoulder participation remains a measured experiment, with hand orientation kept separate from positional reach.
+The previous candidate applied a hand residual only when the original mismatch
+was at most 30 degrees and also rejected positional arm writes more than 10%
+beyond measured reach. That second rule was redundant with the two-bone solver's
+existing hard clamp and caused valid unreachable targets to fall back visibly to
+native animation. Current host code keeps ownership for every valid finite
+positional IK plan, including a hard-clamped target at the measured native reach.
+The conservative upper/forearm rotation plan, 30-degree hand residual, disabled
+FORETWIST controller roll and shipped reload ownership remain independent safety
+gates. This continuity change is **implemented / host-tested**; physical
+anatomy/reach acceptance is still pending. Clavicle/shoulder participation
+remains a measured experiment, with hand orientation kept separate from
+positional reach.
 
 ## Current body acceptance boundary
 

@@ -1618,8 +1618,9 @@ CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
     const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
     const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    const auto get_boolean = EnvFunction<GetBooleanFieldFn>(env, kGetBooleanField);
     if (!find_class || !get_static_field || !get_static_object || !get_class ||
-        !get_method || !call_object || !get_field || !get_object) {
+        !get_method || !call_object || !get_field || !get_object || !get_boolean) {
         SetError(error, "required JNI current-game-UI lookup functions are unavailable");
         return CoJCurrentUiResolution::error;
     }
@@ -1632,6 +1633,42 @@ CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
             DeleteLocal(env, menu_class);
             return CoJCurrentUiResolution::error;
         }
+
+        void* yes_no_visible_field =
+            get_field(env, menu_class, "m_bYesNoDlgVisible", "Z");
+        if (!yes_no_visible_field || ClearException(
+                env, error, "MainMenuModule.m_bYesNoDlgVisible lookup failed")) {
+            DeleteLocal(env, menu_class);
+            return CoJCurrentUiResolution::error;
+        }
+        const bool yes_no_visible = get_boolean(env, menu, yes_no_visible_field) != 0;
+        if (ClearException(env, error, "MainMenuModule.m_bYesNoDlgVisible read failed")) {
+            DeleteLocal(env, menu_class);
+            return CoJCurrentUiResolution::error;
+        }
+        if (yes_no_visible) {
+            void* yes_no_dialog_field =
+                get_field(env, menu_class, "m_cYesNoDlg", "LMenuYesNoDialog;");
+            if (!yes_no_dialog_field || ClearException(
+                    env, error, "MainMenuModule.m_cYesNoDlg lookup failed")) {
+                DeleteLocal(env, menu_class);
+                return CoJCurrentUiResolution::error;
+            }
+            ui = get_object(env, menu, yes_no_dialog_field);
+            DeleteLocal(env, menu_class);
+            if (ClearException(env, error, "MainMenuModule.m_cYesNoDlg read failed")) {
+                DeleteLocal(env, ui);
+                ui = nullptr;
+                return CoJCurrentUiResolution::error;
+            }
+            if (!ui) {
+                SetError(error, "visible MainMenuModule Yes/No dialog is unavailable");
+                return CoJCurrentUiResolution::error;
+            }
+            route = candidate_route;
+            return CoJCurrentUiResolution::resolved;
+        }
+
         JValue lookup_args[1]{};
         if (!load_if_missing) {
             const auto get_static_int = EnvFunction<GetStaticIntFieldFn>(env, kGetStaticIntField);

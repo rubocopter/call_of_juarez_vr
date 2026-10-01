@@ -735,10 +735,8 @@ bool ShouldApplyCoJArmIk(const ArmIkPlan& plan) noexcept {
         !std::isfinite(plan.upper_length) || !std::isfinite(plan.lower_length)) {
         return false;
     }
-    if (!plan.target_clamped) return true;
     const float native_reach = plan.upper_length + plan.lower_length;
-    if (!std::isfinite(native_reach) || native_reach <= 0.0F) return false;
-    return plan.raw_target_distance - native_reach <= native_reach * 0.10F;
+    return std::isfinite(native_reach) && native_reach > 0.0F;
 }
 
 ArmBoneRotationPlan BuildArmBoneRotationPlan(

@@ -50,6 +50,13 @@ uses non-creating `FindUI(m_nCurUI)`; observations read the existing `m_cCursor`
 field. `GetCurrentUI -> GetUI` can load a missing UI, and `GetGlobalCursor` can
 create a cursor, so neither factory belongs in passive observation.
 
+Shipped menu ownership has two additional roots that matter for live input.
+When `MainMenuModule.m_bYesNoDlgVisible` is true, `m_cYesNoDlg` owns mouse
+processing while the parent UI is disabled, so delivery/readback must target the
+dialog directly. During gameplay pause, the global `MainMenuModule` current UI is
+the preferred root; the active-game menu remains a fallback. Both rules are now
+covered by JNI fixtures and are **implemented / host-tested**.
+
 A failed delivery/readback cancels only the matching pending click, freeing its
 target for further automatic pointing. Hand/claim/click ownership still guards
 stale completion. The full-UI verifier requires native-consumer telemetry and
@@ -65,8 +72,10 @@ separately exercise the production bridge, input-versus-sprite discrimination,
 dispatch failures and reference cleanup. These probes do not execute the live
 Java menu's focus/selection behavior.
 
-**Experiment-pending:** main and pause menu hover, modal/submenu behavior,
-same-hand trigger activation and physical mouse coexistence in the headset.
-Operator confirmation remains required even when transport and native input
+**Headset-validated:** first-level main-menu hover/highlight, selection and
+physical mouse takeover/resume through the native event route.
+
+**Experiment-pending:** the newly routed visible Yes/No dialog and gameplay pause
+menu. Operator confirmation remains required even when transport and native input
 telemetry pass. Exact native boundaries must not be generalized to another
 Chrome Engine build or another game.

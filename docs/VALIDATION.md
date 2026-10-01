@@ -10,23 +10,26 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
-Controller-only menu operation remains **physically rejected**: the automatic
-sprite-only cursor route moved the visible bullet without highlighting or
-accepting the pointed option. The replacement native sprite-tree mouse-event
-route, actual `GetMousePos` readback and failed-click cancellation are
-**implemented / host-tested**. Physical head yaw also exposed native body/hand
-steps with Body IK disabled. Continuous following at the existing 35-degree
-comfort boundary is **implemented / host-tested**, with physical acceptance open.
+First-level controller-only main-menu operation is **headset-validated** through
+the native sprite-tree mouse-event route: hover/highlight, selection and physical
+mouse takeover/resume were observed working. The remaining UI gate is narrower:
+the previous live candidate could not select a visible Yes/No dialog or gameplay
+pause-menu options. Explicit dialog/current-UI root routing is **implemented /
+host-tested**. Continuous body-yaw following at the 35-degree comfort boundary
+is **headset-validated with Body IK disabled**; the previous arm IK candidate
+remains visually rejected for snap-back/continuity.
 
-The next combined run uses normal `prepare`, **without** `-StartupOnly` or
-`-BodyIkAtStart`. In both main and pause menus, point automatically without
-L1/R1 and check highlighting before short same-hand L2/R2 selection. Exercise
-Circle back, Cross accept and mouse motion/drag coexistence. Load a save, turn
-the head slowly through both sides of the comfort cone while watching the
-native revolver hand, then check stable depth/head turns, walk/jump, Create
-recenter and dashboard return. Quit normally and run `finish`. Record menu and
-body-yaw observations separately: the transport verifier does not accept these
-visual gates, and a Body-IK-off run does not validate tracked-arm IK.
+The next combined run uses normal `prepare -BodyIkAtStart`. In the main menu,
+confirm ordinary first-level hover/selection, then open Abandon/Quit and verify
+both Yes/No choices highlight and select with the laser. Exercise Circle back,
+Cross accept and physical mouse takeover/resume. Load a save, verify stereo/depth,
+slow and fast physical head turns, walk/run/jump and Create recenter. Open the
+gameplay pause menu and verify laser hover/select/back there. With Body IK active,
+move both hands through comfortable and beyond-reach poses and watch for stable
+continuous ownership without snap-back or obvious anatomical deformation; also
+exercise a reload. Note any repeatable running-performance dip. Open/close the
+SteamVR dashboard once, quit normally, then run `finish`. The verifier does not
+accept visual UI or Body IK gates without the operator observations.
 
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
@@ -143,13 +146,13 @@ remain valid. The separate menu-pointer, arm-continuity and weapon-alignment
 product gates remain open. Body, UI and weapon acceptance are
 outside this transport run; normal-quit shutdown is now live-tested.
 
-## Automatic menu-pointer acceptance — physical test pending
+## Automatic menu-pointer acceptance
 
 **Observed rejection:** holding L1/R1 activated the previous laser correctly,
 but the game cursor still jumped and menu operation remained unusable. Passing
 startup/closure verification did not accept that pointer.
 
-**Implemented / host-tested correction:** the ray is automatic, with no shoulder
+**Headset-validated for first-level main-menu options:** the ray is automatic, with no shoulder
 requirement. The presenter queues coordinates; only the game thread moves the
 internal logical cursor, verifies readback and waits a game update before applying
 a queued click. Accepted short taps survive trigger release; ownership/focus loss,
@@ -159,30 +162,34 @@ drag gives the mouse priority until 1.5 seconds after its latest activity.
 Menu focus gates dispatch without starving flat publication, and held menu
 shoulders cannot become gameplay weapon switches before release.
 
-For this isolated gesture use fresh `prepare -StartupOnly`, then manually start
-SteamVR/CoJ. In the main menu, point without R1 and move slowly between several
-options: the game cursor and highlight must follow the laser accurately. Select
-with R2, return with Circle, then test L2 with the left ray. Verify Cross accept.
-Move and drag the physical mouse while moving both controllers: the mouse must
-remain usable; the laser should return after the mouse rests. Avoid unnecessary
-setting changes and do not enter gameplay or repeat body/weapon tests. Quit
-normally and run `finish`. Startup verification confirms provenance, presentation
-and restoration; the operator must separately confirm stable hover, correct
-option selection and mouse coexistence.
+The operator confirmed correct first-level highlighting/selection and that mouse
+input can take priority and hand control back to the laser. A later physical run
+showed that a visible Yes/No dialog and the gameplay pause menu did not yet receive
+the same behavior. The bridge now resolves the visible `m_cYesNoDlg` as the input
+root and prefers the global `MainMenuModule` current UI for pause-menu delivery;
+those two routing corrections are **implemented / host-tested** and still need a
+headset check.
+
+The next UI acceptance is part of the combined Body IK run below. Reconfirm the
+accepted first-level behavior, then explicitly exercise a Yes/No dialog and the
+gameplay pause menu. Startup/transport verification confirms provenance and
+presentation only; the operator must separately confirm their hover/selection.
 
 ## Combined menu and gameplay regression
 
-For a broader physical pass use normal `prepare` with Body IK disabled. In one
-run, exercise the automatic menu gesture above, load a save, check correct stereo
-depth and stable head turns, then move/walk/jump and recenter with Create. Open
-and close the SteamVR dashboard once and verify the image/input resume. Revisit
-the pause menu and test pointing/back, then quit normally and `finish`.
+For the next physical pass use normal `prepare -BodyIkAtStart`. In one run,
+exercise the automatic menu gesture and Yes/No dialog, load a save, check correct
+stereo depth and stable slow/fast head turns, then move/walk/run/jump and recenter
+with Create. Exercise Body IK across ordinary and beyond-reach hand poses and one
+reload, watching for continuous positional ownership and plausible anatomy. Open
+and close the SteamVR dashboard once and verify image/input resume. Revisit the
+pause menu and test pointing/select/back, then quit normally and `finish`.
 
 The transport profile verifies GPU capture, exact render-pose submission and
 normal shutdown. Its summaries retain cadence, movement and dashboard observations;
-menu hover/selection, post-dashboard usability and recenter visual quality still
-require operator confirmation. A transport PASS does not accept those separate
-gestures. Avoid avatar/arm/weapon conclusions while Body IK is disabled.
+modal/pause-menu hover/selection, post-dashboard usability, recenter visual quality
+and Body IK continuity/anatomy still require operator confirmation. A transport
+PASS does not accept those separate gestures.
 
 ## Production D3D9Ex startup/reset gate
 
@@ -297,13 +304,13 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
-| Body IK continuity/anatomy | live-exercised / rejected | safety must not produce repeated visible fallback to default animation |
+| Body IK continuity/anatomy | previous candidate live-exercised / rejected; continuity correction implemented / host-tested | valid hard-clamped positional plans now retain ownership; rotation/hand/reload safety stays fail-closed; physical anatomy/reach acceptance remains open |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | Windows injection and sprite-only internal-cursor route physically rejected; native event correction host-tested | replacement dispatches the shipped sprite-tree mouse events and reads actual UI input; physical hover/selection and mouse coexistence remain open |
-| Native body yaw with Body IK disabled | physical stepping observed; continuous correction implemented / host-tested | old 35/20-degree policy produced actor jumps of at least 15 degrees; replacement follows the 35-degree boundary continuously; physical comfort acceptance remains open |
-| Cross/Circle/L2/R2 UI actions | host-tested / controller-only selection rejected | callback dispatch is insufficient evidence that the pointed option received focus or activation |
+| Flat-menu pointer | first-level main-menu native event route headset-validated; modal/pause routing implemented / host-tested | hover/selection and mouse coexistence work on first-level options; Yes/No dialog and gameplay pause menu still need physical acceptance |
+| Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
+| Cross/Circle/L2/R2 UI actions | first-level main-menu selection physically accepted; modal/pause routing host-tested | callback dispatch alone remains insufficient for the untested modal/pause roots |
 | Loading continuation | host-tested | native loading input route is mapped |
-| Controller-origin UI beam | live-exercised / visible in headset | pointer visibility is observed; origin/alignment and accurate controller-only UI operation remain pending |
+| Controller-origin UI beam | headset-validated for first-level main-menu interaction | modal/pause input-root acceptance remains pending |
 | Controller-owned weapon direction/visual origin | host-tested | final physical firing alignment still pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
 | Temporary controller alignment ray | planned diagnostic | diagnostic only; must not become production ballistics |

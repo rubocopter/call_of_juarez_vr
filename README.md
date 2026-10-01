@@ -30,8 +30,8 @@ PS VR2 / SteamVR host:
 | Startup and transport | **Live-tested** D3D9Ex compatibility, flat videos/menu presentation and GPU-resident native eye transport through private D3D11 into OpenVR, with explicit render-pose submission. Native CPU readback is removed on this path. |
 | Refresh and shutdown | **Live-tested** bounded HMD-derived rate cap at the configured 90 Hz and complete normal-quit copy drain / same-owner OpenVR shutdown. Sustained tail latency, refresh-change recovery and abnormal lifecycle remain open. |
 | Locomotion | Physical measurements confirm vanilla-equivalent movement and jump behavior. |
-| Menu pointer | Windows injection and automatic internal-cursor delivery are **physically rejected**. The laser/cursor can be visible without highlighting or selecting options; controller-only menus remain unusable. |
-| Body and weapons | Continuous arm/body IK is **visually rejected** and weapon/barrel alignment remains unaccepted. Physical head yaw also produces native body/hand steps with Body IK disabled; this is a separate comfort defect. |
+| Menu pointer | Automatic native mouse-event laser interaction is **headset-validated for first-level main-menu options and mouse coexistence**. Visible Yes/No dialogs and the gameplay pause menu now have **implemented / host-tested** input-root routing and still need a physical check. |
+| Body and weapons | Continuous body-yaw following with Body IK disabled is **headset-validated** for stable physical head turns. Arm/body IK remains **visually rejected** on the previous candidate; the solver now keeps valid hard-clamped positional ownership **implemented / host-tested**, pending physical continuity/anatomy validation. Weapon/barrel alignment remains unaccepted. |
 
 The rate cap follows the headset property, rather than a fixed 90 Hz setting.
 The accepted bounded run produced about 87 stereo pairs/s and 89 total
@@ -41,11 +41,14 @@ The menu candidate shows the laser **automatically while pointing**, with no
 L1/R1 requirement. **Same-hand L2/R2 selects**; a fresh trigger on the other hand
 chooses that ray. Moving or dragging the physical mouse gives it priority until
 1.5 seconds after the latest activity. Cross accepts and Circle goes back.
-The latest headset test rejected highlighting and selection despite successful
-cursor position readback. Cursor visibility/readback does not prove that the
-native menu consumed mouse motion. The mouse remains the usable menu fallback.
-The replacement native mouse-event route and continuous body-yaw boundary
-following are **implemented / host-tested**; both still need a headset check.
+The native mouse-event route is now physically accepted for first-level main-menu
+hover/selection and for switching between laser and physical mouse input. A later
+run exposed two narrower input-root gaps: the visible Yes/No dialog and the
+gameplay pause menu did not receive the laser even though their parent/global UI
+was present. Their explicit routing is **implemented / host-tested** and is the
+next menu check. Continuous body-yaw boundary following is physically accepted
+with Body IK disabled. The next combined candidate enables Body IK to validate
+the new solver ownership rule together with those remaining menu roots.
 Pending-frame renderer reset/device loss and abnormal shutdown remain separate
 from the accepted normal-quit path.
 

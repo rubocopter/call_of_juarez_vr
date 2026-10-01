@@ -4,13 +4,13 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-**Immediate physical gate:** the automatic menu-pointer correction is
-**implemented / host-tested**. Point without L1/R1, use the same hand's L2/R2
-to select, and move the physical mouse to give it temporary priority. The previous
-Windows injection route remained unstable even with held-button activation.
-Run the isolated startup/menu gesture in
-[Validation](VALIDATION.md#automatic-menu-pointer-acceptance--physical-test-pending);
-successful startup verification alone does not accept pointer usability.
+**Immediate physical gate:** one combined UI + Body IK run. First-level main-menu
+laser hover/selection and physical-mouse coexistence are **headset-validated**.
+Visible Yes/No-dialog and gameplay-pause input-root routing are **implemented /
+host-tested** and need physical acceptance. The arm solver now preserves valid
+hard-clamped positional ownership instead of dropping back to native animation;
+that continuity change is also **implemented / host-tested**. Use normal
+`prepare -BodyIkAtStart` and follow the combined gesture in [Validation](VALIDATION.md#combined-menu-and-gameplay-regression).
 
 Native stereo, bounded configured-HMD cadence and normal-quit shutdown are
 accepted for the exercised build/host. Continuous body/arm IK remains visually
@@ -120,7 +120,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 - Exact campaign player discovery: **live-tested**.
 - Room-scale camera translation with native actor position/grounding preserved: **host-tested follow-up after physical rejection**.
-- HMD/body-yaw comfort ownership: **physical stepping observed with Body IK disabled**. Continuous following at the existing 35-degree boundary is **implemented / host-tested**; physical comfort acceptance remains open.
+- HMD/body-yaw comfort ownership: continuous following at the existing 35-degree boundary is **headset-validated with Body IK disabled** for stable physical head turns.
 - Exact snap turn: **headset-validated**.
 - Native analog locomotion through the shipped float-input path: **headset-validated diagnostically** for vanilla-equivalent normal/walk speed. No further movement/input changes are planned.
 - Native jump action: **headset-validated diagnostically** for vanilla-equivalent apex and duration. No further jump/physics changes are planned.
@@ -134,14 +134,14 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Exact visible arm writer and verified restoration: **live-tested**.
 - Correct head-relative controller target space: **live-tested**.
 - FORETWIST/hand hierarchy correction: **live-tested technically; visual anatomy remains incomplete**.
-- Arm reach/anatomy/orientation: **live-exercised / physically rejected for continuity**. Safety must remain fail-closed without causing visible repeated fallback to default animation.
+- Arm reach/anatomy/orientation: previous candidate **live-exercised / physically rejected for continuity**. Valid solver-clamped positional plans now retain ownership **implemented / host-tested** while rotation/hand/reload safety remains conservative; physical continuity/anatomy is the next gate.
 - Native reload-animation ownership: **host-tested follow-up**.
 - Pelvis/legs full-body writing: **planned**, blocked on acceptable arm/body ownership first.
 
 ## Milestone 4 — controller UI and interactions
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
-- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events, actual UI input readback and failed-click cancellation are **implemented / host-tested**. Accurate highlighting, correct selection and controller/mouse coexistence remain the physical gate.
+- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events are **headset-validated for first-level main-menu hover/selection and controller/mouse coexistence**. Visible Yes/No-dialog and gameplay-pause routing are **implemented / host-tested** pending physical acceptance.
 - Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.

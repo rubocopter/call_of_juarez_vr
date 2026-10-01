@@ -478,8 +478,9 @@ int main() {
     }
     if (!ShouldApplyCoJArmIk(within_reach_plan) ||
         !ShouldApplyCoJArmIk(soft_overreach_plan) ||
-        ShouldApplyCoJArmIk(extreme_overreach_plan)) {
-        std::cerr << "arm write safety did not reject severe reach clamps\n";
+        !ShouldApplyCoJArmIk(extreme_overreach_plan) ||
+        ShouldApplyCoJArmIk(ArmIkPlan{})) {
+        std::cerr << "arm write ownership did not preserve valid hard-clamped IK or reject an invalid plan\n";
         return 1;
     }
 

@@ -269,9 +269,9 @@ struct LegIkPlan {
     const ArmGeometrySample& geometry,
     cojvr::runtime::Vec3 controller_target) noexcept;
 
-// Preserve small native reach clamps, but fail closed when a controller target
-// is far enough beyond the measured arm chain to force a visibly rigid or
-// contorted pose. Clavicle participation is the future owner of that reach.
+// Keep ownership of every valid positional IK plan, including unreachable
+// controller targets already hard-clamped by SolveTwoBoneIK to the measured
+// native chain length. Rotation and hand-residual safety gates remain separate.
 [[nodiscard]] bool ShouldApplyCoJArmIk(const ArmIkPlan& plan) noexcept;
 
 // Converts the solved world-space arm chain into the relative hierarchy
