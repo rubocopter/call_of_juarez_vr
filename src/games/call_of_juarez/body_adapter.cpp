@@ -523,17 +523,15 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
         : 0.0F;
     const float residual = std::remainder(game_yaw - previous_owned, 360.0F);
 
-    // Keep ordinary head motion in the neck/spine chain. Rotating the actor
-    // for every one-degree HMD sample made native movement visibly step and
-    // also rotated the controller-to-world basis continuously. Once the head
-    // exceeds the comfort cone, move the actor only far enough to leave a
-    // twenty-degree residual and wait for another wide turn before moving it
-    // again.
-    constexpr float kActorFollowEngageDegrees = 35.0F;
-    constexpr float kActorFollowResidualDegrees = 20.0F;
+    // Keep ordinary head motion in the neck/spine chain. Outside the comfort
+    // cone, absorb only the excess so gradual HMD motion advances the actor
+    // continuously along the boundary. Resetting to a smaller residual would
+    // turn each boundary crossing into an actor jump. Returning inside the
+    // cone leaves the committed actor yaw in place for free look.
+    constexpr float kActorFollowComfortDegrees = 35.0F;
     float actor_delta = 0.0F;
-    if (std::fabs(residual) > kActorFollowEngageDegrees) {
-        actor_delta = residual - std::copysign(kActorFollowResidualDegrees, residual);
+    if (std::fabs(residual) > kActorFollowComfortDegrees) {
+        actor_delta = residual - std::copysign(kActorFollowComfortDegrees, residual);
     }
 
     result.actor_target_degrees = std::remainder(previous_owned + actor_delta, 360.0F);

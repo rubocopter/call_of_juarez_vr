@@ -41,6 +41,57 @@ bool Near(const float left, const float right, const float tolerance = 0.01F) {
     return std::fabs(left - right) <= tolerance;
 }
 
+cojvr::runtime::Pose HeadPoseAtPhysicalYaw(const float degrees) {
+    constexpr float kDegreesToHalfRadians = 0.008726646259971648F;
+    const float half_yaw = degrees * kDegreesToHalfRadians;
+    cojvr::runtime::Pose pose{};
+    pose.orientation = {0.0F, -std::sin(half_yaw), 0.0F, std::cos(half_yaw)};
+    pose.orientation_valid = true;
+    return pose;
+}
+
+bool CheckGradualBodyYawFollow(
+    const float initial_head_yaw,
+    const float initial_owned_yaw,
+    const std::array<float, 3>& turn_endpoints) {
+    using cojvr::games::call_of_juarez::BuildBodyYawOwnershipUpdate;
+    float head_yaw = initial_head_yaw;
+    float owned_yaw = initial_owned_yaw;
+    float max_actor_increment = 0.0F;
+    for (const float endpoint : turn_endpoints) {
+        const float head_increment = endpoint > head_yaw ? 0.5F : -0.5F;
+        while (!Near(head_yaw, endpoint)) {
+            head_yaw += head_increment;
+            const auto update = BuildBodyYawOwnershipUpdate(
+                HeadPoseAtPhysicalYaw(head_yaw), owned_yaw, true, false);
+            const float actor_increment = std::fabs(update.actor_delta_degrees);
+            if (!update.valid || actor_increment > std::fabs(head_increment) + 0.001F) {
+                std::cerr << "gradual body yaw leapt at physical yaw " << head_yaw
+                          << ": actor increment=" << actor_increment
+                          << ", head increment=" << std::fabs(head_increment) << '\n';
+                return false;
+            }
+            // Rendering uses the already committed actor yaw; the new target
+            // becomes authoritative only after the current stereo frame.
+            if (!Near(update.camera_compensation_degrees, owned_yaw) ||
+                !Near(std::remainder(update.actor_target_degrees - owned_yaw, 360.0F),
+                    update.actor_delta_degrees) ||
+                std::fabs(std::remainder(-head_yaw - update.actor_target_degrees,
+                    360.0F)) > 35.001F) {
+                std::cerr << "gradual body yaw lost compensation or the comfort boundary\n";
+                return false;
+            }
+            if (actor_increment > max_actor_increment) max_actor_increment = actor_increment;
+            owned_yaw = update.actor_target_degrees;
+        }
+    }
+    if (!Near(max_actor_increment, 0.5F, 0.001F)) {
+        std::cerr << "wide gradual turns did not continuously advance actor yaw\n";
+        return false;
+    }
+    return true;
+}
+
 float Distance(const cojvr::runtime::Vec3 left, const cojvr::runtime::Vec3 right) {
     const float x = left.x - right.x;
     const float y = left.y - right.y;
@@ -185,6 +236,57 @@ int main() {
         return 1;
     }
 
+    // Half-degree physical steps cross both sides of the cone, reverse back
+    // through free look, and cross HMD/owned-yaw +/-180 wrapping in both senses.
+    if (!CheckGradualBodyYawFollow(0.0F, 0.0F, {60.0F, -60.0F, 0.0F}) ||
+        !CheckGradualBodyYawFollow(0.0F, 0.0F, {-60.0F, 60.0F, 0.0F}) ||
+        !CheckGradualBodyYawFollow(170.0F, -135.0F, {230.0F, 100.0F, 170.0F}) ||
+        !CheckGradualBodyYawFollow(-170.0F, 135.0F, {-230.0F, -100.0F, -170.0F})) {
+        return 1;
+    }
+
+    struct BodyYawCase {
+        float physical_yaw;
+        float previous_owned;
+        bool previous_valid;
+        bool recentered;
+        float target;
+        float delta;
+        float compensation;
+        float residual;
+    };
+    // Literal expectations distinguish pre-commit render residuals from the
+    // next actor target, including a held pose and return into the free cone.
+    constexpr std::array<BodyYawCase, 13> body_yaw_cases{{
+        {35.0F, 0.0F, true, false, 0.0F, 0.0F, 0.0F, -35.0F},
+        {35.5F, 0.0F, true, false, -0.5F, -0.5F, 0.0F, -35.5F},
+        {35.5F, -0.5F, true, false, -0.5F, 0.0F, -0.5F, -35.0F},
+        {35.0F, -0.5F, true, false, -0.5F, 0.0F, -0.5F, -34.5F},
+        {-34.5F, -0.5F, true, false, -0.5F, 0.0F, -0.5F, 35.0F},
+        {-35.0F, -0.5F, true, false, 0.0F, 0.5F, -0.5F, 35.5F},
+        {181.0F, -144.0F, true, false, -146.0F, -2.0F, -144.0F, -37.0F},
+        {-181.0F, 144.0F, true, false, 146.0F, 2.0F, 144.0F, 37.0F},
+        {216.0F, -180.0F, true, false, 179.0F, -1.0F, -180.0F, -36.0F},
+        {-216.0F, 180.0F, true, false, -179.0F, 1.0F, 180.0F, 36.0F},
+        {170.0F, 225.0F, true, false, -135.0F, 0.0F, -135.0F, -35.0F},
+        {45.0F, 123.0F, false, false, -10.0F, -10.0F, 0.0F, -45.0F},
+        {216.0F, 179.0F, true, true, 0.0F, 0.0F, 0.0F, 0.0F},
+    }};
+    for (const auto& sample : body_yaw_cases) {
+        const auto update = BuildBodyYawOwnershipUpdate(
+            HeadPoseAtPhysicalYaw(sample.physical_yaw), sample.previous_owned,
+            sample.previous_valid, sample.recentered);
+        if (!update.valid || !Near(update.actor_target_degrees, sample.target) ||
+            !Near(update.actor_delta_degrees, sample.delta) ||
+            !Near(update.camera_compensation_degrees, sample.compensation) ||
+            !Near(update.head_residual_degrees, sample.residual) ||
+            !Near(update.spine_residual_degrees, sample.residual * (2.0F / 3.0F))) {
+            std::cerr << "body yaw boundary/wrap/recenter case failed at physical yaw "
+                      << sample.physical_yaw << '\n';
+            return 1;
+        }
+    }
+
     const float wide_yaw_half = 22.5F * kPi / 180.0F;
     Pose wide_right_turn_head{};
     wide_right_turn_head.orientation = {
@@ -193,8 +295,9 @@ int main() {
     const auto wide_body_yaw = BuildBodyYawOwnershipUpdate(
         wide_right_turn_head, 0.0F, false, false);
     if (!wide_body_yaw.valid ||
-        !Near(wide_body_yaw.actor_target_degrees, -25.0F) ||
-        !Near(wide_body_yaw.actor_delta_degrees, -25.0F) ||
+        !Near(wide_body_yaw.actor_target_degrees, -10.0F) ||
+        !Near(wide_body_yaw.actor_delta_degrees, -10.0F) ||
+        !Near(wide_body_yaw.camera_compensation_degrees, 0.0F) ||
         !Near(wide_body_yaw.head_residual_degrees, -45.0F)) {
         std::cerr << "wide HMD yaw did not move the actor toward the comfort-zone residual\n";
         return 1;
@@ -203,9 +306,10 @@ int main() {
         wide_right_turn_head, wide_body_yaw.actor_target_degrees, true, false);
     if (!settled_body_yaw.valid ||
         !Near(settled_body_yaw.actor_delta_degrees, 0.0F) ||
-        !Near(settled_body_yaw.camera_compensation_degrees, -25.0F) ||
-        !Near(settled_body_yaw.head_residual_degrees, -20.0F) ||
-        !Near(settled_body_yaw.spine_residual_degrees, -13.333333F, 0.001F)) {
+        !Near(settled_body_yaw.actor_target_degrees, -10.0F) ||
+        !Near(settled_body_yaw.camera_compensation_degrees, -10.0F) ||
+        !Near(settled_body_yaw.head_residual_degrees, -35.0F) ||
+        !Near(settled_body_yaw.spine_residual_degrees, -23.333333F, 0.001F)) {
         std::cerr << "actor-owned HMD yaw was still being double-applied to the upper body\n";
         return 1;
     }
@@ -217,6 +321,11 @@ int main() {
         !Near(recentered_body_yaw.camera_compensation_degrees, 0.0F) ||
         !Near(recentered_body_yaw.head_residual_degrees, 0.0F)) {
         std::cerr << "recenter did not adopt current actor yaw as the new VR baseline\n";
+        return 1;
+    }
+    if (!CheckGradualBodyYawFollow(0.0F, recentered_body_yaw.actor_target_degrees,
+            {60.0F, -60.0F, 0.0F})) {
+        std::cerr << "recenter retained old actor ownership during later head turns\n";
         return 1;
     }
 
