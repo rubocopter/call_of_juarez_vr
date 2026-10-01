@@ -268,6 +268,7 @@ switch ($Action) {
             Write-Host "Move both hands through comfortable reach and note whether either arm still feels shortened or clamps early."
         } else {
             Write-Host "Transport-profile run: first exercise automatic menu hover, R2/L2 selection, Cross/Circle and physical mouse/drag coexistence. Report accuracy separately; the transport verifier does not accept menu usability."
+            Write-Host "Body IK stays off. Slowly turn your head beyond both sides of the 35-degree comfort cone while watching the native revolver hand; report whether the previous body-yaw steps remain."
             Write-Host "Then reach native-stereo gameplay, confirm depth and stable slow/fast head turns, move/walk/jump and recenter with Create. Open/close the SteamVR dashboard once and confirm presentation/input resume."
             Write-Host "Body IK remains disabled. Do not judge tracked avatar arms or weapon alignment from this profile. Finish through a normal game quit."
             Write-Host "The acceptance target is stable tracking/stereo with producer cadence following the configured HMD refresh and zero classic-D3D9 fallback/readback."

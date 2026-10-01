@@ -90,9 +90,12 @@ public:
         }
     }
     UiPointerSelectionSnapshot snapshot() const noexcept { return state_; }
-    void Complete(const UiPointerSelectionSnapshot& expected, bool success) noexcept {
-        if (success && expected.pending && expected.hand == state_.hand && expected.claim == state_.claim &&
+    void Cancel(const UiPointerSelectionSnapshot& expected) noexcept {
+        if (expected.hand == state_.hand && expected.claim == state_.claim &&
             expected.click == state_.click) state_.pending = false;
+    }
+    void Complete(const UiPointerSelectionSnapshot& expected, bool success) noexcept {
+        if (success && expected.pending) Cancel(expected);
     }
 private:
     UiPointerSelectionSnapshot state_{};

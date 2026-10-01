@@ -10,6 +10,24 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
+Controller-only menu operation remains **physically rejected**: the automatic
+sprite-only cursor route moved the visible bullet without highlighting or
+accepting the pointed option. The replacement native sprite-tree mouse-event
+route, actual `GetMousePos` readback and failed-click cancellation are
+**implemented / host-tested**. Physical head yaw also exposed native body/hand
+steps with Body IK disabled. Continuous following at the existing 35-degree
+comfort boundary is **implemented / host-tested**, with physical acceptance open.
+
+The next combined run uses normal `prepare`, **without** `-StartupOnly` or
+`-BodyIkAtStart`. In both main and pause menus, point automatically without
+L1/R1 and check highlighting before short same-hand L2/R2 selection. Exercise
+Circle back, Cross accept and mouse motion/drag coexistence. Load a save, turn
+the head slowly through both sides of the comfort cone while watching the
+native revolver hand, then check stable depth/head turns, walk/jump, Create
+recenter and dashboard return. Quit normally and run `finish`. Record menu and
+body-yaw observations separately: the transport verifier does not accept these
+visual gates, and a Body-IK-off run does not validate tracked-arm IK.
+
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
 run retained Ex factory/device identity, recorded successful Presents beyond
@@ -281,8 +299,9 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | live-exercised / rejected | safety must not produce repeated visible fallback to default animation |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | Windows injection physically rejected, including held activation; internal-cursor route implemented / host-tested | automatic ray, same-hand L2/R2 selection, temporary mouse priority; physical hover/selection acceptance pending |
-| Cross/Circle/L2/R2 UI actions | host-tested follow-up | physical acceptance still pending |
+| Flat-menu pointer | Windows injection and sprite-only internal-cursor route physically rejected; native event correction host-tested | replacement dispatches the shipped sprite-tree mouse events and reads actual UI input; physical hover/selection and mouse coexistence remain open |
+| Native body yaw with Body IK disabled | physical stepping observed; continuous correction implemented / host-tested | old 35/20-degree policy produced actor jumps of at least 15 degrees; replacement follows the 35-degree boundary continuously; physical comfort acceptance remains open |
+| Cross/Circle/L2/R2 UI actions | host-tested / controller-only selection rejected | callback dispatch is insufficient evidence that the pointed option received focus or activation |
 | Loading continuation | host-tested | native loading input route is mapped |
 | Controller-origin UI beam | live-exercised / visible in headset | pointer visibility is observed; origin/alignment and accurate controller-only UI operation remain pending |
 | Controller-owned weapon direction/visual origin | host-tested | final physical firing alignment still pending |

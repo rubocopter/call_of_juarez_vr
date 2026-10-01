@@ -38,8 +38,9 @@ bool FixtureUiSelect(bool, bool*, std::string*, bool*, CoJUiDispatchRoute*) noex
     ++fixture::native_selects;
     return true;
 }
-bool FixturePointerMotion(float x, float y, std::string*) noexcept {
+bool FixturePointerMotion(float x, float y, std::string*, bool* input_consumed = nullptr) noexcept {
     if (!fixture::native_available) return false;
+    if (input_consumed) *input_consumed = true;
     ++fixture::native_moves;
     fixture::cursor_x = x;
     fixture::cursor_y = y;
@@ -176,10 +177,18 @@ int main() {
     fixture::native_readback_offset = 10;
     g_stereo.flat_ui_mouse_priority = {}; // Start a fresh readable owner.
     if (ApplyFlatUiPointerMotion().hand != cojvr::runtime::UiPointerHand::none ||
-        !FlatUiSelection().pending) {
-        std::cerr << "mismatched logical readback accepted a trigger selection\n";
+        FlatUiSelection().pending) {
+        std::cerr << "failed input delivery retained a click and pinned the ray target\n";
         return 19;
     }
+    fixture::native_readback_offset = 0;
+    sample.select_down = sample.select_pressed = false;
+    sample.pixel_x += 25;
+    g_stereo.flat_ui_mouse_priority = {};
+    FlatUiPointer(nullptr, sample);
+    ApplyFlatUiPointerMotion();
+    if (fixture::cursor_x != sample.pixel_x || FlatUiSelection().pending) return 25;
+    sample.select_down = sample.select_pressed = true;
     sample.claim = 3;
     fixture::native_readback_offset = 0;
     g_stereo.flat_ui_mouse_priority = {};
@@ -201,5 +210,19 @@ int main() {
     NeutralizeFlatUiPointer("ui_navigation");
     if (DispatchFlatUiPointerSelection(delivered, nullptr, nullptr, nullptr, nullptr) ||
         fixture::native_selects != 1) return 24;
+    sample.claim = 5;
+    FlatUiPointer(nullptr, sample);
+    ApplyFlatUiPointerMotion();
+    fixture::native_available = false; // Fail the initial read, before dispatch.
+    ApplyFlatUiPointerMotion();
+    if (FlatUiSelection().pending || g_stereo.flat_ui_target_applied) return 26;
+    fixture::native_available = true;
+    sample.select_down = sample.select_pressed = false;
+    sample.pixel_x += 50;
+    FlatUiPointer(nullptr, sample);
+    ApplyFlatUiPointerMotion();
+    delivered = ApplyFlatUiPointerMotion();
+    if (delivered.pending || fixture::cursor_x != sample.pixel_x ||
+        fixture::native_selects != 1) return 27;
     std::cout << "PASS - logical delivery, applied selection and physical mouse priority\n";
 }

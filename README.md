@@ -30,8 +30,8 @@ PS VR2 / SteamVR host:
 | Startup and transport | **Live-tested** D3D9Ex compatibility, flat videos/menu presentation and GPU-resident native eye transport through private D3D11 into OpenVR, with explicit render-pose submission. Native CPU readback is removed on this path. |
 | Refresh and shutdown | **Live-tested** bounded HMD-derived rate cap at the configured 90 Hz and complete normal-quit copy drain / same-owner OpenVR shutdown. Sustained tail latency, refresh-change recovery and abnormal lifecycle remain open. |
 | Locomotion | Physical measurements confirm vanilla-equivalent movement and jump behavior. |
-| Menu pointer | Windows cursor injection remains **physically rejected**, including held-button activation. Automatic laser delivery to the internal game cursor and temporary mouse priority are **implemented / host-tested**; accurate hover/selection in the headset is the current gate. |
-| Body and weapons | Sense tracking reaches the game-specific layer, but continuous arm/body IK is **visually rejected** and weapon/barrel alignment remains unaccepted. |
+| Menu pointer | Windows injection and automatic internal-cursor delivery are **physically rejected**. The laser/cursor can be visible without highlighting or selecting options; controller-only menus remain unusable. |
+| Body and weapons | Continuous arm/body IK is **visually rejected** and weapon/barrel alignment remains unaccepted. Physical head yaw also produces native body/hand steps with Body IK disabled; this is a separate comfort defect. |
 
 The rate cap follows the headset property, rather than a fixed 90 Hz setting.
 The accepted bounded run produced about 87 stereo pairs/s and 89 total
@@ -41,7 +41,11 @@ The menu candidate shows the laser **automatically while pointing**, with no
 L1/R1 requirement. **Same-hand L2/R2 selects**; a fresh trigger on the other hand
 chooses that ray. Moving or dragging the physical mouse gives it priority until
 1.5 seconds after the latest activity. Cross accepts and Circle goes back.
-Accurate highlighting, selection and mouse coexistence still need the headset test.
+The latest headset test rejected highlighting and selection despite successful
+cursor position readback. Cursor visibility/readback does not prove that the
+native menu consumed mouse motion. The mouse remains the usable menu fallback.
+The replacement native mouse-event route and continuous body-yaw boundary
+following are **implemented / host-tested**; both still need a headset check.
 Pending-frame renderer reset/device loss and abnormal shutdown remain separate
 from the accepted normal-quit path.
 
@@ -64,6 +68,7 @@ from the accepted normal-quit path.
 Focused exact-game research:
 [camera/stereo](docs/research/COJ_CAMERA_PATH.md) ·
 [arm/weapon ownership](docs/research/COJ_ARM_SKINNING_AND_AIM.md) ·
+[menu mouse input](docs/research/COJ_UI_MOUSE_PATH.md) ·
 [D3D9 resource census](docs/research/COJ_D3D9_RESOURCE_CENSUS.md)
 
 The README is intentionally a project landing page. Detailed run chronology and temporary implementation handoffs are not versioned as project documentation.

@@ -27,7 +27,7 @@ Object* const objects[] = {&game, &lawman, &single, &menu_class, &module_class,
     &cursor_class, &vector_class, &global_menu, &active_menu, &module,
     &global_cursor, &active_cursor, &vector, &exception, &ui_class, &ui};
 enum class Id { menu = 1, active, cmenu, cursor, current_ui, ctor, getpos,
-    setpos, move, process, x, y, z, ui_index };
+    setpos, move, process, x, y, z, ui_index, mousepos, object_id, find_ui };
 enum class Fault { none, owner_lookup, lookup, allocation, getpos_false, getpos_throw, float_throw,
     cursor_throw, cursor_null };
 Fault fault = Fault::none;
@@ -36,6 +36,11 @@ bool current_ui_available = false;
 std::int32_t ui_index = 4;
 bool pending = false;
 int mutations = 0, unexpected = 0;
+float input_x = 77.0F, input_y = 88.0F;
+int native_deliveries = 0;
+bool native_enabled = false;
+bool dispatch_available = true;
+int creating_ui_lookups = 0, cursor_factory_lookups = 0;
 void* env_table[180]{};
 void** env_holder = env_table;
 void* vm_table[8]{};
@@ -87,6 +92,8 @@ void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) 
         return Token(Id::cursor);
     if (cls == &menu_class && Is(name, "GetCurrentUI") && Is(sig, "()LGameUserInterface;"))
         return Token(Id::current_ui);
+    if (cls == &menu_class && Is(name, "FindUI") && Is(sig, "(I)LGameUserInterface;"))
+        return Token(Id::find_ui);
     if (cls == &vector_class && Is(name, "<init>") && Is(sig, "()V")) return Token(Id::ctor);
     if (cls == &cursor_class && Is(name, "GetPos") && Is(sig, "(LVector;)Z")) {
         if (fault == Fault::lookup) { pending = true; return nullptr; }
@@ -98,6 +105,10 @@ void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) 
         return Token(Id::move);
     if (cls == &ui_class && Is(name, "SetProcessMouse") && Is(sig, "()V"))
         return Token(Id::process);
+    if (cls == &ui_class && Is(name, "GetMousePos") && Is(sig, "(LVector;)Z"))
+        return Token(Id::mousepos);
+    if (cls == &ui_class && Is(name, "GetThisID") && Is(sig, "()I"))
+        return Token(Id::object_id);
     Require(false); return nullptr;
 }
 void* COJVR_JNICALL StaticField(void*, void* cls, const char* name, const char* sig) {
@@ -123,19 +134,35 @@ void* COJVR_JNICALL Field(void*, void* cls, const char* name, const char* sig) {
     Require(!pending);
     if (cls == &module_class && Is(name, "cMenu") && Is(sig, "LMainMenuModule;"))
         return Token(Id::cmenu);
+    if (cls == &menu_class && Is(name, "m_cCursor") && Is(sig, "LUICursorGame;"))
+        return Token(Id::cursor);
     Require(cls == &vector_class && Is(sig, "F"));
     if (Is(name, "fX")) return Token(Id::x);
     if (Is(name, "fY")) return Token(Id::y);
     Require(Is(name, "fZ")); return Token(Id::z);
 }
 void* COJVR_JNICALL ObjectField(void*, void* obj, void* field) {
+    if (obj == &global_menu || obj == &active_menu) {
+        Require(!pending && field == Token(Id::cursor));
+        if (fault == Fault::cursor_throw) { pending = true; return nullptr; }
+        if (fault == Fault::cursor_null) return nullptr;
+        return Local(obj == &global_menu ? global_cursor : active_cursor);
+    }
     Require(!pending && obj == &module && field == Token(Id::cmenu));
     return Local(active_menu);
 }
-void* COJVR_JNICALL CallObject(void*, void* obj, void* method, const JValue*) {
+void* COJVR_JNICALL CallObject(void*, void* obj, void* method, const JValue* args) {
     Require(!pending && (obj == &global_menu || obj == &active_menu));
-    if (method == Token(Id::current_ui)) return current_ui_available ? Local(ui) : nullptr;
+    if (method == Token(Id::current_ui)) {
+        ++creating_ui_lookups;
+        return current_ui_available ? Local(ui) : nullptr;
+    }
+    if (method == Token(Id::find_ui)) {
+        Require(args && args[0].i == ui_index);
+        return current_ui_available ? Local(ui) : nullptr;
+    }
     Require(method == Token(Id::cursor));
+    ++cursor_factory_lookups;
     if (fault == Fault::cursor_throw) { pending = true; return nullptr; }
     if (fault == Fault::cursor_null) return nullptr;
     return Local(obj == &global_menu ? global_cursor : active_cursor);
@@ -147,6 +174,11 @@ void* COJVR_JNICALL New(void*, void* cls, void* ctor, const JValue* args) {
     return Local(vector);
 }
 std::uint8_t COJVR_JNICALL Boolean(void*, void* obj, void* method, const JValue* args) {
+    if (obj == &ui) {
+        Require(!pending && method == Token(Id::mousepos) && args && args[0].l == &vector);
+        vector.x = input_x; vector.y = 0; vector.z = input_y;
+        return 1;
+    }
     Require(!pending && (obj == &global_cursor || obj == &active_cursor));
     Require(method == Token(Id::getpos) && args && args[0].l == &vector);
     if (fault == Fault::getpos_false) return 0;
@@ -170,7 +202,8 @@ void COJVR_JNICALL SetFloat(void*, void* obj, void* field, float value) {
 }
 void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
     if (obj == &ui) {
-        Require(!pending && method == Token(Id::process) && !args); ++mutations; return;
+        Require(!pending && method == Token(Id::process) && !args);
+        native_enabled = true; ++mutations; return;
     }
     Require(!pending && (obj == &global_cursor || obj == &active_cursor) && args);
     auto* cursor = static_cast<Object*>(obj); ++mutations;
@@ -181,6 +214,17 @@ void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
         Require(method == Token(Id::move) && args[0].f == cursor->x &&
             args[1].f == cursor->y && args[2].i == 0);
     }
+}
+std::int32_t COJVR_JNICALL Int(void*, void* obj, void* method, const JValue* args) {
+    Require(!pending && obj == &ui && method == Token(Id::object_id) && !args);
+    return 123;
+}
+bool DispatchMouse(std::uint32_t id, float x, float y, std::string* error) noexcept {
+    Require(id == 123 && native_enabled && !pending);
+    if (!dispatch_available) { *error = "native consumer unavailable"; return false; }
+    ++native_deliveries;
+    input_x = x; input_y = y;
+    return true;
 }
 std::int32_t COJVR_JNICALL GetEnv(void*, void** env, std::int32_t version) {
     Require(version == 0x00010004); *env = &env_holder; return 0;
@@ -218,6 +262,7 @@ int Run() {
     env_table[33] = reinterpret_cast<void*>(&Method);
     env_table[36] = reinterpret_cast<void*>(&CallObject);
     env_table[39] = reinterpret_cast<void*>(&Boolean);
+    env_table[51] = reinterpret_cast<void*>(&Int);
     env_table[63] = reinterpret_cast<void*>(&Void);
     env_table[94] = reinterpret_cast<void*>(&Field);
     env_table[95] = reinterpret_cast<void*>(&ObjectField);
@@ -239,6 +284,8 @@ int Run() {
             value.y == (use_global ? 456.5F : 654.0F) && value.z == (use_global ? 7.0F : 9.0F),
             "read global/active cursor with null current UI");
         ok &= Check(mutations == 0, "observation must not mutate cursor");
+        ok &= Check(creating_ui_lookups == 0 && cursor_factory_lookups == 0,
+            "observation must not invoke factories which load UI or create a cursor");
         std::int32_t menu_index = -999;
         ok &= Check(bridge.TryReadUiPointer(value, &error, &menu_index) && menu_index == ui_index,
             "read cursor and shipped static menu index with null current UI");
@@ -255,6 +302,7 @@ int Run() {
         ok &= Check(Read(bridge, value, &error) && value.x == 800 && value.y == 600 && value.z == 0,
             "read back accepted write");
         bridge.Reset(); CheckClean(); mutations = 0;
+        creating_ui_lookups = cursor_factory_lookups = 0;
     }
     for (const Fault failure : {Fault::owner_lookup, Fault::lookup, Fault::allocation, Fault::getpos_false,
         Fault::getpos_throw, Fault::float_throw, Fault::cursor_throw, Fault::cursor_null}) {
@@ -267,23 +315,33 @@ int Run() {
     }
     fault = Fault::none;
     {
-        // Observation's stricter error handling must not alter the writer's
-        // pre-existing global-to-active fallback after a failed menu lookup.
+        // Ownership lookup errors must not mutate a different menu.
         fault = Fault::owner_lookup;
         JavaPlayerBridge bridge; std::string error;
-        ok &= Check(bridge.TryProcessUiPointer(850, 650, &error),
-            "writer retains menu lookup fallback");
+        ok &= Check(!bridge.TryProcessUiPointer(850, 650, &error),
+            "writer fails closed on an ambiguous UI owner lookup");
         bridge.Reset(); CheckClean(); mutations = 0; fault = Fault::none;
     }
     // The shared resolver must retain the writer's optional concrete-UI path.
     {
         current_ui_available = true;
         JavaPlayerBridge bridge; std::string error;
-        ok &= Check(bridge.TryProcessUiPointer(900, 700, &error) && mutations == 6,
-            "writer still processes current UI after SetPos/OnMouseMove");
         JavaPlayerPosition value{};
-        ok &= Check(Read(bridge, value, &error) && value.x == 900 && value.y == 700 && mutations == 6,
-            "reader must not process current UI");
+        ok &= Check(Read(bridge, value, &error) && value.x == input_x && value.y == input_y && mutations == 0,
+            "sprite echo must not masquerade as the active UI's X/Z mouse input");
+        bool consumed = true;
+        ok &= Check(!bridge.TryProcessUiPointer(900, 700, &error, nullptr, &consumed) &&
+            !consumed && mutations == 0, "a flag/sprite-only route cannot deliver active UI input");
+        ok &= Check(bridge.TryProcessUiPointer(900, 700, &error, &DispatchMouse, &consumed) &&
+            consumed && native_deliveries == 1 && mutations == 6,
+            "writer delivers native hover before moving the cursor sprite");
+        ok &= Check(Read(bridge, value, &error) && value.x == 900 && value.y == 700 &&
+            mutations == 6, "read actual UI input after native delivery");
+        dispatch_available = false;
+        ok &= Check(!bridge.TryProcessUiPointer(901, 701, &error, &DispatchMouse, &consumed) &&
+            !consumed && native_deliveries == 1 && active_cursor.x == 900,
+            "failed native delivery cannot move the cursor or accept a click");
+        dispatch_available = true;
         bridge.Reset(); CheckClean(); mutations = 0; current_ui_available = false;
     }
     for (const std::size_t missing : {15U, 17U, 30U, 39U, 102U}) {

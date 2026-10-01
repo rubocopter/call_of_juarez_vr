@@ -201,6 +201,9 @@ if ($RequireFlatTheaterUi) {
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;owner=game_cursor_only;desktop_injection=false;pixel=[0-9]+,[0-9]+;.*;observed=" `
         "The projected ray did not reach the sole logical cursor route with readback."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;input_consumer=native_sprite_tree;.*;observed=" `
+        "No projected ray reached the native menu mouse-event consumer; sprite echo alone is insufficient."
     Assert-LogNotMatch `
         "camera_probe_event: event=flat_ui_pointer result=active detail=.*;route=win32_cursor_position|desktop_injection=true" `
         "The flat-menu pointer still injected desktop input alongside the logical cursor."

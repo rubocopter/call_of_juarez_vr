@@ -14,6 +14,11 @@ struct JavaPlayerPosition {
     float z = 0.0F;
 };
 
+// Exact-build native sprite-tree mouse delivery. The Java object ID is the
+// shipped GameObject.GetThisID handle, valid only during the game-thread call.
+using CoJNativeUiMouseDispatch = bool(*)(
+    std::uint32_t object_id, float pixel_x, float pixel_y, std::string* error) noexcept;
+
 struct CoJJniDiagnosticState {
     bool vm_cached = false;
     bool environment_observed = false;
@@ -281,17 +286,19 @@ public:
     [[nodiscard]] bool TryDispatchUiBackPress(
         std::string* error = nullptr,
         CoJUiDispatchRoute* route = nullptr) noexcept;
-    // Move CoJ's own UICursorGame logical position to the projected theater
-    // pixel, then run the shipped mouse-processing path when a current UI
-    // object exists. The cursor route itself is valid even while GetCurrentUI
-    // is null. This is invoked from the game Present thread.
+    // Deliver through the current UI's exact native sprite-tree mouse dispatcher
+    // before moving its cursor sprite. A current UI requires that dispatcher;
+    // cursor-only startup states remain distinguishable via input_consumed.
+    // This is invoked from the game Present thread.
     [[nodiscard]] bool TryProcessUiPointer(
         float pixel_x,
         float pixel_y,
-        std::string* error = nullptr) noexcept;
-    // Observe the same menu-owned logical cursor without dispatching motion.
-    // Call on the game thread before/after pointer delivery. Failure clears
-    // position; no current GameUserInterface is required.
+        std::string* error = nullptr,
+        CoJNativeUiMouseDispatch dispatch_mouse = nullptr,
+        bool* input_consumed = nullptr) noexcept;
+    // Observe the current UI's native GetMousePos (X/Z mapped to X/Y), falling
+    // back to cursor sprite position only when no current UI exists. Call on
+    // the game thread; failure clears all output.
     [[nodiscard]] bool TryReadUiPointer(
         JavaPlayerPosition& position,
         std::string* error = nullptr,
@@ -377,7 +384,8 @@ private:
         void* env,
         void*& ui,
         CoJUiDispatchRoute& route,
-        std::string* error) noexcept;
+        std::string* error,
+        bool load_if_missing = true) noexcept;
     [[nodiscard]] bool TryResolveMenuForUiRoute(
         void* env,
         CoJUiDispatchRoute route,

@@ -120,7 +120,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 - Exact campaign player discovery: **live-tested**.
 - Room-scale camera translation with native actor position/grounding preserved: **host-tested follow-up after physical rejection**.
-- HMD/body-yaw comfort ownership: **host-tested follow-up**.
+- HMD/body-yaw comfort ownership: **physical stepping observed with Body IK disabled**. Continuous following at the existing 35-degree boundary is **implemented / host-tested**; physical comfort acceptance remains open.
 - Exact snap turn: **headset-validated**.
 - Native analog locomotion through the shipped float-input path: **headset-validated diagnostically** for vanilla-equivalent normal/walk speed. No further movement/input changes are planned.
 - Native jump action: **headset-validated diagnostically** for vanilla-equivalent apex and duration. No further jump/physics changes are planned.
@@ -141,7 +141,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 4 — controller UI and interactions
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
-- Flat-menu pointer: Windows cursor injection is **physically rejected**, including held-button activation. Automatic laser delivery to the internal game cursor, readback, hover-before-click and temporary physical-mouse priority are **implemented / host-tested**. Accurate highlighting, correct option selection and controller/mouse coexistence remain the physical gate.
+- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events, actual UI input readback and failed-click cancellation are **implemented / host-tested**. Accurate highlighting, correct selection and controller/mouse coexistence remain the physical gate.
 - Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.

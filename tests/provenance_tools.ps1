@@ -888,7 +888,7 @@ try {
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
         "flat_ui_pointer: status=hit;hand=right;activation=automatic;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;beam_origin=820,700;source=1920x1080;select=false;smoothing=0.40;visual=cyan_beam_reticle;route=flat_theater_menu_pointer",
         "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=game_cursor_mailbox;desktop_injection=false",
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove;owner=game_cursor_only;desktop_injection=false;pixel=960,540;claim=1;previous=950,530;observed=960,540",
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove;owner=game_cursor_only;desktop_injection=false;pixel=960,540;claim=1;input_consumer=native_sprite_tree;previous=950,530;observed=960,540",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cIntroModule.OnInputKey",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=false;current_ui_is_loading=false;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter",
         "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)",
@@ -1155,6 +1155,18 @@ try {
             $InvalidCursorRejected = $true
         }
         Assert-True $InvalidCursorRejected "Verifier accepted missing or mismatched logical-cursor readback: $InvalidReadback"
+    }
+    foreach ($InvalidConsumer in @("startup_sprite_only", "missing")) {
+        $SpriteOnlyLog = @($StereoVerifierLog | ForEach-Object {
+            $_.Replace("input_consumer=native_sprite_tree", "input_consumer=$InvalidConsumer")
+        })
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $SpriteOnlyLog
+        $SpriteOnlyRejected = $false
+        try {
+            & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+                -GameDirectory $StereoVerifierGame | Out-Null
+        } catch { $SpriteOnlyRejected = $true }
+        Assert-True $SpriteOnlyRejected "Verifier accepted sprite echo without native mouse consumption: $InvalidConsumer"
     }
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 

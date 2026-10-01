@@ -62,6 +62,10 @@ int main() {
     selection.Observe(UiPointerHand::right, 3, true, true);
     selection.Complete(first_click, true);
     if (!selection.snapshot().pending) return 21;
+    selection.Cancel(first_click);
+    if (!selection.snapshot().pending) return 27;
+    selection.Cancel(selection.snapshot());
+    if (selection.snapshot().pending || selection.snapshot().hand != UiPointerHand::right) return 28;
     UiPointerGameplayGate weapon_gate;
     weapon_gate.Observe(true, true, true, true, true);
     weapon_gate.Observe(false, true, true, true, true);

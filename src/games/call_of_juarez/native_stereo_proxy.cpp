@@ -436,9 +436,11 @@ cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
                 NeutralizeFlatUiPointer("physical_mouse_priority");
             } else {
                 std::lock_guard lock(g_stereo.flat_ui_mutex);
+                g_stereo.flat_ui_pointer_selection.Cancel(g_stereo.flat_ui_pointer_selection.snapshot());
+                g_stereo.flat_ui_target_applied = false;
                 if (g_stereo.flat_ui_pointer_active && !g_stereo.flat_ui_pointer_game_error_logged) {
                     const std::string detail =
-                        "route=MainMenuModule.GetGlobalCursor.UICursor.GetPos;owner=game_cursor_only;"
+                        "route=MainMenuModule.FindUI.GetMousePos;owner=game_cursor_only;"
                         "desktop_injection=false;detail=" + observation_error;
                     CameraEvent("flat_ui_pointer_game_route", "failed", detail.c_str());
                     g_stereo.flat_ui_pointer_game_error_logged = true;
@@ -456,8 +458,9 @@ cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
             pixel_y = g_stereo.flat_ui_pointer_y;
         }
         std::string error;
+        bool input_consumed = false;
         bool applied = cojvr::games::call_of_juarez::DispatchCameraUiPointerMotion(
-            static_cast<float>(pixel_x), static_cast<float>(pixel_y), &error);
+            static_cast<float>(pixel_x), static_cast<float>(pixel_y), &error, &input_consumed);
         cojvr::games::call_of_juarez::CameraProbeVector observed{};
         std::int32_t observed_index = 0;
         if (applied) {
@@ -474,6 +477,9 @@ cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
             if (!g_stereo.flat_ui_pointer_active || current.hand != selection.hand ||
                 current.claim != selection.claim || current.click != selection.click ||
                 current.held != selection.held) return {};
+            // A failed mouse delivery must not keep its trigger target latched
+            // indefinitely. Cancel the click while preserving automatic aim.
+            if (!applied) g_stereo.flat_ui_pointer_selection.Cancel(selection);
             const auto previous_delivery = g_stereo.flat_ui_applied_selection;
             const bool hover_ready = g_stereo.flat_ui_target_applied &&
                 previous_delivery.hand == selection.hand && previous_delivery.claim == selection.claim &&
@@ -497,6 +503,7 @@ cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
                 detail << "route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove"
                        << ";owner=game_cursor_only;desktop_injection=false;pixel="
                        << pixel_x << ',' << pixel_y << ";claim=" << selection.claim
+                       << ";input_consumer=" << (input_consumed ? "native_sprite_tree" : "startup_sprite_only")
                        << ";menu_index=" << menu_index
                        << ";previous=" << previous.x << ',' << previous.y
                        << ";observed=" << observed.x << ',' << observed.y;

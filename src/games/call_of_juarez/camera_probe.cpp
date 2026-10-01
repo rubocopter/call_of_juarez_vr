@@ -576,6 +576,85 @@ bool IsWritable(const void* address, const std::size_t size) noexcept {
         protection == PAGE_EXECUTE_READWRITE || protection == PAGE_EXECUTE_WRITECOPY;
 }
 
+bool DispatchNativeUiMouse(
+    const std::uint32_t object_id, const float x, const float y,
+    std::string* error) noexcept {
+    // These seams belong only to the SHA-gated inspected x86 ChromeEngine3.
+    // GetThisID -> handle+4 -> binding+4 is the same lookup as JNI GetMousePos.
+    constexpr std::uintptr_t kSpriteMouseMoveRva = 0x000C8F00;
+    constexpr std::uintptr_t kDynamicCastRva = 0x0029CF4E;
+    constexpr std::uintptr_t kGameObjectTypeRva = 0x0037E72C;
+    constexpr std::uintptr_t kSpriteTypeRva = 0x0037E75C;
+    constexpr std::uintptr_t kEngineImageSize = 0x0060C000;
+    if (!g_engine_base || !g_installed.load(std::memory_order_acquire) ||
+        !object_id || !std::isfinite(x) || !std::isfinite(y) || x < 0 || y < 0) {
+        SetError(error, "verified native UI mouse profile is unavailable");
+        return false;
+    }
+    const auto pointer_at = [](const void* owner, const std::size_t offset) -> void* {
+        return *reinterpret_cast<void* const*>(static_cast<const std::byte*>(owner) + offset);
+    };
+    const auto in_image = [](const void* pointer) {
+        const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+        const auto base = reinterpret_cast<std::uintptr_t>(g_engine_base);
+        return address >= base && address - base < kEngineImageSize;
+    };
+    auto* handle = reinterpret_cast<void*>(static_cast<std::uintptr_t>(object_id));
+    if (!IsReadable(handle, 8)) {
+        SetError(error, "active UI native handle is unreadable");
+        return false;
+    }
+    void* binding = pointer_at(handle, 4);
+    if (!IsReadable(binding, 8)) {
+        SetError(error, "active UI native binding is unavailable");
+        return false;
+    }
+    void* object = pointer_at(binding, 4);
+    if (!IsReadable(object, sizeof(void*)) || !in_image(pointer_at(object, 0))) {
+        SetError(error, "active UI native object identity is invalid");
+        return false;
+    }
+    using CastSprite = void*(__cdecl*)(void*, long, void*, void*, int);
+    const auto cast = reinterpret_cast<CastSprite>(g_engine_base + kDynamicCastRva);
+    auto* sprite = static_cast<std::byte*>(cast(object, 0,
+        g_engine_base + kGameObjectTypeRva, g_engine_base + kSpriteTypeRva, 0));
+    if (!IsReadable(sprite, 0x184) || !in_image(pointer_at(sprite, 0)) ||
+        *reinterpret_cast<const std::uint8_t*>(sprite + 0xCC) == 0) {
+        SetError(error, "active UI native sprite mouse processing is unavailable");
+        return false;
+    }
+    // Sprite input can belong to an override context instead of its module.
+    // Writing only GameObject.SetCursorPos misses that context and all events.
+    auto* context = static_cast<std::byte*>(pointer_at(sprite, 0x180));
+    if (!context) {
+        auto* module = static_cast<std::byte*>(pointer_at(sprite, 0x24));
+        if (!IsReadable(module, 0xF4 + 0x50)) {
+            SetError(error, "active UI mouse module is unavailable");
+            return false;
+        }
+        context = module + 0xF4;
+    }
+    if (!IsReadable(context, 0x50) || !IsWritable(context + 0x38, sizeof(float) * 2)) {
+        SetError(error, "active UI mouse context is unavailable");
+        return false;
+    }
+    std::array<float, 2> previous{};
+    std::memcpy(previous.data(), context + 0x38, sizeof(previous));
+    if (!std::isfinite(previous[0]) || !std::isfinite(previous[1])) {
+        SetError(error, "active UI mouse context has nonfinite coordinates");
+        return false;
+    }
+    const std::array<float, 2> target{x, y};
+    const int buttons = *reinterpret_cast<const int*>(context + 0x40);
+    std::memcpy(context + 0x38, target.data(), sizeof(target));
+    using SpriteMouseMove = void(__thiscall*)(void*, const float*, const float*, int);
+    // The shipped recursive dispatcher performs native bounds/capture checks,
+    // then emits enter/move/leave to the real controls and their child sprites.
+    const auto move = reinterpret_cast<SpriteMouseMove>(g_engine_base + kSpriteMouseMoveRva);
+    move(sprite, previous.data(), target.data(), buttons);
+    return true;
+}
+
 struct CameraRenderStateSnapshot {
     std::array<std::byte, kCameraMatrixBytes> source_view{};
     std::array<std::byte, kCameraMatrixBytes> source_world{};
@@ -4750,8 +4829,10 @@ bool DispatchCameraUiSelectPress(
 bool DispatchCameraUiPointerMotion(
     const float pixel_x,
     const float pixel_y,
-    std::string* error) noexcept {
-    return g_java_player_bridge.TryProcessUiPointer(pixel_x, pixel_y, error);
+    std::string* error,
+    bool* input_consumed) noexcept {
+    return g_java_player_bridge.TryProcessUiPointer(
+        pixel_x, pixel_y, error, &DispatchNativeUiMouse, input_consumed);
 }
 
 bool ObserveCameraUiPointerPosition(
