@@ -6,6 +6,7 @@
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
 #include "runtime/hmd_frame_pacing.hpp"
+#include "runtime/ui_pointer_ownership.hpp"
 #include "runtime/openvr_runtime.hpp"
 #include "runtime/vr_math.hpp"
 
@@ -133,6 +134,7 @@ struct OpenVrStereoPresenter::Impl {
     bool ui_select_right_pressed_pending = false;
     bool latest_ui_accept = false;
     bool latest_ui_back = false;
+    bool latest_ui_actions_allowed = false;
     bool ui_accept_pressed_pending = false;
     bool ui_back_pressed_pending = false;
 
@@ -172,11 +174,12 @@ struct OpenVrStereoPresenter::Impl {
         }
     }
 
-    void PublishFlatUiPointer(const FlatUiPointerSample& sample) const noexcept {
-        if (!flat_ui_callback) return;
+    bool PublishFlatUiPointer(const FlatUiPointerSample& sample) const noexcept {
+        if (!flat_ui_callback) return true;
         try {
-            flat_ui_callback(flat_ui_context, sample);
+            return flat_ui_callback(flat_ui_context, sample);
         } catch (...) {
+            return false;
         }
     }
 
@@ -610,6 +613,8 @@ struct OpenVrStereoPresenter::Impl {
         runtime::Pose flat_theater_anchor_pose{};
         bool flat_theater_anchor_valid = false;
         FlatUiPointerSample flat_ui_pointer{};
+        runtime::UiPointerOwnership pointer_ownership;
+        runtime::UiPointerGameplayGate pointer_gameplay_gate;
         bool flat_ui_fire_release_required = false;
         std::uint64_t flat_ui_pointer_sequence = 0;
         d3d9::FramePresentationMode active_presentation_mode =
@@ -834,9 +839,14 @@ struct OpenVrStereoPresenter::Impl {
                                 have_active_presentation_mode &&
                                 active_presentation_mode ==
                                     d3d9::FramePresentationMode::native_stereo;
+                            pointer_gameplay_gate.Observe(have_active_presentation_mode && !native_gameplay_active,
+                                actions.ui_pointer_left_active, actions.ui_pointer_left,
+                                actions.ui_pointer_right_active, actions.ui_pointer_right);
                             if (!dashboard_visible && runtime_state.focused &&
                                 native_gameplay_active) {
                                 gameplay = polled_gameplay;
+                                if (pointer_gameplay_gate.left_blocked()) gameplay.weapon_previous = false;
+                                if (pointer_gameplay_gate.right_blocked()) gameplay.weapon_next = false;
                                 if (flat_ui_fire_release_required) {
                                     gameplay.fire_left = false;
                                     gameplay.fire_right = false;
@@ -874,6 +884,12 @@ struct OpenVrStereoPresenter::Impl {
                         active_source_width > 0 && active_source_height > 0 &&
                         texture_width >= active_source_width &&
                         texture_height >= active_source_height;
+                    const auto pointer_hand = pointer_ownership.Update(
+                        pointer_allowed && !recenter, input_polled,
+                        actions.ui_pointer_left, actions.ui_pointer_right,
+                        left_aim_valid || left_handgrip_valid,
+                        right_aim_valid || right_handgrip_valid,
+                        actions.ui_pointer_left_active, actions.ui_pointer_right_active);
                     if (pointer_allowed) {
                         const auto try_pointer = [&](const runtime::Pose& aim_pose,
                                                      const bool valid,
@@ -889,6 +905,7 @@ struct OpenVrStereoPresenter::Impl {
                             }
                             pointer.active = true;
                             pointer.using_left_hand = using_left_hand;
+                            pointer.claim = pointer_ownership.claim();
                             pointer.u = projected.u;
                             pointer.v = projected.v;
                             pointer.pixel_x = projected.pixel_x;
@@ -900,10 +917,14 @@ struct OpenVrStereoPresenter::Impl {
                             pointer.source_height = active_source_height;
                             pointer.ray_distance_m = projected.ray_distance_m;
                         };
-                        try_pointer(hand_poses.right_aim, right_aim_valid, false);
-                        try_pointer(hand_poses.right_grip, right_handgrip_valid, false);
-                        try_pointer(hand_poses.left_aim, left_aim_valid, true);
-                        try_pointer(hand_poses.left_grip, left_handgrip_valid, true);
+                        // A valid tip that misses the screen must not silently
+                        // switch to a different ray or the other controller.
+                        if (pointer_hand == runtime::UiPointerHand::right)
+                            try_pointer(right_aim_valid ? hand_poses.right_aim : hand_poses.right_grip,
+                                right_aim_valid || right_handgrip_valid, false);
+                        else if (pointer_hand == runtime::UiPointerHand::left)
+                            try_pointer(left_aim_valid ? hand_poses.left_aim : hand_poses.left_grip,
+                                left_aim_valid || left_handgrip_valid, true);
                         if (pointer.active && flat_ui_pointer.active && !recenter &&
                             pointer.using_left_hand == flat_ui_pointer.using_left_hand &&
                             pointer.source_width == flat_ui_pointer.source_width &&
@@ -923,20 +944,26 @@ struct OpenVrStereoPresenter::Impl {
                                     pointer.v * static_cast<float>(pointer.source_height)));
                         }
                         pointer.select_down = pointer.active &&
-                            (actions.ui_select_left || actions.ui_select_right);
+                            runtime::UiPointerSelect(pointer_hand, actions.ui_select_left, actions.ui_select_right);
                         pointer.select_pressed = pointer.active &&
-                            (actions.ui_select_left_pressed || actions.ui_select_right_pressed);
+                            runtime::UiPointerSelect(pointer_hand,
+                                actions.ui_select_left_pressed, actions.ui_select_right_pressed);
                         if (pointer.select_down) flat_ui_fire_release_required = true;
                     }
                     flat_ui_pointer = pointer;
-                    PublishFlatUiPointer(flat_ui_pointer);
+                    if (!PublishFlatUiPointer(flat_ui_pointer)) {
+                        pointer_ownership.Suspend();
+                        if (flat_ui_pointer.active)
+                            Log("flat_ui_pointer: status=released;reason=game_input_rejected;rearm=release_shoulder");
+                        flat_ui_pointer = {};
+                    }
                     ++flat_ui_pointer_sequence;
                     if (flat_ui_pointer.active &&
                         ShouldLogSequence(flat_ui_pointer_sequence)) {
                         std::ostringstream line;
                         line << "flat_ui_pointer: status=hit"
                              << ";hand=" << (flat_ui_pointer.using_left_hand ? "left" : "right")
-                             << ";pose=tip_with_grip_fallback"
+                             << ";activation=held_shoulder;pose=tip_with_grip_fallback"
                              << ";u=" << std::fixed << std::setprecision(4) << flat_ui_pointer.u
                              << ";v=" << flat_ui_pointer.v
                              << ";pixel=" << flat_ui_pointer.pixel_x << ',' << flat_ui_pointer.pixel_y
@@ -1000,20 +1027,27 @@ struct OpenVrStereoPresenter::Impl {
                         latest_left_aim_active = left_aim_valid;
                         latest_right_aim_active = right_aim_valid;
                         latest_gameplay = gameplay;
+                        latest_ui_actions_allowed = input_polled && runtime_state.focused && !dashboard_visible;
                         latest_ui_select_left = actions.ui_select_left;
                         latest_ui_select_right = actions.ui_select_right;
-                        latest_ui_accept = actions.ui_accept;
-                        latest_ui_back = actions.ui_back;
-                        if (actions.ui_select_left_pressed) {
+                        latest_ui_accept = latest_ui_actions_allowed && actions.ui_accept;
+                        latest_ui_back = latest_ui_actions_allowed && actions.ui_back;
+                        if (!latest_ui_actions_allowed) {
+                            ui_select_left_pressed_pending = false;
+                            ui_select_right_pressed_pending = false;
+                            ui_accept_pressed_pending = false;
+                            ui_back_pressed_pending = false;
+                        }
+                        if (latest_ui_actions_allowed && actions.ui_select_left_pressed) {
                             ui_select_left_pressed_pending = true;
                         }
-                        if (actions.ui_select_right_pressed) {
+                        if (latest_ui_actions_allowed && actions.ui_select_right_pressed) {
                             ui_select_right_pressed_pending = true;
                         }
-                        if (actions.ui_accept_pressed) {
+                        if (latest_ui_actions_allowed && actions.ui_accept_pressed) {
                             ui_accept_pressed_pending = true;
                         }
-                        if (actions.ui_back_pressed) {
+                        if (latest_ui_actions_allowed && actions.ui_back_pressed) {
                             ui_back_pressed_pending = true;
                         }
                         ++pose_sequence;
@@ -1021,8 +1055,15 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     ++pose_updates;
                 } else {
+                    pointer_ownership.Suspend();
                     flat_ui_pointer = {};
                     PublishFlatUiPointer(flat_ui_pointer);
+                    std::lock_guard lock(tracking_mutex);
+                    latest_pose = {};
+                    latest_ui_actions_allowed = false;
+                    latest_ui_accept = latest_ui_back = false;
+                    ui_select_left_pressed_pending = ui_select_right_pressed_pending = false;
+                    ui_accept_pressed_pending = ui_back_pressed_pending = false;
                 }
 
                 d3d9::StereoCpuFrame frame{};
@@ -1448,6 +1489,7 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_ui_select_right = false;
             impl_->latest_ui_accept = false;
             impl_->latest_ui_back = false;
+            impl_->latest_ui_actions_allowed = false;
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;
             impl_->ui_select_left_pressed_pending = false;
@@ -1542,6 +1584,7 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.ui_back = impl_->latest_ui_back;
         sample.ui_accept_pressed = impl_->ui_accept_pressed_pending;
         sample.ui_back_pressed = impl_->ui_back_pressed_pending;
+        sample.ui_actions_allowed = impl_->latest_ui_actions_allowed;
         impl_->recenter_pending = false;
         impl_->ui_select_left_pressed_pending = false;
         impl_->ui_select_right_pressed_pending = false;

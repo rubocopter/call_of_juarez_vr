@@ -19,11 +19,13 @@ reference, and the operator confirms correct stereo depth and stable head turns.
 Sustained pacing, tail latency and pending-frame reset/device loss remain separate.
 The user clarified that the producer benchmark is constrained by the desktop
 configuration and the visor is configured to 90 Hz. The **implemented /
-host-tested** follow-up therefore derives a render rate cap from the configured
+host-tested / live-tested bounded** follow-up derives a render rate cap from the configured
 OpenVR HMD refresh and removes desktop Present vsync when valid VR timing exists.
 It supports refresh changes without a fixed 90 Hz constant. Compositor pacing
-remains `WaitGetPoses`; rate-cap behavior and closure need a fresh physical run.
-This follow-up is not yet included in the accepted baseline above.
+remains `WaitGetPoses`; a bounded physical run reports HMD/target at 90 Hz,
+producer pairs around 87/s, total submissions around 89/s and complete closure.
+The operator reports improved smoothness. Refresh changes, missing-rate recovery
+and sustained tail latency remain separate gates.
 Earlier production attempts
 stopped after three Ex Presents, but an
 independent LTR research path on the same game build has since demonstrated the
@@ -125,7 +127,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 4 — controller UI and interactions
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
-- Flat-menu pointer ownership: **live-exercised / physically rejected**. Replace or isolate the current model rather than stacking another competing cursor owner.
+- Flat-menu pointer ownership: the always-active model is **physically rejected** because passive tracking fights the physical mouse. The explicit hold-L1/R1 owner and same-hand L2/R2 selection are **implemented / host-tested**; releasing the shoulder frees the mouse. Physical accuracy and controller-only menu acceptance remain pending.
 - Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.

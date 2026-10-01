@@ -455,6 +455,8 @@ try {
         "/actions/global/in/recenter",
         "/actions/global/in/ui_select_left",
         "/actions/global/in/ui_select_right",
+        "/actions/global/in/ui_pointer_left",
+        "/actions/global/in/ui_pointer_right",
         "/actions/global/in/ui_accept",
         "/actions/global/in/ui_back",
         "/actions/global/in/left_hand_grip_pose",
@@ -500,6 +502,8 @@ try {
     Assert-SenseBinding "/user/hand/left/input/create" "click" "/actions/global/in/recenter"
     Assert-SenseBinding "/user/hand/left/input/l2" "click" "/actions/global/in/ui_select_left"
     Assert-SenseBinding "/user/hand/right/input/r2" "click" "/actions/global/in/ui_select_right"
+    Assert-SenseBinding "/user/hand/left/input/l1" "click" "/actions/global/in/ui_pointer_left"
+    Assert-SenseBinding "/user/hand/right/input/r1" "click" "/actions/global/in/ui_pointer_right"
     Assert-SenseBinding "/user/hand/right/input/cross" "click" "/actions/global/in/ui_accept"
     Assert-SenseBinding "/user/hand/right/input/circle" "click" "/actions/global/in/ui_back"
     Assert-SensePose "/user/hand/left/pose/handgrip" "/actions/global/in/left_hand_grip_pose"

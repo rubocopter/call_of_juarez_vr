@@ -113,14 +113,18 @@ Create on the left Sense controller recenters/reanchors the current VR reference
 UI pointing is presentation plus exact-game UI policy:
 
 1. OpenVR supplies `/pose/tip` and global UI actions.
-2. The presenter intersects the Sense ray with the flat screen and reports normalized/source coordinates plus controller and hit positions.
-3. The projected point is currently published to the game window with Win32 `SetCursorPos`, absolute `SendInput` mouse movement and `WM_MOUSEMOVE`. This route reaches shipped hover/select behavior, but the latest complete physical run still found it uncontrollable and required the physical mouse.
+2. The presenter intersects the explicitly activated Sense ray with the flat screen and reports normalized/source coordinates plus controller and hit positions. Hold L1/R1 to acquire the left/right ray. Releasing it returns cursor ownership to the physical mouse; passive tracking never injects motion. The first activated hand retains ownership until release, without transferring to another already-held button. Focus/input/pose loss releases ownership and requires a new shoulder press. A valid tip missing the screen does not switch to a different grip ray or the other hand.
+3. The projected point is published to the foreground game window with Win32 `SetCursorPos`, absolute `SendInput` mouse movement and `WM_MOUSEMOVE`. The previously always-active route was physically rejected: passive controller motion repeatedly overwrote the physical mouse position. The explicit shoulder ownership correction is host-tested; its physical accuracy/usability remains pending. Desktop rejection releases the presenter ray as well as the game pointer.
 4. The previously discovered `MainMenuModule.GetGlobalCursor() -> UICursorGame.SetPos(LVector;)V -> OnMouseMove(FFI)V` route remains available for diagnostics, but the current candidate does not drive it simultaneously. Run `20260921T163309Z-481defca3401` showed chaotic pointer behavior when the Java cursor and Win32 input path both owned motion.
-5. Cross is global accept, Circle is global back, and L2/R2 remain ray-select inputs.
+5. Cross is global accept, Circle is global back, and L2/R2 select only when the corresponding left/right hand owns an active ray. Hold L1 then L2, or R1 then R2; release L1/R1 to use the mouse. Gameplay weapon bindings remain in their existing gameplay action set.
+   Selection is queued only after accepted cursor motion and carries the hand,
+   claim and trigger-press sequence; release/loss clears it and an old completion
+   cannot consume a newer click. Shoulder activation held through a menu-to-game
+   transition cannot switch weapons until an active released sample is observed.
 6. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
 7. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
 
-The current single-owner Win32 pointer path is now live-exercised and its pointer is visible in the headset during startup/menu presentation. Accurate pointing and controller-only UI operation remain unvalidated. The preceding dual-owner route was physically rejected even though it could select menu items.
+The Win32 pointer route is live-exercised and visible in the headset, but its prior always-active ownership is physically rejected. The deliberate shoulder-held owner and same-hand selection policy are host-tested. Accurate pointing and controller-only UI operation remain unvalidated. The preceding simultaneous Java/Win32 route was also physically rejected even though it could select menu items.
 
 ## Tracking, locomotion and body ownership
 
@@ -229,7 +233,7 @@ The mailbox can replace unconsumed pairs, and ring drops and frame-age outliers
 still occur. This establishes the short cadence target, not sustained tail-latency
 or pending-frame reset/device-loss acceptance.
 
-**Implemented / host-tested HMD rate-cap follow-up:** production rate is now
+**Implemented / host-tested / live-tested bounded HMD rate cap:** production rate is now
 scheduled from OpenVR `Prop_DisplayFrequency_Float`, read and refreshed by the
 single runtime owner. It follows the configured HMD rate (for example 90 or
 120 Hz); neither a desktop mode nor a fixed 90 Hz value supplies the target.
@@ -251,9 +255,11 @@ With valid VR timing, factory creation/reset uses `D3DPRESENT_INTERVAL_IMMEDIATE
 to avoid a second monitor-vsync wait. The desktop display mode remains game-owned.
 Diagnostics retain requested/effective Present interval, reported HMD refresh,
 producer target, CPU schedule wait and separate new/total submission rates.
-The intentional schedule wait is separate from zero-wait GPU transport. Physical
-acceptance of this follow-up remains pending; the accepted faster producer trace
-belongs to the preceding unpaced build.
+The intentional schedule wait is separate from zero-wait GPU transport. A bounded
+physical run reports configured HMD refresh and target at 90 Hz, producer pairs
+around 87/s and total compositor submissions around 89/s, with complete normal
+closure. The operator reports improved smoothness. Refresh changes, unavailable
+timing recovery, phase alignment and sustained tail latency remain unvalidated.
 
 API source: [OpenVR v2.15.6 header](https://github.com/ValveSoftware/openvr/blob/v2.15.6/headers/openvr.h),
 the pinned SDK already used by this repository; Valve's

@@ -250,12 +250,13 @@ switch ($Action) {
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { '1920x1080, FSAA 0 (restored by finish)' })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
+        Write-Host "Menu pointer: hold L1/R1 to aim with that hand, select with its L2/R2, release L1/R1 to use the mouse. Cross accepts; Circle goes back."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
         if ($StartupOnly) {
-            Write-Host "Startup-only run: confirm videos and the main menu appear, then close the game normally. Do not enter gameplay or validate VR."
+            Write-Host "Startup-only run: confirm videos and the main menu appear, then close normally. Native stereo/GPU transport are outside this profile; controller menu usability needs operator observations."
         } elseif ($BodyIkAtStart) {
             Write-Host "At the first flat menu, confirm the cyan beam starts at the Sense controller and moving it changes CoJ's highlighted/hovered option."
-            Write-Host "UI controls for this gate: Cross accepts, Circle goes back, and L2/R2 select the option under the ray. Exercise all three paths and skip at least one startup item with Sense input."
+            Write-Host "UI controls for this gate: hold L1/R1 to activate the ray; its L2/R2 selects, Cross accepts, Circle goes back. Exercise all paths and skip at least one startup item with Sense input."
             Write-Host "After loading a save, confirm the press-a-key continuation accepts a Sense action without using the keyboard."
             Write-Host "Release the trigger after ray-select and confirm Create re-anchors the flat view without breaking cursor alignment."
             Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller, including once with a small HMD pitch/roll, and confirm the world remains level afterwards."

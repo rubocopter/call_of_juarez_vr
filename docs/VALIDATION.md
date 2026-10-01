@@ -125,6 +125,24 @@ remain valid. The separate menu-pointer, arm-continuity and weapon-alignment
 product gates remain open. Body, UI and weapon acceptance are
 outside this transport run; normal-quit shutdown is now live-tested.
 
+## Explicit menu-pointer acceptance — physical test pending
+
+**Host-tested correction:** moving tracked controllers no longer own the menu
+cursor unless L1/R1 is deliberately held. L2/R2 selects from the owning hand;
+release restores mouse ownership. Active input release is required after loss,
+and queued selection remains tied to its original hand/claim/click. Menu focus
+gates dispatch without starving flat-frame publication. UI shoulder activation
+is consumed across a gameplay transition until release.
+
+For this isolated gesture use fresh `prepare -StartupOnly`, then manually start
+SteamVR/CoJ. In the main menu, move both controllers while using the mouse without
+shoulder buttons: it must remain usable. Hold R1 and select options with R2;
+repeat L1/L2, then release the shoulder and use the mouse again. Verify Cross
+accept and Circle back without changing settings unnecessarily. Do not enter
+gameplay or repeat body/weapon tests. Quit normally and run `finish`. The startup
+verifier confirms startup/provenance/restoration; the operator must confirm
+pointer stability, accurate hover/selection and mouse coexistence separately.
+
 ## Production D3D9Ex startup/reset gate
 
 **Passed for the exercised production build/host:** Ex startup, sustained
@@ -148,14 +166,15 @@ becomes the next gate.
 
 The accepted baseline established removal of the old readback bottleneck; its
 approximately 136 Hz producer rate was not the configured headset refresh.
-**Implemented / host-tested follow-up:** the producer now caps native eye-pair
+**Implemented / host-tested / live-tested bounded follow-up:** the producer now caps native eye-pair
 production using the actual OpenVR HMD frequency and removes desktop Present
 vsync when valid VR timing is available. The compositor remains independently
-paced by `WaitGetPoses`. This changed candidate needs a fresh manual run: verify
-reported HMD refresh/producer target match the visor setting, eye-pair production
-approaches that rate, image/head turns remain stable and normal closure/drain
-still pass. Target cadence comes from the HMD, not the old monitor-bound benchmark.
-The rate cap is not phase-lock or latency validation.
+paced by `WaitGetPoses`. A fresh physical run reports HMD refresh/producer target
+at the configured 90 Hz, eye-pair production around 87/s and total presenter
+submissions around 89/s. The operator reports that it feels much better; normal
+closure/drain still pass. Target cadence comes from the HMD, not the old
+monitor-bound benchmark. Refresh changes and missing-property/reset recovery
+remain host-tested only. The rate cap is not phase-lock or tail-latency validation.
 
 Shared publication/copy and explicit-pose new-frame submission have been
 live-tested in production gameplay, including resource drain and complete
@@ -239,7 +258,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | live-exercised / rejected | safety must not produce repeated visible fallback to default animation |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | live-exercised / rejected | current ownership model remains unusable in-headset |
+| Flat-menu pointer | prior always-active owner rejected; explicit owner host-tested | hold L1/R1 to aim, same-hand L2/R2 to select, release to use mouse; physical acceptance pending |
 | Cross/Circle/L2/R2 UI actions | host-tested follow-up | physical acceptance still pending |
 | Loading continuation | host-tested | native loading input route is mapped |
 | Controller-origin UI beam | live-exercised / visible in headset | pointer visibility is observed; origin/alignment and accurate controller-only UI operation remain pending |

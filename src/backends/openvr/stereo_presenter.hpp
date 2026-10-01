@@ -18,6 +18,7 @@ struct FlatUiPointerSample {
     bool using_left_hand = false;
     bool select_down = false;
     bool select_pressed = false;
+    std::uint64_t claim = 0;
     float u = 0.0F;
     float v = 0.0F;
     std::uint32_t pixel_x = 0;
@@ -30,7 +31,8 @@ struct FlatUiPointerSample {
     float ray_distance_m = 0.0F;
 };
 
-using FlatUiPointerCallback = void (*)(
+// Returns desktop input availability even when the ray misses the screen.
+using FlatUiPointerCallback = bool (*)(
     void* context,
     const FlatUiPointerSample& sample) noexcept;
 
@@ -51,6 +53,7 @@ struct OpenVrTrackingSample {
     bool ui_back = false;
     bool ui_accept_pressed = false;
     bool ui_back_pressed = false;
+    bool ui_actions_allowed = false;
 };
 
 struct OpenVrPresenterStats {

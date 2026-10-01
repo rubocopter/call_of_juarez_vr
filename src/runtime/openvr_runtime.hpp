@@ -23,6 +23,10 @@ struct OpenVrGlobalActions {
     bool ui_select_right = false;
     bool ui_select_left_pressed = false;
     bool ui_select_right_pressed = false;
+    bool ui_pointer_left = false;
+    bool ui_pointer_right = false;
+    bool ui_pointer_left_active = false;
+    bool ui_pointer_right_active = false;
     bool ui_accept = false;
     bool ui_back = false;
     bool ui_accept_pressed = false;

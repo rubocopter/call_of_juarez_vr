@@ -631,6 +631,11 @@ if(COJVR_BUILD_TESTS)
     target_compile_definitions(cojvr_hmd_frame_pacing_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME hmd_frame_pacing COMMAND cojvr_hmd_frame_pacing_test)
 
+    add_executable(cojvr_ui_pointer_ownership_test tests/ui_pointer_ownership.cpp)
+    target_include_directories(cojvr_ui_pointer_ownership_test PRIVATE src)
+    target_compile_features(cojvr_ui_pointer_ownership_test PRIVATE cxx_std_20)
+    add_test(NAME ui_pointer_ownership COMMAND cojvr_ui_pointer_ownership_test)
+
     add_executable(cojvr_openvr_state_test tests/openvr_state.cpp)
     target_include_directories(cojvr_openvr_state_test PRIVATE src)
     target_compile_features(cojvr_openvr_state_test PRIVATE cxx_std_20)
