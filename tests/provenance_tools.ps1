@@ -1450,11 +1450,20 @@ try {
         "Native-stereo verifier accepted a restore that omitted the hand element."
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
+    Add-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value @(
+        'openvr_display_timing: source=hmd_property;refresh_hz=90;compositor_pacing=WaitGetPoses',
+        'native_stereo_render_pacing: source=hmd_property;target_hz=90;mode=rate_cap',
+        'native_stereo_render_pacing_timing: sequence=1;target_hz=90;pacing_wait_ms=3.250;wait_kind=cpu_render_schedule')
     $StereoSummaryPath = Join-Path $StereoVerifierGame "cojvr-native-stereo-summary.json"
     & (Join-Path $SourceDirectory "tools\summarize_native_stereo_run.ps1") `
         -GameDirectory $StereoVerifierGame `
         -OutputPath $StereoSummaryPath | Out-Null
     $StereoSummary = Get-Content -LiteralPath $StereoSummaryPath -Raw | ConvertFrom-Json
+    Assert-True (@($StereoSummary.displayTiming.configuredRefreshHz).Count -eq 1 -and
+        @($StereoSummary.displayTiming.configuredRefreshHz)[0] -eq 90 -and
+        @($StereoSummary.displayTiming.producerTargetHz)[0] -eq 90 -and
+        $StereoSummary.metricsMs.renderPacing.p50 -eq 3.25) `
+        'Summary conflated HMD target/render pacing with GPU transport wait.'
     Assert-True ([string]$StereoSummary.runId -eq $StereoVerifierRunId) `
         "Native-stereo summary was not bound to the current run."
     Assert-True ([int]$StereoSummary.metricsMs.cpuCopy.count -eq 1 -and

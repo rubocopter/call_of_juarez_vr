@@ -104,6 +104,8 @@ public:
     // onto hands, weapons or other body anchors.
     [[nodiscard]] bool ReadTrackedPoses(OpenVrTrackedPoses& poses) noexcept;
     [[nodiscard]] bool WaitForTrackedPoses(OpenVrTrackedPoses& poses) noexcept;
+    // Called only by the OpenVR owner. Zero means unavailable/disconnected.
+    [[nodiscard]] float ReadDisplayFrequency() noexcept;
     // Drain runtime events and refresh connection/focus state. A runtime quit
     // request is represented in state() and left to the owning thread to tear
     // down outside loader-lock-sensitive contexts.

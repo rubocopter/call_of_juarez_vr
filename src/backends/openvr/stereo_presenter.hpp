@@ -98,6 +98,7 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] bool input_ready() const noexcept;
+    [[nodiscard]] float display_frequency_hz() const noexcept;
     [[nodiscard]] OpenVrPresenterStats stats() const noexcept;
     [[nodiscard]] std::string last_error() const noexcept;
 

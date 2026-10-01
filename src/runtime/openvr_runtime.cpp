@@ -260,6 +260,16 @@ void OpenVrRuntime::Shutdown() noexcept {
     impl_->state_tracker.ShutdownComplete();
 }
 
+float OpenVrRuntime::ReadDisplayFrequency() noexcept {
+    if (!initialized() || !impl_->system->IsTrackedDeviceConnected(vr::k_unTrackedDeviceIndex_Hmd)) {
+        return 0.0F;
+    }
+    vr::ETrackedPropertyError error = vr::TrackedProp_Success;
+    const float hz = impl_->system->GetFloatTrackedDeviceProperty(
+        vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &error);
+    return error == vr::TrackedProp_Success ? hz : 0.0F;
+}
+
 bool OpenVrRuntime::ReadEyeConfiguration(std::array<EyeView, 2>& eyes) noexcept {
     eyes = {};
     if (!impl_) return false;

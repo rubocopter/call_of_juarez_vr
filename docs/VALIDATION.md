@@ -146,6 +146,17 @@ becomes the next gate.
 
 ### Bounded transport acceptance — passed
 
+The accepted baseline established removal of the old readback bottleneck; its
+approximately 136 Hz producer rate was not the configured headset refresh.
+**Implemented / host-tested follow-up:** the producer now caps native eye-pair
+production using the actual OpenVR HMD frequency and removes desktop Present
+vsync when valid VR timing is available. The compositor remains independently
+paced by `WaitGetPoses`. This changed candidate needs a fresh manual run: verify
+reported HMD refresh/producer target match the visor setting, eye-pair production
+approaches that rate, image/head turns remain stable and normal closure/drain
+still pass. Target cadence comes from the HMD, not the old monitor-bound benchmark.
+The rate cap is not phase-lock or latency validation.
+
 Shared publication/copy and explicit-pose new-frame submission have been
 live-tested in production gameplay, including resource drain and complete
 normal-quit finalization. Measured update/stereo cadence and operator-confirmed
@@ -179,7 +190,7 @@ phase list cannot establish this gate. Body IK stays disabled for this profile.
 | Native stereo | both eyes show distinct, correctly paired current images |
 | Tracking/pose | normal head rotation/translation remains stable with no pull/snap-back |
 | Minimal gameplay | a few seconds of ordinary movement remain responsive; do not repeat the locomotion battery |
-| Cadence | update/stereo-pair rate clearly exceeds the old approximately 83 Hz path and approaches the 138 Hz readback-off reference |
+| Cadence | reported HMD refresh and producer target match the configured visor rate; production pair rate approaches that target, with compositor new/total submission rates reported separately; game update Hz uses native simulation time |
 | Transport | shared frames and D3D11 copies advance; producer/consumer wait stay zero; no classic fallback, readback, eye mismatch or ring exhaustion |
 | Shutdown | close through the game's normal quit route; pre-exit hook installs/completes/restores, presenter reports `shutdown_complete=true`, pending GPU copies drain without abandoned leases, and transport/presenter summaries plus `run_end` are emitted |
 

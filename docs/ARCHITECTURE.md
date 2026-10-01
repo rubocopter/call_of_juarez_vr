@@ -229,6 +229,37 @@ The mailbox can replace unconsumed pairs, and ring drops and frame-age outliers
 still occur. This establishes the short cadence target, not sustained tail-latency
 or pending-frame reset/device-loss acceptance.
 
+**Implemented / host-tested HMD rate-cap follow-up:** production rate is now
+scheduled from OpenVR `Prop_DisplayFrequency_Float`, read and refreshed by the
+single runtime owner. It follows the configured HMD rate (for example 90 or
+120 Hz); neither a desktop mode nor a fixed 90 Hz value supplies the target.
+One shared CPU schedule covers native stereo and flat/menu presentation without
+double-waiting. Before each native stereo pair it waits until a bounded,
+cancellation-aware deadline, then reads the latest tracking sample. Rate changes,
+reset and pauses rebase the schedule, with no catch-up bursts. Loss of HMD timing
+retains the last valid HMD cap while desktop vsync remains disabled; a safe game
+Reset restores the requested interval when timing is unavailable.
+Each Create/Reset uses one property sample; only success commits its sampled
+cadence and latest game interval, including preservation across failed Reset.
+Failed attempts also restore the caller's interval before reuse of its parameters.
+If timing first appears after creation with desktop vsync still active, the cap
+remains deferred until a game-owned Reset disables that wait. This cap controls
+rate; it does not phase-lock the game renderer to the compositor. `WaitGetPoses`
+still owns compositor pacing.
+
+With valid VR timing, factory creation/reset uses `D3DPRESENT_INTERVAL_IMMEDIATE`
+to avoid a second monitor-vsync wait. The desktop display mode remains game-owned.
+Diagnostics retain requested/effective Present interval, reported HMD refresh,
+producer target, CPU schedule wait and separate new/total submission rates.
+The intentional schedule wait is separate from zero-wait GPU transport. Physical
+acceptance of this follow-up remains pending; the accepted faster producer trace
+belongs to the preceding unpaced build.
+
+API source: [OpenVR v2.15.6 header](https://github.com/ValveSoftware/openvr/blob/v2.15.6/headers/openvr.h),
+the pinned SDK already used by this repository; Valve's
+[compositor overview](https://github.com/ValveSoftware/openvr/wiki/IVRCompositor_Overview)
+describes the separate pose/render/submit boundary.
+
 Full GPU sharing is not available from a classic `IDirect3D9` device: shared
 DEFAULT-pool handles for DXGI/D3D11 interop require D3D9Ex. If the game cannot
 create or run on the substituted Ex device, the candidate fails over at device

@@ -479,6 +479,12 @@ foreach ($Entry in $Phases.GetEnumerator()) {
         stereoPairHz = if ($WallDuration -gt 0) { [Math]::Round($PairCount / $WallDuration, 3) } else { $null }
         presenterNewSubmissions = $NewSubmissions
         presenterRepeatedSubmissions = $RepeatSubmissions
+        presenterNewSubmissionHz = if ($WallDuration -gt 0) {
+            [Math]::Round($NewSubmissions / $WallDuration, 3)
+        } else { $null }
+        presenterTotalSubmissionHz = if ($WallDuration -gt 0) {
+            [Math]::Round(($NewSubmissions + $RepeatSubmissions) / $WallDuration, 3)
+        } else { $null }
         jumps = $Jumps
         jumpApexCm = Get-Stats @($Jumps | ForEach-Object apexCm)
         jumpDurationSeconds = Get-Stats @($Jumps | ForEach-Object durationSeconds)
@@ -521,4 +527,6 @@ foreach ($Phase in $Results) {
         $Phase.phase, $Phase.updateHz, $Phase.stereoPairHz,
         $Phase.normalMovementCmPerSecond, $Phase.walkModifierCmPerSecond,
         $Phase.normalWalkRatio, $Phase.jumps.Count)
+    Write-Host ("{0}: presenter-new={1} Hz presenter-total={2} Hz (render production and HMD refresh are separate)" -f `
+        $Phase.phase, $Phase.presenterNewSubmissionHz, $Phase.presenterTotalSubmissionHz)
 }

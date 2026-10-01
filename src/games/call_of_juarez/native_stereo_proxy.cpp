@@ -10,6 +10,8 @@
 #include "backends/d3d9/system_d3d9.hpp"
 #include "backends/openvr/stereo_presenter.hpp"
 #include "runtime/log.hpp"
+#include "runtime/hmd_frame_pacing.hpp"
+#include "backends/d3d9/vr_present_policy.hpp"
 
 #include <windows.h>
 #include <wrl/client.h>
@@ -44,6 +46,13 @@ struct NativeStereoState {
     cojvr::backends::d3d9::D3D9StereoCapture capture;
     cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
     cojvr::backends::openvr::OpenVrStereoPresenter presenter;
+    cojvr::runtime::HmdFramePacer frame_pacer;
+    cojvr::runtime::VrFrameCadence frame_cadence;
+    std::atomic_bool desktop_vsync_disabled{false};
+    cojvr::backends::d3d9::VrPresentPolicy present_policy;
+    bool late_rate_reported = false;
+    float last_pacing_hz = 0.0F;
+    std::uint64_t pacing_sequence = 0;
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     std::mutex device_mutex;
     IDirect3D9* factory = nullptr;
@@ -520,8 +529,62 @@ bool PublishCapturedFrame(
     }
 }
 
+bool PaceRenderFrame(NativeStereoState* state) noexcept {
+    if (!state || g_finalization_started.load(std::memory_order_acquire)) return false;
+    try {
+    const float reported_hz = state->presenter.display_frequency_hz();
+    const float refresh_hz = state->frame_cadence.Target(
+        reported_hz, state->desktop_vsync_disabled.load(std::memory_order_acquire));
+    if (refresh_hz != state->last_pacing_hz) {
+        state->last_pacing_hz = refresh_hz;
+        std::ostringstream line;
+        line << "native_stereo_render_pacing: source=hmd_property;target_hz="
+             << refresh_hz << ";mode=" << (refresh_hz > 0.0F ? "rate_cap" : "unavailable_fail_open");
+        LogLine(line.str());
+    }
+    if (reported_hz > 0.0F && refresh_hz == 0.0F && !state->late_rate_reported) {
+        state->late_rate_reported = true;
+        LogLine("native_stereo_render_pacing: status=pending reason=desktop_vsync_reset_required");
+    }
+    const auto pacing_begin = std::chrono::steady_clock::now();
+    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        pacing_begin.time_since_epoch()).count();
+    const auto deadline = std::chrono::steady_clock::time_point(
+        std::chrono::nanoseconds(state->frame_pacer.Deadline(now_ns, refresh_hz)));
+    // Intentional CPU render pacing, separate from nonblocking GPU handoff.
+    // Refresh changes rebase the cap. Retain the last cadence while the mirror
+    // is IMMEDIATE; missing initial timing keeps the game's desktop interval.
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (g_finalization_started.load(std::memory_order_acquire)) {
+            state->frame_pacer.Reset();
+            return false;
+        }
+        std::this_thread::sleep_until(std::min(
+            deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(2)));
+    }
+    if (ShouldLogStereoTiming(++state->pacing_sequence)) {
+        const double wait_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - pacing_begin).count();
+        std::ostringstream line;
+        line << "native_stereo_render_pacing_timing: sequence=" << state->pacing_sequence
+             << ";target_hz=" << refresh_hz << std::fixed << std::setprecision(3)
+             << ";pacing_wait_ms=" << wait_ms << ";wait_kind=cpu_render_schedule";
+        LogLine(line.str());
+    }
+    state->frame_cadence.RenderPaced();
+    return true;
+    } catch (...) {
+        state->frame_pacer.Reset();
+        return false;
+    }
+}
+
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (!device || !g_stereo.runtime_ready) return;
+    if (g_stereo.frame_cadence.PresentNeedsPacing()) {
+        if (!PaceRenderFrame(&g_stereo)) return;
+        (void)g_stereo.frame_cadence.PresentNeedsPacing();
+    }
     try {
         bool timer_frozen = false;
         std::string timer_error;
@@ -742,6 +805,9 @@ void AfterDevicePresent(IDirect3DDevice9* device, const HRESULT result) noexcept
 void BeforeDeviceReset(
     IDirect3DDevice9* device,
     D3DPRESENT_PARAMETERS* parameters) noexcept {
+    g_stereo.frame_pacer.Reset();
+    const float refresh_hz = g_stereo.runtime_ready ? g_stereo.presenter.display_frequency_hz() : 0.0F;
+    if (parameters) (void)g_stereo.present_policy.Begin(*parameters, refresh_hz, true);
     try {
         std::ostringstream line;
         line << "native_stereo_startup_event: event=reset_enter"
@@ -764,12 +830,17 @@ void BeforeDeviceReset(
 
 void AfterDeviceReset(
     IDirect3DDevice9* device,
-    D3DPRESENT_PARAMETERS*,
+    D3DPRESENT_PARAMETERS* parameters,
     const HRESULT result) noexcept {
+    if (parameters) g_stereo.present_policy.Complete(SUCCEEDED(result), *parameters, g_stereo.frame_cadence);
     try {
         std::uint64_t generation =
             g_stereo.device_generation.load(std::memory_order_acquire);
         if (SUCCEEDED(result)) {
+            g_stereo.desktop_vsync_disabled.store(parameters &&
+                parameters->PresentationInterval == D3DPRESENT_INTERVAL_IMMEDIATE,
+                std::memory_order_release);
+            g_stereo.late_rate_reported = false;
             generation = g_stereo.device_generation.fetch_add(1, std::memory_order_acq_rel) + 1;
             g_stereo.flat_capture_active.store(false, std::memory_order_release);
             g_stereo.last_native_stereo_tick_ms.store(0, std::memory_order_release);
@@ -863,6 +934,13 @@ void BeforeCreateDevice(
     HWND focus_window,
     const DWORD behavior_flags,
     D3DPRESENT_PARAMETERS* presentation_parameters) noexcept {
+    const float refresh_hz = g_stereo.runtime_ready ? g_stereo.presenter.display_frequency_hz() : 0.0F;
+    bool vr_paced = false;
+    const DWORD requested_interval = presentation_parameters
+        ? presentation_parameters->PresentationInterval : 0;
+    if (presentation_parameters) {
+        vr_paced = g_stereo.present_policy.Begin(*presentation_parameters, refresh_hz, false);
+    }
     try {
         std::ostringstream line;
         line << "native_stereo_startup_event: event=create_device_enter"
@@ -882,7 +960,10 @@ void BeforeCreateDevice(
                  << ";windowed="
                  << (presentation_parameters->Windowed ? "true" : "false")
                  << ";swap_effect="
-                 << static_cast<unsigned>(presentation_parameters->SwapEffect);
+                 << static_cast<unsigned>(presentation_parameters->SwapEffect)
+                 << ";requested_present_interval=" << requested_interval
+                 << ";effective_present_interval=" << presentation_parameters->PresentationInterval
+                 << ";vr_paced=" << (vr_paced ? "true" : "false");
         }
         LogLine(line.str());
     } catch (...) {
@@ -895,7 +976,7 @@ void AfterCreateDevice(
     D3DDEVTYPE,
     HWND focus_window,
     DWORD,
-    D3DPRESENT_PARAMETERS*,
+    D3DPRESENT_PARAMETERS* parameters,
     IDirect3DDevice9** returned_device,
     const HRESULT result) noexcept {
     IDirect3DDevice9* observed = returned_device ? *returned_device : nullptr;
@@ -914,7 +995,11 @@ void AfterCreateDevice(
         LogLine(result_line.str());
     } catch (...) {
     }
+    if (parameters) g_stereo.present_policy.Complete(SUCCEEDED(result) && observed, *parameters, g_stereo.frame_cadence);
     if (FAILED(result) || !observed) return;
+    g_stereo.desktop_vsync_disabled.store(parameters &&
+        parameters->PresentationInterval == D3DPRESENT_INTERVAL_IMMEDIATE,
+        std::memory_order_release);
     try {
         const auto log_factory_identity = [factory, observed](const char* event) {
             Microsoft::WRL::ComPtr<IDirect3D9> recovered_factory;
@@ -1047,7 +1132,9 @@ bool BeginStereoFrame(
     cojvr::games::call_of_juarez::CameraStereoFrameSample& sample) noexcept {
     sample = {};
     auto* state = static_cast<NativeStereoState*>(context);
-    if (!state || !state->runtime_ready) return false;
+    if (!state || !state->runtime_ready ||
+        g_finalization_started.load(std::memory_order_acquire) || !state->presenter.running()) return false;
+    if (!PaceRenderFrame(state)) return false;
     bool timer_frozen = false;
     std::string timer_error;
     if (cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(

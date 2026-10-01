@@ -5,6 +5,7 @@
 #include "backends/openvr/d3d11_session.hpp"
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
+#include "runtime/hmd_frame_pacing.hpp"
 #include "runtime/openvr_runtime.hpp"
 #include "runtime/vr_math.hpp"
 
@@ -105,6 +106,7 @@ struct OpenVrStereoPresenter::Impl {
     std::atomic_bool stop_requested{false};
     std::atomic_bool running{false};
     std::atomic_bool input_ready{false};
+    std::atomic<float> display_frequency_hz{0.0F};
 
     mutable std::mutex init_mutex;
     std::condition_variable init_cv;
@@ -619,6 +621,8 @@ struct OpenVrStereoPresenter::Impl {
         runtime::OpenVrPresentationState previous_presentation_state{};
         bool have_previous_presentation_state = false;
         std::uint64_t presentation_poll_sequence = 0;
+        auto next_display_frequency_read = std::chrono::steady_clock::time_point{};
+        bool display_timing_logged = false;
         struct LeaseTelemetry {
             std::uintptr_t device_id = 0;
             std::uint64_t generation = 0;
@@ -697,6 +701,10 @@ struct OpenVrStereoPresenter::Impl {
             }
 
             running.store(true, std::memory_order_release);
+            const float initial_refresh = runtime.ReadDisplayFrequency();
+            display_frequency_hz.store(
+                runtime::HmdFramePacer::ValidRefresh(initial_refresh) ? initial_refresh : 0.0F,
+                std::memory_order_release);
             SignalInitialization(true);
             Log("native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=flat_theater_to_native_stereo");
             Log("openvr_gpu_handoff: native_stereo=D3D9Ex_shared_texture+CopyResource;flat_fallback=UpdateSubresource;producer_sync=nonblocking_D3D9_event_query;consumer_sync=nonblocking_D3D11_event_query;submit=Submit_TextureWithPose;handoff=PostPresentHandoff");
@@ -729,6 +737,22 @@ struct OpenVrStereoPresenter::Impl {
                         shared_stats.pending_copy_fences_peak, std::memory_order_release);
                 }
                 const auto pose_begin = std::chrono::steady_clock::now();
+                // The configured refresh comes from the HMD, never a monitor
+                // mode or a fixed 90 Hz assumption. Only this owner calls OpenVR.
+                if (pose_begin >= next_display_frequency_read) {
+                    next_display_frequency_read = pose_begin + std::chrono::seconds(1);
+                    const float reported_hz = runtime.ReadDisplayFrequency();
+                    const float refresh_hz = runtime::HmdFramePacer::ValidRefresh(reported_hz)
+                        ? reported_hz : 0.0F;
+                    if (display_frequency_hz.exchange(refresh_hz, std::memory_order_acq_rel) != refresh_hz ||
+                        !display_timing_logged) {
+                        display_timing_logged = true;
+                        std::ostringstream line;
+                        line << "openvr_display_timing: source=hmd_property;refresh_hz="
+                             << refresh_hz << ";compositor_pacing=WaitGetPoses";
+                        Log(line.str());
+                    }
+                }
                 runtime::OpenVrTrackedPoses tracked_poses{};
                 // Enter compositor pacing as soon as either flat-theater or native
                 // stereo content is presentable. This gives CoJ scene ownership
@@ -1212,6 +1236,10 @@ struct OpenVrStereoPresenter::Impl {
                     }
                 }
 
+                if (!pose_ok) {
+                    std::lock_guard lock(tracking_mutex);
+                    latest_pose = {};
+                }
                 if (!cadence.presentable()) continue;
                 // Do not permanently gate scene submission on the dashboard flag.
                 // SteamVR can report the overlay state while transitioning between
@@ -1493,6 +1521,7 @@ void OpenVrStereoPresenter::RecycleFrame(d3d9::StereoCpuFrame frame) noexcept {
 }
 
 bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcept {
+    if (!running()) { sample = {}; return false; }
     sample = {};
     try {
         std::lock_guard lock(impl_->tracking_mutex);
@@ -1538,6 +1567,11 @@ bool OpenVrStereoPresenter::EyeViews(std::array<runtime::EyeView, 2>& eyes) cons
 
 bool OpenVrStereoPresenter::running() const noexcept {
     return impl_->running.load(std::memory_order_acquire);
+}
+
+float OpenVrStereoPresenter::display_frequency_hz() const noexcept {
+    return impl_ && impl_->running.load(std::memory_order_acquire)
+        ? impl_->display_frequency_hz.load(std::memory_order_acquire) : 0.0F;
 }
 
 bool OpenVrStereoPresenter::input_ready() const noexcept {

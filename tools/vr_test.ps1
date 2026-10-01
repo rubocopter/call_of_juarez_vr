@@ -268,7 +268,8 @@ switch ($Action) {
         } else {
             Write-Host "Transport-profile run: keep this short. Reach native-stereo gameplay, confirm both eyes are current/distinct, then do slow/fast head turns plus a few seconds of ordinary movement."
             Write-Host "Do not repeat the locomotion battery, UI acceptance, recenter, body/weapon testing or SteamVR dashboard cycle for this gate."
-            Write-Host "The acceptance target is stable tracking/stereo plus clearly improved update/stereo cadence with zero classic-D3D9 fallback/readback."
+            Write-Host "The acceptance target is stable tracking/stereo with producer cadence following the configured HMD refresh and zero classic-D3D9 fallback/readback."
+            Write-Host "Check configured HMD refresh, producer target, rendered pair rate and presenter submission rate separately; the desktop monitor is not the VR cadence target."
         }
         Write-Host "Diagnostic fallback: pwsh -File tools\vr_test.ps1 recenter"
         if ($ValidationProfile -notin @("transport", "startup")) {

@@ -625,6 +625,12 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME presentation_cadence COMMAND cojvr_presentation_cadence_test)
 
+    add_executable(cojvr_hmd_frame_pacing_test tests/hmd_frame_pacing.cpp)
+    target_include_directories(cojvr_hmd_frame_pacing_test PRIVATE src)
+    target_compile_features(cojvr_hmd_frame_pacing_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_hmd_frame_pacing_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME hmd_frame_pacing COMMAND cojvr_hmd_frame_pacing_test)
+
     add_executable(cojvr_openvr_state_test tests/openvr_state.cpp)
     target_include_directories(cojvr_openvr_state_test PRIVATE src)
     target_compile_features(cojvr_openvr_state_test PRIVATE cxx_std_20)

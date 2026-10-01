@@ -95,6 +95,7 @@ try {
         [Math]::Abs([double]$Phase.walkModifierTargetCmPerSecond - 275.0) -gt 0.001 -or
         $null -ne $Phase.PSObject.Properties["sprintCmPerSecond"] -or
         $Phase.stereoPairs -ne 2 -or $Phase.presenterRepeatedSubmissions -ne 1 -or
+        $Phase.presenterNewSubmissionHz -ne 2 -or $Phase.presenterTotalSubmissionHz -ne 3 -or
         $Phase.jumps.Count -ne 1 -or $Phase.jumpApexCm.p50 -ne 42 -or
         $Phase.readbackMs.p50 -ne 3 -or $Phase.readbackMs.p95 -ne 3 -or
         $Phase.readbackMs.max -ne 5 -or $Phase.cpuCopyMs.max -ne 9 -or

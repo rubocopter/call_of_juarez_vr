@@ -148,7 +148,12 @@ $Report = [ordered]@{
     runId = $RunId
     buildManifestId = [string]$Provenance.BuildManifestId
     generatedUtc = [DateTime]::UtcNow.ToString("o")
+    displayTiming = [ordered]@{
+        configuredRefreshHz = @(Get-NumericValues $Lines '^openvr_display_timing:' 'refresh_hz' | Select-Object -Unique)
+        producerTargetHz = @(Get-NumericValues $Lines '^native_stereo_render_pacing:' 'target_hz' | Select-Object -Unique)
+    }
     metricsMs = [ordered]@{
+        renderPacing = Get-Stats (Get-NumericValues $Lines '^native_stereo_render_pacing_timing:' 'pacing_wait_ms')
         gpuCopyQueue = Get-Stats (Get-NumericValues $Lines "^native_stereo_capture_timing: status=ok" "gpu_copy_queue_ms")
         fencePoll = Get-Stats (Get-NumericValues $Lines "^native_stereo_producer_timing: status=published" "fence_poll_ms")
         deferredReadback = Get-Stats (Get-NumericValues $Lines "^native_stereo_producer_timing: status=published" "deferred_readback_ms")
@@ -217,8 +222,12 @@ $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
     [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Native-stereo performance/state summary: $OutputPath"
+if ($Report.displayTiming.configuredRefreshHz.Count -gt 0) {
+    Write-Host "Configured HMD refresh observed: $($Report.displayTiming.configuredRefreshHz -join ', ') Hz"
+    Write-Host "Producer cadence target: $($Report.displayTiming.producerTargetHz -join ', ') Hz"
+}
 foreach ($MetricName in @(
-        "deferredReadback", "cpuCopy", "producerCollect", "producerWait",
+        "renderPacing", "deferredReadback", "cpuCopy", "producerCollect", "producerWait",
         "sharedOpen", "consumerGpuCopyQueue", "consumerWait", "frameAge",
         "d3d11Upload", "waitPose", "submit")) {
     $Stats = $Report.metricsMs[$MetricName]

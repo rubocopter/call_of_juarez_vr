@@ -17,6 +17,13 @@ startup path**; normal-quit inner presenter shutdown and finalization are also
 **live-tested**. The bounded cadence target now passes near the readback-off
 reference, and the operator confirms correct stereo depth and stable head turns.
 Sustained pacing, tail latency and pending-frame reset/device loss remain separate.
+The user clarified that the producer benchmark is constrained by the desktop
+configuration and the visor is configured to 90 Hz. The **implemented /
+host-tested** follow-up therefore derives a render rate cap from the configured
+OpenVR HMD refresh and removes desktop Present vsync when valid VR timing exists.
+It supports refresh changes without a fixed 90 Hz constant. Compositor pacing
+remains `WaitGetPoses`; rate-cap behavior and closure need a fresh physical run.
+This follow-up is not yet included in the accepted baseline above.
 Earlier production attempts
 stopped after three Ex Presents, but an
 independent LTR research path on the same game build has since demonstrated the
