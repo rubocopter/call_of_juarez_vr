@@ -12,12 +12,21 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 First-level controller-only main-menu operation is **headset-validated** through
 the native sprite-tree mouse-event route: hover/highlight, selection and physical
-mouse takeover/resume were observed working. The remaining UI gate is narrower:
-the previous live candidate could not select a visible Yes/No dialog or gameplay
-pause-menu options. Explicit dialog/current-UI root routing is **implemented /
-host-tested**. Continuous body-yaw following at the 35-degree comfort boundary
-is **headset-validated with Body IK disabled**; the previous arm IK candidate
-remains visually rejected for snap-back/continuity.
+mouse takeover/resume were observed working. A later modal-routing candidate
+regressed all menu/controller UI delivery because it queried
+`MainMenuModule.m_bYesNoDlgVisible`, which the shipped class does not contain.
+The latest headset run therefore had no working laser/buttons apart from recenter.
+The bridge now observes `m_cYesNoDlg` as optional metadata, clears any local JNI
+lookup/read exception and falls back to the proven current-UI route. This fix is
+**implemented / host-tested**, not yet headset-validated. Continuous body-yaw
+following at the 35-degree comfort boundary remains **headset-validated with Body
+IK disabled**; the previous arm IK candidate remains visually rejected for
+snap-back/continuity.
+
+The same failed headset run hung on the loading screen after a save was selected
+with the physical mouse. It never reached native-stereo gameplay or initialized
+the Body IK path, so that hang is **experiment-pending** and is not attributed to
+Body IK. Retest it after the UI regression fix.
 
 The next combined run uses normal `prepare -BodyIkAtStart`. In the main menu,
 confirm ordinary first-level hover/selection, then open Abandon/Quit and verify
@@ -165,10 +174,13 @@ shoulders cannot become gameplay weapon switches before release.
 The operator confirmed correct first-level highlighting/selection and that mouse
 input can take priority and hand control back to the laser. A later physical run
 showed that a visible Yes/No dialog and the gameplay pause menu did not yet receive
-the same behavior. The bridge now resolves the visible `m_cYesNoDlg` as the input
-root and prefers the global `MainMenuModule` current UI for pause-menu delivery;
-those two routing corrections are **implemented / host-tested** and still need a
-headset check.
+the same behavior. The first modal fix then caused a broader regression by looking
+up a nonexistent `m_bYesNoDlgVisible` field, poisoning JNI state before the proven
+global route could run. Inspection of the shipped `MainMenuModule` confirms
+`m_cYesNoDlg` exists and that visibility field does not. Modal observation is now
+optional and exception-safe, while the global current UI remains preferred for
+pause-menu delivery. Those corrections are **implemented / host-tested** and still
+need a headset check.
 
 The next UI acceptance is part of the combined Body IK run below. Reconfirm the
 accepted first-level behavior, then explicitly exercise a Yes/No dialog and the
@@ -306,10 +318,10 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | previous candidate live-exercised / rejected; continuity correction implemented / host-tested | valid hard-clamped positional plans now retain ownership; rotation/hand/reload safety stays fail-closed; physical anatomy/reach acceptance remains open |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | first-level main-menu native event route headset-validated; modal/pause routing implemented / host-tested | hover/selection and mouse coexistence work on first-level options; Yes/No dialog and gameplay pause menu still need physical acceptance |
+| Flat-menu pointer | first-level main-menu native event route headset-validated; modal/pause correction implemented / host-tested after one regressed candidate | hover/selection and mouse coexistence work on first-level options; optional `m_cYesNoDlg` discovery and gameplay pause routing still need physical acceptance |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
-| Cross/Circle/L2/R2 UI actions | first-level main-menu selection physically accepted; modal/pause routing host-tested | callback dispatch alone remains insufficient for the untested modal/pause roots |
-| Loading continuation | host-tested | native loading input route is mapped |
+| Cross/Circle/L2/R2 UI actions | first-level main-menu selection physically accepted; corrected modal/pause routing host-tested | latest failed candidate lost these actions through JNI exception poisoning; corrected path needs physical retest |
+| Loading continuation | host-tested / latest physical load hung before progress | native loading input route is mapped; the hang is experiment-pending and must be retested after the UI regression fix |
 | Controller-origin UI beam | headset-validated for first-level main-menu interaction | modal/pause input-root acceptance remains pending |
 | Controller-owned weapon direction/visual origin | host-tested | final physical firing alignment still pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |

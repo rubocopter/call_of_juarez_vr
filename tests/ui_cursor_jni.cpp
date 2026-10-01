@@ -36,6 +36,7 @@ Fault fault = Fault::none;
 bool global_available = true, active_available = true, jvm_available = true;
 bool current_ui_available = false;
 bool modal_visible = false;
+bool yes_no_visibility_field_available = true;
 std::int32_t ui_index = 4;
 bool pending = false;
 int mutations = 0, unexpected = 0;
@@ -141,8 +142,10 @@ void* COJVR_JNICALL Field(void*, void* cls, const char* name, const char* sig) {
         return Token(Id::cmenu);
     if (cls == &menu_class && Is(name, "m_cCursor") && Is(sig, "LUICursorGame;"))
         return Token(Id::cursor);
-    if (cls == &menu_class && Is(name, "m_bYesNoDlgVisible") && Is(sig, "Z"))
+    if (cls == &menu_class && Is(name, "m_bYesNoDlgVisible") && Is(sig, "Z")) {
+        if (!yes_no_visibility_field_available) { pending = true; return nullptr; }
         return Token(Id::yes_no_visible);
+    }
     if (cls == &menu_class && Is(name, "m_cYesNoDlg") && Is(sig, "LMenuYesNoDialog;"))
         return Token(Id::yes_no_dialog);
     Require(cls == &vector_class && Is(sig, "F"));
@@ -388,6 +391,27 @@ int Run() {
         bridge.Reset(); CheckClean(); mutations = 0; current_ui_available = false;
     }
     {
+        // The shipped MainMenuModule has m_cYesNoDlg but no
+        // m_bYesNoDlgVisible field. Optional modal discovery must not poison
+        // the proven global current-UI route with a pending JNI exception.
+        global_available = true;
+        current_ui_available = true;
+        modal_visible = false;
+        yes_no_visibility_field_available = false;
+        native_enabled = false;
+        const int deliveries_before = native_deliveries;
+        JavaPlayerBridge bridge; std::string error;
+        bool consumed = false;
+        ok &= Check(bridge.TryProcessUiPointer(630, 355, &error, &DispatchMouse, &consumed) &&
+            consumed && native_deliveries == deliveries_before + 1 && last_native_object_id == 123,
+            "shipped menu layout without a Yes/No visibility field must preserve native laser hover");
+        ok &= Check(!pending, "missing optional modal metadata must not leave a pending JNI exception");
+        pending = false;
+        bridge.Reset(); CheckClean();
+        mutations = 0; current_ui_available = false;
+        yes_no_visibility_field_available = true;
+    }
+    {
         // A visible Yes/No dialog disables its parent UI's mouse processing and
         // becomes the actual input root. Hover/readback must follow the dialog,
         // even while the parent remains the current MainMenuModule UI.
@@ -395,6 +419,7 @@ int Run() {
         active_available = true;
         current_ui_available = true;
         modal_visible = true;
+        yes_no_visibility_field_available = false;
         native_enabled = false;
         const int deliveries_before = native_deliveries;
         JavaPlayerBridge bridge; std::string error;
@@ -407,6 +432,7 @@ int Run() {
             "UI pointer readback must observe the visible Yes/No dialog input root");
         bridge.Reset(); CheckClean();
         mutations = 0; modal_visible = false; current_ui_available = false;
+        yes_no_visibility_field_available = true;
         global_available = false;
     }
     for (const std::size_t missing : {15U, 17U, 30U, 39U, 102U}) {

@@ -51,11 +51,15 @@ field. `GetCurrentUI -> GetUI` can load a missing UI, and `GetGlobalCursor` can
 create a cursor, so neither factory belongs in passive observation.
 
 Shipped menu ownership has two additional roots that matter for live input.
-When `MainMenuModule.m_bYesNoDlgVisible` is true, `m_cYesNoDlg` owns mouse
-processing while the parent UI is disabled, so delivery/readback must target the
-dialog directly. During gameplay pause, the global `MainMenuModule` current UI is
-the preferred root; the active-game menu remains a fallback. Both rules are now
-covered by JNI fixtures and are **implemented / host-tested**.
+Inspection of the real `MainMenuModule.class` confirms `m_cYesNoDlg` exists and
+`m_bYesNoDlgVisible` does not. The first modal fix incorrectly made that missing
+visibility field mandatory, leaving a pending JNI exception and disabling the
+otherwise proven laser/controller route. Modal discovery now treats a non-null
+`m_cYesNoDlg` as optional root metadata and clears its own observation failure
+before falling back to `FindUI(m_nCurUI)`. During gameplay pause, the global
+`MainMenuModule` current UI is the preferred root; the active-game menu remains a
+fallback. Both corrected rules are covered by JNI fixtures and are **implemented /
+host-tested**.
 
 A failed delivery/readback cancels only the matching pending click, freeing its
 target for further automatic pointing. Hand/claim/click ownership still guards
@@ -75,7 +79,10 @@ Java menu's focus/selection behavior.
 **Headset-validated:** first-level main-menu hover/highlight, selection and
 physical mouse takeover/resume through the native event route.
 
-**Experiment-pending:** the newly routed visible Yes/No dialog and gameplay pause
-menu. Operator confirmation remains required even when transport and native input
-telemetry pass. Exact native boundaries must not be generalized to another
-Chrome Engine build or another game.
+**Experiment-pending:** the corrected Yes/No dialog and gameplay pause menu. The
+latest combined headset candidate did not exercise them because the invalid Java
+field lookup disabled all menu/controller UI delivery. Loading through the mouse
+then hung before gameplay/progress, so that transition must also be retested after
+the JNI correction. Operator confirmation remains required even when transport and
+native input telemetry pass. Exact native boundaries must not be generalized to
+another Chrome Engine build or another game.
