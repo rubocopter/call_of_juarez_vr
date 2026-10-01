@@ -77,6 +77,14 @@ struct NativeStereoState {
     std::uint32_t flat_ui_pointer_y = 0;
     bool flat_ui_pointer_game_route_logged = false;
     bool flat_ui_pointer_game_error_logged = false;
+    std::uint64_t flat_ui_pointer_delivery_sequence = 0;
+    cojvr::runtime::UiPointerMousePriority flat_ui_mouse_priority;
+    std::atomic_uint64_t flat_ui_mouse_override_until_ms{0};
+    cojvr::runtime::UiPointerSelectionSnapshot flat_ui_applied_selection{};
+    std::uint32_t flat_ui_applied_x = 0, flat_ui_applied_y = 0;
+    bool flat_ui_target_applied = false;
+    std::int32_t flat_ui_menu_index = 0;
+    bool flat_ui_menu_known = false;
     bool flat_loading_resume_pending = false;
     bool flat_ui_select_release_required = false;
     cojvr::games::call_of_juarez::CoJUiSelectRetryState flat_ui_select_retry{};
@@ -304,38 +312,18 @@ void NeutralizeFlatUiPointer(const char* reason) noexcept {
         if (g_stereo.flat_ui_pointer_active) {
             std::ostringstream detail;
             detail << "active=false;reason=" << (reason ? reason : "unknown")
-                   << ";route=win32_cursor_position";
+                   << ";route=game_cursor_mailbox";
             CameraEvent("flat_ui_pointer", "neutralized", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = false;
         g_stereo.flat_ui_pointer_selection.Observe(cojvr::runtime::UiPointerHand::none, 0, false, false);
+        g_stereo.flat_ui_target_applied = false;
         g_stereo.flat_ui_pointer_x = 0;
         g_stereo.flat_ui_pointer_y = 0;
         g_stereo.flat_ui_pointer_game_route_logged = false;
         g_stereo.flat_ui_pointer_game_error_logged = false;
     } catch (...) {
     }
-}
-
-bool SendAbsoluteMouseMove(const POINT screen) noexcept {
-    const LONG left = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const LONG top = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    const LONG width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    const LONG height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (width <= 1 || height <= 1) return false;
-
-    const auto normalize = [](const LONG value, const LONG origin, const LONG extent) noexcept {
-        const double relative = static_cast<double>(value - origin);
-        const double scaled = relative * 65535.0 / static_cast<double>(extent - 1);
-        return static_cast<LONG>(std::lround(std::max(0.0, std::min(65535.0, scaled))));
-    };
-
-    INPUT input{};
-    input.type = INPUT_MOUSE;
-    input.mi.dx = normalize(screen.x, left, width);
-    input.mi.dy = normalize(screen.y, top, height);
-    input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-    return SendInput(1, &input, sizeof(input)) == 1;
 }
 
 bool FlatUiPointer(
@@ -355,57 +343,41 @@ bool FlatUiPointer(
             NeutralizeFlatUiPointer("ray_inactive");
             return true;
         }
-        if (sample.source_width == 0 || sample.source_height == 0) {
+        if (GetTickCount64() < g_stereo.flat_ui_mouse_override_until_ms.load(std::memory_order_acquire)) {
+            NeutralizeFlatUiPointer("physical_mouse_priority");
+            return false;
+        }
+        if (sample.source_width == 0 || sample.source_height == 0 ||
+            sample.pixel_x >= sample.source_width || sample.pixel_y >= sample.source_height ||
+            sample.claim == 0) {
             NeutralizeFlatUiPointer("invalid_source");
             return false;
         }
 
-        RECT client{};
-        if (!GetClientRect(root, &client)) {
-            NeutralizeFlatUiPointer("client_rect_failed");
-            return false;
-        }
-        const LONG width = client.right - client.left;
-        const LONG height = client.bottom - client.top;
-        if (width <= 1 || height <= 1) {
-            NeutralizeFlatUiPointer("invalid_client_extent");
-            return false;
-        }
-        const POINT client_pointer{
-            static_cast<LONG>(std::lround(sample.u * static_cast<float>(width - 1))),
-            static_cast<LONG>(std::lround(sample.v * static_cast<float>(height - 1))),
-        };
-        POINT screen = client_pointer;
-        if (!ClientToScreen(root, &screen) || !SetCursorPos(screen.x, screen.y) ||
-            !SendAbsoluteMouseMove(screen)) {
-            NeutralizeFlatUiPointer("cursor_move_failed");
-            return false;
-        }
-        // Chrome Engine's UI hit-testing also consumes the real mouse-input
-        // stream. A posted WM_MOUSEMOVE plus cursor relocation still required a
-        // physical mouse nudge in the 20260921 headset clip, so publish an
-        // absolute SendInput move before synchronizing the window message.
-        if (!PostMessageW(
-                root, WM_MOUSEMOVE, 0,
-                MAKELPARAM(client_pointer.x, client_pointer.y))) {
-            NeutralizeFlatUiPointer("mouse_move_post_failed");
-            return false;
-        }
-
+        // Queue source-image coordinates only. Desktop absolute movement is
+        // reinterpreted by Chrome's mouse stream and feeds back into its cursor.
+        // The game thread applies the target through UICursor.SetPos instead.
         std::lock_guard lock(g_stereo.flat_ui_mutex);
         if (!g_stereo.flat_ui_pointer_active) {
             std::ostringstream detail;
             detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
                    << ";source=" << sample.source_width << 'x' << sample.source_height
-                   << ";route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE";
+                   << ";route=game_cursor_mailbox;desktop_injection=false";
             CameraEvent("flat_ui_pointer", "active", detail.str().c_str());
         }
         g_stereo.flat_ui_pointer_active = true;
+        const auto previous = g_stereo.flat_ui_pointer_selection.snapshot();
         g_stereo.flat_ui_pointer_selection.Observe(sample.using_left_hand
             ? cojvr::runtime::UiPointerHand::left : cojvr::runtime::UiPointerHand::right,
             sample.claim, sample.select_down, sample.select_pressed);
-        g_stereo.flat_ui_pointer_x = sample.pixel_x;
-        g_stereo.flat_ui_pointer_y = sample.pixel_y;
+        const auto current = g_stereo.flat_ui_pointer_selection.snapshot();
+        // Retain the click's target until the engine has processed its hover.
+        // A later pose cannot move that queued click to another menu option.
+        if (!current.pending || !previous.pending || current.hand != previous.hand ||
+            current.claim != previous.claim || current.click != previous.click) {
+            g_stereo.flat_ui_pointer_x = sample.pixel_x;
+            g_stereo.flat_ui_pointer_y = sample.pixel_y;
+        }
         return true;
     } catch (...) {
         NeutralizeFlatUiPointer("exception");
@@ -430,13 +402,144 @@ void CompleteFlatUiSelection(const cojvr::runtime::UiPointerSelectionSnapshot& s
     } catch (...) {}
 }
 
-bool ReadFlatUiPointer(std::uint32_t& pixel_x, std::uint32_t& pixel_y) noexcept {
+cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
     try {
+        const HWND window = reinterpret_cast<HWND>(g_stereo.game_window.load(std::memory_order_acquire));
+        HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
+        if (!root) root = window;
+        if (!root || GetForegroundWindow() != root) {
+            NeutralizeFlatUiPointer("game_not_foreground");
+            return {};
+        }
+        cojvr::games::call_of_juarez::CameraProbeVector previous{};
+        std::int32_t menu_index = 0;
+        std::string observation_error;
+        const bool readable = cojvr::games::call_of_juarez::ObserveCameraUiPointerPosition(
+            previous, &observation_error, &menu_index);
+        if (readable) {
+            const bool changed = g_stereo.flat_ui_menu_known && g_stereo.flat_ui_menu_index != menu_index;
+            g_stereo.flat_ui_menu_index = menu_index;
+            g_stereo.flat_ui_menu_known = true;
+            if (changed) {
+                NeutralizeFlatUiPointer("menu_index_changed");
+                return {};
+            }
+        }
+        const bool mouse_button = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 ||
+                                  (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+        const bool vr_allowed = g_stereo.flat_ui_mouse_priority.Observe(
+            previous.x, previous.y, readable, mouse_button, GetTickCount64());
+        g_stereo.flat_ui_mouse_override_until_ms.store(
+            g_stereo.flat_ui_mouse_priority.override_until_ms(), std::memory_order_release);
+        if (!vr_allowed) {
+            if (readable) {
+                NeutralizeFlatUiPointer("physical_mouse_priority");
+            } else {
+                std::lock_guard lock(g_stereo.flat_ui_mutex);
+                if (g_stereo.flat_ui_pointer_active && !g_stereo.flat_ui_pointer_game_error_logged) {
+                    const std::string detail =
+                        "route=MainMenuModule.GetGlobalCursor.UICursor.GetPos;owner=game_cursor_only;"
+                        "desktop_injection=false;detail=" + observation_error;
+                    CameraEvent("flat_ui_pointer_game_route", "failed", detail.c_str());
+                    g_stereo.flat_ui_pointer_game_error_logged = true;
+                }
+            }
+            return {};
+        }
+        cojvr::runtime::UiPointerSelectionSnapshot selection{};
+        std::uint32_t pixel_x = 0, pixel_y = 0;
+        {
+            std::lock_guard lock(g_stereo.flat_ui_mutex);
+            if (!g_stereo.flat_ui_pointer_active) return {};
+            selection = g_stereo.flat_ui_pointer_selection.snapshot();
+            pixel_x = g_stereo.flat_ui_pointer_x;
+            pixel_y = g_stereo.flat_ui_pointer_y;
+        }
+        std::string error;
+        bool applied = cojvr::games::call_of_juarez::DispatchCameraUiPointerMotion(
+            static_cast<float>(pixel_x), static_cast<float>(pixel_y), &error);
+        cojvr::games::call_of_juarez::CameraProbeVector observed{};
+        std::int32_t observed_index = 0;
+        if (applied) {
+            applied = cojvr::games::call_of_juarez::ObserveCameraUiPointerPosition(observed, &error, &observed_index) &&
+                observed_index == menu_index &&
+                std::abs(observed.x - static_cast<float>(pixel_x)) <= 1.0F &&
+                std::abs(observed.y - static_cast<float>(pixel_y)) <= 1.0F;
+            if (!applied && error.empty()) error = "logical cursor did not match the projected target";
+            if (applied) g_stereo.flat_ui_mouse_priority.Applied(observed.x, observed.y);
+        }
+        {
+            std::lock_guard lock(g_stereo.flat_ui_mutex);
+            const auto current = g_stereo.flat_ui_pointer_selection.snapshot();
+            if (!g_stereo.flat_ui_pointer_active || current.hand != selection.hand ||
+                current.claim != selection.claim || current.click != selection.click ||
+                current.held != selection.held) return {};
+            const auto previous_delivery = g_stereo.flat_ui_applied_selection;
+            const bool hover_ready = g_stereo.flat_ui_target_applied &&
+                previous_delivery.hand == selection.hand && previous_delivery.claim == selection.claim &&
+                previous_delivery.click == selection.click &&
+                g_stereo.flat_ui_applied_x == pixel_x && g_stereo.flat_ui_applied_y == pixel_y &&
+                std::abs(previous.x - static_cast<float>(pixel_x)) <= 1.0F &&
+                std::abs(previous.y - static_cast<float>(pixel_y)) <= 1.0F;
+            g_stereo.flat_ui_target_applied = applied;
+            if (applied) {
+                g_stereo.flat_ui_applied_selection = selection;
+                g_stereo.flat_ui_applied_x = pixel_x;
+                g_stereo.flat_ui_applied_y = pixel_y;
+            }
+            if (selection.pending && !hover_ready) selection.pending = false;
+            const auto sequence = ++g_stereo.flat_ui_pointer_delivery_sequence;
+            if (!g_stereo.flat_ui_pointer_game_route_logged ||
+                (applied && g_stereo.flat_ui_pointer_game_error_logged) ||
+                (!applied && !g_stereo.flat_ui_pointer_game_error_logged) ||
+                (applied && sequence % 90 == 0)) {
+                std::ostringstream detail;
+                detail << "route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove"
+                       << ";owner=game_cursor_only;desktop_injection=false;pixel="
+                       << pixel_x << ',' << pixel_y << ";claim=" << selection.claim
+                       << ";menu_index=" << menu_index
+                       << ";previous=" << previous.x << ',' << previous.y
+                       << ";observed=" << observed.x << ',' << observed.y;
+                if (!error.empty()) detail << ";detail=" << error;
+                CameraEvent("flat_ui_pointer_game_route", applied ? "applied" : "failed", detail.str().c_str());
+            }
+            g_stereo.flat_ui_pointer_game_route_logged = true;
+            g_stereo.flat_ui_pointer_game_error_logged = !applied;
+        }
+        return applied ? selection : cojvr::runtime::UiPointerSelectionSnapshot{};
+    } catch (...) {
+        return {};
+    }
+}
+
+bool DispatchFlatUiPointerSelection(
+    const cojvr::runtime::UiPointerSelectionSnapshot& selection,
+    bool* loading, std::string* error, bool* hint_dismissed,
+    cojvr::games::call_of_juarez::CoJUiDispatchRoute* route) noexcept {
+    try {
+        // Serialize validation and dispatch with presenter cancellation/claim
+        // changes. An accepted tap can be released while waiting for hover.
         std::lock_guard lock(g_stereo.flat_ui_mutex);
-        if (!g_stereo.flat_ui_pointer_active) return false;
-        pixel_x = g_stereo.flat_ui_pointer_x;
-        pixel_y = g_stereo.flat_ui_pointer_y;
-        return true;
+        const auto current = g_stereo.flat_ui_pointer_selection.snapshot();
+        const HWND window = reinterpret_cast<HWND>(g_stereo.game_window.load(std::memory_order_acquire));
+        HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
+        if (!root) root = window;
+        if (!selection.pending || !current.pending || !g_stereo.flat_ui_pointer_active ||
+            !g_stereo.flat_ui_target_applied || current.hand != selection.hand ||
+            current.claim != selection.claim || current.click != selection.click ||
+            !root || GetForegroundWindow() != root) return false;
+        cojvr::games::call_of_juarez::CameraProbeVector position{};
+        std::int32_t menu_index = 0;
+        if (!cojvr::games::call_of_juarez::ObserveCameraUiPointerPosition(position, error, &menu_index) ||
+            !g_stereo.flat_ui_menu_known || menu_index != g_stereo.flat_ui_menu_index ||
+            std::abs(position.x - static_cast<float>(g_stereo.flat_ui_applied_x)) > 1.0F ||
+            std::abs(position.y - static_cast<float>(g_stereo.flat_ui_applied_y)) > 1.0F) {
+            g_stereo.flat_ui_pointer_selection.Observe(cojvr::runtime::UiPointerHand::none, 0, false, false);
+            g_stereo.flat_ui_target_applied = false;
+            return false;
+        }
+        return cojvr::games::call_of_juarez::DispatchCameraUiSelectPress(
+            false, loading, error, hint_dismissed, route);
     } catch (...) {
         return false;
     }
@@ -649,15 +752,11 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         // Input focus gates menu mutation, not the frame publication that can
         // establish compositor focus during startup.
         if (menu_dispatch_allowed) {
-            const auto pointer_selection = FlatUiSelection();
-            const auto pointer_hand = pointer_selection.hand;
-            const bool pointer_active = pointer_hand != cojvr::runtime::UiPointerHand::none;
-            // Once the projected Sense ray has entered the real Windows mouse
-            // stream, let that stream be the sole owner of CoJ's menu cursor.  The
-            // 20260921 physical run showed that simultaneously forcing UICursorGame
-            // through JNI made hover/select oscillate even though SendInput itself
-            // finally reached the shipped menu input path.
-
+            // Navigation cancels the prior menu's trigger before moving or
+            // selecting anything in the destination menu.
+            if (tracking.ui_back_pressed || tracking.ui_accept_pressed)
+                NeutralizeFlatUiPointer("ui_navigation");
+            if (tracking.ui_back_pressed) g_stereo.flat_ui_select_retry = {};
             if (tracking.ui_back_pressed) {
                 cojvr::games::call_of_juarez::CoJUiDispatchRoute back_route =
                     cojvr::games::call_of_juarez::CoJUiDispatchRoute::none;
@@ -670,6 +769,11 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 if (!back_error.empty()) detail << ";detail=" << back_error;
                 CameraEvent("flat_ui_back", backed ? "applied" : "failed", detail.str().c_str());
             }
+            const auto pointer_selection = ApplyFlatUiPointerMotion();
+            const auto pointer_hand = pointer_selection.hand;
+            const bool pointer_active = pointer_hand != cojvr::runtime::UiPointerHand::none;
+            // Selection may follow only a successfully applied logical cursor
+            // target from the same hand/claim/click. No desktop motion is injected.
 
             if (g_stereo.flat_ui_select_release_required && timer_valid && !timer_frozen &&
                 !tracking.ui_select_left && !tracking.ui_select_right && !tracking.ui_accept) {
@@ -683,8 +787,9 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
 
             // Ray edges arrive only after the accepted motion, tagged with its hand
             // and claim. Raw action edges cannot become valid under a later claim.
-            const bool pointer_select = pointer_selection.pending && pointer_selection.held;
-            g_stereo.flat_ui_select_retry.Observe(tracking.ui_accept_pressed, tracking.ui_accept);
+            const bool pointer_select = pointer_selection.pending;
+            g_stereo.flat_ui_select_retry.Observe(!tracking.ui_back_pressed && tracking.ui_accept_pressed,
+                !tracking.ui_back_pressed && tracking.ui_accept);
             const bool cross_select = g_stereo.flat_ui_select_retry.ShouldDispatch(true, timer_valid && timer_frozen);
             const bool ui_select_pressed = pointer_select || tracking.ui_accept_pressed;
             const bool select_allowed = pointer_active || tracking.ui_accept || (timer_valid && timer_frozen);
@@ -694,12 +799,14 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 cojvr::games::call_of_juarez::CoJUiDispatchRoute ui_route =
                     cojvr::games::call_of_juarez::CoJUiDispatchRoute::none;
                 std::string ui_error;
-                const bool dispatched = select_allowed &&
+                const bool dispatched = select_allowed && (cross_select ?
                     cojvr::games::call_of_juarez::DispatchCameraUiSelectPress(
                         false, &current_ui_is_loading, &ui_error,
-                        &paused_hint_dismissed, &ui_route);
+                        &paused_hint_dismissed, &ui_route) :
+                    DispatchFlatUiPointerSelection(pointer_selection, &current_ui_is_loading,
+                        &ui_error, &paused_hint_dismissed, &ui_route));
                 g_stereo.flat_ui_select_retry.Complete(dispatched);
-                CompleteFlatUiSelection(pointer_selection, dispatched);
+                if (pointer_select && !cross_select) CompleteFlatUiSelection(pointer_selection, dispatched);
                 if (ui_select_pressed || dispatched) {
                     std::ostringstream detail;
                     detail << "source=";

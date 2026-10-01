@@ -636,6 +636,29 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_ui_pointer_ownership_test PRIVATE cxx_std_20)
     add_test(NAME ui_pointer_ownership COMMAND cojvr_ui_pointer_ownership_test)
 
+    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp)
+    target_include_directories(cojvr_ui_cursor_jni_test PRIVATE src)
+    target_compile_features(cojvr_ui_cursor_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_ui_cursor_jni_test PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME ui_cursor_jni COMMAND cojvr_ui_cursor_jni_test)
+
+    if(TARGET cojvr_d3d9_native_stereo_proxy)
+        add_executable(cojvr_flat_ui_delivery_test
+            tests/flat_ui_delivery.cpp
+            src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
+            src/backends/d3d9/d3d9_stereo_capture.cpp
+            src/backends/d3d9/system_d3d9.cpp)
+        target_include_directories(cojvr_flat_ui_delivery_test PRIVATE src)
+        target_compile_features(cojvr_flat_ui_delivery_test PRIVATE cxx_std_20)
+        target_compile_definitions(cojvr_flat_ui_delivery_test PRIVATE
+            NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+        target_link_libraries(cojvr_flat_ui_delivery_test PRIVATE
+            cojvr_coj_camera_probe cojvr_diagnostics cojvr_d3d9_hooks
+            cojvr_openvr_d3d11_backend d3d11 dxgi dxguid)
+        add_test(NAME flat_ui_delivery COMMAND cojvr_flat_ui_delivery_test)
+    endif()
+
     add_executable(cojvr_openvr_state_test tests/openvr_state.cpp)
     target_include_directories(cojvr_openvr_state_test PRIVATE src)
     target_compile_features(cojvr_openvr_state_test PRIVATE cxx_std_20)

@@ -4,38 +4,31 @@
 int main() {
     using namespace cojvr::runtime;
     UiPointerOwnership pointer;
-    // Valid moving rays alone must never seize the physical mouse.
+    // Automatic ray: no shoulder button is needed to point at the menu.
     for (int frame = 0; frame < 100; ++frame)
-        if (pointer.Update(true, true, false, false, true, true) != UiPointerHand::none) return 1;
+        if (pointer.Update(true, true, false, false, true, true) != UiPointerHand::right) {
+            std::cerr << "automatic tracked ray still requires a shoulder button\n";
+            return 1;
+        }
+    const auto right_claim = pointer.claim();
+    // A fresh left trigger chooses its ray; release keeps that hand stable.
     if (pointer.Update(true, true, true, false, true, true) != UiPointerHand::left) return 2;
-    if (pointer.Update(true, true, true, true, true, true) != UiPointerHand::left) return 3;
+    if (pointer.claim() == right_claim ||
+        pointer.Update(true, true, false, false, true, true) != UiPointerHand::left) return 3;
     if (UiPointerSelect(UiPointerHand::left, false, true) ||
         !UiPointerSelect(UiPointerHand::left, true, false)) return 4;
-    // Releasing the owner must not transfer control to the other held button.
-    if (pointer.Update(true, true, false, true, true, true) != UiPointerHand::none) return 5;
-    pointer.Update(true, true, false, false, true, true);
-    if (pointer.Update(true, true, false, true, true, true) != UiPointerHand::right) return 6;
+    if (pointer.Update(true, true, false, true, true, true) != UiPointerHand::right) return 5;
+    if (pointer.Update(true, true, false, false, false, true) != UiPointerHand::right) return 6;
     if (UiPointerSelect(UiPointerHand::right, true, false) ||
         !UiPointerSelect(UiPointerHand::right, false, true) ||
         UiPointerSelect(UiPointerHand::none, true, true)) return 7;
-    // Focus/menu loss releases control; a held button cannot rearm it.
-    if (pointer.Update(false, true, false, true, true, true) != UiPointerHand::none ||
-        pointer.Update(true, true, false, true, true, true) != UiPointerHand::none) return 8;
-    pointer.Update(true, true, false, false, true, true);
-    if (pointer.Update(true, true, false, true, true, true) != UiPointerHand::right) return 9;
-    if (pointer.Update(true, true, false, true, true, false) != UiPointerHand::none ||
-        pointer.Update(true, true, false, true, true, true) != UiPointerHand::none) return 10;
-    // Unavailable input must require an observed release before a new claim.
-    pointer.Update(true, false, false, false, true, true);
-    if (pointer.Update(true, true, true, true, true, true) != UiPointerHand::none) return 11;
-    pointer.Update(true, true, false, false, true, true);
-    if (pointer.Update(true, true, true, true, true, true) != UiPointerHand::right) return 12;
-    pointer.Update(true, true, false, false, true, true);
-    pointer.Update(true, true, false, true, true, true);
-    if (pointer.Update(true, true, false, false, true, true, true, false) != UiPointerHand::none ||
-        pointer.Update(true, true, false, true, true, true) != UiPointerHand::none) return 13;
-    pointer.Update(true, true, false, false, true, true);
-    if (pointer.Update(true, true, false, true, true, true) != UiPointerHand::right) return 14;
+    if (pointer.Update(false, true, false, false, true, true) != UiPointerHand::none) return 8;
+    if (pointer.Update(true, true, false, false, true, true) != UiPointerHand::right) return 9;
+    if (pointer.Update(true, true, false, false, true, false) != UiPointerHand::left) return 10;
+    if (pointer.Update(true, false, false, false, true, true) != UiPointerHand::none) return 11;
+    if (pointer.Update(true, true, false, false, false, false) != UiPointerHand::none) return 12;
+    if (pointer.Update(true, true, false, false, true, true, false, false) != UiPointerHand::none) return 13;
+    if (pointer.Update(true, true, false, false, true, true) != UiPointerHand::right) return 14;
     UiPointerSelection selection;
     selection.Observe(UiPointerHand::left, 1, false, false);
     // A right trigger edge never queues against a left-owned ray.
@@ -61,6 +54,11 @@ int main() {
     selection.Observe(UiPointerHand::right, 3, true, true);
     const auto first_click = selection.snapshot();
     selection.Observe(UiPointerHand::right, 3, false, false);
+    if (!selection.snapshot().pending || selection.snapshot().held) return 25;
+    auto not_ready = selection.snapshot();
+    not_ready.pending = false;
+    selection.Complete(not_ready, true);
+    if (!selection.snapshot().pending) return 26;
     selection.Observe(UiPointerHand::right, 3, true, true);
     selection.Complete(first_click, true);
     if (!selection.snapshot().pending) return 21;
@@ -72,5 +70,5 @@ int main() {
     if (!weapon_gate.left_blocked() || !weapon_gate.right_blocked()) return 23;
     weapon_gate.Observe(false, true, false, true, false);
     if (weapon_gate.left_blocked() || weapon_gate.right_blocked()) return 24;
-    std::cout << "passive rays, explicit hand ownership, selection and loss/rearm passed\n";
+    std::cout << "automatic hand ownership, selection, loss and gameplay gate passed\n";
 }

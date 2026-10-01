@@ -4,11 +4,12 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-**Immediate physical gate:** the explicit menu-pointer correction is
-**implemented / host-tested**. Hold L1/R1 to aim, use the same hand's L2/R2 to
-select, and release to use the mouse. The previous always-active pointer was
-physically rejected for overriding mouse motion. Run the isolated startup/menu
-gesture in [Validation](VALIDATION.md#explicit-menu-pointer-acceptance--physical-test-pending);
+**Immediate physical gate:** the automatic menu-pointer correction is
+**implemented / host-tested**. Point without L1/R1, use the same hand's L2/R2
+to select, and move the physical mouse to give it temporary priority. The previous
+Windows injection route remained unstable even with held-button activation.
+Run the isolated startup/menu gesture in
+[Validation](VALIDATION.md#automatic-menu-pointer-acceptance--physical-test-pending);
 successful startup verification alone does not accept pointer usability.
 
 Native stereo, bounded configured-HMD cadence and normal-quit shutdown are
@@ -140,7 +141,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 4 — controller UI and interactions
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
-- Flat-menu pointer ownership: the always-active model is **physically rejected** because passive tracking fights the physical mouse. The explicit hold-L1/R1 owner and same-hand L2/R2 selection are **implemented / host-tested**; releasing the shoulder frees the mouse. Physical accuracy and controller-only menu acceptance remain pending.
+- Flat-menu pointer: Windows cursor injection is **physically rejected**, including held-button activation. Automatic laser delivery to the internal game cursor, readback, hover-before-click and temporary physical-mouse priority are **implemented / host-tested**. Accurate highlighting, correct option selection and controller/mouse coexistence remain the physical gate.
 - Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.

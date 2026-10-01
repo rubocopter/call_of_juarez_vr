@@ -195,6 +195,12 @@ struct CameraStereoDiagnosticCounters {
     float pixel_x,
     float pixel_y,
     std::string* error = nullptr) noexcept;
+// Read CoJ's logical menu cursor on the game thread, without delivering input.
+// Unavailable/failed observations clear position.
+[[nodiscard]] bool ObserveCameraUiPointerPosition(
+    CameraProbeVector& position,
+    std::string* error = nullptr,
+    std::int32_t* ui_index = nullptr) noexcept;
 [[nodiscard]] bool DispatchCameraUiBackPress(
     std::string* error = nullptr,
     CoJUiDispatchRoute* route = nullptr) noexcept;

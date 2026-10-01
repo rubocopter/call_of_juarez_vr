@@ -4754,6 +4754,17 @@ bool DispatchCameraUiPointerMotion(
     return g_java_player_bridge.TryProcessUiPointer(pixel_x, pixel_y, error);
 }
 
+bool ObserveCameraUiPointerPosition(
+    CameraProbeVector& position,
+    std::string* error,
+    std::int32_t* ui_index) noexcept {
+    position = {};
+    JavaPlayerPosition observed{};
+    if (!g_java_player_bridge.TryReadUiPointer(observed, error, ui_index)) return false;
+    position = {observed.x, observed.y, observed.z};
+    return true;
+}
+
 bool DispatchCameraUiBackPress(
     std::string* error,
     CoJUiDispatchRoute* route) noexcept {

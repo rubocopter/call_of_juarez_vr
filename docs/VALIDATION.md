@@ -125,23 +125,46 @@ remain valid. The separate menu-pointer, arm-continuity and weapon-alignment
 product gates remain open. Body, UI and weapon acceptance are
 outside this transport run; normal-quit shutdown is now live-tested.
 
-## Explicit menu-pointer acceptance — physical test pending
+## Automatic menu-pointer acceptance — physical test pending
 
-**Host-tested correction:** moving tracked controllers no longer own the menu
-cursor unless L1/R1 is deliberately held. L2/R2 selects from the owning hand;
-release restores mouse ownership. Active input release is required after loss,
-and queued selection remains tied to its original hand/claim/click. Menu focus
-gates dispatch without starving flat-frame publication. UI shoulder activation
-is consumed across a gameplay transition until release.
+**Observed rejection:** holding L1/R1 activated the previous laser correctly,
+but the game cursor still jumped and menu operation remained unusable. Passing
+startup/closure verification did not accept that pointer.
+
+**Implemented / host-tested correction:** the ray is automatic, with no shoulder
+requirement. The presenter queues coordinates; only the game thread moves the
+internal logical cursor, verifies readback and waits a game update before applying
+a queued click. Accepted short taps survive trigger release; ownership/focus loss,
+Back/Cross and menu-index changes cancel old clicks. No desktop mouse motion is injected. Same-hand L2/R2 selects;
+a fresh trigger on the other hand chooses its ray. Physical mouse movement or
+drag gives the mouse priority until 1.5 seconds after its latest activity.
+Menu focus gates dispatch without starving flat publication, and held menu
+shoulders cannot become gameplay weapon switches before release.
 
 For this isolated gesture use fresh `prepare -StartupOnly`, then manually start
-SteamVR/CoJ. In the main menu, move both controllers while using the mouse without
-shoulder buttons: it must remain usable. Hold R1 and select options with R2;
-repeat L1/L2, then release the shoulder and use the mouse again. Verify Cross
-accept and Circle back without changing settings unnecessarily. Do not enter
-gameplay or repeat body/weapon tests. Quit normally and run `finish`. The startup
-verifier confirms startup/provenance/restoration; the operator must confirm
-pointer stability, accurate hover/selection and mouse coexistence separately.
+SteamVR/CoJ. In the main menu, point without R1 and move slowly between several
+options: the game cursor and highlight must follow the laser accurately. Select
+with R2, return with Circle, then test L2 with the left ray. Verify Cross accept.
+Move and drag the physical mouse while moving both controllers: the mouse must
+remain usable; the laser should return after the mouse rests. Avoid unnecessary
+setting changes and do not enter gameplay or repeat body/weapon tests. Quit
+normally and run `finish`. Startup verification confirms provenance, presentation
+and restoration; the operator must separately confirm stable hover, correct
+option selection and mouse coexistence.
+
+## Combined menu and gameplay regression
+
+For a broader physical pass use normal `prepare` with Body IK disabled. In one
+run, exercise the automatic menu gesture above, load a save, check correct stereo
+depth and stable head turns, then move/walk/jump and recenter with Create. Open
+and close the SteamVR dashboard once and verify the image/input resume. Revisit
+the pause menu and test pointing/back, then quit normally and `finish`.
+
+The transport profile verifies GPU capture, exact render-pose submission and
+normal shutdown. Its summaries retain cadence, movement and dashboard observations;
+menu hover/selection, post-dashboard usability and recenter visual quality still
+require operator confirmation. A transport PASS does not accept those separate
+gestures. Avoid avatar/arm/weapon conclusions while Body IK is disabled.
 
 ## Production D3D9Ex startup/reset gate
 
@@ -258,7 +281,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | live-exercised / rejected | safety must not produce repeated visible fallback to default animation |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | prior always-active owner rejected; explicit owner host-tested | hold L1/R1 to aim, same-hand L2/R2 to select, release to use mouse; physical acceptance pending |
+| Flat-menu pointer | Windows injection physically rejected, including held activation; internal-cursor route implemented / host-tested | automatic ray, same-hand L2/R2 selection, temporary mouse priority; physical hover/selection acceptance pending |
 | Cross/Circle/L2/R2 UI actions | host-tested follow-up | physical acceptance still pending |
 | Loading continuation | host-tested | native loading input route is mapped |
 | Controller-origin UI beam | live-exercised / visible in headset | pointer visibility is observed; origin/alignment and accurate controller-only UI operation remain pending |

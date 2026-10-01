@@ -886,10 +886,11 @@ try {
         "openvr_scene_state: phase=initialized;process_id=789;scene_focus_process_id=0;can_render_scene=false;input_available=true;dashboard_visible=true;should_pause=false;should_reduce_rendering_work=false",
         "openvr_runtime_state: phase=initialized;lifecycle=ready;initialized=true;connected=true;focused=false;tracking_valid=false;presenting=false;shutdown_requested=false",
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater",
-        "flat_ui_pointer: status=hit;hand=right;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;beam_origin=820,700;source=1920x1080;select=false;smoothing=0.40;visual=cyan_beam_reticle;route=flat_theater_menu_pointer",
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE",
+        "flat_ui_pointer: status=hit;hand=right;activation=automatic;pose=tip_with_grip_fallback;u=0.5000;v=0.5000;pixel=960,540;beam_origin=820,700;source=1920x1080;select=false;smoothing=0.40;visual=cyan_beam_reticle;route=flat_theater_menu_pointer",
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=game_cursor_mailbox;desktop_injection=false",
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove;owner=game_cursor_only;desktop_injection=false;pixel=960,540;claim=1;previous=950,530;observed=960,540",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cIntroModule.OnInputKey",
-        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=true;current_ui_is_loading=false;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter",
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=false;current_ui_is_loading=false;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter",
         "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)",
         "camera_probe_event: event=flat_ui_select result=applied detail=source=right_r2;pointer_active=true;current_ui_is_loading=false;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter",
         "native_stereo_presenter_transition: status=content_mode mode=native_stereo",
@@ -1128,7 +1129,7 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierDualPointerOwner = @($StereoVerifierLog) +
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=route=MainMenuModule.GetGlobalCursor.UICursor.SetPos+OnMouseMove"
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE"
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierDualPointerOwner
     $DualPointerOwnerRejected = $false
     try {
@@ -1139,6 +1140,22 @@ try {
     }
     Assert-True $DualPointerOwnerRejected `
         "Native-stereo verifier accepted simultaneous Win32 and logical-Java flat-menu pointer ownership."
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    foreach ($InvalidReadback in @("observed=970,540", "readback_missing=960,540")) {
+        $InvalidCursorLog = @($StereoVerifierLog | ForEach-Object {
+            $_.Replace("observed=960,540", $InvalidReadback)
+        })
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $InvalidCursorLog
+        $InvalidCursorRejected = $false
+        try {
+            & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+                -GameDirectory $StereoVerifierGame | Out-Null
+        } catch {
+            $InvalidCursorRejected = $true
+        }
+        Assert-True $InvalidCursorRejected "Verifier accepted missing or mismatched logical-cursor readback: $InvalidReadback"
+    }
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
     $StereoVerifierFailedBodyRestore = @($StereoVerifierLog) +

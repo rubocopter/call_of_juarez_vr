@@ -45,6 +45,7 @@ constexpr std::size_t kGetStaticMethodId = 113;
 constexpr std::size_t kCallStaticIntMethodA = 131;
 constexpr std::size_t kGetStaticFieldId = 144;
 constexpr std::size_t kGetStaticObjectField = 145;
+constexpr std::size_t kGetStaticIntField = 150;
 constexpr std::size_t kNewStringUtf = 167;
 constexpr std::size_t kGetStringUtfChars = 169;
 constexpr std::size_t kReleaseStringUtfChars = 170;
@@ -125,6 +126,7 @@ using CallStaticIntMethodAFn =
     std::int32_t(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
 using GetStaticFieldIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using GetStaticObjectFieldFn = void*(COJVR_JNICALL*)(void*, void*, void*);
+using GetStaticIntFieldFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*);
 using NewStringUtfFn = void*(COJVR_JNICALL*)(void*, const char*);
 using GetStringUtfCharsFn = const char*(COJVR_JNICALL*)(void*, void*, std::uint8_t*);
 using ReleaseStringUtfCharsFn = void(COJVR_JNICALL*)(void*, void*, const char*);
@@ -1728,8 +1730,10 @@ bool JavaPlayerBridge::TryResolveMenuForUiRoute(
     void* env,
     const CoJUiDispatchRoute route,
     void*& menu,
-    std::string* error) noexcept {
+    std::string* error,
+    CoJCurrentUiResolution* resolution) noexcept {
     menu = nullptr;
+    if (resolution) *resolution = CoJCurrentUiResolution::error;
     if (!env) {
         SetError(error, "JNI environment is unavailable for menu lookup");
         return false;
@@ -1748,60 +1752,68 @@ bool JavaPlayerBridge::TryResolveMenuForUiRoute(
 
     if (route == CoJUiDispatchRoute::global_menu) {
         void* game_with_menu_class = find_class(env, "GameWithMenu");
-        if (!game_with_menu_class ||
-            ClearException(env, error, "FindClass(GameWithMenu) failed for menu route")) {
+        if (ClearException(env, error, "FindClass(GameWithMenu) failed for menu route") ||
+            !game_with_menu_class) {
             DeleteLocal(env, game_with_menu_class);
             return false;
         }
         void* menu_field = get_static_field(
             env, game_with_menu_class, "sm_cMenuModule", "LMainMenuModule;");
-        if (!menu_field || ClearException(
-                env, error, "GameWithMenu.sm_cMenuModule lookup failed for menu route")) {
+        if (ClearException(env, error, "GameWithMenu.sm_cMenuModule lookup failed for menu route") ||
+            !menu_field) {
             DeleteLocal(env, game_with_menu_class);
             return false;
         }
         menu = get_static_object(env, game_with_menu_class, menu_field);
         DeleteLocal(env, game_with_menu_class);
-        if (ClearException(env, error, "GameWithMenu.sm_cMenuModule read failed for menu route") ||
-            !menu) {
+        const bool failed = ClearException(
+            env, error, "GameWithMenu.sm_cMenuModule read failed for menu route");
+        if (failed || !menu) {
+            if (!failed && resolution) *resolution = CoJCurrentUiResolution::unavailable;
             DeleteLocal(env, menu);
             menu = nullptr;
             SetError(error, "global MainMenuModule is unavailable");
             return false;
         }
+        if (resolution) *resolution = CoJCurrentUiResolution::resolved;
         return true;
     }
 
     if (route == CoJUiDispatchRoute::active_game_menu) {
         if (!EnsureCampaignAccess(env, error)) return false;
         void* module = get_static_object(env, lawman_game_class_, active_game_module_field_);
-        if (ClearException(env, error, "LawmanGame.sm_cActiveGameModule menu route read failed") ||
-            !module) {
+        const bool module_failed = ClearException(
+            env, error, "LawmanGame.sm_cActiveGameModule menu route read failed");
+        if (module_failed || !module) {
+            if (!module_failed && resolution) *resolution = CoJCurrentUiResolution::unavailable;
             DeleteLocal(env, module);
             SetError(error, "active LawmanModule is unavailable for menu route");
             return false;
         }
         void* module_class = get_class(env, module);
-        if (!module_class || ClearException(
-                env, error, "active LawmanModule class lookup failed for menu route")) {
+        if (ClearException(env, error, "active LawmanModule class lookup failed for menu route") ||
+            !module_class) {
             DeleteLocal(env, module_class);
             DeleteLocal(env, module);
             return false;
         }
         void* menu_field = get_field(env, module_class, "cMenu", "LMainMenuModule;");
         DeleteLocal(env, module_class);
-        if (!menu_field || ClearException(env, error, "LawmanModule.cMenu lookup failed for menu route")) {
+        if (ClearException(env, error, "LawmanModule.cMenu lookup failed for menu route") || !menu_field) {
             DeleteLocal(env, module);
             return false;
         }
         menu = get_object(env, module, menu_field);
         DeleteLocal(env, module);
-        if (ClearException(env, error, "LawmanModule.cMenu read failed for menu route") || !menu) {
+        const bool menu_failed = ClearException(env, error, "LawmanModule.cMenu read failed for menu route");
+        if (menu_failed || !menu) {
+            if (!menu_failed && resolution) *resolution = CoJCurrentUiResolution::unavailable;
             DeleteLocal(env, menu);
             menu = nullptr;
             SetError(error, "active MainMenuModule is unavailable");
             return false;
         }
+        if (resolution) *resolution = CoJCurrentUiResolution::resolved;
         return true;
     }
 
@@ -1972,24 +1984,15 @@ bool JavaPlayerBridge::TryDismissPausedHint(
     return true;
 }
 
-bool JavaPlayerBridge::TryProcessUiPointer(
-    const float pixel_x,
-    const float pixel_y,
-    std::string* error) noexcept {
-    if (!std::isfinite(pixel_x) || !std::isfinite(pixel_y) || pixel_x < 0.0F || pixel_y < 0.0F) {
-        SetError(error, "game UI pointer coordinates are invalid");
-        return false;
-    }
-    void* env = Environment(error);
-    if (!env) return false;
-
+bool JavaPlayerBridge::TryResolveUiCursor(
+    void* env, void*& cursor, std::string* error, const bool fail_on_menu_error,
+    std::int32_t* ui_index) noexcept {
+    cursor = nullptr;
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
-    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
-    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
-    if (!get_class || !get_method || !call_object || !call_void || !new_object) {
-        SetError(error, "required JNI game-UI mouse functions are unavailable");
+    if (!get_class || !get_method || !call_object) {
+        SetError(error, "required JNI UI cursor lookup functions are unavailable");
         return false;
     }
 
@@ -1999,7 +2002,14 @@ bool JavaPlayerBridge::TryProcessUiPointer(
     void* menu = nullptr;
     CoJUiDispatchRoute menu_route = CoJUiDispatchRoute::global_menu;
     std::string menu_error;
-    if (!TryResolveMenuForUiRoute(env, menu_route, menu, &menu_error)) {
+    CoJCurrentUiResolution menu_resolution = CoJCurrentUiResolution::error;
+    if (!TryResolveMenuForUiRoute(env, menu_route, menu, &menu_error, &menu_resolution)) {
+        // Observation must not turn a JNI lookup error into a valid reading
+        // from a different owner. Keep the writer's existing fallback policy.
+        if (fail_on_menu_error && menu_resolution == CoJCurrentUiResolution::error) {
+            SetError(error, menu_error.c_str());
+            return false;
+        }
         menu_route = CoJUiDispatchRoute::active_game_menu;
         if (!TryResolveMenuForUiRoute(env, menu_route, menu, &menu_error)) {
             SetError(error, menu_error.c_str());
@@ -2013,24 +2023,153 @@ bool JavaPlayerBridge::TryProcessUiPointer(
         return false;
     }
     void* menu_class = get_class(env, menu);
-    if (!menu_class || ClearException(env, error, "MainMenuModule class lookup failed for cursor")) {
+    if (ClearException(env, error, "MainMenuModule class lookup failed for cursor") || !menu_class) {
         DeleteLocal(env, menu_class);
         DeleteLocal(env, menu);
         return false;
     }
+    if (ui_index) {
+        const auto get_static_field = EnvFunction<GetStaticFieldIdFn>(env, kGetStaticFieldId);
+        const auto get_static_int = EnvFunction<GetStaticIntFieldFn>(env, kGetStaticIntField);
+        if (!get_static_field || !get_static_int) {
+            DeleteLocal(env, menu_class);
+            DeleteLocal(env, menu);
+            SetError(error, "required JNI menu-index observation functions are unavailable");
+            return false;
+        }
+        // Shipped MainMenuModule changes this index for main/submenu transitions,
+        // including states where GetCurrentUI() has no concrete object yet.
+        void* current_index = get_static_field(env, menu_class, "m_nCurUI", "I");
+        if (ClearException(env, error, "MainMenuModule.m_nCurUI lookup failed") || !current_index) {
+            DeleteLocal(env, menu_class);
+            DeleteLocal(env, menu);
+            return false;
+        }
+        const auto observed_index = get_static_int(env, menu_class, current_index);
+        if (ClearException(env, error, "MainMenuModule.m_nCurUI observation failed")) {
+            DeleteLocal(env, menu_class);
+            DeleteLocal(env, menu);
+            return false;
+        }
+        *ui_index = observed_index;
+    }
     void* get_cursor = get_method(env, menu_class, "GetGlobalCursor", "()LUICursorGame;");
     DeleteLocal(env, menu_class);
-    if (!get_cursor || ClearException(env, error, "MainMenuModule.GetGlobalCursor lookup failed")) {
+    if (ClearException(env, error, "MainMenuModule.GetGlobalCursor lookup failed") || !get_cursor) {
         DeleteLocal(env, menu);
         return false;
     }
-    void* cursor = call_object(env, menu, get_cursor, nullptr);
+    void* resolved_cursor = call_object(env, menu, get_cursor, nullptr);
     DeleteLocal(env, menu);
-    if (!cursor || ClearException(env, error, "MainMenuModule.GetGlobalCursor call failed")) {
-        DeleteLocal(env, cursor);
+    if (ClearException(env, error, "MainMenuModule.GetGlobalCursor call failed") || !resolved_cursor) {
+        DeleteLocal(env, resolved_cursor);
         SetError(error, "global UICursorGame is unavailable");
         return false;
     }
+    cursor = resolved_cursor;
+    return true;
+}
+
+bool JavaPlayerBridge::TryReadUiPointer(
+    JavaPlayerPosition& position, std::string* error, std::int32_t* ui_index) noexcept {
+    position = {};
+    if (ui_index) *ui_index = 0;
+    void* env = Environment(error);
+    if (!env) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    if (!get_class || !get_method || !call_boolean || !new_object ||
+        !EnvFunction<GetFloatFieldFn>(env, kGetFloatField) ||
+        !EnvFunction<ExceptionOccurredFn>(env, kExceptionOccurred) ||
+        !EnvFunction<ExceptionClearFn>(env, kExceptionClear) ||
+        !EnvFunction<DeleteLocalRefFn>(env, kDeleteLocalRef)) {
+        SetError(error, "required JNI UI cursor observation functions are unavailable");
+        return false;
+    }
+    if (ClearException(env, error, "pending JNI exception before UI cursor observation")) {
+        return false;
+    }
+    void* cursor = nullptr;
+    std::int32_t observed_index = 0;
+    if (!TryResolveUiCursor(env, cursor, error, true, ui_index ? &observed_index : nullptr)) {
+        (void)ClearException(env, error, "UI cursor owner lookup failed");
+        return false;
+    }
+    void* cursor_class = get_class(env, cursor);
+    if (ClearException(env, error, "UICursorGame class lookup failed") || !cursor_class) {
+        DeleteLocal(env, cursor_class);
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    // Shipped UICursor.GetPos fills the supplied Vector through the cursor
+    // sprite. It observes logical position and does not move the OS cursor.
+    void* get_position = get_method(env, cursor_class, "GetPos", "(LVector;)Z");
+    DeleteLocal(env, cursor_class);
+    if (ClearException(env, error, "UICursor.GetPos lookup failed") || !get_position) {
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    if (!EnsureVectorAccess(env, error)) {
+        (void)ClearException(env, error, "Vector lookup for UI cursor observation failed");
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    void* vector = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (ClearException(env, error, "Vector construction for UI cursor observation failed") ||
+        !vector) {
+        DeleteLocal(env, vector);
+        DeleteLocal(env, cursor);
+        return false;
+    }
+    JValue args[1]{};
+    args[0].l = vector;
+    const bool available = call_boolean(env, cursor, get_position, args) != 0;
+    DeleteLocal(env, cursor);
+    const bool failed = ClearException(env, error, "UICursor.GetPos call failed");
+    if (failed || !available) {
+        DeleteLocal(env, vector);
+        if (!failed) SetError(error, "UICursor.GetPos position is unavailable");
+        return false;
+    }
+    JavaPlayerPosition observed{};
+    const bool read = ReadVector(env, vector, observed, error);
+    DeleteLocal(env, vector);
+    if (!read) {
+        if (!std::isfinite(observed.x) || !std::isfinite(observed.y) ||
+            !std::isfinite(observed.z)) {
+            SetError(error, "UI cursor position is nonfinite");
+        }
+        return false;
+    }
+    position = observed;
+    if (ui_index) *ui_index = observed_index;
+    SetError(error, "");
+    return true;
+}
+
+bool JavaPlayerBridge::TryProcessUiPointer(
+    const float pixel_x,
+    const float pixel_y,
+    std::string* error) noexcept {
+    if (!std::isfinite(pixel_x) || !std::isfinite(pixel_y) || pixel_x < 0.0F || pixel_y < 0.0F) {
+        SetError(error, "game UI pointer coordinates are invalid");
+        return false;
+    }
+    void* env = Environment(error);
+    if (!env) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    if (!get_class || !get_method || !call_object || !call_void || !new_object) {
+        SetError(error, "required JNI game-UI mouse functions are unavailable");
+        return false;
+    }
+    void* cursor = nullptr;
+    if (!TryResolveUiCursor(env, cursor, error)) return false;
     void* cursor_class = get_class(env, cursor);
     if (!cursor_class || ClearException(env, error, "UICursorGame class lookup failed")) {
         DeleteLocal(env, cursor_class);

@@ -1,41 +1,68 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
 
 namespace cojvr::runtime {
 enum class UiPointerHand { none, left, right };
 
-// Tracking alone never owns desktop input. Acquire on a deliberate button edge,
-// keep that hand until release, and require rearming after focus/input/pose loss.
+// Automatic laser, preferring the right tracked hand. A fresh trigger press
+// chooses its own hand; tracking motion alone never switches between valid hands.
+// Desktop coexistence is handled at the logical game-cursor delivery boundary.
 class UiPointerOwnership final {
 public:
-    UiPointerHand Update(bool available, bool input_valid, bool left_held,
-                         bool right_held, bool left_valid, bool right_valid,
+    UiPointerHand Update(bool available, bool input_valid, bool left_pressed,
+                         bool right_pressed, bool left_valid, bool right_valid,
                          bool left_input_active = true, bool right_input_active = true) noexcept {
-        if (!input_valid) { Suspend(); return owner_; }
-        const bool left_pressed = left_input_active && left_held && !left_was_held_;
-        const bool right_pressed = right_input_active && right_held && !right_was_held_;
-        left_was_held_ = !left_input_active || left_held;
-        right_was_held_ = !right_input_active || right_held;
-        if (!available) { owner_ = UiPointerHand::none; return owner_; }
-        if ((owner_ == UiPointerHand::left && (!left_held || !left_valid || !left_input_active)) ||
-            (owner_ == UiPointerHand::right && (!right_held || !right_valid || !right_input_active)))
-            owner_ = UiPointerHand::none;
-        if (owner_ == UiPointerHand::none) {
-            if (right_pressed && right_valid) { owner_ = UiPointerHand::right; ++claim_; }
-            else if (left_pressed && left_valid) { owner_ = UiPointerHand::left; ++claim_; }
-        }
+        if (!available || !input_valid) { Suspend(); return owner_; }
+        left_valid = left_valid && left_input_active;
+        right_valid = right_valid && right_input_active;
+        auto next = owner_;
+        if (right_pressed && right_valid) next = UiPointerHand::right;
+        else if (left_pressed && left_valid) next = UiPointerHand::left;
+        else if (next == UiPointerHand::none ||
+                 (next == UiPointerHand::right && !right_valid) ||
+                 (next == UiPointerHand::left && !left_valid))
+            next = right_valid ? UiPointerHand::right :
+                   left_valid ? UiPointerHand::left : UiPointerHand::none;
+        if (next != owner_ && next != UiPointerHand::none) ++claim_;
+        owner_ = next;
         return owner_;
     }
     std::uint64_t claim() const noexcept { return claim_; }
     void Suspend() noexcept {
         owner_ = UiPointerHand::none;
-        left_was_held_ = right_was_held_ = true;
     }
 private:
     UiPointerHand owner_ = UiPointerHand::none;
-    bool left_was_held_ = false;
-    bool right_was_held_ = false;
     std::uint64_t claim_ = 0;
+};
+
+// Compare the game's cursor before applying VR with the last accepted target.
+// Mouse motion/drag owns it for 1.5 s after the latest activity. VR writes update
+// the reference, so ordinary ray movement does not masquerade as mouse input.
+class UiPointerMousePriority final {
+public:
+    bool Observe(float x, float y, bool valid, bool button_held, std::uint64_t now_ms) noexcept {
+        if (!valid || !std::isfinite(x) || !std::isfinite(y)) {
+            have_reference_ = false;
+            return false;
+        }
+        if (button_held || (have_reference_ &&
+            (std::abs(x - reference_x_) > 0.5F || std::abs(y - reference_y_) > 0.5F)))
+            override_until_ms_ = now_ms + 1500;
+        Applied(x, y);
+        return now_ms >= override_until_ms_;
+    }
+    void Applied(float x, float y) noexcept {
+        reference_x_ = x;
+        reference_y_ = y;
+        have_reference_ = true;
+    }
+    std::uint64_t override_until_ms() const noexcept { return override_until_ms_; }
+private:
+    float reference_x_ = 0, reference_y_ = 0;
+    bool have_reference_ = false;
+    std::uint64_t override_until_ms_ = 0;
 };
 
 inline bool UiPointerSelect(UiPointerHand owner, bool left, bool right) noexcept {
@@ -57,12 +84,14 @@ public:
         if (hand == UiPointerHand::none) { state_ = {}; return; }
         if (hand != state_.hand || claim != state_.claim) state_ = {hand, claim};
         state_.held = held;
-        if (pressed) state_.click = ++next_click_;
-        state_.pending = held && (state_.pending || pressed);
+        if (pressed && held) {
+            state_.click = ++next_click_;
+            state_.pending = true;
+        }
     }
     UiPointerSelectionSnapshot snapshot() const noexcept { return state_; }
     void Complete(const UiPointerSelectionSnapshot& expected, bool success) noexcept {
-        if (success && expected.hand == state_.hand && expected.claim == state_.claim &&
+        if (success && expected.pending && expected.hand == state_.hand && expected.claim == state_.claim &&
             expected.click == state_.click) state_.pending = false;
     }
 private:

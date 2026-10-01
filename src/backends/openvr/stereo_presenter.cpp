@@ -617,6 +617,7 @@ struct OpenVrStereoPresenter::Impl {
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
         bool flat_ui_fire_release_required = false;
         std::uint64_t flat_ui_pointer_sequence = 0;
+        bool flat_ui_rejection_logged = false;
         d3d9::FramePresentationMode active_presentation_mode =
             d3d9::FramePresentationMode::native_stereo;
         bool have_active_presentation_mode = false;
@@ -886,10 +887,11 @@ struct OpenVrStereoPresenter::Impl {
                         texture_height >= active_source_height;
                     const auto pointer_hand = pointer_ownership.Update(
                         pointer_allowed && !recenter, input_polled,
-                        actions.ui_pointer_left, actions.ui_pointer_right,
+                        actions.ui_select_left_pressed, actions.ui_select_right_pressed,
                         left_aim_valid || left_handgrip_valid,
                         right_aim_valid || right_handgrip_valid,
-                        actions.ui_pointer_left_active, actions.ui_pointer_right_active);
+                        hand_poses.left_aim_active || hand_poses.left_grip_active,
+                        hand_poses.right_aim_active || hand_poses.right_grip_active);
                     if (pointer_allowed) {
                         const auto try_pointer = [&](const runtime::Pose& aim_pose,
                                                      const bool valid,
@@ -953,17 +955,18 @@ struct OpenVrStereoPresenter::Impl {
                     flat_ui_pointer = pointer;
                     if (!PublishFlatUiPointer(flat_ui_pointer)) {
                         pointer_ownership.Suspend();
-                        if (flat_ui_pointer.active)
-                            Log("flat_ui_pointer: status=released;reason=game_input_rejected;rearm=release_shoulder");
+                        if (flat_ui_pointer.active && !flat_ui_rejection_logged)
+                            Log("flat_ui_pointer: status=released;reason=game_input_rejected_or_mouse_priority");
+                        flat_ui_rejection_logged = true;
                         flat_ui_pointer = {};
-                    }
+                    } else if (flat_ui_pointer.active) flat_ui_rejection_logged = false;
                     ++flat_ui_pointer_sequence;
                     if (flat_ui_pointer.active &&
                         ShouldLogSequence(flat_ui_pointer_sequence)) {
                         std::ostringstream line;
                         line << "flat_ui_pointer: status=hit"
                              << ";hand=" << (flat_ui_pointer.using_left_hand ? "left" : "right")
-                             << ";activation=held_shoulder;pose=tip_with_grip_fallback"
+                             << ";activation=automatic;pose=tip_with_grip_fallback"
                              << ";u=" << std::fixed << std::setprecision(4) << flat_ui_pointer.u
                              << ";v=" << flat_ui_pointer.v
                              << ";pixel=" << flat_ui_pointer.pixel_x << ',' << flat_ui_pointer.pixel_y

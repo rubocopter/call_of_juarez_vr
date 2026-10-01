@@ -193,19 +193,36 @@ if ($RequireFlatTheaterUi) {
         "native_stereo_presenter_transition: status=content_mode mode=flat_theater" `
         "The run never presented intro/menu content through flat_theater."
     Assert-LogMatch `
-        "flat_ui_pointer: status=hit;hand=(left|right);pose=tip_with_grip_fallback;.*;beam_origin=[0-9]+,[0-9]+;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
+        "flat_ui_pointer: status=hit;hand=(left|right);activation=automatic;pose=tip_with_grip_fallback;.*;beam_origin=[0-9]+,[0-9]+;.*;visual=cyan_beam_reticle;route=flat_theater_menu_pointer" `
         "No valid Sense ray produced a flat-theater beam from the projected controller origin."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=win32_cursor_position\+SendInput_absolute\+WM_MOUSEMOVE" `
-        "The flat-theater pointer did not reach the real Windows mouse-input path."
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=(left|right);source=[0-9]+x[0-9]+;route=game_cursor_mailbox;desktop_injection=false" `
+        "The flat-theater pointer did not publish to the logical game-cursor mailbox."
+    Assert-LogMatch `
+        "camera_probe_event: event=flat_ui_pointer_game_route result=applied detail=.*;owner=game_cursor_only;desktop_injection=false;pixel=[0-9]+,[0-9]+;.*;observed=" `
+        "The projected ray did not reach the sole logical cursor route with readback."
     Assert-LogNotMatch `
-        "camera_probe_event: event=flat_ui_pointer_game_route result=applied" `
-        "The flat-menu pointer had simultaneous Win32 and logical-Java cursor owners."
+        "camera_probe_event: event=flat_ui_pointer result=active detail=.*;route=win32_cursor_position|desktop_injection=true" `
+        "The flat-menu pointer still injected desktop input alongside the logical cursor."
+    foreach ($CursorLine in @($Lines -match 'camera_probe_event: event=flat_ui_pointer_game_route result=applied')) {
+        if ($CursorLine -notmatch ';pixel=([0-9]+),([0-9]+);.*;observed=([0-9.eE+-]+),([0-9.eE+-]+)(?:;|$)') {
+            throw 'Logical cursor acceptance has no parseable target/readback.'
+        }
+        $CursorTargetX = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+        $CursorTargetY = [double]::Parse($Matches[2], [Globalization.CultureInfo]::InvariantCulture)
+        $CursorObservedX = [double]::Parse($Matches[3], [Globalization.CultureInfo]::InvariantCulture)
+        $CursorObservedY = [double]::Parse($Matches[4], [Globalization.CultureInfo]::InvariantCulture)
+        if (-not [double]::IsFinite($CursorObservedX) -or -not [double]::IsFinite($CursorObservedY) -or
+            [Math]::Abs($CursorObservedX - $CursorTargetX) -gt 1 -or
+            [Math]::Abs($CursorObservedY - $CursorTargetY) -gt 1) {
+            throw 'Logical cursor readback differs from the projected ray target.'
+        }
+    }
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_select result=applied detail=source=(left_l2|right_r2);pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
         "No Sense trigger press reached an exact CoJ UI/select route."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=true;.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
+        "camera_probe_event: event=flat_ui_select result=applied detail=source=right_cross;pointer_active=(true|false);.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter|GameWithMenu.sm_cIntroModule.OnInputKey)" `
         "Cross did not reach an exact CoJ accept/select route."
     Assert-LogMatch `
         "camera_probe_event: event=flat_ui_back result=applied detail=source=right_circle;route=(GameWithMenu\.sm_cMenuModule\.GetCurrentUI|LawmanGame\.sm_cActiveGameModule\.cMenu\.GetCurrentUI)\.CallOnInputKeyGlobal\(Escape\)" `

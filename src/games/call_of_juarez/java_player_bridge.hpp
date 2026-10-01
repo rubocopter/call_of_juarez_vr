@@ -289,6 +289,13 @@ public:
         float pixel_x,
         float pixel_y,
         std::string* error = nullptr) noexcept;
+    // Observe the same menu-owned logical cursor without dispatching motion.
+    // Call on the game thread before/after pointer delivery. Failure clears
+    // position; no current GameUserInterface is required.
+    [[nodiscard]] bool TryReadUiPointer(
+        JavaPlayerPosition& position,
+        std::string* error = nullptr,
+        std::int32_t* ui_index = nullptr) noexcept;
     // Override the exact per-hand look direction consumed by
     // GetFireDirForWeapon. The game's next UpdateLookAndAimDirs pass naturally
     // replaces this value, so loss of VR input fails back to native aiming.
@@ -375,7 +382,13 @@ private:
         void* env,
         CoJUiDispatchRoute route,
         void*& menu,
-        std::string* error) noexcept;
+        std::string* error,
+        CoJCurrentUiResolution* resolution = nullptr) noexcept;
+    // On success the caller owns the returned JNI local reference.
+    [[nodiscard]] bool TryResolveUiCursor(
+        void* env, void*& cursor, std::string* error,
+        bool fail_on_menu_error = false,
+        std::int32_t* ui_index = nullptr) noexcept;
     [[nodiscard]] bool TryDispatchIntroSkip(
         void* env,
         std::string* error) noexcept;

@@ -250,13 +250,13 @@ switch ($Action) {
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { '1920x1080, FSAA 0 (restored by finish)' })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
-        Write-Host "Menu pointer: hold L1/R1 to aim with that hand, select with its L2/R2, release L1/R1 to use the mouse. Cross accepts; Circle goes back."
+        Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
         if ($StartupOnly) {
             Write-Host "Startup-only run: confirm videos and the main menu appear, then close normally. Native stereo/GPU transport are outside this profile; controller menu usability needs operator observations."
         } elseif ($BodyIkAtStart) {
             Write-Host "At the first flat menu, confirm the cyan beam starts at the Sense controller and moving it changes CoJ's highlighted/hovered option."
-            Write-Host "UI controls for this gate: hold L1/R1 to activate the ray; its L2/R2 selects, Cross accepts, Circle goes back. Exercise all paths and skip at least one startup item with Sense input."
+            Write-Host "UI controls for this gate: the laser is automatic; its L2/R2 selects, Cross accepts, Circle goes back. Exercise all paths and skip at least one startup item with Sense input."
             Write-Host "After loading a save, confirm the press-a-key continuation accepts a Sense action without using the keyboard."
             Write-Host "Release the trigger after ray-select and confirm Create re-anchors the flat view without breaking cursor alignment."
             Write-Host "Recenter in-headset: press Create on the left PS VR2 Sense controller, including once with a small HMD pitch/roll, and confirm the world remains level afterwards."
@@ -267,8 +267,9 @@ switch ($Action) {
             Write-Host "Fire one direct shot first and confirm the process remains stable. Then try repeated/held fire where supported and judge origin/direction against the weapon/controller."
             Write-Host "Move both hands through comfortable reach and note whether either arm still feels shortened or clamps early."
         } else {
-            Write-Host "Transport-profile run: keep this short. Reach native-stereo gameplay, confirm both eyes are current/distinct, then do slow/fast head turns plus a few seconds of ordinary movement."
-            Write-Host "Do not repeat the locomotion battery, UI acceptance, recenter, body/weapon testing or SteamVR dashboard cycle for this gate."
+            Write-Host "Transport-profile run: first exercise automatic menu hover, R2/L2 selection, Cross/Circle and physical mouse/drag coexistence. Report accuracy separately; the transport verifier does not accept menu usability."
+            Write-Host "Then reach native-stereo gameplay, confirm depth and stable slow/fast head turns, move/walk/jump and recenter with Create. Open/close the SteamVR dashboard once and confirm presentation/input resume."
+            Write-Host "Body IK remains disabled. Do not judge tracked avatar arms or weapon alignment from this profile. Finish through a normal game quit."
             Write-Host "The acceptance target is stable tracking/stereo with producer cadence following the configured HMD refresh and zero classic-D3D9 fallback/readback."
             Write-Host "Check configured HMD refresh, producer target, rendered pair rate and presenter submission rate separately; the desktop monitor is not the VR cadence target."
         }
