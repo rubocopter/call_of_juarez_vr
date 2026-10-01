@@ -159,8 +159,8 @@ Seeing only the desktop or Steam's generic theater does not establish the mod's
 presentation. The startup verifier requires the
 game-visible Ex factory/device identity, at least 90 successful Presents, flat content
 capture and proxy finalization. It does not promote shared transport or headset
-state. If startup succeeds, the separate transport acceptance gesture below
-becomes the next gate.
+state. The separate transport acceptance gesture below has also passed for the
+exercised build/host; retain these procedures as distinct regression gates.
 
 ### Bounded transport acceptance — passed
 

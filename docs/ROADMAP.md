@@ -4,6 +4,19 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
+**Immediate physical gate:** the explicit menu-pointer correction is
+**implemented / host-tested**. Hold L1/R1 to aim, use the same hand's L2/R2 to
+select, and release to use the mouse. The previous always-active pointer was
+physically rejected for overriding mouse motion. Run the isolated startup/menu
+gesture in [Validation](VALIDATION.md#explicit-menu-pointer-acceptance--physical-test-pending);
+successful startup verification alone does not accept pointer usability.
+
+Native stereo, bounded configured-HMD cadence and normal-quit shutdown are
+accepted for the exercised build/host. Continuous body/arm IK remains visually
+rejected; weapon alignment, sustained tail latency and abnormal renderer
+lifecycle remain separate gates. LTR research reset evidence does not promote
+this mod's pending-frame transport reset.
+
 The experimental D3D9Ex shared-texture production path is now **live-tested**
 through native-stereo publication, D3D11 copy and explicit-pose new-frame
 submission to both OpenVR eyes. Complete acceptance remains open. Its

@@ -21,14 +21,27 @@ Call of Juarez (2006) is the reference implementation. The goal is a native-feel
 
 ## Current state
 
-Native D3D9 stereo reaches SteamVR with real per-eye rendering, tracked 6DoF head movement, positional camera offset, recentering and VR presentation transitions between menus/loading and gameplay.
+Current evidence as of **2026-10-01**, for the inspected Steam build and tested
+PS VR2 / SteamVR host:
 
-PS VR2 Sense tracking already reaches the game-specific hand/body layer.
-Physical measurement has confirmed vanilla-equivalent native movement and jump
-behavior; their earlier apparent slowdown was presentation cadence. The current
-physical gate is a host-tested D3D9Ex shared-texture transport that removes
-native-stereo GPU-to-CPU readback. Controller-driven UI, continuous arm IK,
-weapon alignment and shutdown remain separate open product areas.
+| Area | Accepted state and remaining limit |
+| --- | --- |
+| Native stereo and HMD | **Live-tested / headset-validated** real per-eye rendering, 6DoF head movement, positional offset and recentering. Correct stereo depth and stable head turns are confirmed. |
+| Startup and transport | **Live-tested** D3D9Ex compatibility, flat videos/menu presentation and GPU-resident native eye transport through private D3D11 into OpenVR, with explicit render-pose submission. Native CPU readback is removed on this path. |
+| Refresh and shutdown | **Live-tested** bounded HMD-derived rate cap at the configured 90 Hz and complete normal-quit copy drain / same-owner OpenVR shutdown. Sustained tail latency, refresh-change recovery and abnormal lifecycle remain open. |
+| Locomotion | Physical measurements confirm vanilla-equivalent movement and jump behavior. |
+| Menu pointer | Prior always-active pointer **physically rejected** for stealing mouse input. Explicit held-hand ownership is **host-tested**; headset usability is the current gate. |
+| Body and weapons | Sense tracking reaches the game-specific layer, but continuous arm/body IK is **visually rejected** and weapon/barrel alignment remains unaccepted. |
+
+The rate cap follows the headset property, rather than a fixed 90 Hz setting.
+The accepted bounded run produced about 87 stereo pairs/s and 89 total
+submissions/s; this does not establish 90 fresh frames/s or phase-lock.
+
+The menu candidate uses **hold L1/R1 to aim**, **same-hand L2/R2 to select**, and
+release to return control to the mouse. Cross accepts and Circle goes back.
+Accurate pointing and mouse coexistence still require the manual headset test.
+Pending-frame renderer reset/device loss and abnormal shutdown remain separate
+from the accepted normal-quit path.
 
 [Validation](docs/VALIDATION.md) records the durable physical acceptance state. Per-run logs, videos, telemetry, agent handoffs and temporary evidence remain local under ignored working directories.
 
