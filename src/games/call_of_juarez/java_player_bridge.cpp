@@ -1180,6 +1180,94 @@ bool JavaPlayerBridge::TryGetWeaponReloading(
     return true;
 }
 
+bool JavaPlayerBridge::TryGetWeaponBarrel(
+    const int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
+    std::string* error) noexcept {
+    origin = {};
+    direction = {};
+    if (hand < 0 || hand > 1) {
+        SetError(error, "weapon barrel hand is invalid");
+        return false;
+    }
+    if (!being_ && !Refresh(error)) return false;
+    void* env = Environment(error);
+    if (!env || !being_ || !EnsureVectorAccess(env, error)) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    const auto call_bool = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    if (!get_class || !get_method || !call_object || !call_int || !call_bool || !new_object) {
+        SetError(error, "required JNI weapon barrel functions are unavailable");
+        return false;
+    }
+    void* player_class = get_class(env, being_);
+    if (ClearException(env, error, "weapon barrel player class failed") || !player_class) {
+        DeleteLocal(env, player_class);
+        return false;
+    }
+    void* active_method = get_method(env, player_class, "GetActiveWeapon", "(I)LWeapon;");
+    const bool lookup_failed = ClearException(env, error, "GetActiveWeapon lookup failed");
+    DeleteLocal(env, player_class);
+    if (lookup_failed || !active_method) return false;
+    JValue hand_args[1]{};
+    hand_args[0].i = hand;
+    void* weapon = call_object(env, being_, active_method, hand_args);
+    if (ClearException(env, error, "GetActiveWeapon call failed") || !weapon) {
+        DeleteLocal(env, weapon);
+        return false;
+    }
+    void* weapon_class = get_class(env, weapon);
+    if (ClearException(env, error, "weapon barrel class failed") || !weapon_class) {
+        DeleteLocal(env, weapon_class);
+        DeleteLocal(env, weapon);
+        return false;
+    }
+    const auto lookup = [&](const char* name, const char* signature) noexcept -> void* {
+        void* method = get_method(env, weapon_class, name, signature);
+        return ClearException(env, error, name) ? nullptr : method;
+    };
+    void* barrel_method = lookup("GetBarrelElement", "()I");
+    void* origin_method = lookup("GetBarrelOrigin", "(LVector;)Z");
+    void* direction_method = lookup("GetBarrelDir", "(LVector;)Z");
+    DeleteLocal(env, weapon_class);
+    if (!barrel_method || !origin_method || !direction_method) {
+        DeleteLocal(env, weapon);
+        return false;
+    }
+    const int barrel = call_int(env, weapon, barrel_method, nullptr);
+    if (ClearException(env, error, "GetBarrelElement call failed") || barrel < 0) {
+        DeleteLocal(env, weapon);
+        SetError(error, "active weapon has no measured barrel element");
+        return false;
+    }
+    void* vector = new_object(env, vector_class_, vector_constructor_, nullptr);
+    if (ClearException(env, error, "weapon barrel Vector construction failed") || !vector) {
+        DeleteLocal(env, vector);
+        DeleteLocal(env, weapon);
+        return false;
+    }
+    const auto read = [&](void* method, JavaPlayerPosition& value) noexcept {
+        JValue args[1]{};
+        args[0].l = vector;
+        const bool available = call_bool(env, weapon, method, args) != 0;
+        return !ClearException(env, error, "weapon barrel observation failed") &&
+            available && ReadVector(env, vector, value, error);
+    };
+    const bool ok = read(origin_method, origin) && read(direction_method, direction);
+    DeleteLocal(env, vector);
+    DeleteLocal(env, weapon);
+    const float length_squared = direction.x * direction.x + direction.y * direction.y +
+        direction.z * direction.z;
+    if (!ok || !std::isfinite(length_squared) || length_squared < 1.0e-8F) {
+        origin = {};
+        direction = {};
+        return false;
+    }
+    return true;
+}
+
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
     std::string* error) noexcept {

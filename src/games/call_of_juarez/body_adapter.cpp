@@ -1124,6 +1124,15 @@ ArmElementFramePlan BuildArmElementFramePlan(
 
     result.upper_arm = ik.upper_arm;
     result.forearm = ik.forearm;
+    // The direct natural-lower -> desired-lower basis in the positional plan
+    // has a different axial roll from the parent+elbow composition used by
+    // FORETWIST and hand. Preserve one composed skinning frame across all
+    // three while retaining the positional solver's pivot.
+    result.forearm.up = apply_swing(natural.forearm_element_up);
+    result.forearm.forward = apply_swing(natural.forearm_element_forward);
+    result.forearm.valid = Finite(result.forearm.position) &&
+        NormalizeBasis(result.forearm.up, result.forearm.forward);
+    if (!result.forearm.valid) return {};
 
     cojvr::runtime::Vec3 post_ik_hand_up = apply_swing(natural.hand_element_up);
     cojvr::runtime::Vec3 post_ik_hand_forward = apply_swing(natural.hand_element_forward);
@@ -1222,6 +1231,32 @@ cojvr::runtime::Vec3 BuildTrackedHandTarget(
     };
     valid = Finite(target);
     return target;
+}
+
+cojvr::runtime::Vec3 BuildCoJVisualBodyOffset(
+    const cojvr::runtime::Vec3 tracked_head,
+    const cojvr::runtime::Vec3 camera_right,
+    const cojvr::runtime::Vec3 camera_forward,
+    const float game_units_per_meter,
+    bool& valid) noexcept {
+    if (!Finite(tracked_head)) { valid = false; return {}; }
+    return BuildTrackedHandTarget({}, camera_right, {0, 1, 0}, camera_forward,
+        {}, {tracked_head.x, 0, tracked_head.z}, game_units_per_meter, valid);
+}
+
+cojvr::runtime::Vec3 BuildTrackedArmTarget(
+    const cojvr::runtime::Vec3 head_world_target,
+    const cojvr::runtime::Vec3 camera_right,
+    const cojvr::runtime::Vec3 camera_up,
+    const cojvr::runtime::Vec3 camera_forward,
+    const cojvr::runtime::Vec3 tracked_head,
+    const cojvr::runtime::Vec3 tracked_hand,
+    const float game_units_per_meter,
+    bool& valid) noexcept {
+    if (!Finite(tracked_head)) { valid = false; return {}; }
+    return BuildTrackedHandTarget(head_world_target, camera_right, camera_up,
+        camera_forward, {tracked_head.x, 0, tracked_head.z}, tracked_hand,
+        game_units_per_meter, valid);
 }
 
 cojvr::runtime::Vec3 BuildTrackedAimDirection(

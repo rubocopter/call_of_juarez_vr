@@ -89,6 +89,15 @@ struct TrackedAimPoseDiagnostics {
     bool valid = false;
 };
 
+// Render-only horizontal skeleton translation; actor/collision position and
+// physical height remain owned by their existing native/camera paths.
+[[nodiscard]] cojvr::runtime::Vec3 BuildCoJVisualBodyOffset(
+    cojvr::runtime::Vec3 tracked_head,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_forward,
+    float game_units_per_meter,
+    bool& valid) noexcept;
+
 // Physical room-scale crouch is detected from calibrated HMD height and merged
 // with the explicit controller action so either source drives the game's native
 // crouch pose/animation. Hysteresis keeps height noise from toggling the action.
@@ -404,6 +413,19 @@ struct ArmElementFramePlan {
 // tracked head removes the recenter-space origin before the offset is mapped
 // through the exact CoJ camera basis into the skeleton's world space.
 [[nodiscard]] cojvr::runtime::Vec3 BuildTrackedHandTarget(
+    cojvr::runtime::Vec3 head_world_target,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 tracked_head,
+    cojvr::runtime::Vec3 tracked_hand,
+    float game_units_per_meter,
+    bool& valid) noexcept;
+
+// The render pelvis already owns horizontal HMD displacement. Physical height
+// remains in the camera, so retain the controller's vertical descent as well
+// as the native crouch animation when anchoring the arm to the live head joint.
+[[nodiscard]] cojvr::runtime::Vec3 BuildTrackedArmTarget(
     cojvr::runtime::Vec3 head_world_target,
     cojvr::runtime::Vec3 camera_right,
     cojvr::runtime::Vec3 camera_up,

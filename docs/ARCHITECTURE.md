@@ -210,7 +210,28 @@ only a complete positional branch that stayed unchanged while the actor moved;
 that stale natural sample is translated by the inter-frame actor delta before the
 next IK solve. Native geometry that actually animates is left untouched. Both
 continuity corrections are **implemented / host-tested** and the combined result
-is the next physical Body IK gate.
+has been physically exercised with a large continuity improvement: hands no
+longer remain stranded in world space, although occasional recovery delay and
+torsion still reject anatomy. The continuity baseline is the corrected natural
+frame restored by the previous transaction, rather than an unapplied raw sample.
+
+The render pelvis and arms now form nested transactions: apply the horizontal
+pelvis overlay, read/solve/write arms, draw both eyes, restore arms, then restore
+pelvis. Continuity samples exclude the temporary pelvis offset. Earlier ordering
+moved the solved hands again through parent propagation before both eye draws.
+Horizontal skeleton offsets use the demonstrated hand/skeleton Z convention;
+camera-eye offsets retain their independent mapping. Arm targets retain physical
+controller height instead of subtracting away HMD descent, so they descend with
+the camera while the native crouch animation owns posture. These corrections are
+**implemented / host-tested**, with physical walking direction and crouch comfort
+still pending.
+
+All lower-arm element orientations use the same parent-plus-elbow composition.
+The earlier absolute writer used a direct segment rotation for the forearm and
+a composed rotation for FORETWIST/hand, producing different axial frames despite
+correct joint endpoints. A host regression reproduces and corrects that mismatch.
+The hand residual limit and native bone lengths remain unchanged; residual hand
+orientation, reach/short-arm feel and recovery remain physical gates.
 
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
 Arm apply/restore elapsed times are measured while IK or movement tracing is
@@ -236,6 +257,14 @@ The controller `/pose/tip` drives per-hand aim direction and visual origin throu
 For local fire, shipped bytecode shows that `InputDigital.Translate` selects the requested hand/fire state while the actual attack runs later through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`. On the fire press transition, the adapter captures the native `Being.m_vLookFromPoint` value and publishes the selected controller origin for that pending native attack. A failed `Translate` rolls the field back immediately; on success, the later shipped `UpdateLookAndAimPoints` pass reclaims normal ownership after the attack transition. Held-fire frames do not repeatedly republish the field, and normal gameplay no longer creates a diagnostic `LaserPointer` object.
 
 The attack-transition fire-origin path is physically exercised, but visible/ballistic origin and direction remain rejected. Current diagnostics emit `controller_aim_geometry` and `controller_aim_fire_transition`; the latest run produced 120 grip-to-tip axis samples with local `-Z` at `0.939388..0.939389`, strongly confirming the Sense tip direction convention. The current host candidate adds a gameplay reticle sourced from the same exact world-space controller aim origin/direction used by the firing path. After both eye renders, that ray is projected through each eye's exact applied camera basis and asymmetric frustum; normalized per-eye coordinates travel with the same captured frame through the D3D9 ring and are drawn onto the corresponding D3D11 native-stereo textures immediately before submission. The reticle is excluded from flat-theater/menu presentation and does not share the menu-pointer route. It is an alignment aid/diagnostic; native spread and the final ballistic result remain game-owned and require physical comparison against visible weapon aim and bullet impact.
+
+The gameplay reticle now measures forward depth along the negative native camera
+source axis, consistent with the demonstrated controller weapon ray. The earlier
+positive-axis test discarded forward controller rays as behind the camera. This
+correction is host-tested and awaits physical alignment. Sampled read-only
+`Weapon.GetBarrelOrigin/GetBarrelDir` observations compare the real mesh barrel
+with the controller ray while the body render overlay is active. A successful
+field write or barrel observation does not establish ballistic consumption.
 
 ## D3D9 native-stereo transport
 

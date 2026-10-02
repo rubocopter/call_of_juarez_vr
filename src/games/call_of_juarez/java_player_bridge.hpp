@@ -258,6 +258,11 @@ public:
         CoJSubtitleRuntimeState& state, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetWeaponReloading(
         bool& reloading, std::string* error = nullptr) noexcept;
+    // Read the active weapon's actual mesh barrel, independent of controller
+    // fields and m_avAimFromPoint. Missing weapons/barrels fail closed.
+    [[nodiscard]] bool TryGetWeaponBarrel(
+        int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
+        std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryApplyUpperBodyTracking(
         float head_horizontal_offset_degrees,
         float spine_horizontal_offset_degrees,

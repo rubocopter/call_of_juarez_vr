@@ -17,10 +17,20 @@ did not eliminate the symptom; the follow-up run exposed complete arm positional
 samples remaining world-fixed across adjacent frames. The current **implemented /
 host-tested** candidate keeps actor-relative restore and additionally carries only
 that strongly detected stale positional branch by the inter-frame actor delta.
-Native animated geometry remains untouched. The same run should confirm physical
-crouch driving the native crouch animation, head-relative stick locomotion, the new
-exact 90-degree snap step, and the exact-frame gameplay reticle against visible
-weapon aim and bullet impact. Follow
+Native animated geometry remains untouched. The latest physical follow-up reports
+substantially better continuity without hands remaining stranded, but still rejects
+occasional recovery delay, limb torsion and short-arm feel. Physical forward/backward
+body displacement is inverted; physical crouch triggers animation but feels abrupt
+and leaves the arms too high. Weapon origin/direction remains physically rejected.
+
+The next **implemented / host-tested** candidate corrects the horizontal skeleton
+Z mapping, nests arms inside the pelvis render transaction, preserves controller
+height during physical crouch and composes forearm/FORETWIST/hand orientation through
+the same parent-plus-elbow rotations. It also corrects the gameplay reticle's depth
+sign and samples the real weapon barrel independently of controller aim fields.
+The same run should confirm walking direction, crouch/hand height, torsion/recovery,
+head-relative stick movement, the exact 90-degree snap step and reticle alignment.
+Ballistic consumption remains an unresolved exact-game boundary. Follow
 the procedure in
 [Validation](VALIDATION.md#combined-menu-and-gameplay-regression).
 
@@ -89,9 +99,9 @@ Device-loss behavior, non-lockable resources and broader gameplay semantics
 remain open. Menu, arm-continuity and weapon-alignment remain separate product
 gates; abnormal shutdown recovery is unproved.
 
-Three separate playability areas remain open after the bounded transport gate:
+The playability gates after the bounded transport gate are:
 
-- menu pointer ownership and controller-only UI usability;
+- preserve the accepted ordinary-menu, Yes/No and gameplay-pause pointer paths;
 - continuous tracked-arm ownership without visible fallback or deformation;
 - weapon/barrel origin and direction alignment.
 
@@ -137,7 +147,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Native analog locomotion through the shipped float-input path: **headset-validated diagnostically** for vanilla-equivalent normal/walk speed. No further movement/input changes are planned.
 - Head-relative stick locomotion using residual HMD yaw before native shaping: **implemented / host-tested**, pending physical direction/feel confirmation.
 - Native jump action: **headset-validated diagnostically** for vanilla-equivalent apex and duration. No further jump/physics changes are planned.
-- Physical HMD-height crouch merged into the shipped crouch action: **implemented / host-tested**, pending physical animation/restore confirmation.
+- Physical HMD-height crouch merged into the shipped crouch action: **live-exercised** for animation engagement; abrupt transition and high arms reject comfort. Physical controller-height preservation is **host-tested** for the next candidate.
 - Horizontal-only visual body room-scale overlay with native vertical actor/grounding/collision ownership: **live-exercised technically**. Physical displacement still needs stick-equivalent visual locomotion animation.
 - Physical-walk visual animation from HMD horizontal movement: **planned/open**.
 - Local Ray/Billy head/hair suppression: **headset-validated for HMD view**; shadow behavior remains unverified.
@@ -145,10 +155,10 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 3 — tracked hands and body IK
 
 - Stable left/right Sense tracking in game space: **live-tested**.
-- Exact absolute visible arm writer: **live-tested**; actor-relative restoration after locomotion is **host-tested** and is the immediate physical gate.
+- Exact absolute visible arm writer: **live-tested**; actor-relative restoration and stale-branch rebasing have physically improved continuity. Pelvis/arm transaction nesting is the next **host-tested** physical candidate.
 - Correct head-relative controller target space: **live-tested**.
 - FORETWIST/hand hierarchy correction: **live-tested technically; visual anatomy remains incomplete**.
-- Arm reach/anatomy/orientation: the absolute writer recovered locomotion/performance strongly, but the latest physical run exposed stale world-space restore after actor movement. Actor-translation rebasing is **host-tested** for the next run. Physical anatomy remains rejected because the visible arms are still too short.
+- Arm reach/anatomy/orientation: continuity is physically improved after actor rebasing, with hands no longer stranded in world space. Short arms, intermittent recovery and torsion remain rejected. Consistent parent-plus-elbow forearm/skinning frames and pelvis/arm transaction nesting are **host-tested** follow-ups.
 - Native reload-animation ownership: **host-tested follow-up**.
 - Pelvis/legs full-body writing: **planned**, blocked on acceptable arm/body ownership first.
 

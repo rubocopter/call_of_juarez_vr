@@ -1090,6 +1090,34 @@ int main() {
     }
 
     bool hand_target_valid = false;
+    // Body translation must share the demonstrated skeleton convention (-Z
+    // forward), exclude physical height and rotate with the tracking reference.
+    bool body_offset_valid = false;
+    const Vec3 forward_body = BuildCoJVisualBodyOffset(
+        {0.0F, -0.4F, -0.2F}, {1, 0, 0}, {0, 0, 1}, 100.0F, body_offset_valid);
+    if (!body_offset_valid || !Near(Distance(forward_body, {0, 0, -20}), 0.0F)) {
+        std::cerr << "physical forward body overlay used the camera's opposite Z convention\n";
+        return 1;
+    }
+    const Vec3 turned_body = BuildCoJVisualBodyOffset(
+        {0.1F, 0.4F, 0.2F}, {0, 0, -1}, {1, 0, 0}, 100.0F, body_offset_valid);
+    if (!body_offset_valid || !Near(Distance(turned_body, {20, 0, -10}), 0.0F)) {
+        std::cerr << "backward/lateral body overlay lost tracking yaw or changed height\n";
+        return 1;
+    }
+    (void)BuildCoJVisualBodyOffset(
+        {0, 0, 0}, {1, 0, 0}, {1, 0, 0}, 100.0F, body_offset_valid);
+    if (body_offset_valid) {
+        std::cerr << "visual body overlay accepted a degenerate tracking frame\n";
+        return 1;
+    }
+    const Vec3 crouched_arm = BuildTrackedArmTarget(
+        {100, 150, 300}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
+        {0.1F, -0.4F, -0.3F}, {0.4F, -0.6F, -0.8F}, 100.0F, hand_target_valid);
+    if (!hand_target_valid || !Near(Distance(crouched_arm, {130, 90, 250}), 0.0F)) {
+        std::cerr << "crouched arm target cancelled physical controller descent\n";
+        return 1;
+    }
     const Vec3 tracked_hand_target = BuildTrackedHandTarget(
         {100.0F, 200.0F, 300.0F},
         {1.0F, 0.0F, 0.0F},
@@ -1358,6 +1386,8 @@ int main() {
     frame_natural.hand_element_position = frame_natural.wrist;
     frame_natural.hand_element_up = {1.0F, 0.0F, 0.0F};
     frame_natural.hand_element_forward = {0.0F, 0.0F, 1.0F};
+    frame_natural.forearm_element_up = {1.0F, 0.0F, 0.0F};
+    frame_natural.forearm_element_forward = {0.0F, 0.0F, 1.0F};
     ArmIkPlan frame_ik{};
     frame_ik.upper_arm = {{0.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F},
                           {0.0F, 0.0F, 1.0F}, true};
@@ -1387,6 +1417,29 @@ int main() {
         return 1;
     }
 
+    // A direct lower-segment rotation and a parent+elbow composition reach
+    // the same wrist but differ in axial roll. Every lower skinning element
+    // must use the latter, or the mesh twists despite correct endpoints.
+    frame_natural.upper_element_up = {1, 0, 0};
+    frame_natural.upper_element_forward = {0, 0, 1};
+    frame_ik.upper_arm = {{0, 0, 0}, {0, -1, 0}, {0, 0, 1}, true};
+    frame_ik.forearm = {{1, 0, 0}, {1, 0, 0}, {0, -1, 0}, true};
+    frame_ik.elbow_target = {1, 0, 0};
+    frame_ik.wrist_target = {1, 0, 1};
+    const auto composed_rotations = BuildArmBoneRotationPlan(frame_natural, frame_ik);
+    const HandOrientationTarget composed_hand{{0, -1, 0}, {-1, 0, 0}, true};
+    const auto composed_frame = BuildArmElementFramePlan(
+        frame_natural, frame_ik, composed_rotations, composed_hand);
+    if (!composed_frame.valid ||
+        Distance(composed_frame.forearm.up, {0, -1, 0}) > 0.001F ||
+        Distance(composed_frame.forearm.forward, {-1, 0, 0}) > 0.001F ||
+        Distance(composed_frame.foretwist.up, {0, -1, 0}) > 0.001F ||
+        Distance(composed_frame.hand.up, {0, -1, 0}) > 0.001F ||
+        Distance(composed_frame.hand.position, {1, 0, 1}) > 0.001F) {
+        std::cerr << "forearm used a different axial frame from FORETWIST and hand\n";
+        return 1;
+    }
+
     // Host tests run without the game's JVM. Discovery and all dependent
     // operations must therefore fail closed without creating or loading one.
     JavaPlayerBridge bridge;
@@ -1398,6 +1451,12 @@ int main() {
     JavaPlayerPosition element_position{};
     JavaPlayerPosition element_up{};
     JavaPlayerPosition element_forward{};
+    JavaPlayerPosition barrel_origin{}, barrel_direction{};
+    if (bridge.TryGetWeaponBarrel(-1, barrel_origin, barrel_direction) ||
+        bridge.TryGetWeaponBarrel(0, barrel_origin, barrel_direction)) {
+        std::cerr << "weapon barrel observation did not fail closed without a player JVM\n";
+        return 1;
+    }
     bool game_timer_frozen = false;
     int element = -1;
     if (bridge.Refresh(&error) || bridge.player_available() ||

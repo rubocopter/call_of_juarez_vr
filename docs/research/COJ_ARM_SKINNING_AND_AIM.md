@@ -64,20 +64,38 @@ to translate, with actor-to-upper-arm distance growing from the normal roughly
 back into sync.
 
 The current host candidate retains actor-relative restore and also compares each
-fresh natural arm sample with the previous raw sample for the same actor generation
-and recenter sequence. If the actor moved materially while shoulder/elbow/wrist
+fresh natural arm sample with the previous corrected/restored natural sample for
+the same actor generation and recenter sequence. If the actor moved materially while shoulder/elbow/wrist
 and all four sampled element positions stayed within float-scale world-position
 tolerance, only those positions are translated by the actor delta before the next
 IK solve; the current orientation bases are preserved. Any positional animation
 change leaves the natural sample untouched. A per-arm cumulative rebase count is
 sampled in tracking telemetry. This combined continuity contract is
-**implemented / host-tested** and awaits physical validation.
+**physically exercised with improved continuity**, but occasional recovery delay
+and limb torsion still reject anatomy. Comparing against an unapplied raw sample
+would not describe the actual next-frame state after the corrected frame is restored.
+
+The absolute writer also contained an orientation composition mismatch: the
+forearm used the direct positional-plan basis, while FORETWIST and hand used
+upper-arm swing followed by elbow swing. Those rotations can reach identical
+endpoints with different axial roll. The corrected forearm uses the same composed
+rotations as the lower skinning elements, preserving native bind offsets. A host
+regression demonstrates the disagreement and correction without changing bone
+lengths or the controller-roll/residual limits.
 
 ## Target space and body yaw
 
-A failed candidate mapped recentered controller positions around tracking-space origin while the live skeleton was far away in game world coordinates. Current mapping anchors hand targets to the live head/body neighborhood and transforms `(tracked hand - tracked head)` through the exact Call of Juarez camera basis.
+A failed candidate mapped recentered controller positions around tracking-space origin while the live skeleton was far away in game world coordinates. Mapping anchors hand targets to the live head/body neighborhood. The arm-specific path subtracts tracked head X/Z while preserving tracked controller Y, matching the camera's physical descent in addition to native crouch posture. Subtracting tracked head Y had cancelled physical descent and left the arms above the crouched view. The generic head-relative mapping remains available for other consumers.
 
 Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
+
+The render-only pelvis translation now uses the same horizontal sign convention
+as tracked skeleton targets, rather than the independent camera eye-offset
+helper. Physical forward/backward body movement was inverted in the previous
+candidate. Pelvis application now precedes arm reads/solving; arm restoration
+precedes pelvis restoration. Earlier eye probes showed the pelvis moving the
+already solved arm endpoints again. Continuity excludes this temporary offset.
+Both changes are host-tested candidates awaiting physical confirmation.
 
 ## Telemetry cost
 
@@ -114,7 +132,12 @@ The controller-axis question is now mostly closed: 120 sampled `handgrip -> tip`
 
 ## Latest anatomy rejection
 
-The newest clip shows a different failure mode: safety blocks some extreme writes, but the arms repeatedly return to the native/default game pose as the Sense controllers move. Telemetry does not support solving this by scaling the upper/forearm chain globally:
+The latest operator clip reports better continuity without world-stranded hands,
+but still rejects recovery delay, short-arm feel and torsion. Physical crouch
+animation engages; transition comfort and arm height remain rejected. No global
+bone scaling or hand residual limit increase is justified by that observation.
+
+An earlier rejected clip showed a different failure mode: safety blocks some extreme writes, but the arms repeatedly return to the native/default game pose as the Sense controllers move. Telemetry does not support solving this by scaling the upper/forearm chain globally:
 
 - retained formal evidence sampled controller targets up to 75.800 units against the ~49.843-unit measured native reach;
 - the latest run denied 43/128 sampled arm updates, including 32 reach-unsafe samples, while 80 samples rejected the hand residual;

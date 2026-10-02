@@ -293,7 +293,7 @@ int main() {
     CameraProbeReticlePoint reticle{};
     if (!ProjectWorldAimRayToEyeReticle(
             {13.0F, 4.0F, 5.0F},
-            {0.0F, 0.0F, 1.0F},
+            {0.0F, 0.0F, -1.0F},
             {3.0F, 4.0F, 5.0F},
             native_identity,
             valid_stereo_frustum,
@@ -305,7 +305,7 @@ int main() {
     }
     if (ProjectWorldAimRayToEyeReticle(
             {3.0F, 4.0F, 5.0F},
-            {0.0F, 0.0F, -1.0F},
+            {0.0F, 0.0F, 1.0F},
             {3.0F, 4.0F, 5.0F},
             native_identity,
             valid_stereo_frustum,
@@ -313,7 +313,7 @@ int main() {
             reticle) ||
         ProjectWorldAimRayToEyeReticle(
             {403.0F, 4.0F, 5.0F},
-            {0.0F, 0.0F, 1.0F},
+            {0.0F, 0.0F, -1.0F},
             {3.0F, 4.0F, 5.0F},
             native_identity,
             valid_stereo_frustum,

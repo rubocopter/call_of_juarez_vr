@@ -2255,15 +2255,16 @@ bool ApplyRoomScaleBodyOffset(
     // Physical crouch remains a camera/body-state concern; translating the
     // pelvis vertically with HMD height pulled the torso into the headset in
     // the 20260921 physical run.
-    const cojvr::runtime::Vec3 horizontal_head_offset{
-        relative_head_pose.position.x,
-        0.0F,
-        relative_head_pose.position.z,
-    };
-    const CameraProbeVector mapped_offset = ApplyCameraEyeOffset(
-        {}, tracking_basis, horizontal_head_offset);
-    const cojvr::runtime::Vec3 world_offset{
-        mapped_offset.x, mapped_offset.y, mapped_offset.z};
+    bool offset_valid = false;
+    const cojvr::runtime::Vec3 world_offset = BuildCoJVisualBodyOffset(
+        relative_head_pose.position,
+        {tracking_basis.right.x, tracking_basis.right.y, tracking_basis.right.z},
+        {tracking_basis.forward.x, tracking_basis.forward.y, tracking_basis.forward.z},
+        kGameUnitsPerMeter, offset_valid);
+    if (!offset_valid) {
+        if (error) *error = "visual body tracking offset is invalid";
+        return false;
+    }
 
     const std::uint64_t generation = g_java_player_bridge.being_generation();
     if (g_room_scale_body_offset.being_generation != generation ||
@@ -2987,7 +2988,14 @@ void UpdatePlayerArmTracking(
                 }
                 return;
             }
-            const ArmGeometrySample raw_geometry = geometry;
+            // Continuity compares native coordinates, excluding this frame's
+            // temporary pelvis overlay. Otherwise room-scale changes masquerade
+            // as native animation and conceal a frozen arm branch.
+            const cojvr::runtime::Vec3 body_offset = g_room_scale_body_offset.active
+                ? g_room_scale_body_offset.applied_world_offset
+                : cojvr::runtime::Vec3{};
+            const ArmGeometrySample raw_geometry = RebaseArmGeometryForActorTranslation(
+                geometry, body_offset, {});
             const std::uint64_t recenter_sequence =
                 g_pose_tracker.last_recenter_sequence();
             auto& geometry_continuity = left
@@ -3023,7 +3031,8 @@ void UpdatePlayerArmTracking(
                 }
                 return;
             }
-            geometry = continuity_update.geometry;
+            geometry = RebaseArmGeometryForActorTranslation(
+                continuity_update.geometry, {}, body_offset);
             if (!controller.orientation_valid) {
                 if (observe) {
                     EmitEvent(
@@ -3089,7 +3098,7 @@ void UpdatePlayerArmTracking(
             }
             orientation_calibration.last_target = hand_target;
             bool target_valid = false;
-            const cojvr::runtime::Vec3 target = BuildTrackedHandTarget(
+            const cojvr::runtime::Vec3 target = BuildTrackedArmTarget(
                 RuntimeVector(head_joint),
                 camera_right,
                 camera_up,
@@ -3994,6 +4003,18 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
         result.positional_6dof = true;
         result.translation_mode = "camera_only_collision_safe";
 
+        // Nest the arm transaction inside the pelvis transaction. Moving the
+        // pelvis after solving moves the solved hands a second time through
+        // native parent propagation (observed at both eye draws).
+        std::string visual_body_error;
+        if (!ApplyRoomScaleBodyOffset(
+                natural_render_state, relative_head_pose, frame_sequence,
+                &visual_body_error) && !visual_body_error.empty()) {
+            EmitEvent("body_visual_roomscale", "unavailable",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                ";detail=" + visual_body_error);
+        }
+
         const auto arm_command = CurrentCommand().command;
         const bool body_ik_enabled = arm_command.body_ik_enabled;
         const bool measure_arm_timing = body_ik_enabled || arm_command.movement_trace_enabled;
@@ -4552,26 +4573,47 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             frame_sequence);
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
-    bool visual_body_offset_applied = false;
+    const bool visual_body_offset_applied = g_room_scale_body_offset.active;
+    if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
+        ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            for (int hand = 0; hand < 2; ++hand) {
+                JavaPlayerPosition barrel_origin{}, barrel_direction{};
+                std::string barrel_error;
+                const bool barrel_valid = g_java_player_bridge.TryGetWeaponBarrel(
+                    hand, barrel_origin, barrel_direction, &barrel_error);
+                const bool left = hand == 1;
+                const auto& tip_origin = left
+                    ? aim_observation.left_origin : aim_observation.right_origin;
+                const auto& tip_direction = left
+                    ? aim_observation.left_direction : aim_observation.right_direction;
+                const bool tip_valid = left
+                    ? aim_observation.left_origin_valid && aim_observation.left_direction_valid
+                    : aim_observation.right_origin_valid && aim_observation.right_direction_valid;
+                std::ostringstream detail;
+                detail << "frame_sequence=" << frame_sequence
+                       << ";side=" << (left ? "left" : "right")
+                       << ";phase=body_overlay_pre_render"
+                       << ";barrel_valid=" << (barrel_valid ? "true" : "false")
+                       << ";barrel_origin=" << RuntimeVectorText(RuntimeVector(barrel_origin))
+                       << ";barrel_direction=" << RuntimeVectorText(RuntimeVector(barrel_direction))
+                       << ";tip_valid=" << (tip_valid ? "true" : "false")
+                       << ";tip_origin=" << RuntimeVectorText(tip_origin)
+                       << ";tip_direction=" << RuntimeVectorText(tip_direction)
+                       << ";source=Weapon.GetBarrelOrigin/GetBarrelDir"
+                       << ";mutation=false;ballistic_consumption=unverified";
+                if (!barrel_error.empty()) detail << ";detail=" << barrel_error;
+                EmitEvent("controller_weapon_barrel",
+                    barrel_valid ? "observed" : "unavailable", detail.str());
+            }
+        } catch (...) {
+            // Observational allocation failures must not skip overlay restore.
+        }
+    }
     const bool observe_body_actor =
         snapshot.command.movement_trace_enabled && ShouldObserveBodyFrame(frame_sequence);
     BodyActorObservation body_actor{};
     if (observe_body_actor) body_actor = ReadBodyActorObservation();
-    if (body_position_update.positional_6dof && !loading_ui_input.suppress_gameplay) {
-        std::string visual_body_error;
-        visual_body_offset_applied = ApplyRoomScaleBodyOffset(
-            natural_render_state,
-            relative_head_pose,
-            frame_sequence,
-            &visual_body_error);
-        if (!visual_body_offset_applied && !visual_body_error.empty()) {
-            EmitEvent(
-                "body_visual_roomscale",
-                "unavailable",
-                "frame_sequence=" + std::to_string(frame_sequence) +
-                    ";detail=" + visual_body_error);
-        }
-    }
     if (observe_body_actor) {
         body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "roomscale_apply");
     }
@@ -4652,16 +4694,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     if (observe_body_actor) {
         body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "stereo_render");
     }
-    if (visual_body_offset_applied) {
-        (void)RestoreRoomScaleBodyOffset(frame_sequence, "stereo_complete");
-    }
-    if (observe_body_actor) {
-        body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "roomscale_restore");
-    }
-
     // The element overlay is relative to the live animated render hierarchy.
-    // Keep it only for the two eye draws, then undo child before parent so the
-    // next game frame starts from the engine's natural animation pose.
+    // Restore the complete arm overlay first, then its outer pelvis overlay.
+    // Absolute arm frames themselves are restored parent before child because
+    // each native parent write propagates to descendants.
     const bool measure_arm_restore_timing =
         snapshot.command.body_ik_enabled || snapshot.command.movement_trace_enabled;
     const std::uint64_t arm_restore_started_us =
@@ -4674,7 +4710,14 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             frame_sequence, "restore", arm_restore_duration_us, snapshot.command.body_ik_enabled);
     }
     if (observe_body_actor) {
-        (void)ObserveBodyActorBoundary(body_actor, frame_sequence, "arm_restore");
+        body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "arm_restore");
+    }
+    if (visual_body_offset_applied &&
+        !RestoreRoomScaleBodyOffset(frame_sequence, "stereo_complete")) {
+        g_arm_rotation_faulted = true;
+    }
+    if (observe_body_actor) {
+        (void)ObserveBodyActorBoundary(body_actor, frame_sequence, "roomscale_restore");
     }
 
     CameraStereoReticleOverlay gameplay_reticle{};
@@ -5313,8 +5356,10 @@ bool ProjectWorldAimRayToEyeReticle(
         ray_origin.x - eye_position.x,
         ray_origin.y - eye_position.y,
         ray_origin.z - eye_position.z};
-    const float origin_depth = Dot(origin_from_eye, eye_basis.forward);
-    const float direction_depth = Dot(direction, eye_basis.forward);
+    // Chrome's source matrix stores the camera's backward axis. Gameplay
+    // look/weapon rays travel along its negative, as do tracked hands.
+    const float origin_depth = -Dot(origin_from_eye, eye_basis.forward);
+    const float direction_depth = -Dot(direction, eye_basis.forward);
     if (!std::isfinite(origin_depth) || !std::isfinite(direction_depth) ||
         direction_depth <= 1.0e-5F) {
         return false;
@@ -5327,7 +5372,7 @@ bool ProjectWorldAimRayToEyeReticle(
         origin_from_eye.x + direction.x * distance,
         origin_from_eye.y + direction.y * distance,
         origin_from_eye.z + direction.z * distance};
-    const float target_depth = Dot(target_from_eye, eye_basis.forward);
+    const float target_depth = -Dot(target_from_eye, eye_basis.forward);
     if (!std::isfinite(target_depth) || target_depth <= frustum.near_plane) return false;
 
     const float near_scale = frustum.near_plane / target_depth;

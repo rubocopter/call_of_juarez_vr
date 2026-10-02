@@ -45,7 +45,19 @@ rebase and adds a conservative inter-frame continuity correction only when the
 complete positional branch is unchanged despite material actor motion. Native
 animation changes retain ownership. The combined correction and fail-closed
 validation are **implemented / host-tested**; physical continuity remains
-pending. Native speed, jump constants and transport policy remain unchanged.
+partly exercised: hands no longer remain stranded in world space, but occasional
+recovery delay, limb torsion and short-arm feel remain rejected. Physical walking
+forward/backward is inverted in the visible body. Physical crouch triggers native
+animation, but it is abrupt and the arms remain too high. Shots still fail visible
+barrel/direction alignment.
+
+The next host-tested candidate corrects the skeleton room-scale Z sign, nests arm
+solving inside the pelvis overlay, retains physical controller height during
+crouch, and uses one parent-plus-elbow orientation composition for forearm,
+FORETWIST and hand. The gameplay reticle's forward-depth sign is also corrected.
+Sampled real-barrel observations separate visible mesh aim from controller-field
+publication. Walking parity, comfortable crouch/arm height, anatomy and ballistic
+alignment remain physical gates; none is promoted by these host tests.
 
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
@@ -206,7 +218,11 @@ locomotion/performance retains the large improvement
 from the last run. Turn the head substantially left/right without rotating the
 body, press forward and confirm travel follows the viewed direction. Physically
 crouch below the calibrated threshold and verify the native crouched body animation
-engages and returns cleanly on standing. Exercise one right and one left snap turn
+engages and returns cleanly on standing, with both hands descending with the
+controllers. Step physically forward/backward and sideways, including after a
+turn/recenter, and verify the body follows the same physical direction. Rotate
+and bend each arm through the previously deformed pose and check recovery.
+Exercise one right and one left snap turn
 and confirm that each step is exactly 90 degrees. Aim/fire with both hands where
 practical and confirm the gameplay reticle follows the visible controller/weapon
 direction and that bullet impacts are consistent with it. Then exercise an ordinary
@@ -323,7 +339,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Recenter | headset-validated | controller recenter exercised physically |
 | Exact snap turn | mechanism headset-validated; 90-degree candidate host-tested | previous snap-turn behavior was exercised physically; the new 90-degree step requires one physical confirmation |
 | Head-relative stick locomotion | implemented / host-tested | residual physical HMD yaw rotates the neutral stick before the unchanged native InputAnalog shaping; physical direction/feel is pending |
-| Physical HMD-height crouch | implemented / host-tested | calibrated crouch state is merged with the native crouch action; physical animation and clean standing restore are pending |
+| Physical HMD-height crouch | live-exercised animation engagement; height correction host-tested | abrupt transition and high arms reject comfort; preserve physical controller descent in the next candidate |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | startup and level transition reached gameplay safely |
 | Local head/hair suppression | headset-validated for HMD view | shadow behavior remains separate |
 | D3D9Ex GPU-resident native-stereo transport | bounded acceptance passed; measured cadence and headset stereo validated | shared frames submit with explicit pose and drain on normal quit; production cadence approaches readback-off reference; sustained pacing/tail latency and pending-frame reset/device loss remain unproved |
@@ -333,11 +349,11 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Native analog locomotion | headset-validated diagnostically | normal/walk speed matches vanilla within the measured transport runs; do not retune input or movement |
 | Native jump action | headset-validated diagnostically | measured apex/duration matches vanilla; do not retune jump or physics |
 | Locomotion divergence instrumentation | host-tested and physically completed | retained for cadence reporting; causal investigation is closed |
-| Room-scale visual body compensation | live-exercised technically | vertical pelvis drift was removed; visual walking parity remains open |
+| Room-scale visual body compensation | live-exercised / direction rejected; sign correction host-tested | physical forward/backward body displacement was inverted; corrected skeleton mapping and nested arm transaction await confirmation |
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
-| Body IK continuity/anatomy | absolute writer live-exercised; actor-relative restore host-tested; anatomy rejected | locomotion/performance recovered strongly, but the latest run exposed stale world-space arm restore after actor movement; visible arms also remain short |
+| Body IK continuity/anatomy | continuity physically improved; composition correction host-tested; anatomy rejected | hands no longer remain stranded, but recovery delay, torsion and short-arm feel persist; forearm/skinning composition and pelvis nesting await physical confirmation |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
 | Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
