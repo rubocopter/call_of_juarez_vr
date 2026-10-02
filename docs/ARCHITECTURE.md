@@ -224,8 +224,9 @@ the native camera source forward axis is the view's backward axis. The earlier
 camera translation reflected Z while the skeleton and visible gameplay reticle
 used negative-source-forward for physical forward. Camera room-scale translation
 also removes actor-owned yaw once, using the same leveled reference as arms and
-pelvis. These follow-ups are **implemented / host-tested** after the latest
-physical rejection of forward/backward movement and torso intrusion.
+pelvis. These follow-ups are **live-exercised** after physical rejection of
+forward/backward movement and torso intrusion. The operator reports substantial
+overall improvement; individual movement/body-visibility acceptance remains open.
 
 Physical crouch already lowers the tracked HMD; the native crouch animation also
 lowers the natural camera. A captured actor-relative camera height compensates
@@ -233,8 +234,9 @@ that duplicate native drop while physical crouch is active and through native
 pose recovery. Explicit controller crouch retains native camera ownership;
 generation change/recenter resets calibration. The correction is applied to the
 rendered head, arm anchor and controller aim origin, never actor/collision
-position. Arm targets retain physical controller descent. Physical crouch comfort
-and first-person body visibility remain open.
+position. Arm targets retain physical controller descent. Height compensation and
+successful arm/pelvis restoration are live-observed through normal shutdown;
+physical crouch comfort and first-person body visibility remain open.
 
 All lower-arm element orientations use the same parent-plus-elbow composition.
 The earlier absolute writer used a direct segment rotation for the forearm and

@@ -28,13 +28,15 @@ live-exercised with further improvement, but anatomy remains rejected. The retic
 is visible and impacts are reported closer to it; sampled real-barrel geometry
 confirms substantial disagreement with the controller origin/direction.
 
-The next **implemented / host-tested** candidate removes the camera's opposite
+The latest **live-exercised** candidate removes the camera's opposite
 tracking Z sign and uses the same actor-yaw-compensated translation reference as
 pelvis and hands. It compensates duplicate native camera descent during physical
 crouch, preserves explicit controller crouch and corrects controller aim origins
 around the untracked native camera. Read-only ballistic/visual-origin getters
-extend the real-barrel comparison without consuming native spread.
-The same run should confirm walking direction, crouch/hand height, torsion/recovery,
+extend the real-barrel comparison without consuming native spread. The operator
+reports substantial overall improvement; sampled restorations and normal shutdown
+succeed. Specific gesture acceptance remains open. The physical gate should
+confirm walking direction, crouch/hand height, torsion/recovery,
 head-relative stick movement, the exact 90-degree snap step and reticle alignment.
 Ballistic consumption remains an unresolved exact-game boundary. Follow
 the procedure in

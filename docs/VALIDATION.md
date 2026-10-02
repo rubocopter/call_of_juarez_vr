@@ -57,14 +57,18 @@ anatomy remains rejected. The gameplay reticle is visible and impacts are report
 closer to its aim; weapon placement and muzzle origin remain rejected. Read-only
 real-barrel samples confirm substantial positional/angular disagreement.
 
-The next host-tested candidate removes the camera's opposite tracking Z sign and
+The latest live-exercised candidate removes the camera's opposite tracking Z sign and
 uses the same actor-yaw-compensated translation frame as the pelvis/hands. It
 compensates the native camera's duplicate descent during physical crouch, preserves
 explicit controller crouch and maps full controller-tip translation around the
 untracked camera for the aim origin. Sampled native ballistic/visual-origin
 getters separate those fields from the rendered muzzle without consuming spread.
-Walking parity, comfortable crouch/arm height, anatomy and ballistic alignment
-remain physical gates; none is promoted by these host tests.
+The operator reports substantial overall improvement, and sampled arm/pelvis
+restoration succeeds through normal shutdown. Height compensation is observed
+during physical crouch. Specific walking parity, comfortable crouch/arm height,
+torso visibility, anatomy and ballistic alignment remain acceptance gates; the
+overall improvement report alone does not accept each gesture. Visible weapon
+poses and real-barrel samples still show controller/muzzle disagreement.
 
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
