@@ -4,13 +4,25 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-**Immediate physical gate:** one combined UI + Body IK run. First-level main-menu
-laser hover/selection and physical-mouse coexistence are **headset-validated**.
-Visible Yes/No-dialog and gameplay-pause input-root routing are **implemented /
-host-tested** and need physical acceptance. The arm solver now preserves valid
-hard-clamped positional ownership instead of dropping back to native animation;
-that continuity change is also **implemented / host-tested**. Use normal
-`prepare -BodyIkAtStart` and follow the combined gesture in [Validation](VALIDATION.md#combined-menu-and-gameplay-regression).
+**Immediate physical gate:** verify the combined gameplay candidate after
+locomotion. The corrected native pointer-click path is now physically accepted in
+the exercised ordinary menus, visible Yes/No dialog and gameplay pause menu.
+The absolute `FromUpForwardPosElementWorld` Body IK writer also produced a major
+physical recovery in locomotion/performance, removing the earlier severe pulsing
+associated with `RotateElementWithChildren -> +0x82F00`. That run exposed a
+narrower continuity defect: after joystick movement, a hand/arm branch could
+remain at a pre-movement world position and stretch back toward the actor until a
+native reload re-synchronized it. Same-frame actor-relative restore reduced but
+did not eliminate the symptom; the follow-up run exposed complete arm positional
+samples remaining world-fixed across adjacent frames. The current **implemented /
+host-tested** candidate keeps actor-relative restore and additionally carries only
+that strongly detected stale positional branch by the inter-frame actor delta.
+Native animated geometry remains untouched. The same run should confirm physical
+crouch driving the native crouch animation, head-relative stick locomotion, the new
+exact 90-degree snap step, and the exact-frame gameplay reticle against visible
+weapon aim and bullet impact. Follow
+the procedure in
+[Validation](VALIDATION.md#combined-menu-and-gameplay-regression).
 
 Native stereo, bounded configured-HMD cadence and normal-quit shutdown are
 accepted for the exercised build/host. Continuous body/arm IK remains visually
@@ -121,9 +133,11 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Exact campaign player discovery: **live-tested**.
 - Room-scale camera translation with native actor position/grounding preserved: **host-tested follow-up after physical rejection**.
 - HMD/body-yaw comfort ownership: continuous following at the existing 35-degree boundary is **headset-validated with Body IK disabled** for stable physical head turns.
-- Exact snap turn: **headset-validated**.
+- Exact snap turn mechanism: **headset-validated** at the previous step; the current 90-degree step is **host-tested** and awaits physical confirmation.
 - Native analog locomotion through the shipped float-input path: **headset-validated diagnostically** for vanilla-equivalent normal/walk speed. No further movement/input changes are planned.
+- Head-relative stick locomotion using residual HMD yaw before native shaping: **implemented / host-tested**, pending physical direction/feel confirmation.
 - Native jump action: **headset-validated diagnostically** for vanilla-equivalent apex and duration. No further jump/physics changes are planned.
+- Physical HMD-height crouch merged into the shipped crouch action: **implemented / host-tested**, pending physical animation/restore confirmation.
 - Horizontal-only visual body room-scale overlay with native vertical actor/grounding/collision ownership: **live-exercised technically**. Physical displacement still needs stick-equivalent visual locomotion animation.
 - Physical-walk visual animation from HMD horizontal movement: **planned/open**.
 - Local Ray/Billy head/hair suppression: **headset-validated for HMD view**; shadow behavior remains unverified.
@@ -131,17 +145,17 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 3 — tracked hands and body IK
 
 - Stable left/right Sense tracking in game space: **live-tested**.
-- Exact visible arm writer and verified restoration: **live-tested**.
+- Exact absolute visible arm writer: **live-tested**; actor-relative restoration after locomotion is **host-tested** and is the immediate physical gate.
 - Correct head-relative controller target space: **live-tested**.
 - FORETWIST/hand hierarchy correction: **live-tested technically; visual anatomy remains incomplete**.
-- Arm reach/anatomy/orientation: previous candidate **live-exercised / physically rejected for continuity**. Valid solver-clamped positional plans now retain ownership **implemented / host-tested** while rotation/hand/reload safety remains conservative; physical continuity/anatomy is the next gate.
+- Arm reach/anatomy/orientation: the absolute writer recovered locomotion/performance strongly, but the latest physical run exposed stale world-space restore after actor movement. Actor-translation rebasing is **host-tested** for the next run. Physical anatomy remains rejected because the visible arms are still too short.
 - Native reload-animation ownership: **host-tested follow-up**.
 - Pelvis/legs full-body writing: **planned**, blocked on acceptable arm/body ownership first.
 
 ## Milestone 4 — controller UI and interactions
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
-- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events are **headset-validated for first-level main-menu hover/selection and controller/mouse coexistence**. Visible Yes/No-dialog and gameplay-pause routing are **implemented / host-tested** pending physical acceptance.
+- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events plus the exact `0xCC420` click route are **headset-validated for the exercised ordinary menus, visible Yes/No dialog and gameplay pause menu**, with controller/mouse coexistence preserved in the previously exercised path.
 - Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.
@@ -149,7 +163,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Controller-owned per-hand weapon direction and visual origin: **host-tested**.
 - Ballistic-origin ownership across the native attack transition: **host-tested**.
 - Sense tip direction convention: **live-tested diagnostically**; local `-Z` is the demonstrated pointing direction.
-- Temporary controller-tip alignment ray: **planned diagnostic**. Use only to compare tracked direction with the visible weapon/barrel.
+- Exact-frame per-eye gameplay reticle from the controller firing ray: **implemented / host-tested**. It is independent from the menu pointer and awaits physical alignment/impact confirmation.
 - Physical gun-origin/direction acceptance: **pending/rejected**.
 - Motion-controlled reloads and richer world interactions: **planned**.
 

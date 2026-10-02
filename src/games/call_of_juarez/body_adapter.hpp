@@ -4,16 +4,13 @@
 
 namespace cojvr::games::call_of_juarez {
 
-// CONFLICT NOTE: BodyAdapter::Apply() writes absolute poses to upper arm, forearm,
-// and hand bones simultaneously via BoneTransformWriter. Meanwhile, the IK system
-// in camera_probe.cpp uses relative render-element rotations on the same bones.
-// These two systems CONFLICT if both are enabled:
-//   - BodyAdapter::Apply() overwrites the hierarchical render-element overlay
-//   - RotateElementWithChildren expects to be the sole writer to these elements
-// Only ONE of these systems should be active at a time. The render-element path
-// is preferred for VR body tracking because it preserves animation twist/roll and
-// respects the native hierarchy. BodyAdapter::Apply() is kept for
-// potential future use with different game integrations that lack BoneRotate.
+// CONFLICT NOTE: BodyAdapter::Apply() and the transient render-element overlay in
+// camera_probe.cpp both write the same visible arm chain. Only one may own those
+// elements at a time. The current CoJ overlay captures the animated element
+// frames, computes complete absolute world-space frames, writes them through
+// FromUpForwardPosElementWorld, and restores the captured frames after stereo
+// capture. BodyAdapter::Apply() is kept for potential future integrations with a
+// different native skeleton boundary.
 
 struct BodySkeletonState {
     bool available = false;
@@ -92,10 +89,9 @@ struct TrackedAimPoseDiagnostics {
     bool valid = false;
 };
 
-// Physical room-scale crouch is detected from calibrated HMD height for body
-// policy/telemetry. Native gameplay crouch remains a separate explicit action:
-// applying both at once double-crouches the avatar relative to the physical
-// head position and exposes the third-person body in first person.
+// Physical room-scale crouch is detected from calibrated HMD height and merged
+// with the explicit controller action so either source drives the game's native
+// crouch pose/animation. Hysteresis keeps height noise from toggling the action.
 class CoJPhysicalCrouchState final {
 public:
     [[nodiscard]] bool Update(
@@ -112,6 +108,14 @@ private:
 [[nodiscard]] bool ResolveCoJCrouchAction(
     bool requested_native_crouch,
     bool physical_crouch_detected) noexcept;
+
+// Rotate the neutral runtime stick into the actor-local movement frame using
+// the current HMD yaw left over after body-yaw ownership. Positive head yaw is
+// a physical turn to the player's right; shaping/deadzone remains owned by the
+// exact-game InputAnalog path after this rotation.
+[[nodiscard]] cojvr::runtime::Vec2 RotateCoJMoveForHeadRelativeYaw(
+    cojvr::runtime::Vec2 move,
+    float head_yaw_degrees) noexcept;
 
 struct ArmGeometrySample {
     cojvr::runtime::Vec3 shoulder{};
@@ -137,6 +141,32 @@ struct ArmGeometryRestoreCheck {
     float max_axis_error = 0.0F;
     bool matches = false;
 };
+
+// Absolute element writes are restored after stereo rendering. Native
+// locomotion may move the player root during that transaction, so captured
+// natural world positions must follow the actor translation before they are
+// written back. Orientation bases remain those of the captured natural pose.
+[[nodiscard]] ArmGeometrySample RebaseArmGeometryForActorTranslation(
+    const ArmGeometrySample& natural,
+    cojvr::runtime::Vec3 captured_actor_position,
+    cojvr::runtime::Vec3 current_actor_position) noexcept;
+
+struct ArmGeometryContinuityUpdate {
+    ArmGeometrySample geometry{};
+    bool valid = false;
+    bool rebased_world_fixed = false;
+};
+
+// The exact game can occasionally leave the complete arm positional branch
+// fixed in world space across adjacent frames while the actor root advances.
+// Detect only that strong continuity break and translate the sampled natural
+// geometry with the actor. Any native arm animation keeps ownership.
+[[nodiscard]] ArmGeometryContinuityUpdate StabilizeArmGeometryAcrossActorMotion(
+    const ArmGeometrySample& current,
+    cojvr::runtime::Vec3 current_actor_position,
+    const ArmGeometrySample& previous,
+    cojvr::runtime::Vec3 previous_actor_position,
+    bool previous_valid) noexcept;
 
 // Native element transforms use single-precision world coordinates around
 // 40,000 game units in the inspected campaign. At that magnitude one float
@@ -326,11 +356,10 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 current_hand_forward,
     const HandOrientationTarget& target) noexcept;
 
-// Recompute the final hand residual from the hand basis that actually exists
-// after the native FORETWIST writer has propagated through the mesh hierarchy.
-// The real hierarchy can differ slightly from the ideal world-space twist used
-// to choose FORETWIST, so this observed-basis correction is the authority for
-// the final hand-element rotation.
+// Compute the final hand residual from the hand basis after the preceding arm
+// transforms. The caller owns that basis source: the absolute-frame Body IK
+// planner uses its precomputed skinning basis, while diagnostics may use an
+// observed basis when validating a live hierarchy.
 [[nodiscard]] BoneRotationDelta BuildHandResidualRotationDelta(
     cojvr::runtime::Vec3 current_hand_up,
     cojvr::runtime::Vec3 current_hand_forward,
@@ -346,6 +375,29 @@ struct LegIkPlan {
 [[nodiscard]] float CoJHandControllerResidualLimitDegrees() noexcept;
 [[nodiscard]] BoneRotationDelta BuildSafeCoJHandResidual(
     BoneRotationDelta residual) noexcept;
+
+// Builds the complete transient arm overlay as absolute world-space element
+// frames. This is the non-hierarchical write contract used by the CoJ adapter:
+// every affected element receives its final frame explicitly, so applying or
+// restoring Body IK does not require RotateElementWithChildren propagation.
+struct ArmElementFramePlan {
+    ElementWorldBasisTarget upper_arm{};
+    ElementWorldBasisTarget forearm{};
+    ElementWorldBasisTarget foretwist{};
+    ElementWorldBasisTarget hand{};
+    BoneRotationDelta forearm_twist{};
+    BoneRotationDelta diagnostic_hand_residual{};
+    BoneRotationDelta hand_residual{};
+    float requested_forearm_twist_degrees = 0.0F;
+    bool forearm_twist_limited = false;
+    bool valid = false;
+};
+
+[[nodiscard]] ArmElementFramePlan BuildArmElementFramePlan(
+    const ArmGeometrySample& natural,
+    const ArmIkPlan& ik,
+    const ArmBoneRotationPlan& rotations,
+    const HandOrientationTarget& hand_target) noexcept;
 
 // Maps a recentered tracked hand around the native animated head joint. The
 // controller and HMD positions are in the same tracking space; subtracting the

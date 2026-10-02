@@ -119,7 +119,7 @@ UI pointing is presentation plus exact-game UI policy:
 5. Before/after writing, the resolved UI's `GetMousePos(LVector;)Z` observes native input coordinates in X/Z, normalized to source X/Y. Sprite `UICursor.GetPos` is a distinguishable fallback only when no concrete UI exists during startup. Movement beyond the last accepted VR input position or a held physical mouse button gives the mouse priority for 1.5 seconds after its latest activity; observation continues while the laser is hidden. Native input readback must match within one pixel before accepting delivery.
 6. Cross is global accept, Circle is global back, and L2/R2 select from the owning ray. A queued trigger press retains its target until a subsequent game `Present` observes it still applied. An accepted tap survives ordinary trigger release; failed mouse delivery/readback, ownership/focus loss, Back/Cross navigation and a change in the shipped `MainMenuModule.m_nCurUI` index cancel it. Failed delivery releases the retained target so the automatic ray continues moving. Selection rechecks native input/index and serializes dispatch with mailbox cancellation; an old hand/claim/click completion cannot consume a newer click. Gameplay weapon bindings remain in their existing gameplay action set. A shoulder held through a menu-to-game transition cannot switch weapons until an active released sample is observed.
 7. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
-8. Paused-hint dismissal gets `HintManager` through shipped `LawmanModule.GetHintManager()` before calling `DisableCurrentHint`, avoiding direct inherited-field lookup on the old JVM.
+8. Paused-hint dismissal follows `LawmanModule.m_GameMode -> GameMode.GetHintManager() -> HintManager`. `LawmanModule` extends `Module` and does not expose `GetHintManager`; looking up that getter on the module blocks selection once a campaign module exists. Field/method lookup uses the declaring shipped classes and clears lookup exceptions before fallback. A null game mode or hint manager allows ordinary UI selection; only a pausing hint consumes the press.
 
 The earlier sprite-only internal-cursor route is **physically rejected**:
 the cursor sprite moves without option highlighting or usable ray selection.
@@ -134,8 +134,17 @@ First-level main-menu hover/selection and physical-mouse takeover/resume are
 **headset-validated**. A later candidate regressed all menu/controller UI input
 by making a nonexistent `m_bYesNoDlgVisible` field mandatory; inspection of the
 shipped class confirmed only `m_cYesNoDlg`. Exception-safe optional dialog
-discovery plus gameplay-pause current-UI routing are **implemented / host-tested**
-and remain the next physical UI gate.
+discovery now promotes that reusable dialog to the input root only when its
+`IsActuallyVisible()` method reports true. Gameplay-pause current-UI routing is
+also **implemented / host-tested**. Static tracing then separated hover from
+activation: pointer selection dispatches native left-button press/release through
+the current UI input context (`ChromeEngine3 + 0xCC420`) instead of synthesizing
+Java Enter.
+Cross/global accept retains the shipped Enter route, while loading and paused-hint
+special cases keep their own native semantics. Selection diagnostics distinguish
+mailbox/focus/readback rejection from native dispatch failure. The new click path
+is now **headset-validated for the exercised ordinary, Yes/No and gameplay-pause
+menus**: the latest physical candidate restored complete VR-pointer menu operation.
 Earlier Windows-only and simultaneous Java/Windows routes remain physically
 rejected.
 
@@ -154,9 +163,9 @@ path independently of arm IK.
 
 Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
 
-Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. Physical comparison now establishes native normal/walk speed and jump apex/duration parity with vanilla; movement/input/physics tuning is closed. The earlier visual impression of slow locomotion came from presentation cadence. Run remains boolean and right-stick snap turn is an exact ±45° actor rotation.
+Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. Physical comparison now establishes native normal/walk speed and jump apex/duration parity with vanilla; movement/input/physics tuning is closed. The earlier visual impression of slow locomotion came from presentation cadence. Before native shaping, the current host candidate rotates the neutral left-stick vector by the residual physical HMD yaw left after the existing body-yaw ownership step, making locomotion head-relative without changing native speed/deadzone/run semantics. Run remains boolean. The snap-turn mechanism is physically proven at its earlier step; the current host candidate changes the exact actor step to ±90 degrees and requires one physical confirmation at that angle.
 
-Physical crouch is detected from calibrated HMD-height change with hysteresis, but the HMD drop does not automatically press the native crouch action. The current candidate applies only the mapped horizontal room-scale component to the local pelvis/skeleton for both eye renders and restores the natural pelvis world basis after the second eye; the latest run observed 64 such writes with zero vertical offset. Vertical actor position, grounding and collision remain game-owned. A separate visual-animation contract is now required: horizontal room-scale displacement should drive a walk animation comparable to stick locomotion without moving the collision actor solely because the player walked inside the tracking area. Explicit controller crouch still uses the native action.
+Physical crouch is detected from calibrated HMD-height change with hysteresis. The current host candidate merges that state with the mapped controller crouch action before the native gameplay-input transaction, so lowering the headset requests the shipped crouch action and should drive the game's crouched body animation while preserving native collision/physics ownership. The room-scale body overlay still applies only the mapped horizontal component to the local pelvis/skeleton for both eye renders and restores the natural pelvis world basis after the second eye. Vertical actor position, grounding and collision remain game-owned. Horizontal room-scale displacement still needs a separate stick-equivalent visual locomotion animation contract.
 
 ## Body IK
 
@@ -168,8 +177,9 @@ For the observed exact model:
 - FORETWIST behaves as a sibling of forearm beneath upper;
 - hand follows forearm and does not inherit FORETWIST roll;
 - `EBones` ordering is semantic numbering, not parentage;
-- visible writes use exact-build `RotateElementWithChildren(ILVector;F)V` with element-local axes;
-- child/parent restoration is verified against the captured natural state and failures disable further mutation.
+- the earlier visible writer `RotateElementWithChildren(ILVector;F)V` post-multiplies an element and then enters the engine's recursive child/notification path at `ChromeEngine3 + 0x82F00`;
+- the current candidate precomputes complete upper/forearm/FORETWIST/hand world frames and writes each explicitly through `FromUpForwardPosElementWorld`, avoiding that recursive propagation boundary;
+- natural orientation bases are restored after stereo capture while captured world positions are rebased by any actor translation that occurred during the transaction; restoration is verified against that rebased state and failure disables further mutation.
 
 The visible writer and restore path are live-exercised, but the previous Body IK
 candidate remains visually rejected. Its positional gate returned ownership to
@@ -180,11 +190,38 @@ Current host code keeps positional ownership for every valid finite solver plan,
 including hard-clamped targets, while the separate conservative upper/forearm
 rotation gate, 30-degree hand-residual limit, disabled FORETWIST controller roll,
 reload yielding, rollback and restoration remain unchanged. This continuity
-change is **implemented / host-tested** and still needs physical anatomy/reach
-validation. Shoulder/clavicle participation remains a separate measured
+change is **live-exercised technically** with relatively stable tracked hands,
+but visible short arms still reject physical anatomy/reach acceptance.
+Shoulder/clavicle participation remains a separate measured
 experiment. Lower-body writing remains unpromoted.
 
+The physical run with the absolute-frame writer removed the earlier severe
+locomotion/performance regression: the operator reported a dramatic recovery in
+movement while Body IK remained active. That run exposed a narrower ownership
+bug instead. After joystick locomotion, an arm branch could restore to the world
+position captured before the actor moved, leaving the hand behind and stretching
+the mesh back toward the player; a native reload animation re-synchronized it.
+Rebasing the captured natural positions by the same-frame actor translation
+reduced but did not eliminate the failure. Follow-up evidence shows a second
+boundary: shoulder/elbow/wrist and all arm element positions can remain fixed in
+world space across adjacent frames while the actor keeps moving. The current host
+candidate therefore keeps the same-frame restore rebase and additionally detects
+only a complete positional branch that stayed unchanged while the actor moved;
+that stale natural sample is translated by the inter-frame actor delta before the
+next IK solve. Native geometry that actually animates is left untouched. Both
+continuity corrections are **implemented / host-tested** and the combined result
+is the next physical Body IK gate.
+
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
+Arm apply/restore elapsed times are measured while IK or movement tracing is
+enabled. Sampled timing events mark body-observation frames; movement tracing
+also retains per-frame durations and IK state, so observation/logging cost can
+be distinguished from ordinary frames. Timing diagnostics cannot accept visual
+anatomy or establish a locomotion cause without physical evidence.
+When movement tracing is enabled, sampled actor-position observations also bracket
+upper-body and arm application, room-scale application/restoration, both eye draws
+and arm restoration. These are read-only observations of the native position;
+they do not repair actor state or surrender collision/physics ownership.
 
 ## Weapon ownership
 
@@ -198,7 +235,7 @@ The controller `/pose/tip` drives per-hand aim direction and visual origin throu
 
 For local fire, shipped bytecode shows that `InputDigital.Translate` selects the requested hand/fire state while the actual attack runs later through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`. On the fire press transition, the adapter captures the native `Being.m_vLookFromPoint` value and publishes the selected controller origin for that pending native attack. A failed `Translate` rolls the field back immediately; on success, the later shipped `UpdateLookAndAimPoints` pass reclaims normal ownership after the attack transition. Held-fire frames do not repeatedly republish the field, and normal gameplay no longer creates a diagnostic `LaserPointer` object.
 
-The attack-transition fire-origin path is physically exercised, but visible/ballistic origin and direction remain rejected. Current diagnostics emit `controller_aim_geometry` and `controller_aim_fire_transition`; the latest run produced 120 grip-to-tip axis samples with local `-Z` at `0.939388..0.939389`, strongly confirming the Sense tip direction convention. The remaining weapon contract is therefore downstream: the visible weapon pose, muzzle/barrel origin and ballistic path must agree. A temporary controller-tip gameplay ray may be rendered solely to compare tracked direction against the visible weapon; it is diagnostic and is not the production shot origin.
+The attack-transition fire-origin path is physically exercised, but visible/ballistic origin and direction remain rejected. Current diagnostics emit `controller_aim_geometry` and `controller_aim_fire_transition`; the latest run produced 120 grip-to-tip axis samples with local `-Z` at `0.939388..0.939389`, strongly confirming the Sense tip direction convention. The current host candidate adds a gameplay reticle sourced from the same exact world-space controller aim origin/direction used by the firing path. After both eye renders, that ray is projected through each eye's exact applied camera basis and asymmetric frustum; normalized per-eye coordinates travel with the same captured frame through the D3D9 ring and are drawn onto the corresponding D3D11 native-stereo textures immediately before submission. The reticle is excluded from flat-theater/menu presentation and does not share the menu-pointer route. It is an alignment aid/diagnostic; native spread and the final ballistic result remain game-owned and require physical comparison against visible weapon aim and bullet impact.
 
 ## D3D9 native-stereo transport
 

@@ -375,6 +375,77 @@ ElementWorldBasisTarget BuildPivotedBasisTarget(
 
 } // namespace
 
+ArmGeometrySample RebaseArmGeometryForActorTranslation(
+    const ArmGeometrySample& natural,
+    const cojvr::runtime::Vec3 captured_actor_position,
+    const cojvr::runtime::Vec3 current_actor_position) noexcept {
+    if (!Finite(captured_actor_position) || !Finite(current_actor_position)) return natural;
+
+    const cojvr::runtime::Vec3 delta = Subtract(current_actor_position, captured_actor_position);
+    ArmGeometrySample result = natural;
+    result.shoulder = Add(result.shoulder, delta);
+    result.elbow = Add(result.elbow, delta);
+    result.wrist = Add(result.wrist, delta);
+    result.upper_element_position = Add(result.upper_element_position, delta);
+    result.forearm_element_position = Add(result.forearm_element_position, delta);
+    result.foretwist_element_position = Add(result.foretwist_element_position, delta);
+    result.hand_element_position = Add(result.hand_element_position, delta);
+    return result;
+}
+
+ArmGeometryContinuityUpdate StabilizeArmGeometryAcrossActorMotion(
+    const ArmGeometrySample& current,
+    const cojvr::runtime::Vec3 current_actor_position,
+    const ArmGeometrySample& previous,
+    const cojvr::runtime::Vec3 previous_actor_position,
+    const bool previous_valid) noexcept {
+    ArmGeometryContinuityUpdate result{};
+    result.geometry = current;
+
+    const auto geometry_finite = [](const ArmGeometrySample& sample) noexcept {
+        return Finite(sample.shoulder) && Finite(sample.elbow) && Finite(sample.wrist) &&
+            Finite(sample.upper_element_position) && Finite(sample.upper_element_up) &&
+            Finite(sample.upper_element_forward) && Finite(sample.forearm_element_position) &&
+            Finite(sample.forearm_element_up) && Finite(sample.forearm_element_forward) &&
+            Finite(sample.foretwist_element_position) && Finite(sample.foretwist_element_up) &&
+            Finite(sample.foretwist_element_forward) && Finite(sample.hand_element_position) &&
+            Finite(sample.hand_element_up) && Finite(sample.hand_element_forward);
+    };
+    if (!geometry_finite(current) || !Finite(current_actor_position)) return result;
+    result.valid = true;
+    if (!previous_valid || !geometry_finite(previous) || !Finite(previous_actor_position)) {
+        return result;
+    }
+
+    constexpr float kActorMotionThresholdGameUnits = 0.25F;
+    constexpr float kWorldFixedPositionToleranceGameUnits = 0.02F;
+    const float actor_motion = Length(Subtract(current_actor_position, previous_actor_position));
+    if (!std::isfinite(actor_motion) || actor_motion <= kActorMotionThresholdGameUnits) {
+        return result;
+    }
+
+    const auto position_unchanged = [&](const cojvr::runtime::Vec3 current_position,
+                                        const cojvr::runtime::Vec3 previous_position) noexcept {
+        const float distance = Length(Subtract(current_position, previous_position));
+        return std::isfinite(distance) &&
+            distance <= kWorldFixedPositionToleranceGameUnits;
+    };
+    const bool complete_branch_world_fixed =
+        position_unchanged(current.shoulder, previous.shoulder) &&
+        position_unchanged(current.elbow, previous.elbow) &&
+        position_unchanged(current.wrist, previous.wrist) &&
+        position_unchanged(current.upper_element_position, previous.upper_element_position) &&
+        position_unchanged(current.forearm_element_position, previous.forearm_element_position) &&
+        position_unchanged(current.foretwist_element_position, previous.foretwist_element_position) &&
+        position_unchanged(current.hand_element_position, previous.hand_element_position);
+    if (!complete_branch_world_fixed) return result;
+
+    result.geometry = RebaseArmGeometryForActorTranslation(
+        current, previous_actor_position, current_actor_position);
+    result.rebased_world_fixed = true;
+    return result;
+}
+
 ArmGeometryRestoreCheck CheckArmGeometryRestored(
     const ArmGeometrySample& natural,
     const ArmGeometrySample& restored) noexcept {
@@ -574,8 +645,24 @@ bool CoJPhysicalCrouchState::Update(
 bool ResolveCoJCrouchAction(
     const bool requested_native_crouch,
     const bool physical_crouch_detected) noexcept {
-    (void)physical_crouch_detected;
-    return requested_native_crouch;
+    return requested_native_crouch || physical_crouch_detected;
+}
+
+cojvr::runtime::Vec2 RotateCoJMoveForHeadRelativeYaw(
+    const cojvr::runtime::Vec2 move,
+    const float head_yaw_degrees) noexcept {
+    if (!std::isfinite(move.x) || !std::isfinite(move.y) ||
+        !std::isfinite(head_yaw_degrees)) {
+        return {};
+    }
+    constexpr float kDegreesToRadians = 0.017453292519943295F;
+    const float radians = head_yaw_degrees * kDegreesToRadians;
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    return {
+        move.x * cosine + move.y * sine,
+        -move.x * sine + move.y * cosine,
+    };
 }
 
 PlayerSpaceReconciliation ReconcilePlayerSpace(
@@ -997,6 +1084,105 @@ BoneRotationDelta BuildSafeCoJHandResidual(BoneRotationDelta residual) noexcept 
     residual.angle_degrees = 0.0F;
     residual.no_op = true;
     return residual;
+}
+
+ArmElementFramePlan BuildArmElementFramePlan(
+    const ArmGeometrySample& natural,
+    const ArmIkPlan& ik,
+    const ArmBoneRotationPlan& rotations,
+    const HandOrientationTarget& hand_target) noexcept {
+    ArmElementFramePlan result{};
+    const auto valid_rotation = [](const BoneRotationDelta& rotation) noexcept {
+        return rotation.valid && Finite(rotation.axis) &&
+            std::isfinite(rotation.angle_degrees) &&
+            (rotation.no_op || Length(rotation.axis) > 0.99F);
+    };
+    if (!ik.valid || !rotations.valid || !hand_target.valid ||
+        !ik.upper_arm.valid || !ik.forearm.valid ||
+        !valid_rotation(rotations.upper_arm) || !valid_rotation(rotations.forearm) ||
+        !Finite(natural.shoulder) || !Finite(natural.elbow) || !Finite(natural.wrist) ||
+        !Finite(natural.foretwist_element_position) ||
+        !Finite(natural.hand_element_position) ||
+        !Finite(natural.hand_element_up) || !Finite(natural.hand_element_forward)) {
+        return result;
+    }
+
+    const auto apply_rotation = [](cojvr::runtime::Vec3 value,
+                                   const BoneRotationDelta& rotation) noexcept {
+        return rotation.no_op
+            ? value
+            : RotateAroundAxis(value, rotation.axis, rotation.angle_degrees);
+    };
+    const auto rotate_point = [&](cojvr::runtime::Vec3 point,
+                                  const cojvr::runtime::Vec3 pivot,
+                                  const BoneRotationDelta& rotation) noexcept {
+        return Add(pivot, apply_rotation(Subtract(point, pivot), rotation));
+    };
+    const auto apply_swing = [&](cojvr::runtime::Vec3 value) noexcept {
+        return apply_rotation(apply_rotation(value, rotations.upper_arm), rotations.forearm);
+    };
+
+    result.upper_arm = ik.upper_arm;
+    result.forearm = ik.forearm;
+
+    cojvr::runtime::Vec3 post_ik_hand_up = apply_swing(natural.hand_element_up);
+    cojvr::runtime::Vec3 post_ik_hand_forward = apply_swing(natural.hand_element_forward);
+    if (!NormalizeBasis(post_ik_hand_up, post_ik_hand_forward)) return {};
+
+    const HandOrientationRotationPlan orientation_plan = BuildHandOrientationRotationPlan(
+        Subtract(ik.wrist_target, ik.elbow_target),
+        post_ik_hand_up,
+        post_ik_hand_forward,
+        hand_target);
+    if (!orientation_plan.valid) return {};
+    result.requested_forearm_twist_degrees = orientation_plan.forearm_twist.angle_degrees;
+    result.forearm_twist = LimitRotationMagnitude(
+        orientation_plan.forearm_twist, CoJArmControllerTwistLimitDegrees());
+    if (!valid_rotation(result.forearm_twist)) return {};
+    result.forearm_twist_limited =
+        result.forearm_twist.angle_degrees + 0.001F <
+        result.requested_forearm_twist_degrees;
+
+    const ArmSkinningPlan skinning = BuildArmSkinningPlan(
+        natural,
+        rotations,
+        result.forearm_twist,
+        post_ik_hand_up,
+        post_ik_hand_forward);
+    if (!skinning.valid) return {};
+
+    cojvr::runtime::Vec3 foretwist_position = rotate_point(
+        natural.foretwist_element_position, natural.shoulder, rotations.upper_arm);
+    foretwist_position = rotate_point(
+        foretwist_position, ik.elbow_target, rotations.forearm);
+    foretwist_position = rotate_point(
+        foretwist_position, ik.elbow_target, result.forearm_twist);
+    result.foretwist.position = foretwist_position;
+    result.foretwist.up = skinning.foretwist.up;
+    result.foretwist.forward = skinning.foretwist.forward;
+    result.foretwist.valid = Finite(result.foretwist.position) &&
+        NormalizeBasis(result.foretwist.up, result.foretwist.forward);
+    if (!result.foretwist.valid) return {};
+
+    cojvr::runtime::Vec3 hand_position = rotate_point(
+        natural.hand_element_position, natural.shoulder, rotations.upper_arm);
+    hand_position = rotate_point(hand_position, ik.elbow_target, rotations.forearm);
+    hand_position = rotate_point(hand_position, ik.elbow_target, result.forearm_twist);
+
+    result.diagnostic_hand_residual = BuildHandResidualRotationDelta(
+        skinning.hand.up, skinning.hand.forward, hand_target);
+    if (!valid_rotation(result.diagnostic_hand_residual)) return {};
+    result.hand_residual = BuildSafeCoJHandResidual(result.diagnostic_hand_residual);
+    if (!valid_rotation(result.hand_residual)) return {};
+
+    result.hand.position = hand_position;
+    result.hand.up = apply_rotation(skinning.hand.up, result.hand_residual);
+    result.hand.forward = apply_rotation(skinning.hand.forward, result.hand_residual);
+    result.hand.valid = Finite(result.hand.position) &&
+        NormalizeBasis(result.hand.up, result.hand.forward);
+    result.valid = result.upper_arm.valid && result.forearm.valid &&
+        result.foretwist.valid && result.hand.valid;
+    return result;
 }
 
 cojvr::runtime::Vec3 BuildTrackedHandTarget(

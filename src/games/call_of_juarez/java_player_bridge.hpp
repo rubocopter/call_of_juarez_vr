@@ -18,6 +18,8 @@ struct JavaPlayerPosition {
 // shipped GameObject.GetThisID handle, valid only during the game-thread call.
 using CoJNativeUiMouseDispatch = bool(*)(
     std::uint32_t object_id, float pixel_x, float pixel_y, std::string* error) noexcept;
+using CoJNativeUiMouseButtonDispatch = bool(*)(
+    std::uint32_t object_id, std::string* error) noexcept;
 
 struct CoJJniDiagnosticState {
     bool vm_cached = false;
@@ -279,6 +281,17 @@ public:
     // "press a key" gate; ordinary menus keep their Enter helper route.
     [[nodiscard]] bool TryDispatchUiSelectPress(
         bool require_loading_ui,
+        bool* current_ui_is_loading = nullptr,
+        std::string* error = nullptr,
+        bool* paused_hint_dismissed = nullptr,
+        CoJUiDispatchRoute* route = nullptr) noexcept;
+    // Route a ray-trigger press through the same native mouse context used by
+    // hover. Startup/loading and paused hints retain their dedicated shipped
+    // input paths; ordinary menu roots dispatch native left mouse instead of
+    // the keyboard/global Enter helper.
+    [[nodiscard]] bool TryDispatchUiPointerSelectPress(
+        bool require_loading_ui,
+        CoJNativeUiMouseButtonDispatch dispatch_button,
         bool* current_ui_is_loading = nullptr,
         std::string* error = nullptr,
         bool* paused_hint_dismissed = nullptr,

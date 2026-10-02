@@ -176,12 +176,23 @@ struct AppliedArmElementRotation {
     BoneRotationDelta hand_rotation{};
     HandOrientationTarget hand_target{};
     ArmGeometrySample natural_geometry{};
+    cojvr::runtime::Vec3 actor_position_at_capture{};
     ArmGeometrySample post_write_geometry{};
     bool post_write_geometry_valid = false;
     bool active = false;
 };
 AppliedArmElementRotation g_left_arm_rotation{};
 AppliedArmElementRotation g_right_arm_rotation{};
+struct ArmGeometryContinuityState {
+    std::uint64_t being_generation = 0;
+    std::uint64_t recenter_sequence = 0;
+    ArmGeometrySample geometry{};
+    cojvr::runtime::Vec3 actor_position{};
+    std::uint64_t rebase_count = 0;
+    bool valid = false;
+};
+ArmGeometryContinuityState g_left_arm_geometry_continuity{};
+ArmGeometryContinuityState g_right_arm_geometry_continuity{};
 bool g_arm_rotation_faulted = false;
 struct AppliedRoomScaleBodyOffset {
     std::uint64_t being_generation = 0;
@@ -281,6 +292,7 @@ struct StereoEyeOverride {
     bool projection_applied = false;
     bool renderer_camera_match = false;
     CameraProbeVector applied_position{};
+    CameraProbeBasis applied_basis{};
     CameraProbeFrustum applied_frustum{};
 };
 
@@ -652,6 +664,70 @@ bool DispatchNativeUiMouse(
     // then emits enter/move/leave to the real controls and their child sprites.
     const auto move = reinterpret_cast<SpriteMouseMove>(g_engine_base + kSpriteMouseMoveRva);
     move(sprite, previous.data(), target.data(), buttons);
+    return true;
+}
+
+bool DispatchNativeUiMouseButton(
+    const std::uint32_t object_id,
+    std::string* error) noexcept {
+    constexpr std::uintptr_t kMouseButtonRva = 0x000CC420;
+    constexpr std::uintptr_t kDynamicCastRva = 0x0029CF4E;
+    constexpr std::uintptr_t kGameObjectTypeRva = 0x0037E72C;
+    constexpr std::uintptr_t kSpriteTypeRva = 0x0037E75C;
+    constexpr std::uintptr_t kEngineImageSize = 0x0060C000;
+    if (!g_engine_base || !g_installed.load(std::memory_order_acquire) || !object_id) {
+        SetError(error, "verified native UI mouse-button profile is unavailable");
+        return false;
+    }
+    const auto pointer_at = [](const void* owner, const std::size_t offset) -> void* {
+        return *reinterpret_cast<void* const*>(static_cast<const std::byte*>(owner) + offset);
+    };
+    const auto in_image = [](const void* pointer) {
+        const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+        const auto base = reinterpret_cast<std::uintptr_t>(g_engine_base);
+        return address >= base && address - base < kEngineImageSize;
+    };
+    auto* handle = reinterpret_cast<void*>(static_cast<std::uintptr_t>(object_id));
+    if (!IsReadable(handle, 8)) {
+        SetError(error, "active UI native handle is unreadable");
+        return false;
+    }
+    void* binding = pointer_at(handle, 4);
+    if (!IsReadable(binding, 8)) {
+        SetError(error, "active UI native binding is unavailable");
+        return false;
+    }
+    void* object = pointer_at(binding, 4);
+    if (!IsReadable(object, sizeof(void*)) || !in_image(pointer_at(object, 0))) {
+        SetError(error, "active UI native object identity is invalid");
+        return false;
+    }
+    using CastSprite = void*(__cdecl*)(void*, long, void*, void*, int);
+    const auto cast = reinterpret_cast<CastSprite>(g_engine_base + kDynamicCastRva);
+    auto* sprite = static_cast<std::byte*>(cast(object, 0,
+        g_engine_base + kGameObjectTypeRva, g_engine_base + kSpriteTypeRva, 0));
+    if (!IsReadable(sprite, 0x184) || !in_image(pointer_at(sprite, 0)) ||
+        *reinterpret_cast<const std::uint8_t*>(sprite + 0xCC) == 0) {
+        SetError(error, "active UI native sprite mouse processing is unavailable");
+        return false;
+    }
+    auto* context = static_cast<std::byte*>(pointer_at(sprite, 0x180));
+    if (!context) {
+        auto* module = static_cast<std::byte*>(pointer_at(sprite, 0x24));
+        if (!IsReadable(module, 0xF4 + 0x50)) {
+            SetError(error, "active UI mouse module is unavailable");
+            return false;
+        }
+        context = module + 0xF4;
+    }
+    if (!IsReadable(context, 0x50) || !IsWritable(context + 0x40, sizeof(int))) {
+        SetError(error, "active UI mouse context is unavailable");
+        return false;
+    }
+    using MouseButton = void(__thiscall*)(void*, int, bool);
+    const auto dispatch = reinterpret_cast<MouseButton>(g_engine_base + kMouseButtonRva);
+    dispatch(context, 0, true);
+    dispatch(context, 0, false);
     return true;
 }
 
@@ -1652,6 +1728,8 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
         g_stereo_eye_override.camera_applied = orientation_applied;
         g_stereo_eye_override.renderer_camera_match = renderer_camera_match;
         g_stereo_eye_override.applied_position = applied_position;
+        g_stereo_eye_override.applied_basis = {
+            applied.forward, applied.up, applied_right};
     }
 
     if (!orientation_applied) return;
@@ -1824,6 +1902,54 @@ bool ShouldLogStereoFrame(const std::uint64_t frame_sequence) noexcept {
 
 bool ShouldObserveBodyFrame(const std::uint64_t frame_sequence) noexcept {
     return frame_sequence != 0 && (frame_sequence <= 8 || (frame_sequence % 90) == 0);
+}
+
+void ObserveBodyArmTiming(
+    const std::uint64_t frame_sequence, const char* phase,
+    const std::uint64_t duration_us, const bool body_ik_enabled) noexcept {
+    if (!body_ik_enabled || !ShouldObserveBodyFrame(frame_sequence)) return;
+    try {
+        std::ostringstream detail;
+        detail << "frame_sequence=" << frame_sequence
+               << ";phase=" << phase
+               << ";duration_us=" << duration_us
+               << ";body_ik_enabled=true;body_observation_frame=true";
+        EmitEvent("body_arm_timing", "sampled", detail.str());
+    } catch (...) {}
+}
+
+struct BodyActorObservation {
+    JavaPlayerPosition position{};
+    bool valid = false;
+};
+
+BodyActorObservation ReadBodyActorObservation() noexcept {
+    BodyActorObservation observation{};
+    observation.valid = g_java_player_bridge.TryGetPosition(observation.position, nullptr);
+    return observation;
+}
+
+BodyActorObservation ObserveBodyActorBoundary(
+    const BodyActorObservation& before,
+    const std::uint64_t frame_sequence, const char* stage) noexcept {
+    const auto after = ReadBodyActorObservation();
+    try {
+        const bool valid = before.valid && after.valid;
+        const bool changed = valid &&
+            (before.position.x != after.position.x || before.position.y != after.position.y ||
+             before.position.z != after.position.z);
+        std::ostringstream detail;
+        detail << std::fixed << std::setprecision(6)
+               << "frame_sequence=" << frame_sequence
+               << ";stage=" << stage
+               << ";before_valid=" << (before.valid ? "true" : "false")
+               << ";after_valid=" << (after.valid ? "true" : "false")
+               << ";before=(" << before.position.x << ',' << before.position.y << ',' << before.position.z << ')'
+               << ";after=(" << after.position.x << ',' << after.position.y << ',' << after.position.z << ')'
+               << ";actor_write=false;observer=GetPositionVectorVolatile";
+        EmitEvent("body_actor_boundary", !valid ? "unavailable" : (changed ? "changed" : "unchanged"), detail.str());
+    } catch (...) {}
+    return after;
 }
 
 void ObservePlayerSkeleton(
@@ -2361,7 +2487,7 @@ void ObserveAppliedArmRenderState(
            << ";hand_element_up=" << RuntimeVectorText(rendered.hand_element_up)
            << ";hand_element_forward="
            << RuntimeVectorText(rendered.hand_element_forward)
-           << ";writer=RotateElementWithChildren";
+           << ";writer=FromUpForwardPosElementWorld";
     EmitEvent(
         "body_arm_render_probe",
         changed_from_natural ? "changed" : "natural",
@@ -2418,6 +2544,11 @@ bool ReadLegGeometry(
     return true;
 }
 
+bool RestoreNaturalArmElementFrames(
+    bool left,
+    const ArmGeometrySample& natural,
+    std::string* error) noexcept;
+
 bool ApplyArmPlan(
     const bool left,
     const ArmIkPlan& plan,
@@ -2444,7 +2575,7 @@ bool ApplyArmPlan(
     forearm_twist_limited = false;
     skinning_axis_error = std::numeric_limits<float>::infinity();
     if (!plan.valid || !rotations.valid || !hand_target.valid) {
-        if (error) *error = "arm element/orientation rotation plan is invalid";
+        if (error) *error = "arm element/orientation frame plan is invalid";
         return false;
     }
 
@@ -2460,227 +2591,77 @@ bool ApplyArmPlan(
     const int hand = left
         ? g_arm_element_cache.left_hand
         : g_arm_element_cache.right_hand;
-    applied_rotations.upper_arm = ConvertWorldRotationToElementLocal(
-        rotations.upper_arm,
-        natural_geometry.upper_element_up,
-        natural_geometry.upper_element_forward);
-    if (!applied_rotations.upper_arm.valid) {
-        if (error) *error = "upper-arm world-to-element-local rotation conversion failed";
+    const ArmElementFramePlan frame_plan = BuildArmElementFramePlan(
+        natural_geometry, plan, rotations, hand_target);
+    if (!frame_plan.valid) {
+        if (error) *error = "absolute arm element frame plan is invalid";
         return false;
     }
-    bool upper_applied = false;
-    bool forearm_applied = false;
-    bool twist_applied = false;
-    bool hand_applied = false;
+    applied_rotations = rotations;
+    applied_forearm_twist = frame_plan.forearm_twist;
+    applied_hand_rotation = frame_plan.hand_residual;
+    diagnostic_hand_residual = frame_plan.diagnostic_hand_residual;
+    requested_forearm_twist_degrees = frame_plan.requested_forearm_twist_degrees;
+    forearm_twist_limited = frame_plan.forearm_twist_limited;
 
-    const auto rotate = [&](const int element,
-                            const BoneRotationDelta& rotation,
-                            const float sign,
-                            std::string* rotate_error) noexcept {
-        if (rotation.no_op) return true;
-        return g_java_player_bridge.TryRotateElementWithChildren(
-            element,
-            JavaVector(rotation.axis),
-            rotation.angle_degrees * sign,
-            rotate_error);
+    bool any_write = false;
+    const auto write_frame = [&](const int element,
+                                 const ElementWorldBasisTarget& target,
+                                 const char* label) noexcept {
+        std::string write_error;
+        if (g_java_player_bridge.TrySetElementWorldBasis(
+                element,
+                JavaVector(target.up),
+                JavaVector(target.forward),
+                JavaVector(target.position),
+                &write_error)) {
+            any_write = true;
+            return true;
+        }
+        if (error) {
+            *error = std::string(label) + " absolute world-frame write failed";
+            if (!write_error.empty()) *error += ": " + write_error;
+        }
+        return false;
     };
-    const auto rollback_chain = [&]() noexcept {
-        if (!upper_applied && !forearm_applied && !twist_applied && !hand_applied) return;
+    const auto rollback_frames = [&]() noexcept {
+        if (!any_write) return;
         rollback_attempted = true;
-        std::string hand_error;
-        std::string twist_error;
-        std::string forearm_error;
-        std::string upper_error;
-        const bool hand_ok = !hand_applied || rotate(
-            hand, applied_hand_rotation, -1.0F, &hand_error);
-        const bool twist_ok = !twist_applied || rotate(
-            foretwist, applied_forearm_twist, -1.0F, &twist_error);
-        const bool forearm_ok = !forearm_applied || rotate(
-            forearm, applied_rotations.forearm, -1.0F, &forearm_error);
-        const bool upper_ok = !upper_applied || rotate(
-            upper, applied_rotations.upper_arm, -1.0F, &upper_error);
-        rollback_ok = hand_ok && twist_ok && forearm_ok && upper_ok;
+        std::string restore_error;
+        rollback_ok = RestoreNaturalArmElementFrames(left, natural_geometry, &restore_error);
         if (!rollback_ok && error) {
             if (!error->empty()) *error += "; ";
-            *error += "arm RotateElementWithChildren rollback failed";
-            if (!hand_error.empty()) *error += "; hand_rollback=" + hand_error;
-            if (!twist_error.empty()) *error += "; twist_rollback=" + twist_error;
-            if (!forearm_error.empty()) *error += "; forearm_rollback=" + forearm_error;
-            if (!upper_error.empty()) *error += "; upper_rollback=" + upper_error;
+            *error += "absolute arm frame rollback failed";
+            if (!restore_error.empty()) *error += ": " + restore_error;
         }
     };
 
+    if (!write_frame(upper, frame_plan.upper_arm, "upper-arm")) return false;
+    if (!write_frame(forearm, frame_plan.forearm, "forearm")) {
+        rollback_frames();
+        return false;
+    }
+    if (!write_frame(foretwist, frame_plan.foretwist, "foretwist")) {
+        rollback_frames();
+        return false;
+    }
+    if (!write_frame(hand, frame_plan.hand, "hand")) {
+        rollback_frames();
+        return false;
+    }
+
     std::string write_error;
-    if (!rotate(upper, applied_rotations.upper_arm, 1.0F, &write_error)) {
-        if (error) *error = write_error;
-        return false;
-    }
-    upper_applied = !applied_rotations.upper_arm.no_op;
-
-    JavaPlayerPosition forearm_position{};
-    JavaPlayerPosition forearm_up{};
-    JavaPlayerPosition forearm_forward{};
-    if (!g_java_player_bridge.TryGetElementWorldBasis(
-            forearm,
-            forearm_position,
-            forearm_up,
-            forearm_forward,
-            &write_error)) {
-        if (error) {
-            *error = "post-parent forearm basis read failed";
-            if (!write_error.empty()) *error += ": " + write_error;
-        }
-        rollback_chain();
-        return false;
-    }
-    applied_rotations.forearm = ConvertWorldRotationToElementLocal(
-        rotations.forearm,
-        RuntimeVector(forearm_up),
-        RuntimeVector(forearm_forward));
-    applied_rotations.valid = applied_rotations.upper_arm.valid &&
-        applied_rotations.forearm.valid;
-    if (!applied_rotations.forearm.valid) {
-        if (error) *error = "forearm world-to-element-local rotation conversion failed";
-        rollback_chain();
-        return false;
-    }
-    if (!rotate(forearm, applied_rotations.forearm, 1.0F, &write_error)) {
-        if (error) *error = write_error;
-        rollback_chain();
-        return false;
-    }
-    forearm_applied = !applied_rotations.forearm.no_op;
-
-    JavaPlayerPosition foretwist_position{};
-    JavaPlayerPosition foretwist_up{};
-    JavaPlayerPosition foretwist_forward{};
-    JavaPlayerPosition hand_position{};
-    JavaPlayerPosition hand_up{};
-    JavaPlayerPosition hand_forward{};
-    if (!g_java_player_bridge.TryGetElementWorldBasis(
-            foretwist,
-            foretwist_position,
-            foretwist_up,
-            foretwist_forward,
-            &write_error) ||
-        !g_java_player_bridge.TryGetElementWorldBasis(
-            hand,
-            hand_position,
-            hand_up,
-            hand_forward,
-            &write_error)) {
-        if (error) {
-            *error = "post-IK foretwist/hand basis read failed";
-            if (!write_error.empty()) *error += ": " + write_error;
-        }
-        rollback_chain();
-        return false;
-    }
-
-    const HandOrientationRotationPlan orientation_plan =
-        BuildHandOrientationRotationPlan(
-            {
-                plan.wrist_target.x - plan.elbow_target.x,
-                plan.wrist_target.y - plan.elbow_target.y,
-                plan.wrist_target.z - plan.elbow_target.z,
-            },
-            RuntimeVector(hand_up),
-            RuntimeVector(hand_forward),
-            hand_target);
-    if (!orientation_plan.valid) {
-        if (error) *error = "controller-driven hand orientation plan is invalid";
-        rollback_chain();
-        return false;
-    }
-    requested_forearm_twist_degrees = orientation_plan.forearm_twist.angle_degrees;
-    const float controller_twist_limit_degrees = CoJArmControllerTwistLimitDegrees();
-    const BoneRotationDelta bounded_forearm_twist = LimitRotationMagnitude(
-        orientation_plan.forearm_twist, controller_twist_limit_degrees);
-    if (!bounded_forearm_twist.valid) {
-        if (error) *error = "bounded controller-driven forearm twist is invalid";
-        rollback_chain();
-        return false;
-    }
-    forearm_twist_limited =
-        bounded_forearm_twist.angle_degrees + 0.001F < requested_forearm_twist_degrees;
-
-    // FORETWIST is a sibling of forearm in the observed native hierarchy.
-    // Reconstruct its full swung frame, then apply the SAME axial roll to that
-    // skinning frame and the independently parented hand. Ordinal order does
-    // not imply hierarchy: the old path bent forearm but left FORETWIST behind.
-    const ArmSkinningPlan skinning = BuildArmSkinningPlan(
-        natural_geometry, rotations, bounded_forearm_twist,
-        RuntimeVector(hand_up), RuntimeVector(hand_forward));
-    if (!skinning.valid) {
-        if (error) *error = "arm sibling skinning plan is invalid";
-        rollback_chain();
-        return false;
-    }
-    const BoneRotationDelta skinning_rotation = BuildHandResidualRotationDelta(
-        RuntimeVector(foretwist_up), RuntimeVector(foretwist_forward), skinning.foretwist);
-    applied_forearm_twist = ConvertWorldRotationToElementLocal(
-        skinning_rotation,
-        RuntimeVector(foretwist_up),
-        RuntimeVector(foretwist_forward));
-    if (!applied_forearm_twist.valid) {
-        if (error) *error = "forearm twist world-to-element-local conversion failed";
-        rollback_chain();
-        return false;
-    }
-    if (!rotate(foretwist, applied_forearm_twist, 1.0F, &write_error)) {
-        if (error) *error = write_error;
-        rollback_chain();
-        return false;
-    }
-    twist_applied = !applied_forearm_twist.no_op;
-
-    if (!g_java_player_bridge.TryGetElementWorldBasis(
-            hand,
-            hand_position,
-            hand_up,
-            hand_forward,
-            &write_error)) {
-        if (error) {
-            *error = "post-forearm-twist hand basis read failed";
-            if (!write_error.empty()) *error += ": " + write_error;
-        }
-        rollback_chain();
-        return false;
-    }
-    const BoneRotationDelta observed_hand_residual = BuildHandResidualRotationDelta(
-        RuntimeVector(hand_up), RuntimeVector(hand_forward), hand_target);
-    if (!observed_hand_residual.valid) {
-        if (error) *error = "post-FORETWIST observed hand residual is invalid";
-        rollback_chain();
-        return false;
-    }
-    diagnostic_hand_residual = ConvertWorldRotationToElementLocal(
-        observed_hand_residual,
-        RuntimeVector(hand_up),
-        RuntimeVector(hand_forward));
-    if (!diagnostic_hand_residual.valid) {
-        if (error) *error = "hand world-to-element-local rotation conversion failed";
-        rollback_chain();
-        return false;
-    }
-
-    // Keep the rejected large FORETWIST roll disabled. Apply a small hand
-    // residual in its local frame, but leave the native hand pose untouched
-    // when the controller mismatch exceeds the measured safe bound.
-    applied_hand_rotation = BuildSafeCoJHandResidual(diagnostic_hand_residual);
-    if (!applied_hand_rotation.valid ||
-        !rotate(hand, applied_hand_rotation, 1.0F, &write_error)) {
-        if (error) *error = "bounded hand residual write failed: " + write_error;
-        rollback_chain();
-        return false;
-    }
-    hand_applied = !applied_hand_rotation.no_op;
     ArmGeometrySample verified{};
     const bool skinning_read = ReadArmGeometry(left, verified, &write_error);
     if (skinning_read) {
         const float errors[] = {
-            RuntimeVectorDistanceSquared(verified.foretwist_element_up, skinning.foretwist.up),
-            RuntimeVectorDistanceSquared(verified.foretwist_element_forward, skinning.foretwist.forward),
+            RuntimeVectorDistanceSquared(
+                verified.foretwist_element_up, frame_plan.foretwist.up),
+            RuntimeVectorDistanceSquared(
+                verified.foretwist_element_forward, frame_plan.foretwist.forward),
+            RuntimeVectorDistanceSquared(verified.hand_element_up, frame_plan.hand.up),
+            RuntimeVectorDistanceSquared(
+                verified.hand_element_forward, frame_plan.hand.forward),
         };
         skinning_axis_error = 0.0F;
         for (const float squared_error : errors) {
@@ -2692,20 +2673,11 @@ bool ApplyArmPlan(
         }
     }
     if (!skinning_read || !(skinning_axis_error <= 0.02F)) {
-        if (error) *error = "FORETWIST sibling skinning frame did not reach shared swing: " + write_error;
-        rollback_chain();
-        return false;
-    }
-    const float hand_error_before = std::max(
-        std::sqrt(RuntimeVectorDistanceSquared(RuntimeVector(hand_up), hand_target.up)),
-        std::sqrt(RuntimeVectorDistanceSquared(RuntimeVector(hand_forward), hand_target.forward)));
-    const float hand_error_after = std::max(
-        std::sqrt(RuntimeVectorDistanceSquared(verified.hand_element_up, hand_target.up)),
-        std::sqrt(RuntimeVectorDistanceSquared(verified.hand_element_forward, hand_target.forward)));
-    if (!std::isfinite(hand_error_before) || !std::isfinite(hand_error_after) ||
-        hand_error_after > hand_error_before + 0.02F) {
-        if (error) *error = "bounded hand residual increased controller-orientation error";
-        rollback_chain();
+        if (error) {
+            *error = "absolute arm element frames did not survive the native write";
+            if (!write_error.empty()) *error += ": " + write_error;
+        }
+        rollback_frames();
         return false;
     }
     return true;
@@ -2776,99 +2748,63 @@ bool RestoreAppliedArmRotation(
     const std::uint64_t frame_sequence,
     const char* transaction) noexcept {
     if (!applied.active) return true;
-    const int upper = left
-        ? g_arm_element_cache.left_upper_arm
-        : g_arm_element_cache.right_upper_arm;
-    const int forearm = left
-        ? g_arm_element_cache.left_forearm
-        : g_arm_element_cache.right_forearm;
-    const int foretwist = left
-        ? g_arm_element_cache.left_foretwist
-        : g_arm_element_cache.right_foretwist;
-    const int hand = left
-        ? g_arm_element_cache.left_hand
-        : g_arm_element_cache.right_hand;
-    const auto inverse = [&](const int element,
-                             const BoneRotationDelta& rotation,
-                             std::string* restore_error) noexcept {
-        if (rotation.no_op) return true;
-        return g_java_player_bridge.TryRotateElementWithChildren(
-            element,
-            JavaVector(rotation.axis),
-            -rotation.angle_degrees,
-            restore_error);
-    };
-
-    std::string hand_error;
-    std::string twist_error;
-    std::string forearm_error;
-    std::string upper_error;
-    const bool hand_ok = inverse(hand, applied.hand_rotation, &hand_error);
-    const bool twist_ok = inverse(foretwist, applied.forearm_twist, &twist_error);
-    const bool forearm_ok = inverse(forearm, applied.rotations.forearm, &forearm_error);
-    const bool upper_ok = inverse(upper, applied.rotations.upper_arm, &upper_error);
+    JavaPlayerPosition current_actor_position{};
+    std::string actor_position_error;
+    const bool actor_position_read = g_java_player_bridge.TryGetPosition(
+        current_actor_position, &actor_position_error);
+    const ArmGeometrySample restore_geometry = actor_position_read
+        ? RebaseArmGeometryForActorTranslation(
+              applied.natural_geometry,
+              applied.actor_position_at_capture,
+              RuntimeVector(current_actor_position))
+        : applied.natural_geometry;
+    std::string exact_restore_error;
+    const bool exact_restore_ok = RestoreNaturalArmElementFrames(
+        left, restore_geometry, &exact_restore_error);
     ArmGeometrySample restored_geometry{};
     std::string geometry_error;
-    bool geometry_read = hand_ok && twist_ok && forearm_ok && upper_ok &&
+    const bool geometry_read = exact_restore_ok &&
         ReadArmGeometry(left, restored_geometry, &geometry_error);
     ArmGeometryRestoreCheck restore_check{};
     if (geometry_read) {
         restore_check = CheckArmGeometryRestored(
-            applied.natural_geometry, restored_geometry);
+            restore_geometry, restored_geometry);
     }
-    const bool inverse_geometry_restored = geometry_read && restore_check.matches;
-    bool exact_restore_attempted = false;
-    bool exact_restore_ok = false;
-    bool geometry_restored = inverse_geometry_restored;
-    std::string exact_restore_error;
-    if (!geometry_restored) {
-        exact_restore_attempted = true;
-        exact_restore_ok = RestoreNaturalArmElementFrames(
-            left, applied.natural_geometry, &exact_restore_error);
-        if (exact_restore_ok) {
-            geometry_error.clear();
-            geometry_read = ReadArmGeometry(left, restored_geometry, &geometry_error);
-            if (geometry_read) {
-                restore_check = CheckArmGeometryRestored(
-                    applied.natural_geometry, restored_geometry);
-            }
-            geometry_restored = geometry_read && restore_check.matches;
-            exact_restore_ok = geometry_restored;
-        }
-    }
-    const bool restored = geometry_restored;
+    const bool geometry_restored = geometry_read && restore_check.matches;
+    const bool restored = actor_position_read && geometry_restored;
     applied.active = false;
     if (!restored) g_arm_rotation_faulted = true;
 
     const bool emit_restore_telemetry =
-        !restored || exact_restore_attempted || ShouldObserveBodyFrame(frame_sequence);
+        !restored || ShouldObserveBodyFrame(frame_sequence);
     try {
         if (!emit_restore_telemetry) return restored;
         std::ostringstream detail;
         detail << "frame_sequence=" << frame_sequence
                << ";side=" << (left ? "left" : "right")
-               << ";hand_restored=" << (hand_ok ? "true" : "false")
-               << ";forearm_twist_restored=" << (twist_ok ? "true" : "false")
-               << ";forearm_restored=" << (forearm_ok ? "true" : "false")
-               << ";upper_restored=" << (upper_ok ? "true" : "false")
+               << ";hand_restored=" << (exact_restore_ok ? "true" : "false")
+               << ";forearm_twist_restored=" << (exact_restore_ok ? "true" : "false")
+               << ";forearm_restored=" << (exact_restore_ok ? "true" : "false")
+               << ";upper_restored=" << (exact_restore_ok ? "true" : "false")
                << ";geometry_read=" << (geometry_read ? "true" : "false")
                << ";geometry_restored=" << (geometry_restored ? "true" : "false")
-               << ";writer=RotateElementWithChildren"
+               << ";writer=FromUpForwardPosElementWorld"
                << ";twist_owner=foretwist_element"
                << ";transaction=" << transaction
-               << ";inverse_geometry_restored="
-               << (inverse_geometry_restored ? "true" : "false")
-               << ";exact_restore_attempted="
-               << (exact_restore_attempted ? "true" : "false")
+               << ";inverse_geometry_restored=false"
+               << ";exact_restore_attempted=true"
                << ";exact_restore_ok=" << (exact_restore_ok ? "true" : "false")
+               << ";actor_rebase_read=" << (actor_position_read ? "true" : "false")
+               << ";actor_capture=" << RuntimeVectorText(applied.actor_position_at_capture)
+               << ";actor_current="
+               << RuntimeVectorText(RuntimeVector(current_actor_position))
                << ";restore_joint_error=" << restore_check.max_joint_position_error
                << ";restore_element_position_error="
                << restore_check.max_element_position_error
                << ";restore_axis_error=" << restore_check.max_axis_error;
-        if (!hand_error.empty()) detail << ";hand_detail=" << hand_error;
-        if (!twist_error.empty()) detail << ";forearm_twist_detail=" << twist_error;
-        if (!forearm_error.empty()) detail << ";forearm_detail=" << forearm_error;
-        if (!upper_error.empty()) detail << ";upper_detail=" << upper_error;
+        if (!actor_position_error.empty()) {
+            detail << ";actor_rebase_detail=" << actor_position_error;
+        }
         if (!geometry_error.empty()) detail << ";geometry_detail=" << geometry_error;
         if (!exact_restore_error.empty()) {
             detail << ";exact_restore_detail=" << exact_restore_error;
@@ -2938,6 +2874,8 @@ bool RecoverArmTrackingAfterRecenter(
         g_arm_rotation_faulted = false;
         g_left_arm_rotation = {};
         g_right_arm_rotation = {};
+        g_left_arm_geometry_continuity = {};
+        g_right_arm_geometry_continuity = {};
     }
 
     try {
@@ -2961,6 +2899,7 @@ bool RecoverArmTrackingAfterRecenter(
 
 void UpdatePlayerArmTracking(
     const CameraRenderStateSnapshot& natural_render_state,
+    const cojvr::runtime::Vec3 actor_position,
     const bool body_ik_enabled,
     const bool allow_write,
     const std::uint64_t frame_sequence) noexcept {
@@ -3048,6 +2987,43 @@ void UpdatePlayerArmTracking(
                 }
                 return;
             }
+            const ArmGeometrySample raw_geometry = geometry;
+            const std::uint64_t recenter_sequence =
+                g_pose_tracker.last_recenter_sequence();
+            auto& geometry_continuity = left
+                ? g_left_arm_geometry_continuity
+                : g_right_arm_geometry_continuity;
+            if (geometry_continuity.being_generation != generation ||
+                geometry_continuity.recenter_sequence != recenter_sequence) {
+                geometry_continuity = {};
+            }
+            const bool continuity_previous_valid =
+                geometry_continuity.valid && !g_arm_rotation_faulted;
+            const ArmGeometryContinuityUpdate continuity_update =
+                StabilizeArmGeometryAcrossActorMotion(
+                    raw_geometry,
+                    actor_position,
+                    geometry_continuity.geometry,
+                    geometry_continuity.actor_position,
+                    continuity_previous_valid);
+            geometry_continuity.being_generation = generation;
+            geometry_continuity.recenter_sequence = recenter_sequence;
+            geometry_continuity.geometry = continuity_update.geometry;
+            geometry_continuity.actor_position = actor_position;
+            geometry_continuity.valid = continuity_update.valid;
+            if (continuity_update.rebased_world_fixed) {
+                ++geometry_continuity.rebase_count;
+            }
+            if (!continuity_update.valid) {
+                if (observe) {
+                    EmitEvent(
+                        "body_arm_tracking", "unavailable",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=geometry_continuity");
+                }
+                return;
+            }
+            geometry = continuity_update.geometry;
             if (!controller.orientation_valid) {
                 if (observe) {
                     EmitEvent(
@@ -3068,8 +3044,6 @@ void UpdatePlayerArmTracking(
             auto& orientation_calibration = left
                 ? g_left_hand_orientation
                 : g_right_hand_orientation;
-            const std::uint64_t recenter_sequence =
-                g_pose_tracker.last_recenter_sequence();
             const bool generation_changed =
                 orientation_calibration.being_generation != generation;
             const bool recenter_rebase =
@@ -3141,6 +3115,10 @@ void UpdatePlayerArmTracking(
                 natural_probe << "frame_sequence=" << frame_sequence
                               << ";side=" << side
                               << ";phase=before_write"
+                              << ";continuity_rebased_world_fixed="
+                              << (continuity_update.rebased_world_fixed ? "true" : "false")
+                              << ";continuity_rebase_count="
+                              << geometry_continuity.rebase_count
                               << ";elbow=" << RuntimeVectorText(geometry.elbow)
                               << ";wrist=" << RuntimeVectorText(geometry.wrist)
                               << ";upper_element_position="
@@ -3170,7 +3148,7 @@ void UpdatePlayerArmTracking(
                               << ";hand_target_up=" << RuntimeVectorText(hand_target.up)
                               << ";hand_target_forward="
                               << RuntimeVectorText(hand_target.forward)
-                              << ";writer=RotateElementWithChildren";
+                              << ";writer=FromUpForwardPosElementWorld";
                 EmitEvent("body_arm_write_probe", "natural", natural_probe.str());
             }
             bool write_ok = false;
@@ -3218,6 +3196,7 @@ void UpdatePlayerArmTracking(
                     applied.hand_rotation = applied_hand_rotation;
                     applied.hand_target = hand_target;
                     applied.natural_geometry = geometry;
+                    applied.actor_position_at_capture = actor_position;
                     applied.post_write_geometry = {};
                     applied.active = true;
                     std::string post_write_error;
@@ -3299,7 +3278,7 @@ void UpdatePlayerArmTracking(
                                   << ";hand_element_forward="
                                   << RuntimeVectorText(
                                          applied.post_write_geometry.hand_element_forward)
-                                  << ";writer=RotateElementWithChildren";
+                                  << ";writer=FromUpForwardPosElementWorld";
                             EmitEvent(
                                 "body_arm_write_probe",
                                 changed ? "changed" : "natural",
@@ -3308,7 +3287,7 @@ void UpdatePlayerArmTracking(
                             EmitEvent(
                                 "body_arm_write_probe", "unavailable",
                                 "frame_sequence=" + std::to_string(frame_sequence) +
-                                    ";side=" + side + ";phase=after_write;writer=RotateElementWithChildren;detail=" +
+                                    ";side=" + side + ";phase=after_write;writer=FromUpForwardPosElementWorld;detail=" +
                                     post_write_error);
                         }
                     }
@@ -3319,10 +3298,10 @@ void UpdatePlayerArmTracking(
                                 "post-write arm geometry could not be read: " + post_write_error;
                         } else if (expects_change && !changed) {
                             write_error =
-                                "RotateElementWithChildren returned without changing arm geometry";
+                                "absolute world-frame writer returned without changing arm geometry";
                         } else if (!targets_reached) {
                             write_error =
-                                "render-element rotation did not reach the solved elbow/wrist targets";
+                                "absolute world-frame writer did not reach the solved elbow/wrist targets";
                         }
                         g_arm_rotation_faulted = true;
                         rollback_attempted = true;
@@ -3353,6 +3332,9 @@ void UpdatePlayerArmTracking(
                        << (native_weapon_reloading ? "true" : "false")
                        << ";native_animation_owns_arms="
                        << (native_animation_owns_arms ? "true" : "false")
+                       << ";continuity_rebased_world_fixed="
+                       << (continuity_update.rebased_world_fixed ? "true" : "false")
+                       << ";continuity_rebase_count=" << geometry_continuity.rebase_count
                        << ";head_anchor=" << RuntimeVectorText(RuntimeVector(head_joint))
                        << ";tracked_head=" << RuntimeVectorText(tracked_body.head.position)
                        << ";tracked_hand=" << RuntimeVectorText(controller.position)
@@ -3421,7 +3403,7 @@ void UpdatePlayerArmTracking(
                        << ";forearm_twist_no_op="
                        << (applied_forearm_twist.no_op ? "true" : "false")
                        << ";twist_owner=foretwist_element"
-                       << ";hand_residual_source=post_foretwist_observed_basis"
+                       << ";hand_residual_source=precomputed_skinning_basis"
                        << ";hand_residual_native_axis="
                        << RuntimeVectorText(diagnostic_hand_residual.axis)
                        << ";hand_residual_degrees="
@@ -3445,7 +3427,7 @@ void UpdatePlayerArmTracking(
                        << applied_hand_rotation.angle_degrees
                        << ";hand_rotation_no_op="
                        << (applied_hand_rotation.no_op ? "true" : "false")
-                       << ";native_axis_space=element_local"
+                       << ";rotation_axis_space=world"
                        << ";elbow_target_error=" << elbow_target_error
                        << ";wrist_target_error=" << wrist_target_error
                        << ";targets_reached=" << (targets_reached ? "true" : "false")
@@ -3478,7 +3460,7 @@ void UpdatePlayerArmTracking(
                        << ";hand_orientation=calibrated_controller_delta_bounded_hand_residual"
                        << ";tracking_basis=level_recenter_minus_actor_yaw"
                        << ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector"
-                       << ";writer=RotateElementWithChildren";
+                       << ";writer=FromUpForwardPosElementWorld";
                 if (!native_reload_observed && !native_reload_error.empty()) {
                     detail << ";native_reload_detail=" << native_reload_error;
                 }
@@ -3881,6 +3863,8 @@ struct PlayerBodyPositionUpdate {
     float pending_actor_yaw_target_degrees = 0.0F;
     std::uint64_t actor_yaw_generation = 0;
     bool actor_yaw_update_valid = false;
+    bool arm_update_timing_valid = false;
+    std::uint64_t arm_update_duration_us = 0;
 };
 
 PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
@@ -3957,6 +3941,9 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
         }
         bool upper_body_write_ok = false;
         std::string upper_body_error;
+        const bool observe_body_actor =
+            CurrentCommand().command.movement_trace_enabled && ShouldObserveBodyFrame(frame_sequence);
+        BodyActorObservation arm_actor_before{player_position, true};
         if (upper_body.valid) {
             upper_body_write_ok = g_java_player_bridge.TryApplyUpperBodyTracking(
                 upper_body.head_horizontal_degrees,
@@ -3965,6 +3952,10 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
                 &upper_body_error);
         } else {
             upper_body_error = "relative HMD orientation is invalid";
+        }
+        if (observe_body_actor) {
+            arm_actor_before = ObserveBodyActorBoundary(
+                arm_actor_before, frame_sequence, "upper_body_apply");
         }
         if (ShouldObserveBodyFrame(frame_sequence) || !upper_body_write_ok) {
             std::ostringstream detail;
@@ -4003,12 +3994,26 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
         result.positional_6dof = true;
         result.translation_mode = "camera_only_collision_safe";
 
-        const bool body_ik_enabled = CurrentCommand().command.body_ik_enabled;
+        const auto arm_command = CurrentCommand().command;
+        const bool body_ik_enabled = arm_command.body_ik_enabled;
+        const bool measure_arm_timing = body_ik_enabled || arm_command.movement_trace_enabled;
+        const std::uint64_t arm_update_started_us =
+            measure_arm_timing ? MonotonicMicroseconds() : 0;
         UpdatePlayerArmTracking(
             natural_render_state,
+            RuntimeVector(player_position),
             body_ik_enabled,
             upper_body_write_ok,
             frame_sequence);
+        if (measure_arm_timing) {
+            result.arm_update_duration_us = MonotonicMicroseconds() - arm_update_started_us;
+            result.arm_update_timing_valid = true;
+            ObserveBodyArmTiming(
+                frame_sequence, "apply", result.arm_update_duration_us, body_ik_enabled);
+        }
+        if (observe_body_actor) {
+            (void)ObserveBodyActorBoundary(arm_actor_before, frame_sequence, "arm_apply");
+        }
         UpdatePlayerLowerBodyObservation(
             natural_render_state,
             player_position,
@@ -4105,6 +4110,9 @@ void ConfigureStereoEyeOverride(
     g_stereo_eye_override.camera_applied = false;
     g_stereo_eye_override.projection_applied = false;
     g_stereo_eye_override.renderer_camera_match = false;
+    g_stereo_eye_override.applied_position = {};
+    g_stereo_eye_override.applied_basis = {};
+    g_stereo_eye_override.applied_frustum = {};
 }
 
 void __fastcall HookRenderView(void* owner, void*, void* view) {
@@ -4328,6 +4336,28 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         relative_head_pose.position.y);
     gameplay_input.crouch = ResolveCoJCrouchAction(
         gameplay_input.crouch, physical_crouch);
+    float head_relative_move_yaw_degrees = 0.0F;
+    bool head_relative_move_valid = false;
+    if (gameplay_input.active && relative_head_pose.orientation_valid) {
+        const bool locomotion_yaw_owned = g_body_yaw_owned &&
+            g_body_yaw_generation != 0 &&
+            g_body_yaw_generation == g_java_player_bridge.being_generation();
+        const BodyYawOwnershipUpdate locomotion_body_yaw = BuildBodyYawOwnershipUpdate(
+            relative_head_pose,
+            g_body_owned_yaw_degrees,
+            locomotion_yaw_owned,
+            recentered);
+        if (locomotion_body_yaw.valid) {
+            // BodyYawOwnershipUpdate uses the game's yaw sign. Runtime stick
+            // coordinates use +X right/+Y forward, so invert the residual to
+            // obtain positive-right physical head yaw before native shaping.
+            head_relative_move_yaw_degrees = -locomotion_body_yaw.head_residual_degrees;
+            gameplay_input.move = RotateCoJMoveForHeadRelativeYaw(
+                gameplay_input.move,
+                head_relative_move_yaw_degrees);
+            head_relative_move_valid = true;
+        }
+    }
     if (loading_ui_input.suppress_gameplay) {
         gameplay_input = {};
     } else if (loading_ui_input.suppress_fire) {
@@ -4448,13 +4478,17 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << (loading_ui_input.suppress_fire ? "true" : "false")
                             << ";blocking_ui_gameplay_suppressed="
                             << (loading_ui_input.suppress_gameplay ? "true" : "false")
+                            << ";head_relative_move="
+                            << (head_relative_move_valid ? "true" : "false")
+                            << ";head_relative_move_yaw_degrees="
+                            << head_relative_move_yaw_degrees
                             << ";vr_gameplay_input_enabled="
                             << (snapshot.command.vr_gameplay_input_enabled ? "true" : "false")
                             << ";input_ownership="
                             << (snapshot.command.vr_gameplay_input_enabled
                                     ? "shared_vr_game"
                                     : "native_game_exclusive")
-                            << ";locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04"
+                            << ";locomotion_policy=head_relative_then_coj_inputanalog_per_axis_deadzone_0.04"
                             << ";route=GameInputController.InputAction.Translate";
             if (g_java_player_bridge.last_analog_transaction_applied()) {
                 gameplay_detail
@@ -4519,6 +4553,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
     bool visual_body_offset_applied = false;
+    const bool observe_body_actor =
+        snapshot.command.movement_trace_enabled && ShouldObserveBodyFrame(frame_sequence);
+    BodyActorObservation body_actor{};
+    if (observe_body_actor) body_actor = ReadBodyActorObservation();
     if (body_position_update.positional_6dof && !loading_ui_input.suppress_gameplay) {
         std::string visual_body_error;
         visual_body_offset_applied = ApplyRoomScaleBodyOffset(
@@ -4533,6 +4571,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 "frame_sequence=" + std::to_string(frame_sequence) +
                     ";detail=" + visual_body_error);
         }
+    }
+    if (observe_body_actor) {
+        body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "roomscale_apply");
     }
     const cojvr::runtime::Pose& render_head_pose = body_position_update.render_head_pose;
     std::uint64_t left_hash = 0;
@@ -4561,6 +4602,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     const bool left_projection_applied = g_stereo_eye_override.projection_applied;
     const bool left_renderer_camera_match = g_stereo_eye_override.renderer_camera_match;
     const CameraProbeVector left_applied_position = g_stereo_eye_override.applied_position;
+    const CameraProbeBasis left_applied_basis = g_stereo_eye_override.applied_basis;
     const CameraProbeFrustum left_applied_frustum = g_stereo_eye_override.applied_frustum;
     if (left_camera_applied && left_projection_applied) {
         left_captured = g_stereo_callbacks.capture_eye(
@@ -4572,6 +4614,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     bool right_state_restored = false;
     bool right_renderer_camera_match = false;
     CameraProbeVector right_applied_position{};
+    CameraProbeBasis right_applied_basis{};
     CameraProbeFrustum right_applied_frustum{};
     if (snapshot.command.second_eye_render_enabled && left_captured &&
         left_state_restored && RenderOwnerStillUsesView(owner, view)) {
@@ -4596,6 +4639,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             g_stereo_eye_override.projection_applied;
         right_renderer_camera_match = g_stereo_eye_override.renderer_camera_match;
         right_applied_position = g_stereo_eye_override.applied_position;
+        right_applied_basis = g_stereo_eye_override.applied_basis;
         right_applied_frustum = g_stereo_eye_override.applied_frustum;
         if (right_rendered) {
             right_captured = g_stereo_callbacks.capture_eye(
@@ -4605,18 +4649,81 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         right_state_restored = RestoreCameraRenderState(camera, natural_render_state);
     }
 
+    if (observe_body_actor) {
+        body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "stereo_render");
+    }
     if (visual_body_offset_applied) {
         (void)RestoreRoomScaleBodyOffset(frame_sequence, "stereo_complete");
+    }
+    if (observe_body_actor) {
+        body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "roomscale_restore");
     }
 
     // The element overlay is relative to the live animated render hierarchy.
     // Keep it only for the two eye draws, then undo child before parent so the
     // next game frame starts from the engine's natural animation pose.
+    const bool measure_arm_restore_timing =
+        snapshot.command.body_ik_enabled || snapshot.command.movement_trace_enabled;
+    const std::uint64_t arm_restore_started_us =
+        measure_arm_restore_timing ? MonotonicMicroseconds() : 0;
     RestoreAppliedArmRotations(frame_sequence);
+    const std::uint64_t arm_restore_duration_us = measure_arm_restore_timing
+        ? MonotonicMicroseconds() - arm_restore_started_us : 0;
+    if (measure_arm_restore_timing) {
+        ObserveBodyArmTiming(
+            frame_sequence, "restore", arm_restore_duration_us, snapshot.command.body_ik_enabled);
+    }
+    if (observe_body_actor) {
+        (void)ObserveBodyActorBoundary(body_actor, frame_sequence, "arm_restore");
+    }
+
+    CameraStereoReticleOverlay gameplay_reticle{};
+    gameplay_reticle.frame_sequence = frame_sequence;
+    if (left_captured && right_captured && left_state_restored && right_state_restored &&
+        gameplay_input.active && snapshot.command.vr_gameplay_input_enabled &&
+        !loading_ui_input.suppress_gameplay) {
+        const bool prefer_left = gameplay_input.fire_left && !gameplay_input.fire_right;
+        const bool left_aim_valid =
+            aim_observation.left_origin_valid && aim_observation.left_direction_valid;
+        const bool right_aim_valid =
+            aim_observation.right_origin_valid && aim_observation.right_direction_valid;
+        const bool use_left = left_aim_valid && (prefer_left || !right_aim_valid);
+        const auto& aim_origin = use_left
+            ? aim_observation.left_origin
+            : aim_observation.right_origin;
+        const auto& aim_direction = use_left
+            ? aim_observation.left_direction
+            : aim_observation.right_direction;
+        const bool selected_aim_valid = use_left ? left_aim_valid : right_aim_valid;
+        const float near_limit = std::max(
+            left_applied_frustum.near_plane, right_applied_frustum.near_plane);
+        const float far_limit = std::min(
+            left_applied_frustum.far_plane, right_applied_frustum.far_plane);
+        const float reticle_depth = std::min(5000.0F, far_limit * 0.95F);
+        if (selected_aim_valid && reticle_depth > near_limit &&
+            ProjectWorldAimRayToEyeReticle(
+                {aim_origin.x, aim_origin.y, aim_origin.z},
+                {aim_direction.x, aim_direction.y, aim_direction.z},
+                left_applied_position,
+                left_applied_basis,
+                left_applied_frustum,
+                reticle_depth,
+                gameplay_reticle.eyes[0]) &&
+            ProjectWorldAimRayToEyeReticle(
+                {aim_origin.x, aim_origin.y, aim_origin.z},
+                {aim_direction.x, aim_direction.y, aim_direction.z},
+                right_applied_position,
+                right_applied_basis,
+                right_applied_frustum,
+                reticle_depth,
+                gameplay_reticle.eyes[1])) {
+            gameplay_reticle.active = true;
+        }
+    }
 
     if (left_captured && right_captured && left_state_restored && right_state_restored) {
         submitted = g_stereo_callbacks.submit_frame(
-            g_stereo_callbacks.context, frame_sequence, sample.hmd_pose);
+            g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle);
     }
     if (left_camera_applied && right_rendered) {
         g_diagnostic_stereo_pairs.fetch_add(1, std::memory_order_acq_rel);
@@ -4645,6 +4752,11 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                    << "phase=" << snapshot.command.movement_trace_phase
                    << ";timestamp_us=" << MonotonicMicroseconds()
                    << ";frame_sequence=" << frame_sequence
+                   << ";body_ik_enabled=" << (snapshot.command.body_ik_enabled ? "true" : "false")
+                   << ";body_observation_frame=" << (ShouldObserveBodyFrame(frame_sequence) ? "true" : "false")
+                   << ";body_arm_apply_timing_valid=" << (body_position_update.arm_update_timing_valid ? "true" : "false")
+                   << ";body_arm_apply_us=" << body_position_update.arm_update_duration_us
+                   << ";body_arm_restore_us=" << arm_restore_duration_us
                    << ";game_update_count="
                    << g_diagnostic_game_updates.load(std::memory_order_acquire)
                    << ";left_eye_render_count="
@@ -4824,6 +4936,17 @@ bool DispatchCameraUiSelectPress(
     CoJUiDispatchRoute* route) noexcept {
     return g_java_player_bridge.TryDispatchUiSelectPress(
         require_loading_ui, current_ui_is_loading, error, paused_hint_dismissed, route);
+}
+
+bool DispatchCameraUiPointerSelectPress(
+    const bool require_loading_ui,
+    bool* current_ui_is_loading,
+    std::string* error,
+    bool* paused_hint_dismissed,
+    CoJUiDispatchRoute* route) noexcept {
+    return g_java_player_bridge.TryDispatchUiPointerSelectPress(
+        require_loading_ui, &DispatchNativeUiMouseButton, current_ui_is_loading,
+        error, paused_hint_dismissed, route);
 }
 
 bool DispatchCameraUiPointerMotion(
@@ -5160,6 +5283,68 @@ bool BuildCameraProbeFrustum(
     return true;
 }
 
+bool ProjectWorldAimRayToEyeReticle(
+    const CameraProbeVector ray_origin,
+    const CameraProbeVector ray_direction,
+    const CameraProbeVector eye_position,
+    const CameraProbeBasis eye_basis,
+    const CameraProbeFrustum frustum,
+    const float projection_depth,
+    CameraProbeReticlePoint& reticle) noexcept {
+    reticle = {};
+    const float direction_length = Length(ray_direction);
+    if (!IsCameraProbeBasisRigidRightHanded(eye_basis) ||
+        !std::isfinite(direction_length) || direction_length <= 1.0e-5F ||
+        !std::isfinite(projection_depth) ||
+        !std::isfinite(frustum.left) || !std::isfinite(frustum.right) ||
+        !std::isfinite(frustum.bottom) || !std::isfinite(frustum.top) ||
+        !std::isfinite(frustum.near_plane) || !std::isfinite(frustum.far_plane) ||
+        frustum.near_plane <= 0.0F || frustum.far_plane <= frustum.near_plane ||
+        frustum.left >= frustum.right || frustum.bottom >= frustum.top ||
+        projection_depth <= frustum.near_plane || projection_depth > frustum.far_plane) {
+        return false;
+    }
+
+    const CameraProbeVector direction{
+        ray_direction.x / direction_length,
+        ray_direction.y / direction_length,
+        ray_direction.z / direction_length};
+    const CameraProbeVector origin_from_eye{
+        ray_origin.x - eye_position.x,
+        ray_origin.y - eye_position.y,
+        ray_origin.z - eye_position.z};
+    const float origin_depth = Dot(origin_from_eye, eye_basis.forward);
+    const float direction_depth = Dot(direction, eye_basis.forward);
+    if (!std::isfinite(origin_depth) || !std::isfinite(direction_depth) ||
+        direction_depth <= 1.0e-5F) {
+        return false;
+    }
+
+    const float distance = (projection_depth - origin_depth) / direction_depth;
+    if (!std::isfinite(distance) || distance <= 0.0F) return false;
+
+    const CameraProbeVector target_from_eye{
+        origin_from_eye.x + direction.x * distance,
+        origin_from_eye.y + direction.y * distance,
+        origin_from_eye.z + direction.z * distance};
+    const float target_depth = Dot(target_from_eye, eye_basis.forward);
+    if (!std::isfinite(target_depth) || target_depth <= frustum.near_plane) return false;
+
+    const float near_scale = frustum.near_plane / target_depth;
+    const float near_x = Dot(target_from_eye, eye_basis.right) * near_scale;
+    const float near_y = Dot(target_from_eye, eye_basis.up) * near_scale;
+    const float u = (near_x - frustum.left) / (frustum.right - frustum.left);
+    const float v = 1.0F -
+        (near_y - frustum.bottom) / (frustum.top - frustum.bottom);
+    if (!std::isfinite(u) || !std::isfinite(v) ||
+        u < 0.0F || u > 1.0F || v < 0.0F || v > 1.0F) {
+        return false;
+    }
+
+    reticle = {.valid = true, .u = u, .v = v};
+    return true;
+}
+
 CameraProbeVector ApplyCameraEyeOffset(
     const CameraProbeVector head_position,
     const CameraProbeBasis head_basis,
@@ -5433,6 +5618,8 @@ void ShutdownCameraProbe() noexcept {
     g_right_hand_orientation = {};
     g_left_arm_rotation = {};
     g_right_arm_rotation = {};
+    g_left_arm_geometry_continuity = {};
+    g_right_arm_geometry_continuity = {};
     g_arm_rotation_faulted = false;
     g_room_scale_body_offset = {};
     g_last_gameplay_telemetry = {};

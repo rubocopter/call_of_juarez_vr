@@ -37,6 +37,7 @@ The following are RVAs in the identified ChromeEngine image (size `0x60C000`):
 | Java GetMousePos output | X is native mouse X; Z is native mouse Y; Java Y is zero |
 | `0xC63E0`, JNI Sprite.ProcessMouse | enables/disables native sprite byte `+0xCC` |
 | `0xC8F00`, recursive sprite mouse movement | x86 thiscall: sprite, previous two-float point, new two-float point, button state; checks bounds/capture and dispatches enter/move/leave through the real sprite tree |
+| `0xCC420`, native mouse-button dispatcher | x86 thiscall on the active input context: `(buttonIndex, pressed)`; left button is index `0` and production pointer selection sends press then release |
 
 **Implemented / host-tested:** the adapter resolves the current UI, enables
 mouse processing, obtains its live native handle, writes the actual input
@@ -52,14 +53,35 @@ create a cursor, so neither factory belongs in passive observation.
 
 Shipped menu ownership has two additional roots that matter for live input.
 Inspection of the real `MainMenuModule.class` confirms `m_cYesNoDlg` exists and
-`m_bYesNoDlgVisible` does not. The first modal fix incorrectly made that missing
-visibility field mandatory, leaving a pending JNI exception and disabling the
-otherwise proven laser/controller route. Modal discovery now treats a non-null
-`m_cYesNoDlg` as optional root metadata and clears its own observation failure
-before falling back to `FindUI(m_nCurUI)`. During gameplay pause, the global
-`MainMenuModule` current UI is the preferred root; the active-game menu remains a
-fallback. Both corrected rules are covered by JNI fixtures and are **implemented /
-host-tested**.
+`m_bYesNoDlgVisible` does not. `OnCreate` allocates the reusable dialog even while
+it is hidden, so object existence cannot identify the modal input root. Modal
+discovery now calls the dialog's shipped `IsActuallyVisible()` method and uses it
+only when true; optional lookup failures are cleared before falling back to
+`FindUI(m_nCurUI)`. During gameplay pause, the global `MainMenuModule` current UI
+is the preferred root; the active-game menu remains a fallback. These rules are
+covered by JNI fixtures and are **implemented / host-tested**.
+
+Hover and activation are separate native operations. The laser already reached
+the current UI through the `0xC8F00` movement dispatcher, but the old ray-select
+path activated widgets by calling Java Enter. The current candidate obtains the
+same live UI/native object, enables mouse processing, resolves its current input
+context and calls `0xCC420` with left-button press then release. L2/R2 ray select
+uses this native click path. Cross/global accept retains Java Enter; loading UI,
+intro skip and pausing-hint routes retain their special handling. The button path
+does not retain a native context or object across calls and remains exact-build
+gated. It is **implemented / host-tested** and still awaits physical acceptance.
+
+Selection has a separate paused-hint precheck before resolving the current UI.
+The shipped hierarchy is `LawmanModule -> Module -> GameObject`, while
+`GameMode -> GameObject` declares `GetHintManager()LHintManager;`.
+`LawmanModule` exposes `m_GameMode:LGameMode;`; it has no `GetHintManager` method.
+Looking up that getter on the active module rejects selection once a campaign
+module exists, even while pointer hover/readback succeeds. The adapter now resolves
+the field on `LawmanModule` and the getter on `GameMode`, then follows the existing
+hint manager. Null game-mode/manager objects permit ordinary selection; a pausing
+hint consumes it through `DisableCurrentHint`. JNI host fixtures reproduce the
+wrong-owner failure and verify corrected Enter delivery, modal delivery, hint
+ownership and exception cleanup. The correction is **implemented / host-tested**.
 
 A failed delivery/readback cancels only the matching pending click, freeing its
 target for further automatic pointing. Hand/claim/click ownership still guards
@@ -77,12 +99,12 @@ dispatch failures and reference cleanup. These probes do not execute the live
 Java menu's focus/selection behavior.
 
 **Headset-validated:** first-level main-menu hover/highlight, selection and
-physical mouse takeover/resume through the native event route.
+physical mouse takeover/resume through the native event route. The corrected
+GameMode hint precheck and native `0xCC420` pointer-click route are also physically
+accepted in the exercised ordinary menus, visible Yes/No dialog and gameplay
+pause menu.
 
-**Experiment-pending:** the corrected Yes/No dialog and gameplay pause menu. The
-latest combined headset candidate did not exercise them because the invalid Java
-field lookup disabled all menu/controller UI delivery. Loading through the mouse
-then hung before gameplay/progress, so that transition must also be retested after
-the JNI correction. Operator confirmation remains required even when transport and
-native input telemetry pass. Exact native boundaries must not be generalized to
-another Chrome Engine build or another game.
+Loading reached gameplay in the latest runs; controller-only continuation remains
+a separate acceptance boundary. Operator confirmation remains required even when
+transport and native input telemetry pass. Exact native boundaries must not be
+generalized to another Chrome Engine build or another game.

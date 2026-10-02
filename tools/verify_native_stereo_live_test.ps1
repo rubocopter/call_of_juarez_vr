@@ -234,8 +234,8 @@ if ($RequireFlatTheaterUi) {
         "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=GameWithMenu.sm_cIntroModule.OnInputKey" `
         "No Sense trigger press skipped a startup video through IntroModule.OnInputKey."
     Assert-LogMatch `
-        "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter" `
-        "No Sense trigger press selected the in-game Escape menu through LawmanModule.cMenu."
+        "camera_probe_event: event=flat_ui_select result=applied detail=.*;route=(GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter|LawmanGame.sm_cActiveGameModule.cMenu.GetCurrentUI.Enter)" `
+        "No Sense trigger press selected the in-game Escape menu through the active MainMenuModule route."
     Assert-LogMatch `
         "camera_probe_event: event=blocking_ui_select result=applied detail=.*game_timer_valid=true;game_timer_frozen=true;current_ui_is_loading=true;gameplay_suppressed=true;body_mutation_suppressed=true;fire_suppressed_until_release=true;route=GameUILoading.OnInputKey" `
         "No Sense select press reached GameUILoading.OnInputKey while the loading timer was frozen."
@@ -594,7 +594,7 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";forearm_native_axis=\(" -or
                 $Line -notmatch ";forearm_twist_native_axis=\(" -or
                 $Line -notmatch ";twist_owner=foretwist_element;" -or
-                $Line -notmatch ";hand_residual_source=post_foretwist_observed_basis;" -or
+                $Line -notmatch ";hand_residual_source=precomputed_skinning_basis;" -or
                 $Line -notmatch ";hand_residual_native_axis=\(" -or
                 $Line -notmatch ";hand_residual_degrees=[-+0-9.eE]+;" -or
                 $Line -notmatch ";hand_rotation_mode=bounded_hand_residual;" -or
@@ -608,13 +608,13 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";forearm_twist_no_op=true;" -or
                 $Line -notmatch ";skinning_contract=foretwist_sibling_swing_plus_bounded_hand_residual;" -or
                 $Line -notmatch ";skinning_frames_reached=true;" -or
-                $Line -notmatch ";native_axis_space=element_local;" -or
+                $Line -notmatch ";rotation_axis_space=world;" -or
                 $Line -notmatch ";targets_reached=true;" -or
                 $Line -notmatch ";hand_orientation_reached=(?:true|false);" -or
                 $Line -notmatch ";rollback_attempted=false;rollback_ok=true;" -or
                 $Line -notmatch ";reach_adjustment=0(?:\.0+)?;reach_adjusted=false;reach_policy=native_chain_hard_clamp;" -or
                 $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
-                $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=RotateElementWithChildren") {
+                $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=FromUpForwardPosElementWorld") {
                 throw "A $Side arm IK application did not prove the measured-skeleton/native-writer contract."
             }
             $SkinErrorMatch = [regex]::Match($Line, ";skinning_axis_error=([-+0-9.eE]+);")
@@ -660,13 +660,13 @@ if ($RequireBodyIk) {
     foreach ($Side in @("left", "right")) {
         if (-not ($BodyWriteProbes | Where-Object {
             $_ -match "result=natural .*;side=$Side;phase=before_write;" -and
-            $_ -match ";writer=RotateElementWithChildren"
+            $_ -match ";writer=FromUpForwardPosElementWorld"
         })) {
             throw "The body IK gate did not capture the natural $Side arm immediately before the element overlay."
         }
         if (-not ($BodyWriteProbes | Where-Object {
             $_ -match "result=changed .*;side=$Side;phase=after_write;expects_change=true;changed_from_natural=true;targets_reached=true;.*;hand_orientation_reached=(?:true|false);" -and
-            $_ -match ";writer=RotateElementWithChildren"
+            $_ -match ";writer=FromUpForwardPosElementWorld"
         })) {
             throw "The body IK gate did not prove that the $Side element writer reached the solved arm position."
         }
@@ -674,7 +674,7 @@ if ($RequireBodyIk) {
             if (-not ($BodyRenderProbes | Where-Object {
                 $_ -match "result=changed .*;side=$Side;phase=$Phase;changed_from_natural=true;" -and
                 $_ -match ";post_write_geometry_valid=true;matches_post_write=true;" -and
-                $_ -match ";writer=RotateElementWithChildren"
+                $_ -match ";writer=FromUpForwardPosElementWorld"
             })) {
                 throw "The body IK gate did not preserve the changed $Side arm through $Phase."
             }
@@ -693,7 +693,7 @@ if ($RequireBodyIk) {
         $RestoreLines = @($BodyRestoreLines | Where-Object { $_ -match ";side=$Side;" })
         if ($RestoreLines.Count -lt 1 -or
             -not ($RestoreLines | Where-Object {
-                $_ -match ";hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=RotateElementWithChildren;twist_owner=foretwist_element;transaction=post_stereo_capture;" -and
+                $_ -match ";hand_restored=true;forearm_twist_restored=true;forearm_restored=true;upper_restored=true;geometry_read=true;geometry_restored=true;writer=FromUpForwardPosElementWorld;twist_owner=foretwist_element;transaction=post_stereo_capture;inverse_geometry_restored=false;exact_restore_attempted=true;exact_restore_ok=true;" -and
                 $_ -match ";restore_joint_error=[-+0-9.eE]+;restore_element_position_error=[-+0-9.eE]+;restore_axis_error=[-+0-9.eE]+"
             })) {
             throw "The body IK gate did not restore the natural $Side element hierarchy after stereo capture."

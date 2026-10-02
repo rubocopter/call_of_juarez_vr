@@ -15,30 +15,37 @@ the native sprite-tree mouse-event route: hover/highlight, selection and physica
 mouse takeover/resume were observed working. A later modal-routing candidate
 regressed all menu/controller UI delivery because it queried
 `MainMenuModule.m_bYesNoDlgVisible`, which the shipped class does not contain.
-The latest headset run therefore had no working laser/buttons apart from recenter.
-The bridge now observes `m_cYesNoDlg` as optional metadata, clears any local JNI
-lookup/read exception and falls back to the proven current-UI route. This fix is
-**implemented / host-tested**, not yet headset-validated. Continuous body-yaw
-following at the 35-degree comfort boundary remains **headset-validated with Body
-IK disabled**; the previous arm IK candidate remains visually rejected for
-snap-back/continuity.
+The optional `m_cYesNoDlg` fix is physically exercised: the visible Yes/No dialog
+can be pointed at and selected with the VR ray. Exact shipped class inspection
+establishes that the paused-hint precheck incorrectly called `GetHintManager()` on
+`LawmanModule`; the getter belongs to its `m_GameMode` object. The corrected
+`LawmanModule.m_GameMode -> GameMode.GetHintManager()` route is **implemented /
+host-tested**, including ordinary selection, null mode/manager, pausing/non-pausing
+hints and Yes/No selection. Static native tracing additionally shows that hover
+and activation use distinct engine boundaries: L2/R2 ray selection now sends a
+left-button press/release through the current UI input context at
+`ChromeEngine3 + 0xCC420`, while Cross/global accept retains Enter. A hidden but
+allocated Yes/No dialog is ignored unless `IsActuallyVisible()` is true. The
+latest physical candidate confirms complete VR-pointer operation across the
+ordinary menus exercised, the Yes/No dialog and the gameplay pause menu. The
+current pointer-selection route is therefore **headset-validated for those
+exercised menu paths**; loading continuation remains a separate boundary.
 
-The same failed headset run hung on the loading screen after a save was selected
-with the physical mouse. It never reached native-stereo gameplay or initialized
-the Body IK path, so that hang is **experiment-pending** and is not attributed to
-Body IK. Retest it after the UI regression fix.
-
-The next combined run uses normal `prepare -BodyIkAtStart`. In the main menu,
-confirm ordinary first-level hover/selection, then open Abandon/Quit and verify
-both Yes/No choices highlight and select with the laser. Exercise Circle back,
-Cross accept and physical mouse takeover/resume. Load a save, verify stereo/depth,
-slow and fast physical head turns, walk/run/jump and Create recenter. Open the
-gameplay pause menu and verify laser hover/select/back there. With Body IK active,
-move both hands through comfortable and beyond-reach poses and watch for stable
-continuous ownership without snap-back or obvious anatomical deformation; also
-exercise a reload. Note any repeatable running-performance dip. Open/close the
-SteamVR dashboard once, quit normally, then run `finish`. The verifier does not
-accept visual UI or Body IK gates without the operator observations.
+Continuous body-yaw following at the 35-degree comfort boundary remains
+**headset-validated with Body IK disabled**. The absolute-frame Body IK writer has
+now been physically exercised and the operator reports that the previous severe
+pulsed locomotion, tiny-looking jumps and poor performance improved dramatically.
+The remaining failure is arm ownership after actor translation: during joystick
+locomotion a visible hand/arm branch can remain in world space and stretch back
+toward the moving body until a native reload animation re-synchronizes it. The
+same-frame restore rebase reduced the symptom but a follow-up run still recorded
+multi-frame intervals where shoulder/elbow/wrist and arm element positions stayed
+fixed while the actor advanced. The current host candidate keeps the restore
+rebase and adds a conservative inter-frame continuity correction only when the
+complete positional branch is unchanged despite material actor motion. Native
+animation changes retain ownership. The combined correction and fail-closed
+validation are **implemented / host-tested**; physical continuity remains
+pending. Native speed, jump constants and transport policy remain unchanged.
 
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
@@ -179,23 +186,35 @@ up a nonexistent `m_bYesNoDlgVisible` field, poisoning JNI state before the prov
 global route could run. Inspection of the shipped `MainMenuModule` confirms
 `m_cYesNoDlg` exists and that visibility field does not. Modal observation is now
 optional and exception-safe, while the global current UI remains preferred for
-pause-menu delivery. Those corrections are **implemented / host-tested** and still
-need a headset check.
+pause-menu delivery. The later native-click follow-up is now physically exercised
+successfully: ordinary menu levels, the Yes/No dialog and gameplay pause all
+accept the VR pointer in the latest candidate.
 
-The next UI acceptance is part of the combined Body IK run below. Reconfirm the
-accepted first-level behavior, then explicitly exercise a Yes/No dialog and the
-gameplay pause menu. Startup/transport verification confirms provenance and
-presentation only; the operator must separately confirm their hover/selection.
+The next combined run keeps menu operation as a regression check while focusing
+on Body IK restore continuity and the new 90-degree snap step. Startup/transport
+verification confirms provenance and presentation only; the operator still
+confirms the physical gestures.
 
 ## Combined menu and gameplay regression
 
-For the next physical pass use normal `prepare -BodyIkAtStart`. In one run,
-exercise the automatic menu gesture and Yes/No dialog, load a save, check correct
-stereo depth and stable slow/fast head turns, then move/walk/run/jump and recenter
-with Create. Exercise Body IK across ordinary and beyond-reach hand poses and one
-reload, watching for continuous positional ownership and plausible anatomy. Open
-and close the SteamVR dashboard once and verify image/input resume. Revisit the
-pause menu and test pointing/select/back, then quit normally and `finish`.
+For the next physical pass use normal `prepare -BodyIkAtStart`. In gameplay,
+walk/run while moving both hands and verify that both hands stay attached to the
+actor without stretched arm/body geometry and without needing reload to
+re-synchronize. The sampled `body_arm_tracking` telemetry should show
+`continuity_rebase_count` when the stale-branch guard intervenes. Confirm that
+locomotion/performance retains the large improvement
+from the last run. Turn the head substantially left/right without rotating the
+body, press forward and confirm travel follows the viewed direction. Physically
+crouch below the calibrated threshold and verify the native crouched body animation
+engages and returns cleanly on standing. Exercise one right and one left snap turn
+and confirm that each step is exactly 90 degrees. Aim/fire with both hands where
+practical and confirm the gameplay reticle follows the visible controller/weapon
+direction and that bullet impacts are consistent with it. Then exercise an ordinary
+menu, the Yes/No dialog and gameplay pause as regression checks; the gameplay
+reticle must not alter menu-ray behavior. Recenter with Create, quit normally and
+run `finish`. Existing arm restore and actor-rebase telemetry provides the host/live
+evidence; visual continuity, crouch, movement direction, angle and weapon alignment
+remain operator observations.
 
 The transport profile verifies GPU capture, exact render-pose submission and
 normal shutdown. Its summaries retain cadence, movement and dashboard observations;
@@ -302,7 +321,9 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | HMD yaw/pitch/roll and positional offset | headset-validated | exercised repeatedly in stereo gameplay |
 | Explicit render-pose submission | headset-validated | removed the previous head-turn pull/snap-back artifact |
 | Recenter | headset-validated | controller recenter exercised physically |
-| Exact snap turn | headset-validated | controller turn exercised physically |
+| Exact snap turn | mechanism headset-validated; 90-degree candidate host-tested | previous snap-turn behavior was exercised physically; the new 90-degree step requires one physical confirmation |
+| Head-relative stick locomotion | implemented / host-tested | residual physical HMD yaw rotates the neutral stick before the unchanged native InputAnalog shaping; physical direction/feel is pending |
+| Physical HMD-height crouch | implemented / host-tested | calibrated crouch state is merged with the native crouch action; physical animation and clean standing restore are pending |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | startup and level transition reached gameplay safely |
 | Local head/hair suppression | headset-validated for HMD view | shadow behavior remains separate |
 | D3D9Ex GPU-resident native-stereo transport | bounded acceptance passed; measured cadence and headset stereo validated | shared frames submit with explicit pose and drain on normal quit; production cadence approaches readback-off reference; sustained pacing/tail latency and pending-frame reset/device loss remain unproved |
@@ -316,16 +337,16 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
-| Body IK continuity/anatomy | previous candidate live-exercised / rejected; continuity correction implemented / host-tested | valid hard-clamped positional plans now retain ownership; rotation/hand/reload safety stays fail-closed; physical anatomy/reach acceptance remains open |
+| Body IK continuity/anatomy | absolute writer live-exercised; actor-relative restore host-tested; anatomy rejected | locomotion/performance recovered strongly, but the latest run exposed stale world-space arm restore after actor movement; visible arms also remain short |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | first-level main-menu native event route headset-validated; modal/pause correction implemented / host-tested after one regressed candidate | hover/selection and mouse coexistence work on first-level options; optional `m_cYesNoDlg` discovery and gameplay pause routing still need physical acceptance |
+| Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
-| Cross/Circle/L2/R2 UI actions | first-level main-menu selection physically accepted; corrected modal/pause routing host-tested | latest failed candidate lost these actions through JNI exception poisoning; corrected path needs physical retest |
-| Loading continuation | host-tested / latest physical load hung before progress | native loading input route is mapped; the hang is experiment-pending and must be retested after the UI regression fix |
-| Controller-origin UI beam | headset-validated for first-level main-menu interaction | modal/pause input-root acceptance remains pending |
+| Cross/Circle/L2/R2 UI actions | exercised menu-selection path accepted; broader action coverage remains bounded | latest run accepts ordinary/Yes-No/pause pointer selection; retain per-action regression checks where relevant |
+| Loading continuation | host-tested / latest run reached gameplay | an earlier physical load hang was not reproduced in the latest gameplay run; controller-only loading acceptance remains separate |
+| Controller-origin UI beam | headset-validated for exercised menu paths | ordinary, Yes/No and gameplay-pause selection work in the latest physical candidate |
 | Controller-owned weapon direction/visual origin | host-tested | final physical firing alignment still pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
-| Temporary controller alignment ray | planned diagnostic | diagnostic only; must not become production ballistics |
+| Exact-frame gameplay weapon reticle | implemented / host-tested | same firing ray is projected through each applied eye camera/frustum and transported with the captured frame; physical reticle/impact alignment is pending |
 | Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |
 | Supported end-to-end VR release | planned | project remains pre-alpha |
 

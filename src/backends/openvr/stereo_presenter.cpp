@@ -345,6 +345,78 @@ struct OpenVrStereoPresenter::Impl {
         double& hash_ms,
         double& upload_ms,
         D3D9SharedTextureCopyTiming& shared_timing) noexcept {
+        const auto draw_gameplay_reticle = [&]() noexcept {
+            if (!frame.gameplay_reticle.active ||
+                frame.gameplay_reticle.frame_sequence != frame.capture_sequence ||
+                frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
+                texture_width == 0 || texture_height == 0 ||
+                (texture_format != DXGI_FORMAT_B8G8R8A8_UNORM &&
+                 texture_format != DXGI_FORMAT_B8G8R8X8_UNORM)) {
+                return;
+            }
+            constexpr std::uint32_t kOutlineRadius = 8U;
+            constexpr std::uint32_t kInnerRadius = 6U;
+            constexpr std::uint32_t kBlack = 0xFF000000U;
+            constexpr std::uint32_t kWhite = 0xFFFFFFFFU;
+            std::array<std::uint32_t, kOutlineRadius * 2U + 1U> pixels{};
+            const auto draw_horizontal = [&](const std::size_t eye,
+                                             const std::uint32_t center_x,
+                                             const std::uint32_t center_y,
+                                             const std::uint32_t radius,
+                                             const std::uint32_t color) noexcept {
+                const std::uint32_t left = center_x > radius ? center_x - radius : 0U;
+                const std::uint32_t right = std::min(texture_width, center_x + radius + 1U);
+                const std::uint32_t count = right - left;
+                std::fill_n(pixels.begin(), count, color);
+                D3D11_BOX box{left, center_y, 0U, right, center_y + 1U, 1U};
+                d3d11.context()->UpdateSubresource(
+                    textures[eye].Get(), 0, &box, pixels.data(), count * 4U, 0);
+            };
+            const auto draw_vertical = [&](const std::size_t eye,
+                                           const std::uint32_t center_x,
+                                           const std::uint32_t center_y,
+                                           const std::uint32_t radius,
+                                           const std::uint32_t color) noexcept {
+                const std::uint32_t top = center_y > radius ? center_y - radius : 0U;
+                const std::uint32_t bottom = std::min(texture_height, center_y + radius + 1U);
+                const std::uint32_t count = bottom - top;
+                std::fill_n(pixels.begin(), count, color);
+                D3D11_BOX box{center_x, top, 0U, center_x + 1U, bottom, 1U};
+                d3d11.context()->UpdateSubresource(
+                    textures[eye].Get(), 0, &box, pixels.data(), 4U, 0);
+            };
+            for (std::size_t eye = 0; eye < 2; ++eye) {
+                const auto& point = frame.gameplay_reticle.eyes[eye];
+                if (!point.valid || !std::isfinite(point.u) || !std::isfinite(point.v) ||
+                    point.u < 0.0F || point.u > 1.0F || point.v < 0.0F || point.v > 1.0F) {
+                    continue;
+                }
+                const std::uint32_t center_x = std::min(
+                    texture_width - 1U,
+                    static_cast<std::uint32_t>(
+                        point.u * static_cast<float>(texture_width - 1U) + 0.5F));
+                const std::uint32_t center_y = std::min(
+                    texture_height - 1U,
+                    static_cast<std::uint32_t>(
+                        point.v * static_cast<float>(texture_height - 1U) + 0.5F));
+                for (int offset = -1; offset <= 1; ++offset) {
+                    const int horizontal_y = static_cast<int>(center_y) + offset;
+                    const int vertical_x = static_cast<int>(center_x) + offset;
+                    if (horizontal_y >= 0 && horizontal_y < static_cast<int>(texture_height)) {
+                        draw_horizontal(
+                            eye, center_x, static_cast<std::uint32_t>(horizontal_y),
+                            kOutlineRadius, kBlack);
+                    }
+                    if (vertical_x >= 0 && vertical_x < static_cast<int>(texture_width)) {
+                        draw_vertical(
+                            eye, static_cast<std::uint32_t>(vertical_x), center_y,
+                            kOutlineRadius, kBlack);
+                    }
+                }
+                draw_horizontal(eye, center_x, center_y, kInnerRadius, kWhite);
+                draw_vertical(eye, center_x, center_y, kInnerRadius, kWhite);
+            }
+        };
         if (!EnsureTextures(
                 d3d11, frame, textures, texture_width, texture_height, texture_format)) {
             return false;
@@ -359,6 +431,7 @@ struct OpenVrStereoPresenter::Impl {
                 return false;
             }
             upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
+            draw_gameplay_reticle();
             return true;
         }
         const auto& left = frame.eyes[0];
@@ -548,6 +621,7 @@ struct OpenVrStereoPresenter::Impl {
                     textures[eye].Get(), 0, nullptr, CpuEyeData(source), source.stride, 0);
             }
         }
+        draw_gameplay_reticle();
         const auto upload_end = std::chrono::steady_clock::now();
         upload_ms = MillisecondsBetween(upload_begin, upload_end);
         return true;

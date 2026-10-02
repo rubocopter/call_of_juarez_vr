@@ -40,6 +40,18 @@ struct CameraProbeFrustum {
     float far_plane = 0.0F;
 };
 
+struct CameraProbeReticlePoint {
+    bool valid = false;
+    float u = 0.0F;
+    float v = 0.0F;
+};
+
+struct CameraStereoReticleOverlay {
+    bool active = false;
+    std::uint64_t frame_sequence = 0;
+    std::array<CameraProbeReticlePoint, 2> eyes{};
+};
+
 struct CameraProbeCommand {
     bool enabled = false;
     bool override_fov = false;
@@ -128,6 +140,18 @@ struct CoJMovementJumpTransition {
     float far_plane,
     CameraProbeFrustum& frustum) noexcept;
 
+// Projects a world-space weapon ray onto a camera-facing plane at the supplied
+// eye-space depth and then through the exact asymmetric eye frustum. Output UV
+// coordinates use the presenter's top-left origin.
+[[nodiscard]] bool ProjectWorldAimRayToEyeReticle(
+    CameraProbeVector ray_origin,
+    CameraProbeVector ray_direction,
+    CameraProbeVector eye_position,
+    CameraProbeBasis eye_basis,
+    CameraProbeFrustum frustum,
+    float projection_depth,
+    CameraProbeReticlePoint& reticle) noexcept;
+
 [[nodiscard]] CameraProbeVector ApplyCameraEyeOffset(
     CameraProbeVector head_position,
     CameraProbeBasis head_basis,
@@ -182,10 +206,15 @@ struct CameraStereoDiagnosticCounters {
     std::uint64_t repeat_submissions = 0;
 };
 
-// Exact-game UI input seam.  Selection is delivered through the currently
-// visible GameUserInterface's shipped Enter helper rather than process-global
-// Win32 mouse/keyboard synthesis.
+// Exact-game UI input seams. Cross/global accept keeps the shipped Enter
+// helper. Ray-trigger selection uses the current native mouse context.
 [[nodiscard]] bool DispatchCameraUiSelectPress(
+    bool require_loading_ui,
+    bool* current_ui_is_loading = nullptr,
+    std::string* error = nullptr,
+    bool* paused_hint_dismissed = nullptr,
+    CoJUiDispatchRoute* route = nullptr) noexcept;
+[[nodiscard]] bool DispatchCameraUiPointerSelectPress(
     bool require_loading_ui,
     bool* current_ui_is_loading = nullptr,
     std::string* error = nullptr,
@@ -228,7 +257,8 @@ struct CameraStereoRuntimeCallbacks {
     bool (*submit_frame)(
         void* context,
         std::uint64_t frame_sequence,
-        const cojvr::runtime::PoseSample& render_hmd_pose) noexcept = nullptr;
+        const cojvr::runtime::PoseSample& render_hmd_pose,
+        const CameraStereoReticleOverlay& gameplay_reticle) noexcept = nullptr;
     void (*set_capture_readback_enabled)(void* context, bool enabled) noexcept = nullptr;
     bool (*diagnostic_counters)(
         void* context,

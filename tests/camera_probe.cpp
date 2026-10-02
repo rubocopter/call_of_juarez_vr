@@ -280,12 +280,46 @@ int main() {
         std::cerr << "asymmetric OpenVR FOV did not map to the native off-center frustum\n";
         return 1;
     }
+    const CameraProbeFrustum valid_stereo_frustum = stereo_frustum;
     cojvr::runtime::EyeFov invalid_fov = asymmetric_fov;
     invalid_fov.angle_left = std::numeric_limits<float>::quiet_NaN();
     if (BuildCameraProbeFrustum(invalid_fov, 0.25F, 500.0F, stereo_frustum) ||
         BuildCameraProbeFrustum(asymmetric_fov, 0.0F, 500.0F, stereo_frustum) ||
         BuildCameraProbeFrustum(asymmetric_fov, 1.0F, 0.5F, stereo_frustum)) {
         std::cerr << "invalid stereo frustum input was accepted\n";
+        return 1;
+    }
+
+    CameraProbeReticlePoint reticle{};
+    if (!ProjectWorldAimRayToEyeReticle(
+            {13.0F, 4.0F, 5.0F},
+            {0.0F, 0.0F, 1.0F},
+            {3.0F, 4.0F, 5.0F},
+            native_identity,
+            valid_stereo_frustum,
+            100.0F,
+            reticle) ||
+        !reticle.valid || !Near(reticle.u, 0.65F) || !Near(reticle.v, 0.55F)) {
+        std::cerr << "world-space weapon ray did not project through the exact asymmetric eye frustum\n";
+        return 1;
+    }
+    if (ProjectWorldAimRayToEyeReticle(
+            {3.0F, 4.0F, 5.0F},
+            {0.0F, 0.0F, -1.0F},
+            {3.0F, 4.0F, 5.0F},
+            native_identity,
+            valid_stereo_frustum,
+            100.0F,
+            reticle) ||
+        ProjectWorldAimRayToEyeReticle(
+            {403.0F, 4.0F, 5.0F},
+            {0.0F, 0.0F, 1.0F},
+            {3.0F, 4.0F, 5.0F},
+            native_identity,
+            valid_stereo_frustum,
+            100.0F,
+            reticle)) {
+        std::cerr << "reticle projection accepted a backwards or off-screen weapon ray\n";
         return 1;
     }
 

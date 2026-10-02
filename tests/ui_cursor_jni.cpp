@@ -24,18 +24,29 @@ struct Object { float x = 0, y = 0, z = 0; int locals = 0, globals = 0; };
 Object game, lawman, single, menu_class, module_class, cursor_class, vector_class, ui_class;
 Object global_menu, active_menu, module, global_cursor, active_cursor, vector, exception, ui;
 Object modal_ui;
+Object game_mode_class, game_mode, loading_class;
+Object manager_class, manager, hint_class, hint;
 Object* const objects[] = {&game, &lawman, &single, &menu_class, &module_class,
     &cursor_class, &vector_class, &global_menu, &active_menu, &module,
-    &global_cursor, &active_cursor, &vector, &exception, &ui_class, &ui, &modal_ui};
+    &global_cursor, &active_cursor, &vector, &exception, &ui_class, &ui, &modal_ui,
+    &game_mode_class, &game_mode, &loading_class, &manager_class, &manager, &hint_class, &hint};
 enum class Id { menu = 1, active, cmenu, cursor, current_ui, ctor, getpos,
     setpos, move, process, x, y, z, ui_index, mousepos, object_id, find_ui,
-    yes_no_visible, yes_no_dialog };
+    yes_no_visible, yes_no_dialog, game_mode, hint_manager, enter_press, enter_release,
+    active_hint, disable_hint, pause_hint, actually_visible };
 enum class Fault { none, owner_lookup, lookup, allocation, getpos_false, getpos_throw, float_throw,
     cursor_throw, cursor_null };
 Fault fault = Fault::none;
 bool global_available = true, active_available = true, jvm_available = true;
 bool current_ui_available = false;
 bool modal_visible = false;
+bool modal_exists = true;
+bool game_mode_available = true;
+bool game_mode_lookup_throw = false;
+bool hint_available = false, hint_pauses = false;
+int enter_presses = 0, enter_releases = 0;
+int modal_enter_presses = 0;
+int hint_dismissals = 0;
 bool yes_no_visibility_field_available = true;
 std::int32_t ui_index = 4;
 bool pending = false;
@@ -43,9 +54,11 @@ int mutations = 0, unexpected = 0;
 float input_x = 77.0F, input_y = 88.0F;
 float modal_input_x = 177.0F, modal_input_y = 188.0F;
 int native_deliveries = 0;
+int native_clicks = 0;
 bool native_enabled = false;
 bool dispatch_available = true;
 std::uint32_t last_native_object_id = 0;
+std::uint32_t last_native_click_object_id = 0;
 int creating_ui_lookups = 0, cursor_factory_lookups = 0;
 void* env_table[180]{};
 void** env_holder = env_table;
@@ -68,6 +81,9 @@ void* COJVR_JNICALL Find(void*, const char* name) {
     }
     if (Is(name, "LawmanGame")) return Local(lawman);
     if (Is(name, "LawmanModuleSingle")) return Local(single);
+    if (Is(name, "LawmanModule")) return Local(module_class);
+    if (Is(name, "GameMode")) return Local(game_mode_class);
+    if (Is(name, "GameUILoading")) return Local(loading_class);
     if (Is(name, "Vector")) return Local(vector_class);
     Require(false); return nullptr;
 }
@@ -88,12 +104,32 @@ void* COJVR_JNICALL Class(void*, void* obj) {
     Require(!pending);
     if (obj == &global_menu || obj == &active_menu) return Local(menu_class);
     if (obj == &module) return Local(module_class);
+    if (obj == &game_mode) return Local(game_mode_class);
+    if (obj == &manager) return Local(manager_class);
+    if (obj == &hint) return Local(hint_class);
     if (obj == &global_cursor || obj == &active_cursor) return Local(cursor_class);
     if (obj == &ui || obj == &modal_ui) return Local(ui_class);
     Require(false); return nullptr;
 }
 void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) {
     Require(!pending);
+    if (Is(name, "GetHintManager") && Is(sig, "()LHintManager;")) {
+        // Shipped LawmanModule extends Module, not GameMode. The getter is
+        // only available on m_GameMode; the old lookup must fail here.
+        return cls == &game_mode_class ? Token(Id::hint_manager) : nullptr;
+    }
+    if (cls == &ui_class && Is(name, "CallEnterKeyPressed") && Is(sig, "()V"))
+        return Token(Id::enter_press);
+    if (cls == &ui_class && Is(name, "CallEnterKeyReleased") && Is(sig, "()V"))
+        return Token(Id::enter_release);
+    if (cls == &ui_class && Is(name, "IsActuallyVisible") && Is(sig, "()Z"))
+        return Token(Id::actually_visible);
+    if (cls == &manager_class && Is(name, "GetActiveHint") && Is(sig, "()LHint;"))
+        return Token(Id::active_hint);
+    if (cls == &manager_class && Is(name, "DisableCurrentHint") && Is(sig, "()V"))
+        return Token(Id::disable_hint);
+    if (cls == &hint_class && Is(name, "IsPauseGame") && Is(sig, "()Z"))
+        return Token(Id::pause_hint);
     if (cls == &menu_class && Is(name, "GetGlobalCursor") && Is(sig, "()LUICursorGame;"))
         return Token(Id::cursor);
     if (cls == &menu_class && Is(name, "GetCurrentUI") && Is(sig, "()LGameUserInterface;"))
@@ -119,6 +155,8 @@ void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) 
 }
 void* COJVR_JNICALL StaticField(void*, void* cls, const char* name, const char* sig) {
     Require(!pending);
+    if (cls == &game && Is(name, "sm_cIntroModule") && Is(sig, "LIntroModule;"))
+        return nullptr;
     if (cls == &menu_class && Is(name, "m_nCurUI") && Is(sig, "I")) return Token(Id::ui_index);
     if (cls == &game && Is(name, "sm_cMenuModule") && Is(sig, "LMainMenuModule;"))
         return Token(Id::menu);
@@ -140,6 +178,10 @@ void* COJVR_JNICALL Field(void*, void* cls, const char* name, const char* sig) {
     Require(!pending);
     if (cls == &module_class && Is(name, "cMenu") && Is(sig, "LMainMenuModule;"))
         return Token(Id::cmenu);
+    if (cls == &module_class && Is(name, "m_GameMode") && Is(sig, "LGameMode;")) {
+        if (game_mode_lookup_throw) { pending = true; return nullptr; }
+        return Token(Id::game_mode);
+    }
     if (cls == &menu_class && Is(name, "m_cCursor") && Is(sig, "LUICursorGame;"))
         return Token(Id::cursor);
     if (cls == &menu_class && Is(name, "m_bYesNoDlgVisible") && Is(sig, "Z")) {
@@ -157,11 +199,15 @@ void* COJVR_JNICALL ObjectField(void*, void* obj, void* field) {
     if (obj == &global_menu || obj == &active_menu) {
         Require(!pending);
         if (field == Token(Id::yes_no_dialog))
-            return modal_visible ? Local(modal_ui) : nullptr;
+            return modal_exists ? Local(modal_ui) : nullptr;
         Require(field == Token(Id::cursor));
         if (fault == Fault::cursor_throw) { pending = true; return nullptr; }
         if (fault == Fault::cursor_null) return nullptr;
         return Local(obj == &global_menu ? global_cursor : active_cursor);
+    }
+    if (obj == &module && field == Token(Id::game_mode)) {
+        Require(!pending);
+        return game_mode_available ? Local(game_mode) : nullptr;
     }
     Require(!pending && obj == &module && field == Token(Id::cmenu));
     return Local(active_menu);
@@ -172,6 +218,14 @@ std::uint8_t COJVR_JNICALL BooleanField(void*, void* obj, void* field) {
     return modal_visible ? 1 : 0;
 }
 void* COJVR_JNICALL CallObject(void*, void* obj, void* method, const JValue* args) {
+    if (obj == &game_mode) {
+        Require(!pending && method == Token(Id::hint_manager) && !args);
+        return hint_available ? Local(manager) : nullptr;
+    }
+    if (obj == &manager) {
+        Require(!pending && method == Token(Id::active_hint) && !args);
+        return Local(hint);
+    }
     Require(!pending && (obj == &global_menu || obj == &active_menu));
     if (method == Token(Id::current_ui)) {
         ++creating_ui_lookups;
@@ -194,6 +248,14 @@ void* COJVR_JNICALL New(void*, void* cls, void* ctor, const JValue* args) {
     return Local(vector);
 }
 std::uint8_t COJVR_JNICALL Boolean(void*, void* obj, void* method, const JValue* args) {
+    if (obj == &modal_ui && method == Token(Id::actually_visible)) {
+        Require(!pending && !args);
+        return modal_visible ? 1 : 0;
+    }
+    if (obj == &hint) {
+        Require(!pending && method == Token(Id::pause_hint) && !args);
+        return hint_pauses ? 1 : 0;
+    }
     if (obj == &ui || obj == &modal_ui) {
         Require(!pending && method == Token(Id::mousepos) && args && args[0].l == &vector);
         if (obj == &modal_ui) {
@@ -225,7 +287,19 @@ void COJVR_JNICALL SetFloat(void*, void* obj, void* field, float value) {
     else { Require(field == Token(Id::z)); vector.z = value; }
 }
 void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
+    if (obj == &manager) {
+        Require(!pending && method == Token(Id::disable_hint) && !args);
+        ++hint_dismissals;
+        return;
+    }
     if (obj == &ui || obj == &modal_ui) {
+        if (method == Token(Id::enter_press) || method == Token(Id::enter_release)) {
+            Require(!pending && !args);
+            if (method == Token(Id::enter_press)) ++enter_presses;
+            else ++enter_releases;
+            if (obj == &modal_ui && method == Token(Id::enter_press)) ++modal_enter_presses;
+            return;
+        }
         Require(!pending && method == Token(Id::process) && !args);
         native_enabled = true; ++mutations; return;
     }
@@ -238,6 +312,10 @@ void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
         Require(method == Token(Id::move) && args[0].f == cursor->x &&
             args[1].f == cursor->y && args[2].i == 0);
     }
+}
+std::uint8_t COJVR_JNICALL Instance(void*, void* obj, void* cls) {
+    Require(!pending && (obj == &ui || obj == &modal_ui) && cls == &loading_class);
+    return 0;
 }
 std::int32_t COJVR_JNICALL Int(void*, void* obj, void* method, const JValue* args) {
     Require(!pending && (obj == &ui || obj == &modal_ui) &&
@@ -254,6 +332,13 @@ bool DispatchMouse(std::uint32_t id, float x, float y, std::string* error) noexc
     } else {
         input_x = x; input_y = y;
     }
+    return true;
+}
+bool DispatchMouseButton(std::uint32_t id, std::string* error) noexcept {
+    Require((id == 123 || id == 456) && native_enabled && !pending);
+    if (!dispatch_available) { *error = "native button consumer unavailable"; return false; }
+    ++native_clicks;
+    last_native_click_object_id = id;
     return true;
 }
 std::int32_t COJVR_JNICALL GetEnv(void*, void** env, std::int32_t version) {
@@ -289,6 +374,7 @@ int Run() {
     env_table[23] = reinterpret_cast<void*>(&DeleteLocal);
     env_table[30] = reinterpret_cast<void*>(&New);
     env_table[31] = reinterpret_cast<void*>(&Class);
+    env_table[32] = reinterpret_cast<void*>(&Instance);
     env_table[33] = reinterpret_cast<void*>(&Method);
     env_table[36] = reinterpret_cast<void*>(&CallObject);
     env_table[39] = reinterpret_cast<void*>(&Boolean);
@@ -435,6 +521,117 @@ int Run() {
         yes_no_visibility_field_available = true;
         global_available = false;
     }
+    for (const std::int32_t menu_index : {0, 9}) {
+        // MainMenuModule.OnCreate allocates the reusable Yes/No dialog before
+        // any request to show it. Existence alone never makes it the input root.
+        global_available = active_available = current_ui_available = true;
+        modal_visible = false;
+        ui_index = menu_index;
+        JavaPlayerBridge bridge; std::string error;
+        bool consumed = false;
+        ok &= Check(bridge.TryProcessUiPointer(630, 355, &error, &DispatchMouse, &consumed) &&
+            consumed && last_native_object_id == 123,
+            "allocated hidden Yes/No must not steal main or pause menu hover");
+        const int modal_before = modal_enter_presses, enter_before = enter_presses;
+        ok &= Check(bridge.TryDispatchUiSelectPress(false, nullptr, &error) &&
+            enter_presses == enter_before + 1 && modal_enter_presses == modal_before,
+            "allocated hidden Yes/No must not steal main or pause menu selection");
+        bridge.Reset(); CheckClean(); mutations = 0;
+    }
+    ui_index = 4;
+    {
+        global_available = active_available = current_ui_available = true;
+        game_mode_available = true;
+        modal_visible = false;
+        native_enabled = false;
+        JavaPlayerBridge bridge; std::string error;
+        CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+        const int clicks_before = native_clicks;
+        const int enter_before = enter_presses;
+        ok &= Check(bridge.TryDispatchUiPointerSelectPress(
+                        false, &DispatchMouseButton, nullptr, &error, nullptr, &route) &&
+                    route == CoJUiDispatchRoute::global_menu &&
+                    native_clicks == clicks_before + 1 && last_native_click_object_id == 123 &&
+                    enter_presses == enter_before,
+            "ray selection must use the current UI native mouse button context instead of Enter");
+        bridge.Reset(); CheckClean(); mutations = 0;
+    }
+    {
+        global_available = active_available = current_ui_available = true;
+        game_mode_available = true;
+        modal_visible = true;
+        native_enabled = false;
+        JavaPlayerBridge bridge; std::string error;
+        const int clicks_before = native_clicks;
+        const int modal_enter_before = modal_enter_presses;
+        ok &= Check(bridge.TryDispatchUiPointerSelectPress(
+                        false, &DispatchMouseButton, nullptr, &error) &&
+                    native_clicks == clicks_before + 1 && last_native_click_object_id == 456 &&
+                    modal_enter_presses == modal_enter_before,
+            "visible Yes/No ray selection must click its native dialog root");
+        modal_visible = false;
+        bridge.Reset(); CheckClean(); mutations = 0;
+    }
+    {
+        global_available = active_available = current_ui_available = true;
+        game_mode_available = true;
+        hint_available = hint_pauses = true;
+        native_enabled = false;
+        JavaPlayerBridge bridge; std::string error;
+        CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+        bool dismissed = false;
+        const int clicks_before = native_clicks;
+        ok &= Check(bridge.TryDispatchUiPointerSelectPress(
+                        false, &DispatchMouseButton, nullptr, &error, &dismissed, &route) &&
+                    dismissed && route == CoJUiDispatchRoute::paused_hint &&
+                    native_clicks == clicks_before,
+            "pausing hints must retain their special selection route before native menu click");
+        hint_available = hint_pauses = false;
+        bridge.Reset(); CheckClean(); mutations = 0;
+    }
+    for (const bool mode_present : {true, false}) {
+        global_available = active_available = current_ui_available = true;
+        game_mode_available = mode_present;
+        JavaPlayerBridge bridge; std::string error;
+        CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+        const int before_press = enter_presses, before_release = enter_releases;
+        ok &= Check(bridge.TryDispatchUiSelectPress(false, nullptr, &error, nullptr, &route) &&
+            route == CoJUiDispatchRoute::global_menu &&
+            enter_presses == before_press + 1 && enter_releases == before_release + 1,
+            "active campaign selection must get hints through m_GameMode, then dispatch Enter");
+        bridge.Reset(); CheckClean(); current_ui_available = false;
+    }
+    global_available = false;
+    game_mode_available = true;
+    {
+        global_available = active_available = current_ui_available = true;
+        modal_visible = true;
+        JavaPlayerBridge bridge; std::string error;
+        const int before_enter = enter_presses;
+        ok &= Check(bridge.TryDispatchUiSelectPress(false, nullptr, &error) &&
+            enter_presses == before_enter + 1, "active campaign Yes/No selection must remain usable");
+        game_mode_lookup_throw = true;
+        ok &= Check(!bridge.TryDispatchUiSelectPress(false, nullptr, &error) && !pending &&
+            error.find("LawmanModule.m_GameMode lookup failed") != std::string::npos &&
+            enter_presses == before_enter + 1, "failed hint ownership lookup clears its exception before fallback");
+        game_mode_lookup_throw = modal_visible = false;
+        bridge.Reset(); CheckClean();
+    }
+    for (const bool paused : {false, true}) {
+        global_available = active_available = current_ui_available = true;
+        hint_available = true; hint_pauses = paused;
+        JavaPlayerBridge bridge; std::string error;
+        CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+        bool dismissed = false;
+        const int before_enter = enter_presses, before_hint = hint_dismissals;
+        ok &= Check(bridge.TryDispatchUiSelectPress(false, nullptr, &error, &dismissed, &route) &&
+            dismissed == paused && hint_dismissals == before_hint + (paused ? 1 : 0) &&
+            enter_presses == before_enter + (paused ? 0 : 1) &&
+            route == (paused ? CoJUiDispatchRoute::paused_hint : CoJUiDispatchRoute::global_menu),
+            "only a pausing GameMode hint may consume selection instead of the current UI");
+        bridge.Reset(); CheckClean();
+    }
+    hint_available = hint_pauses = current_ui_available = global_available = false;
     for (const std::size_t missing : {15U, 17U, 30U, 39U, 102U}) {
         void* saved = env_table[missing]; env_table[missing] = nullptr;
         JavaPlayerBridge bridge; JavaPlayerPosition value{99, 99, 99}; std::string error;

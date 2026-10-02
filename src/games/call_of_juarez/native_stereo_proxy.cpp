@@ -524,6 +524,21 @@ bool DispatchFlatUiPointerSelection(
     bool* loading, std::string* error, bool* hint_dismissed,
     cojvr::games::call_of_juarez::CoJUiDispatchRoute* route) noexcept {
     try {
+        const auto reject = [error](const char* reason) {
+            if (error) *error = reason;
+            return false;
+        };
+        const auto reject_with_detail = [error](
+            const char* reason, const std::string& detail) {
+            if (error) {
+                *error = reason;
+                if (!detail.empty()) {
+                    error->append(": ");
+                    error->append(detail);
+                }
+            }
+            return false;
+        };
         // Serialize validation and dispatch with presenter cancellation/claim
         // changes. An accepted tap can be released while waiting for hover.
         std::lock_guard lock(g_stereo.flat_ui_mutex);
@@ -531,23 +546,47 @@ bool DispatchFlatUiPointerSelection(
         const HWND window = reinterpret_cast<HWND>(g_stereo.game_window.load(std::memory_order_acquire));
         HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
         if (!root) root = window;
-        if (!selection.pending || !current.pending || !g_stereo.flat_ui_pointer_active ||
-            !g_stereo.flat_ui_target_applied || current.hand != selection.hand ||
-            current.claim != selection.claim || current.click != selection.click ||
-            !root || GetForegroundWindow() != root) return false;
+        if (!selection.pending) return reject("selection_not_pending");
+        if (!current.pending) return reject("current_not_pending");
+        if (!g_stereo.flat_ui_pointer_active) return reject("pointer_inactive");
+        if (!g_stereo.flat_ui_target_applied) return reject("target_not_applied");
+        if (current.hand != selection.hand || current.claim != selection.claim ||
+            current.click != selection.click) {
+            return reject("identity_mismatch");
+        }
+        if (!root) return reject("game_window_unavailable");
+        if (GetForegroundWindow() != root) return reject("game_not_foreground");
         cojvr::games::call_of_juarez::CameraProbeVector position{};
         std::int32_t menu_index = 0;
-        if (!cojvr::games::call_of_juarez::ObserveCameraUiPointerPosition(position, error, &menu_index) ||
-            !g_stereo.flat_ui_menu_known || menu_index != g_stereo.flat_ui_menu_index ||
-            std::abs(position.x - static_cast<float>(g_stereo.flat_ui_applied_x)) > 1.0F ||
-            std::abs(position.y - static_cast<float>(g_stereo.flat_ui_applied_y)) > 1.0F) {
+        std::string readback_error;
+        const bool readback_ok = cojvr::games::call_of_juarez::ObserveCameraUiPointerPosition(
+            position, &readback_error, &menu_index);
+        const char* rejection_reason = nullptr;
+        if (!readback_ok) {
+            rejection_reason = "readback_failed";
+        } else if (!g_stereo.flat_ui_menu_known) {
+            rejection_reason = "menu_unknown";
+        } else if (menu_index != g_stereo.flat_ui_menu_index) {
+            rejection_reason = "menu_index_mismatch";
+        } else if (std::abs(position.x - static_cast<float>(g_stereo.flat_ui_applied_x)) > 1.0F ||
+                   std::abs(position.y - static_cast<float>(g_stereo.flat_ui_applied_y)) > 1.0F) {
+            rejection_reason = "coordinate_mismatch";
+        }
+        if (rejection_reason) {
             g_stereo.flat_ui_pointer_selection.Observe(cojvr::runtime::UiPointerHand::none, 0, false, false);
             g_stereo.flat_ui_target_applied = false;
-            return false;
+            return reject_with_detail(rejection_reason, readback_error);
         }
-        return cojvr::games::call_of_juarez::DispatchCameraUiSelectPress(
-            false, loading, error, hint_dismissed, route);
+        std::string dispatch_error;
+        const bool dispatched = cojvr::games::call_of_juarez::DispatchCameraUiPointerSelectPress(
+            false, loading, &dispatch_error, hint_dismissed, route);
+        if (!dispatched) return reject_with_detail("dispatch_failed", dispatch_error);
+        if (error) error->clear();
+        return true;
     } catch (...) {
+        try {
+            if (error) *error = "exception";
+        } catch (...) {}
         return false;
     }
 }
@@ -1415,12 +1454,23 @@ bool CaptureStereoEye(
 bool SubmitStereoFrame(
     void* context,
     const std::uint64_t frame_sequence,
-    const cojvr::runtime::PoseSample& render_hmd_pose) noexcept {
+    const cojvr::runtime::PoseSample& render_hmd_pose,
+    const cojvr::games::call_of_juarez::CameraStereoReticleOverlay& gameplay_reticle) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return false;
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
+    cojvr::backends::d3d9::StereoReticleOverlay capture_reticle{};
+    capture_reticle.active = gameplay_reticle.active;
+    capture_reticle.frame_sequence = gameplay_reticle.frame_sequence;
+    for (std::size_t eye = 0; eye < capture_reticle.eyes.size(); ++eye) {
+        capture_reticle.eyes[eye] = {
+            .valid = gameplay_reticle.eyes[eye].valid,
+            .u = gameplay_reticle.eyes[eye].u,
+            .v = gameplay_reticle.eyes[eye].v,
+        };
+    }
     const bool accepted = state->capture.EndFrame(
-        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence);
+        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle);
     if (!accepted) {
         LogTransportFailure(frame_sequence, "fence", state->capture.last_error());
     } else if (ShouldLogStereoTiming(frame_sequence)) {

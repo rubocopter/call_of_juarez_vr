@@ -44,6 +44,20 @@ struct SharedTextureEyeFrame {
     std::uint32_t d3d_format = 0;
 };
 
+struct StereoReticlePoint {
+    bool valid = false;
+    float u = 0.0F;
+    float v = 0.0F;
+};
+
+// Normalized top-left-origin coordinates already projected by the game
+// adapter for the exact eye cameras that produced this captured frame.
+struct StereoReticleOverlay {
+    bool active = false;
+    std::uint64_t frame_sequence = 0;
+    std::array<StereoReticlePoint, 2> eyes{};
+};
+
 struct ProducerFrameReleaseState {
     std::atomic_bool consumer_done{false};
 };
@@ -101,6 +115,7 @@ struct StereoCpuFrame {
     std::uint64_t transport_sequence = 0;
     std::uint64_t render_pose_sequence = 0;
     runtime::Pose render_hmd_pose{};
+    StereoReticleOverlay gameplay_reticle{};
     std::chrono::steady_clock::time_point capture_time{};
     FramePresentationMode presentation_mode = FramePresentationMode::native_stereo;
     StereoFrameTransport transport = StereoFrameTransport::cpu_bgrx;

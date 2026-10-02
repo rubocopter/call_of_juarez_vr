@@ -39,6 +39,16 @@ cojvr::runtime::Pose TestRenderPose() {
     return pose;
 }
 
+cojvr::backends::d3d9::StereoReticleOverlay TestReticle(
+    const std::uint64_t frame_sequence) {
+    cojvr::backends::d3d9::StereoReticleOverlay reticle{};
+    reticle.active = true;
+    reticle.frame_sequence = frame_sequence;
+    reticle.eyes[0] = {.valid = true, .u = 0.25F, .v = 0.40F};
+    reticle.eyes[1] = {.valid = true, .u = 0.75F, .v = 0.60F};
+    return reticle;
+}
+
 bool CaptureAndCollect(
     cojvr::backends::d3d9::D3D9StereoCapture& capture,
     IDirect3DDevice9* device,
@@ -54,7 +64,9 @@ bool CaptureAndCollect(
     hr = device->ColorFill(target, nullptr, D3DCOLOR_ARGB(0xFF, 0xD0, 0x50, 0x10));
     if (FAILED(hr) ||
         !capture.CaptureEye(device, cojvr::runtime::Eye::right, frame_sequence, generation) ||
-        !capture.EndFrame(frame_sequence, TestRenderPose(), frame_sequence + 41)) {
+        !capture.EndFrame(
+            frame_sequence, TestRenderPose(), frame_sequence + 41,
+            TestReticle(frame_sequence))) {
         return false;
     }
     for (int attempt = 0; attempt < 100; ++attempt) {
@@ -130,6 +142,10 @@ int main() {
         frame.render_pose_sequence != 42 || !frame.render_hmd_pose.orientation_valid ||
         !frame.render_hmd_pose.position_valid ||
         std::fabs(frame.render_hmd_pose.position.y - 1.65F) > 0.0001F ||
+        !frame.gameplay_reticle.active || frame.gameplay_reticle.frame_sequence != 1 ||
+        !frame.gameplay_reticle.eyes[0].valid || !frame.gameplay_reticle.eyes[1].valid ||
+        std::fabs(frame.gameplay_reticle.eyes[0].u - 0.25F) > 0.0001F ||
+        std::fabs(frame.gameplay_reticle.eyes[1].u - 0.75F) > 0.0001F ||
         frame.eyes[0].width != 65 || frame.eyes[0].height != 37 ||
         frame.eyes[0].stride < 65 * 4 || frame.eyes[1].stride < 65 * 4 ||
         frame.transport != cojvr::backends::d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem ||

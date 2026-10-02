@@ -12,9 +12,11 @@ unsigned cursor_warps = 0;
 unsigned injected_moves = 0;
 unsigned posted_moves = 0;
 unsigned native_moves = 0;
-unsigned native_selects = 0;
+unsigned keyboard_selects = 0;
+unsigned pointer_selects = 0;
 float cursor_x = 0, cursor_y = 0;
 bool native_available = true;
+bool select_available = true;
 float native_readback_offset = 0;
 std::int32_t ui_index = 0;
 bool mouse_button = false;
@@ -34,9 +36,15 @@ ULONGLONG Ticks() { return now; }
 }
 
 namespace cojvr::games::call_of_juarez {
-bool FixtureUiSelect(bool, bool*, std::string*, bool*, CoJUiDispatchRoute*) noexcept {
-    ++fixture::native_selects;
-    return true;
+bool FixtureUiSelect(bool, bool*, std::string* error, bool*, CoJUiDispatchRoute*) noexcept {
+    ++fixture::keyboard_selects;
+    if (!fixture::select_available && error) *error = "fixture native dispatch failed";
+    return fixture::select_available;
+}
+bool FixtureUiPointerSelect(bool, bool*, std::string* error, bool*, CoJUiDispatchRoute*) noexcept {
+    ++fixture::pointer_selects;
+    if (!fixture::select_available && error) *error = "fixture native dispatch failed";
+    return fixture::select_available;
 }
 bool FixturePointerMotion(float x, float y, std::string*, bool* input_consumed = nullptr) noexcept {
     if (!fixture::native_available) return false;
@@ -65,6 +73,7 @@ bool FixturePointerPosition(CameraProbeVector& position, std::string*, std::int3
 #define DispatchCameraUiPointerMotion FixturePointerMotion
 #define ObserveCameraUiPointerPosition FixturePointerPosition
 #define DispatchCameraUiSelectPress FixtureUiSelect
+#define DispatchCameraUiPointerSelectPress FixtureUiPointerSelect
 #include "../src/games/call_of_juarez/native_stereo_proxy.cpp"
 #undef GetAncestor
 #undef GetForegroundWindow
@@ -78,6 +87,7 @@ bool FixturePointerPosition(CameraProbeVector& position, std::string*, std::int3
 #undef DispatchCameraUiPointerMotion
 #undef ObserveCameraUiPointerPosition
 #undef DispatchCameraUiSelectPress
+#undef DispatchCameraUiPointerSelectPress
 
 int main() {
     using cojvr::backends::openvr::FlatUiPointerSample;
@@ -122,9 +132,20 @@ int main() {
         return 15;
     }
     if (!DispatchFlatUiPointerSelection(delivered, nullptr, nullptr, nullptr, nullptr) ||
-        fixture::native_selects != 1) return 21;
+        fixture::pointer_selects != 1 || fixture::keyboard_selects != 0) {
+        std::cerr << "ray selection bypassed native pointer button path: pointer="
+                  << fixture::pointer_selects << " keyboard=" << fixture::keyboard_selects << '\n';
+        return 21;
+    }
     CompleteFlatUiSelection(delivered, true);
     if (FlatUiSelection().pending) return 7;
+    std::string rejection_reason;
+    if (DispatchFlatUiPointerSelection(
+            delivered, nullptr, &rejection_reason, nullptr, nullptr) ||
+        rejection_reason != "current_not_pending") {
+        std::cerr << "selection rejection was not observable: " << rejection_reason << '\n';
+        return 28;
+    }
     sample.select_pressed = false;
     FlatUiPointer(nullptr, sample);
     fixture::native_available = false;
@@ -201,7 +222,7 @@ int main() {
         return 20;
     }
     if (DispatchFlatUiPointerSelection(delivered, nullptr, nullptr, nullptr, nullptr) ||
-        fixture::native_selects != 1) return 22;
+        fixture::pointer_selects != 1 || fixture::keyboard_selects != 0) return 22;
     sample.claim = 4;
     FlatUiPointer(nullptr, sample);
     ApplyFlatUiPointerMotion();
@@ -209,7 +230,7 @@ int main() {
     if (!delivered.pending) return 23;
     NeutralizeFlatUiPointer("ui_navigation");
     if (DispatchFlatUiPointerSelection(delivered, nullptr, nullptr, nullptr, nullptr) ||
-        fixture::native_selects != 1) return 24;
+        fixture::pointer_selects != 1 || fixture::keyboard_selects != 0) return 24;
     sample.claim = 5;
     FlatUiPointer(nullptr, sample);
     ApplyFlatUiPointerMotion();
@@ -223,6 +244,64 @@ int main() {
     ApplyFlatUiPointerMotion();
     delivered = ApplyFlatUiPointerMotion();
     if (delivered.pending || fixture::cursor_x != sample.pixel_x ||
-        fixture::native_selects != 1) return 27;
+        fixture::pointer_selects != 1 || fixture::keyboard_selects != 0) return 27;
+    // Reproduce a queued click in the gameplay pause menu. A native dispatch
+    // failure must be distinguishable from rejecting its stale/input target.
+    const auto queue_pause_click = [&] {
+        fixture::foreground = fixture::native_available = true;
+        fixture::native_readback_offset = 0;
+        fixture::ui_index = g_stereo.flat_ui_menu_index = 9;
+        g_stereo.flat_ui_menu_known = true;
+        g_stereo.flat_ui_mouse_priority = {};
+        NeutralizeFlatUiPointer("fixture_new_click");
+        sample.select_pressed = sample.select_down = true;
+        ++sample.claim;
+        FlatUiPointer(nullptr, sample);
+        ApplyFlatUiPointerMotion();
+        return ApplyFlatUiPointerMotion();
+    };
+    const auto expect_rejection = [&](const auto& click, const char* expected,
+                                      const bool dispatch_attempted = false) {
+        const auto before = fixture::pointer_selects;
+        rejection_reason = "stale diagnostic";
+        const bool dispatched = DispatchFlatUiPointerSelection(
+            click, nullptr, &rejection_reason, nullptr, nullptr);
+        if (dispatched || rejection_reason != expected ||
+            fixture::pointer_selects != before + (dispatch_attempted ? 1 : 0) ||
+            fixture::keyboard_selects != 0) {
+            std::cerr << "pause click rejection: expected=" << expected
+                      << " observed=" << rejection_reason << '\n';
+            return false;
+        }
+        return true;
+    };
+    delivered = queue_pause_click();
+    fixture::foreground = false; // Focus changed after the target was delivered.
+    if (!expect_rejection(delivered, "game_not_foreground")) return 29;
+    delivered = queue_pause_click();
+    fixture::native_available = false;
+    if (!expect_rejection(delivered, "readback_failed") ||
+        FlatUiSelection().pending || g_stereo.flat_ui_target_applied) return 30;
+    delivered = queue_pause_click();
+    ++fixture::ui_index; // Same coordinates, but a newly opened UI.
+    if (!expect_rejection(delivered, "menu_index_mismatch") ||
+        FlatUiSelection().pending || g_stereo.flat_ui_target_applied) return 31;
+    delivered = queue_pause_click();
+    fixture::native_readback_offset = 2;
+    if (!expect_rejection(delivered, "coordinate_mismatch") ||
+        FlatUiSelection().pending || g_stereo.flat_ui_target_applied) return 32;
+    delivered = queue_pause_click();
+    auto stale_click = delivered;
+    --stale_click.click;
+    if (!expect_rejection(stale_click, "identity_mismatch") ||
+        !FlatUiSelection().pending) return 33;
+    fixture::select_available = false;
+    if (!expect_rejection(delivered, "dispatch_failed: fixture native dispatch failed", true) ||
+        !FlatUiSelection().pending) return 34;
+    fixture::select_available = true;
+    if (!DispatchFlatUiPointerSelection(delivered, nullptr, &rejection_reason, nullptr, nullptr) ||
+        !rejection_reason.empty()) return 35;
+    CompleteFlatUiSelection(delivered, true);
+    if (FlatUiSelection().pending) return 36;
     std::cout << "PASS - logical delivery, applied selection and physical mouse priority\n";
 }

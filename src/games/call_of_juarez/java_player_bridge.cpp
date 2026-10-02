@@ -224,7 +224,7 @@ bool CoJOdeWalkStateGrounded(const int ode_walk_state) noexcept {
 const char* CoJUiDispatchRouteName(const CoJUiDispatchRoute route) noexcept {
     switch (route) {
     case CoJUiDispatchRoute::paused_hint:
-        return "LawmanModule.GetHintManager.DisableCurrentHint";
+        return "LawmanModule.m_GameMode.GetHintManager.DisableCurrentHint";
     case CoJUiDispatchRoute::global_menu:
         return "GameWithMenu.sm_cMenuModule.GetCurrentUI.Enter";
     case CoJUiDispatchRoute::active_game_menu:
@@ -301,7 +301,7 @@ std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
         move_y = constrain_axis(state.move.y);
     }
     return {{
-        // Horizontal turn is consumed by the exact 45-degree snap path below.
+        // Horizontal turn is consumed by the exact 90-degree snap path below.
         // Keep both native analog actions neutral so mouse sensitivity cannot
         // turn a snap request back into continuous rotation.
         {2, 0.0F},
@@ -348,7 +348,7 @@ float CoJSnapTurnState::Update(
     const cojvr::runtime::GameplayInputState& state) noexcept {
     constexpr float kEngageThreshold = 0.70F;
     constexpr float kReleaseThreshold = 0.35F;
-    constexpr float kSnapDegrees = 45.0F;
+    constexpr float kSnapDegrees = 90.0F;
 
     if (!state.active || !std::isfinite(state.turn.x)) {
         latched = false;
@@ -1618,8 +1618,9 @@ CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
     const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
     const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
     if (!find_class || !get_static_field || !get_static_object || !get_class ||
-        !get_method || !call_object || !get_field || !get_object) {
+        !get_method || !call_object || !get_field || !get_object || !call_boolean) {
         SetError(error, "required JNI current-game-UI lookup functions are unavailable");
         return CoJCurrentUiResolution::error;
     }
@@ -1635,9 +1636,9 @@ CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
 
         // The shipped MainMenuModule exposes m_cYesNoDlg but not the
         // m_bYesNoDlgVisible field used by an earlier probe. Treat the dialog
-        // object itself as optional modal metadata. A missing field, a null
-        // object, or an exception while observing it must not poison the
-        // headset-proven FindUI/GetGlobalCursor path below.
+        // object as optional modal metadata. OnCreate allocates it once and
+        // reuses it while hidden, so only IsActuallyVisible makes it the input
+        // root. Failed optional observation must not poison the current UI.
         std::string ignored_modal_error;
         void* yes_no_dialog_field =
             get_field(env, menu_class, "m_cYesNoDlg", "LMenuYesNoDialog;");
@@ -1651,11 +1652,24 @@ CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
                 yes_no_dialog = nullptr;
             }
             if (yes_no_dialog) {
-                DeleteLocal(env, menu_class);
-                ui = yes_no_dialog;
-                route = candidate_route;
-                SetError(error, "");
-                return CoJCurrentUiResolution::resolved;
+                void* dialog_class = get_class(env, yes_no_dialog);
+                bool visible = false;
+                if (!ClearException(env, &ignored_modal_error, "Yes/No class lookup failed") && dialog_class) {
+                    void* is_visible = get_method(env, dialog_class, "IsActuallyVisible", "()Z");
+                    if (!ClearException(env, &ignored_modal_error, "Yes/No visibility lookup failed") && is_visible) {
+                        visible = call_boolean(env, yes_no_dialog, is_visible, nullptr) != 0;
+                        if (ClearException(env, &ignored_modal_error, "Yes/No visibility read failed")) visible = false;
+                    }
+                }
+                DeleteLocal(env, dialog_class);
+                if (visible) {
+                    DeleteLocal(env, menu_class);
+                    ui = yes_no_dialog;
+                    route = candidate_route;
+                    SetError(error, "");
+                    return CoJCurrentUiResolution::resolved;
+                }
+                DeleteLocal(env, yes_no_dialog);
             }
         }
 
@@ -1956,23 +1970,51 @@ bool JavaPlayerBridge::TryDismissPausedHint(
     }
     if (!module) return true;
 
-    void* module_class = get_class(env, module);
-    if (!module_class || ClearException(env, error, "active LawmanModule class lookup failed")) {
+    // LawmanModule extends Module, not GameMode. HintManager belongs to its
+    // m_GameMode object. Resolve the field on its declaring shipped class,
+    // rather than looking for a nonexistent getter on the active module.
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    if (!find_class || !get_field || !get_object) {
+        DeleteLocal(env, module);
+        SetError(error, "required JNI game-mode hint lookup functions are unavailable");
+        return false;
+    }
+    void* module_class = find_class(env, "LawmanModule");
+    if (ClearException(env, error, "FindClass(LawmanModule) failed for hints") || !module_class) {
         DeleteLocal(env, module_class);
         DeleteLocal(env, module);
         return false;
     }
-    void* get_hint_manager =
-        get_method(env, module_class, "GetHintManager", "()LHintManager;");
+    void* game_mode_field = get_field(env, module_class, "m_GameMode", "LGameMode;");
     DeleteLocal(env, module_class);
-    if (!get_hint_manager ||
-        ClearException(env, error, "LawmanModule.GetHintManager lookup failed")) {
+    if (ClearException(env, error, "LawmanModule.m_GameMode lookup failed") || !game_mode_field) {
         DeleteLocal(env, module);
         return false;
     }
-    void* manager = call_object(env, module, get_hint_manager, nullptr);
+    void* game_mode = get_object(env, module, game_mode_field);
     DeleteLocal(env, module);
-    if (ClearException(env, error, "LawmanModule.GetHintManager call failed")) {
+    if (ClearException(env, error, "LawmanModule.m_GameMode read failed")) {
+        DeleteLocal(env, game_mode);
+        return false;
+    }
+    if (!game_mode) return true;
+    void* game_mode_class = find_class(env, "GameMode");
+    if (ClearException(env, error, "FindClass(GameMode) failed for hints") || !game_mode_class) {
+        DeleteLocal(env, game_mode_class);
+        DeleteLocal(env, game_mode);
+        return false;
+    }
+    void* get_hint_manager = get_method(env, game_mode_class, "GetHintManager", "()LHintManager;");
+    DeleteLocal(env, game_mode_class);
+    if (ClearException(env, error, "GameMode.GetHintManager lookup failed") || !get_hint_manager) {
+        DeleteLocal(env, game_mode);
+        return false;
+    }
+    void* manager = call_object(env, game_mode, get_hint_manager, nullptr);
+    DeleteLocal(env, game_mode);
+    if (ClearException(env, error, "GameMode.GetHintManager call failed")) {
         DeleteLocal(env, manager);
         return false;
     }
@@ -2590,6 +2632,136 @@ bool JavaPlayerBridge::TryDispatchUiSelectPress(
         return false;
     }
     if (route) *route = ui_route;
+    return true;
+}
+
+bool JavaPlayerBridge::TryDispatchUiPointerSelectPress(
+    const bool require_loading_ui,
+    const CoJNativeUiMouseButtonDispatch dispatch_button,
+    bool* current_ui_is_loading,
+    std::string* error,
+    bool* paused_hint_dismissed,
+    CoJUiDispatchRoute* route) noexcept {
+    if (current_ui_is_loading) *current_ui_is_loading = false;
+    if (paused_hint_dismissed) *paused_hint_dismissed = false;
+    if (route) *route = CoJUiDispatchRoute::none;
+    void* env = Environment(error);
+    if (!env) return false;
+
+    bool dismissed_hint = false;
+    std::string hint_error;
+    if (!TryDismissPausedHint(env, dismissed_hint, &hint_error)) {
+        if (!require_loading_ui && TryDispatchIntroSkip(env, error)) {
+            if (route) *route = CoJUiDispatchRoute::intro_skip;
+            return true;
+        }
+        SetError(error, hint_error.c_str());
+        return false;
+    }
+    if (dismissed_hint) {
+        if (paused_hint_dismissed) *paused_hint_dismissed = true;
+        if (route) *route = CoJUiDispatchRoute::paused_hint;
+        return true;
+    }
+
+    void* ui = nullptr;
+    CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
+    const CoJCurrentUiResolution ui_resolution =
+        TryResolveCurrentGameUi(env, ui, ui_route, error, false);
+    if (ui_resolution != CoJCurrentUiResolution::resolved) {
+        if (!require_loading_ui && TryDispatchIntroSkip(env, error)) {
+            if (route) *route = CoJUiDispatchRoute::intro_skip;
+            return true;
+        }
+        return false;
+    }
+
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    if (!find_class || !get_class || !get_method || !call_void || !call_int || !is_instance) {
+        DeleteLocal(env, ui);
+        SetError(error, "required JNI game-UI pointer-selection functions are unavailable");
+        return false;
+    }
+
+    void* loading_class = find_class(env, "GameUILoading");
+    if (!loading_class || ClearException(env, error, "FindClass(GameUILoading) failed")) {
+        DeleteLocal(env, loading_class);
+        DeleteLocal(env, ui);
+        return false;
+    }
+    const bool is_loading = is_instance(env, ui, loading_class) != 0;
+    DeleteLocal(env, loading_class);
+    if (ClearException(env, error, "GameUILoading type check failed")) {
+        DeleteLocal(env, ui);
+        return false;
+    }
+    if (current_ui_is_loading) *current_ui_is_loading = is_loading;
+    if (require_loading_ui && !is_loading) {
+        DeleteLocal(env, ui);
+        SetError(error, "current game UI is not GameUILoading");
+        return false;
+    }
+
+    void* ui_class = get_class(env, ui);
+    if (!ui_class || ClearException(env, error, "GameUserInterface class lookup failed")) {
+        DeleteLocal(env, ui_class);
+        DeleteLocal(env, ui);
+        return false;
+    }
+    if (is_loading) {
+        void* on_input_key = get_method(env, ui_class, "OnInputKey", "(IZC)V");
+        DeleteLocal(env, ui_class);
+        if (!on_input_key || ClearException(env, error, "GameUILoading.OnInputKey lookup failed")) {
+            DeleteLocal(env, ui);
+            return false;
+        }
+        JValue loading_args[3]{};
+        loading_args[0].i = 1;
+        loading_args[1].z = 0;
+        loading_args[2].c = 0;
+        call_void(env, ui, on_input_key, loading_args);
+        DeleteLocal(env, ui);
+        if (ClearException(env, error, "GameUILoading.OnInputKey call failed")) return false;
+        if (route) *route = CoJUiDispatchRoute::loading_ui;
+        SetError(error, "");
+        return true;
+    }
+
+    if (!dispatch_button) {
+        DeleteLocal(env, ui_class);
+        DeleteLocal(env, ui);
+        SetError(error, "exact-build native UI mouse-button dispatcher is unavailable");
+        return false;
+    }
+    void* process_mouse = get_method(env, ui_class, "SetProcessMouse", "()V");
+    void* get_id = get_method(env, ui_class, "GetThisID", "()I");
+    DeleteLocal(env, ui_class);
+    if (!process_mouse || !get_id ||
+        ClearException(env, error, "GameUserInterface pointer-selection lookup failed")) {
+        DeleteLocal(env, ui);
+        return false;
+    }
+    const auto object_id = static_cast<std::uint32_t>(call_int(env, ui, get_id, nullptr));
+    if (ClearException(env, error, "GameObject.GetThisID call failed") || !object_id) {
+        DeleteLocal(env, ui);
+        SetError(error, "active UI native object handle is unavailable");
+        return false;
+    }
+    call_void(env, ui, process_mouse, nullptr);
+    if (ClearException(env, error, "GameUserInterface.SetProcessMouse call failed")) {
+        DeleteLocal(env, ui);
+        return false;
+    }
+    const bool delivered = dispatch_button(object_id, error);
+    DeleteLocal(env, ui);
+    if (!delivered || ClearException(env, error, "native UI mouse-button dispatch failed")) return false;
+    if (route) *route = ui_route;
+    SetError(error, "");
     return true;
 }
 

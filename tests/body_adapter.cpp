@@ -125,15 +125,30 @@ int main() {
         std::cerr << "physical crouch did not reset on recenter/tracking loss\n";
         return 1;
     }
-    if (ResolveCoJCrouchAction(false, true) ||
+    if (!ResolveCoJCrouchAction(false, true) ||
         !ResolveCoJCrouchAction(true, false) ||
         !ResolveCoJCrouchAction(true, true)) {
-        std::cerr << "physical head-height crouch incorrectly drove the native crouch action\n";
+        std::cerr << "physical head-height crouch did not drive the native crouch action\n";
+        return 1;
+    }
+
+    const Vec2 head_forward_right = RotateCoJMoveForHeadRelativeYaw({0.0F, 1.0F}, 90.0F);
+    const Vec2 head_forward_left = RotateCoJMoveForHeadRelativeYaw({0.0F, 1.0F}, -90.0F);
+    const Vec2 head_diagonal = RotateCoJMoveForHeadRelativeYaw({0.6F, 0.8F}, 35.0F);
+    const Vec2 inactive_rotation = RotateCoJMoveForHeadRelativeYaw({0.25F, -0.5F}, 0.0F);
+    if (!Near(head_forward_right.x, 1.0F, 0.001F) ||
+        !Near(head_forward_right.y, 0.0F, 0.001F) ||
+        !Near(head_forward_left.x, -1.0F, 0.001F) ||
+        !Near(head_forward_left.y, 0.0F, 0.001F) ||
+        !Near(std::sqrt(head_diagonal.x * head_diagonal.x +
+                        head_diagonal.y * head_diagonal.y), 1.0F, 0.001F) ||
+        !Near(inactive_rotation.x, 0.25F) || !Near(inactive_rotation.y, -0.5F)) {
+        std::cerr << "head-relative locomotion did not preserve stick magnitude/direction\n";
         return 1;
     }
 
     if (std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::paused_hint)) !=
-            "LawmanModule.GetHintManager.DisableCurrentHint" ||
+            "LawmanModule.m_GameMode.GetHintManager.DisableCurrentHint" ||
         std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::intro_skip)) !=
             "GameWithMenu.sm_cIntroModule.OnInputKey" ||
         std::string_view(CoJUiDispatchRouteName(CoJUiDispatchRoute::active_game_menu)) !=
@@ -566,6 +581,122 @@ int main() {
     large_world_natural.forearm_element_position = {39712.0F, 3604.0F, 29406.0F};
     large_world_natural.foretwist_element_position = {39718.0F, 3605.0F, 29408.0F};
     large_world_natural.hand_element_position = {39725.0F, 3605.0F, 29410.0F};
+
+    // An arm transaction captures natural element frames before stereo rendering.
+    // If native locomotion moves the actor before restore, writing those captured
+    // world positions verbatim leaves the branch behind in world space. Rebase
+    // only positions by the actor translation; orientation bases stay natural.
+    const Vec3 captured_actor_position{39790.0F, 3538.0F, 29718.0F};
+    const Vec3 current_actor_position{39688.0F, 3537.0F, 29681.0F};
+    const Vec3 actor_delta{-102.0F, -1.0F, -37.0F};
+    const ArmGeometrySample rebased_natural = RebaseArmGeometryForActorTranslation(
+        large_world_natural, captured_actor_position, current_actor_position);
+    if (!Near(Distance(rebased_natural.shoulder,
+                       {large_world_natural.shoulder.x + actor_delta.x,
+                        large_world_natural.shoulder.y + actor_delta.y,
+                        large_world_natural.shoulder.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.elbow,
+                       {large_world_natural.elbow.x + actor_delta.x,
+                        large_world_natural.elbow.y + actor_delta.y,
+                        large_world_natural.elbow.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.wrist,
+                       {large_world_natural.wrist.x + actor_delta.x,
+                        large_world_natural.wrist.y + actor_delta.y,
+                        large_world_natural.wrist.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.upper_element_position,
+                       {large_world_natural.upper_element_position.x + actor_delta.x,
+                        large_world_natural.upper_element_position.y + actor_delta.y,
+                        large_world_natural.upper_element_position.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.forearm_element_position,
+                       {large_world_natural.forearm_element_position.x + actor_delta.x,
+                        large_world_natural.forearm_element_position.y + actor_delta.y,
+                        large_world_natural.forearm_element_position.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.foretwist_element_position,
+                       {large_world_natural.foretwist_element_position.x + actor_delta.x,
+                        large_world_natural.foretwist_element_position.y + actor_delta.y,
+                        large_world_natural.foretwist_element_position.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.hand_element_position,
+                       {large_world_natural.hand_element_position.x + actor_delta.x,
+                        large_world_natural.hand_element_position.y + actor_delta.y,
+                        large_world_natural.hand_element_position.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(rebased_natural.upper_element_up,
+                       large_world_natural.upper_element_up), 0.0F) ||
+        !Near(Distance(rebased_natural.upper_element_forward,
+                       large_world_natural.upper_element_forward), 0.0F) ||
+        !Near(Distance(rebased_natural.hand_element_up,
+                       large_world_natural.hand_element_up), 0.0F) ||
+        !Near(Distance(rebased_natural.hand_element_forward,
+                       large_world_natural.hand_element_forward), 0.0F)) {
+        std::cerr << "arm restore geometry did not follow actor translation\n";
+        return 1;
+    }
+
+    // The exact game can leave the restored arm branch world-fixed into the
+    // next frame while native locomotion advances the actor. Detect that
+    // continuity break from the complete positional chain and carry the stale
+    // natural geometry with the actor before solving the next tracked pose.
+    const ArmGeometryContinuityUpdate frozen_arm_update =
+        StabilizeArmGeometryAcrossActorMotion(
+            large_world_natural,
+            current_actor_position,
+            large_world_natural,
+            captured_actor_position,
+            true);
+    if (!frozen_arm_update.valid || !frozen_arm_update.rebased_world_fixed ||
+        !Near(Distance(frozen_arm_update.geometry.upper_element_position,
+                       {large_world_natural.upper_element_position.x + actor_delta.x,
+                        large_world_natural.upper_element_position.y + actor_delta.y,
+                        large_world_natural.upper_element_position.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(frozen_arm_update.geometry.wrist,
+                       {large_world_natural.wrist.x + actor_delta.x,
+                        large_world_natural.wrist.y + actor_delta.y,
+                        large_world_natural.wrist.z + actor_delta.z}), 0.0F) ||
+        !Near(Distance(frozen_arm_update.geometry.hand_element_forward,
+                       large_world_natural.hand_element_forward), 0.0F)) {
+        std::cerr << "world-fixed arm geometry did not follow actor motion\n";
+        return 1;
+    }
+
+    const Vec3 next_actor_position{
+        current_actor_position.x - 15.0F,
+        current_actor_position.y,
+        current_actor_position.z + 8.0F};
+    const ArmGeometryContinuityUpdate repeated_frozen_arm_update =
+        StabilizeArmGeometryAcrossActorMotion(
+            frozen_arm_update.geometry,
+            next_actor_position,
+            frozen_arm_update.geometry,
+            current_actor_position,
+            true);
+    if (!repeated_frozen_arm_update.valid ||
+        !repeated_frozen_arm_update.rebased_world_fixed ||
+        !Near(Distance(
+            repeated_frozen_arm_update.geometry.wrist,
+            {frozen_arm_update.geometry.wrist.x - 15.0F,
+             frozen_arm_update.geometry.wrist.y,
+             frozen_arm_update.geometry.wrist.z + 8.0F}), 0.0F)) {
+        std::cerr << "repeated world-fixed arm geometry did not accumulate actor motion\n";
+        return 1;
+    }
+
+    ArmGeometrySample animated_arm = large_world_natural;
+    animated_arm.elbow.x += 2.0F;
+    animated_arm.wrist.x += 3.0F;
+    animated_arm.forearm_element_position.x += 2.0F;
+    animated_arm.foretwist_element_position.x += 2.5F;
+    animated_arm.hand_element_position.x += 3.0F;
+    const ArmGeometryContinuityUpdate animated_arm_update =
+        StabilizeArmGeometryAcrossActorMotion(
+            animated_arm,
+            current_actor_position,
+            large_world_natural,
+            captured_actor_position,
+            true);
+    if (!animated_arm_update.valid || animated_arm_update.rebased_world_fixed ||
+        !Near(Distance(animated_arm_update.geometry.wrist, animated_arm.wrist), 0.0F)) {
+        std::cerr << "live animated arm geometry was mistaken for a frozen branch\n";
+        return 1;
+    }
     ArmGeometrySample one_ulp_restored = large_world_natural;
     one_ulp_restored.elbow.x = std::nextafter(
         one_ulp_restored.elbow.x, std::numeric_limits<float>::infinity());
@@ -755,9 +886,9 @@ int main() {
         return 1;
     }
     snap_gameplay.turn.x = 0.8F;
-    if (!Near(snap_turn.Update(snap_gameplay), 45.0F) ||
+    if (!Near(snap_turn.Update(snap_gameplay), 90.0F) ||
         !Near(snap_turn.Update(snap_gameplay), 0.0F)) {
-        std::cerr << "right-stick snap turn did not latch at 45 degrees\n";
+        std::cerr << "right-stick snap turn did not latch at 90 degrees\n";
         return 1;
     }
     snap_gameplay.turn.x = 0.2F;
@@ -766,15 +897,15 @@ int main() {
         return 1;
     }
     snap_gameplay.turn.x = -0.9F;
-    if (!Near(snap_turn.Update(snap_gameplay), -45.0F)) {
-        std::cerr << "left-stick snap turn did not produce minus 45 degrees\n";
+    if (!Near(snap_turn.Update(snap_gameplay), -90.0F)) {
+        std::cerr << "left-stick snap turn did not produce minus 90 degrees\n";
         return 1;
     }
     snap_gameplay.active = false;
     (void)snap_turn.Update(snap_gameplay);
     snap_gameplay.active = true;
     snap_gameplay.turn.x = 0.9F;
-    if (!Near(snap_turn.Update(snap_gameplay), 45.0F)) {
+    if (!Near(snap_turn.Update(snap_gameplay), 90.0F)) {
         std::cerr << "inactive gameplay did not reset the snap-turn latch\n";
         return 1;
     }
@@ -1210,6 +1341,49 @@ int main() {
     skin_rotations.forearm.axis.x = std::numeric_limits<float>::quiet_NaN();
     if (BuildArmSkinningPlan(skin_natural, skin_rotations, skin_twist, {}, {}).valid) {
         std::cerr << "Invalid sibling rotation accepted\n";
+        return 1;
+    }
+
+    // The active CoJ arm overlay is written as complete world frames. A bent
+    // lower arm must carry the sibling FORETWIST pivot to the solved elbow and
+    // the independently parented hand pivot to the solved wrist without relying
+    // on native child propagation.
+    ArmGeometrySample frame_natural{};
+    frame_natural.shoulder = {0.0F, 0.0F, 0.0F};
+    frame_natural.elbow = {0.0F, 1.0F, 0.0F};
+    frame_natural.wrist = {0.0F, 2.0F, 0.0F};
+    frame_natural.foretwist_element_position = frame_natural.elbow;
+    frame_natural.foretwist_element_up = {1.0F, 0.0F, 0.0F};
+    frame_natural.foretwist_element_forward = {0.0F, 0.0F, 1.0F};
+    frame_natural.hand_element_position = frame_natural.wrist;
+    frame_natural.hand_element_up = {1.0F, 0.0F, 0.0F};
+    frame_natural.hand_element_forward = {0.0F, 0.0F, 1.0F};
+    ArmIkPlan frame_ik{};
+    frame_ik.upper_arm = {{0.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F},
+                          {0.0F, 0.0F, 1.0F}, true};
+    frame_ik.forearm = {{0.0F, 1.0F, 0.0F}, {-1.0F, 0.0F, 0.0F},
+                        {0.0F, 0.0F, 1.0F}, true};
+    frame_ik.elbow_target = {0.0F, 1.0F, 0.0F};
+    frame_ik.wrist_target = {-1.0F, 1.0F, 0.0F};
+    frame_ik.valid = true;
+    ArmBoneRotationPlan frame_rotations{};
+    frame_rotations.upper_arm = {{1.0F, 0.0F, 0.0F}, 0.0F, true, true};
+    frame_rotations.forearm = {{0.0F, 0.0F, 1.0F}, 90.0F, false, true};
+    frame_rotations.valid = true;
+    HandOrientationTarget frame_hand_target{};
+    frame_hand_target.up = {0.0F, 1.0F, 0.0F};
+    frame_hand_target.forward = {0.0F, 0.0F, 1.0F};
+    frame_hand_target.valid = true;
+    const auto frame_plan = BuildArmElementFramePlan(
+        frame_natural, frame_ik, frame_rotations, frame_hand_target);
+    if (!frame_plan.valid ||
+        Distance(frame_plan.foretwist.position, frame_ik.elbow_target) > 0.001F ||
+        Distance(frame_plan.hand.position, frame_ik.wrist_target) > 0.001F ||
+        Distance(frame_plan.foretwist.up, {0.0F, 1.0F, 0.0F}) > 0.001F ||
+        Distance(frame_plan.foretwist.forward, {0.0F, 0.0F, 1.0F}) > 0.001F ||
+        Distance(frame_plan.hand.up, frame_hand_target.up) > 0.001F ||
+        Distance(frame_plan.hand.forward, frame_hand_target.forward) > 0.001F) {
+        std::cerr << "Absolute arm frame plan did not preserve solved pivots/bases\n";
         return 1;
     }
 

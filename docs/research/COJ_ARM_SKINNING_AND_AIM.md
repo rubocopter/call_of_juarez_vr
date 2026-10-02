@@ -4,9 +4,9 @@ This document keeps the exact-game conclusions that still govern Body IK and aim
 
 ## Measured arm contract
 
-Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Recent evidence shows strongly asymmetric reach clamp, so the data does not justify simply lengthening both bones.
+Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Recent evidence shows strongly asymmetric reach clamp, so the data does not justify simply lengthening both bones. The user still reports visibly short arms.
 
-If the next physical candidate still feels short, clavicle/shoulder participation is the preferred controlled experiment because shipped `EBones` exposes dedicated clavicle elements.
+The demonstrated indices are pelvis 0, spine 1, spine1 2, chest/spine2 3, neck 4, head 5, left arm 7/8/9/10 and right arm 12/13/14/15. Indices 6 and 11 remain unproven gaps; current evidence does not justify naming them clavicles/shoulders or mutating them. No global upper/forearm scaling is accepted. Shoulder/clavicle participation remains a future controlled experiment only after the exact elements and parentage are demonstrated.
 
 ## Effective hierarchy
 
@@ -26,21 +26,52 @@ The practical model is therefore FORETWIST as a sibling of forearm beneath upper
 Earlier absolute-orientation and `BoneRotate` approaches did not produce reliable visible-mesh ownership. Exact-build `RotateElementWithChildren(ILVector;F)V` was then shown physically to change the rendered arm.
 
 Disassembly established that the helper post-multiplies the current element matrix and consumes an **element-local axis**. Supplying a solver world axis directly caused incorrect orientation/deformation.
+Further native inspection established a second property that matters to the
+locomotion regression: after each rotation, the helper calls engine routine
+`ChromeEngine3 + 0x82F00`, which recursively walks the owned scene/object child
+hierarchy and invokes virtual notifications. Applying and then undoing several
+arm rotations every frame therefore crosses a substantially broader engine
+boundary than the geometry writer itself.
 
-The current writer therefore:
+`FromUpForwardPosElementWorld` (`ChromeEngine3 + 0x9A350`) writes the requested
+absolute world frame and metadata directly and does not call that recursive
+`+0x82F00` path. The current host candidate therefore:
 
-1. reads the natural complete element frames;
+1. reads and retains the natural complete element frames;
 2. solves shoulder/elbow/wrist targets from measured geometry;
-3. converts each required world-space rotation axis into the live element-local frame;
-4. applies upper rotation;
-5. re-reads the parent-adjusted child frame before applying the forearm rotation;
-6. transports FORETWIST/hand orientation according to the observed sibling contract;
-7. verifies joint/axis agreement;
-8. restores child-before-parent and verifies the captured natural state.
+3. computes complete absolute world frames for upper arm, forearm, FORETWIST and hand, including the bounded hand residual;
+4. writes each final frame explicitly through `FromUpForwardPosElementWorld`;
+5. verifies positional/orientation agreement;
+6. restores the natural orientation bases after stereo capture while rebasing captured positions by any actor translation, then verifies the rebased geometry.
 
-If inverse restoration drifts beyond tolerance, exact natural frames are reapplied. Failure of both restoration paths disables further writes.
+Partial apply failure rolls back through the same exact-frame restore path. A
+failed verified restore disables further writes. The previous hierarchical
+writer remains historically live-exercised. The absolute writer is now physically
+exercised and produced a large recovery in locomotion/performance, supporting the
+recursive-notification interference diagnosis.
 
-The writer/restoration mechanism is live-exercised; visual Body IK remains unpromoted because anatomy/reach still fails acceptance.
+That physical run exposed a separate restore-ownership defect. The actor could
+translate between capture and restore while the stored natural arm frames retained
+their old world positions; one observed shoulder stayed at its captured coordinates
+while the actor moved, matching the stretched-arm/hand-left-behind result. Native
+reload subsequently re-synchronized the branch. Storing actor position at capture
+and rebasing the restored shoulder/elbow/wrist and element positions reduced the
+visible failure in the next run, but did not remove it. The follow-up telemetry
+then isolated an inter-frame case: the complete arm positional chain could remain
+byte-for-byte effectively fixed across repeated samples while the actor continued
+to translate, with actor-to-upper-arm distance growing from the normal roughly
+150 game units to several hundred units before native animation snapped the branch
+back into sync.
+
+The current host candidate retains actor-relative restore and also compares each
+fresh natural arm sample with the previous raw sample for the same actor generation
+and recenter sequence. If the actor moved materially while shoulder/elbow/wrist
+and all four sampled element positions stayed within float-scale world-position
+tolerance, only those positions are translated by the actor delta before the next
+IK solve; the current orientation bases are preserved. Any positional animation
+change leaves the natural sample untouched. A per-arm cumulative rebase count is
+sampled in tracking telemetry. This combined continuity contract is
+**implemented / host-tested** and awaits physical validation.
 
 ## Target space and body yaw
 
@@ -53,6 +84,14 @@ Another physical rejection showed that applying actor-owned HMD yaw again to the
 Run `20260920T161307Z-474f0b054338` emitted 11,192 successful arm-tracking and 11,192 successful restore records while the user observed jerky movement even with keyboard. Latest complete single-process evidence `20260921T192639Z-1d70905cb4f8` still rejects movement and measures classic-D3D9 CPU copy at 7.112 ms median and 9.056 ms p95, so renderer transport remains a measured performance problem independent of arm logging.
 
 Routine arm telemetry remains sampled; write failures, rollback and restoration faults remain unconditional. Arm solving still has to be evaluated independently from renderer frame pacing.
+
+The later Body-IK regression narrows this further. Direct arm apply/restore cost
+was about 0.13 ms in the observed run, sampled body/actor boundaries did not show
+Body IK directly writing `PlayerBeing` position, yet actor-position jump apexes
+collapsed to only a few centimetres while native vertical speed still rose. That
+evidence makes raw solver CPU cost and direct actor-position mutation poor primary
+explanations; the recursive notification boundary above is the current static
+hypothesis being removed by the absolute-frame candidate.
 
 ## Weapon direction and origins
 
