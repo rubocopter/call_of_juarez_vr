@@ -219,12 +219,22 @@ The render pelvis and arms now form nested transactions: apply the horizontal
 pelvis overlay, read/solve/write arms, draw both eyes, restore arms, then restore
 pelvis. Continuity samples exclude the temporary pelvis offset. Earlier ordering
 moved the solved hands again through parent propagation before both eye draws.
-Horizontal skeleton offsets use the demonstrated hand/skeleton Z convention;
-camera-eye offsets retain their independent mapping. Arm targets retain physical
-controller height instead of subtracting away HMD descent, so they descend with
-the camera while the native crouch animation owns posture. These corrections are
-**implemented / host-tested**, with physical walking direction and crouch comfort
-still pending.
+Camera, pelvis and controller positions now share the same tracking Z convention:
+the native camera source forward axis is the view's backward axis. The earlier
+camera translation reflected Z while the skeleton and visible gameplay reticle
+used negative-source-forward for physical forward. Camera room-scale translation
+also removes actor-owned yaw once, using the same leveled reference as arms and
+pelvis. These follow-ups are **implemented / host-tested** after the latest
+physical rejection of forward/backward movement and torso intrusion.
+
+Physical crouch already lowers the tracked HMD; the native crouch animation also
+lowers the natural camera. A captured actor-relative camera height compensates
+that duplicate native drop while physical crouch is active and through native
+pose recovery. Explicit controller crouch retains native camera ownership;
+generation change/recenter resets calibration. The correction is applied to the
+rendered head, arm anchor and controller aim origin, never actor/collision
+position. Arm targets retain physical controller descent. Physical crouch comfort
+and first-person body visibility remain open.
 
 All lower-arm element orientations use the same parent-plus-elbow composition.
 The earlier absolute writer used a direct segment rotation for the forearm and
@@ -263,8 +273,15 @@ source axis, consistent with the demonstrated controller weapon ray. The earlier
 positive-axis test discarded forward controller rays as behind the camera. This
 correction is host-tested and awaits physical alignment. Sampled read-only
 `Weapon.GetBarrelOrigin/GetBarrelDir` observations compare the real mesh barrel
-with the controller ray while the body render overlay is active. A successful
-field write or barrel observation does not establish ballistic consumption.
+with the controller ray while the body render overlay is active. The latest
+physical report finds impacts closer to the visible reticle, but still rejects
+weapon placement and muzzle origin. Live barrel samples independently confirm
+substantial positional/angular disagreement. Controller origins now map the full
+tracking-space tip around the untracked native camera, with the shared height
+correction; subtracting HMD translation there had introduced a second room-scale
+offset. Sampled `Weapon.GetOwnerAttackOrigin/GetOwnerAttackOriginVisualization`
+reads separate ballistic and visual consumers without querying random spread.
+A field write or getter observation does not establish actual shot consumption.
 
 ## D3D9 native-stereo transport
 

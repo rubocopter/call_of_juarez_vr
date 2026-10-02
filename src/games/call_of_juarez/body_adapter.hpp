@@ -114,6 +114,22 @@ private:
     bool crouched_ = false;
 };
 
+// Native crouch lowers the camera as well as the avatar. Physical HMD height
+// already owns that descent, so compensate only the native camera drop while
+// retaining actor vertical movement and explicit controller crouch.
+class CoJPhysicalViewHeightState final {
+public:
+    [[nodiscard]] float Update(
+        float native_camera_y, float actor_y, bool physical_crouch,
+        bool controller_crouch, bool reset) noexcept;
+    void Reset() noexcept { *this = {}; }
+private:
+    float reference_height_ = 0;
+    bool reference_valid_ = false;
+    bool compensating_ = false;
+    bool controller_recovery_ = false;
+};
+
 [[nodiscard]] bool ResolveCoJCrouchAction(
     bool requested_native_crouch,
     bool physical_crouch_detected) noexcept;
@@ -432,6 +448,20 @@ struct ArmElementFramePlan {
     cojvr::runtime::Vec3 camera_forward,
     cojvr::runtime::Vec3 tracked_head,
     cojvr::runtime::Vec3 tracked_hand,
+    float game_units_per_meter,
+    bool& valid) noexcept;
+
+// The native camera has no physical tracking offset yet. Map the full tip
+// position around it; subtracting HMD translation here would apply room-scale
+// movement twice. Physical crouch compensation is in game units.
+[[nodiscard]] cojvr::runtime::Vec3 BuildTrackedAimOrigin(
+    cojvr::runtime::Vec3 native_camera_position,
+    cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 tracked_head,
+    cojvr::runtime::Vec3 tracked_tip,
+    float physical_view_correction,
     float game_units_per_meter,
     bool& valid) noexcept;
 

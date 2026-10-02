@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "runtime/vr_math.hpp"
 
@@ -335,9 +336,38 @@ int main() {
     if (!Near(kGameUnitsPerMeter, 100.0F) ||
         !NearVector(left_eye, {6.8F, 20.0F, 30.0F}) ||
         !NearVector(right_eye, {13.2F, 20.0F, 30.0F}) ||
-        !NearVector(forward_eye, {10.0F, 20.0F, 31.0F}) ||
-        !NearVector(tracked_head, {20.0F, 40.0F, 60.0F})) {
+        !NearVector(forward_eye, {10.0F, 20.0F, 29.0F}) ||
+        !NearVector(tracked_head, {20.0F, 40.0F, 0.0F})) {
         std::cerr << "metre eye/head translation did not map into CoJ centimetres\n";
+        return 1;
+    }
+
+    // A physical step towards a visible forward reticle must approach its
+    // world target. Camera and skeleton must share the same horizontal map.
+    const auto physical_forward = ApplyCameraTrackingOffset(
+        {}, native_identity, {0, 0, -0.2F});
+    bool body_valid = false;
+    const auto body_forward = BuildCoJVisualBodyOffset(
+        {0, -0.4F, -0.2F}, {1, 0, 0}, {0, 0, 1}, 100, body_valid);
+    if (!body_valid || physical_forward.z >= 0 ||
+        !NearVector(physical_forward, {body_forward.x, body_forward.y, body_forward.z})) {
+        std::cerr << "physical forward camera motion disagreed with visible aim/body space\n";
+        return 1;
+    }
+    // Replay the live natural basis. Native body yaw must be removed once
+    // from translation just as it is from arm targets, even after a head turn.
+    const auto roomscale_reference = BuildTrackingReferenceBasis(
+        {-0.5515F, 0, -0.8342F}, {0, 1, 0}, -39.4842F);
+    const auto turned_camera = ApplyCameraTrackingOffset(
+        {}, roomscale_reference, {-0.035350F, 0, -0.134281F});
+    const auto turned_body = BuildCoJVisualBodyOffset(
+        {-0.035350F, -0.401934F, -0.134281F},
+        {roomscale_reference.right.x, roomscale_reference.right.y, roomscale_reference.right.z},
+        {roomscale_reference.forward.x, roomscale_reference.forward.y, roomscale_reference.forward.z},
+        100, body_valid);
+    if (!body_valid || !NearVector(
+            turned_camera, {turned_body.x, turned_body.y, turned_body.z})) {
+        std::cerr << "camera and pelvis diverged after body-owned yaw\n";
         return 1;
     }
 

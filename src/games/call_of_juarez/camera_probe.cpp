@@ -135,6 +135,8 @@ struct MovementTraceObserverState {
 MovementTraceObserverState g_movement_trace_observer;
 CoJLoadingUiInputGate g_loading_ui_input_gate;
 CoJPhysicalCrouchState g_physical_crouch_state;
+CoJPhysicalViewHeightState g_physical_view_height_state;
+std::uint64_t g_physical_view_height_generation = 0;
 bool g_loading_ui_resume_pending = false;
 cojvr::runtime::Vec3 g_body_applied_world_offset{};
 cojvr::runtime::Vec3 g_body_applied_tracking_offset{};
@@ -1628,7 +1630,8 @@ void __fastcall HookRenderCameraUpdate(void* camera, void*) {
     }
     const CameraProbeVector applied_right = Normalize(applied.right, natural_right);
     const CameraProbeBasis leveled_recenter_basis = tracking_active
-        ? LevelCameraBasisForVr(natural_forward, natural_up)
+        ? BuildTrackingReferenceBasis(
+            natural_forward, natural_up, actor_yaw_compensation_degrees)
         : natural_basis;
     const CameraProbeVector tracked_head_position = stereo_active
         ? ApplyCameraTrackingOffset(natural_position, leveled_recenter_basis, relative_pose.position)
@@ -2901,6 +2904,7 @@ bool RecoverArmTrackingAfterRecenter(
 void UpdatePlayerArmTracking(
     const CameraRenderStateSnapshot& natural_render_state,
     const cojvr::runtime::Vec3 actor_position,
+    const float physical_view_correction,
     const bool body_ik_enabled,
     const bool allow_write,
     const std::uint64_t frame_sequence) noexcept {
@@ -2946,6 +2950,7 @@ void UpdatePlayerArmTracking(
     std::string head_error;
     const bool head_ready = g_java_player_bridge.TryGetBoneJointPosition(
         static_cast<std::int8_t>(binding.head), head_joint, &head_error);
+    if (head_ready) head_joint.y += physical_view_correction;
     const auto update_arm = [&](const bool left, const cojvr::runtime::Pose& controller) noexcept {
         const char* side = left ? "left" : "right";
         if (!controller.position_valid) {
@@ -3515,9 +3520,47 @@ struct ControllerAimFrameObservation {
     bool right_origin_valid = false;
 };
 
+float UpdatePhysicalViewHeight(
+    const CameraRenderStateSnapshot& natural_render_state,
+    const bool input_active, const bool physical_crouch,
+    const bool controller_crouch, const bool recentered,
+    const std::uint64_t frame_sequence) noexcept {
+    CameraProbeBasis basis{};
+    CameraProbeVector camera_position{};
+    JavaPlayerPosition actor{};
+    if (!input_active || !ReadNaturalCameraFrame(
+            natural_render_state, basis, camera_position) ||
+        !g_java_player_bridge.Refresh() || !g_java_player_bridge.TryGetPosition(actor)) {
+        g_physical_view_height_state.Reset();
+        g_physical_view_height_generation = 0;
+        return 0;
+    }
+    const auto generation = g_java_player_bridge.being_generation();
+    const float correction = g_physical_view_height_state.Update(
+        camera_position.y, actor.y, physical_crouch, controller_crouch,
+        recentered || generation != g_physical_view_height_generation);
+    g_physical_view_height_generation = generation;
+    if (ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";physical_crouch=" << (physical_crouch ? "true" : "false")
+                   << ";controller_crouch=" << (controller_crouch ? "true" : "false")
+                   << ";native_camera_y=" << camera_position.y
+                   << ";actor_y=" << actor.y
+                   << ";native_height_correction=" << correction
+                   << ";height_owner=physical_hmd;actor_write=false";
+            EmitEvent("physical_view_height", "observed", detail.str());
+        } catch (...) {
+        }
+    }
+    return correction;
+}
+
 void UpdateControllerAim(
     const CameraRenderStateSnapshot& natural_render_state,
     const cojvr::runtime::Pose& relative_head_pose,
+    const float physical_view_correction,
     const cojvr::runtime::Pose& left_grip,
     const cojvr::runtime::Pose& right_grip,
     const cojvr::runtime::Pose& left_aim,
@@ -3584,25 +3627,27 @@ void UpdateControllerAim(
         bool right_origin_valid = false;
         const cojvr::runtime::Vec3 left_origin =
             relative_head_pose.position_valid && left_aim.position_valid
-            ? BuildTrackedHandTarget(
+            ? BuildTrackedAimOrigin(
                 {camera_position.x, camera_position.y, camera_position.z},
                 camera_right,
                 camera_up,
                 camera_forward,
                 relative_head_pose.position,
                 left_aim.position,
+                physical_view_correction,
                 kGameUnitsPerMeter,
                 left_origin_valid)
             : cojvr::runtime::Vec3{};
         const cojvr::runtime::Vec3 right_origin =
             relative_head_pose.position_valid && right_aim.position_valid
-            ? BuildTrackedHandTarget(
+            ? BuildTrackedAimOrigin(
                 {camera_position.x, camera_position.y, camera_position.z},
                 camera_right,
                 camera_up,
                 camera_forward,
                 relative_head_pose.position,
                 right_aim.position,
+                physical_view_correction,
                 kGameUnitsPerMeter,
                 right_origin_valid)
             : cojvr::runtime::Vec3{};
@@ -3678,6 +3723,8 @@ void UpdateControllerAim(
                    << ";direction_owner=m_avLookDirDevForHand"
                    << ";fire_origin=controller_tip_attack_transition"
                    << ";visual_origin_owner=m_avAimFromPoint"
+                   << ";origin_anchor=native_camera_plus_full_tracking_tip"
+                   << ";native_height_correction=" << physical_view_correction
                    << ";fire_origin_release=native_UpdateLookAndAimPoints"
                    << ";native_accuracy_spread=preserved"
                    << ";network_forced_branch=unused";
@@ -3879,6 +3926,7 @@ struct PlayerBodyPositionUpdate {
 PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
     const CameraRenderStateSnapshot& natural_render_state,
     const cojvr::runtime::Pose& relative_head_pose,
+    const float physical_view_correction,
     const bool recentered,
     const std::uint64_t frame_sequence) noexcept {
     PlayerBodyPositionUpdate result{};
@@ -3996,6 +4044,7 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
             return result;
         }
         render_head_pose.position = room_scale.render_head_position;
+        render_head_pose.position.y += physical_view_correction / kGameUnitsPerMeter;
         g_body_applied_world_offset = {};
         g_body_applied_tracking_offset = {};
         g_body_player_generation = generation;
@@ -4023,6 +4072,7 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
         UpdatePlayerArmTracking(
             natural_render_state,
             RuntimeVector(player_position),
+            physical_view_correction,
             body_ik_enabled,
             upper_body_write_ok,
             frame_sequence);
@@ -4055,6 +4105,7 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
                    << ";tracking_offset=" << RuntimeVectorText(relative_head_pose.position)
                    << ";world_offset=(0,0,0)"
                    << ";render_head_position=" << RuntimeVectorText(render_head_pose.position)
+                   << ";native_height_correction=" << physical_view_correction
                    << ";game_units_per_meter=" << kGameUnitsPerMeter
                    << ";mode=camera_only_collision_safe"
                    << ";collision_owner=native_actor";
@@ -4357,6 +4408,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         relative_head_pose.position.y);
     gameplay_input.crouch = ResolveCoJCrouchAction(
         gameplay_input.crouch, physical_crouch);
+    const float physical_view_correction = UpdatePhysicalViewHeight(
+        natural_render_state,
+        gameplay_input.active && !loading_ui_input.suppress_gameplay,
+        physical_crouch, sample.gameplay.crouch, recentered, frame_sequence);
     float head_relative_move_yaw_degrees = 0.0F;
     bool head_relative_move_valid = false;
     if (gameplay_input.active && relative_head_pose.orientation_valid) {
@@ -4394,6 +4449,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         UpdateControllerAim(
             natural_render_state,
             relative_head_pose,
+            physical_view_correction,
             relative_left_controller,
             relative_right_controller,
             relative_left_aim,
@@ -4568,7 +4624,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         body_position_update.translation_mode = "blocking_ui_no_body_mutation";
     } else {
         body_position_update = UpdatePlayerBodyPosition(
-            natural_render_state, relative_head_pose,
+            natural_render_state, relative_head_pose, physical_view_correction,
             recentered,
             frame_sequence);
     }
@@ -4579,9 +4635,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         try {
             for (int hand = 0; hand < 2; ++hand) {
                 JavaPlayerPosition barrel_origin{}, barrel_direction{};
+                CoJWeaponAttackOrigins attack_origins{};
                 std::string barrel_error;
                 const bool barrel_valid = g_java_player_bridge.TryGetWeaponBarrel(
-                    hand, barrel_origin, barrel_direction, &barrel_error);
+                    hand, barrel_origin, barrel_direction, &barrel_error, &attack_origins);
                 const bool left = hand == 1;
                 const auto& tip_origin = left
                     ? aim_observation.left_origin : aim_observation.right_origin;
@@ -4600,8 +4657,17 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                        << ";tip_valid=" << (tip_valid ? "true" : "false")
                        << ";tip_origin=" << RuntimeVectorText(tip_origin)
                        << ";tip_direction=" << RuntimeVectorText(tip_direction)
+                       << ";ballistic_origin_valid="
+                       << (attack_origins.ballistic_valid ? "true" : "false")
+                       << ";ballistic_origin="
+                       << RuntimeVectorText(RuntimeVector(attack_origins.ballistic_origin))
+                       << ";visual_origin_valid="
+                       << (attack_origins.visual_valid ? "true" : "false")
+                       << ";visual_origin="
+                       << RuntimeVectorText(RuntimeVector(attack_origins.visual_origin))
                        << ";source=Weapon.GetBarrelOrigin/GetBarrelDir"
-                       << ";mutation=false;ballistic_consumption=unverified";
+                       << ";origin_sources=Weapon.GetOwnerAttackOrigin/GetOwnerAttackOriginVisualization"
+                       << ";mutation=false;spread_query=false;ballistic_consumption=unverified";
                 if (!barrel_error.empty()) detail << ";detail=" << barrel_error;
                 EmitEvent("controller_weapon_barrel",
                     barrel_valid ? "observed" : "unavailable", detail.str());
@@ -5177,8 +5243,8 @@ CameraProbeBasis ApplyCameraPoseOrientation(
     // sign into the paired CoJ world/view source rotates the visible camera horizontally
     // in the opposite direction, while pitch, handedness and scene visibility remain
     // correct. Negate only the HMD yaw at this game-specific adapter. Pitch keeps the
-    // live-observed sign. Tracking -Z maps to native +Z, which is a reflection, so the
-    // physical roll sign is inverted when it is applied around the native forward axis.
+    // live-observed sign. The source forward axis is the view's backward axis,
+    // so physical roll is applied around its negative viewing direction.
     // Keeping roll in the rendered basis also keeps the image orientation consistent
     // with the full HMD render pose submitted for OpenVR reprojection.
     const float local_game_yaw = std::remainder(
@@ -5394,9 +5460,11 @@ CameraProbeVector ApplyCameraEyeOffset(
     const CameraProbeVector head_position,
     const CameraProbeBasis head_basis,
     const cojvr::runtime::Vec3 eye_to_head_position) noexcept {
-    // Neutral XR eye coordinates are +X right, +Y up and -Z forward. CoJ's
-    // exact source basis stores +forward. The runtime position is in metres,
-    // while Call of Juarez gameplay/world coordinates are centimetres.
+    // Neutral XR coordinates are +X right, +Y up and -Z forward. Chrome's
+    // source matrix stores the view's backward axis (the same convention as
+    // gameplay reticle depth and tracked skeleton targets). Reflecting Z here
+    // moved the camera away from a forward target and opposite the pelvis.
+    // XR metres become CoJ centimetres only in this game adapter.
     const cojvr::runtime::Vec3 game_offset{
         eye_to_head_position.x * kGameUnitsPerMeter,
         eye_to_head_position.y * kGameUnitsPerMeter,
@@ -5404,11 +5472,11 @@ CameraProbeVector ApplyCameraEyeOffset(
     };
     return {
         head_position.x + head_basis.right.x * game_offset.x +
-            head_basis.up.x * game_offset.y - head_basis.forward.x * game_offset.z,
+            head_basis.up.x * game_offset.y + head_basis.forward.x * game_offset.z,
         head_position.y + head_basis.right.y * game_offset.x +
-            head_basis.up.y * game_offset.y - head_basis.forward.y * game_offset.z,
+            head_basis.up.y * game_offset.y + head_basis.forward.y * game_offset.z,
         head_position.z + head_basis.right.z * game_offset.x +
-            head_basis.up.z * game_offset.y - head_basis.forward.z * game_offset.z,
+            head_basis.up.z * game_offset.y + head_basis.forward.z * game_offset.z,
     };
 }
 
@@ -5651,6 +5719,8 @@ void ShutdownCameraProbe() noexcept {
     g_java_player_bridge.Reset();
     g_loading_ui_input_gate.Reset();
     g_physical_crouch_state.Reset();
+    g_physical_view_height_state.Reset();
+    g_physical_view_height_generation = 0;
     g_loading_ui_resume_pending = false;
     ResetLocalHeadVisibilityForGeneration(0);
     g_body_applied_world_offset = {};

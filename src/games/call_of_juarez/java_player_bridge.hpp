@@ -14,6 +14,13 @@ struct JavaPlayerPosition {
     float z = 0.0F;
 };
 
+struct CoJWeaponAttackOrigins {
+    JavaPlayerPosition ballistic_origin{};
+    JavaPlayerPosition visual_origin{};
+    bool ballistic_valid = false;
+    bool visual_valid = false;
+};
+
 // Exact-build native sprite-tree mouse delivery. The Java object ID is the
 // shipped GameObject.GetThisID handle, valid only during the game-thread call.
 using CoJNativeUiMouseDispatch = bool(*)(
@@ -262,7 +269,8 @@ public:
     // fields and m_avAimFromPoint. Missing weapons/barrels fail closed.
     [[nodiscard]] bool TryGetWeaponBarrel(
         int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
-        std::string* error = nullptr) noexcept;
+        std::string* error = nullptr,
+        CoJWeaponAttackOrigins* attack_origins = nullptr) noexcept;
     [[nodiscard]] bool TryApplyUpperBodyTracking(
         float head_horizontal_offset_degrees,
         float spine_horizontal_offset_degrees,

@@ -51,13 +51,20 @@ forward/backward is inverted in the visible body. Physical crouch triggers nativ
 animation, but it is abrupt and the arms remain too high. Shots still fail visible
 barrel/direction alignment.
 
-The next host-tested candidate corrects the skeleton room-scale Z sign, nests arm
-solving inside the pelvis overlay, retains physical controller height during
-crouch, and uses one parent-plus-elbow orientation composition for forearm,
-FORETWIST and hand. The gameplay reticle's forward-depth sign is also corrected.
-Sampled real-barrel observations separate visible mesh aim from controller-field
-publication. Walking parity, comfortable crouch/arm height, anatomy and ballistic
-alignment remain physical gates; none is promoted by these host tests.
+The nested pelvis/arm transaction and consistent forearm/FORETWIST/hand composition
+are now live-exercised with further operator-reported improvement, but visible
+anatomy remains rejected. The gameplay reticle is visible and impacts are reported
+closer to its aim; weapon placement and muzzle origin remain rejected. Read-only
+real-barrel samples confirm substantial positional/angular disagreement.
+
+The next host-tested candidate removes the camera's opposite tracking Z sign and
+uses the same actor-yaw-compensated translation frame as the pelvis/hands. It
+compensates the native camera's duplicate descent during physical crouch, preserves
+explicit controller crouch and maps full controller-tip translation around the
+untracked camera for the aim origin. Sampled native ballistic/visual-origin
+getters separate those fields from the rendered muzzle without consuming spread.
+Walking parity, comfortable crouch/arm height, anatomy and ballistic alignment
+remain physical gates; none is promoted by these host tests.
 
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
@@ -219,8 +226,11 @@ from the last run. Turn the head substantially left/right without rotating the
 body, press forward and confirm travel follows the viewed direction. Physically
 crouch below the calibrated threshold and verify the native crouched body animation
 engages and returns cleanly on standing, with both hands descending with the
-controllers. Step physically forward/backward and sideways, including after a
-turn/recenter, and verify the body follows the same physical direction. Rotate
+controllers, without a second view-height jump when the native animation starts
+or ends. Test explicit controller crouch separately. Step physically
+forward/backward and sideways, including after a turn/recenter, and verify that
+both the viewpoint's distance to a fixed scene object and the body respond in the
+same physical direction. Lean forward and check for torso intrusion. Rotate
 and bend each arm through the previously deformed pose and check recovery.
 Exercise one right and one left snap turn
 and confirm that each step is exactly 90 degrees. Aim/fire with both hands where
@@ -334,12 +344,12 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Exact camera -> view/projection -> renderer path | live-tested | camera path reaches the renderer used for physical stereo |
 | Complete two-eye ChromeEngine render | live-tested | distinct eye rendering and SteamVR submission observed |
 | Physical eye scale | headset-validated | validated at the game/XR unit boundary |
-| HMD yaw/pitch/roll and positional offset | headset-validated | exercised repeatedly in stereo gameplay |
+| HMD yaw/pitch/roll and positional offset | orientation headset-validated; translation follow-up host-tested after rejection | physical forward/backward and torso visibility remain rejected; camera Z sign and actor-yaw reference now match skeleton/reticle space |
 | Explicit render-pose submission | headset-validated | removed the previous head-turn pull/snap-back artifact |
 | Recenter | headset-validated | controller recenter exercised physically |
 | Exact snap turn | mechanism headset-validated; 90-degree candidate host-tested | previous snap-turn behavior was exercised physically; the new 90-degree step requires one physical confirmation |
 | Head-relative stick locomotion | implemented / host-tested | residual physical HMD yaw rotates the neutral stick before the unchanged native InputAnalog shaping; physical direction/feel is pending |
-| Physical HMD-height crouch | live-exercised animation engagement; height correction host-tested | abrupt transition and high arms reject comfort; preserve physical controller descent in the next candidate |
+| Physical HMD-height crouch | live-exercised animation engagement; duplicate native-camera descent correction host-tested | comfort remains rejected; shared view/arm/aim correction awaits physical confirmation, explicit controller crouch retains native ownership |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | startup and level transition reached gameplay safely |
 | Local head/hair suppression | headset-validated for HMD view | shadow behavior remains separate |
 | D3D9Ex GPU-resident native-stereo transport | bounded acceptance passed; measured cadence and headset stereo validated | shared frames submit with explicit pose and drain on normal quit; production cadence approaches readback-off reference; sustained pacing/tail latency and pending-frame reset/device loss remain unproved |
@@ -362,7 +372,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Controller-origin UI beam | headset-validated for exercised menu paths | ordinary, Yes/No and gameplay-pause selection work in the latest physical candidate |
 | Controller-owned weapon direction/visual origin | host-tested | final physical firing alignment still pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
-| Exact-frame gameplay weapon reticle | implemented / host-tested | same firing ray is projected through each applied eye camera/frustum and transported with the captured frame; physical reticle/impact alignment is pending |
+| Exact-frame gameplay weapon reticle | live-exercised / visible | impacts reported closer to the reticle; alignment with the visible weapon/muzzle remains rejected |
 | Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |
 | Supported end-to-end VR release | planned | project remains pre-alpha |
 

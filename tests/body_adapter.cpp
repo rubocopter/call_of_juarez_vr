@@ -1090,6 +1090,42 @@ int main() {
     }
 
     bool hand_target_valid = false;
+    const Vec3 roomscale_aim_origin = BuildTrackedAimOrigin(
+        {100, 105, 300}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
+        {-0.035F, -0.4F, -0.13F}, {0.2F, -0.6F, -0.5F},
+        50, 100, hand_target_valid);
+    if (!hand_target_valid || !Near(Distance(roomscale_aim_origin, {120, 95, 250}), 0)) {
+        std::cerr << "aim origin subtracted tracking from an untracked native camera\n";
+        return 1;
+    }
+    (void)BuildTrackedAimOrigin({}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
+        {}, {}, std::numeric_limits<float>::quiet_NaN(), 100, hand_target_valid);
+    if (hand_target_valid) {
+        std::cerr << "aim origin accepted a non-finite view correction\n";
+        return 1;
+    }
+    CoJPhysicalViewHeightState physical_view;
+    if (!Near(physical_view.Update(1155, 1000, false, false, true), 0) ||
+        !Near(physical_view.Update(1105, 1000, true, false, false), 50) ||
+        !Near(physical_view.Update(1205, 1100, true, false, false), 50) ||
+        !Near(physical_view.Update(1230, 1100, false, false, false), 25) ||
+        !Near(physical_view.Update(1255, 1100, false, false, false), 0)) {
+        std::cerr << "physical crouch doubled native camera descent or lost actor vertical motion\n";
+        return 1;
+    }
+    if (!Near(physical_view.Update(1205, 1100, false, true, false), 0) ||
+        !Near(physical_view.Update(1205, 1100, false, false, false), 0) ||
+        !Near(physical_view.Update(1255, 1100, false, false, false), 0) ||
+        !Near(physical_view.Update(1205, 1100, true, false, false), 50) ||
+        !Near(physical_view.Update(1205, 1100, true, false, true), 0)) {
+        std::cerr << "physical view compensation interfered with explicit crouch/recenter\n";
+        return 1;
+    }
+    if (!Near(physical_view.Update(
+            std::numeric_limits<float>::quiet_NaN(), 1100, true, false, false), 0)) {
+        std::cerr << "physical view compensation accepted a non-finite native camera\n";
+        return 1;
+    }
     // Body translation must share the demonstrated skeleton convention (-Z
     // forward), exclude physical height and rotate with the tracking reference.
     bool body_offset_valid = false;
@@ -1452,8 +1488,11 @@ int main() {
     JavaPlayerPosition element_up{};
     JavaPlayerPosition element_forward{};
     JavaPlayerPosition barrel_origin{}, barrel_direction{};
+    CoJWeaponAttackOrigins attack_origins{{1, 2, 3}, {4, 5, 6}, true, true};
     if (bridge.TryGetWeaponBarrel(-1, barrel_origin, barrel_direction) ||
-        bridge.TryGetWeaponBarrel(0, barrel_origin, barrel_direction)) {
+        bridge.TryGetWeaponBarrel(0, barrel_origin, barrel_direction, nullptr, &attack_origins) ||
+        attack_origins.ballistic_valid || attack_origins.visual_valid ||
+        attack_origins.ballistic_origin.x != 0 || attack_origins.visual_origin.x != 0) {
         std::cerr << "weapon barrel observation did not fail closed without a player JVM\n";
         return 1;
     }

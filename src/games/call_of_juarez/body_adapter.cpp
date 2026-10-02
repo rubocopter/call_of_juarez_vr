@@ -1233,6 +1233,46 @@ cojvr::runtime::Vec3 BuildTrackedHandTarget(
     return target;
 }
 
+float CoJPhysicalViewHeightState::Update(
+    const float native_camera_y, const float actor_y, const bool physical_crouch,
+    const bool controller_crouch, const bool reset) noexcept {
+    if (reset) Reset();
+    const float height = native_camera_y - actor_y;
+    if (!std::isfinite(native_camera_y) || !std::isfinite(actor_y) ||
+        !std::isfinite(height)) {
+        Reset();
+        return 0;
+    }
+    if (controller_crouch) {
+        // Keep the existing standing reference while native crouch owns the
+        // view; releasing the button must not calibrate against its low pose.
+        compensating_ = false;
+        controller_recovery_ = true;
+        return 0;
+    }
+    if (!reference_valid_) {
+        reference_height_ = height;
+        reference_valid_ = true;
+    }
+    if (physical_crouch) {
+        controller_recovery_ = false;
+        compensating_ = true;
+    } else if (controller_recovery_) {
+        // Explicit crouch keeps its native transition after release as well.
+        if (reference_height_ - height > 0.02F) return 0;
+        controller_recovery_ = false;
+    }
+    if (compensating_) {
+        const float correction = std::max(0.0F, reference_height_ - height);
+        // Native pose recovery may lag the HMD/controller action release.
+        // Retain compensation until the camera reaches its captured height.
+        if (physical_crouch || correction > 0.02F) return correction;
+        compensating_ = false;
+    }
+    reference_height_ = height;
+    return 0;
+}
+
 cojvr::runtime::Vec3 BuildCoJVisualBodyOffset(
     const cojvr::runtime::Vec3 tracked_head,
     const cojvr::runtime::Vec3 camera_right,
@@ -1257,6 +1297,22 @@ cojvr::runtime::Vec3 BuildTrackedArmTarget(
     return BuildTrackedHandTarget(head_world_target, camera_right, camera_up,
         camera_forward, {tracked_head.x, 0, tracked_head.z}, tracked_hand,
         game_units_per_meter, valid);
+}
+
+cojvr::runtime::Vec3 BuildTrackedAimOrigin(
+    cojvr::runtime::Vec3 native_camera_position,
+    const cojvr::runtime::Vec3 camera_right,
+    const cojvr::runtime::Vec3 camera_up,
+    const cojvr::runtime::Vec3 camera_forward,
+    const cojvr::runtime::Vec3 tracked_head,
+    const cojvr::runtime::Vec3 tracked_tip,
+    const float physical_view_correction,
+    const float game_units_per_meter, bool& valid) noexcept {
+    valid = false;
+    if (!Finite(tracked_head) || !std::isfinite(physical_view_correction)) return {};
+    native_camera_position.y += physical_view_correction;
+    return BuildTrackedHandTarget(native_camera_position, camera_right, camera_up,
+        camera_forward, {}, tracked_tip, game_units_per_meter, valid);
 }
 
 cojvr::runtime::Vec3 BuildTrackedAimDirection(

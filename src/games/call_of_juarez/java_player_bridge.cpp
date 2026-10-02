@@ -1182,9 +1182,10 @@ bool JavaPlayerBridge::TryGetWeaponReloading(
 
 bool JavaPlayerBridge::TryGetWeaponBarrel(
     const int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
-    std::string* error) noexcept {
+    std::string* error, CoJWeaponAttackOrigins* attack_origins) noexcept {
     origin = {};
     direction = {};
+    if (attack_origins) *attack_origins = {};
     if (hand < 0 || hand > 1) {
         SetError(error, "weapon barrel hand is invalid");
         return false;
@@ -1231,6 +1232,12 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
     void* barrel_method = lookup("GetBarrelElement", "()I");
     void* origin_method = lookup("GetBarrelOrigin", "(LVector;)Z");
     void* direction_method = lookup("GetBarrelDir", "(LVector;)Z");
+    // These shipped getters only read origins. Do not call GetOwnerAttackDir
+    // for diagnostics: its native spread path can consume random accuracy.
+    void* ballistic_method = attack_origins
+        ? lookup("GetOwnerAttackOrigin", "(LVector;)Z") : nullptr;
+    void* visual_method = attack_origins
+        ? lookup("GetOwnerAttackOriginVisualization", "(LVector;)Z") : nullptr;
     DeleteLocal(env, weapon_class);
     if (!barrel_method || !origin_method || !direction_method) {
         DeleteLocal(env, weapon);
@@ -1256,6 +1263,12 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
             available && ReadVector(env, vector, value, error);
     };
     const bool ok = read(origin_method, origin) && read(direction_method, direction);
+    if (ok && attack_origins) {
+        attack_origins->ballistic_valid = ballistic_method &&
+            read(ballistic_method, attack_origins->ballistic_origin);
+        attack_origins->visual_valid = visual_method &&
+            read(visual_method, attack_origins->visual_origin);
+    }
     DeleteLocal(env, vector);
     DeleteLocal(env, weapon);
     const float length_squared = direction.x * direction.x + direction.y * direction.y +

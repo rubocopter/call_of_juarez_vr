@@ -89,13 +89,26 @@ A failed candidate mapped recentered controller positions around tracking-space 
 
 Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
 
-The render-only pelvis translation now uses the same horizontal sign convention
-as tracked skeleton targets, rather than the independent camera eye-offset
-helper. Physical forward/backward body movement was inverted in the previous
-candidate. Pelvis application now precedes arm reads/solving; arm restoration
-precedes pelvis restoration. Earlier eye probes showed the pelvis moving the
-already solved arm endpoints again. Continuity excludes this temporary offset.
-Both changes are host-tested candidates awaiting physical confirmation.
+The render-only pelvis translation uses the same horizontal sign convention as
+tracked skeleton targets. The next physical pass still rejected inverted
+forward/backward movement and exposed the whole avatar when leaning. The remaining
+disagreement was in the camera: its position helper reflected tracking Z, and its
+translation reference retained actor-owned yaw while skeleton targets removed it.
+The camera follow-up now shares the skeleton/reticle convention and tracking
+reference. This is host-tested, not physically accepted.
+
+Pelvis application precedes arm reads/solving; arm restoration precedes pelvis
+restoration. Earlier eye probes showed the pelvis moving already solved endpoints
+again. Continuity excludes this temporary offset. This nesting is live-exercised
+with further reported improvement, while residual anatomy remains rejected.
+
+Native crouch lowers the camera independently of physical HMD descent. Applying
+both caused a duplicate view-height drop. An actor-relative native camera-height
+reference now compensates that drop for physical crouch and its pose recovery,
+with the same correction in arm anchors and controller aim origins. Explicit
+controller crouch remains native-owned; generation/recenter resets the reference.
+No vertical actor or pelvis translation is introduced. Comfort remains a physical
+gate.
 
 ## Telemetry cost
 
@@ -122,6 +135,12 @@ Exact shipped bytecode establishes separate ownership paths:
 
 Controller `/pose/tip` supplies the exact per-hand direction and mapped visual origin after normal game look/aim update.
 
+The origin maps the complete tracking-space tip around the untracked natural
+camera plus physical-height compensation. Subtracting tracking-space HMD position
+at that boundary introduced another room-scale displacement; the HMD has not yet
+been applied to that camera. Host regression now compares the tip origin with the
+equivalent point relative to the rendered tracked head.
+
 Run `20260920T204507Z-6db13f3107e0` ended immediately after the user's first shot attempt, before post-input telemetry recorded `fire_left/right=true`. The previous implementation already marked the pressed hand as cross-frame owner on that first press, so it could overwrite global `Being.m_vLookFromPoint` without first capturing/restoring the native value. That ownership was removed.
 
 Further bytecode inspection established that `InputDigital.Translate` selects the requested hand/fire state but does not synchronously execute the final shot. The actual attack follows through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`, whose ordinary local origin reaches `GetFireOriginForWeapon -> Being.m_vLookFromPoint`. Current source therefore captures the native value and publishes the selected controller origin on the fire press transition so that the later native attack can consume it. If `Translate` fails the captured native value is restored immediately; after a successful transition, shipped `UpdateLookAndAimPoints` reclaims normal ownership. Unchanged held frames do not republish the field. The gameplay `LaserPointer` diagnostic path has also been removed.
@@ -132,10 +151,15 @@ The controller-axis question is now mostly closed: 120 sampled `handgrip -> tip`
 
 ## Latest anatomy rejection
 
-The latest operator clip reports better continuity without world-stranded hands,
-but still rejects recovery delay, short-arm feel and torsion. Physical crouch
-animation engages; transition comfort and arm height remain rejected. No global
-bone scaling or hand residual limit increase is justified by that observation.
+The latest operator clip reports further improvement but still rejects residual
+anatomy, inverted physical displacement and whole-avatar intrusion on leaning.
+Physical crouch comfort remains rejected. Impacts are closer to the visible
+reticle, but weapon placement and muzzle origin remain rejected; live barrel
+observations confirm a large positional/angular mismatch with the controller ray.
+Sampled `Weapon.GetOwnerAttackOrigin/GetOwnerAttackOriginVisualization` now
+distinguish ballistic and visual origins from the barrel. Those getters are
+read-only; diagnostic calls do not query the accuracy/spread direction path.
+No global bone scaling or hand residual limit increase is justified.
 
 An earlier rejected clip showed a different failure mode: safety blocks some extreme writes, but the arms repeatedly return to the native/default game pose as the Sense controllers move. Telemetry does not support solving this by scaling the upper/forearm chain globally:
 

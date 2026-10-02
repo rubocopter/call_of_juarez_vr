@@ -23,11 +23,17 @@ occasional recovery delay, limb torsion and short-arm feel. Physical forward/bac
 body displacement is inverted; physical crouch triggers animation but feels abrupt
 and leaves the arms too high. Weapon origin/direction remains physically rejected.
 
-The next **implemented / host-tested** candidate corrects the horizontal skeleton
-Z mapping, nests arms inside the pelvis render transaction, preserves controller
-height during physical crouch and composes forearm/FORETWIST/hand orientation through
-the same parent-plus-elbow rotations. It also corrects the gameplay reticle's depth
-sign and samples the real weapon barrel independently of controller aim fields.
+The nested pelvis/arm transaction and consistent lower-arm composition are now
+live-exercised with further improvement, but anatomy remains rejected. The reticle
+is visible and impacts are reported closer to it; sampled real-barrel geometry
+confirms substantial disagreement with the controller origin/direction.
+
+The next **implemented / host-tested** candidate removes the camera's opposite
+tracking Z sign and uses the same actor-yaw-compensated translation reference as
+pelvis and hands. It compensates duplicate native camera descent during physical
+crouch, preserves explicit controller crouch and corrects controller aim origins
+around the untracked native camera. Read-only ballistic/visual-origin getters
+extend the real-barrel comparison without consuming native spread.
 The same run should confirm walking direction, crouch/hand height, torsion/recovery,
 head-relative stick movement, the exact 90-degree snap step and reticle alignment.
 Ballistic consumption remains an unresolved exact-game boundary. Follow
@@ -147,7 +153,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Native analog locomotion through the shipped float-input path: **headset-validated diagnostically** for vanilla-equivalent normal/walk speed. No further movement/input changes are planned.
 - Head-relative stick locomotion using residual HMD yaw before native shaping: **implemented / host-tested**, pending physical direction/feel confirmation.
 - Native jump action: **headset-validated diagnostically** for vanilla-equivalent apex and duration. No further jump/physics changes are planned.
-- Physical HMD-height crouch merged into the shipped crouch action: **live-exercised** for animation engagement; abrupt transition and high arms reject comfort. Physical controller-height preservation is **host-tested** for the next candidate.
+- Physical HMD-height crouch merged into the shipped crouch action: **live-exercised** for animation engagement; comfort remains rejected. Compensation of duplicate native camera descent, shared with arm/aim targets, is **host-tested** for the next candidate.
 - Horizontal-only visual body room-scale overlay with native vertical actor/grounding/collision ownership: **live-exercised technically**. Physical displacement still needs stick-equivalent visual locomotion animation.
 - Physical-walk visual animation from HMD horizontal movement: **planned/open**.
 - Local Ray/Billy head/hair suppression: **headset-validated for HMD view**; shadow behavior remains unverified.
@@ -155,7 +161,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 3 — tracked hands and body IK
 
 - Stable left/right Sense tracking in game space: **live-tested**.
-- Exact absolute visible arm writer: **live-tested**; actor-relative restoration and stale-branch rebasing have physically improved continuity. Pelvis/arm transaction nesting is the next **host-tested** physical candidate.
+- Exact absolute visible arm writer: **live-tested**; actor-relative restoration, stale-branch rebasing and pelvis/arm transaction nesting have physically improved continuity. Residual anatomy remains rejected.
 - Correct head-relative controller target space: **live-tested**.
 - FORETWIST/hand hierarchy correction: **live-tested technically; visual anatomy remains incomplete**.
 - Arm reach/anatomy/orientation: continuity is physically improved after actor rebasing, with hands no longer stranded in world space. Short arms, intermittent recovery and torsion remain rejected. Consistent parent-plus-elbow forearm/skinning frames and pelvis/arm transaction nesting are **host-tested** follow-ups.
@@ -173,7 +179,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Controller-owned per-hand weapon direction and visual origin: **host-tested**.
 - Ballistic-origin ownership across the native attack transition: **host-tested**.
 - Sense tip direction convention: **live-tested diagnostically**; local `-Z` is the demonstrated pointing direction.
-- Exact-frame per-eye gameplay reticle from the controller firing ray: **implemented / host-tested**. It is independent from the menu pointer and awaits physical alignment/impact confirmation.
+- Exact-frame per-eye gameplay reticle from the controller firing ray: **live-exercised / visible**. Impacts are reported closer to it; physical weapon/muzzle alignment remains rejected. It is independent from the menu pointer.
 - Physical gun-origin/direction acceptance: **pending/rejected**.
 - Motion-controlled reloads and richer world interactions: **planned**.
 

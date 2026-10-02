@@ -14,6 +14,16 @@ The camera contract uses the game's complete source basis. The authoritative sou
 
 The live game also required a game-specific yaw sign correction after the native right/up/forward basis was established.
 
+The later physical room-scale gate contradicts the earlier tracking-position
+reflection: forward/backward movement remains inverted and leaning exposes the
+avatar. The source axis named forward is the view's backward axis in the visible
+gameplay reticle convention. Position offsets now map tracking Z with the same
+sign as skeleton/controller targets; camera translation also removes actor-owned
+yaw once, using their shared leveled tracking reference. Host tests verify that
+a physical forward step approaches a visible world-ray target and that camera
+and pelvis offsets agree after body yaw. This follow-up awaits physical
+confirmation and does not alter native source layouts or stereo wrappers.
+
 ## Render-view ownership
 
 Exact disassembly established two relevant boundaries:
@@ -64,10 +74,12 @@ Run `20260920T090448Z-b1f54e3cb38e` physically exercised startup flat theater th
 
 ## Current open camera/presentation issues
 
-The camera/stereo discovery gate is closed enough for product work. Remaining issues are operational:
+The native camera/stereo seam remains established. Open gates include:
 
 - the bounded shared-transport cadence target and stereo/head-turn stability now pass; sustained pacing and frame-age outliers remain separate performance questions;
-- flat-menu controller interaction is being revalidated after a rejected physical route;
+- room-scale forward/backward translation and torso visibility remain rejected; the shared tracking-reference/sign follow-up is host-tested;
+- physical crouch adds native camera descent to physical HMD descent; captured actor-relative height compensation is host-tested and awaits comfort validation;
+- flat-menu controller interaction is accepted in the exercised ordinary/Yes-No/gameplay-pause paths;
 - normal-quit inner shutdown, GPU drain and outer `run_end` are now live-tested through the exact-build pre-`DestroyGame` boundary; abnormal exit/device loss remain unproved. See [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md).
 
 Do not reopen established camera offsets or stereo wrapper choices without contradictory physical/native evidence.
