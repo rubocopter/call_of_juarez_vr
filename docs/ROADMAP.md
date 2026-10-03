@@ -40,7 +40,12 @@ confirm walking direction, crouch/hand height, torsion/recovery,
 head-relative stick movement, the exact 90-degree snap step and reticle alignment.
 The current **host-tested** follow-up adds a common camera/grip anchor,
 animation-independent elbow plane and stable bilateral-span calibration for
-render-only arm reach. A verified rigid weapon-element map publishes muzzle
+render-only arm reach. The combined candidate is now live-exercised technically:
+weapon cache publication and scoped restoration succeed, but the operator's T
+pose did not calibrate, leaving short arms clamped near the body while the weapon
+followed the real hand. The host-tested correction judges extension in the
+horizontal hand-to-hand frame instead of recenter X/Z, preserving stable-span
+and height guards and reporting pending reasons. A verified rigid weapon-element map publishes muzzle
 vectors to exact per-hand Java shot consumers, with null/native/network fallback.
 The original code archive is a journaled, hash-verified deployment asset and is
 restored byte-for-byte. Actual-shot alignment, fitted anatomy and comfort remain

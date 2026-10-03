@@ -2981,6 +2981,17 @@ void UpdatePlayerArmTracking(
             ";native_arm_sum_cm=" + std::to_string(native_arm_sum) +
             ";reach_scale=" + std::to_string(measured_reach_scale) +
             ";source=stable_bilateral_t_pose;actor_write=false");
+    } else if (!g_arm_span_calibration.calibrated() && observe) {
+        EmitEvent("body_arm_span_calibration", "pending",
+            "frame_sequence=" + std::to_string(frame_sequence) +
+            ";reason=" + g_arm_span_calibration.observation() +
+            ";stable_samples=" + std::to_string(g_arm_span_calibration.stable_samples()) +
+            ";tracked_head=" + RuntimeVectorText(tracked_body.head.position) +
+            ";tracked_left=" + RuntimeVectorText(tracked_body.left_hand.position) +
+            ";tracked_right=" + RuntimeVectorText(tracked_body.right_hand.position) +
+            ";native_shoulder_span_cm=" + std::to_string(native_shoulder_span) +
+            ";native_arm_sum_cm=" + std::to_string(native_arm_sum) +
+            ";actor_write=false");
     }
     const auto update_arm = [&](const bool left, const cojvr::runtime::Pose& controller) noexcept {
         const char* side = left ? "left" : "right";

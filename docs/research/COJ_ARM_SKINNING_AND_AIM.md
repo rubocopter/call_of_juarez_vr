@@ -100,6 +100,16 @@ native frames are restored; this is a measured user fit, not arbitrary global
 bone scaling. Fitted FORETWIST and hand frames retain joint-relative offsets.
 These anatomy changes are host-tested and await physical acceptance.
 
+Physical follow-up disproves the original fixed recenter-X/Z T-pose criterion:
+the operator extended both arms, but visor offset from the shoulder plane and
+turning caused rejection, leaving the native chain clamped near the torso while
+the tracked weapon stayed near the real hand. Extension is now measured in the
+horizontal hand-to-hand frame, with the head between both hands, bounded vertical
+and shoulder-plane offsets, the same measured-span bounds and stable-sample
+requirement. Pending calibration telemetry retains the rejection reason and
+sample count. Observed-pose and yaw-rotated host regressions pass; fitted anatomy
+remains a physical gate.
+
 Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
 
 The render-only pelvis translation uses the same horizontal sign convention as

@@ -807,20 +807,35 @@ float CoJArmSpanCalibration::Update(
     const float native_arm_sum_cm, const bool valid) noexcept {
     if (calibrated_) return scale_;
     const auto l = Subtract(left, head), r = Subtract(right, head);
-    const bool t_pose = valid && Finite(head) && Finite(left) && Finite(right) &&
+    const bool inputs_valid = valid && Finite(head) && Finite(left) && Finite(right) &&
         std::isfinite(native_shoulder_span_cm) && native_shoulder_span_cm > 0 &&
-        std::isfinite(native_arm_sum_cm) && native_arm_sum_cm > 0 &&
-        l.x < 0 && r.x > 0 &&
+        std::isfinite(native_arm_sum_cm) && native_arm_sum_cm > 0;
+    if (!inputs_valid) {
+        stable_samples_ = 0; candidate_span_cm_ = 0;
+        observation_ = "tracking_or_geometry"; return scale_;
+    }
+    // Judge extension in the horizontal hand-to-hand frame, not the fixed
+    // recenter X/Z axes. Turning and visor offset from the shoulder plane
+    // must not reject an otherwise extended bilateral pose.
+    const auto horizontal_span = cojvr::runtime::Vec3{r.x-l.x, 0, r.z-l.z};
+    const float half_span = Length(horizontal_span) * 0.5F;
+    const auto span_axis = Normalize(horizontal_span);
+    const auto midpoint = cojvr::runtime::Vec3{(l.x+r.x)*0.5F, 0, (l.z+r.z)*0.5F};
+    const auto plane_offset = Subtract(midpoint, Scale(span_axis, Dot(midpoint, span_axis)));
+    const bool t_pose = half_span > 0 && Dot(l, span_axis) < 0 && Dot(r, span_axis) > 0 &&
         // The visor is above the shoulders even in a horizontal T pose.
-        std::fabs(l.y) < -l.x * 0.5F && std::fabs(l.z) < -l.x * 0.25F &&
-        std::fabs(r.y) < r.x * 0.5F && std::fabs(r.z) < r.x * 0.25F &&
-        std::fabs(l.y-r.y) < (r.x-l.x) * 0.1F;
-    if (!t_pose) { stable_samples_ = 0; candidate_span_cm_ = 0; return scale_; }
+        std::fabs(l.y) < half_span * 0.5F && std::fabs(r.y) < half_span * 0.5F &&
+        std::fabs(l.y-r.y) < half_span * 0.2F && Length(plane_offset) < half_span * 0.5F;
+    if (!t_pose) {
+        stable_samples_ = 0; candidate_span_cm_ = 0;
+        observation_ = "bilateral_pose"; return scale_;
+    }
     const float span_cm = Length(Subtract(right, left)) * 100.0F;
     const float fit = (span_cm - native_shoulder_span_cm) / native_arm_sum_cm;
     // Reject tracking outliers rather than growing a chain without bound.
     if (!std::isfinite(fit) || fit < 1 || fit > 2) {
-        stable_samples_ = 0; return scale_;
+        stable_samples_ = 0; candidate_span_cm_ = 0;
+        observation_ = "span_out_of_range"; return scale_;
     }
     if (stable_samples_ == 0 || std::fabs(span_cm-candidate_span_cm_) > span_cm * 0.01F) {
         candidate_span_cm_ = span_cm; stable_samples_ = 1;
@@ -831,6 +846,7 @@ float CoJArmSpanCalibration::Update(
         scale_ = (candidate_span_cm_ - native_shoulder_span_cm) / native_arm_sum_cm;
         calibrated_ = true;
     }
+    observation_ = calibrated_ ? "measured" : "stabilizing";
     return scale_;
 }
 

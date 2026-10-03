@@ -79,6 +79,17 @@ exact class/archive patch is transactionally staged and restored; the shipped
 Java verifier accepts it. Geometry, fallback and restoration tests do not accept
 actual bullet origin, fitted visual anatomy or headset comfort.
 
+The combined candidate is now **live-exercised** for weapon-element/cache
+publication and verified weapon/arm/pelvis restoration through normal shutdown.
+Anatomy remains rejected: the operator performed the T pose, but the fixed
+recenter-axis criterion never completed calibration. The weapon followed the
+real hand while the short rendered arm stayed clamped nearer the body. The
+**implemented / host-tested** follow-up judges bilateral extension in the
+horizontal hand-to-hand frame, tolerating recenter yaw and visor offset from the
+shoulder plane while retaining height, span and stability guards. Pending reasons
+and sample counts are logged. Actual-shot alignment and fitted reach still need
+headset acceptance; successful cache getters do not accept either.
+
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
 run retained Ex factory/device identity, recorded successful Presents beyond
@@ -385,14 +396,14 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
-| Body IK continuity/anatomy | continuity physically improved; anatomy follow-up host-tested; anatomy rejected | common camera/grip anchor, stable elbow plane and measured bilateral-span reach fit await physical acceptance; native restoration remains verified |
+| Body IK continuity/anatomy | continuity physically improved; anatomy rejected; calibration correction host-tested | fixed-axis T-pose detection rejected the operator's extended pose; hand-to-hand-frame span calibration awaits fitted-reach acceptance; native restoration remains verified |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
 | Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
 | Cross/Circle/L2/R2 UI actions | exercised menu-selection path accepted; broader action coverage remains bounded | latest run accepts ordinary/Yes-No/pause pointer selection; retain per-action regression checks where relevant |
 | Loading continuation | host-tested / latest run reached gameplay | an earlier physical load hang was not reproduced in the latest gameplay run; controller-only loading acceptance remains separate |
 | Controller-origin UI beam | headset-validated for exercised menu paths | ordinary, Yes/No and gameplay-pause selection work in the latest physical candidate |
-| Controller-owned weapon direction/visual origin | host-tested | verified rigid weapon-element map and nullable per-hand shot caches; original/network fallback preserved; physical shots and reload recovery remain pending |
+| Controller-owned weapon direction/visual origin | live-exercised technically; visual alignment rejected | rigid weapon-element map/cache publication and restoration observed; short clamped arms separate rendered hands from tracked weapons; actual shots and reload recovery remain pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
 | Exact-frame gameplay weapon reticle | live-exercised / visible | impacts reported closer to the reticle; alignment with the visible weapon/muzzle remains rejected |
 | Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |

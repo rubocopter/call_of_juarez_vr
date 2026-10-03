@@ -249,8 +249,13 @@ tip targets, rather than an animated-head anchor. The head-to-shoulder offset
 chooses the elbow plane independently of the current idle/reload elbow pose.
 A stable bilateral T pose measures controller span and fits the render-only arm
 lengths after subtracting measured native shoulder width, preserving the native
-upper/forearm ratio. Thirty consecutive near-lateral samples within 1% span
-variation commit that measurement; ordinary aiming cannot calibrate it. Invalid
+upper/forearm ratio. Thirty consecutive horizontal bilateral samples within 1% span
+variation commit that measurement; ordinary aiming cannot calibrate it. Extension
+is judged in the horizontal hand-to-hand frame, independently of recenter yaw,
+with the head between both hands and bounded height/shoulder-plane offset. The
+previous fixed recenter-X/Z test physically rejected an extended T pose and left
+the native short chain clamped while the weapon followed the real controller.
+Pending calibration reports its reason and stable-sample count. Invalid
 tracking/outliers retain the native default. Calibration persists across recenter
 and resets with player generation. Joint-relative FORETWIST/hand offsets follow
 the fitted elbow/wrist endpoints. Native animation/physics and restored frames

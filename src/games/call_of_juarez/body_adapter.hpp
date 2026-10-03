@@ -169,11 +169,14 @@ public:
         float native_shoulder_span_cm, float native_arm_sum_cm, bool valid) noexcept;
     void Reset() noexcept { *this = {}; }
     [[nodiscard]] bool calibrated() const noexcept { return calibrated_; }
+    [[nodiscard]] unsigned stable_samples() const noexcept { return stable_samples_; }
+    [[nodiscard]] const char* observation() const noexcept { return observation_; }
 private:
     float scale_ = 1;
     float candidate_span_cm_ = 0;
     unsigned stable_samples_ = 0;
     bool calibrated_ = false;
+    const char* observation_ = "awaiting_pose";
 };
 
 struct ArmGeometryRestoreCheck {

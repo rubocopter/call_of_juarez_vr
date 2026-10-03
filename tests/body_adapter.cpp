@@ -1486,6 +1486,42 @@ int main() {
     span_calibration.Reset();
     if (span_calibration.calibrated()) { std::cerr << "Span calibration survived generation reset\n"; return 1; }
 
+    // The rejected headset T pose had a visor/shoulder-plane offset and was
+    // later repeated after turning. Extension must not depend on recenter yaw.
+    for (float yaw : {0.0F, 0.7F, 1.57F, 2.8F}) {
+        CoJArmSpanCalibration observed_span;
+        const auto rotate_yaw = [yaw](cojvr::runtime::Vec3 p) {
+            return cojvr::runtime::Vec3{p.x*std::cos(yaw)+p.z*std::sin(yaw), p.y,
+                -p.x*std::sin(yaw)+p.z*std::cos(yaw)};
+        };
+        const cojvr::runtime::Vec3 observed_left{-0.847036F,-0.130028F,0.301085F};
+        const cojvr::runtime::Vec3 observed_right{0.805296F,-0.064709F,0.111916F};
+        float observed_fit = 1;
+        for (int i = 0; i < 30; ++i) {
+            observed_fit = observed_span.Update({}, rotate_yaw(observed_left),
+                rotate_yaw(observed_right), 26.4F, 100.0F, true);
+        }
+        const float expected_fit = (Distance(observed_left, observed_right)*100-26.4F)/100;
+        if (!observed_span.calibrated() || !Near(observed_fit, expected_fit)) {
+            std::cerr << "Extended bilateral span rejected visor offset or recenter yaw\n";
+            return 1;
+        }
+    }
+    for (int invalid_pose = 0; invalid_pose < 3; ++invalid_pose) {
+        CoJArmSpanCalibration invalid_span;
+        for (int i = 0; i < 40; ++i) {
+            const auto left = invalid_pose == 0 ? cojvr::runtime::Vec3{-0.85F,0,-1}
+                : cojvr::runtime::Vec3{-0.85F,0,0};
+            const auto right = invalid_pose == 0 ? cojvr::runtime::Vec3{0.85F,0,-1}
+                : cojvr::runtime::Vec3{0.85F,1,0};
+            (void)invalid_span.Update({}, left, right, 40, 100, invalid_pose != 2);
+        }
+        if (invalid_span.calibrated()) {
+            std::cerr << "Forward, nonhorizontal or lost-tracking pose calibrated span\n";
+            return 1;
+        }
+    }
+
     // without collapsing its measured wrist-to-muzzle distance.
     const auto weapon_plan = BuildTrackedWeaponFrame(
         {{2, 0, 0}, {0, 1, 0}, {0, 0, 1}, true},
