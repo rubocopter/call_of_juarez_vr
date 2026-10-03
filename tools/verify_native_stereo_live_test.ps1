@@ -790,7 +790,7 @@ if ($RequireBodyIk) {
 if ($RequireGameplayInput) {
     if ($Run.validation.PSObject.Properties.Name -contains "requireFireAfterMuzzle" -and
         $Run.validation.requireFireAfterMuzzle) {
-        Assert-LogMatch "event=controller_fire_dispatch result=applied detail=.*;phase=after_verified_muzzle;non_fire_actions=false;" `
+        Assert-LogMatch "event=controller_fire_dispatch result=applied detail=.*;phase=(?:after_verified_muzzle;|after_weapon_pose_attempt;verified_left_muzzle=(?:true;verified_right_muzzle=(?:true|false)|false;verified_right_muzzle=true);)non_fire_actions=false;" `
             "Fire actions were not delivered after the current muzzle publication phase."
         Assert-LogNotMatch "event=controller_fire_dispatch result=unavailable" `
             "A deferred fire action failed to reach the native input route."

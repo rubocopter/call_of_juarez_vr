@@ -30,6 +30,22 @@ int Fail(const char* message, const HRESULT hr = S_OK) {
     return 1;
 }
 
+using CreateSystemSurface = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, UINT, UINT,
+    D3DFORMAT, D3DPOOL, IDirect3DSurface9**, HANDLE*);
+HRESULT STDMETHODCALLTYPE DenySurfaceAllocation(IDirect3DDevice9*, UINT, UINT,
+    D3DFORMAT, D3DPOOL, IDirect3DSurface9** output, HANDLE*) {
+    *output = nullptr;
+    return E_OUTOFMEMORY;
+}
+bool ReplaceSurfaceAllocator(IDirect3DDevice9* device, void* replacement, void*& previous) {
+    auto** table = *reinterpret_cast<void***>(device);
+    DWORD protection = 0;
+    if (!VirtualProtect(table + 36, sizeof(void*), PAGE_READWRITE, &protection)) return false;
+    previous = InterlockedExchangePointer(table + 36, replacement);
+    DWORD ignored = 0;
+    return VirtualProtect(table + 36, sizeof(void*), protection, &ignored) != FALSE;
+}
+
 cojvr::runtime::Pose TestRenderPose() {
     cojvr::runtime::Pose pose{};
     pose.position = {0.10F, 1.65F, -0.25F};
@@ -286,18 +302,58 @@ int main() {
         return Fail("flat capture did not produce an immediate owned CPU frame", hr);
     }
     const std::uint64_t flat_left_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
-        flat_frame.eyes[0].pixels.data(), flat_frame.eyes[0].stride,
+        flat_frame.eyes[0].borrowed_pixels, flat_frame.eyes[0].stride,
         flat_frame.eyes[0].width, flat_frame.eyes[0].height);
     if (flat_frame.hud_text.frame_sequence || !flat_frame.hud_text.text.hint.view().empty()) {
         return Fail("flat capture retained stale gameplay HUD metadata");
     }
     const std::uint64_t flat_right_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
-        flat_frame.eyes[1].pixels.data(), flat_frame.eyes[1].stride,
+        flat_frame.eyes[1].borrowed_pixels, flat_frame.eyes[1].stride,
         flat_frame.eyes[1].width, flat_frame.eyes[1].height);
     if (flat_left_hash == 0 || flat_left_hash != flat_right_hash ||
         flat_frame.capture_sequence != 10 || flat_frame.render_pose_sequence != 51) {
         return Fail("flat capture did not duplicate one backbuffer into a complete stereo frame");
     }
+
+    if (!flat_frame.producer_lease.valid() || !flat_frame.eyes[0].pixels.empty() ||
+        !flat_frame.eyes[1].pixels.empty() ||
+        flat_frame.eyes[0].borrowed_pixels != flat_frame.eyes[1].borrowed_pixels) {
+        return Fail("flat frame allocated redundant CPU images instead of leasing one mono surface");
+    }
+    // Startup must reserve the ring. Pausing after a large level loads must not
+    // require another full-frame allocation in the game's 32-bit address space.
+    void* allocator = nullptr;
+    if (!ReplaceSurfaceAllocator(flat_device.Get(), reinterpret_cast<void*>(&DenySurfaceAllocation), allocator))
+        return Fail("could not install surface allocation fault");
+    std::array<cojvr::backends::d3d9::StereoCpuFrame, 3> retained{};
+    retained[0] = std::move(flat_frame);
+    bool warmed_ring_ok = true;
+    for (int index = 1; index < 3; ++index) {
+        (void)flat_device->ColorFill(flat_back_buffer.Get(), nullptr,
+            D3DCOLOR_ARGB(0xFF, index * 25, 0x56, 0x78));
+        warmed_ring_ok &= flat_capture.CaptureFlatFrameImmediate(flat_device.Get(),
+            flat_back_buffer.Get(), 10 + index, 1, TestRenderPose(), 51 + index, retained[index]);
+    }
+    warmed_ring_ok &= !flat_capture.CaptureFlatFrameImmediate(flat_device.Get(),
+        flat_back_buffer.Get(), 14, 1, TestRenderPose(), 55, flat_frame);
+    warmed_ring_ok &= flat_left_hash == cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+        retained[0].eyes[0].borrowed_pixels, retained[0].eyes[0].stride,
+        retained[0].eyes[0].width, retained[0].eyes[0].height);
+    retained[0] = {};
+    warmed_ring_ok &= flat_capture.CaptureFlatFrameImmediate(flat_device.Get(),
+        flat_back_buffer.Get(), 15, 1, TestRenderPose(), 56, flat_frame);
+    flat_back_buffer.Reset();
+    warmed_ring_ok &= SUCCEEDED(flat_device->Reset(&present));
+    warmed_ring_ok &= SUCCEEDED(flat_device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &flat_back_buffer));
+    flat_frame = {};
+    warmed_ring_ok &= flat_capture.CaptureFlatFrameImmediate(flat_device.Get(),
+        flat_back_buffer.Get(), 16, 2, TestRenderPose(), 57, flat_frame);
+    warmed_ring_ok &= flat_frame.generation == 2 && retained[1].generation == 1;
+    void* ignored_allocator = nullptr;
+    const bool restored_allocator = ReplaceSurfaceAllocator(flat_device.Get(), allocator, ignored_allocator);
+    if (!warmed_ring_ok || !restored_allocator)
+        return Fail("flat menu capture failed under allocation denial/Reset or overwrote an owned frame");
+    retained = {};
 
     flat_back_buffer.Reset();
     D3DPRESENT_PARAMETERS flat_present = present;

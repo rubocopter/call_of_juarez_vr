@@ -1154,13 +1154,14 @@ try {
         }
     }
     $IndependentLog += "camera_probe_event: event=body_hand_restore result=ok detail=frame_sequence=64;transaction=post_stereo_capture;elements_restored=true;visibility_restored=true;detail="
-    $IndependentLog += "camera_probe_event: event=controller_fire_dispatch result=applied detail=frame_sequence=64;phase=after_verified_muzzle;non_fire_actions=false;detail="
+    $IndependentLog += "camera_probe_event: event=controller_fire_dispatch result=applied detail=frame_sequence=64;phase=after_weapon_pose_attempt;verified_left_muzzle=false;verified_right_muzzle=true;non_fire_actions=false;detail="
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $IndependentLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null
     foreach ($BadLog in @(
         @{ name="missing second-eye hand probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=body_hand_render_probe .*phase=right_eye_complete" }) },
         @{ name="missing second-eye weapon probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_weapon_render_probe .*phase=right_eye_complete" }) },
         @{ name="missing deferred fire delivery"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_fire_dispatch " }) },
+        @{ name="unverified muzzle attempt only"; lines=@($IndependentLog | ForEach-Object { $_.Replace("verified_right_muzzle=true;", "verified_right_muzzle=false;") }) },
         @{ name="failed deferred fire delivery"; lines=@($IndependentLog) + "camera_probe_event: event=controller_fire_dispatch result=unavailable detail=frame_sequence=65;phase=after_verified_muzzle;non_fire_actions=false;detail=input unavailable" },
         @{ name="transient first-eye weapon failure followed by recovery"; lines=@($IndependentLog) + @(
             "camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=left_eye_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose",

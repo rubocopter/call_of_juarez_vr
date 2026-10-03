@@ -4,10 +4,13 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 ## Current gate
 
-**Immediate physical gate:** confirm shot/effect alignment and image quality in
-representative gameplay. The operator reports substantial improvement in
-movement, controller menus and weapon presentation, but still rejects effects
-coming from behind the visible muzzle when the weapon is viewed side-on.
+**Immediate physical gate:** recover pause presentation and contextual controls,
+then confirm shot/effect alignment in representative gameplay. The latest
+physical report rejects a frozen visor during desktop pause, ineffective F and
+secondary actions, and invisible shot effects. Floating dialogue subtitles work.
+Host-tested repairs reserve mono flat-capture buffers, deliver native one-shots
+after analog commit, select only verified weapon reticles and publish HMD gaze
+to the native interaction search. Their actual headset behavior remains open.
 
 The active presentation retains native torso/legs with independent native hands
 at original proportions. Authored holding sockets share the hand rigid map;
@@ -29,8 +32,9 @@ shared-texture transport contract. Higher-resolution clarity and sustained HMD
 cadence remain pending, including level loading. Repeated launches or graphics
 changes within one run do not validate renderer reset or loading stability.
 
-Native stereo, bounded configured-HMD cadence, normal-quit shutdown and the
-exercised ordinary/modal/pause menus are accepted for the reference build/host.
+Native stereo, bounded configured-HMD cadence and normal-quit shutdown are
+accepted for the reference build/host. Ordinary/modal/pause menus were accepted
+in the baseline; current pause visibility and pointer recovery need a new check.
 Room-scale direction, physical crouch comfort, head-relative locomotion, the
 90-degree snap step and hand recovery remain gesture-specific regression checks.
 Follow the [combined validation procedure](VALIDATION.md#combined-menu-and-gameplay-regression).
@@ -93,19 +97,22 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 ## Milestone 4 — controller UI and interactions
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
-- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events plus the exact `0xCC420` click route are **headset-validated for the exercised ordinary menus, visible Yes/No dialog and gameplay pause menu**, with controller/mouse coexistence preserved in the previously exercised path.
+- Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events plus the exact `0xCC420` click route are **headset-validated in the exercised baseline**. The latest candidate freezes the visor during desktop pause after flat allocation failures. A prewarmed mono SYSTEMMEM ring is **host-tested**; pause visibility and pointer recovery take priority.
 - Cross accept / Circle UI-back / Options pause / L2-R2 ray-select: **host-tested follow-up**; Circle kick/pause separation awaits physical acceptance.
 - Loading continuation through the native loading-input boundary: **host-tested**.
-- Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.
+- Subtitle visibility: **operator-confirmed** for floating dialogue text; timing/readability and tutorial/context prompts remain separate checks.
 - Controller-origin flat-theater beam: **live-exercised / visible in headset**; alignment and accurate controller-only UI operation remain open.
 - Controller-owned per-hand weapon direction and visual origin: **host-tested**.
+- Contextual F selection from the central HMD gaze: **host-tested follow-up**;
+  exact local-player `CheckTriggers` getters preserve native range/permissions.
+  Object pickup, put-down and mounting still await physical acceptance.
 - Ballistic-origin ownership across the native attack transition: **host-tested**.
 - Sense tip direction convention: **live-tested diagnostically**; local `-Z` is the demonstrated pointing direction.
 - Exact-frame per-eye gameplay reticle from the controller firing ray: **live-exercised / visible**. Impacts are reported closer to it; physical weapon/muzzle alignment remains rejected. It is independent from the menu pointer.
 - Physical gun-origin/direction acceptance: **pending/rejected**.
-- Shot/effect coherence: **host-tested follow-up** after physical rejection; fire delivery follows current muzzle publication, visual direction retains native spread around the tracked base, and combustion/smoke use the verified muzzle and complete authored barrel basis without a restored-weapon attachment. Both-eye hand/socket/weapon pose and restoration are live-tested technically; actual bullets, tracers, light and effects remain pending headset acceptance.
+- Shot/effect coherence: **physically rejected in the latest candidate**; shot effects are reported invisible and aim unclear. The unchanged native effects patch and sampled barrel readbacks do not prove actual-shot consumption. Repair measured allocation failures and reticle selection of an empty hand first; verified-muzzle-only reticle selection is **host-tested**. Actual bullets, tracers, light and effects remain pending headset acceptance.
 - Motion-controlled reloads and richer world interactions: **planned**.
-- Expanded PC campaign controls: **host-tested**, pending physical acceptance.
+- Expanded PC campaign controls: **host-tested / physically incomplete**; contextual F and broader secondary controls remain unaccepted. Native one-shot delivery after the locomotion lock is a **host-tested** correction, preserving analog shaping and pending edges.
   The [exact PC catalogue](research/COJ_PC_CONTROLS_AND_HUD.md) records direct L1/F,
   separate Options/pause, the Triangle utility layer, focus toggle, alternate
   fire, put-away/discard, objectives/logs and six equipment intents. Save/load
@@ -114,7 +121,8 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
   remains open.
 - Gameplay HUD recovery: **incomplete**. Essential interaction/tutorial/subtitle
   text has a read-only native-owner route and cached finite-depth stereo panels,
-  **host-tested**, pending live visibility, pacing and headset readability.
+  **host-tested**, with floating dialogue subtitles confirmed by the operator;
+  tutorial/context visibility, pacing and broader headset readability remain open.
   Native PC key names remain in hint text. Exact sprite traversal and
   batch-flush boundaries are identified; their passive correlation/target probes
   are **host-tested**, with live route and usable coverage/alpha unproved.

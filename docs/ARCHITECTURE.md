@@ -104,7 +104,7 @@ The D3D9 path has two presentation modes:
 
 The device `Present` path can publish flat content when no native-stereo producer is active. The presenter claims and maintains compositor scene ownership, repeats the latest frame at compositor cadence, and returns to native stereo when the game resumes the two-eye render path.
 
-Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Texture padding uses both eyes' projected screen centers and asymmetric FOV to keep the entire source rectangle in bounds; the live optical trace confirms that a fixed 35% margin alone could not contain the PS VR2 startup image. The extent correction is live-tested, with videos/menu visibility headset-validated. Capture is immediate and does not retain default-pool resources across D3D9 reset/loading boundaries.
+Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Texture padding uses both eyes' projected screen centers and asymmetric FOV to keep the entire source rectangle in bounds; the live optical trace confirms that a fixed 35% margin alone could not contain the PS VR2 startup image. The extent correction is live-tested, with videos/menu visibility headset-validated. Immediate capture reserves a mono SYSTEMMEM ring during startup; both eyes borrow the same locked surface through a producer lease. Consumer completion permits owner-thread unlocking/reuse. Matching same-device Reset preserves the reservation while new frames receive the current generation; dimensions/format/device changes defer replacement until leases release. No persistent DEFAULT-pool resource or duplicated CPU eye image is retained. This allocation follow-up is host-tested after a physical pause regression with allocation failures; headset pause recovery remains open.
 
 Create on the left Sense controller recenters/reanchors the current VR reference.
 
@@ -144,7 +144,10 @@ Cross/global accept retains the shipped Enter route, while loading and paused-hi
 special cases keep their own native semantics. Selection diagnostics distinguish
 mailbox/focus/readback rejection from native dispatch failure. The new click path
 is now **headset-validated for the exercised ordinary, Yes/No and gameplay-pause
-menus**: the latest physical candidate restored complete VR-pointer menu operation.
+menus** in the accepted baseline. The latest physical candidate regressed pause
+presentation: desktop menus render, but flat readback allocation fails and the
+visor repeats the last gameplay image. The prewarmed mono capture follow-up is
+host-tested; current pause visibility and pointer operation await confirmation.
 Earlier Windows-only and simultaneous Java/Windows routes remain physically
 rejected.
 
@@ -155,6 +158,14 @@ objectives/logs, save/load, lean and six equipment intents. Only the CoJ adapter
 maps them to exact native action IDs, including authoritative logs 33, load 34
 and save 35. The existing non-fire/fire transaction remains phased: current
 muzzle publication precedes fire delivery, and pending releases retain ownership.
+Only shaped movement executes under the native controller-state lock. The batch
+unlocks and applies before digital one-shots: native F, reload, jump, kick and
+weapon selection reject locked calls and are not replayed by ApplyState. A failed
+analog batch does not consume pending one-shot edges. This separation is host-tested.
+Menu shoulder release barriers observe the availability and state of the actual
+gameplay actions, independently of optional global UI bindings. Raw action masks,
+utility-layer state and forwarding decisions are recorded on transitions and a
+bounded heartbeat to distinguish unavailable bindings from native dispatch failures.
 
 `GameplayUtilityMapper` owns the default secondary layer and release barriers.
 Triangle selects secondary functions; L1 directly interacts, R1 cycles forward.
@@ -191,7 +202,9 @@ panels; pixels outside those polygons retain the world image. Empty snapshots
 remove text through the next world copy, flat menus retain their existing route,
 and resources release before presenter-device shutdown. This text route is
 **host-tested**, separate from native graphical HUD capture and pending live
-visibility, latency, readability and headset comfort acceptance.
+prompt visibility, latency, readability and headset comfort acceptance. The
+operator confirms floating dialogue subtitles in the latest physical run;
+this does not accept contextual prompts or the complete graphical HUD.
 
 ## Tracking, locomotion and body ownership
 
@@ -409,6 +422,16 @@ vectors; they survive native aim updates until the next render sample and are
 cleared for menus, lost tracking, failed publication or player changes. Both
 first and held/repeated attacks use the per-hand consumer boundary.
 
+The same transactional archive also patches the exact `BeingTriggered.class`.
+Only the two look getters called by `CheckTriggers` select nullable local-player
+interaction origin/direction. Its branch layout, native range, target predicates
+and execution remain unchanged; global look getters and other beings retain the
+original behavior. The adapter publishes the central HMD render gaze before F,
+including camera-only room-scale translation, crouch-height correction and actor
+yaw compensation. Both vectors are required together and cleared on failure,
+menu/tracking invalidation and player replacement. This route is host-tested;
+native object pickup and contextual prompts still require physical acceptance.
+
 Input dispatch has two exact-game phases. Non-fire actions retain the existing
 pre-body order, including native analog shaping, snap turn, reload and weapon
 selection. Only actions 9/10 are deferred until the current hand/socket and
@@ -452,7 +475,9 @@ scheduled sprite and flush boundaries with current device/frame/target state.
 They never replay traversal or redirect rendering. The live route and usable
 alpha/coverage remain unproved, so HUD capture/composition is still pending.
 
-The gameplay reticle uses the verified muzzle/direction when available. It is
+The gameplay reticle selects only a successfully published, verified weapon
+muzzle/direction. An unarmed controller tip cannot replace an available gun ray
+or imply weapon alignment. With no verified muzzle it is suppressed. It is
 projected through each captured eye basis and asymmetric frustum and drawn on
 the matching compositor textures; it is excluded from flat-theater/menu
 presentation and does not share menu pointer ownership. It is an alignment aid,
@@ -567,9 +592,10 @@ create or run on the substituted Ex device, the candidate fails over at device
 creation to the prior classic-D3D9 deferred CPU path and reports the reason.
 That fallback still uses `GetRenderTargetData` and is not acceptable for the
 current physical transport gate. `GetRenderTargetData` also remains in the
-transient flat-theater/menu capture, currently sampled every second `Present`,
+immediate flat-theater/menu capture, currently sampled every second `Present`,
 because that path composes CPU-side pointer/UI content and avoids persistent
-DEFAULT resources across resets. It is not used by native stereo when the
+DEFAULT resources across resets. Its prewarmed mono SYSTEMMEM ring avoids
+full-frame allocations after level loading. It is not used by native stereo when the
 D3D9Ex path is active.
 
 A previous production D3D9Ex candidate crashed the exact game during physical

@@ -133,6 +133,23 @@ magnification is still open, despite native focus-state delivery.
 
 ## Mechanics that a button list does not cover
 
+The native controller rejects digital one-shots while
+`LockApplyControllerState` is active. `ApplyState` does not replay F, reload,
+weapon selection, jump or kick. The adapter therefore commits only shaped
+analog actions 4-7 under that lock and dispatches digital transitions after
+unlock/apply; an analog failure leaves their edges pending for retry.
+
+`BeingTriggered.ExecuteTrigger` calls `CheckTriggers` on the press transition.
+Its original look origin/direction getters follow the character, independently
+of temporary stereo-camera and per-hand weapon overrides. The exact class patch
+substitutes only those two calls with private helpers selecting a complete
+nullable HMD gaze pair. The original 148-byte selection method retains all
+branch offsets, native trigger range and target/permission tests. Missing either
+vector delegates to the original getter. Publication uses the central render
+camera in centimetres, with physical translation/height and actor-yaw ownership;
+it clears on lost tracking, blocking UI and player changes. The patch and JNI
+failure cleanup are host-tested; F pickup/put-down/mounting remain physical gates.
+
 - **Contextual F:** the manual assigns pickup, put-down, devices and mounting to
   the same action. `HUDActiveTrigger.UpdateText` reads
   `BeingTriggered.GetActiveTrigger().GetTip()`. An interaction button without

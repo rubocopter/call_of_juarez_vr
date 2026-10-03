@@ -100,6 +100,7 @@ struct D3D9StereoCapture::Impl {
     std::string fallback_reason;
     TransportMode transport_mode = TransportMode::classic_cpu_fallback;
     bool resources_initialized = false;
+    bool flat_resources_initialized = false;
 
     [[nodiscard]] std::uint32_t RingDepth() const noexcept {
         std::uint32_t depth = 0;
@@ -162,6 +163,46 @@ struct D3D9StereoCapture::Impl {
         fallback_reason.clear();
         transport_mode = TransportMode::classic_cpu_fallback;
         resources_initialized = false;
+        flat_resources_initialized = false;
+    }
+
+    bool EnsureFlatResources(IDirect3DDevice9* device, const D3DSURFACE_DESC& desc,
+                             const std::uint64_t resource_generation) {
+        ReclaimConsumerSlots();
+        if (flat_resources_initialized && resource_device.Get() == device &&
+            SameDescription(source_desc, desc)) {
+            // A Reset generation does not invalidate SYSTEMMEM on this device.
+            // Keep the startup reservation while tagging newly captured frames
+            // with the current generation; old leases retain their own metadata.
+            generation = resource_generation;
+            return true;
+        }
+        for (const auto& slot : slots) {
+            if (slot.release_state) {
+                last_error = "flat resource transition deferred while consumer owns a producer slot";
+                return false;
+            }
+        }
+        ReleaseResources();
+        // Reserve mono readback slots while startup still has memory available.
+        // SYSTEMMEM survives classic Reset; no DEFAULT-pool object is retained.
+        // A pause must not allocate a surface and two pixel vectors after a level
+        // has filled the native game's 32-bit address space.
+        for (auto& slot : slots) {
+            const HRESULT hr = device->CreateOffscreenPlainSurface(desc.Width, desc.Height,
+                desc.Format, D3DPOOL_SYSTEMMEM, &slot.system_eyes[0], nullptr);
+            if (FAILED(hr) || !slot.system_eyes[0]) {
+                last_error = Failure("flat capture system-memory ring creation", hr);
+                ReleaseResources();
+                return false;
+            }
+        }
+        resource_device = device;
+        source_desc = desc;
+        generation = resource_generation;
+        device_id = reinterpret_cast<std::uintptr_t>(device);
+        flat_resources_initialized = true;
+        return true;
     }
 
     bool EnsureResources(
@@ -467,6 +508,20 @@ bool D3D9StereoCapture::CaptureFlatFrameImmediate(
             return false;
         }
 
+        if (!impl_->EnsureFlatResources(device, desc, generation)) return false;
+        Impl::Slot* slot = nullptr;
+        for (auto& candidate : impl_->slots) {
+            if (!candidate.release_state) { slot = &candidate; break; }
+        }
+        if (!slot) {
+            impl_->last_error = "flat capture ring is owned by consumers";
+            ++impl_->stats.frames_dropped_no_slot;
+            return false;
+        }
+        // Allocate lease bookkeeping before locking, so an allocation exception
+        // cannot leave a readback surface locked without an owner.
+        auto release_state = std::make_shared<ProducerFrameReleaseState>();
+
         ComPtr<IDirect3DSurface9> resolved;
         IDirect3DSurface9* readback_source = source_surface;
         if (desc.MultiSampleType != D3DMULTISAMPLE_NONE) {
@@ -486,14 +541,7 @@ bool D3D9StereoCapture::CaptureFlatFrameImmediate(
             readback_source = resolved.Get();
         }
 
-        ComPtr<IDirect3DSurface9> system_memory;
-        hr = device->CreateOffscreenPlainSurface(
-            desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM,
-            &system_memory, nullptr);
-        if (FAILED(hr) || !system_memory) {
-            impl_->last_error = Failure("flat capture system-memory surface creation", hr);
-            return false;
-        }
+        const auto& system_memory = slot->system_eyes[0];
         hr = device->GetRenderTargetData(readback_source, system_memory.Get());
         if (FAILED(hr)) {
             impl_->last_error = Failure("flat capture GetRenderTargetData", hr);
@@ -515,24 +563,8 @@ bool D3D9StereoCapture::CaptureFlatFrameImmediate(
             return false;
         }
 
-        CpuEyeFrame eye{};
-        eye.width = desc.Width;
-        eye.height = desc.Height;
-        eye.stride = static_cast<std::uint32_t>(row_bytes);
-        eye.format = CpuPixelFormat::bgrx8_unorm;
-        eye.pixels.resize(row_bytes * desc.Height);
-        const auto* source_row = static_cast<const std::uint8_t*>(locked.pBits);
-        auto* destination_row = eye.pixels.data();
-        for (UINT row = 0; row < desc.Height; ++row) {
-            std::memcpy(destination_row, source_row, row_bytes);
-            source_row += source_pitch;
-            destination_row += row_bytes;
-        }
-        hr = system_memory->UnlockRect();
-        if (FAILED(hr)) {
-            impl_->last_error = Failure("flat capture UnlockRect", hr);
-            return false;
-        }
+        slot->system_eye_locked[0] = true;
+        slot->release_state = std::move(release_state);
 
         frame.device_id = reinterpret_cast<std::uintptr_t>(device);
         frame.generation = generation;
@@ -540,8 +572,16 @@ bool D3D9StereoCapture::CaptureFlatFrameImmediate(
         frame.render_pose_sequence = render_pose_sequence;
         frame.render_hmd_pose = render_hmd_pose;
         frame.capture_time = begin;
-        frame.eyes[0] = std::move(eye);
-        frame.eyes[1] = frame.eyes[0];
+        frame.transport = StereoFrameTransport::classic_d3d9_locked_systemmem;
+        frame.producer_lease = ProducerFrameLease(slot->release_state);
+        for (auto& eye : frame.eyes) {
+            eye.width = desc.Width;
+            eye.height = desc.Height;
+            eye.stride = static_cast<std::uint32_t>(source_pitch);
+            eye.format = CpuPixelFormat::bgrx8_unorm;
+            eye.borrowed_pixels = static_cast<const std::uint8_t*>(locked.pBits);
+        }
+        impl_->UpdateRingDepth();
 
         const auto end = std::chrono::steady_clock::now();
         std::ostringstream detail;
@@ -551,6 +591,8 @@ bool D3D9StereoCapture::CaptureFlatFrameImmediate(
                << ";format=" << static_cast<unsigned>(desc.Format)
                << ";source_msaa=" << static_cast<unsigned>(desc.MultiSampleType)
                << ";persistent_default_pool=false"
+               << ";systemmem_surfaces=prewarmed_mono_ring;cpu_pixels=borrowed_locked_surface"
+               << ";cpu_copy_ms=0.000"
                << std::fixed << std::setprecision(3)
                << ";capture_ms=" << MillisecondsBetween(begin, end);
         impl_->capture_description = detail.str();

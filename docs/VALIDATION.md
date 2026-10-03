@@ -10,6 +10,13 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
+The latest physical report rejects pause presentation (desktop menu visible,
+visor repeating gameplay), contextual F/secondary mechanics and invisible shot
+effects. Floating dialogue subtitles are operator-confirmed. The flat-capture
+allocation, digital-dispatch, tracked interaction-gaze and verified-reticle
+follow-ups are **host-tested**; recovery in the visor remains pending. Full
+graphical HUD and protected-target red-X feedback are still **planned**.
+
 Independent native hands with retained torso/legs are **live-tested** for native
 mesh loading and the separated presentation of the observed player model. The operator reports substantial
 improvement but still rejects the gap between weapon and hand, especially the
@@ -45,10 +52,11 @@ and activation use distinct engine boundaries: L2/R2 ray selection now sends a
 left-button press/release through the current UI input context at
 `ChromeEngine3 + 0xCC420`, while Cross/global accept retains Enter. A hidden but
 allocated Yes/No dialog is ignored unless `IsActuallyVisible()` is true. The
-latest physical candidate confirms complete VR-pointer operation across the
+accepted physical baseline confirms complete VR-pointer operation across the
 ordinary menus exercised, the Yes/No dialog and the gameplay pause menu. The
 current pointer-selection route is therefore **headset-validated for those
-exercised menu paths**; loading continuation remains a separate boundary.
+exercised menu paths** in that baseline; current pause presentation has regressed
+and awaits the allocation follow-up check. Loading continuation remains separate.
 
 Continuous body-yaw following at the 35-degree comfort boundary remains
 **headset-validated with Body IK disabled**. The absolute-frame Body IK writer has
@@ -265,10 +273,12 @@ global route could run. Inspection of the shipped `MainMenuModule` confirms
 optional and exception-safe, while the global current UI remains preferred for
 pause-menu delivery. The later native-click follow-up is now physically exercised
 successfully: ordinary menu levels, the Yes/No dialog and gameplay pause all
-accept the VR pointer in the latest candidate.
+accept the VR pointer in the accepted baseline. The latest physical candidate
+regresses pause visibility after flat capture allocation failures.
 
-The next combined run keeps menu operation as a regression check while focusing
-on Body IK restore continuity and the new 90-degree snap step. Startup/transport
+The next combined run first checks pause recovery and contextual F, then
+secondary controls, verified reticle alignment and actual shot effects.
+Body restore continuity and the 90-degree snap step remain regression gestures. Startup/transport
 verification confirms provenance and presentation only; the operator still
 confirms the physical gestures.
 
@@ -454,21 +464,43 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Body IK continuity/anatomy | continuity physically improved; span calibration live-tested; anatomy rejected | calibration completes and arms are longer, but wrist/forearm orientation remains unnatural; solver target readback/restoration do not accept visual skinning |
 | Independent native hands with retained torso/legs | native loading/presentation live-tested; attachment follow-up host-tested | operator reports substantial improvement but rejects weapon gap and wrist pose; twenty-element hand/socket map, parent-before-child application, per-eye weapon readback and transactional restoration covered; wrist comfort, grip cohesion and reload recovery pending |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
+| Flat-menu pointer | headset-validated baseline; current pause presentation rejected | desktop pause menu works but visor repeats gameplay after flat allocation failures; prewarmed mono readback ring is host-tested, current pause visibility/pointer recovery pending |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
-| Cross/Circle/L2/R2 UI actions | exercised menu-selection path accepted; broader action coverage remains bounded | latest run accepts ordinary/Yes-No/pause pointer selection; retain per-action regression checks where relevant |
+| Cross/Circle/L2/R2 UI actions | exercised baseline menu selection accepted; current pause regression open | native menu dispatch alone does not accept visor presentation or pointer delivery; retain per-action regression checks |
 | Loading continuation | host-tested / latest run reached gameplay | an earlier physical load hang was not reproduced in the latest gameplay run; controller-only loading acceptance remains separate |
-| Controller-origin UI beam | headset-validated for exercised menu paths | ordinary, Yes/No and gameplay-pause selection work in the latest physical candidate |
+| Controller-origin UI beam | headset-validated baseline; current pause recovery pending | ordinary/Yes-No/pause beam acceptance predates the latest pause presentation regression |
 | Controller-owned weapon direction/visual origin | live-exercised technically; visual alignment rejected | rigid weapon-element map/cache publication and restoration observed; short clamped arms separate rendered hands from tracked weapons; actual shots and reload recovery remain pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
-| Exact-frame gameplay weapon reticle | live-exercised / visible | impacts reported closer to the reticle; alignment with the visible weapon/muzzle remains rejected |
+| Exact-frame gameplay weapon reticle | live-exercised; weapon-ownership follow-up host-tested | raw empty-hand tip selection was misleading with a sole gun; verified-muzzle-only selection awaits physical acceptance, native spread remains separate |
 | Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |
 | Supported end-to-end VR release | planned | project remains pre-alpha |
 
 ## PC mechanics and gameplay HUD completeness
 
-**Input expansion, passive boundary probe and essential stereo text: host-tested;
-physical acceptance open. Native graphical HUD capture/composition: planned.** Menu operation and the alignment reticle
+**Input expansion physically exercised but incomplete/rejected; essential stereo
+text host-tested with operator-confirmed floating dialogue subtitles. Native
+graphical HUD capture/composition: planned.** The latest operator reports basic
+fire/recenter/crouch/jump but unusable aiming/shot effects, failed contextual F,
+missing red no-shoot feedback and a frozen visor during desktop pause. Red no-shoot
+feedback was never implemented by the essential text route. The log confirms
+mapped F/weapon-cycle/modifier intents, not native mechanic execution.
+
+The pause follow-up reserves and leases mono SYSTEMMEM buffers instead of
+allocating transient stereo CPU images after loading. Host fault tests deny new
+surface allocations after warmup, exercise ring exhaustion/release and same-size
+and resized Reset. A separate native-dispatch fixture reproduces one-shots lost
+under the locomotion lock and verifies delivery after analog commit, retry after
+failure, held-edge suppression and the independent fire phase. These follow-ups
+are **host-tested**; they do not accept visor recovery or actual shots.
+Interaction gaze checks additionally cover the translated/crouched central HMD
+camera, actor-yaw compensation, invalid tracking/basis rejection, complete-pair
+JNI publication and clearing after a write failure or context loss. The exact
+archive changes only its three identified classes; `CheckTriggers` retains its
+native selection flow. Direct L1/F must still pick up and put down an available
+object while standing, crouching and moving, including after pause/dashboard
+transitions. Native interaction range and permissions must remain intact.
+
+Menu operation and the alignment reticle
 do not establish complete campaign control or HUD coverage. The authoritative action catalogue
 and native feedback owners are recorded in
 [the PC controls/HUD research](research/COJ_PC_CONTROLS_AND_HUD.md). Do not count
@@ -482,8 +514,8 @@ latched selection without delayed snap/fire, persistent focus with fresh fire,
 and passive sprite/flush forwarding and owned restoration. The probe does not
 capture HUD pixels and does not establish alpha/coverage or live render order.
 
-For the next controller check, use the documented Triangle layer with L1 for F
-and Options for pause. Test ordinary Circle kick, modifier focus on/off followed
+For the next controller check, use direct L1 for F, Options for pause and the
+documented Triangle layer for secondary controls. Test ordinary Circle kick, modifier focus on/off followed
 by firing, alternate fire, put-away/discard, objectives/logs and available equipment
 selection. Repeat after dashboard/menu transitions with held buttons. Inspect
 sampled `native_hud_boundary` events for sprite/flush versus world capture/Present
@@ -495,7 +527,8 @@ dialogue bounds, Unicode truncation and exception/reference cleanup. Real D3D11
 WARP composition checks text pixels, binocular geometry, asymmetric/canted optics,
 world preservation and removal after a fresh empty frame. Capture tests retain
 text/optics with sequence and device generation across resource replacement.
-These establish **host-tested** implementation only. Verify text appears and
+These establish **host-tested** implementation only; the operator separately
+confirms subtitle visibility. Verify tutorial/context text appears and
 disappears with native prompts, remains legible in both eyes, does not obscure
 aiming and adds acceptable pacing cost. The observation interval is at most
 100 ms between sampled game frames; reading/dismissal latency needs acceptance.

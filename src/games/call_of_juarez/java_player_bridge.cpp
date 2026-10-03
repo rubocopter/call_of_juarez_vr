@@ -1311,6 +1311,69 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     return origin_ok && direction_ok && up_ok && forward_ok;
 }
 
+bool JavaPlayerBridge::TryPublishInteractionRay(const JavaPlayerPosition& origin,
+    const JavaPlayerPosition& direction, const bool valid, std::string* error) noexcept {
+    if (!being_) return !valid;
+    if (valid && (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z) ||
+        !std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z) ||
+        std::fabs(direction.x*direction.x + direction.y*direction.y + direction.z*direction.z - 1.0F) > .01F)) {
+        (void)TryPublishInteractionRay({}, {}, false);
+        SetError(error,"invalid interaction gaze ray");
+        return false;
+    }
+    void* env = Environment(error);
+    if (!env || (valid && !EnsureVectorAccess(env,error))) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto get_object = EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    const auto set_object = EnvFunction<SetObjectFieldFn>(env,kSetObjectField);
+    const auto new_object = EnvFunction<NewObjectAFn>(env,kNewObjectA);
+    if (!get_class || !get_field || !get_object || !set_object || !new_object) return false;
+    void* cls = get_class(env,being_);
+    if (ClearException(env,error,"interaction class read failed") || !cls) {
+        DeleteLocal(env,cls); return false;
+    }
+    const char* names[]{"cojvrInteractionOrigin","cojvrInteractionDirection"};
+    bool ok = true;
+    for (std::size_t i=0;i<2;++i) {
+        if (!interaction_ray_fields_[i]) interaction_ray_fields_[i]=get_field(env,cls,names[i],"LVector;");
+        if (ClearException(env,error,"exact interaction field unavailable") || !interaction_ray_fields_[i]) ok=false;
+    }
+    const auto clear = [&]() noexcept {
+        bool cleared=true;
+        for (auto field : interaction_ray_fields_) {
+            if (!field) continue;
+            set_object(env,being_,field,nullptr);
+            if (ClearException(env,error,"interaction clear failed")) cleared=false;
+        }
+        return cleared;
+    };
+    if (!ok || !valid) {
+        const bool cleared=clear();
+        DeleteLocal(env,cls);
+        return ok && cleared;
+    }
+    const JavaPlayerPosition values[]{origin,direction};
+    for (std::size_t i=0;i<2 && ok;++i) {
+        void* vector=get_object(env,being_,interaction_ray_fields_[i]);
+        ok=!ClearException(env,error,"interaction vector read failed");
+        const bool fresh=vector==nullptr;
+        if (ok && fresh) {
+            vector=new_object(env,vector_class_,vector_constructor_,nullptr);
+            ok=!ClearException(env,error,"interaction vector creation failed") && vector;
+        }
+        if (ok) ok=WriteVector(env,vector,values[i],error);
+        if (ok && fresh) {
+            set_object(env,being_,interaction_ray_fields_[i],vector);
+            ok=!ClearException(env,error,"interaction publication failed");
+        }
+        DeleteLocal(env,vector);
+    }
+    if (!ok) (void)clear();
+    DeleteLocal(env,cls);
+    return ok;
+}
+
 bool JavaPlayerBridge::RestoreTrackedWeapons(std::string* error, const int only_hand) noexcept {
     bool ok = true;
     void* env = nullptr;
@@ -2056,6 +2119,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     bool ok = true;
     for (std::size_t index = 0; index < values.size(); ++index) {
         if (!ShouldDispatchCoJGameplayAction(phase,values[index].action)) continue;
+        if (!UseDirectAnalogCoJLocomotion(values[index].action)) continue;
         if (values[index].action != previous_values[index].action ||
             !apply_value(values[index], previous_values[index])) {
             ok = false;
@@ -2084,6 +2148,20 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         }
     }
 
+    // Native PlayerController one-shots reject calls while locomotion holds
+    // LockApplyControllerState. ApplyState does not replay these transitions.
+    // Preserve the analog batch, then deliver one-shots after its commit.
+    if (ok) {
+        for (std::size_t index = 0; index < values.size(); ++index) {
+            if (!ShouldDispatchCoJGameplayAction(phase,values[index].action) ||
+                UseDirectAnalogCoJLocomotion(values[index].action)) continue;
+            if (values[index].action != previous_values[index].action ||
+                !apply_value(values[index], previous_values[index])) {
+                ok = false;
+                break;
+            }
+        }
+    }
     DeleteLocal(env, actions);
     DeleteLocal(env, targets);
     DeleteLocal(env, controller);
@@ -3389,10 +3467,12 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     // Keep the captured actor and its method bindings until restoration succeeds.
     if (!RestoreTrackedHands() || !RestoreTrackedWeapons()) return;
     if (being_) {
+        (void)TryPublishInteractionRay({}, {}, false);
         (void)TryPublishWeaponRay(0, {}, {}, false);
         (void)TryPublishWeaponRay(1, {}, {}, false);
     }
     weapon_ray_fields_ = {};
+    interaction_ray_fields_ = {};
     if (being_ && env) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
             delete_global(env, being_);

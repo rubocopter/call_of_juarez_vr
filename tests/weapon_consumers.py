@@ -89,7 +89,61 @@ def execute(code, hand, out, net=False, right=None, left=None, weapon=False):
     if stack: raise AssertionError("Fallback left operands on the stack")
     return "original"
 
+def execute_interaction(code, out, origin, direction, native_result=True):
+    owner = {1: origin, 2: direction}
+    locals_ = [owner, out]
+    stack = []; pc = 0; native_calls = []
+    while pc < len(code):
+        at = pc; op = code[pc]; pc += 1
+        if op in (0x2a, 0x2b): stack.append(locals_[op - 0x2a])
+        elif op == 0xb4:
+            field = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
+            stack.append(stack.pop()[field])
+        elif op == 0xb6:
+            method = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
+            arg = stack.pop(); receiver = stack.pop()
+            if method == 3:
+                receiver[:] = arg; stack.append(True)
+            else:
+                native_calls.append((method, receiver, arg))
+                if arg is not None: arg[:] = [70, 80, 90]
+                stack.append(native_result)
+        elif op == 0xc6:
+            delta = int.from_bytes(code[pc:pc+2], 'big', signed=True); pc += 2
+            if stack.pop() is None: pc = at + delta
+        elif op == 0xac:
+            result = stack.pop()
+            if stack: raise AssertionError('Interaction helper leaked operands')
+            return result, native_calls
+        else: raise AssertionError(hex(op))
+    raise AssertionError('Interaction helper did not return')
+
 class WeaponConsumers(unittest.TestCase):
+    def test_interaction_helpers_use_only_complete_local_cache(self):
+        helper = getattr(patch, 'interaction_getter', None)
+        self.assertTrue(callable(helper), 'Local interaction getter helper is missing')
+        for field, expected in ((1, [1, 2, 3]), (2, [0, 0, -1])):
+            code = helper([1, 2], field, 3, 4)
+            out = []
+            result, calls = execute_interaction(code, out, [1, 2, 3], [0, 0, -1])
+            self.assertIs(result, True); self.assertEqual(calls, [])
+            self.assertEqual(out, expected)
+            for origin, direction, dest in ((None, [0, 0, -1], []),
+                    ([1, 2, 3], None, []), (None, None, []),
+                    ([1, 2, 3], [0, 0, -1], None)):
+                for native_result in (False, True):
+                    result, calls = execute_interaction(code, dest, origin, direction, native_result)
+                    self.assertIs(result, native_result)
+                    self.assertEqual(len(calls), 1)
+                    self.assertEqual(calls[0][0], 4)
+                    self.assertIs(calls[0][2], dest)
+
+    def test_unknown_interaction_class_fails_closed(self):
+        patcher = getattr(patch, 'patch_triggered_class', None)
+        self.assertTrue(callable(patcher), 'Exact interaction class patch is missing')
+        with self.assertRaisesRegex(ValueError, 'BeingTriggered.class SHA-256'):
+            patcher(b'unknown')
+
     def test_visual_direction_preserves_tracked_base_and_native_fallback(self):
         code=patch.visual_direction_source([1,2],3,4)
         owner={1:[1,2,3],2:[4,5,6],3:False,4:[[7,8,9],[10,11,12]]}

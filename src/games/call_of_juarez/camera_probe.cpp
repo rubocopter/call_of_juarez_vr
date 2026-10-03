@@ -2455,7 +2455,8 @@ bool ArmGeometryChanged(
 }
 
 void ObserveIndependentHandRenderState(const std::uint64_t frame_sequence, const char* phase,
-    bool& left_origin_valid, bool& right_origin_valid) noexcept {
+    bool& left_origin_valid, bool& right_origin_valid,
+    bool& left_muzzle_verified, bool& right_muzzle_verified) noexcept {
     const bool observe=ShouldObserveBodyFrame(frame_sequence);
     for (int hand=0;hand<2;++hand) {
         std::string error;
@@ -2475,6 +2476,7 @@ void ObserveIndependentHandRenderState(const std::uint64_t frame_sequence, const
         if (weapon_active && !weapon_matched) {
             (void)g_java_player_bridge.TryPublishWeaponRay(hand,{}, {},false);
             (hand==1 ? left_origin_valid : right_origin_valid)=false;
+            (hand==1 ? left_muzzle_verified : right_muzzle_verified)=false;
         }
         if (weapon_active && (observe || !weapon_matched)) {
             EmitEvent("controller_weapon_render_probe",weapon_matched ? "matched" : "failed",
@@ -3611,6 +3613,8 @@ struct ControllerAimFrameObservation {
     bool right_direction_valid = false;
     bool left_origin_valid = false;
     bool right_origin_valid = false;
+    bool left_muzzle_verified = false;
+    bool right_muzzle_verified = false;
 };
 
 void ApplyTrackedWeapons(
@@ -3692,6 +3696,7 @@ void ApplyTrackedWeapons(
                 (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
                 (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
                 aim.left_origin_valid=aim.right_origin_valid=false;
+                aim.left_muzzle_verified=aim.right_muzzle_verified=false;
                 EmitEvent("body_hand_tracking","unavailable",
                     "frame_sequence="+std::to_string(frame_sequence)+";detail="+error);
                 return;
@@ -3710,6 +3715,7 @@ void ApplyTrackedWeapons(
         if (published) {
             origin = RuntimeVector(muzzle);
             origin_valid = true;
+            (left ? aim.left_muzzle_verified : aim.right_muzzle_verified) = true;
             (void)g_java_player_bridge.TrySetPerHandAimOrigin(hand, muzzle);
         }
         if (ShouldObserveBodyFrame(frame_sequence) || (applied && !published)) {
@@ -4394,6 +4400,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     // menu, disabled-tracking or incomplete next render sample.
     (void)g_java_player_bridge.TryPublishWeaponRay(0, {}, {}, false);
     (void)g_java_player_bridge.TryPublishWeaponRay(1, {}, {}, false);
+    (void)g_java_player_bridge.TryPublishInteractionRay({}, {}, false);
     std::string stale_weapon_error;
     if (!g_java_player_bridge.RestoreTrackedHands(&stale_weapon_error)) {
         EmitEvent("body_hand_restore","failed",stale_weapon_error);
@@ -4684,6 +4691,44 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     const bool gameplay_changed = !g_gameplay_telemetry_initialized ||
         GameplayInputChanged(gameplay_input, g_last_gameplay_telemetry);
     std::string gameplay_input_error;
+    // Native F calls CheckTriggers synchronously. Publish the central HMD gaze
+    // before its dispatch, preserving the native range and selection predicates.
+    CameraProbeInteractionRay interaction_ray{};
+    CameraProbeBasis interaction_basis{};
+    CameraProbeVector interaction_position{};
+    JavaPlayerPosition interaction_actor{};
+    if (gameplay_input.active && g_java_player_bridge.Refresh(nullptr) &&
+        g_java_player_bridge.TryGetPosition(interaction_actor, nullptr) &&
+        ReadNaturalCameraFrame(natural_render_state, interaction_basis, interaction_position)) {
+        auto interaction_pose = relative_head_pose;
+        const auto room_scale = BuildCollisionSafeRoomScaleTranslation(relative_head_pose.position);
+        if (room_scale.valid) {
+            interaction_pose.position = room_scale.render_head_position;
+            interaction_pose.position.y += physical_view_correction / kGameUnitsPerMeter;
+        } else {
+            interaction_pose.position_valid = false;
+        }
+        const bool yaw_owned = g_body_yaw_owned &&
+            g_body_yaw_generation == g_java_player_bridge.being_generation();
+        const auto yaw = BuildBodyYawOwnershipUpdate(relative_head_pose,
+            g_body_owned_yaw_degrees, yaw_owned, recentered);
+        interaction_ray = BuildTrackedInteractionRay(interaction_position, interaction_basis,
+            interaction_pose, yaw.valid ? yaw.camera_compensation_degrees : 0.0F);
+    }
+    std::string interaction_error;
+    const bool interaction_published = g_java_player_bridge.TryPublishInteractionRay(
+        {interaction_ray.origin.x, interaction_ray.origin.y, interaction_ray.origin.z},
+        {interaction_ray.direction.x, interaction_ray.direction.y, interaction_ray.direction.z},
+        interaction_ray.valid, &interaction_error);
+    if (gameplay_input.interact || ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            EmitEvent("controller_interaction_gaze", interaction_ray.valid && interaction_published
+                ? "published" : "native_fallback",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                ";owner=BeingTriggered.CheckTriggers;source=central_hmd_render_pose;native_range=preserved;detail=" +
+                interaction_error);
+        } catch (...) {}
+    }
     const bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
         g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error,
             CoJInputDispatchPhase::non_fire);
@@ -4694,6 +4739,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             post_input_frozen, nullptr) || post_input_frozen)) {
         (void)g_gameplay_utility.Update({}, false);
         gameplay_input = {};
+        (void)g_java_player_bridge.TryPublishInteractionRay({}, {}, false);
         (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr, CoJInputDispatchPhase::non_fire);
     }
     if ((snapshot.command.vr_gameplay_input_enabled && !gameplay_input_ok) ||
@@ -4829,7 +4875,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         if (!fire_ok || ShouldObserveBodyFrame(frame_sequence) || gameplay_changed) {
             EmitEvent("controller_fire_dispatch",fire_ok ? "applied" : "unavailable",
                 "frame_sequence="+std::to_string(frame_sequence)+
-                ";phase=after_verified_muzzle;non_fire_actions=false;detail="+fire_error);
+                ";phase=after_weapon_pose_attempt;verified_left_muzzle="+
+                (aim_observation.left_muzzle_verified ? "true" : "false")+
+                ";verified_right_muzzle="+(aim_observation.right_muzzle_verified ? "true" : "false")+
+                ";non_fire_actions=false;detail="+fire_error);
         }
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
@@ -4907,7 +4956,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     original(owner, view);
     g_diagnostic_left_eye_renders.fetch_add(1, std::memory_order_acq_rel);
     ObserveIndependentHandRenderState(frame_sequence,"left_eye_complete",
-        aim_observation.left_origin_valid,aim_observation.right_origin_valid);
+        aim_observation.left_origin_valid,aim_observation.right_origin_valid,
+        aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified);
     ObserveAppliedArmRenderState(
         true, g_left_arm_rotation, frame_sequence, "left_eye_complete");
     ObserveAppliedArmRenderState(
@@ -4944,7 +4994,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         if (right_full_view_pass) {
             g_diagnostic_right_eye_renders.fetch_add(1, std::memory_order_acq_rel);
             ObserveIndependentHandRenderState(frame_sequence,"right_eye_complete",
-                aim_observation.left_origin_valid,aim_observation.right_origin_valid);
+                aim_observation.left_origin_valid,aim_observation.right_origin_valid,
+                aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified);
         }
         ObserveAppliedArmRenderState(
             true, g_left_arm_rotation, frame_sequence, "right_eye_complete");
@@ -4973,8 +5024,13 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         std::string error;
         if (!g_java_player_bridge.VerifyTrackedWeapon(hand,active,&error) && active) {
             (void)g_java_player_bridge.TryPublishWeaponRay(hand,{}, {},false);
-            if (hand==1) aim_observation.left_origin_valid=false;
-            else aim_observation.right_origin_valid=false;
+            if (hand==1) {
+                aim_observation.left_origin_valid=false;
+                aim_observation.left_muzzle_verified=false;
+            } else {
+                aim_observation.right_origin_valid=false;
+                aim_observation.right_muzzle_verified=false;
+            }
             EmitEvent("controller_weapon_render_probe","failed",
                 "frame_sequence="+std::to_string(frame_sequence)+";side="+(hand==1 ? "left" : "right")+
                 ";phase=stereo_complete;parent_pose=final_hand_socket;detail="+error);
@@ -5000,6 +5056,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     if (!hands_restored) {
         (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
         (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
+        aim_observation.left_muzzle_verified=aim_observation.right_muzzle_verified=false;
     }
     std::string weapon_restore_error;
     const bool weapon_restored = hands_restored && g_java_player_bridge.RestoreTrackedWeapons(&weapon_restore_error);
@@ -5010,6 +5067,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     if (!weapon_restored) {
         (void)g_java_player_bridge.TryPublishWeaponRay(0, {}, {}, false);
         (void)g_java_player_bridge.TryPublishWeaponRay(1, {}, {}, false);
+        aim_observation.left_muzzle_verified=aim_observation.right_muzzle_verified=false;
     }
     const std::uint64_t arm_restore_duration_us = measure_arm_restore_timing
         ? MonotonicMicroseconds() - arm_restore_started_us : 0;
@@ -5033,36 +5091,36 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     if (left_captured && right_captured && left_state_restored && right_state_restored &&
         gameplay_input.active && snapshot.command.vr_gameplay_input_enabled &&
         !loading_ui_input.suppress_gameplay) {
-        const bool prefer_left = gameplay_input.fire_left && !gameplay_input.fire_right;
-        const bool left_aim_valid =
-            aim_observation.left_origin_valid && aim_observation.left_direction_valid;
-        const bool right_aim_valid =
-            aim_observation.right_origin_valid && aim_observation.right_direction_valid;
-        const bool use_left = left_aim_valid && (prefer_left || !right_aim_valid);
-        const auto& aim_origin = use_left
-            ? aim_observation.left_origin
-            : aim_observation.right_origin;
-        const auto& aim_direction = use_left
-            ? aim_observation.left_direction
-            : aim_observation.right_direction;
-        const bool selected_aim_valid = use_left ? left_aim_valid : right_aim_valid;
+        const CameraProbeWeaponRay left_ray{
+            {aim_observation.left_origin.x,aim_observation.left_origin.y,aim_observation.left_origin.z},
+            {aim_observation.left_direction.x,aim_observation.left_direction.y,aim_observation.left_direction.z},
+            aim_observation.left_origin_valid,aim_observation.left_direction_valid,
+            aim_observation.left_muzzle_verified};
+        const CameraProbeWeaponRay right_ray{
+            {aim_observation.right_origin.x,aim_observation.right_origin.y,aim_observation.right_origin.z},
+            {aim_observation.right_direction.x,aim_observation.right_direction.y,aim_observation.right_direction.z},
+            aim_observation.right_origin_valid,aim_observation.right_direction_valid,
+            aim_observation.right_muzzle_verified};
+        const auto selected_hand = SelectWeaponReticleHand(
+            left_ray,right_ray,gameplay_input.fire_left,gameplay_input.fire_right);
+        const auto& ray = selected_hand == CoJWeaponReticleHand::left ? left_ray : right_ray;
         const float near_limit = std::max(
             left_applied_frustum.near_plane, right_applied_frustum.near_plane);
         const float far_limit = std::min(
             left_applied_frustum.far_plane, right_applied_frustum.far_plane);
         const float reticle_depth = std::min(5000.0F, far_limit * 0.95F);
-        if (selected_aim_valid && reticle_depth > near_limit &&
+        if (selected_hand != CoJWeaponReticleHand::none && reticle_depth > near_limit &&
             ProjectWorldAimRayToEyeReticle(
-                {aim_origin.x, aim_origin.y, aim_origin.z},
-                {aim_direction.x, aim_direction.y, aim_direction.z},
+                ray.origin,
+                ray.direction,
                 left_applied_position,
                 left_applied_basis,
                 left_applied_frustum,
                 reticle_depth,
                 gameplay_reticle.eyes[0]) &&
             ProjectWorldAimRayToEyeReticle(
-                {aim_origin.x, aim_origin.y, aim_origin.z},
-                {aim_direction.x, aim_direction.y, aim_direction.z},
+                ray.origin,
+                ray.direction,
                 right_applied_position,
                 right_applied_basis,
                 right_applied_frustum,
@@ -5651,6 +5709,19 @@ bool BuildCameraProbeFrustum(
     return true;
 }
 
+CoJWeaponReticleHand SelectWeaponReticleHand(
+    const CameraProbeWeaponRay& left,
+    const CameraProbeWeaponRay& right,
+    const bool fire_left,
+    const bool fire_right) noexcept {
+    const bool left_valid = left.muzzle_verified && left.origin_valid && left.direction_valid;
+    const bool right_valid = right.muzzle_verified && right.origin_valid && right.direction_valid;
+    if (left_valid && ((fire_left && !fire_right) || !right_valid)) {
+        return CoJWeaponReticleHand::left;
+    }
+    return right_valid ? CoJWeaponReticleHand::right : CoJWeaponReticleHand::none;
+}
+
 bool ProjectWorldAimRayToEyeReticle(
     const CameraProbeVector ray_origin,
     const CameraProbeVector ray_direction,
@@ -5737,6 +5808,30 @@ CameraProbeVector ApplyCameraEyeOffset(
         head_position.z + head_basis.right.z * game_offset.x +
             head_basis.up.z * game_offset.y + head_basis.forward.z * game_offset.z,
     };
+}
+
+CameraProbeInteractionRay BuildTrackedInteractionRay(
+    const CameraProbeVector camera_position, const CameraProbeBasis natural_basis,
+    const cojvr::runtime::Pose& render_head_pose,
+    const float actor_yaw_compensation_degrees) noexcept {
+    const auto finite = [](const auto& vector) noexcept {
+        return std::isfinite(vector.x) && std::isfinite(vector.y) && std::isfinite(vector.z);
+    };
+    const auto& orientation = render_head_pose.orientation;
+    const float norm = orientation.x*orientation.x + orientation.y*orientation.y +
+        orientation.z*orientation.z + orientation.w*orientation.w;
+    if (!render_head_pose.orientation_valid || !render_head_pose.position_valid ||
+        !finite(camera_position) || !finite(render_head_pose.position) ||
+        !finite(orientation) || !std::isfinite(orientation.w) ||
+        !std::isfinite(actor_yaw_compensation_degrees) || std::fabs(norm - 1.0F) > .01F ||
+        !IsCameraProbeBasisRigidRightHanded(natural_basis)) return {};
+    const auto applied = ApplyCameraPoseOrientation(natural_basis.forward, natural_basis.up,
+        orientation, actor_yaw_compensation_degrees);
+    const auto reference = BuildTrackingReferenceBasis(natural_basis.forward, natural_basis.up,
+        actor_yaw_compensation_degrees);
+    const auto origin = ApplyCameraTrackingOffset(camera_position, reference, render_head_pose.position);
+    if (!finite(origin) || !IsCameraProbeBasisRigidRightHanded(applied)) return {};
+    return {origin, {-applied.forward.x, -applied.forward.y, -applied.forward.z}, true};
 }
 
 CameraProbeVector ApplyCameraTrackingOffset(

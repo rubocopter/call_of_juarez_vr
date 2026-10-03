@@ -1,4 +1,4 @@
-"""Exact CoJ Java 1.4 shot/visual/effects patch, staged/restored with code.pak.
+"""Exact CoJ Java 1.4 shot/effects/interaction patch, restored with code.pak.
 
 Nullable instance fields opt only the bridge-owned player into tracked rays.
 The untouched original methods handle other players, missing tracking and net fire.
@@ -13,9 +13,11 @@ from inspect_java_bytecode import Reader, parse_constant_pool
 
 CLASS_SHA256 = "039b0c12682b99b6560d4597737d794acd4a2b4bb71060c1dc70a8b79ffc4478"
 FIRE_CLASS_SHA256 = "d12b513c32db6e3223348f7058799c3702ea3a78746817753998f0de13c9c421"
+TRIGGERED_CLASS_SHA256 = "df43daa7fc55299f7a22907da8540a5e44a2bf57c1613f96cdc0d6a19d1045d2"
 PAK_SHA256 = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
 FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
           "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward")
+INTERACTION_FIELDS = ("cojvrInteractionOrigin", "cojvrInteractionDirection")
 
 def u2(n): return struct.pack(">H", n)
 def u4(n): return struct.pack(">I", n)
@@ -229,6 +231,85 @@ def patch_fire_class(data: bytes) -> bytes:
     if patched!=1:raise ValueError("Incomplete fire effects patch")
     return data[:8]+u2(next_index)+data[10:cp_end]+additions+data[cp_end:methods_at]+methods+data[r.stream.tell():]
 
+def interaction_getter(fields, selected_field, vector_set, native_getter):
+    """Paired local cache, with the original virtual getter as fallback."""
+    c = Code()
+    c.emit(0x2b); c.branch(0xc6, "native")
+    for field in fields:
+        c.emit(0x2a); c.ref(0xb4, field); c.branch(0xc6, "native")
+    c.emit(0x2b, 0x2a); c.ref(0xb4, selected_field)
+    c.ref(0xb6, vector_set); c.emit(0xac)
+    c.label("native")
+    c.emit(0x2a, 0x2b); c.ref(0xb6, native_getter); c.emit(0xac)
+    return c.finish()
+
+def patch_triggered_class(data: bytes) -> bytes:
+    if hashlib.sha256(data).hexdigest() != TRIGGERED_CLASS_SHA256:
+        raise ValueError("Unknown BeingTriggered.class SHA-256; no mutation")
+    r = Reader(data); r.read(8); pool = parse_constant_pool(r)
+    cp_end = r.stream.tell(); additions = bytearray(); next_index = len(pool.entries)
+    def append(raw):
+        nonlocal next_index
+        index = next_index; next_index += 1; additions.extend(raw); return index
+    def utf8(value):
+        raw = value.encode(); return append(b"\x01" + u2(len(raw)) + raw)
+    def find(description):
+        return next(i for i in range(1, len(pool.entries))
+                    if pool.entries[i] is not None and pool.describe(i) == description)
+    r.u2(); this_class = r.u2(); r.u2(); r.read(r.u2() * 2)
+    fields_at = r.stream.tell(); field_count = r.u2()
+    for _ in range(field_count):
+        r.read(6)
+        for _ in range(r.u2()): r.u2(); r.read(r.u4())
+    fields_end = r.stream.tell()
+    desc = utf8("LVector;"); extra_fields = bytearray(); fields = []
+    for name in INTERACTION_FIELDS:
+        name_id = utf8(name)
+        extra_fields.extend(u2(1) + u2(name_id) + u2(desc) + u2(0))
+        nt = append(b"\x0c" + u2(name_id) + u2(desc))
+        fields.append(append(b"\x09" + u2(this_class) + u2(nt)))
+    vector_class = find("Vector")
+    set_nt = append(b"\x0c" + u2(utf8("SetIfNotNull")) + u2(utf8("(LVector;)Z")))
+    vector_set = append(b"\x0a" + u2(vector_class) + u2(set_nt))
+    helpers = []
+    for name, native_name in (("cojvrGetInteractionOrigin", "GetBeingLookFromPoint"),
+                              ("cojvrGetInteractionDirection", "GetBeingLookDir")):
+        name_id, desc_id = utf8(name), utf8("(LVector;)Z")
+        nt = append(b"\x0c" + u2(name_id) + u2(desc_id))
+        method = append(b"\x0a" + u2(this_class) + u2(nt))
+        native = find("BeingTriggered." + native_name + "(LVector;)Z")
+        helpers.append((name_id, desc_id, method, native))
+    method_count = r.u2(); methods = bytearray(u2(method_count + 2)); patched = 0
+    for _ in range(method_count):
+        header = r.read(6); methods.extend(header)
+        name = pool.utf8(int.from_bytes(header[2:4], "big"))
+        descriptor = pool.utf8(int.from_bytes(header[4:6], "big"))
+        attr_count = r.u2(); methods.extend(u2(attr_count))
+        for _ in range(attr_count):
+            index = r.u2(); attr = r.read(r.u4())
+            if name == "CheckTriggers" and descriptor == "()V" and pool.utf8(index) == "Code":
+                cr = Reader(attr); stack, locals_ = cr.u2(), cr.u2()
+                code = bytearray(cr.read(cr.u4()))
+                # Same-length substitutions retain every branch, native selection
+                # condition/range, exception table and debug offset unchanged.
+                if len(code) != 148:
+                    raise ValueError("Unexpected CheckTriggers length")
+                for offset, helper in zip((12, 20), helpers):
+                    if code[offset:offset+3] != b"\xb6" + u2(helper[3]):
+                        raise ValueError("Unexpected CheckTriggers getter boundary")
+                    code[offset:offset+3] = b"\xb7" + u2(helper[2])
+                attr = u2(stack) + u2(locals_) + u4(len(code)) + code + attr[8+len(code):]
+                patched += 1
+            methods.extend(u2(index) + u4(len(attr)) + attr)
+    if patched != 1: raise ValueError("Incomplete interaction boundary patch")
+    for field, (name, desc_id, _, native) in zip(fields, helpers):
+        code = interaction_getter(fields, field, vector_set, native)
+        attr = u2(2) + u2(2) + u4(len(code)) + code + u2(0) + u2(0)
+        methods.extend(u2(2) + u2(name) + u2(desc_id) + u2(1) + u2(find("'Code'")) + u4(len(attr)) + attr)
+    return (data[:8] + u2(next_index) + data[10:cp_end] + additions +
+            data[cp_end:fields_at] + u2(field_count + 2) + data[fields_at+2:fields_end] +
+            extra_fields + methods + data[r.stream.tell():])
+
 def patch_archive(source: Path, output: Path):
     if source.resolve() == output.resolve() or output.exists():
         raise ValueError("Patch output must be a new separate file")
@@ -238,7 +319,8 @@ def patch_archive(source: Path, output: Path):
         if len(original.namelist()) != len(set(original.namelist())):
             raise ValueError("Duplicate archive entries")
         patched = {"ArmedPlayerBeing.class":patch_class(original.read("ArmedPlayerBeing.class")),
-                   "WeaponFire.class":patch_fire_class(original.read("WeaponFire.class"))}
+                   "WeaponFire.class":patch_fire_class(original.read("WeaponFire.class")),
+                   "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class"))}
         with zipfile.ZipFile(output, "x") as result:
             result.comment = original.comment
             for info in original.infolist():
@@ -253,4 +335,4 @@ def patch_archive(source: Path, output: Path):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(); p.add_argument("source", type=Path); p.add_argument("output", type=Path)
     a = p.parse_args(); patch_archive(a.source, a.output)
-    print("Exact shot consumers patched; all other archive payloads verified unchanged")
+    print("Exact shot and interaction consumers patched; other payloads verified unchanged")

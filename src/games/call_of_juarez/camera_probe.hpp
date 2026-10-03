@@ -143,6 +143,37 @@ struct CoJMovementJumpTransition {
     float far_plane,
     CameraProbeFrustum& frustum) noexcept;
 
+struct CameraProbeWeaponRay {
+    CameraProbeVector origin{};
+    CameraProbeVector direction{};
+    bool origin_valid = false;
+    bool direction_valid = false;
+    bool muzzle_verified = false;
+};
+
+struct CameraProbeInteractionRay {
+    CameraProbeVector origin{};
+    CameraProbeVector direction{};
+    bool valid = false;
+};
+
+// Uses the central render pose, including native crouch-height correction.
+// The exact source forward axis points backwards from the visible gaze.
+[[nodiscard]] CameraProbeInteractionRay BuildTrackedInteractionRay(
+    CameraProbeVector camera_position, CameraProbeBasis natural_basis,
+    const cojvr::runtime::Pose& render_head_pose,
+    float actor_yaw_compensation_degrees) noexcept;
+
+enum class CoJWeaponReticleHand { none, right, left };
+
+// Tip tracking alone cannot establish weapon alignment. Select only a published
+// verified muzzle, preferring left for left-only fire and otherwise right.
+[[nodiscard]] CoJWeaponReticleHand SelectWeaponReticleHand(
+    const CameraProbeWeaponRay& left,
+    const CameraProbeWeaponRay& right,
+    bool fire_left,
+    bool fire_right) noexcept;
+
 // Projects a world-space weapon ray onto a camera-facing plane at the supplied
 // eye-space depth and then through the exact asymmetric eye frustum. Output UV
 // coordinates use the presenter's top-left origin.

@@ -706,6 +706,11 @@ struct OpenVrStereoPresenter::Impl {
         FlatUiPointerSample flat_ui_pointer{};
         runtime::UiPointerOwnership pointer_ownership;
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
+        std::uint64_t input_sample_sequence = 0;
+        std::uint64_t last_input_log_sequence = 0;
+        std::uint32_t last_raw_pressed = 0;
+        std::uint32_t last_raw_available = 0;
+        std::uint32_t last_input_flags = 0;
         bool flat_ui_fire_release_required = false;
         std::uint64_t flat_ui_pointer_sequence = 0;
         bool flat_ui_rejection_logged = false;
@@ -934,20 +939,11 @@ struct OpenVrStereoPresenter::Impl {
                                 have_active_presentation_mode &&
                                 active_presentation_mode ==
                                     d3d9::FramePresentationMode::native_stereo;
-                            pointer_gameplay_gate.Observe(have_active_presentation_mode && !native_gameplay_active,
-                                actions.ui_pointer_left_active, actions.ui_pointer_left,
-                                actions.ui_pointer_right_active, actions.ui_pointer_right);
+                            const auto shoulder_gameplay = pointer_gameplay_gate.Filter(
+                                have_active_presentation_mode && !native_gameplay_active, polled_gameplay);
                             if (!dashboard_visible && runtime_state.focused &&
                                 native_gameplay_active) {
-                                gameplay = polled_gameplay;
-                                if (pointer_gameplay_gate.left_blocked()) {
-                                    gameplay.interact = false;
-                                    gameplay.digital_available &= ~(1U << 6);
-                                }
-                                if (pointer_gameplay_gate.right_blocked()) {
-                                    gameplay.weapon_next = false;
-                                    gameplay.digital_available &= ~(1U << 7);
-                                }
+                                gameplay = shoulder_gameplay;
                                 if (flat_ui_fire_release_required) {
                                     gameplay.fire_left = false;
                                     gameplay.fire_right = false;
@@ -957,6 +953,90 @@ struct OpenVrStereoPresenter::Impl {
                                         flat_ui_fire_release_required = false;
                                     }
                                 }
+                            }
+                            // Retain pre-policy availability/chords and the
+                            // shoulder result separately. Analog jitter does
+                            // not trigger logging; the heartbeat still records
+                            // both sticks at least once per 90 successful polls.
+                            ++input_sample_sequence;
+                            std::uint32_t raw_pressed = 0;
+                            for (std::size_t i = 0; i < runtime::kGameplayDigitalMembers.size(); ++i)
+                                if (polled_gameplay.*runtime::kGameplayDigitalMembers[i]) raw_pressed |= 1U << i;
+                            for (std::size_t i = 0; i < polled_gameplay.equipment_select.size(); ++i)
+                                if (polled_gameplay.equipment_select[i])
+                                    raw_pressed |= 1U << (runtime::kGameplayDigitalMembers.size() + i);
+                            int raw_turn_sector = -1;
+                            if (polled_gameplay.turn_available && std::isfinite(polled_gameplay.turn.x) &&
+                                std::isfinite(polled_gameplay.turn.y)) {
+                                const float magnitude = std::hypot(polled_gameplay.turn.x, polled_gameplay.turn.y);
+                                raw_turn_sector = 9; // between center and selection thresholds
+                                if (magnitude <= .25F) raw_turn_sector = 0;
+                                else if (magnitude >= .65F) {
+                                    float angle = std::atan2(polled_gameplay.turn.x, polled_gameplay.turn.y) * 57.295779513F;
+                                    if (angle < 0) angle += 360.0F;
+                                    raw_turn_sector = 1 + static_cast<int>(std::floor((angle + 22.5F) / 45.0F)) % 8;
+                                }
+                            }
+                            const std::uint32_t input_flags =
+                                (polled_gameplay.utility_modifier ? 1U : 0U) |
+                                (polled_gameplay.utility_available ? 1U << 1 : 0U) |
+                                (polled_gameplay.move_available ? 1U << 2 : 0U) |
+                                (polled_gameplay.turn_available ? 1U << 3 : 0U) |
+                                (actions.ui_pointer_left_active ? 1U << 4 : 0U) |
+                                (actions.ui_pointer_left ? 1U << 5 : 0U) |
+                                (actions.ui_pointer_right_active ? 1U << 6 : 0U) |
+                                (actions.ui_pointer_right ? 1U << 7 : 0U) |
+                                (pointer_gameplay_gate.left_blocked() ? 1U << 8 : 0U) |
+                                (pointer_gameplay_gate.right_blocked() ? 1U << 9 : 0U) |
+                                (native_gameplay_active ? 1U << 10 : 0U) |
+                                (runtime_state.focused ? 1U << 11 : 0U) |
+                                (dashboard_visible ? 1U << 12 : 0U) |
+                                (flat_ui_fire_release_required ? 1U << 13 : 0U) |
+                                (static_cast<std::uint32_t>(raw_turn_sector + 1) << 14);
+                            const bool input_changed = last_input_log_sequence == 0 ||
+                                raw_pressed != last_raw_pressed ||
+                                polled_gameplay.digital_available != last_raw_available ||
+                                input_flags != last_input_flags;
+                            if (input_changed || input_sample_sequence - last_input_log_sequence >= 90) {
+                                std::ostringstream detail;
+                                detail << "openvr_raw_input: status=observed;sample_sequence=" << input_sample_sequence
+                                       << ";reason=" << (input_changed ? "change" : "heartbeat")
+                                       << ";raw_available_mask=0x" << std::hex << polled_gameplay.digital_available
+                                       << ";raw_pressed_mask=0x" << raw_pressed
+                                       << ";forwarded_available_mask=0x" << gameplay.digital_available << std::dec
+                                       << ";utility_modifier=" << polled_gameplay.utility_modifier
+                                       << ";utility_available=" << polled_gameplay.utility_available
+                                       << ";move_available=" << polled_gameplay.move_available
+                                       << ";turn_available=" << polled_gameplay.turn_available
+                                       << ";move=" << polled_gameplay.move.x << ',' << polled_gameplay.move.y
+                                       << ";turn=" << polled_gameplay.turn.x << ',' << polled_gameplay.turn.y
+                                       << ";turn_sector=" << raw_turn_sector
+                                       << ";raw_reload=" << polled_gameplay.reload
+                                       << ";raw_jump=" << polled_gameplay.jump
+                                       << ";raw_kick=" << polled_gameplay.kick
+                                       << ";raw_run=" << polled_gameplay.run
+                                       << ";raw_crouch=" << polled_gameplay.crouch
+                                       << ";raw_fire_left=" << polled_gameplay.fire_left
+                                       << ";raw_fire_right=" << polled_gameplay.fire_right
+                                       << ";global_left_available=" << actions.ui_pointer_left_active
+                                       << ";global_left_held=" << actions.ui_pointer_left
+                                       << ";global_right_available=" << actions.ui_pointer_right_active
+                                       << ";global_right_held=" << actions.ui_pointer_right
+                                       << ";left_shoulder_blocked=" << pointer_gameplay_gate.left_blocked()
+                                       << ";right_shoulder_blocked=" << pointer_gameplay_gate.right_blocked()
+                                       << ";raw_interact=" << polled_gameplay.interact
+                                       << ";raw_weapon_next=" << polled_gameplay.weapon_next
+                                       << ";forwarded_interact=" << gameplay.interact
+                                       << ";forwarded_weapon_next=" << gameplay.weapon_next
+                                       << ";native_gameplay=" << native_gameplay_active
+                                       << ";focused=" << runtime_state.focused
+                                       << ";dashboard=" << dashboard_visible
+                                       << ";forwarded_active=" << gameplay.active;
+                                Log(detail.str());
+                                last_input_log_sequence = input_sample_sequence;
+                                last_raw_pressed = raw_pressed;
+                                last_raw_available = polled_gameplay.digital_available;
+                                last_input_flags = input_flags;
                             }
                         }
                     }

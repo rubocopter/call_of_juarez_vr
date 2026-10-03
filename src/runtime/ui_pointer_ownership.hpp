@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/vr_types.hpp"
 #include <cmath>
 #include <cstdint>
 
@@ -102,10 +103,25 @@ private:
     std::uint64_t next_click_ = 0;
 };
 
-// The same shoulder buttons are weapon selectors in gameplay. A menu-held
-// button must be released before that gameplay mapping regains ownership.
+// A menu-held gameplay shoulder must be released before regaining ownership.
+// Only that gameplay action's availability can prove its physical release;
+// automatic UI pointing does not depend on the legacy global shoulder actions.
 class UiPointerGameplayGate final {
 public:
+    GameplayInputState Filter(bool menu, const GameplayInputState& raw) noexcept {
+        Observe(menu, raw.active && (raw.digital_available & (1U << 6)) != 0, raw.interact,
+                raw.active && (raw.digital_available & (1U << 7)) != 0, raw.weapon_next);
+        auto result = raw;
+        if (left_blocked_) {
+            result.interact = false;
+            result.digital_available &= ~(1U << 6);
+        }
+        if (right_blocked_) {
+            result.weapon_next = false;
+            result.digital_available &= ~(1U << 7);
+        }
+        return result;
+    }
     void Observe(bool menu, bool left_active, bool left_held,
                  bool right_active, bool right_held) noexcept {
         if (menu && left_active && left_held) left_blocked_ = true;

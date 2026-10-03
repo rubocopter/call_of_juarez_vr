@@ -671,6 +671,7 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME hmd_frame_pacing COMMAND cojvr_hmd_frame_pacing_test)
 
     add_executable(cojvr_ui_pointer_ownership_test tests/ui_pointer_ownership.cpp)
+    target_link_libraries(cojvr_ui_pointer_ownership_test PRIVATE cojvr_runtime)
     target_include_directories(cojvr_ui_pointer_ownership_test PRIVATE src)
     target_compile_features(cojvr_ui_pointer_ownership_test PRIVATE cxx_std_20)
     add_test(NAME ui_pointer_ownership COMMAND cojvr_ui_pointer_ownership_test)
@@ -682,6 +683,14 @@ if(COJVR_BUILD_TESTS)
     target_compile_definitions(cojvr_ui_cursor_jni_test PRIVATE
         NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     add_test(NAME ui_cursor_jni COMMAND cojvr_ui_cursor_jni_test)
+    add_executable(cojvr_gameplay_input_jni_test tests/gameplay_input_jni.cpp
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp)
+    target_link_libraries(cojvr_gameplay_input_jni_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_gameplay_input_jni_test PRIVATE src)
+    target_compile_features(cojvr_gameplay_input_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_gameplay_input_jni_test PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME gameplay_input_jni COMMAND cojvr_gameplay_input_jni_test)
 
     if(TARGET cojvr_d3d9_native_stereo_proxy)
         add_executable(cojvr_flat_ui_delivery_test

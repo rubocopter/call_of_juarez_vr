@@ -293,6 +293,12 @@ public:
         std::string* error = nullptr) noexcept;
 
     [[nodiscard]] bool TryObserveHudText(runtime::HudTextSnapshot& text) noexcept;
+    // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers
+    // use this gaze ray; native look, ballistics, range and trigger rules remain
+    // owned by the game. Context loss clears both nullable instance fields.
+    [[nodiscard]] bool TryPublishInteractionRay(const JavaPlayerPosition& origin,
+        const JavaPlayerPosition& direction, bool valid,
+        std::string* error = nullptr) noexcept;
     // Rotate the exact PlayerBeing root through the same shipped route already
     // used by headset-validated snap turn. VR body yaw commits this only after
     // the stereo eye overlays have been restored for the current frame.
@@ -486,6 +492,7 @@ private:
     void* active_game_module_field_ = nullptr;
     void* is_timer_freezed_method_ = nullptr;
     void* being_ = nullptr;
+    std::array<void*,2> interaction_ray_fields_{};
     void* get_mesh_element_method_ = nullptr;
     void* get_element_id_method_ = nullptr;
     void* hide_element_method_ = nullptr;

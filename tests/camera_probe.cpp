@@ -299,6 +299,57 @@ int main() {
         return 1;
     }
 
+    // A tracked but unarmed left tip must not steal the sole right gun's cross.
+    // These rays are the measured frame-2160 discrepancy (40 degrees / 70 cm).
+    const CameraProbeWeaponRay unarmed_left_tip{
+        {39675.625F, 3636.834717F, 29483.429688F},
+        {0.546377F, -0.013014F, 0.837438F}, true, true, false};
+    const CameraProbeWeaponRay right_gun{
+        {39617.503906F, 3636.127197F, 29522.767578F},
+        {-0.096656F, -0.209404F, 0.973040F}, true, true, true};
+    if (SelectWeaponReticleHand(unarmed_left_tip, right_gun, true, false) !=
+        CoJWeaponReticleHand::right) {
+        std::cerr << "unarmed left tip stole the verified right gun reticle during left fire\n";
+        return 1;
+    }
+    auto left_gun = unarmed_left_tip;
+    left_gun.muzzle_verified = true;
+    auto unarmed_right_tip = right_gun;
+    unarmed_right_tip.muzzle_verified = false;
+    auto invalid_direction = right_gun;
+    invalid_direction.direction_valid = false;
+    auto invalid_origin = right_gun;
+    invalid_origin.origin_valid = false;
+    struct ReticleSelectionCase {
+        const char* name;
+        CameraProbeWeaponRay left;
+        CameraProbeWeaponRay right;
+        bool fire_left;
+        bool fire_right;
+        CoJWeaponReticleHand expected;
+    };
+    const ReticleSelectionCase reticle_selection_cases[] = {
+        {"right only idle", unarmed_left_tip, right_gun, false, false, CoJWeaponReticleHand::right},
+        {"right only both fire", unarmed_left_tip, right_gun, true, true, CoJWeaponReticleHand::right},
+        {"left only right fire", left_gun, unarmed_right_tip, false, true, CoJWeaponReticleHand::left},
+        {"left only idle", left_gun, unarmed_right_tip, false, false, CoJWeaponReticleHand::left},
+        {"both left fire", left_gun, right_gun, true, false, CoJWeaponReticleHand::left},
+        {"both right fire", left_gun, right_gun, false, true, CoJWeaponReticleHand::right},
+        {"both idle", left_gun, right_gun, false, false, CoJWeaponReticleHand::right},
+        {"both fire", left_gun, right_gun, true, true, CoJWeaponReticleHand::right},
+        {"unarmed valid tips", unarmed_left_tip, unarmed_right_tip, true, false, CoJWeaponReticleHand::none},
+        {"reload has no published muzzle", unarmed_left_tip, unarmed_right_tip, false, true, CoJWeaponReticleHand::none},
+        {"invalid direction tracking", unarmed_left_tip, invalid_direction, false, true, CoJWeaponReticleHand::none},
+        {"invalid origin tracking", unarmed_left_tip, invalid_origin, false, true, CoJWeaponReticleHand::none},
+        {"invalid right falls back to left", left_gun, invalid_direction, false, true, CoJWeaponReticleHand::left},
+    };
+    for (const auto& test : reticle_selection_cases) {
+        if (SelectWeaponReticleHand(test.left, test.right, test.fire_left, test.fire_right) != test.expected) {
+            std::cerr << "weapon reticle selection failed: " << test.name << '\n';
+            return 1;
+        }
+    }
+
     CameraProbeReticlePoint reticle{};
     if (!ProjectWorldAimRayToEyeReticle(
             {13.0F, 4.0F, 5.0F},
@@ -636,6 +687,30 @@ int main() {
         std::cerr << "disabled tracking did not clear relative orientation\n";
         return 1;
     }
+
+    cojvr::runtime::Pose gaze_pose{};
+    gaze_pose.orientation_valid = gaze_pose.position_valid = true;
+    gaze_pose.orientation = AxisAngle(0, 1, 0, -20);
+    gaze_pose.position = {0.1F, -0.3F, -0.2F};
+    const CameraProbeVector camera_position{100, 170, 200};
+    const auto gaze = BuildTrackedInteractionRay(camera_position, actor_owned_yaw,
+        gaze_pose, -20);
+    if (!gaze.valid || !NearVector(gaze.origin, {110, 140, 180}, 0.002F) ||
+        !NearVector(gaze.direction, {kSin20, 0, -kCos20}, 0.002F)) {
+        std::cerr << "Interaction gaze missed the central translated/crouched HMD camera\n";
+        return 1;
+    }
+    // An invalid pose/basis cannot retain a usable target ray.
+    gaze_pose.orientation_valid = false;
+    if (BuildTrackedInteractionRay(camera_position, actor_owned_yaw, gaze_pose, -20).valid)
+        return 1;
+    gaze_pose.orientation_valid = true;
+    gaze_pose.position.x = std::numeric_limits<float>::quiet_NaN();
+    if (BuildTrackedInteractionRay(camera_position, actor_owned_yaw, gaze_pose, -20).valid)
+        return 1;
+    gaze_pose.position = {};
+    if (BuildTrackedInteractionRay(camera_position, {}, gaze_pose, 0).valid)
+        return 1;
 
     std::cout << "PASS - camera controls, stereo frustum/eye mapping, HMD 6DOF and recenter\n";
     return 0;
