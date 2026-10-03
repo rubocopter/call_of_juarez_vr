@@ -612,7 +612,7 @@ if ($RequireBodyIk) {
                 $Line -notmatch ";targets_reached=true;" -or
                 $Line -notmatch ";hand_orientation_reached=(?:true|false);" -or
                 $Line -notmatch ";rollback_attempted=false;rollback_ok=true;" -or
-                $Line -notmatch ";reach_adjustment=0(?:\.0+)?;reach_adjusted=false;reach_policy=native_chain_hard_clamp;" -or
+                $Line -notmatch ";reach_adjustment=0(?:\.0+)?;reach_adjusted=false;reach_policy=measured_span_chain_hard_clamp;" -or
                 $Line -notmatch ";tracking_forward=-z_to_negative_native_forward;" -or
                 $Line -notmatch ";basis_source=GetElementPos/GetElementLeftVector/GetElementUpVector;writer=FromUpForwardPosElementWorld") {
                 throw "A $Side arm IK application did not prove the measured-skeleton/native-writer contract."
@@ -757,17 +757,23 @@ if ($RequireGameplayInput) {
         "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_circle;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
         "Circle did not open the shipped in-game Escape menu from native-stereo gameplay."
     Assert-LogMatch `
-        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=controller_tip_attack_transition;visual_origin_owner=m_avAimFromPoint;fire_origin_release=native_UpdateLookAndAimPoints;native_accuracy_spread=preserved" `
-        "Controller tip direction/origin did not reach the exact per-hand CoJ aiming fields with deferred weapon-state ownership."
+        "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=measured_weapon_muzzle_cache;visual_origin_owner=m_avAimFromPoint;.*fire_origin_release=tracking_menu_or_generation_invalidation;native_accuracy_spread=preserved" `
+        "Controller tip axes did not reach the exact CoJ aim adapter."
     Assert-LogMatch `
         "camera_probe_event: event=controller_aim_geometry result=observed detail=.*left_grip_to_tip_distance_m=.*;left_dot_neg_z=.*;right_grip_to_tip_distance_m=.*;right_dot_neg_z=.*;axis_reference=grip_to_tip_tracking_space" `
         "The gameplay gate did not capture grip-to-tip geometry needed to validate the runtime tip-axis convention."
     Assert-LogMatch `
-        "camera_probe_event: event=controller_aim_fire_transition result=applied detail=.*;side=(left|right);.*;direction=\(.*\);.*;origin=\(.*\);.*;grip_to_tip_direction=\(.*\);.*;dot_neg_z=.*;aim_axis_assumption=negative_z;direction_owner=m_avLookDirDevForHand;fire_origin_owner=Being.m_vLookFromPoint" `
-        "A fire press did not preserve the exact controller aim/origin and tip-axis diagnostics at the native attack transition."
+        "camera_probe_event: event=controller_weapon_tracking result=applied detail=.*;side=(left|right);.*;muzzle=\(.*\);direction=\(.*\);writer=FromUpForwardPosElementWorld;origin_owner=per_hand_shot_consumer" `
+        "The tracked weapon did not verify its visible muzzle and publish the per-hand shot cache. This is not actual-shot acceptance."
     Assert-LogMatch `
-        "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=false;physical_crouch=true;.*;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate" `
-        "The gameplay gate did not keep physical crouch separate from the native crouch action."
+        "camera_probe_event: event=controller_weapon_restore result=ok" `
+        "The visible weapon overlay did not record a successful restore."
+    Assert-LogNotMatch `
+        "camera_probe_event: event=controller_weapon_restore result=failed" `
+        "A weapon overlay restoration failed."
+    Assert-LogMatch `
+        "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=true;physical_crouch=true;.*;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate" `
+        "Physical crouch did not drive the native crouch action."
     Assert-LogNotMatch `
         "renderer=LaserPointer\.PointFromTo" `
         "The run created the old diagnostic LaserPointer during normal gameplay."

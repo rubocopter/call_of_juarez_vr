@@ -1,10 +1,12 @@
 #pragma once
 
 #include "runtime/vr_types.hpp"
+#include "games/call_of_juarez/body_adapter.hpp"
 
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace cojvr::games::call_of_juarez {
 
@@ -123,30 +125,6 @@ struct CoJSnapTurnState {
         const cojvr::runtime::GameplayInputState& state) noexcept;
 };
 
-struct CoJFireOriginMutationPolicy {
-    int hand = -1;
-    bool override_for_translate = false;
-    bool restore_after_translate = false;
-};
-
-struct CoJFireOriginTransitionObservation {
-    JavaPlayerPosition origin{};
-    bool attempted = false;
-    bool write_succeeded = false;
-    bool translate_succeeded = false;
-    bool retained_for_attack = false;
-};
-
-// Being.m_vLookFromPoint is global even though CoJ tracks weapon direction per
-// hand. Publish the controller origin only on a fire press transition. The
-// shipped hand-state update consumes it in WeaponAttack before the later
-// UpdateLookAndAimPoints pass naturally restores native ownership.
-[[nodiscard]] CoJFireOriginMutationPolicy BuildCoJFireOriginMutationPolicy(
-    int action,
-    bool current_pressed,
-    bool digital_transition,
-    bool origin_valid) noexcept;
-
 struct CoJLoadingUiInputResult {
     bool dispatch_select = false;
     bool suppress_fire = false;
@@ -209,6 +187,14 @@ private:
 // LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer().
 class JavaPlayerBridge final {
 public:
+    [[nodiscard]] bool TryApplyTrackedWeapon(
+        int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
+        cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up,
+        JavaPlayerPosition& muzzle, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool RestoreTrackedWeapons(std::string* error = nullptr, int only_hand = -1) noexcept;
+    [[nodiscard]] bool TryPublishWeaponRay(
+        int hand, const JavaPlayerPosition& origin, const JavaPlayerPosition& direction,
+        bool valid, std::string* error = nullptr) noexcept;
     void Reset() noexcept;
     [[nodiscard]] bool Refresh(std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetPosition(
@@ -338,34 +324,17 @@ public:
         std::string* error = nullptr) noexcept;
     // Update the exact per-hand visualization origin consumed by
     // GetFireOriginVisualizationForWeapon -> GetFireOriginVisualizationForHand.
-    // This leaves the ordinary ballistic Being.m_vLookFromPoint ownership to
-    // the narrowly scoped fire-input override below.
+    // Verified weapon rays use the separate nullable shot-consumer cache.
     [[nodiscard]] bool TrySetPerHandAimOrigin(
         int hand,
         const JavaPlayerPosition& origin,
         std::string* error = nullptr) noexcept;
-    // Cache the controller-derived world origin for one inventory hand. On the
-    // hand's digital fire press transition TryApplyGameplayInput publishes it to
-    // Being.m_vLookFromPoint for the upcoming native WeaponAttack. CoJ reclaims
-    // that field later in the same game update through UpdateLookAndAimPoints.
-    void SetPerHandFireOrigin(
-        int hand,
-        const JavaPlayerPosition& origin,
-        bool valid) noexcept;
     [[nodiscard]] float last_snap_turn_degrees() const noexcept {
         return last_snap_turn_degrees_;
     }
     [[nodiscard]] bool last_analog_transaction_applied() const noexcept {
         return last_analog_transaction_applied_;
     }
-    [[nodiscard]] const CoJFireOriginTransitionObservation&
-    last_fire_origin_transition(int hand) const noexcept {
-        static const CoJFireOriginTransitionObservation empty{};
-        return hand >= 0 && hand < static_cast<int>(last_fire_origin_transitions_.size())
-            ? last_fire_origin_transitions_[static_cast<std::size_t>(hand)]
-            : empty;
-    }
-
     // Detach the current thread from the JVM if it was attached by this bridge.
     // Should be called when a thread that used JNI operations is about to exit.
     void DetachCurrentThread() noexcept;
@@ -401,7 +370,6 @@ private:
     [[nodiscard]] bool EnsureBoneRotationAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureElementVisibilityAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureAimAccess(void* env, std::string* error) noexcept;
-    [[nodiscard]] bool EnsureFireOriginAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureGameplayInputAccess(void* env, std::string* error) noexcept;
     [[nodiscard]] bool EnsureMovementObservationAccess(
         void* env, std::string* error) noexcept;
@@ -434,6 +402,23 @@ private:
         void* env, void* vector, const JavaPlayerPosition& value, std::string* error) noexcept;
     [[nodiscard]] bool ClearException(void* env, std::string* error, const char* stage) noexcept;
     void ClearBeing(void* env) noexcept;
+
+    [[nodiscard]] bool ReadObjectElementFrame(
+        void* object, int element, JavaPlayerPosition& position,
+        JavaPlayerPosition& up, JavaPlayerPosition& forward, std::string* error) noexcept;
+    [[nodiscard]] bool WriteObjectElementFrame(
+        void* object, int element, const JavaPlayerPosition& up,
+        const JavaPlayerPosition& forward, const JavaPlayerPosition& position,
+        std::string* error) noexcept;
+    struct WeaponOverlay {
+        void* weapon = nullptr;
+        std::vector<ElementWorldBasisTarget> natural;
+        JavaPlayerPosition actor_at_capture{};
+        bool active = false;
+    };
+    std::array<WeaponOverlay, 2> weapon_overlays_{};
+    std::array<void*, 4> weapon_ray_fields_{};
+    bool weapon_overlay_faulted_ = false;
 
     void* vm_ = nullptr;
     void* session_class_ = nullptr;
@@ -512,7 +497,6 @@ private:
     void* game_object_controller_input_method_ = nullptr;
     void* look_dir_for_hand_field_ = nullptr;
     void* aim_from_point_field_ = nullptr;
-    void* look_from_point_field_ = nullptr;
     void* is_weapon_reloading_method_ = nullptr;
     bool bone_read_lookup_attempted_ = false;
     bool element_world_read_lookup_attempted_ = false;
@@ -521,7 +505,6 @@ private:
     bool bone_rotation_lookup_attempted_ = false;
     bool element_visibility_lookup_attempted_ = false;
     bool aim_lookup_attempted_ = false;
-    bool fire_origin_lookup_attempted_ = false;
     bool weapon_reload_lookup_attempted_ = false;
     bool body_rotation_lookup_attempted_ = false;
     bool movement_observation_lookup_attempted_ = false;
@@ -535,9 +518,6 @@ private:
     CoJSnapTurnState snap_turn_state_{};
     float last_snap_turn_degrees_ = 0.0F;
     bool last_analog_transaction_applied_ = false;
-    std::array<JavaPlayerPosition, 2> fire_origins_{};
-    std::array<bool, 2> fire_origin_valid_{};
-    std::array<CoJFireOriginTransitionObservation, 2> last_fire_origin_transitions_{};
 };
 
 } // namespace cojvr::games::call_of_juarez

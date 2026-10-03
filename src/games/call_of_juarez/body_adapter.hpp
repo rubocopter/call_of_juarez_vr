@@ -160,6 +160,22 @@ struct ArmGeometrySample {
     cojvr::runtime::Vec3 hand_element_forward{};
 };
 
+// Fit the render-only arm chain to a measured, stable bilateral T pose.
+// Native bone ratios are retained; ordinary aiming/overreach never grows arms.
+class CoJArmSpanCalibration final {
+public:
+    [[nodiscard]] float Update(cojvr::runtime::Vec3 head,
+        cojvr::runtime::Vec3 left, cojvr::runtime::Vec3 right,
+        float native_shoulder_span_cm, float native_arm_sum_cm, bool valid) noexcept;
+    void Reset() noexcept { *this = {}; }
+    [[nodiscard]] bool calibrated() const noexcept { return calibrated_; }
+private:
+    float scale_ = 1;
+    float candidate_span_cm_ = 0;
+    unsigned stable_samples_ = 0;
+    bool calibrated_ = false;
+};
+
 struct ArmGeometryRestoreCheck {
     float max_joint_position_error = 0.0F;
     float max_element_position_error = 0.0F;
@@ -278,6 +294,29 @@ struct HandOrientationTarget {
     bool valid = false;
 };
 
+struct TrackedWeaponFramePlan {
+    ElementWorldBasisTarget root{};
+    cojvr::runtime::Vec3 muzzle_origin{};
+    cojvr::runtime::Vec3 muzzle_direction{};
+    bool valid = false;
+};
+
+// Rigid mapping from the measured native barrel frame to the tracked tip.
+// The native wrist-to-muzzle offset is retained; the tip is an axis, not a muzzle.
+[[nodiscard]] TrackedWeaponFramePlan BuildTrackedWeaponFrame(
+    const ElementWorldBasisTarget& natural_root,
+    cojvr::runtime::Vec3 natural_wrist,
+    cojvr::runtime::Vec3 natural_muzzle,
+    cojvr::runtime::Vec3 natural_barrel_direction,
+    cojvr::runtime::Vec3 tracked_grip,
+    cojvr::runtime::Vec3 tracked_direction,
+    cojvr::runtime::Vec3 tracked_up) noexcept;
+
+[[nodiscard]] ElementWorldBasisTarget TransformWeaponElementFrame(
+    const ElementWorldBasisTarget& source_root,
+    const ElementWorldBasisTarget& target_root,
+    const ElementWorldBasisTarget& element) noexcept;
+
 struct HandOrientationRotationPlan {
     BoneRotationDelta forearm_twist{};
     BoneRotationDelta hand{};
@@ -322,7 +361,9 @@ struct LegIkPlan {
 // rotates those frames around the measured shoulder/elbow joints.
 [[nodiscard]] ArmIkPlan BuildArmIkPlan(
     const ArmGeometrySample& geometry,
-    cojvr::runtime::Vec3 controller_target) noexcept;
+    cojvr::runtime::Vec3 controller_target,
+    cojvr::runtime::Vec3 elbow_pole = {},
+    float measured_reach_scale = 1.0F) noexcept;
 
 // Keep ownership of every valid positional IK plan, including unreachable
 // controller targets already hard-clamped by SolveTwoBoneIK to the measured

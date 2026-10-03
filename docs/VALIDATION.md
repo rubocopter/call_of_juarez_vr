@@ -70,6 +70,15 @@ torso visibility, anatomy and ballistic alignment remain acceptance gates; the
 overall improvement report alone does not accept each gesture. Visible weapon
 poses and real-barrel samples still show controller/muzzle disagreement.
 
+The next follow-up is **implemented / host-tested**: grip targets share the
+camera/tip anchor, the elbow plane no longer follows idle animation, and a stable
+bilateral T pose fits render-only arm reach to measured controller span. A rigid
+weapon-element map verifies the actual muzzle before publishing nullable per-hand
+shot-consumer vectors. The original global look-from mutation is removed. The
+exact class/archive patch is transactionally staged and restored; the shipped
+Java verifier accepts it. Geometry, fallback and restoration tests do not accept
+actual bullet origin, fitted visual anatomy or headset comfort.
+
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
 run retained Ex factory/device identity, recorded successful Presents beyond
@@ -221,6 +230,12 @@ confirms the physical gestures.
 ## Combined menu and gameplay regression
 
 For the next physical pass use normal `prepare -BodyIkAtStart`. In gameplay,
+face forward, recenter with Create, then hold both arms fully extended sideways
+at shoulder height for one second. The stable bilateral pose commits the measured
+span (`body_arm_span_calibration`); check that hands/weapon remain at the tracked
+grips with natural elbow/wrist proportions. Calibration persists across recenter
+and is repeated after a player-generation change. Before calibration, native
+reach remains the default. Then
 walk/run while moving both hands and verify that both hands stay attached to the
 actor without stretched arm/body geometry and without needing reload to
 re-synchronize. The sampled `body_arm_tracking` telemetry should show
@@ -238,8 +253,11 @@ same physical direction. Lean forward and check for torso intrusion. Rotate
 and bend each arm through the previously deformed pose and check recovery.
 Exercise one right and one left snap turn
 and confirm that each step is exactly 90 degrees. Aim/fire with both hands where
-practical and confirm the gameplay reticle follows the visible controller/weapon
-direction and that bullet impacts are consistent with it. Then exercise an ordinary
+practical and confirm the gameplay reticle follows the visible weapon barrel.
+Check first shots, held/repeated fire, weapon switching, reload recovery and firing
+after crouching, physical steps and turning. The visible muzzle, tracer origin
+and impacts must agree apart from native spread. Cached-origin getter samples
+are not actual-shot evidence. Then exercise an ordinary
 menu, the Yes/No dialog and gameplay pause as regression checks; the gameplay
 reticle must not alter menu-ray behavior. Recenter with Create, quit normally and
 run `finish`. Existing arm restore and actor-rebase telemetry provides the host/live
@@ -367,14 +385,14 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
-| Body IK continuity/anatomy | continuity physically improved; composition correction host-tested; anatomy rejected | hands no longer remain stranded, but recovery delay, torsion and short-arm feel persist; forearm/skinning composition and pelvis nesting await physical confirmation |
+| Body IK continuity/anatomy | continuity physically improved; anatomy follow-up host-tested; anatomy rejected | common camera/grip anchor, stable elbow plane and measured bilateral-span reach fit await physical acceptance; native restoration remains verified |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
 | Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
 | Cross/Circle/L2/R2 UI actions | exercised menu-selection path accepted; broader action coverage remains bounded | latest run accepts ordinary/Yes-No/pause pointer selection; retain per-action regression checks where relevant |
 | Loading continuation | host-tested / latest run reached gameplay | an earlier physical load hang was not reproduced in the latest gameplay run; controller-only loading acceptance remains separate |
 | Controller-origin UI beam | headset-validated for exercised menu paths | ordinary, Yes/No and gameplay-pause selection work in the latest physical candidate |
-| Controller-owned weapon direction/visual origin | host-tested | final physical firing alignment still pending |
+| Controller-owned weapon direction/visual origin | host-tested | verified rigid weapon-element map and nullable per-hand shot caches; original/network fallback preserved; physical shots and reload recovery remain pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
 | Exact-frame gameplay weapon reticle | live-exercised / visible | impacts reported closer to the reticle; alignment with the visible weapon/muzzle remains rejected |
 | Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |

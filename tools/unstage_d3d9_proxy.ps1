@@ -37,6 +37,15 @@ if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
 }
 
 $StageState = Get-Content -LiteralPath $State -Raw | ConvertFrom-Json
+$CodeArchiveManaged = $StageState.PSObject.Properties.Name -contains "codeArchiveManaged" -and [bool]$StageState.codeArchiveManaged
+$CodeArchive = Join-Path $GameDirectory "code.pak"
+$CodeBackup = Join-Path $GameDirectory "code.cojvr-backup.pak"
+if ($CodeArchiveManaged) {
+    if ((Get-CojvrFileSha256 $CodeArchive) -ne [string]$StageState.stagedCodeSha256 -or
+        (Get-CojvrFileSha256 $CodeBackup) -ne [string]$StageState.originalCodeSha256) {
+        throw "code.pak or its original backup changed; refusing incomplete restoration."
+    }
+}
 $CameraControlManaged = [bool]$StageState.cameraControlManaged
 $OpenVrRuntimeManaged = [bool]$StageState.openVrRuntimeManaged
 $OpenVrInputManaged = [bool]$StageState.openVrInputManaged
@@ -126,7 +135,24 @@ if ($OpenVrInputManaged) {
         )
     }
 }
+if ($CodeArchiveManaged) {
+    $JournalAssets += [ordered]@{
+        role = "game_weapon_consumers"; kind = "file"; destination = "code.pak"; backup = "code.cojvr-backup.pak"
+        hadOriginal = $true; originalSha256 = [string]$StageState.originalCodeSha256
+        stagedSha256 = [string]$StageState.stagedCodeSha256
+    }
+}
 [void](Write-CojvrDeploymentJournal $GameDirectory "unstage" ([string]$StageState.runId) ([string]$StageState.diagnosticMode) $JournalAssets)
+
+if ($CodeArchiveManaged) {
+    Remove-Item -LiteralPath $CodeArchive -Force
+    Invoke-CojvrDeploymentCheckpoint "unstage_code_removed"
+    Move-Item -LiteralPath $CodeBackup -Destination $CodeArchive
+    Invoke-CojvrDeploymentCheckpoint "unstage_code_original_restored"
+    if ((Get-CojvrFileSha256 $CodeArchive) -ne [string]$StageState.originalCodeSha256) {
+        throw "Original code.pak was not restored byte-for-byte."
+    }
+}
 
 Remove-Item -LiteralPath $Destination -Force
 Invoke-CojvrDeploymentCheckpoint "unstage_proxy_removed"

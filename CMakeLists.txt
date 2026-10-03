@@ -394,6 +394,8 @@ if(COJVR_BUILD_TESTS)
     set_tests_properties(d3d9_pool_probe_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
     find_program(COJVR_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+    find_program(COJVR_PYTHON_EXECUTABLE NAMES python REQUIRED)
+    add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
     add_test(
         NAME provenance_tools
         COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
@@ -636,7 +638,8 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_ui_pointer_ownership_test PRIVATE cxx_std_20)
     add_test(NAME ui_pointer_ownership COMMAND cojvr_ui_pointer_ownership_test)
 
-    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp)
+    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp src/games/call_of_juarez/body_adapter.cpp)
+    target_link_libraries(cojvr_ui_cursor_jni_test PRIVATE cojvr_runtime)
     target_include_directories(cojvr_ui_cursor_jni_test PRIVATE src)
     target_compile_features(cojvr_ui_cursor_jni_test PRIVATE cxx_std_20)
     target_compile_definitions(cojvr_ui_cursor_jni_test PRIVATE

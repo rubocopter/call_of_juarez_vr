@@ -742,15 +742,110 @@ PlayerSpaceReconciliation ReconcilePlayerSpace(
     return result;
 }
 
+ElementWorldBasisTarget TransformWeaponElementFrame(
+    const ElementWorldBasisTarget& source_root,
+    const ElementWorldBasisTarget& target_root,
+    const ElementWorldBasisTarget& element) noexcept {
+    ElementWorldBasisTarget result{};
+    auto su = source_root.up, sf = source_root.forward;
+    auto tu = target_root.up, tf = target_root.forward;
+    if (!source_root.valid || !target_root.valid || !element.valid ||
+        !Finite(source_root.position) || !Finite(target_root.position) ||
+        !Finite(element.position) || !NormalizeBasis(su, sf) || !NormalizeBasis(tu, tf)) return result;
+    const auto sx = Cross(su, sf), tx = Cross(tu, tf);
+    const auto rotate = [&](const cojvr::runtime::Vec3 v) noexcept {
+        return BasisToWorld(WorldToBasis(v, sx, su, sf), tx, tu, tf);
+    };
+    result.position = Add(target_root.position, rotate(Subtract(element.position, source_root.position)));
+    result.up = rotate(element.up); result.forward = rotate(element.forward);
+    result.valid = Finite(result.position) && NormalizeBasis(result.up, result.forward);
+    return result;
+}
+
+TrackedWeaponFramePlan BuildTrackedWeaponFrame(
+    const ElementWorldBasisTarget& natural_root,
+    const cojvr::runtime::Vec3 natural_wrist,
+    const cojvr::runtime::Vec3 natural_muzzle,
+    const cojvr::runtime::Vec3 natural_barrel_direction,
+    const cojvr::runtime::Vec3 tracked_grip,
+    const cojvr::runtime::Vec3 tracked_direction,
+    const cojvr::runtime::Vec3 tracked_up) noexcept {
+    TrackedWeaponFramePlan result{};
+    if (!natural_root.valid || !Finite(natural_root.position) ||
+        !Finite(natural_wrist) || !Finite(natural_muzzle) || !Finite(tracked_grip) ||
+        !Finite(natural_barrel_direction) || !Finite(tracked_direction) || !Finite(tracked_up))
+        return result;
+    auto root_up = natural_root.up;
+    auto root_forward = natural_root.forward;
+    if (!NormalizeBasis(root_up, root_forward)) return result;
+    const auto source_forward = Normalize(natural_barrel_direction);
+    const auto target_forward = Normalize(tracked_direction);
+    const auto source_up = Normalize(Subtract(root_up, Scale(source_forward, Dot(root_up, source_forward))));
+    const auto target_up = Normalize(Subtract(tracked_up, Scale(target_forward, Dot(tracked_up, target_forward))));
+    if (Length(source_forward) < 0.99F || Length(target_forward) < 0.99F ||
+        Length(source_up) < 0.99F || Length(target_up) < 0.99F) return result;
+    const auto source_right = Cross(source_up, source_forward);
+    const auto target_right = Cross(target_up, target_forward);
+    const auto rotate = [&](const cojvr::runtime::Vec3 v) noexcept {
+        return Add(Add(Scale(target_right, Dot(v, source_right)),
+                       Scale(target_up, Dot(v, source_up))),
+                   Scale(target_forward, Dot(v, source_forward)));
+    };
+    result.root.position = Add(tracked_grip, rotate(Subtract(natural_root.position, natural_wrist)));
+    result.root.up = rotate(root_up);
+    result.root.forward = rotate(root_forward);
+    result.root.valid = NormalizeBasis(result.root.up, result.root.forward) && Finite(result.root.position);
+    result.muzzle_origin = Add(tracked_grip, rotate(Subtract(natural_muzzle, natural_wrist)));
+    result.muzzle_direction = target_forward;
+    result.valid = result.root.valid && Finite(result.muzzle_origin);
+    return result;
+}
+
+float CoJArmSpanCalibration::Update(
+    const cojvr::runtime::Vec3 head, const cojvr::runtime::Vec3 left,
+    const cojvr::runtime::Vec3 right, const float native_shoulder_span_cm,
+    const float native_arm_sum_cm, const bool valid) noexcept {
+    if (calibrated_) return scale_;
+    const auto l = Subtract(left, head), r = Subtract(right, head);
+    const bool t_pose = valid && Finite(head) && Finite(left) && Finite(right) &&
+        std::isfinite(native_shoulder_span_cm) && native_shoulder_span_cm > 0 &&
+        std::isfinite(native_arm_sum_cm) && native_arm_sum_cm > 0 &&
+        l.x < 0 && r.x > 0 &&
+        // The visor is above the shoulders even in a horizontal T pose.
+        std::fabs(l.y) < -l.x * 0.5F && std::fabs(l.z) < -l.x * 0.25F &&
+        std::fabs(r.y) < r.x * 0.5F && std::fabs(r.z) < r.x * 0.25F &&
+        std::fabs(l.y-r.y) < (r.x-l.x) * 0.1F;
+    if (!t_pose) { stable_samples_ = 0; candidate_span_cm_ = 0; return scale_; }
+    const float span_cm = Length(Subtract(right, left)) * 100.0F;
+    const float fit = (span_cm - native_shoulder_span_cm) / native_arm_sum_cm;
+    // Reject tracking outliers rather than growing a chain without bound.
+    if (!std::isfinite(fit) || fit < 1 || fit > 2) {
+        stable_samples_ = 0; return scale_;
+    }
+    if (stable_samples_ == 0 || std::fabs(span_cm-candidate_span_cm_) > span_cm * 0.01F) {
+        candidate_span_cm_ = span_cm; stable_samples_ = 1;
+    } else {
+        candidate_span_cm_ += (span_cm-candidate_span_cm_) / static_cast<float>(++stable_samples_);
+    }
+    if (stable_samples_ >= 30) {
+        scale_ = (candidate_span_cm_ - native_shoulder_span_cm) / native_arm_sum_cm;
+        calibrated_ = true;
+    }
+    return scale_;
+}
+
 ArmIkPlan BuildArmIkPlan(
     const ArmGeometrySample& geometry,
-    const cojvr::runtime::Vec3 controller_target) noexcept {
+    const cojvr::runtime::Vec3 controller_target,
+    const cojvr::runtime::Vec3 elbow_pole,
+    const float measured_reach_scale) noexcept {
     ArmIkPlan result{};
     if (!Finite(geometry.shoulder) || !Finite(geometry.elbow) || !Finite(geometry.wrist) ||
         !Finite(geometry.upper_element_position) || !Finite(geometry.upper_element_up) ||
         !Finite(geometry.upper_element_forward) || !Finite(geometry.forearm_element_position) ||
         !Finite(geometry.forearm_element_up) || !Finite(geometry.forearm_element_forward) ||
-        !Finite(controller_target)) {
+        !Finite(controller_target) || !Finite(elbow_pole) ||
+        !std::isfinite(measured_reach_scale) || measured_reach_scale < 1 || measured_reach_scale > 2) {
         return result;
     }
 
@@ -758,8 +853,8 @@ ArmIkPlan BuildArmIkPlan(
         Subtract(geometry.elbow, geometry.shoulder);
     const cojvr::runtime::Vec3 lower_segment =
         Subtract(geometry.wrist, geometry.elbow);
-    result.upper_length = Length(upper_segment);
-    result.lower_length = Length(lower_segment);
+    result.upper_length = Length(upper_segment) * measured_reach_scale;
+    result.lower_length = Length(lower_segment) * measured_reach_scale;
     if (!std::isfinite(result.upper_length) || !std::isfinite(result.lower_length) ||
         result.upper_length <= 0.1F || result.lower_length <= 0.1F) {
         return result;
@@ -777,11 +872,12 @@ ArmIkPlan BuildArmIkPlan(
     // target instead of shortening that target first.
     const cojvr::runtime::Vec3 effective_target = controller_target;
     result.effective_target_distance = result.raw_target_distance;
-    const cojvr::runtime::Vec3 current_elbow =
-        Subtract(geometry.elbow, geometry.shoulder);
+    const cojvr::runtime::Vec3 current_elbow = Length(elbow_pole) > 1.0e-4F
+        ? elbow_pole : Subtract(geometry.elbow, geometry.shoulder);
     cojvr::runtime::Vec3 pole =
         Subtract(current_elbow, Scale(target_axis, Dot(current_elbow, target_axis)));
-    if (Length(pole) <= 1.0e-4F) pole = geometry.upper_element_forward;
+    if (Length(pole) <= 1.0e-4F) pole = Length(elbow_pole) > 1.0e-4F
+        ? StablePerpendicular(target_axis) : geometry.upper_element_forward;
 
     const auto solved = cojvr::runtime::SolveTwoBoneIK(
         geometry.shoulder,
@@ -1160,10 +1256,8 @@ ArmElementFramePlan BuildArmElementFramePlan(
         post_ik_hand_forward);
     if (!skinning.valid) return {};
 
-    cojvr::runtime::Vec3 foretwist_position = rotate_point(
-        natural.foretwist_element_position, natural.shoulder, rotations.upper_arm);
-    foretwist_position = rotate_point(
-        foretwist_position, ik.elbow_target, rotations.forearm);
+    cojvr::runtime::Vec3 foretwist_position = Add(ik.elbow_target,
+        apply_swing(Subtract(natural.foretwist_element_position, natural.elbow)));
     foretwist_position = rotate_point(
         foretwist_position, ik.elbow_target, result.forearm_twist);
     result.foretwist.position = foretwist_position;
@@ -1173,9 +1267,8 @@ ArmElementFramePlan BuildArmElementFramePlan(
         NormalizeBasis(result.foretwist.up, result.foretwist.forward);
     if (!result.foretwist.valid) return {};
 
-    cojvr::runtime::Vec3 hand_position = rotate_point(
-        natural.hand_element_position, natural.shoulder, rotations.upper_arm);
-    hand_position = rotate_point(hand_position, ik.elbow_target, rotations.forearm);
+    cojvr::runtime::Vec3 hand_position = Add(ik.wrist_target,
+        apply_swing(Subtract(natural.hand_element_position, natural.wrist)));
     hand_position = rotate_point(hand_position, ik.elbow_target, result.forearm_twist);
 
     result.diagnostic_hand_residual = BuildHandResidualRotationDelta(

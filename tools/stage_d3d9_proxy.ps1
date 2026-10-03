@@ -77,6 +77,10 @@ $CameraControlTemporary = Join-Path $GameDirectory "cojvr-camera-control.cojvr-i
 $OpenVrTemporary = Join-Path $GameDirectory "openvr_api.cojvr-installing.dll"
 $OpenVrInputTemporary = Join-Path $GameDirectory "cojvr_openvr_input.cojvr-installing"
 $TransactionJournal = Join-Path $GameDirectory ".cojvr-deployment-transaction.json"
+$CodeArchive = Join-Path $GameDirectory "code.pak"
+$CodeBackup = Join-Path $GameDirectory "code.cojvr-backup.pak"
+$CodeTemporary = Join-Path $GameDirectory "code.cojvr-installing.pak"
+$PatchedCodeSource = $null
 
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
     throw "Call of Juarez is running. Close it before staging a candidate."
@@ -233,9 +237,17 @@ if ($IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrBackup)) {
 if ($IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputBackup)) {
     throw "OpenVR input backup '$OpenVrInputBackup' already exists. Restore or remove it before staging the native-stereo candidate."
 }
-foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary)) {
+foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary, $CodeTemporary)) {
     if (Test-Path -LiteralPath $TemporaryPath) {
         throw "Temporary deployment path '$TemporaryPath' already exists without a recovery journal. Refusing to overwrite it."
+    }
+}
+
+if ($IsNativeStereo) {
+    if (Test-Path -LiteralPath $CodeBackup) { throw "An original code.pak backup already exists; refusing to overwrite it." }
+    $OriginalCodeHash = Get-CojvrFileSha256 $CodeArchive
+    if ($OriginalCodeHash -ne "F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12") {
+        throw "Unknown code.pak SHA-256; refusing game-specific shot mutation."
     }
 }
 
@@ -300,9 +312,25 @@ if ($IsNativeStereo) {
         )
     }
 }
-[void](Write-CojvrDeploymentJournal $GameDirectory "stage" $RunId $DiagnosticMode $JournalAssets)
+if ($IsNativeStereo) {
+    $PatchedCodeSource = Join-Path ([System.IO.Path]::GetTempPath()) ("cojvr-code-" + [Guid]::NewGuid().ToString("N") + ".pak")
+    try {
+        & python (Join-Path $PSScriptRoot "patch_coj_weapon_consumers.py") $CodeArchive $PatchedCodeSource
+        if ($LASTEXITCODE -ne 0) { throw "Exact weapon consumer patch failed." }
+        $PatchedCodeHash = Get-CojvrFileSha256 $PatchedCodeSource
+    } catch {
+        if (Test-Path -LiteralPath $PatchedCodeSource -PathType Leaf) { Remove-Item -LiteralPath $PatchedCodeSource -Force }
+        throw
+    }
+    $JournalAssets += [ordered]@{
+        role = "game_weapon_consumers"; kind = "file"; destination = "code.pak"; backup = "code.cojvr-backup.pak"
+        temporary = "code.cojvr-installing.pak"; hadOriginal = $true
+        originalSha256 = $OriginalCodeHash; stagedSha256 = $PatchedCodeHash
+    }
+}
 
 try {
+    [void](Write-CojvrDeploymentJournal $GameDirectory "stage" $RunId $DiagnosticMode $JournalAssets)
 $HistoricalDirectory = Join-Path `
     (Join-Path $EvidenceRoot "historical") `
     ("{0}-{1}" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), ([Guid]::NewGuid().ToString("N").Substring(0, 8)))
@@ -333,6 +361,11 @@ if ($HadOriginal) {
 
     Install-CojvrVerifiedFile `
         $ProxyPath $Destination $ProxyTemporary $ProxyHash "stage_proxy_published"
+    if ($IsNativeStereo) {
+        Move-Item -LiteralPath $CodeArchive -Destination $CodeBackup
+        Invoke-CojvrDeploymentCheckpoint "stage_code_backup_created"
+        Install-CojvrVerifiedFile $PatchedCodeSource $CodeArchive $CodeTemporary $PatchedCodeHash "stage_code_published"
+    }
     if ($IsOpenVrIntegration) {
         if ($HadOriginalOpenVr) {
             Move-Item -LiteralPath $OpenVrDestination -Destination $OpenVrBackup
@@ -394,6 +427,9 @@ if ($HadOriginal) {
             (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
         openVrInputManaged = $IsNativeStereo
+        codeArchiveManaged = $IsNativeStereo
+        originalCodeSha256 = if ($IsNativeStereo) { $OriginalCodeHash } else { $null }
+        stagedCodeSha256 = if ($IsNativeStereo) { $PatchedCodeHash } else { $null }
         hadOriginalOpenVrInput = $HadOriginalOpenVrInput
         stagedOpenVrActionManifestSha256 = if ($IsNativeStereo) {
             (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "actions.json") -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -419,6 +455,9 @@ if ($HadOriginal) {
         }
     }
     if ($IsNativeStereo) {
+        $Deployment += [ordered]@{
+            role = "game_weapon_consumers"; destination = "code.pak"; sha256 = $PatchedCodeHash
+        }
         $Deployment += [ordered]@{
             role = "openvr_action_manifest"
             destination = "cojvr_openvr_input/actions.json"
@@ -497,6 +536,10 @@ if ($HadOriginal) {
         [void](Complete-CojvrDeploymentRecovery $GameDirectory)
     }
     throw
+} finally {
+    if ($PatchedCodeSource -and (Test-Path -LiteralPath $PatchedCodeSource -PathType Leaf)) {
+        Remove-Item -LiteralPath $PatchedCodeSource -Force
+    }
 }
 
 if ($IsReadbackDiagnostic) {

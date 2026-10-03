@@ -215,8 +215,9 @@ longer remain stranded in world space, although occasional recovery delay and
 torsion still reject anatomy. The continuity baseline is the corrected natural
 frame restored by the previous transaction, rather than an unapplied raw sample.
 
-The render pelvis and arms now form nested transactions: apply the horizontal
-pelvis overlay, read/solve/write arms, draw both eyes, restore arms, then restore
+The render pelvis, arms and weapon elements form nested transactions: apply the horizontal
+pelvis overlay, read/solve/write arms, map weapon elements, draw both eyes,
+restore weapons, restore arms, then restore
 pelvis. Continuity samples exclude the temporary pelvis offset. Earlier ordering
 moved the solved hands again through parent propagation before both eye draws.
 Camera, pelvis and controller positions now share the same tracking Z convention:
@@ -242,8 +243,19 @@ All lower-arm element orientations use the same parent-plus-elbow composition.
 The earlier absolute writer used a direct segment rotation for the forearm and
 a composed rotation for FORETWIST/hand, producing different axial frames despite
 correct joint endpoints. A host regression reproduces and corrects that mismatch.
-The hand residual limit and native bone lengths remain unchanged; residual hand
-orientation, reach/short-arm feel and recovery remain physical gates.
+The hand residual limit and captured native restoration lengths remain unchanged.
+Grip targets now use the same untracked camera plus physical-height correction as
+tip targets, rather than an animated-head anchor. The head-to-shoulder offset
+chooses the elbow plane independently of the current idle/reload elbow pose.
+A stable bilateral T pose measures controller span and fits the render-only arm
+lengths after subtracting measured native shoulder width, preserving the native
+upper/forearm ratio. Thirty consecutive near-lateral samples within 1% span
+variation commit that measurement; ordinary aiming cannot calibrate it. Invalid
+tracking/outliers retain the native default. Calibration persists across recenter
+and resets with player generation. Joint-relative FORETWIST/hand offsets follow
+the fitted elbow/wrist endpoints. Native animation/physics and restored frames
+retain their original proportions. These changes are host-tested; residual hand
+orientation, fitted reach and recovery remain physical gates.
 
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
 Arm apply/restore elapsed times are measured while IK or movement tracing is
@@ -258,32 +270,53 @@ they do not repair actor state or surrender collision/physics ownership.
 
 ## Weapon ownership
 
-The controller `/pose/tip` drives per-hand aim direction and visual origin through exact game fields:
+The tracked grip positions the weapon and `/pose/tip` supplies its direction
+and up axis. The adapter captures all active weapon element world frames and
+measures `Weapon.GetBarrelOrigin/GetBarrelDir` against the rendered wrist. A rigid
+map aligns the barrel axis to the tracked tip while retaining measured
+wrist-to-muzzle geometry and each animated element's relative frame. Every
+element is written through `FromUpForwardPosElementWorld`; readback must agree
+with the planned muzzle before publishing a shot ray. The general object
+`FromUpForwardPos` setter is unsuitable: its native `+0x878F0` helper calls the
+same recursive `+0x82F00` notification boundary rejected for locomotion.
 
-- direction: `m_avLookDirDevForHand[hand]`;
-- visual origin: `m_avAimFromPoint[hand]`;
-- ordinary ballistic origin: `Being.m_vLookFromPoint`;
-- native spread/accuracy remains downstream in the game weapon code;
-- the network-forced attack branch remains untouched.
+The weapon transaction is nested inside arm/pelvis rendering and restores every
+captured element, rebasing positions by actor translation and verifying axes and
+positions. Partial failure rolls back the affected hand only; failed restoration
+retains its transaction and disables further weapon mutation. A weapon shared
+by both hands has one visual owner. Native reload owns weapon/arm animation.
 
-For local fire, shipped bytecode shows that `InputDigital.Translate` selects the requested hand/fire state while the actual attack runs later through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`. On the fire press transition, the adapter captures the native `Being.m_vLookFromPoint` value and publishes the selected controller origin for that pending native attack. A failed `Translate` rolls the field back immediately; on success, the later shipped `UpdateLookAndAimPoints` pass reclaims normal ownership after the attack transition. Held-fire frames do not repeatedly republish the field, and normal gameplay no longer creates a diagnostic `LaserPointer` object.
+Shipped Java separates ordinary ballistic origin (`Being.m_vLookFromPoint`),
+visual origin (`m_avAimFromPoint`) and per-hand direction
+(`m_avLookDirDevForHand`). Publishing the global origin on a trigger edge did not
+establish ownership at the later actual attack. That mutation has been removed.
+An exact-hash `ArmedPlayerBeing.class` patch adds nullable per-instance right/left
+origin/direction vectors. `GetFireOriginForWeapon`,
+`GetFireOriginVisualizationForHand` and `GetBeingLookDirDevForHand` consume those
+vectors when available, with the entire original bytecode as fallback. The
+network-forced path, untracked players and downstream native accuracy/spread
+retain native behavior. Only the resolved local player receives verified muzzle
+vectors; they survive native aim updates until the next render sample and are
+cleared for menus, lost tracking, failed publication or player changes. Both
+first and held/repeated attacks use the per-hand consumer boundary.
 
-The attack-transition fire-origin path is physically exercised, but visible/ballistic origin and direction remain rejected. Current diagnostics emit `controller_aim_geometry` and `controller_aim_fire_transition`; the latest run produced 120 grip-to-tip axis samples with local `-Z` at `0.939388..0.939389`, strongly confirming the Sense tip direction convention. The current host candidate adds a gameplay reticle sourced from the same exact world-space controller aim origin/direction used by the firing path. After both eye renders, that ray is projected through each eye's exact applied camera basis and asymmetric frustum; normalized per-eye coordinates travel with the same captured frame through the D3D9 ring and are drawn onto the corresponding D3D11 native-stereo textures immediately before submission. The reticle is excluded from flat-theater/menu presentation and does not share the menu-pointer route. It is an alignment aid/diagnostic; native spread and the final ballistic result remain game-owned and require physical comparison against visible weapon aim and bullet impact.
+Native-stereo staging requires the recognized original `code.pak` and class
+SHA-256. The patched archive is a journaled deployment asset; all other archive
+payloads are checked unchanged, its deployed hash joins run provenance, and
+unstaging/recovery restores the original archive byte-for-byte. Host tests cover
+hand selection, null/network fallback and interrupted deployment. The shipped
+Java 1.4 verifier accepts the patched class without initialization. This remains
+host evidence, not actual-shot or headset acceptance.
 
-The gameplay reticle now measures forward depth along the negative native camera
-source axis, consistent with the demonstrated controller weapon ray. The earlier
-positive-axis test discarded forward controller rays as behind the camera. This
-correction is host-tested and awaits physical alignment. Sampled read-only
-`Weapon.GetBarrelOrigin/GetBarrelDir` observations compare the real mesh barrel
-with the controller ray while the body render overlay is active. The latest
-physical report finds impacts closer to the visible reticle, but still rejects
-weapon placement and muzzle origin. Live barrel samples independently confirm
-substantial positional/angular disagreement. Controller origins now map the full
-tracking-space tip around the untracked native camera, with the shared height
-correction; subtracting HMD translation there had introduced a second room-scale
-offset. Sampled `Weapon.GetOwnerAttackOrigin/GetOwnerAttackOriginVisualization`
-reads separate ballistic and visual consumers without querying random spread.
-A field write or getter observation does not establish actual shot consumption.
+The gameplay reticle uses the verified muzzle/direction when available. It is
+projected through each captured eye basis and asymmetric frustum and drawn on
+the matching compositor textures; it is excluded from flat-theater/menu
+presentation and does not share menu pointer ownership. It is an alignment aid,
+not a collision trace or a guarantee against native spread. Sampled
+`controller_weapon_tracking`, `controller_weapon_barrel` and
+`controller_weapon_restore` events distinguish verified visual pose/cache
+publication from actual bullet impact. Latest live evidence still rejects
+weapon placement and muzzle alignment; this follow-up is host-tested only.
 
 ## D3D9 native-stereo transport
 

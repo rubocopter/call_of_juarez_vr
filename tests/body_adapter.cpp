@@ -997,24 +997,6 @@ int main() {
         return 1;
     }
 
-    const auto left_fire_origin = BuildCoJFireOriginMutationPolicy(9, true, true, true);
-    const auto right_fire_origin = BuildCoJFireOriginMutationPolicy(10, true, true, true);
-    const auto held_fire_origin = BuildCoJFireOriginMutationPolicy(9, true, false, true);
-    const auto released_fire_origin = BuildCoJFireOriginMutationPolicy(9, false, true, true);
-    const auto invalid_fire_origin = BuildCoJFireOriginMutationPolicy(10, true, true, false);
-    const auto non_fire_origin = BuildCoJFireOriginMutationPolicy(18, true, true, true);
-    if (left_fire_origin.hand != 1 || !left_fire_origin.override_for_translate ||
-        left_fire_origin.restore_after_translate ||
-        right_fire_origin.hand != 0 || !right_fire_origin.override_for_translate ||
-        right_fire_origin.restore_after_translate ||
-        held_fire_origin.override_for_translate || held_fire_origin.restore_after_translate ||
-        released_fire_origin.override_for_translate || released_fire_origin.restore_after_translate ||
-        invalid_fire_origin.override_for_translate || invalid_fire_origin.restore_after_translate ||
-        non_fire_origin.hand != -1 || non_fire_origin.override_for_translate ||
-        non_fire_origin.restore_after_translate) {
-        std::cerr << "fire origin did not transfer to the native attack-transition lifetime\n";
-        return 1;
-    }
     GameplayInputState inactive_gameplay = gameplay;
     inactive_gameplay.active = false;
     for (const auto& item : BuildCoJGameplayActionValues(inactive_gameplay)) {
@@ -1473,6 +1455,71 @@ int main() {
         Distance(composed_frame.hand.up, {0, -1, 0}) > 0.001F ||
         Distance(composed_frame.hand.position, {1, 0, 1}) > 0.001F) {
         std::cerr << "forearm used a different axial frame from FORETWIST and hand\n";
+        return 1;
+    }
+
+    // A weapon whose native barrel points along -X must map to tracked -Z
+    CoJArmSpanCalibration span_calibration;
+    for (int i = 0; i < 40; ++i) {
+        (void)span_calibration.Update({}, {-0.2F,-0.3F,-0.6F}, {0.2F,-0.3F,-0.6F}, 40, 100, true);
+    }
+    if (span_calibration.calibrated()) {
+        std::cerr << "Ordinary aiming calibrated arm span\n"; return 1;
+    }
+    float fitted_scale = 1;
+    for (int i = 0; i < 30; ++i) {
+        fitted_scale = span_calibration.Update({}, {-0.85F,-0.25F,0}, {0.85F,-0.25F,0}, 40, 100, true);
+    }
+    if (!span_calibration.calibrated() || !Near(fitted_scale, 1.3F)) {
+        std::cerr << "Stable measured span did not fit native arm ratios\n"; return 1;
+    }
+    const auto fitted_arm = BuildArmIkPlan(arm_geometry, {2.4F,0,0}, {}, fitted_scale);
+    const auto fitted_rotation = BuildArmBoneRotationPlan(arm_geometry, fitted_arm);
+    const auto fitted_frames = BuildArmElementFramePlan(arm_geometry, fitted_arm,
+        fitted_rotation, {arm_geometry.hand_element_up, arm_geometry.hand_element_forward, true});
+    if (!fitted_arm.valid || fitted_arm.target_clamped || !fitted_frames.valid ||
+        Distance(fitted_frames.hand.position, fitted_arm.wrist_target) > 0.001F ||
+        !Near(Distance(fitted_frames.foretwist.position, fitted_arm.elbow_target),
+            Distance(arm_geometry.foretwist_element_position, arm_geometry.elbow))) {
+        std::cerr << "Measured reach did not carry the skinning pivots to the longer chain\n"; return 1;
+    }
+    span_calibration.Reset();
+    if (span_calibration.calibrated()) { std::cerr << "Span calibration survived generation reset\n"; return 1; }
+
+    // without collapsing its measured wrist-to-muzzle distance.
+    const auto weapon_plan = BuildTrackedWeaponFrame(
+        {{2, 0, 0}, {0, 1, 0}, {0, 0, 1}, true},
+        {0, 0, 0}, {-20, 0, 0}, {-1, 0, 0},
+        {10, 30, 40}, {0, 0, -1}, {0, 1, 0});
+    if (!weapon_plan.valid ||
+        Distance(weapon_plan.muzzle_origin, {10, 30, 20}) > 0.001F ||
+        Distance(weapon_plan.muzzle_direction, {0, 0, -1}) > 0.001F ||
+        Distance(weapon_plan.root.position, {10, 30, 42}) > 0.001F ||
+        !Near(Distance(weapon_plan.root.position, {10, 30, 40}), 2.0F) ||
+        BuildTrackedWeaponFrame({}, {}, {}, {}, {}, {}, {}).valid) {
+        std::cerr << "Weapon rigid mapping changed grip/muzzle geometry or accepted invalid input\n";
+        return 1;
+    }
+    auto changed_animation = arm_geometry;
+    changed_animation.elbow = {0, 1, 0};
+    changed_animation.wrist = {1, 1, 0};
+    const auto stable_a = BuildArmIkPlan(arm_geometry, {1, 0, 0}, {0, -1, 0});
+    const auto stable_b = BuildArmIkPlan(changed_animation, {1, 0, 0}, {0, -1, 0});
+    if (!stable_a.valid || !stable_b.valid ||
+        Distance(stable_a.elbow_target, stable_b.elbow_target) > 0.001F) {
+        std::cerr << "Native animation changed the tracked elbow plane\n";
+        return 1;
+    }
+    const ElementWorldBasisTarget weapon_element{{-6, 4, 2}, {0, 0, 1}, {1, 0, 0}, true};
+    const auto moved_element = TransformWeaponElementFrame(
+        {{2,0,0},{0,1,0},{0,0,1},true}, weapon_plan.root, weapon_element);
+    const auto restored_element = TransformWeaponElementFrame(
+        weapon_plan.root, {{2,0,0},{0,1,0},{0,0,1},true}, moved_element);
+    if (!moved_element.valid || !restored_element.valid ||
+        Distance(restored_element.position, weapon_element.position) > 0.001F ||
+        Distance(restored_element.up, weapon_element.up) > 0.001F ||
+        Distance(restored_element.forward, weapon_element.forward) > 0.001F) {
+        std::cerr << "Weapon rigid map/restore changed an animated child element\n";
         return 1;
     }
 

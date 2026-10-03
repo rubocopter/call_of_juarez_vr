@@ -164,6 +164,8 @@ struct ArmElementCache {
     bool valid = false;
 };
 ArmElementCache g_arm_element_cache{};
+CoJArmSpanCalibration g_arm_span_calibration;
+std::uint64_t g_arm_span_generation = 0;
 struct HandOrientationCalibrationState {
     std::uint64_t being_generation = 0;
     std::uint64_t recenter_sequence = 0;
@@ -2951,6 +2953,35 @@ void UpdatePlayerArmTracking(
     const bool head_ready = g_java_player_bridge.TryGetBoneJointPosition(
         static_cast<std::int8_t>(binding.head), head_joint, &head_error);
     if (head_ready) head_joint.y += physical_view_correction;
+    if (g_arm_span_generation != generation) {
+        g_arm_span_calibration.Reset();
+        g_arm_span_generation = generation;
+    }
+    ArmGeometrySample left_measure{}, right_measure{};
+    const bool span_geometry_valid = elements_ready &&
+        ReadArmGeometry(true, left_measure, nullptr) && ReadArmGeometry(false, right_measure, nullptr);
+    const float native_shoulder_span = span_geometry_valid
+        ? std::sqrt(RuntimeVectorDistanceSquared(left_measure.shoulder, right_measure.shoulder)) : 0;
+    const float native_arm_sum = span_geometry_valid
+        ? std::sqrt(RuntimeVectorDistanceSquared(left_measure.shoulder, left_measure.elbow)) +
+          std::sqrt(RuntimeVectorDistanceSquared(left_measure.elbow, left_measure.wrist)) +
+          std::sqrt(RuntimeVectorDistanceSquared(right_measure.shoulder, right_measure.elbow)) +
+          std::sqrt(RuntimeVectorDistanceSquared(right_measure.elbow, right_measure.wrist)) : 0;
+    const bool previously_calibrated = g_arm_span_calibration.calibrated();
+    const float measured_reach_scale = g_arm_span_calibration.Update(
+        tracked_body.head.position, tracked_body.left_hand.position, tracked_body.right_hand.position,
+        native_shoulder_span, native_arm_sum,
+        body_ik_enabled && span_geometry_valid && tracked_body.head.position_valid &&
+        tracked_body.left_hand.position_valid && tracked_body.right_hand.position_valid &&
+        !native_animation_owns_arms);
+    if (!previously_calibrated && g_arm_span_calibration.calibrated()) {
+        EmitEvent("body_arm_span_calibration", "measured",
+            "being_generation=" + std::to_string(generation) +
+            ";native_shoulder_span_cm=" + std::to_string(native_shoulder_span) +
+            ";native_arm_sum_cm=" + std::to_string(native_arm_sum) +
+            ";reach_scale=" + std::to_string(measured_reach_scale) +
+            ";source=stable_bilateral_t_pose;actor_write=false");
+    }
     const auto update_arm = [&](const bool left, const cojvr::runtime::Pose& controller) noexcept {
         const char* side = left ? "left" : "right";
         if (!controller.position_valid) {
@@ -3103,13 +3134,14 @@ void UpdatePlayerArmTracking(
             }
             orientation_calibration.last_target = hand_target;
             bool target_valid = false;
-            const cojvr::runtime::Vec3 target = BuildTrackedArmTarget(
-                RuntimeVector(head_joint),
+            const cojvr::runtime::Vec3 target = BuildTrackedAimOrigin(
+                {camera_position.x, camera_position.y, camera_position.z},
                 camera_right,
                 camera_up,
                 camera_forward,
                 tracked_body.head.position,
                 controller.position,
+                physical_view_correction,
                 kGameUnitsPerMeter,
                 target_valid);
             if (!target_valid) {
@@ -3121,7 +3153,14 @@ void UpdatePlayerArmTracking(
                 }
                 return;
             }
-            const ArmIkPlan plan = BuildArmIkPlan(geometry, target);
+            // Use the body's shoulder offset as the elbow-plane reference.
+            // Reload/idle animation must not choose a different pole for an
+            // otherwise identical tracked target.
+            const cojvr::runtime::Vec3 elbow_pole{
+                geometry.shoulder.x - head_joint.x,
+                geometry.shoulder.y - head_joint.y,
+                geometry.shoulder.z - head_joint.z};
+            const ArmIkPlan plan = BuildArmIkPlan(geometry, target, elbow_pole, measured_reach_scale);
             const ArmBoneRotationPlan rotation_plan =
                 BuildArmBoneRotationPlan(geometry, plan);
             if (observe) {
@@ -3350,6 +3389,7 @@ void UpdatePlayerArmTracking(
                        << (continuity_update.rebased_world_fixed ? "true" : "false")
                        << ";continuity_rebase_count=" << geometry_continuity.rebase_count
                        << ";head_anchor=" << RuntimeVectorText(RuntimeVector(head_joint))
+                       << ";target_anchor=natural_camera_plus_physical_height"
                        << ";tracked_head=" << RuntimeVectorText(tracked_body.head.position)
                        << ";tracked_hand=" << RuntimeVectorText(controller.position)
                        << ";controller_target=" << RuntimeVectorText(target)
@@ -3462,7 +3502,9 @@ void UpdatePlayerArmTracking(
                        << ";effective_target_distance=" << plan.effective_target_distance
                        << ";reach_adjustment=" << plan.reach_adjustment
                        << ";reach_adjusted=" << (plan.reach_adjusted ? "true" : "false")
-                       << ";reach_policy=native_chain_hard_clamp"
+                       << ";reach_policy=measured_span_chain_hard_clamp"
+                       << ";reach_scale=" << measured_reach_scale
+                       << ";span_calibrated=" << (g_arm_span_calibration.calibrated() ? "true" : "false")
                        << ";plan_valid=" << (plan.valid ? "true" : "false")
                        << ";target_clamped=" << (plan.target_clamped ? "true" : "false")
                        << ";write_enabled=" << (body_ik_enabled ? "true" : "false")
@@ -3520,6 +3562,72 @@ struct ControllerAimFrameObservation {
     bool right_origin_valid = false;
 };
 
+void ApplyTrackedWeapons(
+    const CameraRenderStateSnapshot& natural,
+    const float height_correction,
+    const cojvr::runtime::Pose& head,
+    const cojvr::runtime::Pose& left_grip,
+    const cojvr::runtime::Pose& right_grip,
+    const cojvr::runtime::Pose& left_tip,
+    const cojvr::runtime::Pose& right_tip,
+    const std::uint64_t frame_sequence,
+    ControllerAimFrameObservation& aim) noexcept {
+    CameraProbeBasis basis{};
+    CameraProbeVector camera{};
+    if (!ReadNaturalCameraFrame(natural, basis, camera)) return;
+    basis = BuildTrackingReferenceBasis(basis.forward, basis.up, g_body_owned_yaw_degrees);
+    if (!IsCameraProbeBasisRigidRightHanded(basis)) return;
+    bool reloading = false;
+    if (!g_java_player_bridge.TryGetWeaponReloading(reloading) || reloading) return;
+    for (int hand = 0; hand < 2; ++hand) {
+        const bool left = hand == 1;
+        const auto& grip = left ? left_grip : right_grip;
+        const auto& tip = left ? left_tip : right_tip;
+        auto& origin = left ? aim.left_origin : aim.right_origin;
+        auto& origin_valid = left ? aim.left_origin_valid : aim.right_origin_valid;
+        const auto direction = left ? aim.left_direction : aim.right_direction;
+        const bool direction_valid = left ? aim.left_direction_valid : aim.right_direction_valid;
+        if (!grip.position_valid || !tip.orientation_valid || !direction_valid) continue;
+        bool mapped = false;
+        const auto grip_world = BuildTrackedAimOrigin(
+            {camera.x, camera.y, camera.z},
+            {basis.right.x, basis.right.y, basis.right.z},
+            {basis.up.x, basis.up.y, basis.up.z},
+            {basis.forward.x, basis.forward.y, basis.forward.z},
+            head.position, grip.position, height_correction, kGameUnitsPerMeter, mapped);
+        if (!mapped) continue;
+        const auto local_up = cojvr::runtime::RotateVector(tip.orientation, {0, 1, 0});
+        const cojvr::runtime::Vec3 weapon_up{
+            basis.right.x*local_up.x + basis.up.x*local_up.y + basis.forward.x*local_up.z,
+            basis.right.y*local_up.x + basis.up.y*local_up.y + basis.forward.y*local_up.z,
+            basis.right.z*local_up.x + basis.up.z*local_up.y + basis.forward.z*local_up.z};
+        ArmGeometrySample arm{};
+        std::string error;
+        if (!ReadArmGeometry(left, arm, &error)) continue;
+        JavaPlayerPosition muzzle{};
+        const bool applied = g_java_player_bridge.TryApplyTrackedWeapon(
+            hand, arm.wrist, grip_world, direction, weapon_up, muzzle, &error);
+        const bool published = applied && g_java_player_bridge.TryPublishWeaponRay(
+            hand, muzzle, JavaVector(direction), true, &error);
+        if (published) {
+            origin = RuntimeVector(muzzle);
+            origin_valid = true;
+            (void)g_java_player_bridge.TrySetPerHandAimOrigin(hand, muzzle);
+        }
+        if (ShouldObserveBodyFrame(frame_sequence) || (applied && !published)) {
+            try {
+                EmitEvent("controller_weapon_tracking", published ? "applied" : "unavailable",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";side=" + (left ? "left" : "right") +
+                    ";grip=" + RuntimeVectorText(grip_world) +
+                    ";muzzle=" + RuntimeVectorText(RuntimeVector(muzzle)) +
+                    ";direction=" + RuntimeVectorText(direction) +
+                    ";writer=FromUpForwardPosElementWorld;origin_owner=per_hand_shot_consumer;detail=" + error);
+            } catch (...) {}
+        }
+    }
+}
+
 float UpdatePhysicalViewHeight(
     const CameraRenderStateSnapshot& natural_render_state,
     const bool input_active, const bool physical_crouch,
@@ -3572,16 +3680,12 @@ void UpdateControllerAim(
     constexpr int kLeftHand = 1;
     observation = {};
     if (!input_active) {
-        g_java_player_bridge.SetPerHandFireOrigin(kLeftHand, {}, false);
-        g_java_player_bridge.SetPerHandFireOrigin(kRightHand, {}, false);
         return;
     }
     try {
         CameraProbeBasis basis{};
         CameraProbeVector camera_position{};
         if (!ReadNaturalCameraFrame(natural_render_state, basis, camera_position)) {
-            g_java_player_bridge.SetPerHandFireOrigin(kLeftHand, {}, false);
-            g_java_player_bridge.SetPerHandFireOrigin(kRightHand, {}, false);
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent(
                     "controller_aim", "unavailable",
@@ -3593,8 +3697,6 @@ void UpdateControllerAim(
         const CameraProbeBasis leveled = BuildTrackingReferenceBasis(
             basis.forward, basis.up, g_body_owned_yaw_degrees);
         if (!IsCameraProbeBasisRigidRightHanded(leveled)) {
-            g_java_player_bridge.SetPerHandFireOrigin(kLeftHand, {}, false);
-            g_java_player_bridge.SetPerHandFireOrigin(kRightHand, {}, false);
             return;
         }
         const cojvr::runtime::Vec3 camera_right{
@@ -3693,10 +3795,6 @@ void UpdateControllerAim(
         const bool right_origin_written = right_origin_valid &&
             g_java_player_bridge.TrySetPerHandAimOrigin(
                 kRightHand, JavaVector(right_origin), &right_origin_error);
-        g_java_player_bridge.SetPerHandFireOrigin(
-            kLeftHand, JavaVector(left_origin), left_origin_valid);
-        g_java_player_bridge.SetPerHandFireOrigin(
-            kRightHand, JavaVector(right_origin), right_origin_valid);
 
         if (ShouldObserveBodyFrame(frame_sequence) || !left_written || !right_written ||
             !left_origin_written || !right_origin_written) {
@@ -3721,11 +3819,11 @@ void UpdateControllerAim(
                    << ";write_boundary=post_game_update_pre_render"
                    << ";tracking_basis=level_recenter_minus_actor_yaw"
                    << ";direction_owner=m_avLookDirDevForHand"
-                   << ";fire_origin=controller_tip_attack_transition"
+                   << ";fire_origin=measured_weapon_muzzle_cache"
                    << ";visual_origin_owner=m_avAimFromPoint"
                    << ";origin_anchor=native_camera_plus_full_tracking_tip"
                    << ";native_height_correction=" << physical_view_correction
-                   << ";fire_origin_release=native_UpdateLookAndAimPoints"
+                   << ";fire_origin_release=tracking_menu_or_generation_invalidation"
                    << ";native_accuracy_spread=preserved"
                    << ";network_forced_branch=unused";
             if (!left_error.empty()) detail << ";left_detail=" << left_error;
@@ -3771,8 +3869,6 @@ void UpdateControllerAim(
             EmitEvent("controller_aim_geometry", "observed", geometry.str());
         }
     } catch (...) {
-        g_java_player_bridge.SetPerHandFireOrigin(kLeftHand, {}, false);
-        g_java_player_bridge.SetPerHandFireOrigin(kRightHand, {}, false);
         EmitEvent(
             "controller_aim", "exception",
             "frame_sequence=" + std::to_string(frame_sequence));
@@ -4196,6 +4292,16 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
 
     const CommandSnapshot snapshot = CurrentCommand();
+    // The last ray survives native update/shot consumption but never a failed,
+    // menu, disabled-tracking or incomplete next render sample.
+    (void)g_java_player_bridge.TryPublishWeaponRay(0, {}, {}, false);
+    (void)g_java_player_bridge.TryPublishWeaponRay(1, {}, {}, false);
+    std::string stale_weapon_error;
+    if (!g_java_player_bridge.RestoreTrackedWeapons(&stale_weapon_error)) {
+        EmitEvent("controller_weapon_restore", "failed", stale_weapon_error);
+        original(owner, view);
+        return;
+    }
     if (g_stereo_callbacks.set_capture_readback_enabled) {
         g_stereo_callbacks.set_capture_readback_enabled(
             g_stereo_callbacks.context,
@@ -4440,10 +4546,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         gameplay_input.fire_left = false;
         gameplay_input.fire_right = false;
     }
-    // Publish /pose/tip direction and origin before forwarding L2/R2. The
-    // digital action selects a hand state; the actual WeaponAttack runs on the
-    // next native update and consumes the origin before UpdateLookAndAimPoints
-    // returns ownership to the game's normal camera/body path.
+    // Tip axes drive the tracked weapon. The verified muzzle cache below
+    // survives until the native per-hand shot consumers use it.
     ControllerAimFrameObservation aim_observation{};
     if (!loading_ui_input.suppress_gameplay) {
         UpdateControllerAim(
@@ -4463,72 +4567,6 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     std::string gameplay_input_error;
     const bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
         g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error);
-    const auto emit_fire_transition = [&](
-        const char* side,
-        const int hand,
-        const cojvr::runtime::Vec3 direction,
-        const bool direction_valid,
-        const cojvr::runtime::Vec3 origin,
-        const bool origin_valid,
-        const TrackedAimPoseDiagnostics& pose) noexcept {
-        if (!snapshot.command.vr_gameplay_input_enabled) return;
-        const auto& transition = g_java_player_bridge.last_fire_origin_transition(hand);
-        if (!transition.attempted) return;
-        try {
-            std::ostringstream detail;
-            detail << "frame_sequence=" << frame_sequence
-                   << ";side=" << side
-                   << ";hand_index=" << hand
-                   << ";gameplay_translate_applied="
-                   << (gameplay_input_ok ? "true" : "false")
-                   << ";direction_valid=" << (direction_valid ? "true" : "false")
-                   << ";direction=" << RuntimeVectorText(direction)
-                   << ";origin_valid=" << (origin_valid ? "true" : "false")
-                   << ";origin=" << RuntimeVectorText(origin)
-                   << ";being_look_from_write_succeeded="
-                   << (transition.write_succeeded ? "true" : "false")
-                   << ";translate_succeeded="
-                   << (transition.translate_succeeded ? "true" : "false")
-                   << ";retained_for_attack="
-                   << (transition.retained_for_attack ? "true" : "false")
-                   << ";published_fire_origin="
-                   << RuntimeVectorText(RuntimeVector(transition.origin))
-                   << ";tip_geometry_valid=" << (pose.valid ? "true" : "false")
-                   << ";grip_to_tip_distance_m=" << pose.grip_to_tip_distance_m
-                   << ";grip_to_tip_direction="
-                   << RuntimeVectorText(pose.grip_to_tip_direction)
-                   << ";dot_pos_x=" << pose.dot_positive_x
-                   << ";dot_neg_x=" << pose.dot_negative_x
-                   << ";dot_pos_y=" << pose.dot_positive_y
-                   << ";dot_neg_y=" << pose.dot_negative_y
-                   << ";dot_pos_z=" << pose.dot_positive_z
-                   << ";dot_neg_z=" << pose.dot_negative_z
-                   << ";aim_axis_assumption=negative_z"
-                   << ";direction_owner=m_avLookDirDevForHand"
-                   << ";fire_origin_owner=Being.m_vLookFromPoint"
-                   << ";attack_order=OnBeingsFrame.UpdateHandStates_before_"
-                      "OnPostBeingsUpdate.UpdateLookAndAimPoints";
-            EmitEvent(
-                "controller_aim_fire_transition",
-                gameplay_input_ok && direction_valid && origin_valid &&
-                        transition.write_succeeded && transition.translate_succeeded &&
-                        transition.retained_for_attack
-                    ? "applied"
-                    : "partial",
-                detail.str());
-        } catch (...) {
-        }
-    };
-    emit_fire_transition(
-        "left", 1,
-        aim_observation.left_direction, aim_observation.left_direction_valid,
-        aim_observation.left_origin, aim_observation.left_origin_valid,
-        aim_observation.left_pose);
-    emit_fire_transition(
-        "right", 0,
-        aim_observation.right_direction, aim_observation.right_direction_valid,
-        aim_observation.right_origin, aim_observation.right_origin_valid,
-        aim_observation.right_pose);
     if ((snapshot.command.vr_gameplay_input_enabled && !gameplay_input_ok) ||
         gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -4627,6 +4665,12 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             natural_render_state, relative_head_pose, physical_view_correction,
             recentered,
             frame_sequence);
+    }
+    if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
+        snapshot.command.vr_gameplay_input_enabled) {
+        ApplyTrackedWeapons(natural_render_state, physical_view_correction,
+            relative_head_pose, relative_left_controller, relative_right_controller,
+            relative_left_aim, relative_right_aim, frame_sequence, aim_observation);
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
     const bool visual_body_offset_applied = g_room_scale_body_offset.active;
@@ -4768,6 +4812,16 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         snapshot.command.body_ik_enabled || snapshot.command.movement_trace_enabled;
     const std::uint64_t arm_restore_started_us =
         measure_arm_restore_timing ? MonotonicMicroseconds() : 0;
+    std::string weapon_restore_error;
+    const bool weapon_restored = g_java_player_bridge.RestoreTrackedWeapons(&weapon_restore_error);
+    if (!weapon_restored || ShouldObserveBodyFrame(frame_sequence)) {
+        EmitEvent("controller_weapon_restore", weapon_restored ? "ok" : "failed",
+            "frame_sequence=" + std::to_string(frame_sequence) + ";detail=" + weapon_restore_error);
+    }
+    if (!weapon_restored) {
+        (void)g_java_player_bridge.TryPublishWeaponRay(0, {}, {}, false);
+        (void)g_java_player_bridge.TryPublishWeaponRay(1, {}, {}, false);
+    }
     RestoreAppliedArmRotations(frame_sequence);
     const std::uint64_t arm_restore_duration_us = measure_arm_restore_timing
         ? MonotonicMicroseconds() - arm_restore_started_us : 0;
@@ -5717,6 +5771,8 @@ void ShutdownCameraProbe() noexcept {
         g_stereo_frame_sequence.load(std::memory_order_acquire),
         "shutdown");
     g_java_player_bridge.Reset();
+    g_arm_span_calibration.Reset();
+    g_arm_span_generation = 0;
     g_loading_ui_input_gate.Reset();
     g_physical_crouch_state.Reset();
     g_physical_view_height_state.Reset();

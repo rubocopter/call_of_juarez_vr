@@ -1,4 +1,4 @@
-// Host-only JNI 1.4 ABI fixture. Compile this TU alone: it includes the real
+// Host-only JNI 1.4 ABI fixture. It includes the real
 // adapter and intercepts JVM discovery without loading a JVM or the game.
 #include <windows.h>
 #include <cstdlib>

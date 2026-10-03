@@ -41,6 +41,7 @@ constexpr std::size_t kGetBooleanField = 96;
 constexpr std::size_t kGetIntField = 100;
 constexpr std::size_t kGetFloatField = 102;
 constexpr std::size_t kSetFloatField = 111;
+constexpr std::size_t kSetObjectField = 104;
 constexpr std::size_t kGetStaticMethodId = 113;
 constexpr std::size_t kCallStaticIntMethodA = 131;
 constexpr std::size_t kGetStaticFieldId = 144;
@@ -121,6 +122,7 @@ using GetBooleanFieldFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetIntFieldFn = std::int32_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetFloatFieldFn = float(COJVR_JNICALL*)(void*, void*, void*);
 using SetFloatFieldFn = void(COJVR_JNICALL*)(void*, void*, void*, float);
+using SetObjectFieldFn = void(COJVR_JNICALL*)(void*, void*, void*, void*);
 using GetStaticMethodIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
 using CallStaticIntMethodAFn =
     std::int32_t(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
@@ -364,22 +366,6 @@ float CoJSnapTurnState::Update(
     return turn_x > 0.0F ? kSnapDegrees : -kSnapDegrees;
 }
 
-CoJFireOriginMutationPolicy BuildCoJFireOriginMutationPolicy(
-    const int action,
-    const bool current_pressed,
-    const bool digital_transition,
-    const bool origin_valid) noexcept {
-    constexpr int kRightHand = 0;
-    constexpr int kLeftHand = 1;
-    const int hand = action == 9 ? kLeftHand : (action == 10 ? kRightHand : -1);
-    const bool scoped_override = hand >= 0 && current_pressed && digital_transition && origin_valid;
-    return {
-        .hand = hand,
-        .override_for_translate = scoped_override,
-        .restore_after_translate = false,
-    };
-}
-
 CoJLoadingUiInputResult CoJLoadingUiInputGate::Update(
     const bool timer_state_valid,
     const bool timer_frozen,
@@ -556,7 +542,6 @@ void JavaPlayerBridge::Reset() noexcept {
     game_object_controller_input_method_ = nullptr;
     look_dir_for_hand_field_ = nullptr;
     aim_from_point_field_ = nullptr;
-    look_from_point_field_ = nullptr;
     is_weapon_reloading_method_ = nullptr;
     bone_read_lookup_attempted_ = false;
     element_world_read_lookup_attempted_ = false;
@@ -565,7 +550,6 @@ void JavaPlayerBridge::Reset() noexcept {
     bone_rotation_lookup_attempted_ = false;
     element_visibility_lookup_attempted_ = false;
     aim_lookup_attempted_ = false;
-    fire_origin_lookup_attempted_ = false;
     weapon_reload_lookup_attempted_ = false;
     single_player_fallback_used_ = false;
     campaign_module_fallback_used_ = false;
@@ -575,8 +559,6 @@ void JavaPlayerBridge::Reset() noexcept {
     snap_turn_state_ = {};
     last_snap_turn_degrees_ = 0.0F;
     last_analog_transaction_applied_ = false;
-    fire_origins_ = {};
-    fire_origin_valid_ = {};
     // Preserve the VM until detach completes. Clearing vm_ first made this a
     // no-op and left bridge-owned daemon threads attached to the game JVM.
     DetachCurrentThread();
@@ -1180,6 +1162,185 @@ bool JavaPlayerBridge::TryGetWeaponReloading(
     return true;
 }
 
+bool JavaPlayerBridge::TryPublishWeaponRay(
+    const int hand, const JavaPlayerPosition& origin, const JavaPlayerPosition& direction,
+    const bool valid, std::string* error) noexcept {
+    if (hand < 0 || hand > 1 || !being_) return false;
+    if (valid && (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z) ||
+        !std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z))) return false;
+    void* env = Environment(error);
+    if (!env || !EnsureVectorAccess(env, error)) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_object = EnvFunction<GetObjectFieldFn>(env, kGetObjectField);
+    const auto set_object = EnvFunction<SetObjectFieldFn>(env, kSetObjectField);
+    const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
+    if (!get_class || !get_field || !get_object || !set_object || !new_object) return false;
+    const char* names[] = {"cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection"};
+    void* cls = get_class(env, being_);
+    if (!cls || ClearException(env, error, "weapon ray class unavailable")) { DeleteLocal(env, cls); return false; }
+    const auto publish = [&](int index, const JavaPlayerPosition& value) noexcept {
+        auto& field = weapon_ray_fields_[static_cast<std::size_t>(index)];
+        if (!field) field = get_field(env, cls, names[index], "LVector;");
+        if (ClearException(env, error, "exact shot-consumer fields unavailable") || !field) return false;
+        if (!valid) {
+            set_object(env, being_, field, nullptr);
+            return !ClearException(env, error, "weapon ray clear failed");
+        }
+        void* vector = get_object(env, being_, field);
+        if (ClearException(env, error, "weapon ray read failed")) { DeleteLocal(env, vector); return false; }
+        const bool fresh = vector == nullptr;
+        if (fresh) vector = new_object(env, vector_class_, vector_constructor_, nullptr);
+        if (ClearException(env, error, "weapon ray construction failed") || !vector) { DeleteLocal(env, vector); return false; }
+        bool ok = WriteVector(env, vector, value, error);
+        if (ok && fresh) {
+            set_object(env, being_, field, vector);
+            ok = !ClearException(env, error, "weapon ray publication failed");
+        }
+        DeleteLocal(env, vector);
+        return ok;
+    };
+    const bool origin_ok = publish(hand, origin);
+    const bool direction_ok = publish(hand + 2, direction);
+    if ((!origin_ok || !direction_ok) && valid) {
+        for (const int index : {hand, hand + 2}) {
+            if (weapon_ray_fields_[index]) set_object(env, being_, weapon_ray_fields_[index], nullptr);
+        }
+        (void)ClearException(env, nullptr, "weapon ray publication rollback");
+    }
+    DeleteLocal(env, cls);
+    return origin_ok && direction_ok;
+}
+
+bool JavaPlayerBridge::RestoreTrackedWeapons(std::string* error, const int only_hand) noexcept {
+    bool ok = true;
+    void* env = nullptr;
+    for (std::size_t hand = 0; hand < weapon_overlays_.size(); ++hand) {
+        if (only_hand >= 0 && hand != static_cast<std::size_t>(only_hand)) continue;
+        auto& overlay = weapon_overlays_[hand];
+        if (!overlay.weapon) continue;
+        if (!env) env = Environment(error);
+        bool restored = env != nullptr;
+        if (restored && overlay.active) {
+            JavaPlayerPosition actor{};
+            restored = TryGetPosition(actor, error);
+            const cojvr::runtime::Vec3 delta{actor.x-overlay.actor_at_capture.x,
+                actor.y-overlay.actor_at_capture.y, actor.z-overlay.actor_at_capture.z};
+            if (restored) {
+                for (auto& frame : overlay.natural) {
+                    frame.position = {frame.position.x+delta.x, frame.position.y+delta.y, frame.position.z+delta.z};
+                }
+                overlay.actor_at_capture = actor;
+            }
+            const bool actor_read = restored;
+            for (std::size_t i = 0; i < overlay.natural.size(); ++i) {
+                if (!actor_read) break;
+                auto& frame = overlay.natural[i];
+                const auto j = [](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x, v.y, v.z}; };
+                if (!WriteObjectElementFrame(overlay.weapon, static_cast<int>(i), j(frame.up), j(frame.forward), j(frame.position), error)) restored = false;
+            }
+            for (std::size_t i = 0; restored && i < overlay.natural.size(); ++i) {
+                JavaPlayerPosition p{}, u{}, f{};
+                const auto& n = overlay.natural[i];
+                restored = ReadObjectElementFrame(overlay.weapon, static_cast<int>(i), p, u, f, error) &&
+                    std::fabs(p.x-n.position.x) < 0.1F && std::fabs(p.y-n.position.y) < 0.1F && std::fabs(p.z-n.position.z) < 0.1F &&
+                    std::fabs(u.x-n.up.x) < 0.02F && std::fabs(u.y-n.up.y) < 0.02F && std::fabs(u.z-n.up.z) < 0.02F &&
+                    std::fabs(f.x-n.forward.x) < 0.02F && std::fabs(f.y-n.forward.y) < 0.02F && std::fabs(f.z-n.forward.z) < 0.02F;
+            }
+        }
+        if (!restored) { weapon_overlay_faulted_ = true; ok = false; continue; }
+        if (const auto del = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) del(env, overlay.weapon);
+        overlay = {};
+    }
+    return ok;
+}
+
+bool JavaPlayerBridge::TryApplyTrackedWeapon(
+    const int hand, const cojvr::runtime::Vec3 wrist, const cojvr::runtime::Vec3 grip,
+    const cojvr::runtime::Vec3 direction, const cojvr::runtime::Vec3 up,
+    JavaPlayerPosition& muzzle, std::string* error) noexcept {
+    muzzle = {};
+    if (hand < 0 || hand > 1 || !being_ || weapon_overlay_faulted_) return false;
+    auto& overlay = weapon_overlays_[static_cast<std::size_t>(hand)];
+    if (overlay.weapon) { SetError(error, "unrestored weapon transaction"); return false; }
+    void* env = Environment(error);
+    if (!env || !EnsureElementWorldReadAccess(env, error) || !EnsureElementWorldBasisAccess(env, error)) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    const auto new_global = EnvFunction<NewGlobalRefFn>(env, kNewGlobalRef);
+    const auto same = EnvFunction<IsSameObjectFn>(env, kIsSameObject);
+    if (!get_class || !get_method || !call_object || !call_int || !new_global || !same) return false;
+    void* cls = get_class(env, being_);
+    void* active = cls ? get_method(env, cls, "GetActiveWeapon", "(I)LWeapon;") : nullptr;
+    bool failed = ClearException(env, error, "active weapon lookup failed") || !active;
+    DeleteLocal(env, cls);
+    if (failed) return false;
+    JValue args[1]{}; args[0].i = hand;
+    void* weapon = call_object(env, being_, active, args);
+    failed = ClearException(env, error, "active weapon read failed") || !weapon;
+    if (failed) { DeleteLocal(env, weapon); return false; }
+    for (const auto& other : weapon_overlays_) {
+        if (other.weapon && same(env, weapon, other.weapon)) {
+            DeleteLocal(env, weapon); SetError(error, "two hands share one weapon; primary hand owns its visual pose"); return false;
+        }
+    }
+    cls = get_class(env, weapon);
+    void* count_method = cls ? get_method(env, cls, "GetElementsNumber", "()I") : nullptr;
+    failed = ClearException(env, error, "weapon elements lookup failed") || !count_method;
+    DeleteLocal(env, cls);
+    int count = failed ? 0 : call_int(env, weapon, count_method, nullptr);
+    failed = ClearException(env, error, "weapon element count failed") || count < 1 || count > 256;
+    JavaPlayerPosition barrel{}, barrel_direction{};
+    if (failed || !TryGetWeaponBarrel(hand, barrel, barrel_direction, error)) { DeleteLocal(env, weapon); return false; }
+    try {
+        if (!TryGetPosition(overlay.actor_at_capture, error)) { DeleteLocal(env, weapon); return false; }
+        overlay.natural.resize(static_cast<std::size_t>(count));
+        const auto v = [](JavaPlayerPosition p) { return cojvr::runtime::Vec3{p.x, p.y, p.z}; };
+        const auto j = [](cojvr::runtime::Vec3 p) { return JavaPlayerPosition{p.x, p.y, p.z}; };
+        for (int i = 0; i < count; ++i) {
+            JavaPlayerPosition p{}, u{}, f{};
+            if (!ReadObjectElementFrame(weapon, i, p, u, f, error)) { overlay = {}; DeleteLocal(env, weapon); return false; }
+            overlay.natural[static_cast<std::size_t>(i)] = {v(p), v(u), v(f), true};
+        }
+        const auto plan = BuildTrackedWeaponFrame(overlay.natural[0], wrist, v(barrel), v(barrel_direction), grip, direction, up);
+        if (!plan.valid) { overlay = {}; DeleteLocal(env, weapon); SetError(error, "weapon rigid mapping invalid"); return false; }
+        std::vector<ElementWorldBasisTarget> targets;
+        targets.reserve(overlay.natural.size());
+        for (const auto& n : overlay.natural) {
+            targets.push_back(TransformWeaponElementFrame(overlay.natural[0], plan.root, n));
+            if (!targets.back().valid) { overlay = {}; DeleteLocal(env, weapon); return false; }
+        }
+        overlay.weapon = new_global(env, weapon);
+        failed = ClearException(env, error, "weapon transaction reference failed") || !overlay.weapon;
+        DeleteLocal(env, weapon); weapon = nullptr;
+        if (failed) { overlay = {}; return false; }
+        overlay.active = true; // Retain restoration even if the first native call fails.
+        for (int i = 0; i < count; ++i) {
+            const auto& t = targets[static_cast<std::size_t>(i)];
+            if (!WriteObjectElementFrame(overlay.weapon, i, j(t.up), j(t.forward), j(t.position), error)) {
+                (void)RestoreTrackedWeapons(error, hand); return false;
+            }
+        }
+        JavaPlayerPosition actual{}, actual_direction{};
+        const auto close = [](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
+            return std::fabs(a.x-b.x) <= tolerance && std::fabs(a.y-b.y) <= tolerance && std::fabs(a.z-b.z) <= tolerance;
+        };
+        if (!TryGetWeaponBarrel(hand, actual, actual_direction, error) ||
+            !close(actual, plan.muzzle_origin, 0.1F) || !close(actual_direction, plan.muzzle_direction, 0.02F)) {
+            SetError(error, "weapon barrel did not reach rigid target");
+            (void)RestoreTrackedWeapons(error, hand); return false;
+        }
+        muzzle = actual;
+        return true;
+    } catch (...) {
+        DeleteLocal(env, weapon);
+        if (overlay.active) (void)RestoreTrackedWeapons(error, hand); else overlay = {};
+        SetError(error, "weapon transaction allocation failed"); return false;
+    }
+}
+
 bool JavaPlayerBridge::TryGetWeaponBarrel(
     const int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
     std::string* error, CoJWeaponAttackOrigins* attack_origins) noexcept {
@@ -1286,7 +1447,6 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     std::string* error) noexcept {
     last_snap_turn_degrees_ = 0.0F;
     last_analog_transaction_applied_ = false;
-    last_fire_origin_transitions_ = {};
     const float snap_turn_degrees = snap_turn_state_.Update(state);
     if (!state.active && !gameplay_input_applied_) return true;
 
@@ -1391,12 +1551,6 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             current_pressed != previous_pressed;
         const bool needs_analog_update = !gameplay_input_applied_ ||
             std::fabs(item.value - previous_item.value) > 0.005F;
-        const int fire_hand = item.action == 9 ? 1 : (item.action == 10 ? 0 : -1);
-        const auto fire_origin_policy = BuildCoJFireOriginMutationPolicy(
-            item.action,
-            current_pressed,
-            needs_digital_update,
-            fire_hand >= 0 && fire_origin_valid_[static_cast<std::size_t>(fire_hand)]);
         const auto resolve_target_item = [&](void*& target_item) noexcept {
             target_item = nullptr;
             JValue target_type_args[1]{};
@@ -1530,50 +1684,6 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                 // Data/InputActions.def is exact for this build: action 9 fires
                 // the left-hand weapon and action 10 the right-hand weapon.
                 // InputDigital.Translate only selects the requested hand state.
-                // The actual WeaponAttack runs from UpdateHandStates on the next
-                // game update and GetFireOriginForWeapon then reads the global
-                // Being look-from point. Publish the matching controller origin
-                // on the press transition and let CoJ's later
-                // UpdateLookAndAimPoints pass naturally reclaim the field.
-                void* look_from_point = nullptr;
-                JavaPlayerPosition native_look_from{};
-                bool fire_origin_overridden = false;
-                if (fire_origin_policy.override_for_translate) {
-                    auto& transition = last_fire_origin_transitions_[
-                        static_cast<std::size_t>(fire_origin_policy.hand)];
-                    transition.attempted = true;
-                    transition.origin = fire_origins_[
-                        static_cast<std::size_t>(fire_origin_policy.hand)];
-                    if ((!being_ && !Refresh(error)) ||
-                        !EnsureFireOriginAccess(env, error)) {
-                        DeleteLocal(env, target);
-                        DeleteLocal(env, action);
-                        return false;
-                    }
-                    look_from_point = get_object_field(env, being_, look_from_point_field_);
-                    if (!look_from_point ||
-                        ClearException(env, error, "Being.m_vLookFromPoint read failed") ||
-                        !ReadVector(env, look_from_point, native_look_from, error)) {
-                        DeleteLocal(env, look_from_point);
-                        DeleteLocal(env, target);
-                        DeleteLocal(env, action);
-                        return false;
-                    }
-                    if (!WriteVector(
-                            env,
-                            look_from_point,
-                            fire_origins_[static_cast<std::size_t>(fire_origin_policy.hand)],
-                            error)) {
-                        std::string restore_error;
-                        (void)WriteVector(env, look_from_point, native_look_from, &restore_error);
-                        DeleteLocal(env, look_from_point);
-                        DeleteLocal(env, target);
-                        DeleteLocal(env, action);
-                        return false;
-                    }
-                    fire_origin_overridden = true;
-                    transition.write_succeeded = true;
-                }
                 const JValue args[3]{
                     {.l = target},
                     {.i = device},
@@ -1588,30 +1698,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                     env, action, digital_translate_method_, digital_args);
                 const bool translate_failed =
                     ClearException(env, error, "InputAction.Translate failed");
-                if (fire_origin_overridden) {
-                    auto& transition = last_fire_origin_transitions_[
-                        static_cast<std::size_t>(fire_origin_policy.hand)];
-                    transition.translate_succeeded = !translate_failed;
-                    transition.retained_for_attack = !translate_failed;
-                }
-                bool rollback_ok = true;
-                if (fire_origin_overridden && translate_failed) {
-                    std::string restore_error;
-                    rollback_ok = WriteVector(
-                        env, look_from_point, native_look_from, &restore_error);
-                    if (!rollback_ok) {
-                        SetError(
-                            error,
-                            restore_error.empty()
-                                ? "Being.m_vLookFromPoint rollback failed"
-                                : restore_error.c_str());
-                    }
-                    last_fire_origin_transitions_[
-                        static_cast<std::size_t>(fire_origin_policy.hand)]
-                        .retained_for_attack = false;
-                }
-                DeleteLocal(env, look_from_point);
-                if (translate_failed || !rollback_ok) {
+                if (translate_failed) {
                     DeleteLocal(env, target);
                     DeleteLocal(env, action);
                     return false;
@@ -2962,18 +3049,13 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
     return written;
 }
 
-void JavaPlayerBridge::SetPerHandFireOrigin(
-    const int hand,
-    const JavaPlayerPosition& origin,
-    const bool valid) noexcept {
-    if (hand < 0 || hand >= static_cast<int>(fire_origins_.size())) return;
-    const bool finite = std::isfinite(origin.x) && std::isfinite(origin.y) &&
-        std::isfinite(origin.z);
-    fire_origins_[static_cast<std::size_t>(hand)] = finite ? origin : JavaPlayerPosition{};
-    fire_origin_valid_[static_cast<std::size_t>(hand)] = valid && finite;
-}
-
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    (void)RestoreTrackedWeapons();
+    if (being_) {
+        (void)TryPublishWeaponRay(0, {}, {}, false);
+        (void)TryPublishWeaponRay(1, {}, {}, false);
+    }
+    weapon_ray_fields_ = {};
     if (being_ && env) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
             delete_global(env, being_);
@@ -3027,12 +3109,8 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     aim_lookup_attempted_ = false;
     look_dir_for_hand_field_ = nullptr;
     aim_from_point_field_ = nullptr;
-    fire_origin_lookup_attempted_ = false;
-    look_from_point_field_ = nullptr;
     weapon_reload_lookup_attempted_ = false;
     is_weapon_reloading_method_ = nullptr;
-    fire_origins_ = {};
-    fire_origin_valid_ = {};
 }
 
 bool JavaPlayerBridge::EnsureMovementObservationAccess(
@@ -3201,37 +3279,6 @@ bool JavaPlayerBridge::EnsureAimAccess(void* env, std::string* error) noexcept {
     if (failed || !look_dir_for_hand_field_ || !aim_from_point_field_) {
         look_dir_for_hand_field_ = nullptr;
         aim_from_point_field_ = nullptr;
-        return false;
-    }
-    return true;
-}
-
-bool JavaPlayerBridge::EnsureFireOriginAccess(void* env, std::string* error) noexcept {
-    if (fire_origin_lookup_attempted_) {
-        if (look_from_point_field_) return true;
-        SetError(error, "player fire-origin path is unavailable");
-        return false;
-    }
-    fire_origin_lookup_attempted_ = true;
-    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
-    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
-    if (!get_class || !get_field || !being_) {
-        SetError(error, "required JNI fire-origin lookup functions are unavailable");
-        return false;
-    }
-    void* player_class = get_class(env, being_);
-    if (!player_class || ClearException(env, error, "GetObjectClass(fire origin) failed")) {
-        DeleteLocal(env, player_class);
-        return false;
-    }
-    // m_vLookFromPoint is declared on Being and inherited by ArmedPlayerBeing.
-    // JNI GetFieldID resolves inherited instance fields for the runtime class.
-    look_from_point_field_ =
-        get_field(env, player_class, "m_vLookFromPoint", "LVector;");
-    const bool failed = ClearException(env, error, "Being.m_vLookFromPoint lookup failed");
-    DeleteLocal(env, player_class);
-    if (failed || !look_from_point_field_) {
-        look_from_point_field_ = nullptr;
         return false;
     }
     return true;
@@ -3868,6 +3915,13 @@ bool JavaPlayerBridge::TryGetBonePerpendicular(
 }
 
 bool JavaPlayerBridge::TryGetElementWorldBasis(
+    const int element, JavaPlayerPosition& position, JavaPlayerPosition& up,
+    JavaPlayerPosition& forward, std::string* error) noexcept {
+    return ReadObjectElementFrame(being_, element, position, up, forward, error);
+}
+
+bool JavaPlayerBridge::ReadObjectElementFrame(
+    void* object,
     const int element,
     JavaPlayerPosition& position,
     JavaPlayerPosition& up,
@@ -3907,7 +3961,7 @@ bool JavaPlayerBridge::TryGetElementWorldBasis(
         JValue args[2]{};
         args[0].i = element;
         args[1].l = vector;
-        const bool available = call_boolean(env, being_, method, args) != 0;
+        const bool available = call_boolean(env, object, method, args) != 0;
         if (ClearException(env, error, call_error) || !available) {
             if (!available) SetError(error, unavailable_error);
             return false;
@@ -3979,6 +4033,13 @@ bool JavaPlayerBridge::TryGetElementWorldBasis(
 }
 
 bool JavaPlayerBridge::TrySetElementWorldBasis(
+    const int element, const JavaPlayerPosition& up, const JavaPlayerPosition& forward,
+    const JavaPlayerPosition& position, std::string* error) noexcept {
+    return WriteObjectElementFrame(being_, element, up, forward, position, error);
+}
+
+bool JavaPlayerBridge::WriteObjectElementFrame(
+    void* object,
     const int element,
     const JavaPlayerPosition& up,
     const JavaPlayerPosition& forward,
@@ -4025,7 +4086,7 @@ bool JavaPlayerBridge::TrySetElementWorldBasis(
     args[1].l = up_vector;
     args[2].l = forward_vector;
     args[3].l = position_vector;
-    call_void(env, being_, set_element_world_basis_method_, args);
+    call_void(env, object, set_element_world_basis_method_, args);
     const bool failed = ClearException(env, error, "FromUpForwardPosElementWorld call failed");
     DeleteLocal(env, up_vector);
     DeleteLocal(env, forward_vector);

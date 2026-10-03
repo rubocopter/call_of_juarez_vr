@@ -4,7 +4,7 @@ This document keeps the exact-game conclusions that still govern Body IK and aim
 
 ## Measured arm contract
 
-Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Recent evidence shows strongly asymmetric reach clamp, so the data does not justify simply lengthening both bones. The user still reports visibly short arms.
+Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Asymmetric reach clamp did not justify an arbitrary fixed multiplier. The current render-only fit instead measures bilateral controller span in a stable T pose; fitted visual proportions still require physical acceptance.
 
 The demonstrated indices are pelvis 0, spine 1, spine1 2, chest/spine2 3, neck 4, head 5, left arm 7/8/9/10 and right arm 12/13/14/15. Indices 6 and 11 remain unproven gaps; current evidence does not justify naming them clavicles/shoulders or mutating them. No global upper/forearm scaling is accepted. Shoulder/clavicle participation remains a future controlled experiment only after the exact elements and parentage are demonstrated.
 
@@ -85,7 +85,20 @@ lengths or the controller-roll/residual limits.
 
 ## Target space and body yaw
 
-A failed candidate mapped recentered controller positions around tracking-space origin while the live skeleton was far away in game world coordinates. Mapping anchors hand targets to the live head/body neighborhood. The arm-specific path subtracts tracked head X/Z while preserving tracked controller Y, matching the camera's physical descent in addition to native crouch posture. Subtracting tracked head Y had cancelled physical descent and left the arms above the crouched view. The generic head-relative mapping remains available for other consumers.
+Grip and tip targets now map their complete recentered positions around the
+untracked natural camera plus physical-height compensation. The previous arm
+anchor used the animated head while tip/view used the camera, allowing a model
+animation offset to displace the tracked wrist. Horizontal pelvis translation
+already appears in the observed shoulders; it is not added to targets again.
+The generic head-relative mapping remains available for other consumers.
+
+The elbow pole uses the head-to-shoulder offset rather than the current animated
+elbow. A stable bilateral T pose measures controller span, subtracts measured
+native shoulder width and fits upper/forearm lengths in their native ratio for
+the render transaction. Ordinary aiming cannot calibrate this fit. All captured
+native frames are restored; this is a measured user fit, not arbitrary global
+bone scaling. Fitted FORETWIST and hand frames retain joint-relative offsets.
+These anatomy changes are host-tested and await physical acceptance.
 
 Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
 
@@ -133,21 +146,31 @@ Exact shipped bytecode establishes separate ownership paths:
 - ordinary local ballistic origin reaches `Being.m_vLookFromPoint`;
 - the network-forced branch uses separate network state and remains untouched.
 
-Controller `/pose/tip` supplies the exact per-hand direction and mapped visual origin after normal game look/aim update.
+The grip/tip axes now drive a rigid map of all measured weapon element world
+frames, using `FromUpForwardPosElementWorld` rather than the general object
+setter. `ControlObject.FromUpForwardPos` enters `+0x878F0`, which calls the
+rejected recursive `+0x82F00` notification path. Measured wrist-to-muzzle offset
+and internal animation geometry are preserved; barrel readback verifies the
+result before cache publication. Restore is nested inside the arm/pelvis
+transaction, actor-relative and verified. A shared two-hand weapon has one owner.
 
-The origin maps the complete tracking-space tip around the untracked natural
-camera plus physical-height compensation. Subtracting tracking-space HMD position
-at that boundary introduced another room-scale displacement; the HMD has not yet
-been applied to that camera. Host regression now compares the tip origin with the
-equivalent point relative to the rendered tracked head.
+`InputDigital.Translate` chooses a hand state, while actual attack follows
+later through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`.
+The earlier trigger-edge global-origin publication is removed because native
+updates reclaim the field. Nullable per-instance origin/direction vectors added
+to the exact class are instead consumed by `GetFireOriginForWeapon`,
+`GetFireOriginVisualizationForHand` and `GetBeingLookDirDevForHand`. Null vectors,
+unknown hands and network-forced fire execute the unchanged original methods.
+Native accuracy/spread remains downstream. Only the bridge-resolved player gets
+verified muzzle vectors, cleared at invalid/menu/generation boundaries.
 
-Run `20260920T204507Z-6db13f3107e0` ended immediately after the user's first shot attempt, before post-input telemetry recorded `fire_left/right=true`. The previous implementation already marked the pressed hand as cross-frame owner on that first press, so it could overwrite global `Being.m_vLookFromPoint` without first capturing/restoring the native value. That ownership was removed.
-
-Further bytecode inspection established that `InputDigital.Translate` selects the requested hand/fire state but does not synchronously execute the final shot. The actual attack follows through `OnHandStateStarted_Attack -> WeaponAttack -> Weapon.Attack`, whose ordinary local origin reaches `GetFireOriginForWeapon -> Being.m_vLookFromPoint`. Current source therefore captures the native value and publishes the selected controller origin on the fire press transition so that the later native attack can consume it. If `Translate` fails the captured native value is restored immediately; after a successful transition, shipped `UpdateLookAndAimPoints` reclaims normal ownership. Unchanged held frames do not republish the field. The gameplay `LaserPointer` diagnostic path has also been removed.
-
-The latest complete single-process run records 24 sampled fire states and 21 explicit fire-transition publications while reaching normal outer `run_end`; first-shot process termination is no longer the active problem. Aiming remains visibly wrong.
-
-The controller-axis question is now mostly closed: 120 sampled `handgrip -> tip` comparisons put local `-Z` at `0.939388..0.939389`, far above the other local axes. The next aim investigation must therefore distinguish `m_avAimFromPoint[hand]` visual origin, the visible weapon/barrel transform, `Being.m_vLookFromPoint` ballistic origin and `m_avLookDirDevForHand[hand]` direction. Reintroduce a temporary controller-tip ray so the tracked direction can be seen beside the rendered weapon. The ray is instrumentation only; production shots must originate from the visible weapon barrel/muzzle.
+The class and original archive SHA-256 are pinned. A journaled staged archive
+retains all other payloads; finish and interruption recovery restore the original
+archive byte-for-byte. Host execution covers injected hand/fallback paths, and
+the shipped Java 1.4 verifier accepts the patched class. Geometry/cache telemetry
+does not prove actual-shot consumption or physical alignment. The current
+gameplay reticle uses the measured muzzle ray when verified and stays isolated
+from the menu pointer.
 
 ## Latest anatomy rejection
 
@@ -159,7 +182,8 @@ observations confirm a large positional/angular mismatch with the controller ray
 Sampled `Weapon.GetOwnerAttackOrigin/GetOwnerAttackOriginVisualization` now
 distinguish ballistic and visual origins from the barrel. Those getters are
 read-only; diagnostic calls do not query the accuracy/spread direction path.
-No global bone scaling or hand residual limit increase is justified.
+The native hand residual limit remains unchanged. A measured bilateral-span
+render fit is now implemented; its visual anatomy has not yet been accepted.
 
 An earlier rejected clip showed a different failure mode: safety blocks some extreme writes, but the arms repeatedly return to the native/default game pose as the Sense controllers move. Telemetry does not support solving this by scaling the upper/forearm chain globally:
 

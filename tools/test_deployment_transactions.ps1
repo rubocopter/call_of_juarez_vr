@@ -33,6 +33,9 @@ function New-DeploymentFixture([string]$Name) {
     New-Item -ItemType Directory -Path (Join-Path $Fixture "cojvr_openvr_input\bindings") -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $GameDirectory "CoJ.exe") -Destination (Join-Path $Fixture "CoJ.exe")
     Copy-Item -LiteralPath (Join-Path $GameDirectory "ChromeEngine3.dll") -Destination (Join-Path $Fixture "ChromeEngine3.dll")
+    $CodeSource = Join-Path $GameDirectory "code.cojvr-backup.pak"
+    if (-not (Test-Path -LiteralPath $CodeSource)) { $CodeSource = Join-Path $GameDirectory "code.pak" }
+    Copy-Item -LiteralPath $CodeSource -Destination (Join-Path $Fixture "code.pak")
     [System.IO.File]::WriteAllBytes((Join-Path $Fixture "d3d9.dll"), [byte[]](1, 2, 3, 4, 5))
     [System.IO.File]::WriteAllBytes((Join-Path $Fixture "openvr_api.dll"), [byte[]](6, 7, 8, 9))
     [System.IO.File]::WriteAllText(
@@ -45,6 +48,7 @@ function New-DeploymentFixture([string]$Name) {
         [System.Text.UTF8Encoding]::new($false))
     return [pscustomobject]@{
         path = $Fixture
+        codeHash = Get-CojvrFileSha256 (Join-Path $Fixture "code.pak")
         proxyHash = Get-CojvrFileSha256 (Join-Path $Fixture "d3d9.dll")
         openVrHash = Get-CojvrFileSha256 (Join-Path $Fixture "openvr_api.dll")
         cameraHash = Get-CojvrFileSha256 (Join-Path $Fixture "cojvr-camera-control.json")
@@ -54,6 +58,8 @@ function New-DeploymentFixture([string]$Name) {
 
 function Assert-FixtureRecovered([object]$Fixture) {
     $Path = [string]$Fixture.path
+    Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "code.pak")) -eq [string]$Fixture.codeHash) `
+        "Original code.pak was not restored byte-for-byte."
     Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "d3d9.dll")) -eq [string]$Fixture.proxyHash) `
         "Fixture proxy was not restored byte-for-byte."
     Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "openvr_api.dll")) -eq [string]$Fixture.openVrHash) `
@@ -78,6 +84,8 @@ function Invoke-TestStage([string]$FixturePath) {
 }
 
 $StageCheckpoints = @(
+    "stage_code_backup_created",
+    "stage_code_published",
     "journal_written",
     "stage_proxy_backup_created",
     "stage_proxy_published",
@@ -95,6 +103,8 @@ $StageCheckpoints = @(
     "stage_evidence_manifest_written"
 )
 $UnstageCheckpoints = @(
+    "unstage_code_removed",
+    "unstage_code_original_restored",
     "journal_written",
     "unstage_proxy_removed",
     "unstage_proxy_original_restored",
