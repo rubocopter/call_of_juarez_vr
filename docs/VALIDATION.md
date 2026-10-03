@@ -465,6 +465,44 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |
 | Supported end-to-end VR release | planned | project remains pre-alpha |
 
+## PC mechanics and gameplay HUD completeness
+
+**Planned / open.** Menu operation and the alignment reticle do not establish
+complete campaign control or HUD coverage. The authoritative action catalogue
+and native feedback owners are recorded in
+[the PC controls/HUD research](research/COJ_PC_CONTROLS_AND_HUD.md). Do not count
+hidden/developer actions as mandatory missing buttons or substitute a third-party
+Steam Input layout for official PC defaults. This gate adds acceptance requirements;
+it does not claim those adaptations exist in the current physical candidate.
+
+When corresponding features are implemented, a controller-only campaign pass
+must demonstrate:
+
+- Readable tutorial/hint text, context-action cues, objectives/logs and subtitles,
+  including dismissal/continuation of pausing hints without invisible prompts.
+- Native no-shoot warnings for protected targets, coherent with the tracked
+  weapon target; ordinary valid-target, empty-ammo and whip helpers remain
+  distinct. The alignment cross alone does not satisfy this check.
+- Health/ammo, stance/stealth, objective direction, concentration availability,
+  duel countdown and horse condition visible when required by the native game.
+- Contextual F pickup, carry, put-down, device use and mounting; focus enter/hold/
+  exit with its native movement rules; alternate fire; native weapon selection,
+  put-away and discard. Only owned/available items are selectable.
+- Circle kicks without opening pause, Options pauses, and menu back/accept/select
+  never leak into combat. Radial selection does not also turn/fire; focus loss,
+  menus and native reload release or defer held actions correctly.
+- Billy's climbing/stealth, whip attack/grab/length/release and bow; Ray's Bible
+  and native put-away/quick-draw concentration; dynamite, duel draw/aim/fire and
+  horse mount/steer/gallop/dismount. Verify their contextual input owners rather
+  than extrapolating from gun firing or on-foot movement.
+- Explicit slow-walk/accessibility crouch and deliberate save/load access,
+  without accidental combat activation or changing accepted native shaping.
+
+Fresh host checks cover action IDs, input ownership, failure/release behavior and
+HUD frame correlation. Each mechanic's live execution and visual/readability/
+comfort gate remain separate; a binding, synthetic HUD or screenshot cannot
+promote them to headset-validated.
+
 ## Evidence policy
 
 Only conclusions that remain useful across sessions belong here. Raw headset-run manifests, hashes, local video paths, telemetry counts, process IDs and agent handoffs stay under ignored `work/` and may be discarded once their conclusions are represented by code, tests or the durable documents above.

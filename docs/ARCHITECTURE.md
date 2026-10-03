@@ -395,6 +395,15 @@ hand selection, null/network fallback and interrupted deployment. The shipped
 Java 1.4 verifier accepts both patched classes without initialization. This remains
 host evidence, not actual-shot or headset acceptance.
 
+The gameplay reticle carries only projected alignment points and currently draws
+a fixed black/white cross; it does not transport the native no-shoot warning,
+tutorials or other gameplay HUD. The [exact PC controls/HUD boundary](research/COJ_PC_CONTROLS_AND_HUD.md)
+records native feedback owners and incomplete mechanics coverage. Game adapters
+own native action/target/inventory semantics; a future renderer HUD layer owns
+capture and presentation, and shared runtime owns neutral logical input and UI
+ownership policy. Native sprite draw ordering must be measured before choosing
+that capture boundary.
+
 The gameplay reticle uses the verified muzzle/direction when available. It is
 projected through each captured eye basis and asymmetric frustum and drawn on
 the matching compositor textures; it is excluded from flat-theater/menu

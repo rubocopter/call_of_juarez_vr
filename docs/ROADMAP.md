@@ -105,6 +105,15 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Physical gun-origin/direction acceptance: **pending/rejected**.
 - Shot/effect coherence: **host-tested follow-up** after physical rejection; fire delivery follows current muzzle publication, visual direction retains native spread around the tracked base, and combustion/smoke use the verified muzzle and complete authored barrel basis without a restored-weapon attachment. Both-eye hand/socket/weapon pose and restoration are live-tested technically; actual bullets, tracers, light and effects remain pending headset acceptance.
 - Motion-controlled reloads and richer world interactions: **planned**.
+- PC control and gameplay-HUD completeness: **planned / incomplete**. The
+  [exact PC catalogue](research/COJ_PC_CONTROLS_AND_HUD.md) distinguishes the
+  official manual and shipped actions from third-party controller layouts.
+  Restore hints, contextual action, subtitles, health/ammo and native no-shoot
+  feedback first; separate Options/pause from Circle/kick, then cover focus,
+  alternate fire, put-away/discard, objectives/logs and direct weapon selection.
+  A native-inventory radial selector and wrist compass follow essential feedback.
+  Whip, horses, climbing, concentration and duels require their own input/HUD
+  gates; ordinary menus, gun firing and locomotion do not accept these mechanics.
 
 ## Milestone 5 — additional renderers and games
 
