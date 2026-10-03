@@ -762,6 +762,19 @@ ElementWorldBasisTarget TransformWeaponElementFrame(
     return result;
 }
 
+ElementWorldBasisTarget BuildTrackedHandSocketFrame(
+    const cojvr::runtime::Quaternion grip, const cojvr::runtime::Vec3 right,
+    const cojvr::runtime::Vec3 up, const cojvr::runtime::Vec3 forward,
+    const cojvr::runtime::Vec3 position) noexcept {
+    bool valid=false;
+    const auto direction=BuildTrackedAimDirection(grip,right,up,forward,valid);
+    if (!valid || !Finite(position)) return {};
+    auto target_up=BasisToWorld(cojvr::runtime::RotateVector(grip,{0,1,0}),right,up,forward);
+    auto target_forward=direction;
+    if (!NormalizeBasis(target_up,target_forward)) return {};
+    return {position,target_up,target_forward,true};
+}
+
 TrackedWeaponFramePlan BuildTrackedWeaponFrame(
     const ElementWorldBasisTarget& natural_root,
     const cojvr::runtime::Vec3 natural_wrist,

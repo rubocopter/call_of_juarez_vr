@@ -564,6 +564,8 @@ if ($HadOriginal) {
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
             handPresentation = if ($IndependentHands) { "independent_native_hands" } else { "native_arm_ik" }
+            handRigidElements = if ($IndependentHands) { 20 } else { 0 }
+            requireWeaponPoseAfterHand = [bool]$IndependentHands
             requireGameplayInput = $RequireBodyValidation
         }
         deployment = @($Deployment)

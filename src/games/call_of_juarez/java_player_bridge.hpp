@@ -196,6 +196,17 @@ public:
     [[nodiscard]] bool TryApplyIndependentHand(int hand,
         const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
         std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryReadHandAttachment(int hand, ElementWorldBasisTarget& frame,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryPrepareTrackedWeapon(int hand, cojvr::runtime::Vec3 socket,
+        cojvr::runtime::Vec3 grip, cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up,
+        const ElementWorldBasisTarget& natural_hand, ElementWorldBasisTarget& tracked_hand,
+        bool& unarmed_hand,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool ApplyPreparedTrackedWeapon(int hand, JavaPlayerPosition& muzzle,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool VerifyTrackedWeapon(int hand, bool& active,
+        std::string* error = nullptr) noexcept;
     [[nodiscard]] bool RestoreTrackedHands(std::string* error = nullptr) noexcept;
     [[nodiscard]] bool VerifyTrackedHand(int hand, bool& active, std::string* error = nullptr) noexcept;
     void OnVisualBodyOffsetRestored(cojvr::runtime::Vec3 removed_offset) noexcept;
@@ -421,9 +432,16 @@ private:
     struct WeaponOverlay {
         void* weapon = nullptr;
         std::vector<ElementWorldBasisTarget> natural;
+        std::vector<ElementWorldBasisTarget> targets;
+        TrackedWeaponFramePlan plan{};
         JavaPlayerPosition actor_at_capture{};
         bool active = false;
+        bool applied = false;
     };
+    bool CaptureTrackedWeapon(int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
+        cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up, std::string* error,
+        const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand,
+        bool* unarmed_hand = nullptr) noexcept;
     std::array<WeaponOverlay, 2> weapon_overlays_{};
     std::array<void*, 4> weapon_ray_fields_{};
     bool weapon_overlay_faulted_ = false;
@@ -435,7 +453,7 @@ private:
     static bool ReadHandFrame(void*, int, ElementWorldBasisTarget&) noexcept;
     static bool WriteHandFrame(void*, int, const ElementWorldBasisTarget&) noexcept;
     std::array<HandOverlay, 2> hand_overlays_{};
-    std::array<std::array<int,19>,2> independent_hand_elements_{};
+    std::array<std::array<int,20>,2> independent_hand_elements_{};
     std::uint64_t independent_hand_generation_ = 0;
     void* independent_arms_object_ = nullptr;
     int independent_arms_element_ = -1;

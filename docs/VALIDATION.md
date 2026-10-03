@@ -10,12 +10,15 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
-The active gameplay candidate is **host-tested independent native hands with
-retained torso/legs**. It replaces the physically rejected stretched connected-arm
-presentation. Exact player mesh loading/partition quality, comfortable hand/wrist
-tracking, hand/weapon cohesion and native reload recovery await a fresh headset
-run. The combined regression below is the acceptance procedure; no T pose is
-required for this candidate.
+Independent native hands with retained torso/legs are **live-tested** for native
+mesh loading and the separated presentation of the observed player model. The operator reports substantial
+improvement but still rejects the gap between weapon and hand, especially the
+left wrist orientation. The active follow-up is **host-tested**: it includes each
+native holding socket, commits the weapon after its parent hand, verifies the
+muzzle through both eyes and uses absolute authored-socket grip orientation for
+unarmed hands. Comfortable wrists, hand/weapon cohesion and reload recovery
+remain pending physical gates. The combined regression below is the acceptance
+procedure; no T pose is required.
 
 First-level controller-only main-menu operation is **headset-validated** through
 the native sprite-tree mouse-event route: hover/highlight, selection and physical
@@ -268,8 +271,8 @@ retains torso/legs and tracks native hands independently; it does not require a
 T pose or enlarge arm lengths. The last connected-arm candidate remained
 physically rejected: extending reach helped distance but produced unacceptable
 long limbs near the chest, and the post-swing orientation reference did not make
-that anatomy comfortable. Native mesh loading/partition quality, free wrist
-rotation, hand/weapon cohesion and reload recovery are now explicit pending gates.
+that anatomy comfortable. The separated meshes now load in game, but free wrist
+rotation, hand/weapon cohesion and reload recovery remain pending gates.
 
 Confirm that both player models load normally and that torso/legs remain visible
 without arm triangles stretching toward the controllers. Bring hands close to
@@ -280,9 +283,13 @@ a jump or stale world position. Then
 walk/run while moving both hands and verify that both hands stay attached to the
 actor without stretched arm/body geometry and without needing reload to
 re-synchronize. Sampled `body_hand_tracking` must prove both hands with
-`reach_scale=1`, no upper-arm writes and nineteen rigid elements. Both-eye
+`reach_scale=1`, no upper-arm writes and twenty rigid elements including the
+authored holding socket. Both-eye
 `body_hand_render_probe` readback must match while the arm node is hidden, and
-`body_hand_restore` must verify element and visibility restoration. Confirm that
+`body_hand_restore` must verify element and visibility restoration. For each
+tracked weapon, both-eye `controller_weapon_render_probe` must match after the
+final hand/socket pose; any failed probe rejects the technical gate. This does
+not replace visual grip and actual-shot acceptance. Confirm that
 locomotion/performance retains the large improvement
 from the last run. Turn the head substantially left/right without rotating the
 body, press forward and confirm travel follows the viewed direction. Physically
@@ -429,7 +436,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | continuity physically improved; span calibration live-tested; anatomy rejected | calibration completes and arms are longer, but wrist/forearm orientation remains unnatural; solver target readback/restoration do not accept visual skinning |
-| Independent native hands with retained torso/legs | host-tested; active physical candidate | exact player geometry partition, rigid hand/finger transform and pose/visibility/archive restoration covered; native mesh loading, wrist comfort, hand/weapon cohesion and reload recovery pending |
+| Independent native hands with retained torso/legs | native loading/presentation live-tested; attachment follow-up host-tested | operator reports substantial improvement but rejects weapon gap and wrist pose; twenty-element hand/socket map, parent-before-child application, per-eye weapon readback and transactional restoration covered; wrist comfort, grip cohesion and reload recovery pending |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
 | Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |

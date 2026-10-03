@@ -1138,14 +1138,18 @@ try {
     # Independent hands have their own measured contract; old arm IK records
     # must not satisfy a candidate with partitioned player geometry.
     $TransportRun.validation | Add-Member -NotePropertyName handPresentation -NotePropertyValue "independent_native_hands" -Force
+    $TransportRun.validation | Add-Member -NotePropertyName handRigidElements -NotePropertyValue 20 -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireWeaponPoseAfterHand -NotePropertyValue $true -Force
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     $IndependentLog = @($StereoVerifierLog | Where-Object { $_ -notmatch "event=body_arm_(?:tracking|write_probe|render_probe|restore) " } | ForEach-Object {
         $_.Replace("body_ik_enabled=true;", "body_ik_enabled=true;independent_hands_enabled=true;")
     })
     foreach ($Side in @("left", "right")) {
-        $IndependentLog += "camera_probe_event: event=body_hand_tracking result=applied detail=frame_sequence=64;side=$Side;presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=19;detail="
+        $IndependentLog += "camera_probe_event: event=body_hand_tracking result=applied detail=frame_sequence=64;side=$Side;presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=20;detail="
+        $IndependentLog += "camera_probe_event: event=controller_weapon_tracking result=applied detail=frame_sequence=64;side=$Side;grip=(1,2,3);muzzle=(1,2,3);direction=(0,0,-1);writer=FromUpForwardPosElementWorld;origin_owner=per_hand_shot_consumer;detail="
         foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
-            $IndependentLog += "camera_probe_event: event=body_hand_render_probe result=matched detail=frame_sequence=64;side=$Side;phase=$Phase;rigid_elements=19;arms_hidden=true;detail="
+            $IndependentLog += "camera_probe_event: event=body_hand_render_probe result=matched detail=frame_sequence=64;side=$Side;phase=$Phase;rigid_elements=20;arms_hidden=true;detail="
+            $IndependentLog += "camera_probe_event: event=controller_weapon_render_probe result=matched detail=frame_sequence=64;side=$Side;phase=$Phase;parent_pose=final_hand_socket;detail="
         }
     }
     $IndependentLog += "camera_probe_event: event=body_hand_restore result=ok detail=frame_sequence=64;transaction=post_stereo_capture;elements_restored=true;visibility_restored=true;detail="
@@ -1153,6 +1157,13 @@ try {
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null
     foreach ($BadLog in @(
         @{ name="missing second-eye hand probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=body_hand_render_probe .*phase=right_eye_complete" }) },
+        @{ name="missing second-eye weapon probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_weapon_render_probe .*phase=right_eye_complete" }) },
+        @{ name="transient first-eye weapon failure followed by recovery"; lines=@($IndependentLog) + @(
+            "camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=left_eye_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose",
+            "camera_probe_event: event=controller_weapon_render_probe result=matched detail=frame_sequence=65;side=left;phase=right_eye_complete;parent_pose=final_hand_socket;detail="
+        ) },
+        @{ name="changed weapon after hand pose"; lines=@($IndependentLog) + "camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=stereo_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose" },
+        @{ name="missing authored holding socket"; lines=@($IndependentLog | ForEach-Object { $_.Replace("rigid_elements=20;", "rigid_elements=19;") }) },
         @{ name="failed hand restore"; lines=@($IndependentLog) + "camera_probe_event: event=body_hand_restore result=failed detail=write failed" },
         @{ name="overlapping arm writer"; lines=@($IndependentLog) + "camera_probe_event: event=body_arm_tracking result=applied detail=unexpected" }
     )) {
@@ -1161,6 +1172,13 @@ try {
         try { & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null } catch { $Rejected=$true }
         Assert-True $Rejected "Independent-hand verifier accepted $($BadLog.name)."
     }
+    # Older collected independent-hand candidates keep their original contract.
+    $TransportRun.validation.PSObject.Properties.Remove("handRigidElements")
+    $TransportRun.validation.PSObject.Properties.Remove("requireWeaponPoseAfterHand")
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    $LegacyHandLog=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_weapon_render_probe " } | ForEach-Object { $_.Replace("rigid_elements=20;", "rigid_elements=19;") })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $LegacyHandLog
+    & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null
     $TransportRun.validation.handPresentation="native_arm_ik"
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog

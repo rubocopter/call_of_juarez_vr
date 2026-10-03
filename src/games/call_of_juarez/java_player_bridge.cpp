@@ -436,7 +436,7 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 void JavaPlayerBridge::Reset() noexcept {
     // A pending failed transaction still owns JNI references and restore data.
     // Do not erase its bindings even if the JVM cannot be reached right now.
-    if (!RestoreTrackedHands()) return;
+    if (!RestoreTrackedHands() || !RestoreTrackedWeapons()) return;
     std::string ignored;
     void* env = vm_ ? Environment(&ignored) : nullptr;
     if (env) {
@@ -1271,6 +1271,63 @@ bool JavaPlayerBridge::TryApplyTrackedWeapon(
     JavaPlayerPosition& muzzle, std::string* error,
     const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand) noexcept {
     muzzle = {};
+    if (!CaptureTrackedWeapon(hand,wrist,grip,direction,up,error,natural_hand,tracked_hand)) return false;
+    if (ApplyPreparedTrackedWeapon(hand,muzzle,error)) return true;
+    (void)RestoreTrackedWeapons(error,hand);
+    if (tracked_hand) *tracked_hand = {};
+    return false;
+}
+
+bool JavaPlayerBridge::TryPrepareTrackedWeapon(
+    const int hand, const cojvr::runtime::Vec3 socket, const cojvr::runtime::Vec3 grip,
+    const cojvr::runtime::Vec3 direction, const cojvr::runtime::Vec3 up,
+    const ElementWorldBasisTarget& natural_hand, ElementWorldBasisTarget& tracked_hand,
+    bool& unarmed_hand,
+    std::string* error) noexcept {
+    return CaptureTrackedWeapon(hand,socket,grip,direction,up,error,&natural_hand,&tracked_hand,&unarmed_hand);
+}
+
+bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::string* error) noexcept {
+    active=false;
+    if (hand<0 || hand>1) return false;
+    const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
+    active=overlay.applied;
+    if (!active) return true;
+    JavaPlayerPosition actual{},direction{};
+    const auto close=[](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
+        return std::fabs(a.x-b.x)<=tolerance && std::fabs(a.y-b.y)<=tolerance && std::fabs(a.z-b.z)<=tolerance;
+    };
+    const bool matched=TryGetWeaponBarrel(hand,actual,direction,error) &&
+        close(actual,overlay.plan.muzzle_origin,0.1F) && close(direction,overlay.plan.muzzle_direction,0.02F);
+    if (!matched) SetError(error,"weapon barrel changed after parent/socket pose");
+    return matched;
+}
+
+bool JavaPlayerBridge::ApplyPreparedTrackedWeapon(const int hand, JavaPlayerPosition& muzzle,
+    std::string* error) noexcept {
+    muzzle={};
+    if (hand<0 || hand>1) return false;
+    auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
+    if (!overlay.weapon || !overlay.active || overlay.applied || !overlay.plan.valid) return false;
+    const auto j=[](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x,v.y,v.z}; };
+    for (std::size_t i=0;i<overlay.targets.size();++i) {
+        const auto& target=overlay.targets[i];
+        if (!WriteObjectElementFrame(overlay.weapon,static_cast<int>(i),j(target.up),j(target.forward),j(target.position),error)) return false;
+    }
+    overlay.applied=true;
+    bool active=false;
+    if (!VerifyTrackedWeapon(hand,active,error)) return false;
+    JavaPlayerPosition direction{};
+    return TryGetWeaponBarrel(hand,muzzle,direction,error);
+}
+
+bool JavaPlayerBridge::CaptureTrackedWeapon(
+    const int hand, const cojvr::runtime::Vec3 wrist, const cojvr::runtime::Vec3 grip,
+    const cojvr::runtime::Vec3 direction, const cojvr::runtime::Vec3 up,
+    std::string* error,
+    const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand,
+    bool* unarmed_hand) noexcept {
+    if (unarmed_hand) *unarmed_hand = false;
     if (tracked_hand) *tracked_hand = {};
     if (hand < 0 || hand > 1 || !being_ || weapon_overlay_faulted_) return false;
     auto& overlay = weapon_overlays_[static_cast<std::size_t>(hand)];
@@ -1291,10 +1348,16 @@ bool JavaPlayerBridge::TryApplyTrackedWeapon(
     if (failed) return false;
     JValue args[1]{}; args[0].i = hand;
     void* weapon = call_object(env, being_, active, args);
-    failed = ClearException(env, error, "active weapon read failed") || !weapon;
+    failed = ClearException(env, error, "active weapon read failed");
+    if (!failed && !weapon) {
+        if (unarmed_hand) *unarmed_hand = true;
+        SetError(error, "");
+        return false;
+    }
     if (failed) { DeleteLocal(env, weapon); return false; }
     for (const auto& other : weapon_overlays_) {
         if (other.weapon && same(env, weapon, other.weapon)) {
+            if (unarmed_hand) *unarmed_hand = true;
             DeleteLocal(env, weapon); SetError(error, "two hands share one weapon; primary hand owns its visual pose"); return false;
         }
     }
@@ -1334,23 +1397,10 @@ bool JavaPlayerBridge::TryApplyTrackedWeapon(
         failed = ClearException(env, error, "weapon transaction reference failed") || !overlay.weapon;
         DeleteLocal(env, weapon); weapon = nullptr;
         if (failed) { overlay = {}; return false; }
-        overlay.active = true; // Retain restoration even if the first native call fails.
-        for (int i = 0; i < count; ++i) {
-            const auto& t = targets[static_cast<std::size_t>(i)];
-            if (!WriteObjectElementFrame(overlay.weapon, i, j(t.up), j(t.forward), j(t.position), error)) {
-                (void)RestoreTrackedWeapons(error, hand); return false;
-            }
-        }
-        JavaPlayerPosition actual{}, actual_direction{};
-        const auto close = [](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
-            return std::fabs(a.x-b.x) <= tolerance && std::fabs(a.y-b.y) <= tolerance && std::fabs(a.z-b.z) <= tolerance;
-        };
-        if (!TryGetWeaponBarrel(hand, actual, actual_direction, error) ||
-            !close(actual, plan.muzzle_origin, 0.1F) || !close(actual_direction, plan.muzzle_direction, 0.02F)) {
-            SetError(error, "weapon barrel did not reach rigid target");
-            (void)RestoreTrackedWeapons(error, hand); return false;
-        }
-        muzzle = actual;
+        overlay.targets = std::move(targets);
+        overlay.plan = plan;
+        // Parent hand writes may move the child before its explicit pose commit.
+        overlay.active = true;
         if (tracked_hand) *tracked_hand = hand_target;
         return true;
     } catch (...) {
@@ -1371,6 +1421,20 @@ bool JavaPlayerBridge::WriteHandFrame(void* context, const int element, const El
     const auto& io=*static_cast<HandIoContext*>(context);
     const auto j=[](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x,v.y,v.z}; };
     return io.bridge->WriteObjectElementFrame(io.object,element,j(frame.up),j(frame.forward),j(frame.position),io.error);
+}
+
+bool JavaPlayerBridge::TryReadHandAttachment(const int hand,
+    ElementWorldBasisTarget& frame, std::string* error) noexcept {
+    frame={};
+    if (hand<0 || hand>1 || !being_) return false;
+    if (independent_hand_generation_!=being_generation_) {
+        for (auto& ids : independent_hand_elements_) ids.fill(-1);
+        independent_hand_generation_=being_generation_;
+    }
+    auto& element=independent_hand_elements_[static_cast<std::size_t>(hand)].back();
+    if (element<0 && !TryGetMeshElementByName(hand==1 ? "left_hand" : "right_hand",element,error)) return false;
+    HandIoContext io{this,being_,error};
+    return ReadHandFrame(&io,element,frame);
 }
 
 bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
@@ -1399,7 +1463,8 @@ bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
         CoJHandFrames frames{};
         HandIoContext io{this,being_,error};
         for (std::size_t i=0;i<frames.size();++i) {
-            if (ids[i]<0 && !TryGetMeshElementByName((prefix+suffixes[i]).c_str(),ids[i],error)) return false;
+            const std::string name=i==frames.size()-1 ? (hand==1 ? "left_hand" : "right_hand") : prefix+suffixes[i];
+            if (ids[i]<0 && !TryGetMeshElementByName(name.c_str(),ids[i],error)) return false;
             frames[i].element=ids[i];
             if (!ReadHandFrame(&io,ids[i],frames[i].frame)) return false;
         }
@@ -1487,6 +1552,14 @@ bool JavaPlayerBridge::VerifyTrackedHand(const int hand, bool& active, std::stri
 
 void JavaPlayerBridge::OnVisualBodyOffsetRestored(const cojvr::runtime::Vec3 offset) noexcept {
     for (auto& overlay : hand_overlays_) overlay.frames.RemoveCapturedBodyOffset(offset);
+    // A child restore is deferred while its parent restore remains pending.
+    // Its captured world frames also included the now-removed pelvis offset.
+    for (auto& overlay : weapon_overlays_) {
+        if (!overlay.active) continue;
+        for (auto& frame : overlay.natural) {
+            frame.position = {frame.position.x-offset.x,frame.position.y-offset.y,frame.position.z-offset.z};
+        }
+    }
 }
 
 bool JavaPlayerBridge::TryGetWeaponBarrel(
@@ -3198,9 +3271,8 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
-    (void)RestoreTrackedWeapons();
     // Keep the captured actor and its method bindings until restoration succeeds.
-    if (!RestoreTrackedHands()) return;
+    if (!RestoreTrackedHands() || !RestoreTrackedWeapons()) return;
     if (being_) {
         (void)TryPublishWeaponRay(0, {}, {}, false);
         (void)TryPublishWeaponRay(1, {}, {}, false);
@@ -3352,7 +3424,7 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* global_being = new_global(env, local_being);
     if (!global_being || ClearException(env, error, "NewGlobalRef(player being) failed")) return false;
 
-    if (!RestoreTrackedHands(error)) {
+    if (!RestoreTrackedHands(error) || !RestoreTrackedWeapons(error)) {
         if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,global_being);
         return false;
     }

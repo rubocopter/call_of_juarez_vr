@@ -21,10 +21,14 @@ with the hand. Complementary degenerate triangles preserve original index and
 draw counts; positions, normals, UVs, weights and bone palettes stay unchanged.
 The archive and both mesh entries are SHA-256 pinned; unknown inputs fail closed.
 Only player mesh entries change, leaving NPCs and unrelated compressed records
-untouched. Native loading of the appended node is not established by host parsing.
+untouched. Native loading and the separated hand presentation are now live-tested
+for the observed player model;
+the operator reports substantial improvement while still rejecting grip cohesion
+and wrist orientation.
 
 For each hand, the rigid overlay includes `Forearm`, `ForeTwist`, `ForeTwist1`,
-`Hand` and all fifteen `Finger*` elements. Moving all retained skin contributors
+`Hand`, all fifteen `Finger*` elements and the authored `left_hand`/`right_hand`
+holding socket: twenty frames per hand. Moving all retained skin contributors
 together avoids applying an isolated wrist twist to a connected sleeve. Armed
 hands use the measured weapon rigid map, preserving native finger animation.
 The separate arm node is hidden only during hand ownership and restores to its
@@ -32,6 +36,28 @@ previous visibility after both eyes; reload yields to native animation. Element
 and visibility readback, failed-write rollback, retry retention and actor-relative
 restore are host-tested. Mesh appearance, full wrist comfort and actual shots
 remain physical gates.
+
+## Native holding socket and child weapon
+
+The exact `InvObject.GetOwnerElementID` chooses `Left_hand`/`Right_hand`, with
+`Bip01 L/R Hand` as fallback. The Ray/Billy meshes contain the lowercase holding
+socket as a child of the corresponding hand bone. `InvObjectInLeftHand`/
+`InvObjectInRightHand` resolve that owner element; `ShowInvObject` inverts the
+weapon's `HolderL`/`HolderR` (with native holder fallbacks) and calls
+`owner.AttachChild(weapon, ownerSocket)`. The holding socket and wrist bone are
+therefore separate exact-game ownership boundaries.
+
+Live barrel observations disprove the previous order: a weapon verified before
+the hand overlay changes position and direction after the parent hand is moved.
+The current transaction captures the weapon before any parent writes, maps the
+hand and socket rigidly, then applies the child weapon and verifies its muzzle
+after both eye draws. Restore moves the parent hand/socket back first and then
+restores the captured child, retaining both owners if parent restoration fails.
+The tracked grip anchors the native holding socket rather than substituting the
+wrist pivot. For an unarmed hand, the authored socket maps to absolute controller
+grip orientation; it does not retain a fit to the first animated/controller pose.
+Socket mapping, rollback and both-eye verifier rejection are host-tested.
+Physical grip, left wrist comfort and actual-shot alignment remain pending.
 
 ## Legacy measured arm reach
 

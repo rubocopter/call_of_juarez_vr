@@ -320,6 +320,10 @@ struct TrackedWeaponFramePlan {
     const ElementWorldBasisTarget& source_root,
     const ElementWorldBasisTarget& target_root,
     const ElementWorldBasisTarget& element) noexcept;
+[[nodiscard]] ElementWorldBasisTarget BuildTrackedHandSocketFrame(
+    cojvr::runtime::Quaternion grip_orientation, cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up, cojvr::runtime::Vec3 camera_forward,
+    cojvr::runtime::Vec3 grip_position) noexcept;
 
 struct HandOrientationRotationPlan {
     BoneRotationDelta forearm_twist{};
@@ -475,7 +479,7 @@ struct CoJHandElementFrame {
     int element = -1;
     ElementWorldBasisTarget frame{};
 };
-using CoJHandFrames = std::array<CoJHandElementFrame, 19>;
+using CoJHandFrames = std::array<CoJHandElementFrame, 20>;
 using CoJElementRead = bool (*)(void*, int, ElementWorldBasisTarget&) noexcept;
 using CoJElementWrite = bool (*)(void*, int, const ElementWorldBasisTarget&) noexcept;
 

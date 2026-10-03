@@ -183,21 +183,38 @@ palettes and original element indices remain unchanged. NPC assets are unchanged
 The extra node is hidden only while the tracked hand overlay owns rendering.
 Native animations, including reload, retain the original combined geometry.
 The entire original archive is journaled and restored byte-for-byte by `finish`.
-Native loading and visible partition quality remain physical gates.
+Native loading and the separated presentation are live-tested for the observed
+player model. The operator
+reports a substantial improvement, but rejects hand/weapon separation and wrist
+orientation; comfort and grip cohesion remain physical gates.
 
-Each hand overlay captures nineteen named forearm/twist/hand/finger world frames
+Each hand overlay captures twenty named forearm/twist/hand/finger/socket world frames
 and moves them together with one rigid transform. There is no arm-span fit,
 upper-arm write or bounded wrist residual in this mode. Armed hands use the same
 captured weapon-to-controller transform as the weapon, retaining the animated
-finger/grip relation. Unarmed hands use calibrated grip orientation. Element
+finger/grip relation. The authored `left_hand`/`right_hand` holding socket is
+included; it is distinct from `Bip01 L/R Hand` and owns the attached weapon child.
+Unarmed hands map that socket directly to the absolute tracked grip orientation,
+without fitting an arbitrary initial animated pose. Element
 readback and hidden-arm state are checked through both eye draws. Restore retains
 native proportions, rebases captured positions by actor translation and restores
 the prior arm visibility before the outer pelvis restore. Failed restoration
 retains references and bindings for retry and blocks further hand mutation.
 When the outer pelvis restores while an inner hand retry is pending, its removed
 offset is subtracted from that retained capture exactly once.
+The same adjustment applies to a deferred child weapon capture.
 These ownership, asset and recovery contracts are **host-tested**; they do not
 establish visual headset acceptance.
+
+The weapon transaction captures native frames before moving its parent hand.
+Hand and holding socket are applied first, then the child weapon's world frames.
+The muzzle is verified after application and through both eye draws on every
+frame; any failed eye readback invalidates the published ray for that frame even
+if the next eye recovers. Restoration reverses ownership:
+restore the parent hand/socket before the captured child weapon, then the outer
+pelvis. A failed parent restore retains the child capture for retry and prevents
+rebinding either owner. Verifying the weapon before moving the hand was disproved
+by live barrel readback and cannot establish rendered grip or muzzle alignment.
 
 The legacy body adapter reads the live Call of Juarez skeleton and builds game-space controller targets. Arm solving uses measured native segment lengths; it does not silently scale skeleton bones.
 

@@ -58,8 +58,12 @@ retains native torso/legs and separates native hand geometry from connected arms
 Hands and fingers move rigidly with the controllers at native proportions;
 armed hands share the weapon transform. Original arms return during native reload.
 The exact player archive is hash-pinned, journaled and restored byte-for-byte.
-Native loading/partition appearance, comfortable wrist motion, hand/weapon cohesion
-and reload recovery remain physical gates. The connected-arm solver remains a
+Native loading and the separated presentation are live-tested with substantial
+reported improvement. Weapon separation and wrist pose remain rejected. The
+host-tested follow-up includes authored holding sockets in the rigid hand map,
+applies child weapons after their parent hands, verifies barrels through both
+eyes and uses absolute unarmed grip orientation. Comfortable wrist motion,
+hand/weapon cohesion and reload recovery remain physical gates. The connected-arm solver remains a
 diagnostic experiment. A verified rigid weapon-element map publishes muzzle
 vectors to exact per-hand Java shot consumers, with null/native/network fallback.
 The original code archive is a journaled, hash-verified deployment asset and is
@@ -188,7 +192,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 ## Milestone 3 — tracked hands and body IK
 
-- Independent native hands with retained torso/legs: **host-tested**, active physical candidate; exact geometry partition, rigid finger/hand transforms, stereo readback and archive/pose/visibility rollback are covered. Native mesh loading and visual comfort remain pending.
+- Independent native hands with retained torso/legs: **live-tested** native loading/presentation with substantial improvement; weapon gap and wrist pose rejected. The active **host-tested** follow-up adds authored holding sockets, parent-before-child weapon application, both-eye barrel verification and absolute unarmed grip orientation. Visual comfort, grip cohesion and reload recovery remain pending.
 
 - Stable left/right Sense tracking in game space: **live-tested**.
 - Exact absolute visible arm writer: **live-tested**; actor-relative restoration, stale-branch rebasing and pelvis/arm transaction nesting have physically improved continuity. Residual anatomy remains rejected.

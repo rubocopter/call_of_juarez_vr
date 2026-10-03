@@ -567,13 +567,15 @@ if ($RequireBodyIk) {
     $IndependentHands = $Run.validation.PSObject.Properties.Name -contains "handPresentation" -and
         $Run.validation.handPresentation -eq "independent_native_hands"
     if ($IndependentHands) {
+        $RigidElements=if ($Run.validation.PSObject.Properties.Name -contains "handRigidElements") { [int]$Run.validation.handRigidElements } else { 19 }
+        if ($RigidElements -notin @(19,20)) { throw "Unknown independent-hand element contract." }
         Assert-LogMatch "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true;body_ik_enabled=true;independent_hands_enabled=true" `
             "The independent-hand candidate never enabled its presentation contract."
         foreach ($Side in @("left", "right")) {
-            Assert-LogMatch "camera_probe_event: event=body_hand_tracking result=applied .*;side=$Side;presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=19;" `
+            Assert-LogMatch "camera_probe_event: event=body_hand_tracking result=applied .*;side=$Side;presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=$RigidElements;" `
                 "The independent-hand gate did not apply the $Side hand without arm scaling."
             foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
-                Assert-LogMatch "camera_probe_event: event=body_hand_render_probe result=matched .*;side=$Side;phase=$Phase;rigid_elements=19;arms_hidden=true;" `
+                Assert-LogMatch "camera_probe_event: event=body_hand_render_probe result=matched .*;side=$Side;phase=$Phase;rigid_elements=$RigidElements;arms_hidden=true;" `
                     "The independent-hand gate did not preserve the $Side hand and hidden arms through $Phase."
             }
         }
@@ -583,6 +585,18 @@ if ($RequireBodyIk) {
             "The independent-hand candidate recorded a failed readback or restoration."
         Assert-LogNotMatch "camera_probe_event: event=body_arm_tracking result=applied" `
             "Independent hands overlapped with the native arm IK writer."
+        if ($Run.validation.PSObject.Properties.Name -contains "requireWeaponPoseAfterHand" -and $Run.validation.requireWeaponPoseAfterHand) {
+            foreach ($Side in @("left","right")) {
+                if ($Lines | Where-Object { $_ -match "event=controller_weapon_tracking result=applied .*;side=$Side;" }) {
+                    foreach ($Phase in @("left_eye_complete","right_eye_complete")) {
+                        Assert-LogMatch "event=controller_weapon_render_probe result=matched .*;side=$Side;phase=$Phase;parent_pose=final_hand_socket;" `
+                            "The $Side weapon did not retain its verified pose after the hand/socket through $Phase."
+                    }
+                }
+            }
+            Assert-LogNotMatch "event=controller_weapon_render_probe result=failed" `
+                "The weapon changed after the final parent hand/socket pose."
+        }
     } else {
     $BodyIkLines = @($Lines | Where-Object {
         $_ -match "camera_probe_event: event=body_arm_tracking result=applied"
