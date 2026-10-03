@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "runtime/body_tracking.hpp"
+#include "runtime/gameplay_utility.hpp"
 
 #include "backends/d3d9/hook_registry.hpp"
 #include "runtime/build_identity.hpp"
@@ -42,6 +43,10 @@ constexpr std::uintptr_t kProjectionBuilderRva = 0x0022BC50;
 constexpr std::uintptr_t kRenderViewCoreRva = 0x00030E00;
 constexpr std::uintptr_t kRenderViewEntryRva = 0x002E1C88;
 constexpr std::uintptr_t kRenderViewRva = 0x00030FB0;
+constexpr std::uintptr_t kLevelSpritesEntryRva = 0x002E1C98;
+constexpr std::uintptr_t kLevelSpritesRva = 0x0002E680;
+constexpr std::uintptr_t kSpriteFlushEntryRva = 0x003123B8;
+constexpr std::uintptr_t kSpriteFlushRva = 0x00247990;
 constexpr std::uintptr_t kRendererGlobalRva = 0x00590074;
 constexpr std::ptrdiff_t kRendererCameraPrimaryOffset = 0x1AC;
 constexpr std::ptrdiff_t kRendererCameraSecondaryOffset = 0x1B0;
@@ -105,6 +110,7 @@ CameraProbeEventCallback g_event_callback = nullptr;
 cojvr::runtime::PoseSource* g_pose_source = nullptr;
 cojvr::runtime::BodyTracker g_body_tracker;
 JavaPlayerBridge g_java_player_bridge;
+cojvr::runtime::GameplayUtilityMapper g_gameplay_utility;
 std::atomic_uint64_t g_diagnostic_left_eye_renders{0};
 std::atomic_uint64_t g_diagnostic_right_eye_renders{0};
 std::atomic_uint64_t g_diagnostic_stereo_pairs{0};
@@ -271,16 +277,12 @@ bool GameplayInputChanged(
         std::fabs(left.move.y - right.move.y) > kAxisChange ||
         std::fabs(left.turn.x - right.turn.x) > kAxisChange ||
         std::fabs(left.turn.y - right.turn.y) > kAxisChange ||
-        left.fire_left != right.fire_left ||
-        left.fire_right != right.fire_right ||
-        left.jump != right.jump ||
-        left.reload != right.reload ||
-        left.run != right.run ||
-        left.crouch != right.crouch ||
-        left.interact != right.interact ||
-        left.weapon_next != right.weapon_next ||
-        left.weapon_previous != right.weapon_previous ||
-        left.kick != right.kick;
+        left.equipment_select != right.equipment_select ||
+        left.utility_modifier != right.utility_modifier ||
+        std::any_of(cojvr::runtime::kGameplayDigitalMembers.begin(),
+            cojvr::runtime::kGameplayDigitalMembers.end(), [&](const auto member) {
+                return left.*member != right.*member;
+            });
 }
 
 struct StereoEyeOverride {
@@ -4409,6 +4411,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 snapshot.command.second_eye_render_enabled);
     }
     if (!snapshot.command.tracking_enabled || !StereoCallbacksReady()) {
+        (void)g_gameplay_utility.Update({}, false);
         if (snapshot.command.vr_gameplay_input_enabled) {
             (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
         }
@@ -4421,12 +4424,14 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     void* camera = CameraForView(view);
     if (!camera) {
+        (void)g_gameplay_utility.Update({}, false);
         original(owner, view);
         return;
     }
 
     CameraRenderStateSnapshot natural_render_state{};
     if (!CaptureCameraRenderState(camera, natural_render_state)) {
+        (void)g_gameplay_utility.Update({}, false);
         EmitEvent(
             "camera_native_stereo_state", "unavailable",
             "camera=" + std::to_string(reinterpret_cast<std::uintptr_t>(camera)));
@@ -4439,6 +4444,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         !sample.hmd_pose.pose.orientation_valid || sample.hmd_pose.sequence == 0 ||
         sample.eyes[0].eye != cojvr::runtime::Eye::left ||
         sample.eyes[1].eye != cojvr::runtime::Eye::right) {
+        (void)g_gameplay_utility.Update({}, false);
         if (snapshot.command.vr_gameplay_input_enabled) {
             (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
         }
@@ -4468,6 +4474,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     cojvr::runtime::Pose relative_head_pose{};
     if (!g_pose_tracker.Update(sample.hmd_pose) ||
         !g_pose_tracker.CurrentPose(relative_head_pose)) {
+        (void)g_gameplay_utility.Update({}, false);
         if (snapshot.command.vr_gameplay_input_enabled) {
             (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
         }
@@ -4505,21 +4512,6 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     const std::uint64_t frame_sequence =
         g_stereo_frame_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
-    if (sample.ui_back_pressed) {
-        CoJUiDispatchRoute back_route = CoJUiDispatchRoute::none;
-        std::string back_error;
-        const bool backed = g_java_player_bridge.TryDispatchUiBackPress(
-            &back_error, &back_route);
-        try {
-            std::ostringstream detail;
-            detail << "frame_sequence=" << frame_sequence
-                   << ";source=right_circle;route="
-                   << CoJUiBackDispatchRouteName(back_route);
-            if (!back_error.empty()) detail << ";detail=" << back_error;
-            EmitEvent("native_stereo_ui_back", backed ? "applied" : "failed", detail.str());
-        } catch (...) {
-        }
-    }
     const bool ui_select_pressed =
         sample.ui_select_left_pressed || sample.ui_select_right_pressed ||
         sample.ui_accept_pressed;
@@ -4528,6 +4520,28 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     std::string game_timer_error;
     game_timer_valid = g_java_player_bridge.TryGetActiveGameTimerFrozen(
         game_timer_frozen, &game_timer_error);
+    if (ShouldDispatchCoJNativeUiNavigation(sample.pause_pressed, sample.ui_back_pressed,
+            game_timer_valid, game_timer_frozen)) {
+        CoJUiDispatchRoute back_route = CoJUiDispatchRoute::none;
+        std::string back_error;
+        const bool backed = g_java_player_bridge.TryDispatchUiBackPress(
+            &back_error, &back_route);
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";source=" << (sample.pause_pressed ? "right_options" : "right_circle")
+                   << ";route="
+                   << CoJUiBackDispatchRouteName(back_route);
+            if (!back_error.empty()) detail << ";detail=" << back_error;
+            EmitEvent("native_stereo_ui_back", backed ? "applied" : "failed", detail.str());
+        } catch (...) {
+        }
+    }
+    if (sample.pause_pressed) {
+        // Navigation can change timer ownership before this frame dispatches gameplay.
+        game_timer_valid = g_java_player_bridge.TryGetActiveGameTimerFrozen(
+            game_timer_frozen, &game_timer_error);
+    }
     if (frame_sequence <= 8 || (frame_sequence % 30) == 0) {
         CoJSubtitleRuntimeState subtitle_state{};
         std::string subtitle_error;
@@ -4607,6 +4621,11 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             g_loading_ui_resume_pending = false;
         }
     }
+    // Native blocking-UI ownership is authoritative even when the compositor
+    // has not uploaded a flat frame. Apply neutral input policy on this owner
+    // thread so no short timer transition can leave the utility latch alive.
+    sample.gameplay = g_gameplay_utility.Update(sample.gameplay,
+        snapshot.command.vr_gameplay_input_enabled && game_timer_valid && !game_timer_frozen);
     cojvr::runtime::GameplayInputState gameplay_input = sample.gameplay;
     const bool physical_crouch = g_physical_crouch_state.Update(
         sample.gameplay.active && relative_head_pose.position_valid,
@@ -4668,6 +4687,15 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     const bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
         g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error,
             CoJInputDispatchPhase::non_fire);
+    // Objectives/logs can acquire a blocking UI inside non-fire dispatch.
+    // Release its remaining intents before the later muzzle/fire phase.
+    bool post_input_frozen = false;
+    if (gameplay_input.active && (!g_java_player_bridge.TryGetActiveGameTimerFrozen(
+            post_input_frozen, nullptr) || post_input_frozen)) {
+        (void)g_gameplay_utility.Update({}, false);
+        gameplay_input = {};
+        (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr, CoJInputDispatchPhase::non_fire);
+    }
     if ((snapshot.command.vr_gameplay_input_enabled && !gameplay_input_ok) ||
         gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -4689,6 +4717,21 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << ";weapon_previous="
                             << (gameplay_input.weapon_previous ? "true" : "false")
                             << ";kick=" << (gameplay_input.kick ? "true" : "false")
+                            << ";utility=" << gameplay_input.utility_modifier
+                            << ";focus=" << gameplay_input.focus
+                            << ";walk=" << gameplay_input.walk
+                            << ";alternate_fire=" << gameplay_input.alternate_fire
+                            << ";hands=" << gameplay_input.hands
+                            << ";discard=" << gameplay_input.discard_weapon
+                            << ";objectives=" << gameplay_input.objectives
+                            << ";logs=" << gameplay_input.logs
+                            << ";quick_save=" << gameplay_input.quick_save
+                            << ";quick_load=" << gameplay_input.quick_load
+                            << ";lean=" << gameplay_input.lean_left << ',' << gameplay_input.lean_right
+                            << ";equipment=" << gameplay_input.equipment_select[0]
+                            << gameplay_input.equipment_select[1] << gameplay_input.equipment_select[2]
+                            << gameplay_input.equipment_select[3] << gameplay_input.equipment_select[4]
+                            << gameplay_input.equipment_select[5]
                             << ";ui_select_pressed=" << (ui_select_pressed ? "true" : "false")
                             << ";loading_fire_suppressed="
                             << (loading_ui_input.suppress_fire ? "true" : "false")
@@ -5718,6 +5761,12 @@ bool IsSupportedChromeEngineHash(const std::string_view sha256) noexcept {
     return true;
 }
 
+void ObserveHudBoundary(void*, const CoJHudBoundaryEvent& event) noexcept {
+    const auto frame = g_stereo_frame_sequence.load(std::memory_order_acquire);
+    if (g_stereo_callbacks.observe_hud_boundary)
+        g_stereo_callbacks.observe_hud_boundary(g_stereo_callbacks.context, event, frame);
+}
+
 CameraProbeInstallStatus InitializeCameraProbe(
     const std::filesystem::path& control_path,
     const CameraProbeEventCallback callback,
@@ -5836,6 +5885,19 @@ CameraProbeInstallStatus InitializeCameraProbe(
             }
         }
         g_installed.store(true, std::memory_order_release);
+        if (g_stereo_callbacks.observe_hud_boundary) {
+            const CoJHudBoundaryHookTargets targets{
+                reinterpret_cast<void**>(g_engine_base + kLevelSpritesEntryRva),
+                g_engine_base + kLevelSpritesRva,
+                reinterpret_cast<void**>(g_engine_base + kSpriteFlushEntryRva),
+                g_engine_base + kSpriteFlushRva};
+            const bool readable = IsReadable(targets.sprites_entry, sizeof(void*)) &&
+                IsReadable(targets.flush_entry, sizeof(void*));
+            const bool hud_installed = readable && InstallCoJHudBoundaryProbe(
+                targets, true, &ObserveHudBoundary, nullptr);
+            EmitEvent("camera_hud_probe_install", hud_installed ? "installed" : "disabled",
+                "passive=true;render_replay=false;rt_mutation=false");
+        }
         std::ostringstream detail;
         detail << "engine_sha256=" << *engine_hash
                << ";vtable_rva=0x" << std::hex << kBaseCameraVtableRva
@@ -5875,6 +5937,8 @@ CameraProbeHookState InspectCameraProbe() noexcept {
 
 void ShutdownCameraProbe() noexcept {
     ShutdownMovementTraceObserverNoJni();
+    EmitEvent("camera_hud_probe_restore",
+        RestoreCoJHudBoundaryProbe() ? "restored" : "incomplete", "passive=true");
     try {
         bool view_restored = true;
         std::size_t view_restored_slots = 0;
@@ -5920,6 +5984,7 @@ void ShutdownCameraProbe() noexcept {
         g_stereo_frame_sequence.load(std::memory_order_acquire),
         "shutdown");
     g_java_player_bridge.Reset();
+    g_gameplay_utility = {};
     g_arm_span_calibration.Reset();
     g_arm_span_generation = 0;
     g_loading_ui_input_gate.Reset();

@@ -59,6 +59,7 @@ struct NativeStereoState {
     IDirect3D9* factory = nullptr;
     IDirect3DDevice9* device = nullptr;
     std::atomic_uint64_t device_generation{0};
+    std::atomic<DWORD> native_render_thread{0};
     std::atomic_uint64_t present_telemetry_sequence{0};
     std::atomic_uint64_t capture_resources_generation_logged{0};
     std::atomic_uint64_t transport_sequence{0};
@@ -800,17 +801,17 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         if (menu_dispatch_allowed) {
             // Navigation cancels the prior menu's trigger before moving or
             // selecting anything in the destination menu.
-            if (tracking.ui_back_pressed || tracking.ui_accept_pressed)
+            if ((tracking.ui_back_pressed || tracking.pause_pressed) || tracking.ui_accept_pressed)
                 NeutralizeFlatUiPointer("ui_navigation");
-            if (tracking.ui_back_pressed) g_stereo.flat_ui_select_retry = {};
-            if (tracking.ui_back_pressed) {
+            if ((tracking.ui_back_pressed || tracking.pause_pressed)) g_stereo.flat_ui_select_retry = {};
+            if ((tracking.ui_back_pressed || tracking.pause_pressed)) {
                 cojvr::games::call_of_juarez::CoJUiDispatchRoute back_route =
                     cojvr::games::call_of_juarez::CoJUiDispatchRoute::none;
                 std::string back_error;
                 const bool backed = cojvr::games::call_of_juarez::DispatchCameraUiBackPress(
                     &back_error, &back_route);
                 std::ostringstream detail;
-                detail << "source=right_circle;route="
+                detail << "source=" << (tracking.pause_pressed ? "right_options" : "right_circle") << ";route="
                        << cojvr::games::call_of_juarez::CoJUiBackDispatchRouteName(back_route);
                 if (!back_error.empty()) detail << ";detail=" << back_error;
                 CameraEvent("flat_ui_back", backed ? "applied" : "failed", detail.str().c_str());
@@ -834,8 +835,8 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             // Ray edges arrive only after the accepted motion, tagged with its hand
             // and claim. Raw action edges cannot become valid under a later claim.
             const bool pointer_select = pointer_selection.pending;
-            g_stereo.flat_ui_select_retry.Observe(!tracking.ui_back_pressed && tracking.ui_accept_pressed,
-                !tracking.ui_back_pressed && tracking.ui_accept);
+            g_stereo.flat_ui_select_retry.Observe(!(tracking.ui_back_pressed || tracking.pause_pressed) && tracking.ui_accept_pressed,
+                !(tracking.ui_back_pressed || tracking.pause_pressed) && tracking.ui_accept);
             const bool cross_select = g_stereo.flat_ui_select_retry.ShouldDispatch(true, timer_valid && timer_frozen);
             const bool ui_select_pressed = pointer_select || tracking.ui_accept_pressed;
             const bool select_allowed = pointer_active || tracking.ui_accept || (timer_valid && timer_frozen);
@@ -1379,6 +1380,7 @@ bool BeginStereoFrame(
     sample.ui_select_right_pressed = tracking.ui_select_right_pressed;
     sample.ui_accept = tracking.ui_accept;
     sample.ui_back = tracking.ui_back;
+    sample.pause_pressed = tracking.pause_pressed;
     sample.ui_accept_pressed = tracking.ui_accept_pressed;
     sample.ui_back_pressed = tracking.ui_back_pressed;
     if (tracking.recenter_requested) {
@@ -1395,6 +1397,7 @@ bool CaptureStereoEye(
     std::uint64_t* content_hash) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state || !content_hash) return false;
+    state->native_render_thread.store(GetCurrentThreadId(), std::memory_order_release);
     *content_hash = 0;
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
     IDirect3DDevice9* device = RetainCurrentDevice();
@@ -1659,6 +1662,59 @@ void ReportIncompletePreExitShutdown() noexcept {
     CloseHandle(log);
 }
 
+void ObserveHudBoundary(void* context,
+    const cojvr::games::call_of_juarez::CoJHudBoundaryEvent& event,
+    const std::uint64_t frame_sequence) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state) return;
+    try {
+        std::ostringstream line;
+        line << "native_hud_boundary: stage="
+             << cojvr::games::call_of_juarez::CoJHudBoundaryStageName(event.stage)
+             << ";pass_sequence=" << event.pass_sequence
+             << ";frame_sequence=" << frame_sequence
+             << ";present_sequence=" << state->present_telemetry_sequence.load()
+             << ";thread_id=" << GetCurrentThreadId()
+             << ";owner=0x" << std::hex << reinterpret_cast<std::uintptr_t>(event.owner)
+             << std::dec << ";option=" << event.option;
+        // Query only on the observed native eye-render thread. Never wait for
+        // the device owner, redirect a target, or replay native sprite traversal.
+        std::unique_lock lock(state->device_mutex, std::try_to_lock);
+        if (!lock.owns_lock() || !state->device || GetCurrentThreadId() !=
+            state->native_render_thread.load(std::memory_order_acquire)) {
+            line << ";target_observation=unavailable";
+        } else {
+            Microsoft::WRL::ComPtr<IDirect3DSurface9> target;
+            D3DSURFACE_DESC desc{};
+            D3DVIEWPORT9 viewport{};
+            const HRESULT rt_result = state->device->GetRenderTarget(0, &target);
+            const HRESULT desc_result = target ? target->GetDesc(&desc) : E_FAIL;
+            const HRESULT viewport_result = state->device->GetViewport(&viewport);
+            line << ";device=0x" << std::hex << reinterpret_cast<std::uintptr_t>(state->device)
+                 << ";rt=0x" << reinterpret_cast<std::uintptr_t>(target.Get())
+                 << ";rt_hr=0x" << static_cast<unsigned long>(rt_result)
+                 << ";desc_hr=0x" << static_cast<unsigned long>(desc_result)
+                 << ";viewport_hr=0x" << static_cast<unsigned long>(viewport_result)
+                 << std::dec << ";generation=" << state->device_generation.load()
+                 << ";size=" << desc.Width << ',' << desc.Height << ";format=" << desc.Format
+                 << ";viewport=" << viewport.X << ',' << viewport.Y << ','
+                 << viewport.Width << ',' << viewport.Height;
+            const std::array<std::pair<D3DRENDERSTATETYPE, const char*>, 6> states{{
+                {D3DRS_ALPHABLENDENABLE, "alpha_blend"}, {D3DRS_SRCBLEND, "src_blend"},
+                {D3DRS_DESTBLEND, "dst_blend"}, {D3DRS_COLORWRITEENABLE, "color_write"},
+                {D3DRS_SEPARATEALPHABLENDENABLE, "separate_alpha"}, {D3DRS_ZENABLE, "depth"}}};
+            for (const auto& [key, name] : states) {
+                DWORD value = 0;
+                if (SUCCEEDED(state->device->GetRenderState(key, &value)))
+                    line << ';' << name << '=' << value;
+                else line << ';' << name << "=unavailable";
+            }
+        }
+        if (lock.owns_lock()) lock.unlock();
+        LogLine(line.str());
+    } catch (...) { LogLine("native_hud_boundary: status=observation_exception"); }
+}
+
 void EnsureStarted() noexcept {
     try {
         std::call_once(g_start_once, [] {
@@ -1689,6 +1745,7 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.submit_frame = &SubmitStereoFrame;
                 stereo_callbacks.set_capture_readback_enabled = &SetCaptureReadbackEnabled;
                 stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
+                stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
             }
 
             const auto control_path = GameDirectory() / L"cojvr-camera-control.json";

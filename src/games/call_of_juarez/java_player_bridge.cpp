@@ -253,6 +253,12 @@ const char* CoJUiBackDispatchRouteName(const CoJUiDispatchRoute route) noexcept 
     }
 }
 
+bool ShouldDispatchCoJNativeUiNavigation(
+    const bool pause_pressed, const bool back_pressed,
+    const bool game_timer_valid, const bool game_timer_frozen) noexcept {
+    return pause_pressed || (back_pressed && game_timer_valid && game_timer_frozen);
+}
+
 CoJUiBackDispatchPolicy BuildCoJUiBackDispatchPolicy(
     const bool current_ui_available) noexcept {
     (void)current_ui_available;
@@ -277,7 +283,7 @@ CoJUiPointerDispatchPolicy BuildCoJUiPointerDispatchPolicy(
     };
 }
 
-std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
+std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
     const cojvr::runtime::GameplayInputState& state) noexcept {
     const auto positive = [](const float value) noexcept {
         return std::max(value, 0.0F);
@@ -315,11 +321,28 @@ std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
         {9, state.active && state.fire_left ? 1.0F : 0.0F},
         {10, state.active && state.fire_right ? 1.0F : 0.0F},
         {11, state.active && state.jump ? 1.0F : 0.0F},
+        {12, state.active && state.lean_left ? 1.0F : 0.0F},
+        {13, state.active && state.lean_right ? 1.0F : 0.0F},
+        {14, state.active && state.walk ? 1.0F : 0.0F},
         {16, state.active && state.crouch ? 1.0F : 0.0F},
         {18, state.active && state.run ? 1.0F : 0.0F},
+        {20, state.active && state.alternate_fire ? 1.0F : 0.0F},
+        {21, state.active && state.equipment_select[2] ? 1.0F : 0.0F},
+        {22, state.active && state.equipment_select[1] ? 1.0F : 0.0F},
+        {23, state.active && state.equipment_select[0] ? 1.0F : 0.0F},
+        {24, state.active && state.equipment_select[3] ? 1.0F : 0.0F},
+        {25, state.active && state.equipment_select[4] ? 1.0F : 0.0F},
+        {26, state.active && state.equipment_select[5] ? 1.0F : 0.0F},
+        {27, state.active && state.discard_weapon ? 1.0F : 0.0F},
+        {29, state.active && state.hands ? 1.0F : 0.0F},
         {30, state.active && state.interact ? 1.0F : 0.0F},
         {31, state.active && state.reload ? 1.0F : 0.0F},
+        {32, state.active && state.objectives ? 1.0F : 0.0F},
+        {33, state.active && state.logs ? 1.0F : 0.0F},
+        {34, state.active && state.quick_load ? 1.0F : 0.0F},
+        {35, state.active && state.quick_save ? 1.0F : 0.0F},
         {39, state.active && state.kick ? 1.0F : 0.0F},
+        {40, state.active && state.focus ? 1.0F : 0.0F},
         {46, state.active && state.weapon_next ? 1.0F : 0.0F},
         {47, state.active && state.weapon_previous ? 1.0F : 0.0F},
     }};

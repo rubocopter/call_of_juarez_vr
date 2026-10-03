@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 
 namespace cojvr::runtime {
 
@@ -53,7 +54,41 @@ struct GameplayInputState {
     bool weapon_next = false;
     bool weapon_previous = false;
     bool kick = false;
+    bool walk = false;
+    bool focus = false;
+    bool alternate_fire = false;
+    bool hands = false;
+    bool discard_weapon = false;
+    bool objectives = false;
+    bool logs = false;
+    bool quick_save = false;
+    bool quick_load = false;
+    bool lean_left = false;
+    bool lean_right = false;
+    // Logical equipment channels; each game adapter defines their inventory meaning.
+    std::array<bool, 6> equipment_select{};
+    bool utility_modifier = false;
+    // Availability is distinct from an observed release. Mask order is
+    // kGameplayDigitalMembers followed by the six equipment channels.
+    std::uint32_t digital_available = 0xFFFFFFFFU;
+    bool move_available = true;
+    bool turn_available = true;
+    bool utility_available = true;
+    std::uint64_t input_context_generation = 0;
     bool active = false;
+};
+
+inline constexpr std::array<bool GameplayInputState::*, 21> kGameplayDigitalMembers{
+    &GameplayInputState::fire_left, &GameplayInputState::fire_right,
+    &GameplayInputState::jump, &GameplayInputState::reload, &GameplayInputState::run,
+    &GameplayInputState::crouch, &GameplayInputState::interact,
+    &GameplayInputState::weapon_next, &GameplayInputState::weapon_previous,
+    &GameplayInputState::kick, &GameplayInputState::walk, &GameplayInputState::focus,
+    &GameplayInputState::alternate_fire, &GameplayInputState::hands,
+    &GameplayInputState::discard_weapon, &GameplayInputState::objectives,
+    &GameplayInputState::logs, &GameplayInputState::quick_save,
+    &GameplayInputState::quick_load, &GameplayInputState::lean_left,
+    &GameplayInputState::lean_right,
 };
 
 struct EyeFov {

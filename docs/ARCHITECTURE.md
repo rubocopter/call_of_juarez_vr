@@ -117,7 +117,7 @@ UI pointing is presentation plus exact-game UI policy:
 3. The presenter publishes a hand/claim/click mailbox. On the game thread, the current UI's native sprite-tree mouse dispatcher receives the previous and projected source-pixel positions, performing the shipped bounds/capture tests and enter/move/leave callbacks. Only then does `MainMenuModule.GetGlobalCursor() -> UICursor.SetPos -> OnMouseMove` update the cursor visual. Native calls require the recognized executable and ChromeEngine SHA-256. There is no desktop cursor warp, `SendInput` movement or `WM_MOUSEMOVE` publication. Exact seams and limits are recorded in [the UI mouse boundary](research/COJ_UI_MOUSE_PATH.md).
 4. UI resolution follows the object that actually owns mouse processing. The shipped `MainMenuModule` exposes `m_cYesNoDlg` but no `m_bYesNoDlgVisible` field. Modal discovery therefore treats a non-null `m_cYesNoDlg` as optional input-root metadata; a missing field, null object or JNI observation failure is cleared locally before falling back to the existing `FindUI(m_nCurUI)` route. The global `MainMenuModule` current UI is preferred for menu/pause routing; the active-game module remains the fallback when no global UI is available.
 5. Before/after writing, the resolved UI's `GetMousePos(LVector;)Z` observes native input coordinates in X/Z, normalized to source X/Y. Sprite `UICursor.GetPos` is a distinguishable fallback only when no concrete UI exists during startup. Movement beyond the last accepted VR input position or a held physical mouse button gives the mouse priority for 1.5 seconds after its latest activity; observation continues while the laser is hidden. Native input readback must match within one pixel before accepting delivery.
-6. Cross is global accept, Circle is global back, and L2/R2 select from the owning ray. A queued trigger press retains its target until a subsequent game `Present` observes it still applied. An accepted tap survives ordinary trigger release; failed mouse delivery/readback, ownership/focus loss, Back/Cross navigation and a change in the shipped `MainMenuModule.m_nCurUI` index cancel it. Failed delivery releases the retained target so the automatic ray continues moving. Selection rechecks native input/index and serializes dispatch with mailbox cancellation; an old hand/claim/click completion cannot consume a newer click. Gameplay weapon bindings remain in their existing gameplay action set. A shoulder held through a menu-to-game transition cannot switch weapons until an active released sample is observed.
+6. Cross is global accept, Circle is UI back, Options is explicit pause/navigation, and L2/R2 select from the owning ray. Circle navigation is allowed only in flat UI or a valid frozen native UI; ordinary gameplay retains its kick action. A queued trigger press retains its target until a subsequent game `Present` observes it still applied. An accepted tap survives ordinary trigger release; failed mouse delivery/readback, ownership/focus loss, Back/Options/Cross navigation and a change in the shipped `MainMenuModule.m_nCurUI` index cancel it. Failed delivery releases the retained target so the automatic ray continues moving. Selection rechecks native input/index and serializes dispatch with mailbox cancellation; an old hand/claim/click completion cannot consume a newer click. Gameplay weapon bindings remain in their existing gameplay action set. A shoulder held through a menu-to-game transition cannot interact or switch weapons until an active released sample is observed.
 7. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
 8. Paused-hint dismissal follows `LawmanModule.m_GameMode -> GameMode.GetHintManager() -> HintManager`. `LawmanModule` extends `Module` and does not expose `GetHintManager`; looking up that getter on the module blocks selection once a campaign module exists. Field/method lookup uses the declaring shipped classes and clears lookup exceptions before fallback. A null game mode or hint manager allows ordinary UI selection; only a pausing hint consumes the press.
 
@@ -147,6 +147,30 @@ is now **headset-validated for the exercised ordinary, Yes/No and gameplay-pause
 menus**: the latest physical candidate restored complete VR-pointer menu operation.
 Earlier Windows-only and simultaneous Java/Windows routes remain physically
 rejected.
+
+## Expanded campaign input
+
+The shared runtime carries semantic walk/focus/alternate-fire, put-away/discard,
+objectives/logs, save/load, lean and six equipment intents. Only the CoJ adapter
+maps them to exact native action IDs, including authoritative logs 33, load 34
+and save 35. The existing non-fire/fire transaction remains phased: current
+muzzle publication precedes fire delivery, and pending releases retain ownership.
+
+`GameplayUtilityMapper` owns the default secondary layer and release barriers.
+Triangle selects secondary functions; L1 directly interacts, R1 cycles forward.
+The layer suppresses fire/snap, latches one right-stick sector per deflection,
+and blocks held buttons from changing meaning at entry or firing/turning at exit.
+Focus toggles deliberately with Triangle/Square, permits ordinary fire after
+leaving the layer, and clears on context loss. Explicit custom focus stays held.
+The CoJ owner applies this neutral policy after observing native timer/UI
+ownership, independently of asynchronously uploaded presentation mode. A post-input
+timer check releases intents when objectives/logs acquire a blocking UI before
+fire delivery. Presenter context generations retain focus/dashboard/pose losses
+even if no inactive sample reaches the game. Per-action availability is distinct
+from a released button; only an available release or valid centered stick rearms
+its barrier. Inactive contexts release every logical action before reacquisition. [The exact controls document](research/COJ_PC_CONTROLS_AND_HUD.md#secondary-sense-layer)
+owns the user layout and distinguishes gesture selection from a future visible
+inventory wheel. New mechanics remain host-tested pending physical acceptance.
 
 ## Tracking, locomotion and body ownership
 
@@ -401,8 +425,11 @@ tutorials or other gameplay HUD. The [exact PC controls/HUD boundary](research/C
 records native feedback owners and incomplete mechanics coverage. Game adapters
 own native action/target/inventory semantics; a future renderer HUD layer owns
 capture and presentation, and shared runtime owns neutral logical input and UI
-ownership policy. Native sprite draw ordering must be measured before choosing
-that capture boundary.
+ownership policy. Exact native inspection establishes world-before-sprites-before-
+batch-flush on the combined callback; passive probes now correlate the naturally
+scheduled sprite and flush boundaries with current device/frame/target state.
+They never replay traversal or redirect rendering. The live route and usable
+alpha/coverage remain unproved, so HUD capture/composition is still pending.
 
 The gameplay reticle uses the verified muzzle/direction when available. It is
 projected through each captured eye basis and asymmetric frustum and drawn on

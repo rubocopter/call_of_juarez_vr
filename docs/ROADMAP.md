@@ -94,7 +94,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 - PS VR2 Sense action/binding layer: **live-tested** for gameplay actions; recenter/snap have higher validation.
 - Flat-menu pointer: Windows injection and sprite-only internal-cursor delivery are **physically rejected**. Native sprite-tree mouse events plus the exact `0xCC420` click route are **headset-validated for the exercised ordinary menus, visible Yes/No dialog and gameplay pause menu**, with controller/mouse coexistence preserved in the previously exercised path.
-- Cross accept / Circle Escape-back / L2-R2 ray-select: **host-tested follow-up**.
+- Cross accept / Circle UI-back / Options pause / L2-R2 ray-select: **host-tested follow-up**; Circle kick/pause separation awaits physical acceptance.
 - Loading continuation through the native loading-input boundary: **host-tested**.
 - Subtitle visibility: **open physical check**; distinguish shipped setting state from presentation loss.
 - Controller-origin flat-theater beam: **live-exercised / visible in headset**; alignment and accurate controller-only UI operation remain open.
@@ -105,15 +105,20 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Physical gun-origin/direction acceptance: **pending/rejected**.
 - Shot/effect coherence: **host-tested follow-up** after physical rejection; fire delivery follows current muzzle publication, visual direction retains native spread around the tracked base, and combustion/smoke use the verified muzzle and complete authored barrel basis without a restored-weapon attachment. Both-eye hand/socket/weapon pose and restoration are live-tested technically; actual bullets, tracers, light and effects remain pending headset acceptance.
 - Motion-controlled reloads and richer world interactions: **planned**.
-- PC control and gameplay-HUD completeness: **planned / incomplete**. The
-  [exact PC catalogue](research/COJ_PC_CONTROLS_AND_HUD.md) distinguishes the
-  official manual and shipped actions from third-party controller layouts.
+- Expanded PC campaign controls: **host-tested**, pending physical acceptance.
+  The [exact PC catalogue](research/COJ_PC_CONTROLS_AND_HUD.md) records direct L1/F,
+  separate Options/pause, the Triangle utility layer, focus toggle, alternate
+  fire, put-away/discard, objectives/logs and six equipment intents. Save/load
+  and Q/E lean remain deliberate custom bindings. The gesture selector has no
+  visible inventory wheel or available-item filtering yet; XR focus magnification
+  remains open.
+- Gameplay HUD recovery: **planned / incomplete**. Exact sprite traversal and
+  batch-flush boundaries are identified; their passive correlation/target probes
+  are **host-tested**, with live route and usable coverage/alpha unproved.
   Restore hints, contextual action, subtitles, health/ammo and native no-shoot
-  feedback first; separate Options/pause from Circle/kick, then cover focus,
-  alternate fire, put-away/discard, objectives/logs and direct weapon selection.
-  A native-inventory radial selector and wrist compass follow essential feedback.
-  Whip, horses, climbing, concentration and duels require their own input/HUD
-  gates; ordinary menus, gun firing and locomotion do not accept these mechanics.
+  feedback first. A native-inventory wheel and wrist compass follow essential
+  feedback. Whip, horses, climbing, concentration and duels retain separate
+  input/HUD gates; ordinary menus, gun firing and locomotion do not accept them.
 
 ## Milestone 5 — additional renderers and games
 

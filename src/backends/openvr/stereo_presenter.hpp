@@ -53,6 +53,7 @@ struct OpenVrTrackingSample {
     bool ui_back = false;
     bool ui_accept_pressed = false;
     bool ui_back_pressed = false;
+    bool pause_pressed = false;
     bool ui_actions_allowed = false;
 };
 

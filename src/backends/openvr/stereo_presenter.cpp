@@ -126,6 +126,8 @@ struct OpenVrStereoPresenter::Impl {
     bool latest_left_aim_active = false;
     bool latest_right_aim_active = false;
     runtime::GameplayInputState latest_gameplay{};
+    std::uint64_t gameplay_context_generation = 0;
+    bool gameplay_context_active = false;
     std::uint64_t pose_sequence = 0;
     bool recenter_pending = false;
     bool latest_ui_select_left = false;
@@ -137,6 +139,7 @@ struct OpenVrStereoPresenter::Impl {
     bool latest_ui_actions_allowed = false;
     bool ui_accept_pressed_pending = false;
     bool ui_back_pressed_pending = false;
+    bool pause_pressed_pending = false;
 
     mutable std::mutex error_mutex;
     std::string error;
@@ -920,18 +923,31 @@ struct OpenVrStereoPresenter::Impl {
                             if (!dashboard_visible && runtime_state.focused &&
                                 native_gameplay_active) {
                                 gameplay = polled_gameplay;
-                                if (pointer_gameplay_gate.left_blocked()) gameplay.weapon_previous = false;
-                                if (pointer_gameplay_gate.right_blocked()) gameplay.weapon_next = false;
+                                if (pointer_gameplay_gate.left_blocked()) {
+                                    gameplay.interact = false;
+                                    gameplay.digital_available &= ~(1U << 6);
+                                }
+                                if (pointer_gameplay_gate.right_blocked()) {
+                                    gameplay.weapon_next = false;
+                                    gameplay.digital_available &= ~(1U << 7);
+                                }
                                 if (flat_ui_fire_release_required) {
                                     gameplay.fire_left = false;
                                     gameplay.fire_right = false;
-                                    if (!polled_gameplay.fire_left && !polled_gameplay.fire_right) {
+                                    gameplay.digital_available &= ~3U;
+                                    if ((polled_gameplay.digital_available & 3U) == 3U &&
+                                        !polled_gameplay.fire_left && !polled_gameplay.fire_right) {
                                         flat_ui_fire_release_required = false;
                                     }
                                 }
                             }
                         }
                     }
+                    if (gameplay.active != gameplay_context_active) {
+                        ++gameplay_context_generation;
+                        gameplay_context_active = gameplay.active;
+                    }
+                    gameplay.input_context_generation = gameplay_context_generation;
                     const bool left_handgrip_valid = input_polled &&
                         hand_poses.left_grip_active &&
                         hand_poses.left_grip.position_valid &&
@@ -1114,6 +1130,7 @@ struct OpenVrStereoPresenter::Impl {
                             ui_select_right_pressed_pending = false;
                             ui_accept_pressed_pending = false;
                             ui_back_pressed_pending = false;
+                            pause_pressed_pending = false;
                         }
                         if (latest_ui_actions_allowed && actions.ui_select_left_pressed) {
                             ui_select_left_pressed_pending = true;
@@ -1127,6 +1144,9 @@ struct OpenVrStereoPresenter::Impl {
                         if (latest_ui_actions_allowed && actions.ui_back_pressed) {
                             ui_back_pressed_pending = true;
                         }
+                        if (latest_ui_actions_allowed && actions.pause_pressed) {
+                            pause_pressed_pending = true;
+                        }
                         ++pose_sequence;
                         if (recenter) recenter_pending = true;
                     }
@@ -1136,11 +1156,15 @@ struct OpenVrStereoPresenter::Impl {
                     flat_ui_pointer = {};
                     PublishFlatUiPointer(flat_ui_pointer);
                     std::lock_guard lock(tracking_mutex);
+                    latest_gameplay = {};
+                    if (gameplay_context_active) ++gameplay_context_generation;
+                    gameplay_context_active = false;
                     latest_pose = {};
                     latest_ui_actions_allowed = false;
                     latest_ui_accept = latest_ui_back = false;
                     ui_select_left_pressed_pending = ui_select_right_pressed_pending = false;
                     ui_accept_pressed_pending = ui_back_pressed_pending = false;
+                    pause_pressed_pending = false;
                 }
 
                 d3d9::StereoCpuFrame frame{};
@@ -1562,6 +1586,8 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_left_aim_active = false;
             impl_->latest_right_aim_active = false;
             impl_->latest_gameplay = {};
+            impl_->gameplay_context_generation = 0;
+            impl_->gameplay_context_active = false;
             impl_->latest_ui_select_left = false;
             impl_->latest_ui_select_right = false;
             impl_->latest_ui_accept = false;
@@ -1573,6 +1599,7 @@ bool OpenVrStereoPresenter::Start(
             impl_->ui_select_right_pressed_pending = false;
             impl_->ui_accept_pressed_pending = false;
             impl_->ui_back_pressed_pending = false;
+            impl_->pause_pressed_pending = false;
         }
         impl_->pose_updates.store(0, std::memory_order_release);
         impl_->frames_uploaded.store(0, std::memory_order_release);
@@ -1661,12 +1688,14 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.ui_back = impl_->latest_ui_back;
         sample.ui_accept_pressed = impl_->ui_accept_pressed_pending;
         sample.ui_back_pressed = impl_->ui_back_pressed_pending;
+        sample.pause_pressed = impl_->pause_pressed_pending;
         sample.ui_actions_allowed = impl_->latest_ui_actions_allowed;
         impl_->recenter_pending = false;
         impl_->ui_select_left_pressed_pending = false;
         impl_->ui_select_right_pressed_pending = false;
         impl_->ui_accept_pressed_pending = false;
         impl_->ui_back_pressed_pending = false;
+        impl_->pause_pressed_pending = false;
         return true;
     } catch (...) {
         return false;

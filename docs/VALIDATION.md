@@ -467,13 +467,28 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 
 ## PC mechanics and gameplay HUD completeness
 
-**Planned / open.** Menu operation and the alignment reticle do not establish
-complete campaign control or HUD coverage. The authoritative action catalogue
+**Input expansion and passive boundary probe: host-tested; physical acceptance
+open. HUD capture/composition: planned.** Menu operation and the alignment reticle
+do not establish complete campaign control or HUD coverage. The authoritative action catalogue
 and native feedback owners are recorded in
 [the PC controls/HUD research](research/COJ_PC_CONTROLS_AND_HUD.md). Do not count
 hidden/developer actions as mandatory missing buttons or substitute a third-party
 Steam Input layout for official PC defaults. This gate adds acceptance requirements;
-it does not claim those adaptations exist in the current physical candidate.
+it does not promote any new physical gate.
+
+Host checks cover pause/kick dispatch, the expanded native action catalogue,
+manifest/default-binding consistency, modifier entry/exit and focus-loss release,
+latched selection without delayed snap/fire, persistent focus with fresh fire,
+and passive sprite/flush forwarding and owned restoration. The probe does not
+capture HUD pixels and does not establish alpha/coverage or live render order.
+
+For the next controller check, use the documented Triangle layer with L1 for F
+and Options for pause. Test ordinary Circle kick, modifier focus on/off followed
+by firing, alternate fire, put-away/discard, objectives/logs and available equipment
+selection. Repeat after dashboard/menu transitions with held buttons. Inspect
+sampled `native_hud_boundary` events for sprite/flush versus world capture/Present
+ordering and render-target state. Preserve raw observations under ignored work.
+No complete wheel, XR zoom or readable HUD is claimed by this candidate.
 
 When corresponding features are implemented, a controller-only campaign pass
 must demonstrate:
@@ -499,7 +514,7 @@ must demonstrate:
   without accidental combat activation or changing accepted native shaping.
 
 Fresh host checks cover action IDs, input ownership, failure/release behavior and
-HUD frame correlation. Each mechanic's live execution and visual/readability/
+HUD probe forwarding; actual HUD frame correlation requires a live run. Each mechanic's live execution and visual/readability/
 comfort gate remain separate; a binding, synthetic HUD or screenshot cannot
 promote them to headset-validated.
 

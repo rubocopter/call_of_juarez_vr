@@ -43,56 +43,93 @@ outside that manual are explicitly marked.
 | 9 | Left mouse / left-hand weapon action | left mouse | L2 |
 | 10 | Right mouse / right-hand weapon action | right mouse | R2 |
 | 11 | Jump | Space | right Cross |
-| 12 | Lean left | Q | no native action binding; room-scale lean is camera translation |
-| 13 | Lean right | E | no native action binding; room-scale lean is camera translation |
-| 14 | Walk | Shift | no explicit walk action; analog speed is a separate contract |
+| 12 | Lean left | Q | custom-bindable native lean; room-scale lean remains camera translation |
+| 13 | Lean right | E | custom-bindable native lean; room-scale lean remains camera translation |
+| 14 | Walk | Shift | Triangle + left-stick click; analog speed remains separate |
 | 15 | Toggle walk | unassigned | absent |
 | 16 | Crouch | left Ctrl | right-stick click and physical crouch policy |
 | 17 | Toggle crouch | unassigned | absent |
 | 18 | Horse gallop / multiplayer run | Caps Lock | left-stick click, named `run` |
 | 19 | Toggle horse gallop / run | unassigned | absent |
-| 20 | Toggle alternate fire | Z | absent |
-| 21 | Select rifle / long weapon | 3 | no direct selection |
-| 22 | Select right pistol | 2 | no direct selection |
-| 23 | Select left pistol | 1 | no direct selection |
-| 24 | Select dynamite | 4 | no direct selection |
-| 25 | Select Bible (Ray) / whip (Billy) | 5 (manual labels whip) | no direct selection |
-| 26 | Select bow | 6 | no direct selection |
-| 27 | Discard weapon | Backspace | absent |
+| 20 | Toggle alternate fire | Z | Triangle + Cross |
+| 21 | Select rifle / long weapon | 3 | utility sector 3 / custom equipment_3 |
+| 22 | Select right pistol | 2 | utility sector 2 / custom equipment_2 |
+| 23 | Select left pistol | 1 | utility sector 1 / custom equipment_1 |
+| 24 | Select dynamite | 4 | utility sector 4 / custom equipment_4 |
+| 25 | Select Bible (Ray) / whip (Billy) | 5 (manual labels whip) | utility sector 5 / custom equipment_5 |
+| 26 | Select bow | 6 | utility sector 6 / custom equipment_6 |
+| 27 | Discard weapon | Backspace | Triangle + L1 / utility sector 8 |
 | 28 | Switch weapons, hidden from ordinary menu | not a documented PC control | absent; distinct from next/previous |
-| 29 | Hands / put weapons away | 0 | absent |
-| 30 | Contextual action / execute active trigger | F | left Triangle, `interact` |
+| 29 | Hands / put weapons away | 0 | Triangle + Circle / utility sector 7 |
+| 30 | Contextual action / execute active trigger | F | L1, `interact` |
 | 31 | Reload | R | left Square |
-| 32 | Show objectives | O | absent |
-| 33 | Show dialogue and hint logs | L | absent |
-| 34 | Quick load | F8 | absent |
-| 35 | Quick save | F5 | absent |
+| 32 | Show objectives | O | Triangle + right-stick click |
+| 33 | Show dialogue and hint logs | L | Triangle + R2 |
+| 34 | Quick load | F8 | custom binding only; no default combat chord |
+| 35 | Quick save | F5 | custom binding only; no default combat chord |
 | 36 | Unnamed/developer slot | not a documented PC control | absent |
 | 37 | Cheat menu/developer slot | not a documented PC control | absent |
 | 38 | Bullet-time slot, hidden from ordinary menu | not a documented PC control | absent; concentration uses native weapon-state transitions |
-| 39 | Kick | C | right Circle; conflicts with global Escape/back |
-| 40 | Focus / squint | X | absent |
+| 39 | Kick | C | right Circle during gameplay; back only in owned UI |
+| 40 | Focus / squint | X | Triangle + Square toggles native focus; VR magnification open |
 | 41 | Multiplayer statistics | Tab | absent |
 | 42 | Multiplayer chat | Y | absent |
 | 43 | Multiplayer team chat | U | absent |
 | 44 | Multiplayer team/class selection | T | absent |
 | 45 | Multiplayer voice | V | absent |
 | 46 | Next weapon | mouse wheel up | R1 |
-| 47 | Previous weapon | mouse wheel down | L1 |
+| 47 | Previous weapon | mouse wheel down | Triangle + R1 |
 
-The manifest has twelve gameplay actions. Movement supplies four native values,
-and continuous look supplies two neutral values, producing sixteen entries in
-the native dispatch array. This is not complete PC gameplay coverage.
+The manifest exposes thirty gameplay actions, including the utility modifier and
+custom-bindable campaign controls. The game adapter supplies thirty-three native
+values: shaped movement, neutral continuous look, and the demonstrated action IDs.
+Hidden/developer and multiplayer text/voice actions remain outside this campaign
+layout. Native equipment actions decide whether the selected item exists; the
+selector does not yet query inventory or hide unavailable sectors.
 
 `Data/InputActions.def` incorrectly labels quick save and quick load with the
 same ID 33. The shipped class identifies 33 as logs, 34 as quick load and 35 as
 quick save. Do not build new mappings from that duplicate definition.
 
-Global VR controls are Create/recenter, Cross/accept, Circle/back and L2/R2 ray
-selection. Circle/back is dispatched inside the native-stereo gameplay path,
-not just the flat menus; its simultaneous kick binding is an ownership conflict.
-Options has no binding in the current Sense asset. A proposed layout must give
-pause its own Options action and scope back/accept/select to the owning UI.
+Options has a separate global pause action. Circle is back in flat menus or a
+valid frozen native UI, and kick in ordinary gameplay. Unknown timer ownership
+cannot authorize Circle navigation. Explicit Options can request the native
+Escape route to open pause. Create/recenter, Cross/accept and L2/R2 ray selection
+retain their existing routes.
+
+### Secondary Sense layer
+
+Hold left Triangle for secondary functions. L1 otherwise performs contextual F.
+Normal fire, jump, reload, kick, gallop/run and stick shaping retain their native
+semantics. While the modifier is active, firing and snap turning are suppressed.
+
+| With Triangle held | Intent |
+| --- | --- |
+| Square | toggle native focus; repeat to exit |
+| Cross | alternate fire mode |
+| Circle | put weapons away / hands |
+| L1 | discard weapon |
+| R1 | previous weapon |
+| R2 | open dialogue/hint logs |
+| Left-stick click | slow walk while held |
+| Right-stick click | objectives |
+
+The right stick provides eight gesture sectors, clockwise from up: left pistol,
+right pistol, rifle, dynamite, Bible/whip, bow, hands and discard. Start from a
+neutral stick, deflect to choose, and return to neutral before choosing again.
+Crossing sectors while deflected retains the first choice. This is quick selection,
+not a visible inventory wheel; item icons, available-item filtering and tracked
+wheel presentation remain planned.
+
+Unavailable controls cannot count as observed releases. Native blocking UI and
+presenter context generations reset the layer without relying on texture uploads.
+Inputs held before entering the layer must be released before becoming secondary
+actions. Closing it cannot turn a held logs trigger into a shot or a held selection
+stick into a snap. Focus persists after leaving the layer so ordinary aiming/fire
+can continue, but resets on focus/menu/pose loss. Explicit custom focus remains a
+held action. Save/load and native Q/E lean are available to deliberate custom
+SteamVR bindings; no save/load chord is assigned during combat. Actual XR zoom
+magnification is still open, despite native focus-state delivery.
 
 ## Mechanics that a button list does not cover
 
@@ -144,9 +181,31 @@ The current native-stereo pair is captured in the camera render-view hook.
 projected points; the presenter draws a fixed black/white cross. It carries no
 native HUD sprites/text, target identity, no-shoot state or weapon availability.
 The operator reports missing gameplay HUD. This demonstrates incomplete
-presentation, not that every native HUD object has stopped updating. The exact
-native sprite draw/capture ordering remains to be measured before selecting a
-HUD capture hook; camera scene capture alone is not evidence of complete UI.
+presentation, not that every native HUD object has stopped updating.
+
+Exact native inspection identifies `CLevel` sprite traversal at RVA `0x2E680`
+(vtable entry `0x2E1C98`) and `CD3DRenderer` batch flush at `0x247990`
+(entry `0x3123B8`). Both take the native owner in ECX; flush additionally takes
+one 32-bit stack option. The combined callback `0x1D0A30` renders world views,
+then sprites, then flushes queued geometry. The present eye captures inside
+`0x30FB0` therefore precede HUD drawing on that route. The sprite-only callback
+`0x1D0BE0` is separate; the actual live script route is not yet accepted.
+
+Sprite traversal is not pure: AVI servicing, callbacks and child traversal can
+change state. Never recover HUD by replaying it for the second eye. A future
+capture must observe the naturally scheduled pass once and remain active through
+batch flush. Subtitles register independent level sprites and cannot be assumed
+to be HUDManager descendants.
+
+The candidate installs a passive, exact-build guarded observation of those two
+vtable entries. Sampled begin/end events correlate sprite pass, native stereo
+frame, Present sequence, thread, device generation, current render target,
+viewport and blending state. Device queries require the observed native render
+thread and never wait for its device lock. Original calls execute once, with
+unchanged arguments; restoration preserves foreign hooks. No render target is
+redirected and no sprite pass is replayed. Host tests cover forwarding and owned
+restoration; live scheduling, target ownership and usable alpha/coverage still
+require evidence before implementing HUD capture and composition.
 
 The native red no-shoot indication is separate from reticle alignment:
 `HUDCrosshairHand.CanShowDontShot` delegates to `Being.CanShowDontShot(hand)`;
@@ -164,7 +223,7 @@ predicates and must remain distinguishable from ordinary weapon alignment.
    native availability and dismissal rules, including paused hints. Choose the
    UI render/capture owner from measured ordering and keep UI work outside the
    second world-render simulation/update path.
-2. Separate Options/pause from Circle/kick and provide focus, alternate fire,
+2. Physically validate Options/pause versus Circle/kick, focus, alternate fire,
    put-away/discard, direct weapon choice, objectives and logs. Explicit slow
    walk and accessibility crouch must remain available. Keep quick load/save
    accessible without accidental activation during combat.
@@ -180,9 +239,10 @@ predicates and must remain distinguishable from ordinary weapon alignment.
 5. Establish separate physical gates for contextual carry/put-down, two-handed
    aim, whip, bow, dynamite, Bible, concentration, duels, climbing and horses.
 
-These adaptations are **planned**. The catalogue and presentation limitations
-are source/manual findings, not host-tested implementations or physical
-acceptance. [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
+The input expansion and passive HUD observation are **host-tested**. Complete
+HUD capture, visible inventory wheel, wrist compass and XR focus magnification
+remain **planned/open**. New controls and special mechanics still require live
+and headset acceptance; source/manual findings are not physical acceptance. [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
 owns their acceptance gate; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-interactions)
 owns priority. Local settings snapshots and extracted manual/class evidence
 belong under ignored `work/`.

@@ -104,6 +104,9 @@ struct CoJUiBackDispatchPolicy {
 
 [[nodiscard]] CoJUiBackDispatchPolicy BuildCoJUiBackDispatchPolicy(
     bool current_ui_available) noexcept;
+[[nodiscard]] bool ShouldDispatchCoJNativeUiNavigation(
+    bool pause_pressed, bool back_pressed,
+    bool game_timer_valid, bool game_timer_frozen) noexcept;
 [[nodiscard]] bool ShouldFallbackCoJUiBack(
     CoJCurrentUiResolution resolution) noexcept;
 
@@ -169,7 +172,7 @@ private:
 // Exact Call of Juarez action IDs from Data/InputActions.def/InputSettings.
 // Stick axes are decomposed into the game's directional action model while
 // button semantics stay independent from the physical XR controller profile.
-[[nodiscard]] std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
+[[nodiscard]] std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
     const cojvr::runtime::GameplayInputState& state) noexcept;
 [[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
 enum class CoJInputDispatchPhase { all, non_fire, fire };

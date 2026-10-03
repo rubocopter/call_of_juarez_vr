@@ -73,6 +73,7 @@ if(COJVR_ENABLE_OPENXR)
 endif()
 
 add_library(cojvr_runtime STATIC
+    src/runtime/gameplay_utility.cpp
     src/runtime/body_ik.cpp
     src/runtime/body_tracking.cpp
     src/runtime/pose_source.cpp
@@ -101,6 +102,7 @@ add_library(cojvr_d3d9_hooks STATIC
 )
 
 add_library(cojvr_coj_camera_probe STATIC
+    src/games/call_of_juarez/hud_boundary_probe.cpp
     src/games/call_of_juarez/camera_probe.cpp
     src/games/call_of_juarez/game_shutdown_hook.cpp
     src/games/call_of_juarez/body_adapter.cpp
@@ -404,6 +406,7 @@ if(COJVR_BUILD_TESTS)
             -BinaryDirectory "${CMAKE_BINARY_DIR}"
     )
     add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
+    add_test(NAME openvr_action_assets COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/openvr_action_assets.py")
     add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(
         NAME provenance_tools
@@ -527,6 +530,12 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME camera_probe COMMAND cojvr_camera_probe_test)
 
     add_executable(cojvr_body_adapter_test tests/body_adapter.cpp)
+    add_executable(cojvr_hud_boundary_probe_test tests/hud_boundary_probe.cpp)
+    target_link_libraries(cojvr_hud_boundary_probe_test PRIVATE cojvr_coj_camera_probe)
+    add_test(NAME hud_boundary_probe COMMAND cojvr_hud_boundary_probe_test)
+    add_executable(cojvr_gameplay_utility_test tests/gameplay_utility.cpp)
+    target_link_libraries(cojvr_gameplay_utility_test PRIVATE cojvr_runtime)
+    add_test(NAME gameplay_utility COMMAND cojvr_gameplay_utility_test)
     target_link_libraries(cojvr_body_adapter_test PRIVATE cojvr_coj_camera_probe)
     target_compile_features(cojvr_body_adapter_test PRIVATE cxx_std_20)
     if(MSVC)

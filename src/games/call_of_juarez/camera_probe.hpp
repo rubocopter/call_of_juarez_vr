@@ -1,4 +1,5 @@
 #pragma once
+#include "games/call_of_juarez/hud_boundary_probe.hpp"
 
 #include "runtime/pose_source.hpp"
 
@@ -197,6 +198,7 @@ struct CameraStereoFrameSample {
     bool ui_back = false;
     bool ui_accept_pressed = false;
     bool ui_back_pressed = false;
+    bool pause_pressed = false;
 };
 
 struct CameraStereoDiagnosticCounters {
@@ -264,6 +266,8 @@ struct CameraStereoRuntimeCallbacks {
     bool (*diagnostic_counters)(
         void* context,
         CameraStereoDiagnosticCounters& counters) noexcept = nullptr;
+    void (*observe_hud_boundary)(void* context, const CoJHudBoundaryEvent& event,
+        std::uint64_t frame_sequence) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

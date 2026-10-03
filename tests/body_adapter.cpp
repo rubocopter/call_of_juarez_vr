@@ -163,6 +163,14 @@ int main() {
 
     const auto ui_back_available = BuildCoJUiBackDispatchPolicy(true);
     const auto ui_back_unavailable = BuildCoJUiBackDispatchPolicy(false);
+    if (ShouldDispatchCoJNativeUiNavigation(false, true, true, false) ||
+        ShouldDispatchCoJNativeUiNavigation(false, true, false, true) ||
+        !ShouldDispatchCoJNativeUiNavigation(false, true, true, true) ||
+        !ShouldDispatchCoJNativeUiNavigation(true, false, true, false) ||
+        ShouldDispatchCoJNativeUiNavigation(false, false, true, true)) {
+        std::cerr << "Circle/kick must not pause live gameplay; Options must own pause\n";
+        return 1;
+    }
     if (!ui_back_available.dispatch || ui_back_available.key_code != 1 ||
         !ui_back_available.press || !ui_back_available.release ||
         !ui_back_unavailable.dispatch || ui_back_unavailable.key_code != 1 ||
@@ -862,6 +870,41 @@ int main() {
     gameplay.interact = true;
     gameplay.weapon_previous = true;
     const auto gameplay_actions = BuildCoJGameplayActionValues(gameplay);
+    GameplayInputState extended{};
+    extended.active = true;
+    extended.walk = extended.focus = extended.alternate_fire = true;
+    extended.hands = extended.discard_weapon = true;
+    extended.objectives = extended.logs = extended.quick_save = extended.quick_load = true;
+    extended.lean_left = extended.lean_right = true;
+    extended.equipment_select.fill(true);
+    const auto extended_actions = BuildCoJGameplayActionValues(extended);
+    constexpr std::array equipment_ids{23,22,21,24,25,26};
+    for (std::size_t selected = 0; selected < equipment_ids.size(); ++selected) {
+        GameplayInputState one{}; one.active = true; one.equipment_select[selected] = true;
+        for (const auto& item : BuildCoJGameplayActionValues(one)) {
+            const float expected = item.action == equipment_ids[selected] ? 1.0F : 0.0F;
+            if (item.value != expected) {
+                std::cerr << "Equipment slot " << selected << " misrouted to action " << item.action << '\n';
+                return 1;
+            }
+        }
+    }
+    for (const int required : {12,13,14,20,21,22,23,24,25,26,27,29,32,33,34,35,40}) {
+        bool found = false;
+        for (const auto& item : extended_actions) {
+            if (item.action == required && item.value == 1.0F) found = true;
+        }
+        if (!found) { std::cerr << "Missing official PC native action " << required << '\n'; return 1; }
+    }
+    extended.active = false;
+    for (const auto& item : BuildCoJGameplayActionValues(extended)) {
+        if (item.value != 0) { std::cerr << "Inactive extended action was not released\n"; return 1; }
+    }
+    GameplayInputState held_focus{}; held_focus.active = true; held_focus.focus = true;
+    const auto pending_focus = MergeCoJGameplayInputPhase(held_focus, {}, CoJInputDispatchPhase::fire);
+    if (!pending_focus.active || !pending_focus.focus) {
+        std::cerr << "Fire-only release erased pending native focus release\n"; return 1;
+    }
     const auto before_muzzle = MergeCoJGameplayInputPhase({}, gameplay, CoJInputDispatchPhase::non_fire);
     const auto after_muzzle = MergeCoJGameplayInputPhase(before_muzzle, gameplay, CoJInputDispatchPhase::fire);
     if (before_muzzle.fire_left || before_muzzle.fire_right ||

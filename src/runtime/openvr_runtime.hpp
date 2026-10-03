@@ -31,6 +31,8 @@ struct OpenVrGlobalActions {
     bool ui_back = false;
     bool ui_accept_pressed = false;
     bool ui_back_pressed = false;
+    bool pause = false;
+    bool pause_pressed = false;
 };
 
 struct OpenVrHandPoses {
