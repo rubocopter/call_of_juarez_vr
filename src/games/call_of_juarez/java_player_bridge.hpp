@@ -172,6 +172,11 @@ private:
 [[nodiscard]] std::array<CoJGameplayActionValue, 16> BuildCoJGameplayActionValues(
     const cojvr::runtime::GameplayInputState& state) noexcept;
 [[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
+enum class CoJInputDispatchPhase { all, non_fire, fire };
+[[nodiscard]] bool ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase phase, int action) noexcept;
+[[nodiscard]] cojvr::runtime::GameplayInputState MergeCoJGameplayInputPhase(
+    const cojvr::runtime::GameplayInputState& previous,
+    const cojvr::runtime::GameplayInputState& current, CoJInputDispatchPhase phase) noexcept;
 [[nodiscard]] CoJGameplayTargetSelection BuildCoJGameplayTargetSelection(
     int action,
     int target_type,
@@ -293,7 +298,8 @@ public:
     // the game JVM thread using the active CoJ bindings.
     [[nodiscard]] bool TryApplyGameplayInput(
         const cojvr::runtime::GameplayInputState& state,
-        std::string* error = nullptr) noexcept;
+        std::string* error = nullptr,
+        CoJInputDispatchPhase phase = CoJInputDispatchPhase::all) noexcept;
     // Route an intentional VR UI-select press through the currently visible
     // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive
     // "press a key" gate; ordinary menus keep their Enter helper route.

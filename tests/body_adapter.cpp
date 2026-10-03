@@ -862,6 +862,35 @@ int main() {
     gameplay.interact = true;
     gameplay.weapon_previous = true;
     const auto gameplay_actions = BuildCoJGameplayActionValues(gameplay);
+    const auto before_muzzle = MergeCoJGameplayInputPhase({}, gameplay, CoJInputDispatchPhase::non_fire);
+    const auto after_muzzle = MergeCoJGameplayInputPhase(before_muzzle, gameplay, CoJInputDispatchPhase::fire);
+    if (before_muzzle.fire_left || before_muzzle.fire_right ||
+        after_muzzle.fire_left != gameplay.fire_left || after_muzzle.fire_right != gameplay.fire_right ||
+        ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase::non_fire,9) ||
+        !ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase::fire,10) ||
+        ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase::fire,4)) {
+        std::cerr << "Fire dispatch was not isolated until muzzle publication\n";return 1;
+    }
+    cojvr::runtime::GameplayInputState held_fire{};
+    held_fire.active=true;held_fire.fire_right=true;
+    const auto releasing_non_fire=MergeCoJGameplayInputPhase(held_fire,{},CoJInputDispatchPhase::non_fire);
+    const auto releasing_fire=MergeCoJGameplayInputPhase(releasing_non_fire,{},CoJInputDispatchPhase::fire);
+    if (!releasing_non_fire.active || !releasing_non_fire.fire_right ||
+        releasing_fire.active || releasing_fire.fire_right) {
+        std::cerr << "Two-phase inactive transition lost the held fire release\n";return 1;
+    }
+    held_fire.move={0,1};held_fire.reload=true;
+    // A failed non-fire release leaves the previous state unchanged. A
+    // successful fire-only release must keep that ownership for retry.
+    const auto pending_non_fire=MergeCoJGameplayInputPhase(held_fire,{},CoJInputDispatchPhase::fire);
+    if (!pending_non_fire.active || pending_non_fire.fire_right ||
+        pending_non_fire.move.y!=1 || !pending_non_fire.reload) {
+        std::cerr << "Successful fire release erased pending movement/button release\n";return 1;
+    }
+    const auto retried_non_fire=MergeCoJGameplayInputPhase(pending_non_fire,{},CoJInputDispatchPhase::non_fire);
+    if (MergeCoJGameplayInputPhase(retried_non_fire,{},CoJInputDispatchPhase::fire).active) {
+        std::cerr << "Completed non-fire retry retained unnecessary input ownership\n";return 1;
+    }
     const auto action_value = [&](const int action) {
         for (const auto& item : gameplay_actions) {
             if (item.action == action) return item.value;

@@ -1140,6 +1140,7 @@ try {
     $TransportRun.validation | Add-Member -NotePropertyName handPresentation -NotePropertyValue "independent_native_hands" -Force
     $TransportRun.validation | Add-Member -NotePropertyName handRigidElements -NotePropertyValue 20 -Force
     $TransportRun.validation | Add-Member -NotePropertyName requireWeaponPoseAfterHand -NotePropertyValue $true -Force
+    $TransportRun.validation | Add-Member -NotePropertyName requireFireAfterMuzzle -NotePropertyValue $true -Force
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     $IndependentLog = @($StereoVerifierLog | Where-Object { $_ -notmatch "event=body_arm_(?:tracking|write_probe|render_probe|restore) " } | ForEach-Object {
         $_.Replace("body_ik_enabled=true;", "body_ik_enabled=true;independent_hands_enabled=true;")
@@ -1153,11 +1154,14 @@ try {
         }
     }
     $IndependentLog += "camera_probe_event: event=body_hand_restore result=ok detail=frame_sequence=64;transaction=post_stereo_capture;elements_restored=true;visibility_restored=true;detail="
+    $IndependentLog += "camera_probe_event: event=controller_fire_dispatch result=applied detail=frame_sequence=64;phase=after_verified_muzzle;non_fire_actions=false;detail="
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $IndependentLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null
     foreach ($BadLog in @(
         @{ name="missing second-eye hand probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=body_hand_render_probe .*phase=right_eye_complete" }) },
         @{ name="missing second-eye weapon probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_weapon_render_probe .*phase=right_eye_complete" }) },
+        @{ name="missing deferred fire delivery"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_fire_dispatch " }) },
+        @{ name="failed deferred fire delivery"; lines=@($IndependentLog) + "camera_probe_event: event=controller_fire_dispatch result=unavailable detail=frame_sequence=65;phase=after_verified_muzzle;non_fire_actions=false;detail=input unavailable" },
         @{ name="transient first-eye weapon failure followed by recovery"; lines=@($IndependentLog) + @(
             "camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=left_eye_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose",
             "camera_probe_event: event=controller_weapon_render_probe result=matched detail=frame_sequence=65;side=left;phase=right_eye_complete;parent_pose=final_hand_socket;detail="
@@ -1175,6 +1179,7 @@ try {
     # Older collected independent-hand candidates keep their original contract.
     $TransportRun.validation.PSObject.Properties.Remove("handRigidElements")
     $TransportRun.validation.PSObject.Properties.Remove("requireWeaponPoseAfterHand")
+    $TransportRun.validation.PSObject.Properties.Remove("requireFireAfterMuzzle")
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     $LegacyHandLog=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_weapon_render_probe " } | ForEach-Object { $_.Replace("rigid_elements=20;", "rigid_elements=19;") })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $LegacyHandLog

@@ -59,6 +59,35 @@ grip orientation; it does not retain a fit to the first animated/controller pose
 Socket mapping, rollback and both-eye verifier rejection are host-tested.
 Physical grip, left wrist comfort and actual-shot alignment remain pending.
 
+## Shot visualization and emitter ownership
+
+The holding-socket candidate now has live matching hand and weapon readbacks
+through both views with successful pose/visibility restoration. The next
+operator clip still rejects bullet/effect origin at the visible gun; successful
+cache getters during rendering do not establish actual attack consumption.
+
+`WeaponFire.AttackFire` separately reads ballistic origin/direction and visual
+origin/direction, passes the visual origin to the shot light, and applies native
+pellet spread to both rays. `GetFireDirVisualizationForHand` previously sourced
+`m_avAimDir`, bypassing the tracked `GetBeingLookDirDevForHand` path. The current
+patch substitutes only that base-vector selection; the original accuracy and
+rotation suffix remains byte-for-byte intact.
+
+`WeaponFire.ExecFXFire` creates combustion and smoke with null world vectors
+and the weapon/barrel element as parent. A render-only weapon pose then restores
+before native update, so attached effects can follow the native gun rather than
+the displayed VR muzzle. The current exact-class patch guards on a tracked
+`ArmedPlayerBeing` owner, non-network attack, known hand and both nullable cached
+vectors. It creates the same configured emitters with explicit world muzzle
+position/direction, null parent and element -1. Shipped explosion/hit paths
+demonstrate this world-space emitter calling convention. Other players, missing
+caches, unknown hands and forced-network attacks retain the original method.
+Fire actions 9/10 are delivered only after current muzzle publication; non-fire
+actions and their native analog/snap/reload semantics keep their earlier order.
+Bytecode execution, unchanged spread suffix, shipped Java verification and
+deployment restoration are host gates; effect appearance and shot alignment
+remain physical gates.
+
 ## Legacy measured arm reach
 
 Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Asymmetric reach clamp did not justify an arbitrary fixed multiplier. The legacy render-only fit measures bilateral controller span in a stable T pose; fitted visual proportions were physically rejected.

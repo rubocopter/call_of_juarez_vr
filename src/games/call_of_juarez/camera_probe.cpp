@@ -4666,7 +4666,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         GameplayInputChanged(gameplay_input, g_last_gameplay_telemetry);
     std::string gameplay_input_error;
     const bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
-        g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error);
+        g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error,
+            CoJInputDispatchPhase::non_fire);
     if ((snapshot.command.vr_gameplay_input_enabled && !gameplay_input_ok) ||
         gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -4772,6 +4773,21 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             relative_head_pose, relative_left_controller, relative_right_controller,
             relative_left_aim, relative_right_aim, frame_sequence, aim_observation,
             snapshot.command.independent_hands_enabled && snapshot.command.body_ik_enabled);
+    }
+    // Native hand-state transitions can consume a ray as soon as fire is
+    // delivered. Resolve the parent hand/socket and verified muzzle first;
+    // dispatch no locomotion, snap-turn, reload or weapon switch a second time.
+    if (snapshot.command.vr_gameplay_input_enabled) {
+        auto fire_input=gameplay_input;
+        if (!gameplay_input_ok) fire_input={};
+        std::string fire_error;
+        const bool fire_ok=g_java_player_bridge.TryApplyGameplayInput(
+            fire_input,&fire_error,CoJInputDispatchPhase::fire);
+        if (!fire_ok || ShouldObserveBodyFrame(frame_sequence) || gameplay_changed) {
+            EmitEvent("controller_fire_dispatch",fire_ok ? "applied" : "unavailable",
+                "frame_sequence="+std::to_string(frame_sequence)+
+                ";phase=after_verified_muzzle;non_fire_actions=false;detail="+fire_error);
+        }
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
     const bool visual_body_offset_applied = g_room_scale_body_offset.active;

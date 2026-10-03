@@ -788,6 +788,13 @@ if ($RequireBodyIk) {
 }
 
 if ($RequireGameplayInput) {
+    if ($Run.validation.PSObject.Properties.Name -contains "requireFireAfterMuzzle" -and
+        $Run.validation.requireFireAfterMuzzle) {
+        Assert-LogMatch "event=controller_fire_dispatch result=applied detail=.*;phase=after_verified_muzzle;non_fire_actions=false;" `
+            "Fire actions were not delivered after the current muzzle publication phase."
+        Assert-LogNotMatch "event=controller_fire_dispatch result=unavailable" `
+            "A deferred fire action failed to reach the native input route."
+    }
     Assert-LogMatch `
         "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_circle;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
         "Circle did not open the shipped in-game Escape menu from native-stereo gameplay."

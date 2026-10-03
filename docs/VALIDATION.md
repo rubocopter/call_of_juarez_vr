@@ -20,6 +20,15 @@ unarmed hands. Comfortable wrists, hand/weapon cohesion and reload recovery
 remain pending physical gates. The combined regression below is the acceptance
 procedure; no T pose is required.
 
+The holding-socket follow-up is now **live-tested technically**: both-eye hand
+and weapon readbacks match, and pose/visibility restoration completes. The
+operator's next clip still rejects shots and effects originating away from the
+visible gun. The active **host-tested** follow-up unifies the visual direction
+with the tracked ballistic base while preserving native spread, defers fire
+delivery until current muzzle publication, and creates combustion/smoke at the
+verified world muzzle without attachment to the restored native weapon. Actual
+bullet/tracer origin, direction, flash, smoke and light remain physical gates.
+
 First-level controller-only main-menu operation is **headset-validated** through
 the native sprite-tree mouse-event route: hover/highlight, selection and physical
 mouse takeover/resume were observed working. A later modal-routing candidate
@@ -289,7 +298,9 @@ authored holding socket. Both-eye
 `body_hand_restore` must verify element and visibility restoration. For each
 tracked weapon, both-eye `controller_weapon_render_probe` must match after the
 final hand/socket pose; any failed probe rejects the technical gate. This does
-not replace visual grip and actual-shot acceptance. Confirm that
+not replace visual grip and actual-shot acceptance. `controller_fire_dispatch`
+must show the deferred fire phase after muzzle publication; it is delivery
+evidence, not proof that a shot consumed that ray. Confirm that
 locomotion/performance retains the large improvement
 from the last run. Turn the head substantially left/right without rotating the
 body, press forward and confirm travel follows the viewed direction. Physically
@@ -306,7 +317,9 @@ and confirm that each step is exactly 90 degrees. Aim/fire with both hands where
 practical and confirm the gameplay reticle follows the visible weapon barrel.
 Check first shots, held/repeated fire, weapon switching, reload recovery and firing
 after crouching, physical steps and turning. The visible muzzle, tracer origin
-and impacts must agree apart from native spread. Cached-origin getter samples
+and impacts must agree apart from native spread. Flash, smoke and shot light
+must start at the visible muzzle, including while the hand is moving or held away
+from the native idle gun pose. Cached-origin getter samples
 are not actual-shot evidence. Then exercise an ordinary
 menu, the Yes/No dialog and gameplay pause as regression checks; the gameplay
 reticle must not alter menu-ray behavior. Recenter with Create, quit normally and

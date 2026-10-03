@@ -329,6 +329,36 @@ bool UseDirectAnalogCoJLocomotion(const int action) noexcept {
     return action >= 4 && action <= 7;
 }
 
+bool ShouldDispatchCoJGameplayAction(const CoJInputDispatchPhase phase, const int action) noexcept {
+    const bool fire=action==9 || action==10;
+    return phase==CoJInputDispatchPhase::all ||
+        (phase==CoJInputDispatchPhase::fire ? fire : !fire);
+}
+
+cojvr::runtime::GameplayInputState MergeCoJGameplayInputPhase(
+    const cojvr::runtime::GameplayInputState& previous,
+    const cojvr::runtime::GameplayInputState& current, const CoJInputDispatchPhase phase) noexcept {
+    auto result=current.active ? current : cojvr::runtime::GameplayInputState{};
+    if (phase==CoJInputDispatchPhase::non_fire) {
+        result.fire_left=previous.fire_left;
+        result.fire_right=previous.fire_right;
+        result.active=current.active || previous.active;
+    } else if (phase==CoJInputDispatchPhase::fire) {
+        const bool left=result.fire_left,right=result.fire_right;
+        result=previous;
+        result.fire_left=left;result.fire_right=right;result.active=current.active;
+        // Non-fire release failure leaves its last applied values intact.
+        // Releasing fire cannot surrender ownership of those native actions.
+        for (const auto& value : BuildCoJGameplayActionValues(previous)) {
+            if (ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase::non_fire,value.action) && value.value!=0.0F) {
+                result.active=true;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
 CoJGameplayTargetSelection BuildCoJGameplayTargetSelection(
     const int action,
     const int target_type,
@@ -1665,10 +1695,13 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
 
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
-    std::string* error) noexcept {
-    last_snap_turn_degrees_ = 0.0F;
-    last_analog_transaction_applied_ = false;
-    const float snap_turn_degrees = snap_turn_state_.Update(state);
+    std::string* error, const CoJInputDispatchPhase phase) noexcept {
+    float snap_turn_degrees=0.0F;
+    if (phase!=CoJInputDispatchPhase::fire) {
+        last_snap_turn_degrees_ = 0.0F;
+        last_analog_transaction_applied_ = false;
+        snap_turn_degrees = snap_turn_state_.Update(state);
+    }
     if (!state.active && !gameplay_input_applied_) return true;
 
     if (snap_turn_degrees != 0.0F) {
@@ -1727,7 +1760,8 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         : BuildCoJGameplayActionValues({});
     bool analog_transaction_needed = false;
     for (std::size_t index = 0; index < values.size(); ++index) {
-        if (UseDirectAnalogCoJLocomotion(values[index].action) &&
+        if (ShouldDispatchCoJGameplayAction(phase,values[index].action) &&
+            UseDirectAnalogCoJLocomotion(values[index].action) &&
             (!gameplay_input_applied_ ||
              std::fabs(values[index].value - previous_values[index].value) > 0.005F)) {
             analog_transaction_needed = true;
@@ -1944,6 +1978,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
 
     bool ok = true;
     for (std::size_t index = 0; index < values.size(); ++index) {
+        if (!ShouldDispatchCoJGameplayAction(phase,values[index].action)) continue;
         if (values[index].action != previous_values[index].action ||
             !apply_value(values[index], previous_values[index])) {
             ok = false;
@@ -1976,8 +2011,8 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     DeleteLocal(env, targets);
     DeleteLocal(env, controller);
     if (!ok) return false;
-    last_gameplay_input_ = state.active ? state : cojvr::runtime::GameplayInputState{};
-    gameplay_input_applied_ = state.active;
+    last_gameplay_input_ = MergeCoJGameplayInputPhase(last_gameplay_input_,state,phase);
+    gameplay_input_applied_ = last_gameplay_input_.active;
     return true;
 }
 

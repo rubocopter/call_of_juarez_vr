@@ -215,6 +215,7 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Sense tip direction convention: **live-tested diagnostically**; local `-Z` is the demonstrated pointing direction.
 - Exact-frame per-eye gameplay reticle from the controller firing ray: **live-exercised / visible**. Impacts are reported closer to it; physical weapon/muzzle alignment remains rejected. It is independent from the menu pointer.
 - Physical gun-origin/direction acceptance: **pending/rejected**.
+- Shot/effect coherence: **host-tested follow-up** after physical rejection; fire delivery follows current muzzle publication, visual direction retains native spread around the tracked base, and combustion/smoke use the verified world muzzle without a restored-weapon attachment. Both-eye hand/socket/weapon pose and restoration are live-tested technically; actual bullets, tracers, light and effects remain pending headset acceptance.
 - Motion-controlled reloads and richer world interactions: **planned**.
 
 ## Milestone 5 — additional renderers and games

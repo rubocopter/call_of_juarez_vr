@@ -336,9 +336,9 @@ they do not repair actor state or surrender collision/physics ownership.
 
 The tracked grip positions the weapon and `/pose/tip` supplies its direction
 and up axis. The adapter captures all active weapon element world frames and
-measures `Weapon.GetBarrelOrigin/GetBarrelDir` against the rendered wrist. A rigid
+measures `Weapon.GetBarrelOrigin/GetBarrelDir` against the authored holding socket. A rigid
 map aligns the barrel axis to the tracked tip while retaining measured
-wrist-to-muzzle geometry and each animated element's relative frame. Every
+socket-to-muzzle geometry and each animated element's relative frame. Every
 element is written through `FromUpForwardPosElementWorld`; readback must agree
 with the planned muzzle before publishing a shot ray. The general object
 `FromUpForwardPos` setter is unsuitable: its native `+0x878F0` helper calls the
@@ -364,12 +364,32 @@ vectors; they survive native aim updates until the next render sample and are
 cleared for menus, lost tracking, failed publication or player changes. Both
 first and held/repeated attacks use the per-hand consumer boundary.
 
+Input dispatch has two exact-game phases. Non-fire actions retain the existing
+pre-body order, including native analog shaping, snap turn, reload and weapon
+selection. Only actions 9/10 are deferred until the current hand/socket and
+weapon transaction publishes its verified muzzle. Digital transition history
+is merged by phase, including an inactive held-fire release; neither analog
+movement nor snap turn is dispatched twice.
+A successful fire-only release retains any non-fire values whose release failed,
+so an inactive retry still owns and clears those native actions.
+
+The separate `GetFireDirVisualizationForHand` consumer selects the same nullable
+tracked base direction before executing its unchanged native accuracy/rotation
+suffix. `WeaponFire.AttackFire` therefore supplies a coherent ballistic and
+visual ray to traces and the shot light. A second exact-hash class patch guards
+`WeaponFire.ExecFXFire`: for the tracked local player's known hand with valid
+cached origin/direction, combustion and smoke use explicit world vectors and no
+parent attachment. The shipped world-space emitter route uses a null parent and
+element -1. This prevents the render-only weapon restoration from moving the
+emitter back to the native pose. Unknown hands, null caches, other players and
+network-forced fire execute the original attached-emitter bytecode.
+
 Native-stereo staging requires the recognized original `code.pak` and class
-SHA-256. The patched archive is a journaled deployment asset; all other archive
+SHA-256 for both `ArmedPlayerBeing` and `WeaponFire`. The patched archive is a journaled deployment asset; all other archive
 payloads are checked unchanged, its deployed hash joins run provenance, and
 unstaging/recovery restores the original archive byte-for-byte. Host tests cover
 hand selection, null/network fallback and interrupted deployment. The shipped
-Java 1.4 verifier accepts the patched class without initialization. This remains
+Java 1.4 verifier accepts both patched classes without initialization. This remains
 host evidence, not actual-shot or headset acceptance.
 
 The gameplay reticle uses the verified muzzle/direction when available. It is
