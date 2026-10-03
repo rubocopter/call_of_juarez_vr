@@ -67,6 +67,7 @@ struct D3D9StereoCapture::Impl {
         std::uint64_t render_pose_sequence = 0;
         runtime::Pose render_hmd_pose{};
         StereoReticleOverlay gameplay_reticle{};
+        runtime::StereoHudTextOverlay hud_text{};
         std::chrono::steady_clock::time_point capture_time{};
         bool pending = false;
         bool fence_flush_issued = false;
@@ -77,6 +78,7 @@ struct D3D9StereoCapture::Impl {
             render_pose_sequence = 0;
             render_hmd_pose = {};
             gameplay_reticle = {};
+            hud_text = {};
             capture_time = {};
             pending = false;
             fence_flush_issued = false;
@@ -565,7 +567,8 @@ bool D3D9StereoCapture::EndFrame(
     const std::uint64_t frame_sequence,
     const runtime::Pose& render_hmd_pose,
     const std::uint64_t render_pose_sequence,
-    StereoReticleOverlay gameplay_reticle) noexcept {
+    StereoReticleOverlay gameplay_reticle,
+    const runtime::StereoHudTextOverlay& hud_text) noexcept {
     try {
         if (impl_->current_frame != frame_sequence || impl_->current_slot >= impl_->slots.size()) {
             impl_->last_error = "stereo capture frame has no active ring slot";
@@ -597,6 +600,14 @@ bool D3D9StereoCapture::EndFrame(
             return false;
         }
         slot.gameplay_reticle = gameplay_reticle;
+        if (hud_text.frame_sequence && hud_text.frame_sequence != frame_sequence) {
+            impl_->last_error = "HUD text payload does not match the captured frame sequence";
+            slot.ResetState();
+            impl_->current_frame = 0;
+            impl_->current_slot = impl_->slots.size();
+            return false;
+        }
+        slot.hud_text = hud_text;
         const HRESULT hr = slot.fence->Issue(D3DISSUE_END);
         if (FAILED(hr)) {
             impl_->last_error = Failure("capture ring fence Issue", hr);
@@ -627,6 +638,7 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         frame.render_pose_sequence = 0;
         frame.render_hmd_pose = {};
         frame.gameplay_reticle = {};
+        frame.hud_text = {};
         frame.capture_time = {};
         frame.presentation_mode = FramePresentationMode::native_stereo;
         frame.transport = StereoFrameTransport::cpu_bgrx;
@@ -695,6 +707,7 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         frame.render_pose_sequence = slot->render_pose_sequence;
         frame.render_hmd_pose = slot->render_hmd_pose;
         frame.gameplay_reticle = slot->gameplay_reticle;
+        frame.hud_text = slot->hud_text;
         frame.capture_time = slot->capture_time;
         if (impl_->transport_mode == Impl::TransportMode::d3d9ex_shared_texture) {
             auto release_state = std::make_shared<ProducerFrameReleaseState>();
@@ -714,6 +727,7 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
             slot->render_pose_sequence = 0;
             slot->render_hmd_pose = {};
             slot->gameplay_reticle = {};
+            slot->hud_text = {};
             slot->capture_time = {};
             slot->pending = false;
             ++impl_->stats.frames_collected;
@@ -801,6 +815,7 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         slot->render_pose_sequence = 0;
         slot->render_hmd_pose = {};
         slot->gameplay_reticle = {};
+        slot->hud_text = {};
         slot->capture_time = {};
         slot->pending = false;
         const auto collect_end = std::chrono::steady_clock::now();

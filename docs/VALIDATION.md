@@ -467,8 +467,8 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 
 ## PC mechanics and gameplay HUD completeness
 
-**Input expansion and passive boundary probe: host-tested; physical acceptance
-open. HUD capture/composition: planned.** Menu operation and the alignment reticle
+**Input expansion, passive boundary probe and essential stereo text: host-tested;
+physical acceptance open. Native graphical HUD capture/composition: planned.** Menu operation and the alignment reticle
 do not establish complete campaign control or HUD coverage. The authoritative action catalogue
 and native feedback owners are recorded in
 [the PC controls/HUD research](research/COJ_PC_CONTROLS_AND_HUD.md). Do not count
@@ -488,7 +488,20 @@ by firing, alternate fire, put-away/discard, objectives/logs and available equip
 selection. Repeat after dashboard/menu transitions with held buttons. Inspect
 sampled `native_hud_boundary` events for sprite/flush versus world capture/Present
 ordering and render-target state. Preserve raw observations under ignored work.
-No complete wheel, XR zoom or readable HUD is claimed by this candidate.
+The essential text candidate additionally reads localized interaction/tutorial
+owners and enabled, visible dialogue subtitles without replaying HUD updates.
+Host JNI fixtures cover player identity, native visibility, null/missing owners,
+dialogue bounds, Unicode truncation and exception/reference cleanup. Real D3D11
+WARP composition checks text pixels, binocular geometry, asymmetric/canted optics,
+world preservation and removal after a fresh empty frame. Capture tests retain
+text/optics with sequence and device generation across resource replacement.
+These establish **host-tested** implementation only. Verify text appears and
+disappears with native prompts, remains legible in both eyes, does not obscure
+aiming and adds acceptable pacing cost. The observation interval is at most
+100 ms between sampled game frames; reading/dismissal latency needs acceptance.
+Pausing hints and objectives/logs retain their existing native flat UI route.
+Native hints currently retain PC key names; controller-label adaptation is open.
+No complete graphical HUD, inventory wheel or XR zoom is claimed.
 
 When corresponding features are implemented, a controller-only campaign pass
 must demonstrate:

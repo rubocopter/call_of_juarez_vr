@@ -192,7 +192,7 @@ switch ($Action) {
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Circle kicks, L1 performs contextual F, R1 selects next weapon. Hold Triangle for secondary controls; see docs/research/COJ_PC_CONTROLS_AND_HUD.md."
         Write-Host "Triangle + Square toggles native focus, Cross alternate fire, Circle puts weapons away, L1 discards, R1 previous weapon, R2 logs, right-stick click objectives. Right-stick sectors select equipment without snap/fire."
-        Write-Host "HUD probe is passive: native HUD pixels and VR focus magnification are still pending; report controls and feedback separately."
+        Write-Host "Gameplay text: native tutorial hints, contextual prompts and enabled subtitles have a host-tested stereo presentation. Check appearance/disappearance and readability; graphics HUD and VR focus magnification remain pending."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
         if ($StartupOnly) {
             Write-Host "Startup-only run: confirm videos and the main menu appear, then close normally. Native stereo/GPU transport are outside this profile; controller menu usability needs operator observations."

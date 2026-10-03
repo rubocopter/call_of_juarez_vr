@@ -183,6 +183,41 @@ native HUD sprites/text, target identity, no-shoot state or weapon availability.
 The operator reports missing gameplay HUD. This demonstrates incomplete
 presentation, not that every native HUD object has stopped updating.
 
+### Essential text owners
+
+The essential text route is **implemented / host-tested**, with live/headset
+acceptance pending. `HUDManager.sm_cMainHUDManager.m_Being` must identify the
+bridge's current player. The shipped 23-element `m_aHudComponents` array assigns
+index 9 to `HUD_ACTIVE_TRIGGER` and 11 to `HUD_HINT`; component instance types
+are checked before reading. Interaction text comes from
+`HUDActiveTrigger.m_cIcon.m_sLocalizedText`. Tutorial text follows
+`HUDHint.m_cMainWindow -> UIWindowInfo.m_cInfo`, whose
+`UIWindowInfoElement` inherits `UIStatic.m_sLocalizedText`. Native `SetText`
+already performs localization/expression processing; observation never calls it.
+The manager, components and concrete text owners must be actually visible.
+
+Dialogue is independent: `LawmanGame.sm_cSettings.bSubtitles`,
+`Dialog.cPlayingDialog.m_bCurrentLineVisible` and checked
+`nCurrentLine/aLines` resolve `DialogLine.cCharacter`. The actor's native
+`AreSubtitlesVisible` and actual `m_cSubtitle` visibility gate `sSubtitleText`.
+`Text.Get(String)` resolves this shipped text identifier without replaying
+`ShowSubtitle`, dialogue progression or sprite drawing. Missing owners and JNI
+exceptions clear affected text and release all local/pinned references.
+
+The game owner samples at most once per 100 ms. Three bounded UTF-16 values
+(1023 code units each, surrogate-safe ellipsis on truncation) and exact eye
+optics accompany the captured frame; no JNI pointer crosses threads. The
+presenter caches Unicode rasters and draws finite-depth tutorial, interaction
+and subtitle panels onto its own D3D11 textures after fresh world copy. Full
+eye transforms/FOV retain stereo disparity and perspective under eye cant.
+This recovers essential text independently of native sprite alpha/coverage.
+Long text is wrapped with a bounded font/height fit; visual layout, timing and
+performance still require live acceptance. PC key names are preserved, and
+native fading/animation styling is not reproduced. Pausing hints and other
+blocking UIs retain the existing flat UI/dismissal route.
+
+### Native graphical capture
+
 Exact native inspection identifies `CLevel` sprite traversal at RVA `0x2E680`
 (vtable entry `0x2E1C98`) and `CD3DRenderer` batch flush at `0x247990`
 (entry `0x3123B8`). Both take the native owner in ECX; flush additionally takes
@@ -239,7 +274,7 @@ predicates and must remain distinguishable from ordinary weapon alignment.
 5. Establish separate physical gates for contextual carry/put-down, two-handed
    aim, whip, bow, dynamite, Bible, concentration, duels, climbing and horses.
 
-The input expansion and passive HUD observation are **host-tested**. Complete
+The input expansion, essential text presentation and passive HUD observation are **host-tested**. Complete
 HUD capture, visible inventory wheel, wrist compass and XR focus magnification
 remain **planned/open**. New controls and special mechanics still require live
 and headset acceptance; source/manual findings are not physical acceptance. [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)

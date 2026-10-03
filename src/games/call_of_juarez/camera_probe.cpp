@@ -5073,8 +5073,21 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
 
     if (left_captured && right_captured && left_state_restored && right_state_restored) {
+        runtime::StereoHudTextOverlay hud_text{};
+        hud_text.frame_sequence = frame_sequence;
+        hud_text.eyes = sample.eyes;
+        if (!loading_ui_input.suppress_gameplay) {
+            const bool observed = g_java_player_bridge.TryObserveHudText(hud_text.text);
+            if (ShouldObserveBodyFrame(frame_sequence)) {
+                EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";hint_chars=" + std::to_string(hud_text.text.hint.length) +
+                    ";interaction_chars=" + std::to_string(hud_text.text.interaction.length) +
+                    ";subtitle_chars=" + std::to_string(hud_text.text.subtitle.length));
+            }
+        }
         submitted = g_stereo_callbacks.submit_frame(
-            g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle);
+            g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle, hud_text);
     }
     if (left_camera_applied && right_rendered) {
         g_diagnostic_stereo_pairs.fetch_add(1, std::memory_order_acq_rel);

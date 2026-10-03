@@ -172,6 +172,27 @@ its barrier. Inactive contexts release every logical action before reacquisition
 owns the user layout and distinguishes gesture selection from a future visible
 inventory wheel. New mechanics remain host-tested pending physical acceptance.
 
+## Essential gameplay text
+
+The CoJ adapter reads the current player's shipped HUD text owners and active
+dialogue on the game thread. It preserves localized UIStatic text, native sprite
+visibility, subtitle settings and checked dialogue-line ownership. It performs
+no HUD update, sprite replay or native render-target redirection. Observation is
+bounded to 10 Hz and clears on player replacement, missing owners or failed JNI
+reads. Each value-only UTF-16 snapshot travels with the captured frame sequence
+and that frame's exact static eye optics; native references never reach the
+presenter. [The controls/HUD research](research/COJ_PC_CONTROLS_AND_HUD.md)
+owns the exact class/field/index contracts.
+
+The OpenVR D3D11 presenter caches Unicode text rasters and draws small opaque
+panels into its owned eye textures after copying fresh world content. Full
+per-eye transforms and asymmetric FOV produce finite-depth, perspective-correct
+panels; pixels outside those polygons retain the world image. Empty snapshots
+remove text through the next world copy, flat menus retain their existing route,
+and resources release before presenter-device shutdown. This text route is
+**host-tested**, separate from native graphical HUD capture and pending live
+visibility, latency, readability and headset comfort acceptance.
+
 ## Tracking, locomotion and body ownership
 
 Room-scale HMD translation is camera-owned. The native actor keeps authoritative world position, grounding, collision and ordinary locomotion. Body yaw follows HMD yaw only outside the configured comfort cone; actor yaw must not be applied a second time when mapping controller targets.

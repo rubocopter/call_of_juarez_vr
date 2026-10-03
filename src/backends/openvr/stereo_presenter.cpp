@@ -2,6 +2,7 @@
 
 #include "backends/d3d9/content_hash.hpp"
 #include "backends/openvr/d3d11_compositor.hpp"
+#include "backends/openvr/hud_text_overlay.hpp"
 #include "backends/openvr/d3d11_session.hpp"
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
@@ -114,6 +115,7 @@ struct OpenVrStereoPresenter::Impl {
     std::atomic_bool init_done{false};
     bool init_ok = false;
     std::array<runtime::EyeView, 2> eyes{};
+    HudTextCompositor hud_text_compositor;
 
     mutable std::mutex tracking_mutex;
     runtime::Pose latest_pose{};
@@ -348,6 +350,16 @@ struct OpenVrStereoPresenter::Impl {
         double& hash_ms,
         double& upload_ms,
         D3D9SharedTextureCopyTiming& shared_timing) noexcept {
+        const auto draw_hud_text = [&]() noexcept {
+            if (frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
+                frame.hud_text.frame_sequence != frame.capture_sequence) return;
+            const std::array<ID3D11Texture2D*, 2> targets{textures[0].Get(), textures[1].Get()};
+            if (!hud_text_compositor.Draw(d3d11.device(), d3d11.context(),
+                    frame.hud_text, frame.capture_sequence, targets)) {
+                if (frame.capture_sequence <= 8 || frame.capture_sequence % 127 == 0)
+                    SetError("native HUD text composition unavailable");
+            }
+        };
         const auto draw_gameplay_reticle = [&]() noexcept {
             if (!frame.gameplay_reticle.active ||
                 frame.gameplay_reticle.frame_sequence != frame.capture_sequence ||
@@ -435,6 +447,7 @@ struct OpenVrStereoPresenter::Impl {
             }
             upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
             draw_gameplay_reticle();
+            draw_hud_text();
             return true;
         }
         const auto& left = frame.eyes[0];
@@ -625,6 +638,7 @@ struct OpenVrStereoPresenter::Impl {
             }
         }
         draw_gameplay_reticle();
+        draw_hud_text();
         const auto upload_end = std::chrono::steady_clock::now();
         upload_ms = MillisecondsBetween(upload_begin, upload_end);
         return true;
@@ -789,6 +803,9 @@ struct OpenVrStereoPresenter::Impl {
                 runtime::HmdFramePacer::ValidRefresh(initial_refresh) ? initial_refresh : 0.0F,
                 std::memory_order_release);
             SignalInitialization(true);
+            // Compile/cache the tiny text pipeline before campaign frames.
+            Log(std::string("native_hud_text_pipeline: status=") +
+                (hud_text_compositor.Prepare(d3d11.device()) ? "ready" : "unavailable"));
             Log("native_stereo_presenter: status=started owner_thread=openvr+d3d11 mode=flat_theater_to_native_stereo");
             Log("openvr_gpu_handoff: native_stereo=D3D9Ex_shared_texture+CopyResource;flat_fallback=UpdateSubresource;producer_sync=nonblocking_D3D9_event_query;consumer_sync=nonblocking_D3D11_event_query;submit=Submit_TextureWithPose;handoff=PostPresentHandoff");
             if (runtime.ReadPresentationState(previous_presentation_state)) {
@@ -1525,6 +1542,7 @@ struct OpenVrStereoPresenter::Impl {
         }
         for (auto& texture : textures) texture.Reset();
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
+        hud_text_compositor.Reset();
         d3d11.Shutdown();
         Log("native_stereo_presenter_shutdown: stage=d3d11_end");
         Log("native_stereo_presenter_shutdown: stage=runtime_begin");

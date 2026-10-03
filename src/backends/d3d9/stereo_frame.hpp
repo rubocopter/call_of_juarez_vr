@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/vr_types.hpp"
+#include "runtime/hud_text.hpp"
 
 #include <array>
 #include <atomic>
@@ -116,6 +117,7 @@ struct StereoCpuFrame {
     std::uint64_t render_pose_sequence = 0;
     runtime::Pose render_hmd_pose{};
     StereoReticleOverlay gameplay_reticle{};
+    runtime::StereoHudTextOverlay hud_text{};
     std::chrono::steady_clock::time_point capture_time{};
     FramePresentationMode presentation_mode = FramePresentationMode::native_stereo;
     StereoFrameTransport transport = StereoFrameTransport::cpu_bgrx;

@@ -65,7 +65,8 @@ public:
         std::uint64_t frame_sequence,
         const runtime::Pose& render_hmd_pose,
         std::uint64_t render_pose_sequence,
-        StereoReticleOverlay gameplay_reticle = {}) noexcept;
+        StereoReticleOverlay gameplay_reticle = {},
+        const runtime::StereoHudTextOverlay& hud_text = {}) noexcept;
     [[nodiscard]] bool TryCollectReady(StereoCpuFrame& frame) noexcept;
     // Releases device/default-pool resources while keeping the capture object
     // reusable. Owners with an explicit D3D9 lifecycle signal call this before

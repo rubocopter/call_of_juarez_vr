@@ -12,6 +12,9 @@ cojvr::backends::d3d9::StereoCpuFrame MakeFrame(const std::uint64_t sequence) {
     frame.device_id = 0x1234;
     frame.generation = 7;
     frame.capture_sequence = sequence;
+    frame.hud_text.frame_sequence = sequence;
+    frame.hud_text.text.hint.length = 1;
+    frame.hud_text.text.hint.characters[0] = static_cast<char16_t>(sequence);
     frame.render_pose_sequence = sequence;
     frame.render_hmd_pose.orientation = {0.0F, 0.0F, 0.0F, 1.0F};
     frame.render_hmd_pose.orientation_valid = true;
@@ -46,6 +49,10 @@ int main() {
     if (!mailbox.WaitConsumeLatest(consumed, 0) || consumed.capture_sequence != 2) {
         return Fail("mailbox did not replace stale pending content with the newest frame");
     }
+    if (consumed.hud_text.frame_sequence != 2 || consumed.hud_text.text.hint.length != 1 ||
+        consumed.hud_text.text.hint.characters[0] != 2) {
+        return Fail("mailbox detached native HUD text from the newest owned frame");
+    }
     const auto recycled_capacity = consumed.eyes[0].pixels.capacity();
     mailbox.Recycle(std::move(consumed));
     StereoCpuFrame reusable{};
@@ -66,6 +73,9 @@ int main() {
     producer.join();
     if (!mailbox.WaitConsumeLatest(consumed, 0) || consumed.capture_sequence != 100) {
         return Fail("slow-consumer path did not remain bounded at the latest frame");
+    }
+    if (consumed.hud_text.frame_sequence != 100 || consumed.hud_text.text.hint.characters[0] != 100) {
+        return Fail("replaced frames retained old HUD text ownership");
     }
 
     const auto stats = mailbox.stats();

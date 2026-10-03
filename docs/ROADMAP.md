@@ -112,11 +112,14 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
   and Q/E lean remain deliberate custom bindings. The gesture selector has no
   visible inventory wheel or available-item filtering yet; XR focus magnification
   remains open.
-- Gameplay HUD recovery: **planned / incomplete**. Exact sprite traversal and
+- Gameplay HUD recovery: **incomplete**. Essential interaction/tutorial/subtitle
+  text has a read-only native-owner route and cached finite-depth stereo panels,
+  **host-tested**, pending live visibility, pacing and headset readability.
+  Native PC key names remain in hint text. Exact sprite traversal and
   batch-flush boundaries are identified; their passive correlation/target probes
   are **host-tested**, with live route and usable coverage/alpha unproved.
-  Restore hints, contextual action, subtitles, health/ammo and native no-shoot
-  feedback first. A native-inventory wheel and wrist compass follow essential
+  Native graphical capture remains planned. Restore health/ammo and native
+  no-shoot feedback next. A native-inventory wheel and wrist compass follow essential
   feedback. Whip, horses, climbing, concentration and duels retain separate
   input/HUD gates; ordinary menus, gun firing and locomotion do not accept them.
 

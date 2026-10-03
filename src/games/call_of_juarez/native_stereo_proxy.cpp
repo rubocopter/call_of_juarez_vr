@@ -1458,7 +1458,8 @@ bool SubmitStereoFrame(
     void* context,
     const std::uint64_t frame_sequence,
     const cojvr::runtime::PoseSample& render_hmd_pose,
-    const cojvr::games::call_of_juarez::CameraStereoReticleOverlay& gameplay_reticle) noexcept {
+    const cojvr::games::call_of_juarez::CameraStereoReticleOverlay& gameplay_reticle,
+    const cojvr::runtime::StereoHudTextOverlay& hud_text) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return false;
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
@@ -1473,7 +1474,7 @@ bool SubmitStereoFrame(
         };
     }
     const bool accepted = state->capture.EndFrame(
-        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle);
+        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle, hud_text);
     if (!accepted) {
         LogTransportFailure(frame_sequence, "fence", state->capture.last_error());
     } else if (ShouldLogStereoTiming(frame_sequence)) {

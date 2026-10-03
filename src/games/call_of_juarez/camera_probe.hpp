@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/hud_boundary_probe.hpp"
 
 #include "runtime/pose_source.hpp"
+#include "runtime/hud_text.hpp"
 
 #include <array>
 #include <cstdint>
@@ -261,7 +262,8 @@ struct CameraStereoRuntimeCallbacks {
         void* context,
         std::uint64_t frame_sequence,
         const cojvr::runtime::PoseSample& render_hmd_pose,
-        const CameraStereoReticleOverlay& gameplay_reticle) noexcept = nullptr;
+        const CameraStereoReticleOverlay& gameplay_reticle,
+        const runtime::StereoHudTextOverlay& hud_text) noexcept = nullptr;
     void (*set_capture_readback_enabled)(void* context, bool enabled) noexcept = nullptr;
     bool (*diagnostic_counters)(
         void* context,

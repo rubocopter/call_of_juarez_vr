@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/vr_types.hpp"
+#include "runtime/hud_text.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 
 #include <array>
@@ -290,6 +291,8 @@ public:
         float spine_horizontal_offset_degrees,
         float head_vertical_offset_degrees,
         std::string* error = nullptr) noexcept;
+
+    [[nodiscard]] bool TryObserveHudText(runtime::HudTextSnapshot& text) noexcept;
     // Rotate the exact PlayerBeing root through the same shipped route already
     // used by headset-validated snap turn. VR body yaw commits this only after
     // the stereo eye overlays have been restored for the current frame.
@@ -564,6 +567,10 @@ private:
     bool jni_environment_observed_ = false;
     bool detailed_exception_diagnostics_ = false;
     std::uint64_t being_generation_ = 0;
+    runtime::HudTextSnapshot hud_text_cache_{};
+    std::uint64_t hud_text_player_generation_ = 0;
+    std::uint64_t hud_text_sample_tick_ = 0;
+    bool hud_text_sample_valid_ = false;
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     bool gameplay_input_applied_ = false;
     CoJSnapTurnState snap_turn_state_{};

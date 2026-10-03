@@ -56,6 +56,16 @@ bool CaptureAndCollect(
     const std::uint64_t frame_sequence,
     const std::uint64_t generation,
     cojvr::backends::d3d9::StereoCpuFrame& frame) {
+    cojvr::runtime::StereoHudTextOverlay hud{};
+    hud.frame_sequence = frame_sequence;
+    if (frame_sequence % 2) {
+        hud.text.hint.length = 3;
+        hud.text.hint.characters[0] = u'V';
+        hud.text.hint.characters[1] = u'R';
+        hud.text.hint.characters[2] = u'!';
+        hud.eyes[0].eye_to_head.position.x = -.032F;
+        hud.eyes[1].eye_to_head.position.x = .032F;
+    }
     HRESULT hr = device->ColorFill(target, nullptr, D3DCOLOR_ARGB(0xFF, 0x20, 0x40, 0x80));
     if (FAILED(hr) ||
         !capture.CaptureEye(device, cojvr::runtime::Eye::left, frame_sequence, generation)) {
@@ -66,7 +76,7 @@ bool CaptureAndCollect(
         !capture.CaptureEye(device, cojvr::runtime::Eye::right, frame_sequence, generation) ||
         !capture.EndFrame(
             frame_sequence, TestRenderPose(), frame_sequence + 41,
-            TestReticle(frame_sequence))) {
+            TestReticle(frame_sequence), hud)) {
         return false;
     }
     for (int attempt = 0; attempt < 100; ++attempt) {
@@ -139,6 +149,9 @@ int main() {
         return 1;
     }
     if (frame.capture_sequence != 1 || frame.generation != 1 ||
+        frame.hud_text.frame_sequence != 1 || frame.hud_text.text.hint.view() != u"VR!" ||
+        frame.hud_text.eyes[0].eye_to_head.position.x >= 0 ||
+        frame.hud_text.eyes[1].eye_to_head.position.x <= 0 ||
         frame.render_pose_sequence != 42 || !frame.render_hmd_pose.orientation_valid ||
         !frame.render_hmd_pose.position_valid ||
         std::fabs(frame.render_hmd_pose.position.y - 1.65F) > 0.0001F ||
@@ -191,7 +204,8 @@ int main() {
     frame = {};
     if (!CaptureAndCollect(capture, device.Get(), resized_target.Get(), 2, 1, frame) ||
         frame.eyes[0].width != 71 || frame.eyes[0].height != 39 ||
-        frame.generation != 1) {
+        frame.generation != 1 || frame.hud_text.frame_sequence != 2 ||
+        !frame.hud_text.text.hint.view().empty()) {
         std::cerr << capture.last_error() << '\n';
         return Fail("capture did not rebuild resources after a source resize");
     }
@@ -213,7 +227,8 @@ int main() {
     frame = {};
     if (!CaptureAndCollect(capture, device.Get(), back_buffer.Get(), 3, 2, frame) ||
         frame.eyes[0].width != 83 || frame.eyes[0].height != 41 ||
-        frame.generation != 2) {
+        frame.generation != 2 || frame.hud_text.frame_sequence != 3 ||
+        frame.hud_text.text.hint.view() != u"VR!") {
         std::cerr << capture.last_error() << '\n';
         return Fail("capture did not recover on the post-Reset generation");
     }
@@ -259,6 +274,9 @@ int main() {
 
     cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
     cojvr::backends::d3d9::StereoCpuFrame flat_frame{};
+    flat_frame.hud_text.frame_sequence = 99;
+    flat_frame.hud_text.text.hint.length = 1;
+    flat_frame.hud_text.text.hint.characters[0] = u'X';
     hr = flat_device->ColorFill(flat_back_buffer.Get(), nullptr, D3DCOLOR_ARGB(0xFF, 0x34, 0x56, 0x78));
     if (FAILED(hr) ||
         !flat_capture.CaptureFlatFrameImmediate(
@@ -270,6 +288,9 @@ int main() {
     const std::uint64_t flat_left_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
         flat_frame.eyes[0].pixels.data(), flat_frame.eyes[0].stride,
         flat_frame.eyes[0].width, flat_frame.eyes[0].height);
+    if (flat_frame.hud_text.frame_sequence || !flat_frame.hud_text.text.hint.view().empty()) {
+        return Fail("flat capture retained stale gameplay HUD metadata");
+    }
     const std::uint64_t flat_right_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
         flat_frame.eyes[1].pixels.data(), flat_frame.eyes[1].stride,
         flat_frame.eyes[1].width, flat_frame.eyes[1].height);
@@ -302,6 +323,19 @@ int main() {
     if (stats.frames_fenced != 4 || stats.frames_collected != 4 ||
         stats.frames_dropped_no_slot != 0) {
         return Fail("Deferred capture accounting is inconsistent");
+    }
+
+    frame = {};
+    cojvr::runtime::StereoHudTextOverlay wrong_hud{};
+    wrong_hud.frame_sequence = 999;
+    if (!capture.CaptureEye(second_device.Get(),cojvr::runtime::Eye::left,50,3) ||
+        !capture.CaptureEye(second_device.Get(),cojvr::runtime::Eye::right,50,3) ||
+        capture.EndFrame(50,TestRenderPose(),91,{},wrong_hud) || capture.TryCollectReady(frame)) {
+        return Fail("capture accepted HUD text from a different render frame");
+    }
+    if (!CaptureAndCollect(capture,second_device.Get(),second_back_buffer.Get(),51,3,frame) ||
+        frame.hud_text.frame_sequence != 51 || frame.hud_text.text.hint.view() != u"VR!") {
+        return Fail("capture did not recover from rejected HUD metadata");
     }
 
     std::cout << "Deferred D3D9 stereo ring -> leased SYSTEMMEM frame passed: "

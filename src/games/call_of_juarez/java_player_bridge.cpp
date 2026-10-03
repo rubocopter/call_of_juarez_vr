@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/hud_text_reader.hpp"
 
 #include <windows.h>
 
@@ -610,6 +611,10 @@ void JavaPlayerBridge::Reset() noexcept {
     single_player_fallback_used_ = false;
     campaign_module_fallback_used_ = false;
     being_generation_ = 0;
+    hud_text_cache_ = {};
+    hud_text_player_generation_ = 0;
+    hud_text_sample_tick_ = 0;
+    hud_text_sample_valid_ = false;
     hand_overlays_ = {};
     independent_hand_elements_ = {};
     independent_hand_generation_ = 0;
@@ -1080,6 +1085,26 @@ bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
     if (ClearException(env, error, "Module.IsTimerFreezed call failed")) return false;
     frozen = value != 0;
     return true;
+}
+
+bool JavaPlayerBridge::TryObserveHudText(runtime::HudTextSnapshot& text) noexcept {
+    text = {};
+    if (!being_) {
+        hud_text_cache_ = {};
+        hud_text_sample_valid_ = false;
+        hud_text_sample_tick_ = 0;
+        return false;
+    }
+    const auto tick = GetTickCount64();
+    if (hud_text_player_generation_ != being_generation_ ||
+        !hud_text_sample_tick_ || tick - hud_text_sample_tick_ >= 100) {
+        hud_text_cache_ = {};
+        hud_text_player_generation_ = being_generation_;
+        hud_text_sample_tick_ = tick;
+        hud_text_sample_valid_ = ReadCoJHudText(Environment(nullptr), being_, hud_text_cache_);
+    }
+    text = hud_text_cache_;
+    return hud_text_sample_valid_;
 }
 
 bool JavaPlayerBridge::TryObserveSubtitleState(
@@ -3358,6 +3383,9 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    hud_text_cache_ = {};
+    hud_text_sample_tick_ = 0;
+    hud_text_sample_valid_ = false;
     // Keep the captured actor and its method bindings until restoration succeeds.
     if (!RestoreTrackedHands() || !RestoreTrackedWeapons()) return;
     if (being_) {

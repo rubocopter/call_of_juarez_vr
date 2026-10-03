@@ -103,6 +103,7 @@ add_library(cojvr_d3d9_hooks STATIC
 
 add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/hud_boundary_probe.cpp
+    src/games/call_of_juarez/hud_text_reader.cpp
     src/games/call_of_juarez/camera_probe.cpp
     src/games/call_of_juarez/game_shutdown_hook.cpp
     src/games/call_of_juarez/body_adapter.cpp
@@ -143,12 +144,13 @@ if(COJVR_ENABLE_OPENVR)
         src/backends/openvr/d3d11_sync.cpp
         src/backends/openvr/d3d11_session.cpp
         src/backends/openvr/stereo_presenter.cpp
+        src/backends/openvr/hud_text_overlay.cpp
         src/backends/d3d9/frame_mailbox.cpp
     )
     target_include_directories(cojvr_openvr_d3d11_backend PUBLIC src)
     target_compile_features(cojvr_openvr_d3d11_backend PUBLIC cxx_std_20)
     target_compile_definitions(cojvr_openvr_d3d11_backend PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-    target_link_libraries(cojvr_openvr_d3d11_backend PUBLIC cojvr_openvr_runtime PRIVATE d3d11 dxgi openvr_api)
+    target_link_libraries(cojvr_openvr_d3d11_backend PUBLIC cojvr_openvr_runtime PRIVATE d3d11 dxgi openvr_api gdi32 d3dcompiler)
 
     add_executable(cojvr_openvr_probe tools/openvr_probe.cpp)
     target_link_libraries(cojvr_openvr_probe PRIVATE cojvr_openvr_d3d11_backend)
@@ -531,6 +533,18 @@ if(COJVR_BUILD_TESTS)
 
     add_executable(cojvr_body_adapter_test tests/body_adapter.cpp)
     add_executable(cojvr_hud_boundary_probe_test tests/hud_boundary_probe.cpp)
+    add_executable(cojvr_hud_text_reader_test tests/hud_text_reader.cpp src/games/call_of_juarez/hud_text_reader.cpp)
+    target_link_libraries(cojvr_hud_text_reader_test PRIVATE cojvr_runtime)
+    if(MSVC)
+        target_compile_options(cojvr_hud_text_reader_test PRIVATE /utf-8)
+    endif()
+    add_test(NAME hud_text_reader COMMAND cojvr_hud_text_reader_test)
+    add_executable(cojvr_hud_text_overlay_test tests/hud_text_overlay.cpp src/backends/openvr/hud_text_overlay.cpp)
+    target_link_libraries(cojvr_hud_text_overlay_test PRIVATE cojvr_runtime gdi32 d3d11 d3dcompiler)
+    if(MSVC)
+        target_compile_options(cojvr_hud_text_overlay_test PRIVATE /utf-8)
+    endif()
+    add_test(NAME hud_text_overlay COMMAND cojvr_hud_text_overlay_test)
     target_link_libraries(cojvr_hud_boundary_probe_test PRIVATE cojvr_coj_camera_probe)
     add_test(NAME hud_boundary_probe COMMAND cojvr_hud_boundary_probe_test)
     add_executable(cojvr_gameplay_utility_test tests/gameplay_utility.cpp)
@@ -661,7 +675,7 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_ui_pointer_ownership_test PRIVATE cxx_std_20)
     add_test(NAME ui_pointer_ownership COMMAND cojvr_ui_pointer_ownership_test)
 
-    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp src/games/call_of_juarez/body_adapter.cpp)
+    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp)
     target_link_libraries(cojvr_ui_cursor_jni_test PRIVATE cojvr_runtime)
     target_include_directories(cojvr_ui_cursor_jni_test PRIVATE src)
     target_compile_features(cojvr_ui_cursor_jni_test PRIVATE cxx_std_20)
