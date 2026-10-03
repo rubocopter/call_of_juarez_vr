@@ -90,6 +90,19 @@ shoulder plane while retaining height, span and stability guards. Pending reason
 and sample counts are logged. Actual-shot alignment and fitted reach still need
 headset acceptance; successful cache getters do not accept either.
 
+The corrected hand-to-hand-frame classifier is now **live-tested** for completing
+the operator's extended-arm calibration. The operator confirms longer arms, but
+rejects the resulting anatomy. Verified wrist positions reach the solver targets;
+hand-orientation residuals frequently exceed the preserved safety boundary and
+therefore retain the composed native orientation. The visible wrist/forearm pose
+remains unnatural. Further reach enlargement is not justified by this result;
+hand/forearm orientation and skinning ownership remain the unresolved boundary.
+The **implemented / host-tested** orientation follow-up calibrates against the
+post-IK composed hand basis and preserves the verified displayed basis across
+recenter. A host regression reproduces a large residual for an unchanged
+controller under the previous native pre-IK reference. Neither positional reach
+nor hand/twist safety limits change; headset anatomy acceptance is still pending.
+
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
 run retained Ex factory/device identity, recorded successful Presents beyond
@@ -396,7 +409,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
-| Body IK continuity/anatomy | continuity physically improved; anatomy rejected; calibration correction host-tested | fixed-axis T-pose detection rejected the operator's extended pose; hand-to-hand-frame span calibration awaits fitted-reach acceptance; native restoration remains verified |
+| Body IK continuity/anatomy | continuity physically improved; span calibration live-tested; anatomy rejected | calibration completes and arms are longer, but wrist/forearm orientation remains unnatural; solver target readback/restoration do not accept visual skinning |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
 | Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |

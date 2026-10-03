@@ -1073,6 +1073,29 @@ HandOrientationReference BuildHandOrientationReference(
     return result;
 }
 
+HandOrientationReference BuildArmHandOrientationReference(
+    const cojvr::runtime::Quaternion controller,
+    const cojvr::runtime::Vec3 right, const cojvr::runtime::Vec3 up,
+    const cojvr::runtime::Vec3 forward,
+    const ArmGeometrySample& natural, const ArmBoneRotationPlan& rotations) noexcept {
+    const auto valid_rotation = [](const BoneRotationDelta& rotation) noexcept {
+        return rotation.valid && Finite(rotation.axis) &&
+            std::isfinite(rotation.angle_degrees) &&
+            (rotation.no_op || Length(rotation.axis) > 0.99F);
+    };
+    if (!ShouldApplyCoJArmRotationPlan(rotations) || !valid_rotation(rotations.upper_arm) ||
+        !valid_rotation(rotations.forearm)) return {};
+    const auto swing = [&](cojvr::runtime::Vec3 value) noexcept {
+        if (!rotations.upper_arm.no_op) value = RotateAroundAxis(
+            value, rotations.upper_arm.axis, rotations.upper_arm.angle_degrees);
+        if (!rotations.forearm.no_op) value = RotateAroundAxis(
+            value, rotations.forearm.axis, rotations.forearm.angle_degrees);
+        return value;
+    };
+    return BuildHandOrientationReference(controller, right, up, forward,
+        swing(natural.hand_element_up), swing(natural.hand_element_forward));
+}
+
 HandOrientationTarget BuildTrackedHandOrientationTarget(
     const HandOrientationReference& reference,
     const cojvr::runtime::Quaternion controller_orientation,

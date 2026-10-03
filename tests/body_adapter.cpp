@@ -1458,7 +1458,27 @@ int main() {
         return 1;
     }
 
-    // A weapon whose native barrel points along -X must map to tracked -Z
+    // Positional IK alone must not create a wrist residual on calibration.
+    const auto solved_reference = BuildArmHandOrientationReference(
+        {}, {1,0,0}, {0,1,0}, {0,0,1}, frame_natural, composed_rotations);
+    const auto solved_hand_target = BuildTrackedHandOrientationTarget(
+        solved_reference, {}, {1,0,0}, {0,1,0}, {0,0,1});
+    const auto initially_calibrated = BuildArmElementFramePlan(
+        frame_natural, frame_ik, composed_rotations, solved_hand_target);
+    if (!solved_reference.valid || !initially_calibrated.valid ||
+        !initially_calibrated.diagnostic_hand_residual.no_op ||
+        Distance(initially_calibrated.hand.up, composed_hand.up) > 0.001F ||
+        Distance(initially_calibrated.hand.forward, composed_hand.forward) > 0.001F) {
+        std::cerr << "Unchanged controller required wrist compensation for the initial positional IK swing\n";
+        return 1;
+    }
+    auto invalid_reference_rotations = composed_rotations;
+    invalid_reference_rotations.forearm.valid = false;
+    if (BuildArmHandOrientationReference({}, {1,0,0}, {0,1,0}, {0,0,1},
+            frame_natural, invalid_reference_rotations).valid) {
+        std::cerr << "Invalid positional swing calibrated the hand reference\n";
+        return 1;
+    }
     CoJArmSpanCalibration span_calibration;
     for (int i = 0; i < 40; ++i) {
         (void)span_calibration.Update({}, {-0.2F,-0.3F,-0.6F}, {0.2F,-0.3F,-0.6F}, 40, 100, true);

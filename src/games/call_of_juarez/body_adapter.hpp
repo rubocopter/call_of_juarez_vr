@@ -406,6 +406,14 @@ struct LegIkPlan {
     cojvr::runtime::Vec3 hand_up_world,
     cojvr::runtime::Vec3 hand_forward_world) noexcept;
 
+// Initial controller reference must describe the hand after positional IK,
+// rather than the unrelated native idle hand pose.
+[[nodiscard]] HandOrientationReference BuildArmHandOrientationReference(
+    cojvr::runtime::Quaternion controller_orientation,
+    cojvr::runtime::Vec3 camera_right, cojvr::runtime::Vec3 camera_up,
+    cojvr::runtime::Vec3 camera_forward,
+    const ArmGeometrySample& natural, const ArmBoneRotationPlan& rotations) noexcept;
+
 // Apply the controller delta relative to the calibration frame and map the
 // resulting hand basis through the current natural CoJ camera basis.
 [[nodiscard]] HandOrientationTarget BuildTrackedHandOrientationTarget(

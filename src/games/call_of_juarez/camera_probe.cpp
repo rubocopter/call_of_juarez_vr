@@ -3097,53 +3097,6 @@ void UpdatePlayerArmTracking(
                 tracking_basis.forward.x,
                 tracking_basis.forward.y,
                 tracking_basis.forward.z};
-            auto& orientation_calibration = left
-                ? g_left_hand_orientation
-                : g_right_hand_orientation;
-            const bool generation_changed =
-                orientation_calibration.being_generation != generation;
-            const bool recenter_rebase =
-                orientation_calibration.reference.valid &&
-                !generation_changed &&
-                orientation_calibration.recenter_sequence != recenter_sequence &&
-                orientation_calibration.last_target.valid;
-            if (!orientation_calibration.reference.valid ||
-                generation_changed ||
-                orientation_calibration.recenter_sequence != recenter_sequence) {
-                const cojvr::runtime::Vec3 reference_up = recenter_rebase
-                    ? orientation_calibration.last_target.up
-                    : geometry.hand_element_up;
-                const cojvr::runtime::Vec3 reference_forward = recenter_rebase
-                    ? orientation_calibration.last_target.forward
-                    : geometry.hand_element_forward;
-                if (generation_changed) orientation_calibration.last_target = {};
-                orientation_calibration.reference = BuildHandOrientationReference(
-                    controller.orientation,
-                    camera_right,
-                    camera_up,
-                    camera_forward,
-                    reference_up,
-                    reference_forward);
-                orientation_calibration.being_generation = generation;
-                orientation_calibration.recenter_sequence = recenter_sequence;
-            }
-            const HandOrientationTarget hand_target =
-                BuildTrackedHandOrientationTarget(
-                    orientation_calibration.reference,
-                    controller.orientation,
-                    camera_right,
-                    camera_up,
-                    camera_forward);
-            if (!orientation_calibration.reference.valid || !hand_target.valid) {
-                if (observe) {
-                    EmitEvent(
-                        "body_arm_tracking", "invalid",
-                        "frame_sequence=" + std::to_string(frame_sequence) +
-                            ";side=" + side + ";stage=controller_orientation_mapping");
-                }
-                return;
-            }
-            orientation_calibration.last_target = hand_target;
             bool target_valid = false;
             const cojvr::runtime::Vec3 target = BuildTrackedAimOrigin(
                 {camera_position.x, camera_position.y, camera_position.z},
@@ -3174,6 +3127,53 @@ void UpdatePlayerArmTracking(
             const ArmIkPlan plan = BuildArmIkPlan(geometry, target, elbow_pole, measured_reach_scale);
             const ArmBoneRotationPlan rotation_plan =
                 BuildArmBoneRotationPlan(geometry, plan);
+            auto& orientation_calibration = left
+                ? g_left_hand_orientation
+                : g_right_hand_orientation;
+            const bool generation_changed =
+                orientation_calibration.being_generation != generation;
+            const bool recenter_rebase =
+                orientation_calibration.reference.valid &&
+                !generation_changed &&
+                orientation_calibration.recenter_sequence != recenter_sequence &&
+                orientation_calibration.last_target.valid;
+            if (!orientation_calibration.reference.valid ||
+                generation_changed ||
+                orientation_calibration.recenter_sequence != recenter_sequence) {
+                if (native_animation_owns_arms) {
+                    if (observe) EmitEvent("body_arm_tracking", "observed",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";side=" + side + ";stage=native_reload_reference_deferred");
+                    return;
+                }
+                if (generation_changed) orientation_calibration.last_target = {};
+                orientation_calibration.reference = recenter_rebase
+                    ? BuildHandOrientationReference(
+                        controller.orientation, camera_right, camera_up, camera_forward,
+                        orientation_calibration.last_target.up,
+                        orientation_calibration.last_target.forward)
+                    : BuildArmHandOrientationReference(
+                        controller.orientation, camera_right, camera_up, camera_forward,
+                        geometry, rotation_plan);
+                orientation_calibration.being_generation = generation;
+                orientation_calibration.recenter_sequence = recenter_sequence;
+            }
+            const HandOrientationTarget hand_target =
+                BuildTrackedHandOrientationTarget(
+                    orientation_calibration.reference,
+                    controller.orientation,
+                    camera_right,
+                    camera_up,
+                    camera_forward);
+            if (!orientation_calibration.reference.valid || !hand_target.valid) {
+                if (observe) {
+                    EmitEvent(
+                        "body_arm_tracking", "invalid",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                            ";side=" + side + ";stage=controller_orientation_mapping");
+                }
+                return;
+            }
             if (observe) {
                 std::ostringstream natural_probe;
                 natural_probe << "frame_sequence=" << frame_sequence
@@ -3278,6 +3278,11 @@ void UpdatePlayerArmTracking(
                             applied.natural_geometry,
                             applied.post_write_geometry);
                     if (applied.post_write_geometry_valid) {
+                        // Recenter preserves the displayed pose, including a
+                        // rejected wrist residual, rather than its unmet target.
+                        orientation_calibration.last_target = {
+                            applied.post_write_geometry.hand_element_up,
+                            applied.post_write_geometry.hand_element_forward, true};
                         elbow_target_error = std::sqrt(RuntimeVectorDistanceSquared(
                             applied.post_write_geometry.elbow, plan.elbow_target));
                         wrist_target_error = std::sqrt(RuntimeVectorDistanceSquared(
@@ -3504,7 +3509,7 @@ void UpdatePlayerArmTracking(
                        << ";orientation_calibration_recenter_sequence="
                        << orientation_calibration.recenter_sequence
                        << ";orientation_calibration_mode="
-                       << (recenter_rebase ? "preserved_target_rebase" : "reference")
+                       << (recenter_rebase ? "preserved_displayed_rebase" : "post_ik_swing_reference")
                        << ";rotation_plan_valid="
                        << (rotation_plan.valid ? "true" : "false")
                        << ";upper_length=" << plan.upper_length

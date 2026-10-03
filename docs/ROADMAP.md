@@ -45,7 +45,14 @@ weapon cache publication and scoped restoration succeed, but the operator's T
 pose did not calibrate, leaving short arms clamped near the body while the weapon
 followed the real hand. The host-tested correction judges extension in the
 horizontal hand-to-hand frame instead of recenter X/Z, preserving stable-span
-and height guards and reporting pending reasons. A verified rigid weapon-element map publishes muzzle
+and height guards and reporting pending reasons. Calibration now completes in the
+physical follow-up and the operator confirms longer arms, but rejects the resulting
+wrist/forearm anatomy. Target positions and restoration succeed while large hand
+orientation residuals remain blocked by the existing safety boundary; additional
+reach enlargement is not the next remediation. The next host-tested correction
+captures the hand orientation after positional arm swing and recenters from its
+verified displayed basis, avoiding compensation for the initial IK swing without
+relaxing wrist/twist limits. A verified rigid weapon-element map publishes muzzle
 vectors to exact per-hand Java shot consumers, with null/native/network fallback.
 The original code archive is a journaled, hash-verified deployment asset and is
 restored byte-for-byte. Actual-shot alignment, fitted anatomy and comfort remain

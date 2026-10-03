@@ -107,8 +107,21 @@ the tracked weapon stayed near the real hand. Extension is now measured in the
 horizontal hand-to-hand frame, with the head between both hands, bounded vertical
 and shoulder-plane offsets, the same measured-span bounds and stable-sample
 requirement. Pending calibration telemetry retains the rejection reason and
-sample count. Observed-pose and yaw-rotated host regressions pass; fitted anatomy
-remains a physical gate.
+sample count. Observed-pose and yaw-rotated host regressions pass. Physical
+follow-up now completes calibration and confirms longer arms, while still
+rejecting wrist/forearm anatomy. Successful solver-target readback coexists with
+large hand-orientation residuals that the safety boundary does not apply. This
+separates span detection from the remaining orientation/skinning problem; it
+does not justify increasing reach again or lifting the residual limit without
+demonstrating correct ownership.
+
+The initial orientation reference previously paired a controller pose with the
+native hand basis before upper/elbow IK. If controller position differed from
+the native idle hand, positional swing alone could exceed the wrist residual
+limit while controller orientation remained unchanged. The corrected reference
+uses the composed post-IK hand basis. Recenter preserves the last read-back
+displayed hand basis rather than a requested target that the residual gate
+rejected. This is host-tested; visual wrist/forearm acceptance remains pending.
 
 Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
 

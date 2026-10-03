@@ -259,8 +259,18 @@ Pending calibration reports its reason and stable-sample count. Invalid
 tracking/outliers retain the native default. Calibration persists across recenter
 and resets with player generation. Joint-relative FORETWIST/hand offsets follow
 the fitted elbow/wrist endpoints. Native animation/physics and restored frames
-retain their original proportions. These changes are host-tested; residual hand
-orientation, fitted reach and recovery remain physical gates.
+retain their original proportions. Calibration completion and longer reach are
+now physically exercised; visual anatomy remains rejected. Solver-target readback
+does not validate skinning. Large hand-orientation residuals still yield to the
+composed native frame, so wrist/forearm orientation and recovery remain physical
+gates independently of successful span measurement.
+
+Initial hand-orientation calibration uses the composed hand basis after positional
+upper/elbow IK. The earlier native pre-IK reference required the wrist to undo
+the initial arm swing even with an unchanged controller orientation. Recenter
+rebases from the last verified displayed hand basis, including rejected residuals,
+rather than an unmet controller target. This correction is host-tested; the
+existing hand/twist limits and physical anatomy gate remain unchanged.
 
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
 Arm apply/restore elapsed times are measured while IK or movement tracing is
