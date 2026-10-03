@@ -40,6 +40,9 @@ $Control = [ordered]@{
     enabled = $false
     trackingEnabled = $IsVr
     bodyIkEnabled = $BodyIkEnabled
+    independentHandsEnabled = $null -ne $Existing -and
+        $null -ne $Existing.PSObject.Properties['independentHandsEnabled'] -and
+        [bool]$Existing.independentHandsEnabled
     recenter = $false
     yawDegrees = 0.0
     pitchDegrees = 0.0

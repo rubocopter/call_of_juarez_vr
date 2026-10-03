@@ -37,6 +37,15 @@ if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
 }
 
 $StageState = Get-Content -LiteralPath $State -Raw | ConvertFrom-Json
+$PlayerArchiveManaged = $StageState.PSObject.Properties.Name -contains "playerArchiveManaged" -and [bool]$StageState.playerArchiveManaged
+$PlayerArchive = Join-Path $GameDirectory "Data0.pak"
+$PlayerBackup = Join-Path $GameDirectory "Data0.cojvr-backup.pak"
+if ($PlayerArchiveManaged) {
+    if ((Get-CojvrFileSha256 $PlayerArchive) -ne [string]$StageState.stagedPlayerSha256 -or
+        (Get-CojvrFileSha256 $PlayerBackup) -ne [string]$StageState.originalPlayerSha256) {
+        throw "Data0.pak or its original backup changed; refusing incomplete restoration."
+    }
+}
 $CodeArchiveManaged = $StageState.PSObject.Properties.Name -contains "codeArchiveManaged" -and [bool]$StageState.codeArchiveManaged
 $CodeArchive = Join-Path $GameDirectory "code.pak"
 $CodeBackup = Join-Path $GameDirectory "code.cojvr-backup.pak"
@@ -142,7 +151,24 @@ if ($CodeArchiveManaged) {
         stagedSha256 = [string]$StageState.stagedCodeSha256
     }
 }
+if ($PlayerArchiveManaged) {
+    $JournalAssets += [ordered]@{
+        role = "game_player_geometry"; kind = "file"; destination = "Data0.pak"; backup = "Data0.cojvr-backup.pak"
+        hadOriginal = $true; originalSha256 = [string]$StageState.originalPlayerSha256
+        stagedSha256 = [string]$StageState.stagedPlayerSha256
+    }
+}
 [void](Write-CojvrDeploymentJournal $GameDirectory "unstage" ([string]$StageState.runId) ([string]$StageState.diagnosticMode) $JournalAssets)
+
+if ($PlayerArchiveManaged) {
+    Remove-Item -LiteralPath $PlayerArchive -Force
+    Invoke-CojvrDeploymentCheckpoint "unstage_player_removed"
+    Move-Item -LiteralPath $PlayerBackup -Destination $PlayerArchive
+    Invoke-CojvrDeploymentCheckpoint "unstage_player_original_restored"
+    if ((Get-CojvrFileSha256 $PlayerArchive) -ne [string]$StageState.originalPlayerSha256) {
+        throw "Original Data0.pak was not restored byte-for-byte."
+    }
+}
 
 if ($CodeArchiveManaged) {
     Remove-Item -LiteralPath $CodeArchive -Force

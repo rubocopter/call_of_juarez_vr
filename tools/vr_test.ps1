@@ -192,7 +192,8 @@ switch ($Action) {
                 -GameDirectory $ResolvedGameDirectory `
                 -ProxyPath $ProxyPath `
                 -BuildManifestPath $ManifestPath `
-                -ValidationProfile $ValidationProfile
+                -ValidationProfile $ValidationProfile `
+                -IndependentHands:$BodyIkAtStart
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -265,7 +266,7 @@ switch ($Action) {
             Write-Host "In gameplay, walk/run/jump with Sense, then repeat briefly with keyboard and compare smoothness; finish will retain GPU transport, frame-age, cadence and producer/consumer wait telemetry."
             Write-Host "Physically crouch by lowering the HMD: first-person ownership should remain stable and the full avatar must not move in front of the camera. Test explicit controller crouch separately."
             Write-Host "Fire one direct shot first and confirm the process remains stable. Then try repeated/held fire where supported and judge origin/direction against the weapon/controller."
-            Write-Host "Move both hands through comfortable reach and note whether either arm still feels shortened or clamps early."
+            Write-Host "Independent native hands retain torso/legs at native proportions; no T-pose reach calibration is needed. Move hands close to the chest and through full wrist turns, walk/turn and reload. Confirm detached hands/weapon follow the controllers and original arms return only during native animation."
         } else {
             Write-Host "Transport-profile run: first exercise automatic menu hover, R2/L2 selection, Cross/Circle and physical mouse/drag coexistence. Report accuracy separately; the transport verifier does not accept menu usability."
             Write-Host "Body IK stays off. Slowly turn your head beyond both sides of the 35-degree comfort cone while watching the native revolver hand; report whether the previous body-yaw steps remain."

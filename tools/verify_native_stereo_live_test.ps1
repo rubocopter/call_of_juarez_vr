@@ -564,6 +564,26 @@ if ($RequireBodyIk) {
     Assert-LogMatch `
         "camera_probe_event: event=body_tracking_input result=observed detail=.*left_position_valid=true;left_orientation_valid=true;.*right_position_valid=true;right_orientation_valid=true;" `
         "The body IK gate never observed valid tracked poses for both Sense controllers."
+    $IndependentHands = $Run.validation.PSObject.Properties.Name -contains "handPresentation" -and
+        $Run.validation.handPresentation -eq "independent_native_hands"
+    if ($IndependentHands) {
+        Assert-LogMatch "camera_probe_event: event=camera_probe_control_loaded result=accepted .*tracking_enabled=true;body_ik_enabled=true;independent_hands_enabled=true" `
+            "The independent-hand candidate never enabled its presentation contract."
+        foreach ($Side in @("left", "right")) {
+            Assert-LogMatch "camera_probe_event: event=body_hand_tracking result=applied .*;side=$Side;presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=19;" `
+                "The independent-hand gate did not apply the $Side hand without arm scaling."
+            foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
+                Assert-LogMatch "camera_probe_event: event=body_hand_render_probe result=matched .*;side=$Side;phase=$Phase;rigid_elements=19;arms_hidden=true;" `
+                    "The independent-hand gate did not preserve the $Side hand and hidden arms through $Phase."
+            }
+        }
+        Assert-LogMatch "camera_probe_event: event=body_hand_restore result=ok .*;transaction=post_stereo_capture;elements_restored=true;visibility_restored=true;" `
+            "Independent hands and arm visibility were not restored after stereo capture."
+        Assert-LogNotMatch "camera_probe_event: event=body_hand_(?:restore|render_probe) result=failed" `
+            "The independent-hand candidate recorded a failed readback or restoration."
+        Assert-LogNotMatch "camera_probe_event: event=body_arm_tracking result=applied" `
+            "Independent hands overlapped with the native arm IK writer."
+    } else {
     $BodyIkLines = @($Lines | Where-Object {
         $_ -match "camera_probe_event: event=body_arm_tracking result=applied"
     })
@@ -720,6 +740,7 @@ if ($RequireBodyIk) {
         $_ -match "camera_probe_event: event=body_arm_restore result=failed"
     }) {
         throw "The body IK gate recorded a failed element-hierarchy restore."
+    }
     }
     Assert-LogMatch `
         "camera_probe_event: event=body_visual_roomscale result=applied detail=.*;actor_write=false;scope=stereo_render_only;restore=after_both_eyes" `

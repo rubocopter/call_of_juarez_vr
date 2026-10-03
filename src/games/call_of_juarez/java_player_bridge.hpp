@@ -190,7 +190,15 @@ public:
     [[nodiscard]] bool TryApplyTrackedWeapon(
         int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
         cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up,
-        JavaPlayerPosition& muzzle, std::string* error = nullptr) noexcept;
+        JavaPlayerPosition& muzzle, std::string* error = nullptr,
+        const ElementWorldBasisTarget* natural_hand = nullptr,
+        ElementWorldBasisTarget* tracked_hand = nullptr) noexcept;
+    [[nodiscard]] bool TryApplyIndependentHand(int hand,
+        const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool RestoreTrackedHands(std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool VerifyTrackedHand(int hand, bool& active, std::string* error = nullptr) noexcept;
+    void OnVisualBodyOffsetRestored(cojvr::runtime::Vec3 removed_offset) noexcept;
     [[nodiscard]] bool RestoreTrackedWeapons(std::string* error = nullptr, int only_hand = -1) noexcept;
     [[nodiscard]] bool TryPublishWeaponRay(
         int hand, const JavaPlayerPosition& origin, const JavaPlayerPosition& direction,
@@ -419,6 +427,20 @@ private:
     std::array<WeaponOverlay, 2> weapon_overlays_{};
     std::array<void*, 4> weapon_ray_fields_{};
     bool weapon_overlay_faulted_ = false;
+    struct HandOverlay {
+        void* object = nullptr;
+        CoJHandOverlay frames{};
+    };
+    struct HandIoContext { JavaPlayerBridge* bridge; void* object; std::string* error; };
+    static bool ReadHandFrame(void*, int, ElementWorldBasisTarget&) noexcept;
+    static bool WriteHandFrame(void*, int, const ElementWorldBasisTarget&) noexcept;
+    std::array<HandOverlay, 2> hand_overlays_{};
+    std::array<std::array<int,19>,2> independent_hand_elements_{};
+    std::uint64_t independent_hand_generation_ = 0;
+    void* independent_arms_object_ = nullptr;
+    int independent_arms_element_ = -1;
+    bool independent_arms_were_hidden_ = false;
+    bool independent_hand_faulted_ = false;
 
     void* vm_ = nullptr;
     void* session_class_ = nullptr;

@@ -801,6 +801,63 @@ TrackedWeaponFramePlan BuildTrackedWeaponFrame(
     return result;
 }
 
+namespace {
+bool HandFramesAgree(const CoJHandFrames& expected, void* context, CoJElementRead read) noexcept {
+    for (const auto& sample : expected) {
+        ElementWorldBasisTarget actual{};
+        if (!read(context, sample.element, actual) || !actual.valid ||
+            !Finite(actual.position) || !Finite(actual.up) || !Finite(actual.forward) ||
+            Length(Subtract(actual.position,sample.frame.position))>0.1F ||
+            Length(Subtract(actual.up,sample.frame.up))>0.02F ||
+            Length(Subtract(actual.forward,sample.frame.forward))>0.02F) return false;
+    }
+    return true;
+}
+}
+bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasisTarget& source,
+    const ElementWorldBasisTarget& target, const cojvr::runtime::Vec3 actor, void* context,
+    CoJElementRead read, CoJElementWrite write) noexcept {
+    if (active_ || faulted_ || !read || !write || !Finite(actor)) return false;
+    CoJHandFrames targets{};
+    for (std::size_t i=0;i<natural.size();++i) {
+        if (natural[i].element<0) return false;
+        for (std::size_t j=0;j<i;++j) if (natural[i].element==natural[j].element) return false;
+        targets[i]={natural[i].element,TransformWeaponElementFrame(source,target,natural[i].frame)};
+        if (!targets[i].frame.valid) return false;
+    }
+    natural_=natural; targets_=targets; actor_=actor; active_=true;
+    for (const auto& sample : targets) {
+        if (!write(context,sample.element,sample.frame)) {
+            (void)Restore(actor,context,read,write);return false;
+        }
+    }
+    if (!HandFramesAgree(targets,context,read)) {
+        (void)Restore(actor,context,read,write);return false;
+    }
+    return true;
+}
+bool CoJHandOverlay::Verify(void* context, CoJElementRead read) const noexcept {
+    return active_ && read && HandFramesAgree(targets_,context,read);
+}
+void CoJHandOverlay::RemoveCapturedBodyOffset(const cojvr::runtime::Vec3 offset) noexcept {
+    if (!active_ || !Finite(offset)) return;
+    for (auto& sample : natural_) sample.frame.position=Subtract(sample.frame.position,offset);
+}
+bool CoJHandOverlay::Restore(const cojvr::runtime::Vec3 actor, void* context,
+    CoJElementRead read, CoJElementWrite write) noexcept {
+    if (!active_) return true;
+    if (!read || !write || !Finite(actor)) { faulted_=true;return false; }
+    const auto delta=Subtract(actor,actor_);
+    for (auto& sample : natural_) sample.frame.position=Add(sample.frame.position,delta);
+    actor_=actor;
+    bool ok=true;
+    for (const auto& sample : natural_) if (!write(context,sample.element,sample.frame)) ok=false;
+    ok=ok && HandFramesAgree(natural_,context,read);
+    if (!ok) { faulted_=true;return false; }
+    active_=false;
+    return true;
+}
+
 float CoJArmSpanCalibration::Update(
     const cojvr::runtime::Vec3 head, const cojvr::runtime::Vec3 left,
     const cojvr::runtime::Vec3 right, const float native_shoulder_span_cm,

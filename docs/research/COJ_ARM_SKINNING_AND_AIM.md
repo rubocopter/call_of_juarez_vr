@@ -4,7 +4,38 @@ This document keeps the exact-game conclusions that still govern Body IK and aim
 
 ## Measured arm contract
 
-Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Asymmetric reach clamp did not justify an arbitrary fixed multiplier. The current render-only fit instead measures bilateral controller span in a stable T pose; fitted visual proportions still require physical acceptance.
+The active physical candidate is a hybrid presentation: retained native torso/legs
+with independently tracked native hands. The connected arm solver below remains
+an exact-game diagnostic contract. Completing span calibration and correcting the
+initial post-swing wrist reference did not produce acceptable anatomy; the operator
+rejects the resulting long limbs near the chest. Further enlargement is not justified.
+
+## Exact player geometry partition
+
+The Ray/Billy player `MSH` assets contain a single skinned body node, so hiding
+`RayBody`/`BillyBody` also removes hands and torso. A separate `CoJVRHiddenArms`
+node is appended without relocating existing chunks or changing original element
+indices. Triangles touching a vertex with upper-arm/forearm/twist influence but
+no hand/finger influence move to that node. Mixed hand/forearm wrist vertices stay
+with the hand. Complementary degenerate triangles preserve original index and
+draw counts; positions, normals, UVs, weights and bone palettes stay unchanged.
+The archive and both mesh entries are SHA-256 pinned; unknown inputs fail closed.
+Only player mesh entries change, leaving NPCs and unrelated compressed records
+untouched. Native loading of the appended node is not established by host parsing.
+
+For each hand, the rigid overlay includes `Forearm`, `ForeTwist`, `ForeTwist1`,
+`Hand` and all fifteen `Finger*` elements. Moving all retained skin contributors
+together avoids applying an isolated wrist twist to a connected sleeve. Armed
+hands use the measured weapon rigid map, preserving native finger animation.
+The separate arm node is hidden only during hand ownership and restores to its
+previous visibility after both eyes; reload yields to native animation. Element
+and visibility readback, failed-write rollback, retry retention and actor-relative
+restore are host-tested. Mesh appearance, full wrist comfort and actual shots
+remain physical gates.
+
+## Legacy measured arm reach
+
+Live evidence measures the native upper-arm + forearm chain at about **49.843 game units**. Asymmetric reach clamp did not justify an arbitrary fixed multiplier. The legacy render-only fit measures bilateral controller span in a stable T pose; fitted visual proportions were physically rejected.
 
 The demonstrated indices are pelvis 0, spine 1, spine1 2, chest/spine2 3, neck 4, head 5, left arm 7/8/9/10 and right arm 12/13/14/15. Indices 6 and 11 remain unproven gaps; current evidence does not justify naming them clavicles/shoulders or mutating them. No global upper/forearm scaling is accepted. Shoulder/clavicle participation remains a future controlled experiment only after the exact elements and parentage are demonstrated.
 

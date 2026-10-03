@@ -6,7 +6,8 @@ param(
     [string]$ProxyPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$BuildManifestPath
+    [string]$BuildManifestPath,
+    [switch]$IndependentHands
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +37,13 @@ function New-DeploymentFixture([string]$Name) {
     $CodeSource = Join-Path $GameDirectory "code.cojvr-backup.pak"
     if (-not (Test-Path -LiteralPath $CodeSource)) { $CodeSource = Join-Path $GameDirectory "code.pak" }
     Copy-Item -LiteralPath $CodeSource -Destination (Join-Path $Fixture "code.pak")
+    $PlayerHash=$null
+    if ($IndependentHands) {
+        $PlayerSource=Join-Path $GameDirectory "Data0.cojvr-backup.pak"
+        if (-not (Test-Path -LiteralPath $PlayerSource)) { $PlayerSource=Join-Path $GameDirectory "Data0.pak" }
+        Copy-Item -LiteralPath $PlayerSource -Destination (Join-Path $Fixture "Data0.pak")
+        $PlayerHash=Get-CojvrFileSha256 (Join-Path $Fixture "Data0.pak")
+    }
     [System.IO.File]::WriteAllBytes((Join-Path $Fixture "d3d9.dll"), [byte[]](1, 2, 3, 4, 5))
     [System.IO.File]::WriteAllBytes((Join-Path $Fixture "openvr_api.dll"), [byte[]](6, 7, 8, 9))
     [System.IO.File]::WriteAllText(
@@ -49,6 +57,7 @@ function New-DeploymentFixture([string]$Name) {
     return [pscustomobject]@{
         path = $Fixture
         codeHash = Get-CojvrFileSha256 (Join-Path $Fixture "code.pak")
+        playerHash = $PlayerHash
         proxyHash = Get-CojvrFileSha256 (Join-Path $Fixture "d3d9.dll")
         openVrHash = Get-CojvrFileSha256 (Join-Path $Fixture "openvr_api.dll")
         cameraHash = Get-CojvrFileSha256 (Join-Path $Fixture "cojvr-camera-control.json")
@@ -58,6 +67,12 @@ function New-DeploymentFixture([string]$Name) {
 
 function Assert-FixtureRecovered([object]$Fixture) {
     $Path = [string]$Fixture.path
+    if ($IndependentHands) {
+        Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "Data0.pak")) -eq [string]$Fixture.playerHash) `
+            "Original Data0.pak was not restored byte-for-byte."
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $Path "Data0.cojvr-backup.pak"))) `
+            "Recovered fixture retained the player geometry backup."
+    }
     Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "code.pak")) -eq [string]$Fixture.codeHash) `
         "Original code.pak was not restored byte-for-byte."
     Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "d3d9.dll")) -eq [string]$Fixture.proxyHash) `
@@ -80,7 +95,7 @@ function Invoke-TestStage([string]$FixturePath) {
         -GameDirectory $FixturePath `
         -ProxyPath $ProxyPath `
         -BuildManifestPath $BuildManifestPath `
-        -ValidationProfile full | Out-Null
+        -ValidationProfile full -IndependentHands:$IndependentHands | Out-Null
 }
 
 $StageCheckpoints = @(
@@ -117,6 +132,11 @@ $UnstageCheckpoints = @(
     "unstage_state_removed"
 )
 
+if ($IndependentHands) {
+    $StageCheckpoints=@("stage_player_backup_created", "stage_player_published")
+    $UnstageCheckpoints=@("unstage_player_removed", "unstage_player_original_restored")
+}
+
 $PreviousFailureTest = $env:COJVR_DEPLOYMENT_FAILURE_TEST
 $PreviousFailureCheckpoint = $env:COJVR_DEPLOYMENT_FAIL_AFTER
 try {
@@ -142,10 +162,45 @@ try {
     }
 
     $CycleFixture = New-DeploymentFixture "repeated-cycle"
+    if ($IndependentHands) {
+        $Player=Join-Path ([string]$CycleFixture.path) "Data0.pak"
+        $Size=(Get-Item -LiteralPath $Player).Length
+        $Stream=[System.IO.File]::Open($Player,[System.IO.FileMode]::Append)
+        try { $Stream.WriteByte(0) } finally { $Stream.Dispose() }
+        $Rejected=$false
+        try { Invoke-TestStage ([string]$CycleFixture.path) } catch {
+            $Rejected=$_.Exception.Message -match "Unknown Data0.pak SHA-256"
+        }
+        Assert-True $Rejected "Unknown player geometry archive was accepted."
+        $Stream=[System.IO.File]::Open($Player,[System.IO.FileMode]::Open)
+        try { $Stream.SetLength($Size) } finally { $Stream.Dispose() }
+        Assert-FixtureRecovered $CycleFixture
+    }
     for ($Cycle = 1; $Cycle -le 2; ++$Cycle) {
         Invoke-TestStage ([string]$CycleFixture.path)
         Assert-True (Test-Path -LiteralPath (Join-Path ([string]$CycleFixture.path) ".cojvr-d3d9-stage.json")) `
             "Stage/unstage cycle $Cycle did not create staging state."
+        if ($IndependentHands) {
+            $Run=Get-Content -LiteralPath (Join-Path ([string]$CycleFixture.path) ".cojvr-run.json") -Raw | ConvertFrom-Json
+            Assert-True ($Run.validation.handPresentation -eq "independent_native_hands" -and
+                @($Run.deployment | Where-Object { $_.role -eq "game_player_geometry" }).Count -eq 1) `
+                "Player geometry was not correlated with the hand presentation in run provenance."
+            if ($Cycle -eq 1) {
+                $Player=Join-Path ([string]$CycleFixture.path) "Data0.pak"
+                $Size=(Get-Item -LiteralPath $Player).Length
+                $Stream=[System.IO.File]::Open($Player,[System.IO.FileMode]::Append)
+                try { $Stream.WriteByte(0) } finally { $Stream.Dispose() }
+                $Rejected=$false
+                try { & (Join-Path $PSScriptRoot "unstage_d3d9_proxy.ps1") -GameDirectory ([string]$CycleFixture.path) | Out-Null } catch {
+                    $Rejected=$_.Exception.Message -match "Data0.pak or its original backup changed"
+                }
+                Assert-True $Rejected "Changed deployed player geometry was overwritten during unstage."
+                Assert-True ((Get-CojvrFileSha256 (Join-Path ([string]$CycleFixture.path) "Data0.cojvr-backup.pak")) -eq [string]$CycleFixture.playerHash) `
+                    "Rejected player restoration changed its original backup."
+                $Stream=[System.IO.File]::Open($Player,[System.IO.FileMode]::Open)
+                try { $Stream.SetLength($Size) } finally { $Stream.Dispose() }
+            }
+        }
         & (Join-Path $PSScriptRoot "unstage_d3d9_proxy.ps1") -GameDirectory ([string]$CycleFixture.path) | Out-Null
         Assert-FixtureRecovered $CycleFixture
     }

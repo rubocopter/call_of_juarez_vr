@@ -49,10 +49,18 @@ and height guards and reporting pending reasons. Calibration now completes in th
 physical follow-up and the operator confirms longer arms, but rejects the resulting
 wrist/forearm anatomy. Target positions and restoration succeed while large hand
 orientation residuals remain blocked by the existing safety boundary; additional
-reach enlargement is not the next remediation. The next host-tested correction
+reach enlargement is not the next remediation. A host-tested correction
 captures the hand orientation after positional arm swing and recenters from its
 verified displayed basis, avoiding compensation for the initial IK swing without
-relaxing wrist/twist limits. A verified rigid weapon-element map publishes muzzle
+relaxing wrist/twist limits. Its physical follow-up still rejects long limbs near
+the torso and unnatural wrist anatomy. The active **host-tested** candidate now
+retains native torso/legs and separates native hand geometry from connected arms.
+Hands and fingers move rigidly with the controllers at native proportions;
+armed hands share the weapon transform. Original arms return during native reload.
+The exact player archive is hash-pinned, journaled and restored byte-for-byte.
+Native loading/partition appearance, comfortable wrist motion, hand/weapon cohesion
+and reload recovery remain physical gates. The connected-arm solver remains a
+diagnostic experiment. A verified rigid weapon-element map publishes muzzle
 vectors to exact per-hand Java shot consumers, with null/native/network fallback.
 The original code archive is a journaled, hash-verified deployment asset and is
 restored byte-for-byte. Actual-shot alignment, fitted anatomy and comfort remain
@@ -180,11 +188,13 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 
 ## Milestone 3 — tracked hands and body IK
 
+- Independent native hands with retained torso/legs: **host-tested**, active physical candidate; exact geometry partition, rigid finger/hand transforms, stereo readback and archive/pose/visibility rollback are covered. Native mesh loading and visual comfort remain pending.
+
 - Stable left/right Sense tracking in game space: **live-tested**.
 - Exact absolute visible arm writer: **live-tested**; actor-relative restoration, stale-branch rebasing and pelvis/arm transaction nesting have physically improved continuity. Residual anatomy remains rejected.
 - Correct head-relative controller target space: **live-tested**.
 - FORETWIST/hand hierarchy correction: **live-tested technically; visual anatomy remains incomplete**.
-- Arm reach/anatomy/orientation: continuity is physically improved after actor rebasing, with hands no longer stranded in world space. Short arms, intermittent recovery and torsion remain rejected. Consistent parent-plus-elbow forearm/skinning frames and pelvis/arm transaction nesting are **host-tested** follow-ups.
+- Connected-arm reach/anatomy/orientation: continuity is physically improved after actor rebasing, with hands no longer stranded in world space. Span calibration and the post-swing orientation reference are live-exercised, but enlarged limbs near the chest and unnatural wrists remain rejected. This presentation is superseded by independent native hands for the active candidate.
 - Native reload-animation ownership: **host-tested follow-up**.
 - Pelvis/legs full-body writing: **planned**, blocked on acceptable arm/body ownership first.
 

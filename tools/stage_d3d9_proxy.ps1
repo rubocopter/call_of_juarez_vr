@@ -7,7 +7,8 @@ param(
     [string]$RunId = "",
 
     [ValidateSet("full", "performance", "transport", "startup")]
-    [string]$ValidationProfile = "full"
+    [string]$ValidationProfile = "full",
+    [switch]$IndependentHands
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,6 +82,10 @@ $CodeArchive = Join-Path $GameDirectory "code.pak"
 $CodeBackup = Join-Path $GameDirectory "code.cojvr-backup.pak"
 $CodeTemporary = Join-Path $GameDirectory "code.cojvr-installing.pak"
 $PatchedCodeSource = $null
+$PlayerArchive = Join-Path $GameDirectory "Data0.pak"
+$PlayerBackup = Join-Path $GameDirectory "Data0.cojvr-backup.pak"
+$PlayerTemporary = Join-Path $GameDirectory "Data0.cojvr-installing.pak"
+$PatchedPlayerSource = $null
 
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
     throw "Call of Juarez is running. Close it before staging a candidate."
@@ -96,6 +101,7 @@ $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
+if ($IndependentHands -and -not $IsNativeStereo) { throw "Independent hands require the native-stereo candidate." }
 $IsPoolProbe = $ProxyLeaf -ieq "d3d9_pool_probe.dll"
 $IsCameraIntegration = $IsCameraProbe -or $IsHmdCamera -or $IsNativeStereo
 $IsOpenVrIntegration = $IsHmdCamera -or $IsNativeStereo
@@ -237,7 +243,7 @@ if ($IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrBackup)) {
 if ($IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputBackup)) {
     throw "OpenVR input backup '$OpenVrInputBackup' already exists. Restore or remove it before staging the native-stereo candidate."
 }
-foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary, $CodeTemporary)) {
+foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary, $CodeTemporary, $PlayerTemporary)) {
     if (Test-Path -LiteralPath $TemporaryPath) {
         throw "Temporary deployment path '$TemporaryPath' already exists without a recovery journal. Refusing to overwrite it."
     }
@@ -248,6 +254,13 @@ if ($IsNativeStereo) {
     $OriginalCodeHash = Get-CojvrFileSha256 $CodeArchive
     if ($OriginalCodeHash -ne "F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12") {
         throw "Unknown code.pak SHA-256; refusing game-specific shot mutation."
+    }
+}
+if ($IndependentHands) {
+    if (Test-Path -LiteralPath $PlayerBackup) { throw "An original Data0.pak backup already exists; refusing to overwrite it." }
+    $OriginalPlayerHash = Get-CojvrFileSha256 $PlayerArchive
+    if ($OriginalPlayerHash -ne "5EB6EC4856E53226DFABAD929522706A21F02D428923A8C9C38804CC2CF11A94") {
+        throw "Unknown Data0.pak SHA-256; refusing player geometry mutation."
     }
 }
 
@@ -268,6 +281,10 @@ $HadOriginalOpenVr = $IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrDe
 $HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container)
 $CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"bodyIkEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0,`n  `"movementTraceEnabled`": false,`n  `"movementTracePhase`": `"off`",`n  `"vrGameplayInputEnabled`": true,`n  `"captureReadbackEnabled`": true,`n  `"secondEyeRenderEnabled`": true`n}`n"
 $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+if ($IndependentHands) {
+    $CameraControlText = $CameraControlText.Replace('"bodyIkEnabled": false,', '"bodyIkEnabled": false, "independentHandsEnabled": true,')
+    $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+}
 $CameraControlHashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($CameraControlBytes)
 $CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.ToString("X2") })
 $JournalAssets = @(
@@ -329,6 +346,24 @@ if ($IsNativeStereo) {
     }
 }
 
+if ($IndependentHands) {
+    $PatchedPlayerSource = Join-Path ([System.IO.Path]::GetTempPath()) ("cojvr-player-" + [Guid]::NewGuid().ToString("N") + ".pak")
+    try {
+        & python (Join-Path $PSScriptRoot "split_coj_player_mesh.py") $PlayerArchive $PatchedPlayerSource
+        if ($LASTEXITCODE -ne 0) { throw "Exact player geometry split failed." }
+        $PatchedPlayerHash = Get-CojvrFileSha256 $PatchedPlayerSource
+    } catch {
+        if (Test-Path -LiteralPath $PatchedCodeSource -PathType Leaf) { Remove-Item -LiteralPath $PatchedCodeSource -Force }
+        if (Test-Path -LiteralPath $PatchedPlayerSource -PathType Leaf) { Remove-Item -LiteralPath $PatchedPlayerSource -Force }
+        throw
+    }
+    $JournalAssets += [ordered]@{
+        role = "game_player_geometry"; kind = "file"; destination = "Data0.pak"; backup = "Data0.cojvr-backup.pak"
+        temporary = "Data0.cojvr-installing.pak"; hadOriginal = $true
+        originalSha256 = $OriginalPlayerHash; stagedSha256 = $PatchedPlayerHash
+    }
+}
+
 try {
     [void](Write-CojvrDeploymentJournal $GameDirectory "stage" $RunId $DiagnosticMode $JournalAssets)
 $HistoricalDirectory = Join-Path `
@@ -361,6 +396,11 @@ if ($HadOriginal) {
 
     Install-CojvrVerifiedFile `
         $ProxyPath $Destination $ProxyTemporary $ProxyHash "stage_proxy_published"
+    if ($IndependentHands) {
+        Move-Item -LiteralPath $PlayerArchive -Destination $PlayerBackup
+        Invoke-CojvrDeploymentCheckpoint "stage_player_backup_created"
+        Install-CojvrVerifiedFile $PatchedPlayerSource $PlayerArchive $PlayerTemporary $PatchedPlayerHash "stage_player_published"
+    }
     if ($IsNativeStereo) {
         Move-Item -LiteralPath $CodeArchive -Destination $CodeBackup
         Invoke-CojvrDeploymentCheckpoint "stage_code_backup_created"
@@ -428,6 +468,9 @@ if ($HadOriginal) {
         } else { $null }
         openVrInputManaged = $IsNativeStereo
         codeArchiveManaged = $IsNativeStereo
+        playerArchiveManaged = $IndependentHands.IsPresent
+        originalPlayerSha256 = if ($IndependentHands) { $OriginalPlayerHash } else { $null }
+        stagedPlayerSha256 = if ($IndependentHands) { $PatchedPlayerHash } else { $null }
         originalCodeSha256 = if ($IsNativeStereo) { $OriginalCodeHash } else { $null }
         stagedCodeSha256 = if ($IsNativeStereo) { $PatchedCodeHash } else { $null }
         hadOriginalOpenVrInput = $HadOriginalOpenVrInput
@@ -457,6 +500,11 @@ if ($HadOriginal) {
     if ($IsNativeStereo) {
         $Deployment += [ordered]@{
             role = "game_weapon_consumers"; destination = "code.pak"; sha256 = $PatchedCodeHash
+        }
+        if ($IndependentHands) {
+            $Deployment += [ordered]@{
+                role = "game_player_geometry"; destination = "Data0.pak"; sha256 = $PatchedPlayerHash
+            }
         }
         $Deployment += [ordered]@{
             role = "openvr_action_manifest"
@@ -515,6 +563,7 @@ if ($HadOriginal) {
             requireStereoGeometry = $IsNativeStereo -and $ValidationProfile -ne "transport" -and $ValidationProfile -ne "startup"
             requirePositional6Dof = $RequireBodyValidation
             requireBodyIk = $RequireBodyValidation
+            handPresentation = if ($IndependentHands) { "independent_native_hands" } else { "native_arm_ik" }
             requireGameplayInput = $RequireBodyValidation
         }
         deployment = @($Deployment)
@@ -537,6 +586,9 @@ if ($HadOriginal) {
     }
     throw
 } finally {
+      if ($PatchedPlayerSource -and (Test-Path -LiteralPath $PatchedPlayerSource -PathType Leaf)) {
+          Remove-Item -LiteralPath $PatchedPlayerSource -Force
+      }
     if ($PatchedCodeSource -and (Test-Path -LiteralPath $PatchedCodeSource -PathType Leaf)) {
         Remove-Item -LiteralPath $PatchedCodeSource -Force
     }

@@ -112,6 +112,14 @@ int main() {
     }
 
     if (!ParseCameraProbeCommand(
+            R"({"enabled":false,"trackingEnabled":true,"bodyIkEnabled":true,"independentHandsEnabled":true})",
+            command, &error) || !command.independent_hands_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"independentHandsEnabled":"true"})",command,&error)) {
+        std::cerr << "independent-hand presentation did not require an explicit boolean\n";
+        return 1;
+    }
+
+    if (!ParseCameraProbeCommand(
             R"({"enabled":false,"trackingEnabled":true,"bodyIkEnabled":true,"recenter":true})",
             command, &error) ||
         command.enabled || !command.tracking_enabled || !command.body_ik_enabled ||

@@ -396,6 +396,7 @@ if(COJVR_BUILD_TESTS)
     find_program(COJVR_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
     find_program(COJVR_PYTHON_EXECUTABLE NAMES python REQUIRED)
     add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
+    add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(
         NAME provenance_tools
         COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
@@ -524,6 +525,11 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_body_adapter_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME body_adapter COMMAND cojvr_body_adapter_test)
+
+    add_executable(cojvr_independent_hand_test tests/independent_hand.cpp)
+    target_link_libraries(cojvr_independent_hand_test PRIVATE cojvr_coj_camera_probe)
+    target_compile_features(cojvr_independent_hand_test PRIVATE cxx_std_20)
+    add_test(NAME independent_hand COMMAND cojvr_independent_hand_test)
 
     add_executable(
         cojvr_d3d9_factory_hook_test

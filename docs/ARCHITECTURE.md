@@ -169,7 +169,37 @@ Physical crouch is detected from calibrated HMD-height change with hysteresis. T
 
 ## Body IK
 
-The body adapter reads the live Call of Juarez skeleton and builds game-space controller targets. Arm solving uses measured native segment lengths; it does not silently scale skeleton bones.
+The active `prepare -BodyIkAtStart` candidate uses **independent native hands
+with the native torso and legs retained**. The stretched arm experiment was
+physically rejected even after successful span calibration and post-swing wrist
+reference correction. The native connected arm skinning is therefore removed
+from the active controller overlay rather than enlarged again. The legacy arm
+solver remains a diagnostic path, not the default presentation.
+
+For the exact Ray/Billy player assets, a hash-pinned `Data0.pak` transform partitions
+arm triangles into a separate `CoJVRHiddenArms` mesh node. The complementary body
+mesh retains torso, legs and hand triangles; vertex positions, skin weights,
+palettes and original element indices remain unchanged. NPC assets are unchanged.
+The extra node is hidden only while the tracked hand overlay owns rendering.
+Native animations, including reload, retain the original combined geometry.
+The entire original archive is journaled and restored byte-for-byte by `finish`.
+Native loading and visible partition quality remain physical gates.
+
+Each hand overlay captures nineteen named forearm/twist/hand/finger world frames
+and moves them together with one rigid transform. There is no arm-span fit,
+upper-arm write or bounded wrist residual in this mode. Armed hands use the same
+captured weapon-to-controller transform as the weapon, retaining the animated
+finger/grip relation. Unarmed hands use calibrated grip orientation. Element
+readback and hidden-arm state are checked through both eye draws. Restore retains
+native proportions, rebases captured positions by actor translation and restores
+the prior arm visibility before the outer pelvis restore. Failed restoration
+retains references and bindings for retry and blocks further hand mutation.
+When the outer pelvis restores while an inner hand retry is pending, its removed
+offset is subtracted from that retained capture exactly once.
+These ownership, asset and recovery contracts are **host-tested**; they do not
+establish visual headset acceptance.
+
+The legacy body adapter reads the live Call of Juarez skeleton and builds game-space controller targets. Arm solving uses measured native segment lengths; it does not silently scale skeleton bones.
 
 For the observed exact model:
 
@@ -269,8 +299,10 @@ Initial hand-orientation calibration uses the composed hand basis after position
 upper/elbow IK. The earlier native pre-IK reference required the wrist to undo
 the initial arm swing even with an unchanged controller orientation. Recenter
 rebases from the last verified displayed hand basis, including rejected residuals,
-rather than an unmet controller target. This correction is host-tested; the
-existing hand/twist limits and physical anatomy gate remain unchanged.
+rather than an unmet controller target. The correction is now physically
+exercised, but the resulting enlarged connected limbs remain unacceptable near
+the torso. The independent-hand candidate replaces this presentation; the
+diagnostic solver keeps its existing hand/twist limits.
 
 Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
 Arm apply/restore elapsed times are measured while IK or movement tracing is

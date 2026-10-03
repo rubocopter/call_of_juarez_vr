@@ -10,6 +10,13 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
+The active gameplay candidate is **host-tested independent native hands with
+retained torso/legs**. It replaces the physically rejected stretched connected-arm
+presentation. Exact player mesh loading/partition quality, comfortable hand/wrist
+tracking, hand/weapon cohesion and native reload recovery await a fresh headset
+run. The combined regression below is the acceptance procedure; no T pose is
+required for this candidate.
+
 First-level controller-only main-menu operation is **headset-validated** through
 the native sprite-tree mouse-event route: hover/highlight, selection and physical
 mouse takeover/resume were observed working. A later modal-routing candidate
@@ -101,7 +108,9 @@ The **implemented / host-tested** orientation follow-up calibrates against the
 post-IK composed hand basis and preserves the verified displayed basis across
 recenter. A host regression reproduces a large residual for an unchanged
 controller under the previous native pre-IK reference. Neither positional reach
-nor hand/twist safety limits change; headset anatomy acceptance is still pending.
+nor hand/twist safety limits change. Its physical follow-up still rejects the
+enlarged connected limbs near the torso, so that presentation is superseded by
+the independent-hand candidate described in the current gate.
 
 The D3D9Ex compatibility/startup/reset path is now **live-tested** in the
 production mod on the inspected Steam build and this host. The physical startup
@@ -254,16 +263,26 @@ confirms the physical gestures.
 ## Combined menu and gameplay regression
 
 For the next physical pass use normal `prepare -BodyIkAtStart`. In gameplay,
-face forward, recenter with Create, then hold both arms fully extended sideways
-at shoulder height for one second. The stable bilateral pose commits the measured
-span (`body_arm_span_calibration`); check that hands/weapon remain at the tracked
-grips with natural elbow/wrist proportions. Calibration persists across recenter
-and is repeated after a player-generation change. Before calibration, native
-reach remains the default. Then
+face forward and recenter with Create. The current **host-tested** candidate
+retains torso/legs and tracks native hands independently; it does not require a
+T pose or enlarge arm lengths. The last connected-arm candidate remained
+physically rejected: extending reach helped distance but produced unacceptable
+long limbs near the chest, and the post-swing orientation reference did not make
+that anatomy comfortable. Native mesh loading/partition quality, free wrist
+rotation, hand/weapon cohesion and reload recovery are now explicit pending gates.
+
+Confirm that both player models load normally and that torso/legs remain visible
+without arm triangles stretching toward the controllers. Bring hands close to
+the chest, relax them, extend them and rotate each wrist fully. Fingers and weapon
+must retain their native proportions and grip relation. During native reload the
+original arms should return; afterwards the tracked hands should recover without
+a jump or stale world position. Then
 walk/run while moving both hands and verify that both hands stay attached to the
 actor without stretched arm/body geometry and without needing reload to
-re-synchronize. The sampled `body_arm_tracking` telemetry should show
-`continuity_rebase_count` when the stale-branch guard intervenes. Confirm that
+re-synchronize. Sampled `body_hand_tracking` must prove both hands with
+`reach_scale=1`, no upper-arm writes and nineteen rigid elements. Both-eye
+`body_hand_render_probe` readback must match while the arm node is hidden, and
+`body_hand_restore` must verify element and visibility restoration. Confirm that
 locomotion/performance retains the large improvement
 from the last run. Turn the head substantially left/right without rotating the
 body, press forward and confirm travel follows the viewed direction. Physically
@@ -284,7 +303,7 @@ and impacts must agree apart from native spread. Cached-origin getter samples
 are not actual-shot evidence. Then exercise an ordinary
 menu, the Yes/No dialog and gameplay pause as regression checks; the gameplay
 reticle must not alter menu-ray behavior. Recenter with Create, quit normally and
-run `finish`. Existing arm restore and actor-rebase telemetry provides the host/live
+run `finish`. Hand/weapon/pelvis restore and archive integrity provide the host/live
 evidence; visual continuity, crouch, movement direction, angle and weapon alignment
 remain operator observations.
 
@@ -410,6 +429,7 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | continuity physically improved; span calibration live-tested; anatomy rejected | calibration completes and arms are longer, but wrist/forearm orientation remains unnatural; solver target readback/restoration do not accept visual skinning |
+| Independent native hands with retained torso/legs | host-tested; active physical candidate | exact player geometry partition, rigid hand/finger transform and pose/visibility/archive restoration covered; native mesh loading, wrist comfort, hand/weapon cohesion and reload recovery pending |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
 | Flat-menu pointer | headset-validated for exercised ordinary/Yes-No/pause paths | latest physical candidate reports complete VR-pointer menu operation; loading continuation remains separate |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |

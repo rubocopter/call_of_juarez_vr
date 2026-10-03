@@ -60,6 +60,7 @@ struct CameraProbeCommand {
     float pitch_degrees = 0.0F;
     bool tracking_enabled = false;
     bool body_ik_enabled = false;
+    bool independent_hands_enabled = false;
     bool recenter = false;
     // Diagnostic controls are opt-in and preserve the production path when
     // omitted from the control file.

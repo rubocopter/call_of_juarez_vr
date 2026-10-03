@@ -689,6 +689,10 @@ try {
     Write-Utf8Json (Join-Path $HmdControlGame ".cojvr-d3d9-stage.json") ([ordered]@{
         diagnosticMode = "d3d9_native_stereo"
     })
+    Write-Utf8Json (Join-Path $HmdControlGame "cojvr-camera-control.json") ([ordered]@{
+        independentHandsEnabled=$true
+        bodyIkEnabled=$true
+    })
     & (Join-Path $SourceDirectory "tools\set_hmd_camera_control.ps1") `
         -GameDirectory $HmdControlGame `
         -Mode enable
@@ -696,6 +700,8 @@ try {
         (Join-Path $HmdControlGame "cojvr-camera-control.json") -Raw | ConvertFrom-Json
     Assert-True ([bool]$StereoControl.trackingEnabled -and [bool]$StereoControl.recenter) `
         "Native-stereo control did not reuse the HMD tracking/recenter contract."
+    Assert-True ([bool]$StereoControl.independentHandsEnabled -and [bool]$StereoControl.bodyIkEnabled) `
+        "Recenter lost the independent-hand presentation selected by staging."
 
     $HmdVerifierGame = Join-Path $TestRoot "hmd-verifier-game"
     $HmdVerifierRunId = "host-test-hmd-camera"
@@ -1126,6 +1132,36 @@ try {
     $TransportRun.validation.requireSubtitleState = $true
     $TransportRun.validation.requireRecenter = $true
     $TransportRun.validation.requireStereoGeometry = $true
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
+
+    # Independent hands have their own measured contract; old arm IK records
+    # must not satisfy a candidate with partitioned player geometry.
+    $TransportRun.validation | Add-Member -NotePropertyName handPresentation -NotePropertyValue "independent_native_hands" -Force
+    Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
+    $IndependentLog = @($StereoVerifierLog | Where-Object { $_ -notmatch "event=body_arm_(?:tracking|write_probe|render_probe|restore) " } | ForEach-Object {
+        $_.Replace("body_ik_enabled=true;", "body_ik_enabled=true;independent_hands_enabled=true;")
+    })
+    foreach ($Side in @("left", "right")) {
+        $IndependentLog += "camera_probe_event: event=body_hand_tracking result=applied detail=frame_sequence=64;side=$Side;presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=19;detail="
+        foreach ($Phase in @("left_eye_complete", "right_eye_complete")) {
+            $IndependentLog += "camera_probe_event: event=body_hand_render_probe result=matched detail=frame_sequence=64;side=$Side;phase=$Phase;rigid_elements=19;arms_hidden=true;detail="
+        }
+    }
+    $IndependentLog += "camera_probe_event: event=body_hand_restore result=ok detail=frame_sequence=64;transaction=post_stereo_capture;elements_restored=true;visibility_restored=true;detail="
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $IndependentLog
+    & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null
+    foreach ($BadLog in @(
+        @{ name="missing second-eye hand probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=body_hand_render_probe .*phase=right_eye_complete" }) },
+        @{ name="failed hand restore"; lines=@($IndependentLog) + "camera_probe_event: event=body_hand_restore result=failed detail=write failed" },
+        @{ name="overlapping arm writer"; lines=@($IndependentLog) + "camera_probe_event: event=body_arm_tracking result=applied detail=unexpected" }
+    )) {
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $BadLog.lines
+        $Rejected=$false
+        try { & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null } catch { $Rejected=$true }
+        Assert-True $Rejected "Independent-hand verifier accepted $($BadLog.name)."
+    }
+    $TransportRun.validation.handPresentation="native_arm_ik"
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 

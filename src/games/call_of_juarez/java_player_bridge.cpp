@@ -434,6 +434,9 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 }
 
 void JavaPlayerBridge::Reset() noexcept {
+    // A pending failed transaction still owns JNI references and restore data.
+    // Do not erase its bindings even if the JVM cannot be reached right now.
+    if (!RestoreTrackedHands()) return;
     std::string ignored;
     void* env = vm_ ? Environment(&ignored) : nullptr;
     if (env) {
@@ -554,6 +557,13 @@ void JavaPlayerBridge::Reset() noexcept {
     single_player_fallback_used_ = false;
     campaign_module_fallback_used_ = false;
     being_generation_ = 0;
+    hand_overlays_ = {};
+    independent_hand_elements_ = {};
+    independent_hand_generation_ = 0;
+    independent_arms_object_ = nullptr;
+    independent_arms_element_ = -1;
+    independent_arms_were_hidden_ = false;
+    independent_hand_faulted_ = false;
     last_gameplay_input_ = {};
     gameplay_input_applied_ = false;
     snap_turn_state_ = {};
@@ -1258,8 +1268,10 @@ bool JavaPlayerBridge::RestoreTrackedWeapons(std::string* error, const int only_
 bool JavaPlayerBridge::TryApplyTrackedWeapon(
     const int hand, const cojvr::runtime::Vec3 wrist, const cojvr::runtime::Vec3 grip,
     const cojvr::runtime::Vec3 direction, const cojvr::runtime::Vec3 up,
-    JavaPlayerPosition& muzzle, std::string* error) noexcept {
+    JavaPlayerPosition& muzzle, std::string* error,
+    const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand) noexcept {
     muzzle = {};
+    if (tracked_hand) *tracked_hand = {};
     if (hand < 0 || hand > 1 || !being_ || weapon_overlay_faulted_) return false;
     auto& overlay = weapon_overlays_[static_cast<std::size_t>(hand)];
     if (overlay.weapon) { SetError(error, "unrestored weapon transaction"); return false; }
@@ -1306,6 +1318,12 @@ bool JavaPlayerBridge::TryApplyTrackedWeapon(
         }
         const auto plan = BuildTrackedWeaponFrame(overlay.natural[0], wrist, v(barrel), v(barrel_direction), grip, direction, up);
         if (!plan.valid) { overlay = {}; DeleteLocal(env, weapon); SetError(error, "weapon rigid mapping invalid"); return false; }
+        const auto hand_target = natural_hand
+            ? TransformWeaponElementFrame(overlay.natural[0],plan.root,*natural_hand)
+            : ElementWorldBasisTarget{};
+        if (natural_hand && !hand_target.valid) {
+            overlay={};DeleteLocal(env,weapon);SetError(error,"paired hand mapping invalid");return false;
+        }
         std::vector<ElementWorldBasisTarget> targets;
         targets.reserve(overlay.natural.size());
         for (const auto& n : overlay.natural) {
@@ -1333,12 +1351,142 @@ bool JavaPlayerBridge::TryApplyTrackedWeapon(
             (void)RestoreTrackedWeapons(error, hand); return false;
         }
         muzzle = actual;
+        if (tracked_hand) *tracked_hand = hand_target;
         return true;
     } catch (...) {
         DeleteLocal(env, weapon);
         if (overlay.active) (void)RestoreTrackedWeapons(error, hand); else overlay = {};
         SetError(error, "weapon transaction allocation failed"); return false;
     }
+}
+
+bool JavaPlayerBridge::ReadHandFrame(void* context, const int element, ElementWorldBasisTarget& frame) noexcept {
+    const auto& io=*static_cast<HandIoContext*>(context);
+    JavaPlayerPosition p{},u{},f{};
+    frame={};
+    if (!io.bridge->ReadObjectElementFrame(io.object,element,p,u,f,io.error)) return false;
+    frame={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
+}
+bool JavaPlayerBridge::WriteHandFrame(void* context, const int element, const ElementWorldBasisTarget& frame) noexcept {
+    const auto& io=*static_cast<HandIoContext*>(context);
+    const auto j=[](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x,v.y,v.z}; };
+    return io.bridge->WriteObjectElementFrame(io.object,element,j(frame.up),j(frame.forward),j(frame.position),io.error);
+}
+
+bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
+    const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
+    std::string* error) noexcept {
+    if (hand<0 || hand>1 || !being_ || independent_hand_faulted_) return false;
+    void* env=Environment(error);
+    if (!env || !EnsureElementWorldReadAccess(env,error) || !EnsureElementWorldBasisAccess(env,error) ||
+        !EnsureElementVisibilityAccess(env,error)) return false;
+    auto& overlay=hand_overlays_[static_cast<std::size_t>(hand)];
+    if (overlay.object) { SetError(error,"unrestored hand transaction");return false; }
+    const auto global=EnvFunction<NewGlobalRefFn>(env,kNewGlobalRef);
+    const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef);
+    if (!global || !del) return false;
+    try {
+        if (independent_hand_generation_!=being_generation_) {
+            for (auto& ids : independent_hand_elements_) ids.fill(-1);
+            independent_hand_generation_=being_generation_;
+        }
+        auto& ids=independent_hand_elements_[static_cast<std::size_t>(hand)];
+        const std::string prefix=hand==1 ? "Bip01 L " : "Bip01 R ";
+        constexpr const char* suffixes[]={"Forearm","ForeTwist","ForeTwist1","Hand",
+            "Finger0","Finger01","Finger02","Finger1","Finger11","Finger12",
+            "Finger2","Finger21","Finger22","Finger3","Finger31","Finger32",
+            "Finger4","Finger41","Finger42"};
+        CoJHandFrames frames{};
+        HandIoContext io{this,being_,error};
+        for (std::size_t i=0;i<frames.size();++i) {
+            if (ids[i]<0 && !TryGetMeshElementByName((prefix+suffixes[i]).c_str(),ids[i],error)) return false;
+            frames[i].element=ids[i];
+            if (!ReadHandFrame(&io,ids[i],frames[i].frame)) return false;
+        }
+        JavaPlayerPosition actor{};
+        if (!TryGetPosition(actor,error)) return false;
+        if (!independent_arms_object_) {
+            int arms=-1;bool hidden=false;
+            if (!TryGetMeshElementByName("CoJVRHiddenArms",arms,error) ||
+                !TryGetMeshElementHidden(arms,hidden,error)) return false;
+            independent_arms_object_=global(env,being_);
+            if (!independent_arms_object_ || ClearException(env,error,"arm visibility reference failed")) return false;
+            independent_arms_element_=arms;independent_arms_were_hidden_=hidden;
+            // Retain ownership before the mutation, including failure rollback.
+            bool now_hidden=false;
+            if ((!hidden && !TrySetMeshElementHidden(arms,true,error)) ||
+                !TryGetMeshElementHidden(arms,now_hidden,error) || !now_hidden) {
+                (void)RestoreTrackedHands(error);return false;
+            }
+        }
+        overlay.object=global(env,being_);
+        if (!overlay.object || ClearException(env,error,"hand transaction reference failed")) return false;
+        io.object=overlay.object;
+        const bool ok=overlay.frames.Apply(frames,natural_hand,tracked_hand,
+            {actor.x,actor.y,actor.z},&io,ReadHandFrame,WriteHandFrame);
+        if (!ok && !overlay.frames.active()) { del(env,overlay.object);overlay.object=nullptr; }
+        if (overlay.frames.faulted()) independent_hand_faulted_=true;
+        return ok;
+    } catch (...) { SetError(error,"independent hand capture failed");return false; }
+}
+
+bool JavaPlayerBridge::RestoreTrackedHands(std::string* error) noexcept {
+    if (!independent_arms_object_ && !hand_overlays_[0].object && !hand_overlays_[1].object) return true;
+    void* env=Environment(error);
+    bool ok=true;
+    for (auto& overlay : hand_overlays_) {
+        if (!overlay.object) continue;
+        JavaPlayerPosition actor{};
+        const auto call=env ? EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA) : nullptr;
+        void* vector=call && get_position_vector_method_
+            ? call(env,overlay.object,get_position_vector_method_,nullptr) : nullptr;
+        bool restored=vector && !ClearException(env,error,"captured hand actor read failed") &&
+            ReadVector(env,vector,actor,error);
+        DeleteLocal(env,vector);
+        HandIoContext io{this,overlay.object,error};
+        restored=restored && overlay.frames.Restore({actor.x,actor.y,actor.z},&io,ReadHandFrame,WriteHandFrame);
+        if (!restored) { independent_hand_faulted_=true;ok=false;continue; }
+        if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,overlay.object);
+        overlay.object=nullptr;
+    }
+    if (ok && independent_arms_object_) {
+        const auto call=env ? EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA) : nullptr;
+        JValue args[1]{};args[0].i=independent_arms_element_;
+        bool restored=call!=nullptr;
+        if (restored && !independent_arms_were_hidden_) {
+            (void)call(env,independent_arms_object_,unhide_element_method_,args);
+            restored=!ClearException(env,error,"arm visibility restore failed");
+        }
+        if (restored) {
+            const bool hidden=call(env,independent_arms_object_,is_element_hidden_method_,args)!=0;
+            restored=!ClearException(env,error,"arm visibility restore readback failed") &&
+                hidden==independent_arms_were_hidden_;
+        }
+        if (restored) {
+            if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,independent_arms_object_);
+            independent_arms_object_=nullptr;independent_arms_element_=-1;
+        } else { independent_hand_faulted_=true;ok=false; }
+    }
+    return ok;
+}
+
+bool JavaPlayerBridge::VerifyTrackedHand(const int hand, bool& active, std::string* error) noexcept {
+    active=false;
+    if (hand<0 || hand>1) return false;
+    auto& overlay=hand_overlays_[static_cast<std::size_t>(hand)];
+    active=overlay.frames.active();
+    if (!active) return true;
+    HandIoContext io{this,overlay.object,error};
+    void* env=Environment(error);
+    const auto call=env ? EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA) : nullptr;
+    if (!call || !independent_arms_object_ || !overlay.frames.Verify(&io,ReadHandFrame)) return false;
+    JValue args[1]{};args[0].i=independent_arms_element_;
+    const bool hidden=call(env,independent_arms_object_,is_element_hidden_method_,args)!=0;
+    return !ClearException(env,error,"independent arm visibility probe failed") && hidden;
+}
+
+void JavaPlayerBridge::OnVisualBodyOffsetRestored(const cojvr::runtime::Vec3 offset) noexcept {
+    for (auto& overlay : hand_overlays_) overlay.frames.RemoveCapturedBodyOffset(offset);
 }
 
 bool JavaPlayerBridge::TryGetWeaponBarrel(
@@ -3051,6 +3199,8 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     (void)RestoreTrackedWeapons();
+    // Keep the captured actor and its method bindings until restoration succeeds.
+    if (!RestoreTrackedHands()) return;
     if (being_) {
         (void)TryPublishWeaponRay(0, {}, {}, false);
         (void)TryPublishWeaponRay(1, {}, {}, false);
@@ -3062,6 +3212,7 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
         }
     }
     being_ = nullptr;
+    independent_hand_generation_ = 0;
     get_mesh_element_method_ = nullptr;
     get_element_id_method_ = nullptr;
     hide_element_method_ = nullptr;
@@ -3201,6 +3352,10 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* global_being = new_global(env, local_being);
     if (!global_being || ClearException(env, error, "NewGlobalRef(player being) failed")) return false;
 
+    if (!RestoreTrackedHands(error)) {
+        if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,global_being);
+        return false;
+    }
     ClearBeing(env);
     being_ = global_being;
     ++being_generation_;

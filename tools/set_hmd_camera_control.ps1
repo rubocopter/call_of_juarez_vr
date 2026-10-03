@@ -50,6 +50,9 @@ $Control = [ordered]@{
     enabled = $false
     trackingEnabled = $TrackingEnabled
     bodyIkEnabled = $BodyIkEnabled
+    independentHandsEnabled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['independentHandsEnabled'] -and
+        [bool]$ExistingControl.independentHandsEnabled
     recenter = (-not $BodyMode) -and ($Mode -in @("enable", "recenter"))
     yawDegrees = 0.0
     pitchDegrees = 0.0

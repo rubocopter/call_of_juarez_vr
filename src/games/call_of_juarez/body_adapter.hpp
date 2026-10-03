@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/body_ik.hpp"
+#include <array>
 
 namespace cojvr::games::call_of_juarez {
 
@@ -468,6 +469,37 @@ struct ArmElementFramePlan {
     float requested_forearm_twist_degrees = 0.0F;
     bool forearm_twist_limited = false;
     bool valid = false;
+};
+
+struct CoJHandElementFrame {
+    int element = -1;
+    ElementWorldBasisTarget frame{};
+};
+using CoJHandFrames = std::array<CoJHandElementFrame, 19>;
+using CoJElementRead = bool (*)(void*, int, ElementWorldBasisTarget&) noexcept;
+using CoJElementWrite = bool (*)(void*, int, const ElementWorldBasisTarget&) noexcept;
+
+// Isolated hand geometry permits a rigid controller rotation without twisting
+// the connected arm mesh. All lower skin contributors and fingers share a map.
+class CoJHandOverlay final {
+public:
+    [[nodiscard]] bool Apply(const CoJHandFrames& natural,
+        const ElementWorldBasisTarget& source_hand, const ElementWorldBasisTarget& target_hand,
+        cojvr::runtime::Vec3 actor, void* context, CoJElementRead read, CoJElementWrite write) noexcept;
+    [[nodiscard]] bool Restore(cojvr::runtime::Vec3 actor, void* context,
+        CoJElementRead read, CoJElementWrite write) noexcept;
+    [[nodiscard]] bool Verify(void* context, CoJElementRead read) const noexcept;
+    // Inner capture includes the outer pelvis offset. Remove it once that outer
+    // transaction restores, including when this inner restore still needs retry.
+    void RemoveCapturedBodyOffset(cojvr::runtime::Vec3 removed_offset) noexcept;
+    [[nodiscard]] bool active() const noexcept { return active_; }
+    [[nodiscard]] bool faulted() const noexcept { return faulted_; }
+private:
+    CoJHandFrames natural_{};
+    CoJHandFrames targets_{};
+    cojvr::runtime::Vec3 actor_{};
+    bool active_ = false;
+    bool faulted_ = false;
 };
 
 [[nodiscard]] ArmElementFramePlan BuildArmElementFramePlan(
