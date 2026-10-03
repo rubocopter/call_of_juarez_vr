@@ -319,7 +319,10 @@ Check first shots, held/repeated fire, weapon switching, reload recovery and fir
 after crouching, physical steps and turning. The visible muzzle, tracer origin
 and impacts must agree apart from native spread. Flash, smoke and shot light
 must start at the visible muzzle, including while the hand is moving or held away
-from the native idle gun pose. Cached-origin getter samples
+from the native idle gun pose. Turn the weapon side-on and roll it through
+several angles: particles must travel forward from the tip, independently of
+weapon restoration. The complete-emitter-frame correction is host-tested; the
+operator still rejects the preceding candidate's side-on effect direction. Cached-origin getter samples
 are not actual-shot evidence. Then exercise an ordinary
 menu, the Yes/No dialog and gameplay pause as regression checks; the gameplay
 reticle must not alter menu-ray behavior. Recenter with Create, quit normally and
@@ -465,3 +468,15 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 ## Evidence policy
 
 Only conclusions that remain useful across sessions belong here. Raw headset-run manifests, hashes, local video paths, telemetry counts, process IDs and agent handoffs stay under ignored `work/` and may be discarded once their conclusions are represented by code, tests or the durable documents above.
+
+## Image-quality profile acceptance
+
+The preparation profile preserves selected render resolution and other game
+quality settings and enforces FSAA 0; transactional restoration is host-tested.
+The higher-resolution quality candidate remains pending physical validation.
+Check fine distant detail, readability, head-turn clarity, sustained production
+versus the configured HMD rate and representative level loading. Keep graphics
+fixed for each fresh run; one run ID must describe one game launch. Graphics
+changes and repeated launches cannot promote a stability or device-reset gate.
+Native loading crashes observed after graphics changes do not establish their
+exact cause or prove that a different quality setting has fixed them.

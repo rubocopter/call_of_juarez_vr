@@ -280,7 +280,8 @@ public:
     [[nodiscard]] bool TryGetWeaponBarrel(
         int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
         std::string* error = nullptr,
-        CoJWeaponAttackOrigins* attack_origins = nullptr) noexcept;
+        CoJWeaponAttackOrigins* attack_origins = nullptr,
+        ElementWorldBasisTarget* barrel_frame = nullptr) noexcept;
     [[nodiscard]] bool TryApplyUpperBodyTracking(
         float head_horizontal_offset_degrees,
         float spine_horizontal_offset_degrees,
@@ -441,6 +442,7 @@ private:
         std::vector<ElementWorldBasisTarget> targets;
         TrackedWeaponFramePlan plan{};
         JavaPlayerPosition actor_at_capture{};
+        int barrel_element = -1;
         bool active = false;
         bool applied = false;
     };
@@ -449,7 +451,7 @@ private:
         const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand,
         bool* unarmed_hand = nullptr) noexcept;
     std::array<WeaponOverlay, 2> weapon_overlays_{};
-    std::array<void*, 4> weapon_ray_fields_{};
+    std::array<void*, 8> weapon_ray_fields_{};
     bool weapon_overlay_faulted_ = false;
     struct HandOverlay {
         void* object = nullptr;

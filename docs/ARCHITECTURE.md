@@ -378,11 +378,14 @@ tracked base direction before executing its unchanged native accuracy/rotation
 suffix. `WeaponFire.AttackFire` therefore supplies a coherent ballistic and
 visual ray to traces and the shot light. A second exact-hash class patch guards
 `WeaponFire.ExecFXFire`: for the tracked local player's known hand with valid
-cached origin/direction, combustion and smoke use explicit world vectors and no
-parent attachment. The shipped world-space emitter route uses a null parent and
-element -1. This prevents the render-only weapon restoration from moving the
-emitter back to the native pose. Unknown hands, null caches, other players and
-network-forced fire execute the original attached-emitter bytecode.
+cached origin/direction and barrel up/forward, combustion and smoke are detached
+and initialized with the complete measured barrel frame through `FXSetStartXForm`.
+The create-call's orientation vector describes emitter +Y; authored barrel FX
+emit along -X, so passing the shot direction there is incorrect. Full-basis eye
+readback preserves weapon roll. Missing vectors retain native fallback; failed
+full-frame effect initialization deletes that emitter. Null parent/element -1
+prevents restored weapon poses from moving effects after emission. Unknown hands,
+other players and network-forced fire execute the original attached-emitter code.
 
 Native-stereo staging requires the recognized original `code.pak` and class
 SHA-256 for both `ArmedPlayerBeing` and `WeaponFire`. The patched archive is a journaled deployment asset; all other archive
@@ -584,3 +587,14 @@ replace the success summary. See the exact contract and evidence limits in
 ## Primary validation hardware
 
 Current physical development uses PS VR2 through SteamVR with PS VR2 Sense controllers. Hardware-specific bindings belong to assets/runtime input; game logic consumes logical actions and tracked poses.
+
+## Physical-candidate image quality
+
+The reversible Video.scr profile preserves the game's selected resolution and
+quality settings, enforcing only FSAA 0 for the demonstrated non-MSAA shared
+transport. It records the actual resolution and applied settings hash, journals
+recovery before writing, and restores the original bytes on finish. The native
+render target remains game-owned; OpenVR recommended eye dimensions alone do not
+allocate a larger ChromeEngine target. Higher game resolution therefore needs its
+own physical cadence, clarity, loading and reset checks. Changing graphics during
+an active run does not establish renderer reset/device-loss acceptance.

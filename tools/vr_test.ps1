@@ -18,6 +18,7 @@ $LocalStateDirectory = Join-Path $RepositoryRoot "work"
 $LocalConfigPath = Join-Path $LocalStateDirectory "vr-test.json"
 $VideoProfileStatePath = Join-Path $LocalStateDirectory "vr-video-profile.json"
 $VideoProfileBackupPath = Join-Path $LocalStateDirectory "vr-video-profile.backup"
+. (Join-Path $PSScriptRoot "coj_video_profile.ps1")
 
 function Get-CoJVideoSettingsPath {
     $Documents = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
@@ -28,78 +29,15 @@ function Get-CoJVideoSettingsPath {
 }
 
 function Restore-VrVideoProfile {
-    if (-not (Test-Path -LiteralPath $VideoProfileStatePath -PathType Leaf)) {
-        return $false
-    }
-    $State = Get-Content -LiteralPath $VideoProfileStatePath -Raw | ConvertFrom-Json
-    $VideoPath = [string]$State.videoPath
-    if (-not (Test-Path -LiteralPath $VideoProfileBackupPath -PathType Leaf)) {
-        throw "The VR video-profile backup is missing; refusing to overwrite '$VideoPath'."
-    }
-    $BackupHash = (Get-FileHash -LiteralPath $VideoProfileBackupPath -Algorithm SHA256).Hash.ToUpperInvariant()
-    if ($BackupHash -ne ([string]$State.originalSha256).ToUpperInvariant()) {
-        throw "The VR video-profile backup hash does not match the recorded original settings."
-    }
-    Copy-Item -LiteralPath $VideoProfileBackupPath -Destination $VideoPath -Force
-    $RestoredHash = (Get-FileHash -LiteralPath $VideoPath -Algorithm SHA256).Hash.ToUpperInvariant()
-    if ($RestoredHash -ne $BackupHash) {
-        throw "Video.scr could not be restored byte-for-byte from the recorded backup."
-    }
-    Remove-Item -LiteralPath $VideoProfileBackupPath -Force
-    Remove-Item -LiteralPath $VideoProfileStatePath -Force
-    Write-Host "Restored the original Call of Juarez Video.scr settings."
-    return $true
+    return Restore-CoJVrVideoProfile -StatePath $VideoProfileStatePath -BackupPath $VideoProfileBackupPath
 }
 
 function Apply-VrVideoProfile {
-    if (Test-Path -LiteralPath $VideoProfileStatePath -PathType Leaf) {
-        throw "A VR video profile is already active. Finalize or restore it before preparing another candidate."
-    }
     if (-not (Test-Path -LiteralPath $LocalStateDirectory -PathType Container)) {
         New-Item -ItemType Directory -Path $LocalStateDirectory -Force | Out-Null
     }
-    $VideoPath = Get-CoJVideoSettingsPath
-    if (-not (Test-Path -LiteralPath $VideoPath -PathType Leaf)) {
-        throw "Call of Juarez Video.scr was not found at '$VideoPath'."
-    }
-
-    Copy-Item -LiteralPath $VideoPath -Destination $VideoProfileBackupPath -Force
-    $OriginalHash = (Get-FileHash -LiteralPath $VideoProfileBackupPath -Algorithm SHA256).Hash.ToUpperInvariant()
-    try {
-        $Text = [System.IO.File]::ReadAllText($VideoPath)
-        $ResolutionPattern = '(?m)^Resolution\(\s*\d+\s*,\s*\d+\s*\)[^\S\r\n]*(?=\r?$)'
-        $FsaaPattern = '(?m)^FSAA\(\s*\d+\s*\)[^\S\r\n]*(?=\r?$)'
-        if ([regex]::Matches($Text, $ResolutionPattern).Count -ne 1 -or
-            [regex]::Matches($Text, $FsaaPattern).Count -ne 1) {
-            throw "Video.scr does not contain exactly one Resolution(...) and FSAA(...) setting."
-        }
-        $Updated = [regex]::Replace($Text, $ResolutionPattern, 'Resolution(1920,1080)')
-        $Updated = [regex]::Replace($Updated, $FsaaPattern, 'FSAA(0)')
-        [System.IO.File]::WriteAllText(
-            $VideoPath,
-            $Updated,
-            [System.Text.UTF8Encoding]::new($false))
-        $AppliedHash = (Get-FileHash -LiteralPath $VideoPath -Algorithm SHA256).Hash.ToUpperInvariant()
-        $State = [ordered]@{
-            schemaVersion = 1
-            videoPath = $VideoPath
-            originalSha256 = $OriginalHash
-            appliedSha256 = $AppliedHash
-            resolution = "1920x1080"
-            fsaa = 0
-        }
-        [System.IO.File]::WriteAllText(
-            $VideoProfileStatePath,
-            ($State | ConvertTo-Json) + [Environment]::NewLine,
-            [System.Text.UTF8Encoding]::new($false))
-        Write-Host "Applied reversible VR video profile: 1920x1080, FSAA 0."
-        return [pscustomobject]$State
-    } catch {
-        Copy-Item -LiteralPath $VideoProfileBackupPath -Destination $VideoPath -Force
-        Remove-Item -LiteralPath $VideoProfileBackupPath -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $VideoProfileStatePath -Force -ErrorAction SilentlyContinue
-        throw
-    }
+    return Apply-CoJVrVideoProfile -VideoPath (Get-CoJVideoSettingsPath) `
+        -StatePath $VideoProfileStatePath -BackupPath $VideoProfileBackupPath
 }
 
 function Write-LocalConfig([string]$ResolvedGameDirectory) {
@@ -249,7 +187,7 @@ switch ($Action) {
         Write-Host "Validation profile: $ValidationProfile"
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
-        Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { '1920x1080, FSAA 0 (restored by finish)' })"
+        Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { "$($VideoProfile.resolution), FSAA 0 (selected resolution preserved; restored by finish)" })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."

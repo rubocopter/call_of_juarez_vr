@@ -1216,7 +1216,16 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     const auto set_object = EnvFunction<SetObjectFieldFn>(env, kSetObjectField);
     const auto new_object = EnvFunction<NewObjectAFn>(env, kNewObjectA);
     if (!get_class || !get_field || !get_object || !set_object || !new_object) return false;
-    const char* names[] = {"cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection"};
+    ElementWorldBasisTarget barrel_frame{};
+    if (valid) {
+        JavaPlayerPosition measured_origin{}, measured_direction{};
+        if (!TryGetWeaponBarrel(hand, measured_origin, measured_direction, error, nullptr, &barrel_frame)) {
+            (void)TryPublishWeaponRay(hand, {}, {}, false);
+            return false;
+        }
+    }
+    const char* names[] = {"cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
+        "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward"};
     void* cls = get_class(env, being_);
     if (!cls || ClearException(env, error, "weapon ray class unavailable")) { DeleteLocal(env, cls); return false; }
     const auto publish = [&](int index, const JavaPlayerPosition& value) noexcept {
@@ -1242,14 +1251,16 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     };
     const bool origin_ok = publish(hand, origin);
     const bool direction_ok = publish(hand + 2, direction);
-    if ((!origin_ok || !direction_ok) && valid) {
-        for (const int index : {hand, hand + 2}) {
+    const bool up_ok = publish(hand + 4, {barrel_frame.up.x, barrel_frame.up.y, barrel_frame.up.z});
+    const bool forward_ok = publish(hand + 6, {barrel_frame.forward.x, barrel_frame.forward.y, barrel_frame.forward.z});
+    if ((!origin_ok || !direction_ok || !up_ok || !forward_ok) && valid) {
+        for (const int index : {hand, hand + 2, hand + 4, hand + 6}) {
             if (weapon_ray_fields_[index]) set_object(env, being_, weapon_ray_fields_[index], nullptr);
         }
         (void)ClearException(env, nullptr, "weapon ray publication rollback");
     }
     DeleteLocal(env, cls);
-    return origin_ok && direction_ok;
+    return origin_ok && direction_ok && up_ok && forward_ok;
 }
 
 bool JavaPlayerBridge::RestoreTrackedWeapons(std::string* error, const int only_hand) noexcept {
@@ -1327,8 +1338,13 @@ bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::st
     const auto close=[](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
         return std::fabs(a.x-b.x)<=tolerance && std::fabs(a.y-b.y)<=tolerance && std::fabs(a.z-b.z)<=tolerance;
     };
-    const bool matched=TryGetWeaponBarrel(hand,actual,direction,error) &&
-        close(actual,overlay.plan.muzzle_origin,0.1F) && close(direction,overlay.plan.muzzle_direction,0.02F);
+    ElementWorldBasisTarget frame{};
+    const bool matched=overlay.barrel_element>=0 &&
+        static_cast<std::size_t>(overlay.barrel_element)<overlay.targets.size() &&
+        TryGetWeaponBarrel(hand,actual,direction,error,nullptr,&frame) &&
+        close(actual,overlay.plan.muzzle_origin,0.1F) && close(direction,overlay.plan.muzzle_direction,0.02F) &&
+        close({frame.up.x,frame.up.y,frame.up.z},overlay.targets[overlay.barrel_element].up,0.02F) &&
+        close({frame.forward.x,frame.forward.y,frame.forward.z},overlay.targets[overlay.barrel_element].forward,0.02F);
     if (!matched) SetError(error,"weapon barrel changed after parent/socket pose");
     return matched;
 }
@@ -1394,9 +1410,13 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
     cls = get_class(env, weapon);
     void* count_method = cls ? get_method(env, cls, "GetElementsNumber", "()I") : nullptr;
     failed = ClearException(env, error, "weapon elements lookup failed") || !count_method;
+    void* barrel_method = !failed ? get_method(env, cls, "GetBarrelElement", "()I") : nullptr;
+    failed = ClearException(env, error, "weapon barrel lookup failed") || failed || !barrel_method;
     DeleteLocal(env, cls);
     int count = failed ? 0 : call_int(env, weapon, count_method, nullptr);
     failed = ClearException(env, error, "weapon element count failed") || count < 1 || count > 256;
+    const int barrel_element = failed ? -1 : call_int(env, weapon, barrel_method, nullptr);
+    failed = ClearException(env, error, "weapon barrel index failed") || failed || barrel_element < 0 || barrel_element >= count;
     JavaPlayerPosition barrel{}, barrel_direction{};
     if (failed || !TryGetWeaponBarrel(hand, barrel, barrel_direction, error)) { DeleteLocal(env, weapon); return false; }
     try {
@@ -1429,6 +1449,7 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
         if (failed) { overlay = {}; return false; }
         overlay.targets = std::move(targets);
         overlay.plan = plan;
+        overlay.barrel_element = barrel_element;
         // Parent hand writes may move the child before its explicit pose commit.
         overlay.active = true;
         if (tracked_hand) *tracked_hand = hand_target;
@@ -1594,10 +1615,12 @@ void JavaPlayerBridge::OnVisualBodyOffsetRestored(const cojvr::runtime::Vec3 off
 
 bool JavaPlayerBridge::TryGetWeaponBarrel(
     const int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
-    std::string* error, CoJWeaponAttackOrigins* attack_origins) noexcept {
+    std::string* error, CoJWeaponAttackOrigins* attack_origins,
+    ElementWorldBasisTarget* barrel_frame) noexcept {
     origin = {};
     direction = {};
     if (attack_origins) *attack_origins = {};
+    if (barrel_frame) *barrel_frame = {};
     if (hand < 0 || hand > 1) {
         SetError(error, "weapon barrel hand is invalid");
         return false;
@@ -1674,7 +1697,13 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
         return !ClearException(env, error, "weapon barrel observation failed") &&
             available && ReadVector(env, vector, value, error);
     };
-    const bool ok = read(origin_method, origin) && read(direction_method, direction);
+    bool ok = read(origin_method, origin) && read(direction_method, direction);
+    if (ok && barrel_frame) {
+        JavaPlayerPosition position{}, up{}, forward{};
+        ok = ReadObjectElementFrame(weapon, barrel, position, up, forward, error);
+        if (ok) *barrel_frame = {{position.x,position.y,position.z},
+            {up.x,up.y,up.z},{forward.x,forward.y,forward.z},true};
+    }
     if (ok && attack_origins) {
         attack_origins->ballistic_valid = ballistic_method &&
             read(ballistic_method, attack_origins->ballistic_origin);

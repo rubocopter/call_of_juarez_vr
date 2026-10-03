@@ -73,14 +73,26 @@ pellet spread to both rays. `GetFireDirVisualizationForHand` previously sourced
 patch substitutes only that base-vector selection; the original accuracy and
 rotation suffix remains byte-for-byte intact.
 
-`WeaponFire.ExecFXFire` creates combustion and smoke with null world vectors
-and the weapon/barrel element as parent. A render-only weapon pose then restores
-before native update, so attached effects can follow the native gun rather than
-the displayed VR muzzle. The current exact-class patch guards on a tracked
-`ArmedPlayerBeing` owner, non-network attack, known hand and both nullable cached
-vectors. It creates the same configured emitters with explicit world muzzle
-position/direction, null parent and element -1. Shipped explosion/hit paths
-demonstrate this world-space emitter calling convention. Other players, missing
+`WeaponFire.ExecFXFire` originally attaches combustion and smoke to the
+weapon/barrel element. A render-only weapon restores before native update, so
+that attachment cannot own a persistent VR effect. The exact-class patch keeps
+emitters detached, with null parent and element -1, and uses the verified muzzle.
+
+The native `FXCreateParticleEmiter` handler (`ChromeEngine3 + 0x1102D0`) passes
+its two world vectors through `+0x10EEC0` to `+0x10E850`. The second vector fills
+the emitter's **+Y/up** row; it is not a barrel-forward vector. Shipped barrel
+combustion/smoke definitions emit along **local -X**, agreeing with
+`Weapon.GetBarrelDir = -GetElementLeftVector`. Supplying the shot direction as
+emitter up loses the authored barrel axes and visibly misdirects the effect.
+
+The current patch creates the same configured emitters with no direction
+argument, then calls the shipped `FXSetStartXForm(handle, position, up, forward)`
+(`+0x10F250`). That method stores up and derives +X from up cross forward. The
+bridge publishes measured barrel up/forward beside the shot origin/direction,
+checks the complete barrel basis through both eyes, and clears all four vectors
+per hand together on failed publication. No guessed muzzle translation or global
+particle-definition change is involved. A failed full-frame effect write deletes
+that emitter; a zero creation handle is never mutated. Other players, missing
 caches, unknown hands and forced-network attacks retain the original method.
 Fire actions 9/10 are delivered only after current muzzle publication; non-fire
 actions and their native analog/snap/reload semantics keep their earlier order.

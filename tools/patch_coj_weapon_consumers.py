@@ -14,7 +14,8 @@ from inspect_java_bytecode import Reader, parse_constant_pool
 CLASS_SHA256 = "039b0c12682b99b6560d4597737d794acd4a2b4bb71060c1dc70a8b79ffc4478"
 FIRE_CLASS_SHA256 = "d12b513c32db6e3223348f7058799c3702ea3a78746817753998f0de13c9c421"
 PAK_SHA256 = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
-FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection")
+FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
+          "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward")
 
 def u2(n): return struct.pack(">H", n)
 def u4(n): return struct.pack(">I", n)
@@ -68,7 +69,8 @@ def visual_direction_source(fields, net_field, native_array):
     return c.finish()
 
 def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
-                       origins, directions, effects, create_method):
+                       origins, directions, effects, create_method, ups, forwards,
+                       set_frame_method, delete_method):
     c=Code()
     c.emit(0x2a);c.ref(0xb4,owner_field);c.ref(0xc1,player_class);c.branch(0x99,"fallback")
     c.emit(0x2a);c.ref(0xb4,owner_field);c.ref(0xc0,player_class);c.emit(0x4d)
@@ -77,21 +79,33 @@ def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
     c.emit(0x1d);c.branch(0x99,"right")
     c.emit(0x1d,0x04);c.branch(0xa0,"fallback")
     c.emit(0x2c);c.ref(0xb4,origins[1]);c.emit(0x3a,4)
-    c.emit(0x2c);c.ref(0xb4,directions[1]);c.emit(0x3a,5);c.branch(0xa7,"value")
+    c.emit(0x2c);c.ref(0xb4,directions[1]);c.emit(0x3a,5)
+    c.emit(0x2c);c.ref(0xb4,ups[1]);c.emit(0x3a,6)
+    c.emit(0x2c);c.ref(0xb4,forwards[1]);c.emit(0x3a,7);c.branch(0xa7,"value")
     c.label("right")
     c.emit(0x2c);c.ref(0xb4,origins[0]);c.emit(0x3a,4)
     c.emit(0x2c);c.ref(0xb4,directions[0]);c.emit(0x3a,5)
+    c.emit(0x2c);c.ref(0xb4,ups[0]);c.emit(0x3a,6)
+    c.emit(0x2c);c.ref(0xb4,forwards[0]);c.emit(0x3a,7)
     c.label("value")
     c.emit(0x19,4);c.branch(0xc6,"fallback")
     c.emit(0x19,5);c.branch(0xc6,"fallback")
+    c.emit(0x19,6);c.branch(0xc6,"fallback")
+    c.emit(0x19,7);c.branch(0xc6,"fallback")
     for i,(emitter,particle) in enumerate(effects):
         c.emit(0x2b);c.ref(0xb4,emitter);c.branch(0x99,f"next{i}")
         c.emit(0x2b);c.ref(0xb4,particle);c.branch(0x99,f"next{i}")
         c.emit(0x2a,0x2b);c.ref(0xb4,emitter)
         c.emit(0x2b);c.ref(0xb4,particle)
-        # Explicit world vectors, no attachment to the temporarily restored
-        # native weapon. Exact shipped explosion FX demonstrate this route.
-        c.emit(0x19,4,0x19,5,0x01,0x02);c.ref(0xb6,create_method);c.emit(0x57)
+        # Create detached, then retain the entire measured Barrel frame. The
+        # create-call's direction parameter is LOCAL +Y, while barrel particles
+        # emit along LOCAL -X. Aim direction alone would rotate them sideways.
+        c.emit(0x19,4,0x01,0x01,0x02);c.ref(0xb6,create_method);c.emit(0x36,8)
+        c.emit(0x15,8);c.branch(0x99,f"next{i}")
+        c.emit(0x2a,0x15,8,0x19,4,0x19,6,0x19,7);c.ref(0xb6,set_frame_method)
+        c.branch(0x9a,f"next{i}")
+        # A failed full-frame write must not leave a misoriented emitter alive.
+        c.emit(0x2a,0x15,8);c.ref(0xb6,delete_method)
         c.label(f"next{i}")
     c.emit(0xb1);c.label("fallback")
     return c.finish()
@@ -134,7 +148,7 @@ def patch_class(data: bytes) -> bytes:
     targets = {
         ("GetFireOriginForWeapon", "(LWeapon;LVector;)Z"): (refs[:2], True),
         ("GetFireOriginVisualizationForHand", "(ILVector;)Z"): (refs[:2], False),
-        ("GetBeingLookDirDevForHand", "(ILVector;)Z"): (refs[2:], False),
+        ("GetBeingLookDirDevForHand", "(ILVector;)Z"): (refs[2:4], False),
     }
     method_count = r.u2(); methods = bytearray(u2(method_count+1)); patched = set()
     for _ in range(method_count):
@@ -157,11 +171,11 @@ def patch_class(data: bytes) -> bytes:
                 patched.add((name, desc))
             methods.extend(u2(attr_index)+u4(len(attr))+attr)
     if patched != set(targets)|{visual_target}: raise ValueError("Incomplete shot boundary patch")
-    helper=visual_direction_source(refs[2:],net,native_visual_array)
+    helper=visual_direction_source(refs[2:4],net,native_visual_array)
     attr=u2(2)+u2(3)+u4(len(helper))+helper+u2(0)+u2(0)
     methods.extend(u2(2)+u2(visual_name)+u2(visual_desc)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
     return (data[:8]+u2(next_index)+data[10:cp_end]+additions+
-            data[cp_end:fields_at]+u2(field_count+4)+data[fields_at+2:fields_end]+
+            data[cp_end:fields_at]+u2(field_count+len(FIELDS))+data[fields_at+2:fields_end]+
             extra_fields+methods+data[r.stream.tell():])
 
 def patch_fire_class(data: bytes) -> bytes:
@@ -183,11 +197,17 @@ def patch_fire_class(data: bytes) -> bytes:
     net=ref(9,"m_bNetAttackForced","Z")
     hand=ref(10,"GetActualHandForWeapon","(LWeapon;)I")
     origins=[ref(9,name,"LVector;") for name in FIELDS[:2]]
-    directions=[ref(9,name,"LVector;") for name in FIELDS[2:]]
+    directions=[ref(9,name,"LVector;") for name in FIELDS[2:4]]
+    ups=[ref(9,name,"LVector;") for name in FIELDS[4:6]]
+    forwards=[ref(9,name,"LVector;") for name in FIELDS[6:8]]
+    def weapon_method(name,desc):
+        nt=append(b"\x0c"+u2(utf8(name))+u2(utf8(desc)))
+        return append(b"\x0a"+u2(find("WeaponFire"))+u2(nt))
     effects=[(find("WpnFXFire.m_nFXCombEmiterDefIDI"),find("WpnFXFire.m_nFXCombParticleDefIDI")),
              (find("WpnFXFire.m_nFXSmokeEmiterDefIDI"),find("WpnFXFire.m_nFXSmokeParticleDefIDI"))]
     pre=fire_effect_prefix(find("WeaponFire.cOwnerLPawnInventory;"),player,net,hand,origins,directions,effects,
-        find("WeaponFire.FXCreateParticleEmiter(IILVector;LVector;LControlObject;I)I"))
+        find("WeaponFire.FXCreateParticleEmiter(IILVector;LVector;LControlObject;I)I"),ups,forwards,
+        weapon_method("FXSetStartXForm","(ILVector;LVector;LVector;)Z"),weapon_method("FXDelete","(I)V"))
     r.read(6);r.read(r.u2()*2)
     for _ in range(r.u2()):
         r.read(6)
@@ -203,7 +223,7 @@ def patch_fire_class(data: bytes) -> bytes:
                 cr=Reader(attr);stack,locals_=cr.u2(),cr.u2();original=cr.read(cr.u4())
                 if cr.u2()!=0:raise ValueError("Unexpected fire effect exception table")
                 code=pre+original
-                attr=u2(max(stack,7))+u2(max(locals_,6))+u4(len(code))+code+u2(0)+u2(0)
+                attr=u2(max(stack,7))+u2(max(locals_,9))+u4(len(code))+code+u2(0)+u2(0)
                 patched+=1
             methods.extend(u2(index)+u4(len(attr))+attr)
     if patched!=1:raise ValueError("Incomplete fire effects patch")

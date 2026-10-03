@@ -395,6 +395,14 @@ if(COJVR_BUILD_TESTS)
 
     find_program(COJVR_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
     find_program(COJVR_PYTHON_EXECUTABLE NAMES python REQUIRED)
+    add_test(
+        NAME vr_video_profile
+        COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tests/vr_video_profile.ps1"
+            -SourceDirectory "${CMAKE_SOURCE_DIR}"
+            -BinaryDirectory "${CMAKE_BINARY_DIR}"
+    )
     add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
     add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(
