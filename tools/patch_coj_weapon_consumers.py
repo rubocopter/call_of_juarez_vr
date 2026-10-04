@@ -18,6 +18,8 @@ PAK_SHA256 = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
 FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
           "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward")
 INTERACTION_FIELDS = ("cojvrInteractionOrigin", "cojvrInteractionDirection")
+SHOT_DIAGNOSTIC_FIELDS = ("cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
+                          "cojvrFxStatus", "cojvrShotSuppressEffects")
 
 def u2(n): return struct.pack(">H", n)
 def u4(n): return struct.pack(">I", n)
@@ -72,7 +74,7 @@ def visual_direction_source(fields, net_field, native_array):
 
 def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
                        origins, directions, effects, create_method, ups, forwards,
-                       set_frame_method, delete_method):
+                       set_frame_method, delete_method, detach_method, diagnostics=None):
     c=Code()
     c.emit(0x2a);c.ref(0xb4,owner_field);c.ref(0xc1,player_class);c.branch(0x99,"fallback")
     c.emit(0x2a);c.ref(0xb4,owner_field);c.ref(0xc0,player_class);c.emit(0x4d)
@@ -94,9 +96,17 @@ def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
     c.emit(0x19,5);c.branch(0xc6,"fallback")
     c.emit(0x19,6);c.branch(0xc6,"fallback")
     c.emit(0x19,7);c.branch(0xc6,"fallback")
+    def status(bit):
+        if diagnostics:
+            c.emit(0x2a,0x2a);c.ref(0xb4,diagnostics[1]);c.emit(0x10,bit,0x80)
+            c.ref(0xb5,diagnostics[1])
+    if diagnostics:
+        c.emit(0x2a,0x2a);c.ref(0xb4,diagnostics[0]);c.emit(0x04,0x60);c.ref(0xb5,diagnostics[0])
+        c.emit(0x2a,0x03);c.ref(0xb5,diagnostics[1])
     for i,(emitter,particle) in enumerate(effects):
         c.emit(0x2b);c.ref(0xb4,emitter);c.branch(0x99,f"next{i}")
         c.emit(0x2b);c.ref(0xb4,particle);c.branch(0x99,f"next{i}")
+        status(1 << i)
         c.emit(0x2a,0x2b);c.ref(0xb4,emitter)
         c.emit(0x2b);c.ref(0xb4,particle)
         # Create detached, then retain the entire measured Barrel frame. The
@@ -104,12 +114,58 @@ def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
         # emit along LOCAL -X. Aim direction alone would rotate them sideways.
         c.emit(0x19,4,0x01,0x01,0x02);c.ref(0xb6,create_method);c.emit(0x36,8)
         c.emit(0x15,8);c.branch(0x99,f"next{i}")
+        status(1 << (i+2))
         c.emit(0x2a,0x15,8,0x19,4,0x19,6,0x19,7);c.ref(0xb6,set_frame_method)
-        c.branch(0x9a,f"next{i}")
+        c.branch(0x99,f"failed{i}")
+        # FXSetStartXForm writes only the starting matrix (+0x18). FXDetach
+        # resolves that matrix into the active/previous world positions and
+        # removes any parent reference before the native weapon is restored.
+        c.emit(0x2a,0x15,8);c.ref(0xb6,detach_method)
+        c.branch(0x99,f"failed{i}")
+        status(1 << (i+4))
+        c.branch(0xa7,f"next{i}")
+        c.label(f"failed{i}")
+        # sipush is needed for the smoke failure's bit 7 (signed byte 128).
+        if diagnostics:
+            c.emit(0x2a,0x2a);c.ref(0xb4,diagnostics[1]);c.emit(0x11)
+            c.data.extend(u2(1 << (i+6)));c.emit(0x80);c.ref(0xb5,diagnostics[1])
         # A failed full-frame write must not leave a misoriented emitter alive.
         c.emit(0x2a,0x15,8);c.ref(0xb6,delete_method)
         c.label(f"next{i}")
     c.emit(0xb1);c.label("fallback")
+    return c.finish()
+
+def tracked_event_prefix(owner_field, player_class, net_field, origins, counter, suppressed=None):
+    """Observe native entry without invoking getters, spread or attack code."""
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,owner_field);c.ref(0xc1,player_class);c.branch(0x99,'done')
+    def owner():
+        c.emit(0x2a);c.ref(0xb4,owner_field);c.ref(0xc0,player_class)
+    owner();c.ref(0xb4,net_field);c.branch(0x9a,'done')
+    owner();c.ref(0xb4,origins[0]);c.branch(0xc6,'left');c.branch(0xa7,'observe')
+    c.label('left');owner();c.ref(0xb4,origins[1]);c.branch(0xc6,'done')
+    c.label('observe')
+    c.emit(0x2a,0x2a);c.ref(0xb4,counter);c.emit(0x04,0x60);c.ref(0xb5,counter)
+    if suppressed:
+        c.emit(0x2a,0x15,4);c.ref(0xb5,suppressed)
+    c.label('done')
+    return c.finish()
+
+def single_hand_attack_guard(origins, net_field, actual_weapon, firearm_class, two_handed):
+    """Reject native cross-hand fallback only for a tracked one-hand firearm."""
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,net_field);c.branch(0x9a,'native')
+    c.emit(0x1b,0x1c);c.branch(0x9f,'native')
+    c.emit(0x1b);c.branch(0x99,'right')
+    c.emit(0x1b,0x04);c.branch(0xa0,'native')
+    c.emit(0x2a);c.ref(0xb4,origins[1]);c.branch(0xa7,'cache')
+    c.label('right');c.emit(0x2a);c.ref(0xb4,origins[0])
+    c.label('cache');c.branch(0xc6,'native')
+    c.emit(0x2a,0x1b);c.ref(0xb6,actual_weapon);c.emit(0x4e)
+    c.emit(0x2d);c.ref(0xc1,firearm_class);c.branch(0x99,'native')
+    c.emit(0x2a,0x1b);c.ref(0xb6,two_handed);c.branch(0x9a,'native')
+    c.emit(0x03,0xac)
+    c.label('native')
     return c.finish()
 
 def patch_class(data: bytes) -> bytes:
@@ -147,6 +203,12 @@ def patch_class(data: bytes) -> bytes:
     visual_nt=append(b"\x0c"+u2(visual_name)+u2(visual_desc))
     visual_method=append(b"\x0a"+u2(this_class)+u2(visual_nt))
     visual_target=("GetFireDirVisualizationForHand","(ILVector;)Z")
+    attack_target=("CanAttack","(II)Z")
+    try: firearm_class=find("WeaponFire")
+    except StopIteration: firearm_class=append(b"\x07"+u2(utf8("WeaponFire")))
+    attack_guard=single_hand_attack_guard(refs[:2],net,
+        find("ArmedPlayerBeing.GetActualWeapon(I)LWeapon;"),firearm_class,
+        find("ArmedPlayerBeing.IsActualWeaponOperatedTwoHand(I)Z"))
     targets = {
         ("GetFireOriginForWeapon", "(LWeapon;LVector;)Z"): (refs[:2], True),
         ("GetFireOriginVisualizationForHand", "(ILVector;)Z"): (refs[:2], False),
@@ -158,10 +220,12 @@ def patch_class(data: bytes) -> bytes:
         methods.extend(header); count = r.u2(); methods.extend(u2(count))
         for _ in range(count):
             attr_index = r.u2(); attr = r.read(r.u4()); target = targets.get((name, desc))
-            if pool.utf8(attr_index) == "Code" and (target or (name,desc)==visual_target):
+            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in (visual_target,attack_target)):
                 cr = Reader(attr); stack, locals_ = cr.u2(), cr.u2(); code = cr.read(cr.u4())
                 if cr.u2() != 0: raise ValueError("Unexpected shot exception table")
-                if (name,desc)==visual_target:
+                if (name,desc)==attack_target:
+                    code=attack_guard+code
+                elif (name,desc)==visual_target:
                     if code[6:13] != b"\x2a\xb4"+u2(native_visual_array)+b"\x1b\x32\x4e":
                         raise ValueError("Unexpected native visualization source")
                     code=code[:6]+b"\x2a\x1b\xb7"+u2(visual_method)+b"\x00"+code[12:]
@@ -172,7 +236,7 @@ def patch_class(data: bytes) -> bytes:
                 attr = u2(max(3, stack))+u2(max(5 if target and target[1] else 4, locals_))+u4(len(code))+code+u2(0)+u2(0)
                 patched.add((name, desc))
             methods.extend(u2(attr_index)+u4(len(attr))+attr)
-    if patched != set(targets)|{visual_target}: raise ValueError("Incomplete shot boundary patch")
+    if patched != set(targets)|{visual_target,attack_target}: raise ValueError("Incomplete shot boundary patch")
     helper=visual_direction_source(refs[2:4],net,native_visual_array)
     attr=u2(2)+u2(3)+u4(len(helper))+helper+u2(0)+u2(0)
     methods.extend(u2(2)+u2(visual_name)+u2(visual_desc)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
@@ -205,31 +269,50 @@ def patch_fire_class(data: bytes) -> bytes:
     def weapon_method(name,desc):
         nt=append(b"\x0c"+u2(utf8(name))+u2(utf8(desc)))
         return append(b"\x0a"+u2(find("WeaponFire"))+u2(nt))
+    extra_fields=bytearray(); diagnostic_refs=[]
+    for name in SHOT_DIAGNOSTIC_FIELDS:
+        name_id,desc_id=utf8(name),utf8('I')
+        extra_fields.extend(u2(1)+u2(name_id)+u2(desc_id)+u2(0))
+        nt=append(b'\x0c'+u2(name_id)+u2(desc_id))
+        diagnostic_refs.append(append(b'\x09'+u2(find('WeaponFire'))+u2(nt)))
     effects=[(find("WpnFXFire.m_nFXCombEmiterDefIDI"),find("WpnFXFire.m_nFXCombParticleDefIDI")),
              (find("WpnFXFire.m_nFXSmokeEmiterDefIDI"),find("WpnFXFire.m_nFXSmokeParticleDefIDI"))]
     pre=fire_effect_prefix(find("WeaponFire.cOwnerLPawnInventory;"),player,net,hand,origins,directions,effects,
         find("WeaponFire.FXCreateParticleEmiter(IILVector;LVector;LControlObject;I)I"),ups,forwards,
-        weapon_method("FXSetStartXForm","(ILVector;LVector;LVector;)Z"),weapon_method("FXDelete","(I)V"))
+        weapon_method("FXSetStartXForm","(ILVector;LVector;LVector;)Z"),weapon_method("FXDelete","(I)V"),
+        weapon_method("FXDetach","(I)Z"),diagnostic_refs[2:4])
     r.read(6);r.read(r.u2()*2)
-    for _ in range(r.u2()):
+    fields_at=r.stream.tell();field_count=r.u2()
+    for _ in range(field_count):
         r.read(6)
         for _ in range(r.u2()):r.u2();r.read(r.u4())
-    methods_at=r.stream.tell();method_count=r.u2();methods=bytearray(u2(method_count));patched=0
+    methods_at=r.stream.tell();method_count=r.u2();methods=bytearray(u2(method_count));patched=set()
     for _ in range(method_count):
         header=r.read(6);methods.extend(header)
         name=pool.utf8(int.from_bytes(header[2:4],"big"));desc=pool.utf8(int.from_bytes(header[4:6],"big"))
         attr_count=r.u2();methods.extend(u2(attr_count))
         for _ in range(attr_count):
             index=r.u2();attr=r.read(r.u4())
-            if name=="ExecFXFire" and desc=="(LWpnFXFire;)V" and pool.utf8(index)=="Code":
+            target=(name,desc)
+            observed=target in (("AttackFire","(LWpnAttackFire;IFZ)V"),
+                ("OnHit","(LPawnInventory;LWpnAttackFire;FLControlObject;ILVector;LVector;LVector;IIZZZ)V"))
+            if pool.utf8(index)=="Code" and ((name=="ExecFXFire" and desc=="(LWpnFXFire;)V") or observed):
                 cr=Reader(attr);stack,locals_=cr.u2(),cr.u2();original=cr.read(cr.u4())
                 if cr.u2()!=0:raise ValueError("Unexpected fire effect exception table")
-                code=pre+original
+                prefix_code=pre if not observed else tracked_event_prefix(
+                    find('WeaponFire.cOwnerLPawnInventory;'),player,net,origins,
+                    diagnostic_refs[0 if name=='AttackFire' else 1],
+                    diagnostic_refs[4] if name=='AttackFire' else None)
+                # Preserve any original switch alignment and relative branch offsets.
+                prefix_code+=b'\x00'*((-len(prefix_code))%4)
+                code=prefix_code+original
                 attr=u2(max(stack,7))+u2(max(locals_,9))+u4(len(code))+code+u2(0)+u2(0)
-                patched+=1
+                patched.add(target)
             methods.extend(u2(index)+u4(len(attr))+attr)
-    if patched!=1:raise ValueError("Incomplete fire effects patch")
-    return data[:8]+u2(next_index)+data[10:cp_end]+additions+data[cp_end:methods_at]+methods+data[r.stream.tell():]
+    if len(patched)!=3:raise ValueError("Incomplete fire effects/observation patch")
+    return (data[:8]+u2(next_index)+data[10:cp_end]+additions+data[cp_end:fields_at]+
+        u2(field_count+len(SHOT_DIAGNOSTIC_FIELDS))+data[fields_at+2:methods_at]+extra_fields+
+        methods+data[r.stream.tell():])
 
 def interaction_getter(fields, selected_field, vector_set, native_getter):
     """Paired local cache, with the original virtual getter as fallback."""

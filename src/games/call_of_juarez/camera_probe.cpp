@@ -4887,6 +4887,33 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         ShouldObserveBodyFrame(frame_sequence)) {
         try {
             for (int hand = 0; hand < 2; ++hand) {
+                CoJWeaponShotDiagnostics shot_state{};
+                std::string shot_error;
+                const bool shot_observed = g_java_player_bridge.TryObserveWeaponShotDiagnostics(
+                    hand, shot_state, &shot_error);
+                if (shot_observed) {
+                    const int status = shot_state.values[3];
+                    EmitEvent("native_weapon_shot_state", "observed",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";side=" + (hand == 1 ? std::string("left") : std::string("right")) +
+                        ";attack_entries=" + std::to_string(shot_state.values[0]) +
+                        ";hit_entries=" + std::to_string(shot_state.values[1]) +
+                        ";fx_entries=" + std::to_string(shot_state.values[2]) +
+                        ";fx_configured_mask=" + std::to_string(status & 3) +
+                        ";fx_created_mask=" + std::to_string((status >> 2) & 3) +
+                        ";fx_committed_mask=" + std::to_string((status >> 4) & 3) +
+                        ";fx_failed_mask=" + std::to_string((status >> 6) & 3) +
+                        ";shot_suppressed_fx=" + std::to_string(shot_state.values[4]) +
+                        ";counter_scope=active_weapon_instance;per_shot=false" +
+                        ";mutation=false;spread_query=false;visual_acceptance=unverified");
+                } else {
+                    EmitEvent("native_weapon_shot_state", "unavailable",
+                        "frame_sequence=" + std::to_string(frame_sequence) +
+                        ";side=" + (hand == 1 ? std::string("left") : std::string("right")) +
+                        ";reason=" + (shot_error.empty() ?
+                            std::string("no_active_weapon_or_diagnostics") : shot_error) +
+                        ";mutation=false;visual_acceptance=unverified");
+                }
                 JavaPlayerPosition barrel_origin{}, barrel_direction{};
                 CoJWeaponAttackOrigins attack_origins{};
                 std::string barrel_error;

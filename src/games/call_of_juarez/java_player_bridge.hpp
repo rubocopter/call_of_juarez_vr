@@ -24,6 +24,11 @@ struct CoJWeaponAttackOrigins {
     bool visual_valid = false;
 };
 
+struct CoJWeaponShotDiagnostics {
+    std::array<int, 5> values{}; // attack entries, hits, FX entries, FX status, suppressed FX
+    bool valid = false;
+};
+
 // Exact-build native sprite-tree mouse delivery. The Java object ID is the
 // shipped GameObject.GetThisID handle, valid only during the game-thread call.
 using CoJNativeUiMouseDispatch = bool(*)(
@@ -279,6 +284,8 @@ public:
         CoJSubtitleRuntimeState& state, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetWeaponReloading(
         bool& reloading, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveWeaponShotDiagnostics(
+        int hand, CoJWeaponShotDiagnostics& state, std::string* error = nullptr) noexcept;
     // Read the active weapon's actual mesh barrel, independent of controller
     // fields and m_avAimFromPoint. Missing weapons/barrels fail closed.
     [[nodiscard]] bool TryGetWeaponBarrel(

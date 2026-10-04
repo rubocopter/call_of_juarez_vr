@@ -10,11 +10,12 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
-The latest physical report rejects pause presentation (desktop menu visible,
-visor repeating gameplay), contextual F/secondary mechanics and invisible shot
-effects. Floating dialogue subtitles are operator-confirmed. The flat-capture
-allocation, digital-dispatch, tracked interaction-gaze and verified-reticle
-follow-ups are **host-tested**; recovery in the visor remains pending. Full
+The latest operator confirms Options pause visibility/selection, L1 box pickup
+and carry, pistol pickup, reload, jump and physical/controller crouch. Pause and
+those specific interaction gestures are **headset-validated**. Shot effects and
+impact feedback remain rejected; either trigger can fire the single right pistol.
+The trigger ownership and active-emitter transform follow-ups are **host-tested**
+and require a fresh physical check. Floating dialogue subtitles remain confirmed. Full
 graphical HUD and protected-target red-X feedback are still **planned**.
 
 Independent native hands with retained torso/legs are **live-tested** for native
@@ -55,8 +56,8 @@ allocated Yes/No dialog is ignored unless `IsActuallyVisible()` is true. The
 accepted physical baseline confirms complete VR-pointer operation across the
 ordinary menus exercised, the Yes/No dialog and the gameplay pause menu. The
 current pointer-selection route is therefore **headset-validated for those
-exercised menu paths** in that baseline; current pause presentation has regressed
-and awaits the allocation follow-up check. Loading continuation remains separate.
+exercised menu paths**. The operator confirms recovery of pause visibility and
+selection with the mono capture ring. Loading continuation remains separate.
 
 Continuous body-yaw following at the 35-degree comfort boundary remains
 **headset-validated with Body IK disabled**. The absolute-frame Body IK writer has
@@ -273,11 +274,11 @@ global route could run. Inspection of the shipped `MainMenuModule` confirms
 optional and exception-safe, while the global current UI remains preferred for
 pause-menu delivery. The later native-click follow-up is now physically exercised
 successfully: ordinary menu levels, the Yes/No dialog and gameplay pause all
-accept the VR pointer in the accepted baseline. The latest physical candidate
-regresses pause visibility after flat capture allocation failures.
+accept the VR pointer. The allocation follow-up now also has operator-confirmed
+Options pause visibility and usable selection after gameplay loading.
 
-The next combined run first checks pause recovery and contextual F, then
-secondary controls, verified reticle alignment and actual shot effects.
+The next combined run checks correct trigger/weapon ownership, native shot
+effects and impact feedback, then explicitly exercises Triangle button chords.
 Body restore continuity and the 90-degree snap step remain regression gestures. Startup/transport
 verification confirms provenance and presentation only; the operator still
 confirms the physical gestures.
@@ -464,11 +465,11 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Body IK continuity/anatomy | continuity physically improved; span calibration live-tested; anatomy rejected | calibration completes and arms are longer, but wrist/forearm orientation remains unnatural; solver target readback/restoration do not accept visual skinning |
 | Independent native hands with retained torso/legs | native loading/presentation live-tested; attachment follow-up host-tested | operator reports substantial improvement but rejects weapon gap and wrist pose; twenty-element hand/socket map, parent-before-child application, per-eye weapon readback and transactional restoration covered; wrist comfort, grip cohesion and reload recovery pending |
 | Native reload ownership | host-tested | VR writes yield during native reload state |
-| Flat-menu pointer | headset-validated baseline; current pause presentation rejected | desktop pause menu works but visor repeats gameplay after flat allocation failures; prewarmed mono readback ring is host-tested, current pause visibility/pointer recovery pending |
+| Flat-menu pointer | headset-validated for exercised menus and recovered pause | Options pause appears correctly in the visor and permits pointer selection; allocation/Reset fault injection remains a host-only check |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
-| Cross/Circle/L2/R2 UI actions | exercised baseline menu selection accepted; current pause regression open | native menu dispatch alone does not accept visor presentation or pointer delivery; retain per-action regression checks |
+| Cross/Circle/L2/R2 UI actions | exercised baseline menu selection accepted; Options pause recovery confirmed | retain per-action and loading regression checks |
 | Loading continuation | host-tested / latest run reached gameplay | an earlier physical load hang was not reproduced in the latest gameplay run; controller-only loading acceptance remains separate |
-| Controller-origin UI beam | headset-validated baseline; current pause recovery pending | ordinary/Yes-No/pause beam acceptance predates the latest pause presentation regression |
+| Controller-origin UI beam | headset-validated for exercised menus and recovered pause | operator confirms recovered pause visibility and pointer selection; retain loading/dashboard regression checks |
 | Controller-owned weapon direction/visual origin | live-exercised technically; visual alignment rejected | rigid weapon-element map/cache publication and restoration observed; short clamped arms separate rendered hands from tracked weapons; actual shots and reload recovery remain pending |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
 | Exact-frame gameplay weapon reticle | live-exercised; weapon-ownership follow-up host-tested | raw empty-hand tip selection was misleading with a sole gun; verified-muzzle-only selection awaits physical acceptance, native spread remains separate |
@@ -480,8 +481,8 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 **Input expansion physically exercised but incomplete/rejected; essential stereo
 text host-tested with operator-confirmed floating dialogue subtitles. Native
 graphical HUD capture/composition: planned.** The latest operator reports basic
-fire/recenter/crouch/jump but unusable aiming/shot effects, failed contextual F,
-missing red no-shoot feedback and a frozen visor during desktop pause. Red no-shoot
+fire/recenter/crouch/jump/reload, usable pause selection, L1 box carry and pistol
+pickup, but invisible shot/impact effects and incorrect single-pistol trigger ownership. Red no-shoot
 feedback was never implemented by the essential text route. The log confirms
 mapped F/weapon-cycle/modifier intents, not native mechanic execution.
 
@@ -491,7 +492,8 @@ surface allocations after warmup, exercise ring exhaustion/release and same-size
 and resized Reset. A separate native-dispatch fixture reproduces one-shots lost
 under the locomotion lock and verifies delivery after analog commit, retry after
 failure, held-edge suppression and the independent fire phase. These follow-ups
-are **host-tested**; they do not accept visor recovery or actual shots.
+are **host-tested**; the operator separately confirms pause recovery and specific
+pickup/carry gestures. Actual shots/effects retain their own acceptance gate.
 Interaction gaze checks additionally cover the translated/crouched central HMD
 camera, actor-yaw compensation, invalid tracking/basis rejection, complete-pair
 JNI publication and clearing after a write failure or context loss. The exact
@@ -499,6 +501,19 @@ archive changes only its three identified classes; `CheckTriggers` retains its
 native selection flow. Direct L1/F must still pick up and put down an available
 object while standing, crouching and moving, including after pause/dashboard
 transitions. Native interaction range and permissions must remain intact.
+
+Fire ownership host checks distinguish right/left trigger roles, reject only the
+tracked one-hand firearm's cross-hand retry, and preserve native two-hand modes,
+non-firearm tools and network/untracked fallback. FX checks require a live-world
+commit after writing the starting matrix; failed creation/frame/commit cases do
+not retain a bad emitter. Read-only native entry/status counters distinguish
+attack, impact, configured/created/committed FX and suppression. Physically test a
+right pistol with R2, verify L2 cannot fire it, and repeat for left/dual pistols
+when available. Check side-on muzzle flash/smoke and wall impact feedback.
+Triangle was observed without overlapping chords in the latest run; focus,
+hands and equipment were not exercised. Tutorial scripts disable kicking, so
+absence of its animation there is not a binding rejection. XR optical focus
+magnification remains planned independently of native focus state.
 
 Menu operation and the alignment reticle
 do not establish complete campaign control or HUD coverage. The authoritative action catalogue

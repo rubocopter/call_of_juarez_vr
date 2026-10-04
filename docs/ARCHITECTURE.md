@@ -104,7 +104,7 @@ The D3D9 path has two presentation modes:
 
 The device `Present` path can publish flat content when no native-stereo producer is active. The presenter claims and maintains compositor scene ownership, repeats the latest frame at compositor cadence, and returns to native stereo when the game resumes the two-eye render path.
 
-Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Texture padding uses both eyes' projected screen centers and asymmetric FOV to keep the entire source rectangle in bounds; the live optical trace confirms that a fixed 35% margin alone could not contain the PS VR2 startup image. The extent correction is live-tested, with videos/menu visibility headset-validated. Immediate capture reserves a mono SYSTEMMEM ring during startup; both eyes borrow the same locked surface through a producer lease. Consumer completion permits owner-thread unlocking/reuse. Matching same-device Reset preserves the reservation while new frames receive the current generation; dimensions/format/device changes defer replacement until leases release. No persistent DEFAULT-pool resource or duplicated CPU eye image is retained. This allocation follow-up is host-tested after a physical pause regression with allocation failures; headset pause recovery remains open.
+Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Texture padding uses both eyes' projected screen centers and asymmetric FOV to keep the entire source rectangle in bounds; the live optical trace confirms that a fixed 35% margin alone could not contain the PS VR2 startup image. The extent correction is live-tested, with videos/menu visibility headset-validated. Immediate capture reserves a mono SYSTEMMEM ring during startup; both eyes borrow the same locked surface through a producer lease. Consumer completion permits owner-thread unlocking/reuse. Matching same-device Reset preserves the reservation while new frames receive the current generation; dimensions/format/device changes defer replacement until leases release. No persistent DEFAULT-pool resource or duplicated CPU eye image is retained. The operator confirms recovered Options pause visibility and pointer selection. Allocation/Reset failure injection remains host-tested.
 
 Create on the left Sense controller recenters/reanchors the current VR reference.
 
@@ -144,10 +144,9 @@ Cross/global accept retains the shipped Enter route, while loading and paused-hi
 special cases keep their own native semantics. Selection diagnostics distinguish
 mailbox/focus/readback rejection from native dispatch failure. The new click path
 is now **headset-validated for the exercised ordinary, Yes/No and gameplay-pause
-menus** in the accepted baseline. The latest physical candidate regressed pause
-presentation: desktop menus render, but flat readback allocation fails and the
-visor repeats the last gameplay image. The prewarmed mono capture follow-up is
-host-tested; current pause visibility and pointer operation await confirmation.
+menus**. The prewarmed mono capture follow-up now has operator-confirmed pause
+visibility and selection after loading, recovering the frozen-visor regression.
+Its allocation denial and Reset cases retain their separate host-test scope.
 Earlier Windows-only and simultaneous Java/Windows routes remain physically
 rejected.
 
@@ -430,7 +429,8 @@ original behavior. The adapter publishes the central HMD render gaze before F,
 including camera-only room-scale translation, crouch-height correction and actor
 yaw compensation. Both vectors are required together and cleared on failure,
 menu/tracking invalidation and player replacement. This route is host-tested;
-native object pickup and contextual prompts still require physical acceptance.
+the operator confirms L1 box pickup/carry and pistol pickup. Put-down, devices,
+mounting and contextual prompt visibility retain separate physical gates.
 
 Input dispatch has two exact-game phases. Non-fire actions retain the existing
 pre-body order, including native analog shaping, snap turn, reload and weapon
@@ -440,6 +440,11 @@ is merged by phase, including an inactive held-fire release; neither analog
 movement nor snap turn is dispatched twice.
 A successful fire-only release retains any non-fire values whose release failed,
 so an inactive retry still owns and clears those native actions.
+Physical right fire maps to native primary/action 9 and hand 0; physical left fire
+maps to secondary/action 10 and hand 1. The shipped `Attack(IZ)` can retry another
+hand after rejection. A tracked local one-hand `WeaponFire` cannot accept that
+cross-hand fallback in `CanAttack(II)`. Native two-hand operation, non-firearm
+tools, untracked beings and network-forced attacks preserve their original path.
 
 The separate `GetFireDirVisualizationForHand` consumer selects the same nullable
 tracked base direction before executing its unchanged native accuracy/rotation
@@ -447,20 +452,25 @@ suffix. `WeaponFire.AttackFire` therefore supplies a coherent ballistic and
 visual ray to traces and the shot light. A second exact-hash class patch guards
 `WeaponFire.ExecFXFire`: for the tracked local player's known hand with valid
 cached origin/direction and barrel up/forward, combustion and smoke are detached
-and initialized with the complete measured barrel frame through `FXSetStartXForm`.
+initialized with the complete measured barrel frame through `FXSetStartXForm`,
+then committed through `FXDetach` to update active/previous world transforms.
 The create-call's orientation vector describes emitter +Y; authored barrel FX
 emit along -X, so passing the shot direction there is incorrect. Full-basis eye
 readback preserves weapon roll. Missing vectors retain native fallback; failed
 full-frame effect initialization deletes that emitter. Null parent/element -1
 prevents restored weapon poses from moving effects after emission. Unknown hands,
 other players and network-forced fire execute the original attached-emitter code.
+Read-only per-weapon diagnostics count actual local `AttackFire`, `OnHit` and
+tracked `ExecFXFire` entries. A status mask separates configured, created,
+committed and failed emitters. These do not invoke spread or replay attacks;
+successful counters/handles still do not establish visible FX or impact alignment.
 
 Native-stereo staging requires the recognized original `code.pak` and class
-SHA-256 for both `ArmedPlayerBeing` and `WeaponFire`. The patched archive is a journaled deployment asset; all other archive
+SHA-256 for `ArmedPlayerBeing`, `WeaponFire` and `BeingTriggered`. The patched archive is a journaled deployment asset; all other archive
 payloads are checked unchanged, its deployed hash joins run provenance, and
 unstaging/recovery restores the original archive byte-for-byte. Host tests cover
 hand selection, null/network fallback and interrupted deployment. The shipped
-Java 1.4 verifier accepts both patched classes without initialization. This remains
+Java 1.4 verifier accepts all three patched classes without initialization. This remains
 host evidence, not actual-shot or headset acceptance.
 
 The gameplay reticle carries only projected alignment points and currently draws

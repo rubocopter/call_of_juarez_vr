@@ -33,6 +33,11 @@ void* published_origin=nullptr;
 void* published_direction=nullptr;
 int construction_count=0;
 bool vector_write_fault=false;
+int observed_weapon;
+bool shot_field_fault=false, shot_read_fault=false;
+constexpr const char* shot_fields[]{"cojvrShotSerial","cojvrHitSerial","cojvrFxSerial",
+    "cojvrFxStatus","cojvrShotSuppressEffects"};
+constexpr int shot_values[]{12,9,12,63,0};
 std::array<int,48> accepted{}, rejected{};
 
 std::int32_t __stdcall GetEnv(void*, void** env, std::int32_t) { *env=&env_holder; return 0; }
@@ -48,6 +53,10 @@ void* __stdcall ObjectField(void*, void* owner, void* field) {
 }
 void* __stdcall Class(void*,void*) { return &game_type; }
 void* __stdcall Field(void*,void*,const char* name,const char*) {
+    for (int i=0;i<5;++i) if (std::strcmp(name,shot_fields[i])==0) {
+        if (shot_field_fault && i==3) { pending=true; return nullptr; }
+        return Ptr(200+i);
+    }
     return Ptr(std::strcmp(name,"cojvrInteractionOrigin")==0 ? origin_field : direction_field);
 }
 void* __stdcall New(void*,void*,void*,const JValue*) {
@@ -75,7 +84,16 @@ std::uint8_t __stdcall Instance(void*, void* object, void* type) {
     return type==&digital_type || (object==&player && type==&game_type);
 }
 std::int32_t __stdcall Integer(void*, void* owner, void* field) {
+    if (owner==&observed_weapon) {
+        const auto index=reinterpret_cast<std::uintptr_t>(field)-200;
+        if (shot_read_fault && index==3) { pending=true; return -1; }
+        return shot_values[index];
+    }
     return field==Ptr(button_field) ? static_cast<Action*>(owner)->id : 1;
+}
+void* __stdcall ObserveMethod(void*,void*,const char*,const char*) { return Ptr(301); }
+void* __stdcall ObserveObject(void*,void*,void*,const JValue* args) {
+    return args[0].i==0 ? &observed_weapon : nullptr;
 }
 std::int32_t __stdcall TargetType(void*, void*, void*, const JValue*) { return 1; }
 std::uint8_t __stdcall Boolean(void*, void* owner, void* method, const JValue* args) {
@@ -169,7 +187,7 @@ int main() {
     const int previous_locks=locks;
     state.fire_right=true;
     ok &= Check(bridge.TryApplyGameplayInput(state,&error,CoJInputDispatchPhase::fire) &&
-        accepted[10]==1 && locks==previous_locks && accepted[30]==2,
+        accepted[9]==1 && accepted[10]==0 && locks==previous_locks && accepted[30]==2,
         "separate fire phase redispatched non-fire state");
     bridge.being_=&player;
     bridge.vector_class_=&game_type;
@@ -189,5 +207,23 @@ int main() {
     ok &= Check(PublishInteraction(bridge,{10,20,30},{0,0,-1},true) &&
         PublishInteraction(bridge,{}, {},false) && !published_origin && !published_direction,
         "interaction context loss failed to clear the pair");
+    env_table[33]=reinterpret_cast<void*>(&ObserveMethod);
+    env_table[36]=reinterpret_cast<void*>(&ObserveObject);
+    CoJWeaponShotDiagnostics diagnostics{};
+    ok &= Check(bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && diagnostics.valid &&
+        diagnostics.values==std::array<int,5>{12,9,12,63,0}, "actual native shot counters were not read");
+    shot_field_fault=true;
+    ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && !diagnostics.valid &&
+        diagnostics.values==std::array<int,5>{} && !pending, "failed shot read retained stale counters or JNI exception");
+    shot_field_fault=false;
+    ok &= Check(bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && diagnostics.valid,
+        "shot observation did not recover after field failure");
+    shot_read_fault=true;
+    ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && !diagnostics.valid &&
+        diagnostics.values==std::array<int,5>{} && !pending,
+        "GetIntField failure retained partial counters or JNI exception");
+    shot_read_fault=false;
+    ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(1,diagnostics) && !diagnostics.valid,
+        "empty hand acquired actual shot counters");
     return ok ? 0 : 1;
 }

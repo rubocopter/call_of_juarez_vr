@@ -40,8 +40,8 @@ outside that manual are explicitly marked.
 | 6 | Strafe right | D | left stick |
 | 7 | Strafe left | A | left stick |
 | 8 | Show map, hidden from ordinary menu | not a documented PC control | absent; do not assign O to this slot |
-| 9 | Left mouse / left-hand weapon action | left mouse | L2 |
-| 10 | Right mouse / right-hand weapon action | right mouse | R2 |
+| 9 | Primary mouse / right-hand weapon action | left mouse | R2 |
+| 10 | Secondary mouse / left-hand weapon action | right mouse | L2 |
 | 11 | Jump | Space | right Cross |
 | 12 | Lean left | Q | custom-bindable native lean; room-scale lean remains camera translation |
 | 13 | Lean right | E | custom-bindable native lean; room-scale lean remains camera translation |
@@ -87,6 +87,14 @@ Hidden/developer and multiplayer text/voice actions remain outside this campaign
 layout. Native equipment actions decide whether the selected item exists; the
 selector does not yet query inventory or hide unavailable sectors.
 
+The mouse-button names do not identify physical hands. Exact
+`ArmedPlayerBeing.Attack(IZ)` first tries hand 0/right for action 9 and hand
+1/left for action 10, then can retry the opposite hand. For a locally tracked
+firearm operated with one hand, the exact `CanAttack(II)Z` prefix now rejects
+that opposite-hand retry. Own-hand attacks, native two-hand operation, tools,
+missing tracking caches and forced-network attacks retain native eligibility.
+This trigger ownership correction is host-tested; physical acceptance is pending.
+
 `Data/InputActions.def` incorrectly labels quick save and quick load with the
 same ID 33. The shipped class identifies 33 as logs, 34 as quick load and 35 as
 quick save. Do not build new mappings from that duplicate definition.
@@ -131,6 +139,11 @@ held action. Save/load and native Q/E lean are available to deliberate custom
 SteamVR bindings; no save/load chord is assigned during combat. Actual XR zoom
 magnification is still open, despite native focus-state delivery.
 
+Triangle alone only opens the layer; it does not request focus or hands. Hold
+Triangle, then freshly press Square for focus or Circle for hands. Release any
+button held before layer entry first. A layer-active record without that chord
+or a right-stick selection is not evidence that a secondary mechanic was tried.
+
 ## Mechanics that a button list does not cover
 
 The native controller rejects digital one-shots while
@@ -148,7 +161,57 @@ branch offsets, native trigger range and target/permission tests. Missing either
 vector delegates to the original getter. Publication uses the central render
 camera in centimetres, with physical translation/height and actor-yaw ownership;
 it clears on lost tracking, blocking UI and player changes. The patch and JNI
-failure cleanup are host-tested; F pickup/put-down/mounting remain physical gates.
+failure cleanup are host-tested. The operator confirms L1 box pickup/carry and
+pistol pickup; put-down, device use and mounting remain physical gates.
+
+### Native character and tutorial eligibility
+
+`gameplay_input result=applied` establishes adapter dispatch without a JNI
+exception. The bridge discards `InputDigital.Translate`'s boolean return; that
+return itself only indicates invocation of an eligible target callback. Native
+consumer acceptance, animation and visible feedback remain separate evidence.
+`BeingController.CanApplyState` requires an unlocked controller and permitted
+input. `PlayerController.CanExecuteInput` additionally rejects kick while riding
+a horse and permits only its listed actions while using a cannon.
+
+Kick action 39 calls `CreatureController.ApplyKick -> PlayerBeing.Kick`.
+`m_bKickingEnabled` must be true; inherited `Creature.CanKick` also requires a
+living, movable being, mode state 0, and neither step nor jump speed state. Both
+`PlayerBeingBilly` and `PlayerBeingRay` inherit this path. Their constructors do
+not establish a permanent character-specific kick ban: `PlayerBeing` initially
+enables kicking, punching and weapon changes, and campaign actions/save state
+can change those permissions.
+
+The shipped `Data1.pak` Home01 and Home02 maps explicitly include an
+`act_PlayerControl` in their level `cStartAction` lists with
+`ePlayerKicking=_DISABLE` and `ePlayerPunching=_DISABLE`. These are deliberate
+opening-campaign restrictions, not missing controller bindings. The same action
+class resolves the main player and calls `SetKickingEnabled` and
+`SetPunchingEnabled`. Home01 also contains scripted weapon-change disable/enable
+and holster/restore transitions. A live player/level/permission readback is
+required before attributing an individual rejected press to one of these gates.
+
+Hands action 29 calls `ArmedPlayerBeing.WeaponHandsToggle`, which attempts nearby
+weapon replacement, then toggles inventory slot 7. The toggle requires weapon
+changes enabled, permits carrying only when `CanCarryWithWeapon` allows it,
+and needs an available usable inventory candidate; selecting `WeaponHands` is
+rejected when punching is disabled. It is therefore not an unconditional hide
+command. The campaign's `HolsterWeapons/RestoreHolsteredWeapons` methods instead
+own the separate `m_bWeaponsHolstered` flag. Preserve both meanings and native
+tutorial permissions when presenting put-away controls.
+
+Native focus action 40 sets `PlayerController.m_bSquint` and applies
+`PlayerBeing.Squint`. The player must be movable to accept the setter;
+`IsSquint` additionally requires `CanSquint`: alive, movable, not looking at a
+scripted target, and neither kick nor jump speed state. Neither character class
+overrides these checks. Native zoom smoothing and its `_SQUINT` game event do
+not establish magnification in the independently supplied XR eye frusta.
+
+The operator specifically confirms pause, L1 box and gun pickup, reload, jump
+and crouch in the exercised recovery path. This does not accept put-down,
+mounting, kick, focus, hands or equipment selection; Triangle plus stick equipment
+was explicitly untested. Run details remain in ignored local evidence, and the
+project validation document owns formal acceptance state.
 
 - **Contextual F:** the manual assigns pickup, put-down, devices and mounting to
   the same action. `HUDActiveTrigger.UpdateText` reads

@@ -87,8 +87,21 @@ emitter up loses the authored barrel axes and visibly misdirects the effect.
 
 The current patch creates the same configured emitters with no direction
 argument, then calls the shipped `FXSetStartXForm(handle, position, up, forward)`
-(`+0x10F250`). That method stores up and derives +X from up cross forward. The
-bridge publishes measured barrel up/forward beside the shot origin/direction,
+(`+0x10F250`). That method stores up and derives +X from up cross forward, but
+only writes the starting matrix at emitter offset +0x18. It does not commit
+the active world transform or previous position. The successful null-parent
+creation path also bypasses the attached emitter's link/update boundary.
+
+The patch therefore follows the starting-frame write with shipped
+`FXDetach(I)Z` (`+0x10EFF0`). Its valid-handle path calls `+0x10E420`, which
+clears parent ownership, recomputes the active world transform through
+`+0x10E0A0` and copies current position +0xE0 to previous position +0xF0.
+That commit also applies to an already detached emitter. A failed frame write
+or detach/commit deletes the newly owned nonzero handle once; no failed handle
+is published as committed. Host bytecode tests model starting and active
+transforms separately, including creation, frame and commit failures.
+
+The bridge publishes measured barrel up/forward beside the shot origin/direction,
 checks the complete barrel basis through both eyes, and clears all four vectors
 per hand together on failed publication. No guessed muzzle translation or global
 particle-definition change is involved. A failed full-frame effect write deletes
@@ -99,6 +112,19 @@ actions and their native analog/snap/reload semantics keep their earlier order.
 Bytecode execution, unchanged spread suffix, shipped Java verification and
 deployment restoration are host gates; effect appearance and shot alignment
 remain physical gates.
+
+Exact `WeaponFire.AttackFire` and `OnHit` prefixes count local tracked consumer
+entries without replaying either method or querying spread. The verified
+`ExecFXFire` path additionally records configured, created, committed and failed
+emitter masks. Periodic JNI observation reads five complete instance fields
+from each active weapon and clears partial reads on failure. Unavailable reads
+are reported at the same bounded observation cadence. Counters belong to weapon
+instances, can change on equipment replacement and can appear on both hands for
+a shared two-hand weapon. `OnHit` entries are not one-to-one shot counts; FX masks
+describe the latest verified FX call and can persist across a suppressed shot.
+These counters
+distinguish native consumption from input dispatch; they do not establish
+visible muzzle effects, wall impacts or shot alignment.
 
 ## Legacy measured arm reach
 

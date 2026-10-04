@@ -319,8 +319,10 @@ std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
         {5, positive(-move_y)},
         {6, positive(move_x)},
         {7, positive(-move_x)},
-        {9, state.active && state.fire_left ? 1.0F : 0.0F},
-        {10, state.active && state.fire_right ? 1.0F : 0.0F},
+        // Native Attack(IZ) treats mouse-primary/action 9 as hand 0/right;
+        // mouse-secondary/action 10 as hand 1/left. XR roles are physical hands.
+        {9, state.active && state.fire_right ? 1.0F : 0.0F},
+        {10, state.active && state.fire_left ? 1.0F : 0.0F},
         {11, state.active && state.jump ? 1.0F : 0.0F},
         {12, state.active && state.lean_left ? 1.0F : 0.0F},
         {13, state.active && state.lean_right ? 1.0F : 0.0F},
@@ -1201,6 +1203,50 @@ bool JavaPlayerBridge::TryObserveSubtitleState(
     DeleteLocal(env, dialog);
     DeleteLocal(env, dialog_class);
     return !dialog_read_failed;
+}
+
+bool JavaPlayerBridge::TryObserveWeaponShotDiagnostics(
+    const int hand, CoJWeaponShotDiagnostics& state, std::string* error) noexcept {
+    state = {};
+    if (hand < 0 || hand > 1 || (!being_ && !Refresh(error))) return false;
+    void* env = Environment(error);
+    if (!env || !being_) return false;
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+    const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
+    const auto get_int = EnvFunction<GetIntFieldFn>(env, kGetIntField);
+    if (!get_class || !get_method || !call_object || !get_field || !get_int) return false;
+    void* cls = get_class(env, being_);
+    if (ClearException(env, error, "shot observer player class failed") || !cls) {
+        DeleteLocal(env, cls); return false;
+    }
+    void* method = get_method(env, cls, "GetActiveWeapon", "(I)LWeapon;");
+    const bool lookup_failed = ClearException(env, error, "shot observer weapon lookup failed");
+    DeleteLocal(env, cls);
+    if (lookup_failed || !method) return false;
+    JValue args[1]{}; args[0].i = hand;
+    void* weapon = call_object(env, being_, method, args);
+    if (ClearException(env, error, "shot observer weapon read failed") || !weapon) {
+        DeleteLocal(env, weapon); return false;
+    }
+    cls = get_class(env, weapon);
+    bool ok = !ClearException(env, error, "shot observer weapon class failed") && cls;
+    constexpr const char* names[]{"cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
+        "cojvrFxStatus", "cojvrShotSuppressEffects"};
+    CoJWeaponShotDiagnostics observed{};
+    for (std::size_t i = 0; ok && i < observed.values.size(); ++i) {
+        void* field = get_field(env, cls, names[i], "I");
+        ok = !ClearException(env, error, "shot observer exact field unavailable") && field;
+        if (ok) {
+            observed.values[i] = get_int(env, weapon, field);
+            ok = !ClearException(env, error, "shot observer counter read failed");
+        }
+    }
+    DeleteLocal(env, cls);
+    DeleteLocal(env, weapon);
+    if (ok) { observed.valid = true; state = observed; }
+    return ok;
 }
 
 bool JavaPlayerBridge::TryGetWeaponReloading(
