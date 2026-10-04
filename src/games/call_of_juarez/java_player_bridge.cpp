@@ -319,10 +319,10 @@ std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
         {5, positive(-move_y)},
         {6, positive(move_x)},
         {7, positive(-move_x)},
-        // Native Attack(IZ) treats mouse-primary/action 9 as hand 0/right;
-        // mouse-secondary/action 10 as hand 1/left. XR roles are physical hands.
-        {9, state.active && state.fire_right ? 1.0F : 0.0F},
-        {10, state.active && state.fire_left ? 1.0F : 0.0F},
+        // PlayerController.ExecuteInput converts action 9 to Attack(1/left)
+        // and action 10 to Attack(0/right). Action IDs are not hand indices.
+        {9, state.active && state.fire_left ? 1.0F : 0.0F},
+        {10, state.active && state.fire_right ? 1.0F : 0.0F},
         {11, state.active && state.jump ? 1.0F : 0.0F},
         {12, state.active && state.lean_left ? 1.0F : 0.0F},
         {13, state.active && state.lean_right ? 1.0F : 0.0F},
@@ -1233,13 +1233,15 @@ bool JavaPlayerBridge::TryObserveWeaponShotDiagnostics(
     cls = get_class(env, weapon);
     bool ok = !ClearException(env, error, "shot observer weapon class failed") && cls;
     constexpr const char* names[]{"cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
-        "cojvrFxStatus", "cojvrShotSuppressEffects"};
+        "cojvrFxStatus", "cojvrShotSuppressEffects", "cojvrCombHandle", "cojvrSmokeHandle"};
     CoJWeaponShotDiagnostics observed{};
-    for (std::size_t i = 0; ok && i < observed.values.size(); ++i) {
+    for (std::size_t i = 0; ok && i < std::size(names); ++i) {
         void* field = get_field(env, cls, names[i], "I");
         ok = !ClearException(env, error, "shot observer exact field unavailable") && field;
         if (ok) {
-            observed.values[i] = get_int(env, weapon, field);
+            const int value = get_int(env, weapon, field);
+            if (i < observed.values.size()) observed.values[i] = value;
+            else observed.fx_handles[i - observed.values.size()] = value;
             ok = !ClearException(env, error, "shot observer counter read failed");
         }
     }
@@ -2122,9 +2124,8 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             return false;
         }
         if (digital) {
-                // Data/InputActions.def is exact for this build: action 9 fires
-                // the left-hand weapon and action 10 the right-hand weapon.
-                // InputDigital.Translate only selects the requested hand state.
+                // Translate forwards the configured action ID; the shipped
+                // PlayerController then converts it to an attack hand index.
                 const JValue args[3]{
                     {.l = target},
                     {.i = device},

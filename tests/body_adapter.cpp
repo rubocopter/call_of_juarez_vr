@@ -952,14 +952,14 @@ int main() {
     GameplayInputState right_fire{};
     right_fire.active = right_fire.fire_right = true;
     auto right_values = BuildCoJGameplayActionValues(right_fire);
-    if (!Near(right_values[6].value, 1.0F) || !Near(right_values[7].value, 0.0F)) {
-        std::cerr << "Right VR trigger did not select native right-hand primary attack (action 9)\n";
+    if (!Near(right_values[6].value, 0.0F) || !Near(right_values[7].value, 1.0F)) {
+        std::cerr << "Right VR trigger did not select PlayerController's right-hand action 10\n";
         return 1;
     }
     right_fire.fire_right = false;
     right_fire.fire_left = true;
     auto left_values = BuildCoJGameplayActionValues(right_fire);
-    if (!Near(left_values[6].value, 0.0F) || !Near(left_values[7].value, 1.0F)) return 1;
+    if (!Near(left_values[6].value, 1.0F) || !Near(left_values[7].value, 0.0F)) return 1;
     CoJSnapTurnState snap_turn{};
     GameplayInputState snap_gameplay{};
     snap_gameplay.active = true;

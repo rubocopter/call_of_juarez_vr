@@ -195,16 +195,19 @@ def execute_event_prefix(code, tracked=True, net=False, cache=True, suppressed=0
 
 class WeaponConsumers(unittest.TestCase):
     def test_effect_status_distinguishes_creation_and_world_commit_failures(self):
-        code=patch.fire_effect_prefix(10,11,3,12,[1,2],[5,6],[(20,21),(22,23)],24,[7,8],[9,10],25,26,27,(30,31))
+        code=patch.fire_effect_prefix(10,11,3,12,[1,2],[5,6],[(20,21),(22,23)],24,[7,8],[9,10],25,26,27,(30,31,32,33))
         owner={'tracked_player':True,1:[10,20,30],5:[0,0,-1],7:[0,1,0],9:[0,0,1],3:False}
         for faults,status in (({},63),({'fail_create':True},3),({'fail_frame':True},207),({'fail_detach':True},207)):
-            diagnostics={}
+            diagnostics={32:123,33:456}
             execute_effects(code,owner,diagnostics=diagnostics,require_current_frame=True,**faults)
             self.assertEqual(diagnostics[30],1)
             self.assertEqual(diagnostics[31],status)
+            self.assertEqual([diagnostics[32],diagnostics[33]],
+                [1,2] if not faults else [0,0], 'Stale or uncommitted native FX handles were published')
         diagnostics={}
         execute_effects(code,owner,definitions={20:0,21:0,22:0,23:0},diagnostics=diagnostics)
         self.assertEqual(diagnostics[31],0)
+        self.assertEqual([diagnostics.get(32),diagnostics.get(33)],[0,0])
 
     def test_actual_shot_and_hit_observation_is_local_and_read_only(self):
         emit=getattr(patch,'tracked_event_prefix',None)

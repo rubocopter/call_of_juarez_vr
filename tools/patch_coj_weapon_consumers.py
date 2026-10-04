@@ -19,7 +19,8 @@ FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLe
           "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward")
 INTERACTION_FIELDS = ("cojvrInteractionOrigin", "cojvrInteractionDirection")
 SHOT_DIAGNOSTIC_FIELDS = ("cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
-                          "cojvrFxStatus", "cojvrShotSuppressEffects")
+                          "cojvrFxStatus", "cojvrShotSuppressEffects",
+                          "cojvrCombHandle", "cojvrSmokeHandle")
 
 def u2(n): return struct.pack(">H", n)
 def u4(n): return struct.pack(">I", n)
@@ -103,6 +104,8 @@ def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
     if diagnostics:
         c.emit(0x2a,0x2a);c.ref(0xb4,diagnostics[0]);c.emit(0x04,0x60);c.ref(0xb5,diagnostics[0])
         c.emit(0x2a,0x03);c.ref(0xb5,diagnostics[1])
+        for field in diagnostics[2:4]:
+            c.emit(0x2a,0x03);c.ref(0xb5,field)
     for i,(emitter,particle) in enumerate(effects):
         c.emit(0x2b);c.ref(0xb4,emitter);c.branch(0x99,f"next{i}")
         c.emit(0x2b);c.ref(0xb4,particle);c.branch(0x99,f"next{i}")
@@ -123,6 +126,8 @@ def fire_effect_prefix(owner_field, player_class, net_field, hand_method,
         c.emit(0x2a,0x15,8);c.ref(0xb6,detach_method)
         c.branch(0x99,f"failed{i}")
         status(1 << (i+4))
+        if diagnostics:
+            c.emit(0x2a,0x15,8);c.ref(0xb5,diagnostics[2+i])
         c.branch(0xa7,f"next{i}")
         c.label(f"failed{i}")
         # sipush is needed for the smoke failure's bit 7 (signed byte 128).
@@ -280,7 +285,7 @@ def patch_fire_class(data: bytes) -> bytes:
     pre=fire_effect_prefix(find("WeaponFire.cOwnerLPawnInventory;"),player,net,hand,origins,directions,effects,
         find("WeaponFire.FXCreateParticleEmiter(IILVector;LVector;LControlObject;I)I"),ups,forwards,
         weapon_method("FXSetStartXForm","(ILVector;LVector;LVector;)Z"),weapon_method("FXDelete","(I)V"),
-        weapon_method("FXDetach","(I)Z"),diagnostic_refs[2:4])
+        weapon_method("FXDetach","(I)Z"),diagnostic_refs[2:4]+diagnostic_refs[5:7])
     r.read(6);r.read(r.u2()*2)
     fields_at=r.stream.tell();field_count=r.u2()
     for _ in range(field_count):

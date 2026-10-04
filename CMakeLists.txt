@@ -108,6 +108,7 @@ add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/game_shutdown_hook.cpp
     src/games/call_of_juarez/body_adapter.cpp
     src/games/call_of_juarez/java_player_bridge.cpp
+    src/games/call_of_juarez/native_fx_probe.cpp
 )
 
 target_include_directories(cojvr_runtime PUBLIC src)
@@ -691,6 +692,14 @@ if(COJVR_BUILD_TESTS)
     target_compile_definitions(cojvr_gameplay_input_jni_test PRIVATE
         NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     add_test(NAME gameplay_input_jni COMMAND cojvr_gameplay_input_jni_test)
+
+    add_executable(cojvr_native_fx_probe_test tests/native_fx_probe.cpp
+        src/games/call_of_juarez/native_fx_probe.cpp)
+    target_include_directories(cojvr_native_fx_probe_test PRIVATE src)
+    target_compile_features(cojvr_native_fx_probe_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_native_fx_probe_test PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME native_fx_probe COMMAND cojvr_native_fx_probe_test)
 
     if(TARGET cojvr_d3d9_native_stereo_proxy)
         add_executable(cojvr_flat_ui_delivery_test

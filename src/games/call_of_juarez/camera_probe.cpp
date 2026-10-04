@@ -1,6 +1,7 @@
 #include "games/call_of_juarez/camera_probe.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/native_fx_probe.hpp"
 #include "runtime/body_tracking.hpp"
 #include "runtime/gameplay_utility.hpp"
 
@@ -4883,6 +4884,37 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
     const bool visual_body_offset_applied = g_room_scale_body_offset.active;
+    // Low-rate observation of the exact FX global/camera boundary. This does
+    // not resolve emitter ownership or infer visibility from native handles.
+    const bool observe_fx = gameplay_input.active && !loading_ui_input.suppress_gameplay &&
+        ShouldObserveBodyFrame(frame_sequence);
+    const auto observe_native_fx = [&](CoJNativeFxPhase phase, const char* phase_name) noexcept {
+        if (!observe_fx) return;
+        try {
+            CoJNativeFxRequest request{};
+            request.engine_base = reinterpret_cast<std::uintptr_t>(g_engine_base);
+            request.exact_build_validated = g_engine_base &&
+                g_installed.load(std::memory_order_acquire);
+            request.phase = phase;
+            const auto fx = ReadCoJNativeFxSnapshot(request);
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence << ";phase=" << phase_name
+                   << ";global_reason=" << CoJNativeFxReadReasonName(fx.global_reason)
+                   << ";global_fx=";
+            if (fx.global_fx) detail << *fx.global_fx; else detail << "unknown";
+            detail << ";camera_reason=" << CoJNativeFxReadReasonName(fx.camera_reason)
+                   << ";fx_camera=";
+            if (fx.fx_camera_address) detail << "0x" << std::hex << *fx.fx_camera_address;
+            else detail << "unknown";
+            detail << ";eye_camera=0x" << std::hex << reinterpret_cast<std::uintptr_t>(camera)
+                   << ";lookup_reason=" << CoJNativeFxReadReasonName(fx.lookup_reason)
+                   << ";emitter_alive=unknown;particles=unknown;mutation=false;visual_acceptance=unverified";
+            EmitEvent("native_fx_render_state", "observed_globals", detail.str());
+        } catch (...) {
+            // Diagnostics must never prevent camera/body/weapon restoration.
+        }
+    };
+    observe_native_fx(CoJNativeFxPhase::frame, "pre_render");
     if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
         ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -4904,6 +4936,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                         ";fx_committed_mask=" + std::to_string((status >> 4) & 3) +
                         ";fx_failed_mask=" + std::to_string((status >> 6) & 3) +
                         ";shot_suppressed_fx=" + std::to_string(shot_state.values[4]) +
+                        ";comb_handle=" + std::to_string(shot_state.fx_handles[0]) +
+                        ";smoke_handle=" + std::to_string(shot_state.fx_handles[1]) +
+                        ";handle_scope=last_committed_not_liveness" +
                         ";counter_scope=active_weapon_instance;per_shot=false" +
                         ";mutation=false;spread_query=false;visual_acceptance=unverified");
                 } else {
@@ -4981,6 +5016,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         frame_sequence,
         sample.hmd_pose.sequence);
     original(owner, view);
+    observe_native_fx(CoJNativeFxPhase::left_eye, "left_eye_complete");
     g_diagnostic_left_eye_renders.fetch_add(1, std::memory_order_acq_rel);
     ObserveIndependentHandRenderState(frame_sequence,"left_eye_complete",
         aim_observation.left_origin_valid,aim_observation.right_origin_valid,
@@ -5018,6 +5054,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             sample.hmd_pose.sequence);
         right_full_view_pass = ReplayFullRenderViewForStereoEye(
             original, owner, view, right_view_guard_restored);
+        if (right_full_view_pass)
+            observe_native_fx(CoJNativeFxPhase::right_eye, "right_eye_complete");
         if (right_full_view_pass) {
             g_diagnostic_right_eye_renders.fetch_add(1, std::memory_order_acq_rel);
             ObserveIndependentHandRenderState(frame_sequence,"right_eye_complete",

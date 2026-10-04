@@ -429,7 +429,7 @@ original behavior. The adapter publishes the central HMD render gaze before F,
 including camera-only room-scale translation, crouch-height correction and actor
 yaw compensation. Both vectors are required together and cleared on failure,
 menu/tracking invalidation and player replacement. This route is host-tested;
-the operator confirms L1 box pickup/carry and pistol pickup. Put-down, devices,
+the operator confirms L1 box pickup/carry/put-down and pistol pickup. Devices,
 mounting and contextual prompt visibility retain separate physical gates.
 
 Input dispatch has two exact-game phases. Non-fire actions retain the existing
@@ -440,8 +440,9 @@ is merged by phase, including an inactive held-fire release; neither analog
 movement nor snap turn is dispatched twice.
 A successful fire-only release retains any non-fire values whose release failed,
 so an inactive retry still owns and clears those native actions.
-Physical right fire maps to native primary/action 9 and hand 0; physical left fire
-maps to secondary/action 10 and hand 1. The shipped `Attack(IZ)` can retry another
+Physical right fire maps to action 10, which `PlayerController.ExecuteInput`
+converts to `Attack(0, pressed)`; left fire maps to action 9 and `Attack(1, pressed)`.
+Action IDs and attack indices are distinct. The shipped `Attack(IZ)` can retry another
 hand after rejection. A tracked local one-hand `WeaponFire` cannot accept that
 cross-hand fallback in `CanAttack(II)`. Native two-hand operation, non-firearm
 tools, untracked beings and network-forced attacks preserve their original path.
@@ -464,6 +465,14 @@ Read-only per-weapon diagnostics count actual local `AttackFire`, `OnHit` and
 tracked `ExecFXFire` entries. A status mask separates configured, created,
 committed and failed emitters. These do not invoke spread or replay attacks;
 successful counters/handles still do not establish visible FX or impact alignment.
+Only successfully initialized/committed comb and smoke handles are published;
+each tracked FX entry clears the previous pair before creation. JNI publishes
+the counters and handles together or discards the complete observation on error.
+The low-rate exact-build FX probe reads the native global enable word and the
+particle draw camera before/after the eye passes, using copied values and
+replacement checks. Handles are manager-local; without a demonstrated owner
+lookup, emitter lifetime, particle counts and liveness remain unknown. The probe
+does not call native update/draw, install hooks or force render flags.
 
 Native-stereo staging requires the recognized original `code.pak` and class
 SHA-256 for `ArmedPlayerBeing`, `WeaponFire` and `BeingTriggered`. The patched archive is a journaled deployment asset; all other archive

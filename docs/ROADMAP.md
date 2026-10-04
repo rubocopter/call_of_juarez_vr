@@ -6,10 +6,15 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`, `head
 
 **Immediate physical gate:** confirm per-hand firing and visible shot/impact
 effects, then exercise explicit Triangle chords. The operator confirms recovered
-pause selection, box carry and pistol pickup with L1. Shot effects and impact
-feedback remain invisible, and either trigger can fire the right pistol. Native
-primary/secondary hand mapping, one-hand firearm retry ownership and emitter
-active-world commitment have host-tested follow-ups awaiting a fresh headset run.
+pause selection, box pickup/carry/put-down with L1 and Triangle + R2 logs.
+Shot effects and impact feedback remain invisible, and only L2 fires the right
+pistol. The complete native controller route is now host-tested: action 10
+converts to right-hand Attack(0), action 9 to left-hand Attack(1). Corrected
+trigger ownership needs a fresh physical check. Native emitter creation/commit
+is live-observed; visible effects remain rejected.
+The candidate adds low-rate native FX global/draw-camera observations and last
+committed handles. Emitter update, lifetime and actual pixels remain unverified;
+this diagnostic addition does not fix or accept effect visibility.
 
 The active presentation retains native torso/legs with independent native hands
 at original proportions. Authored holding sockets share the hand rigid map;
@@ -102,17 +107,17 @@ Historical phase-by-phase remediation and per-run chronology are intentionally n
 - Subtitle visibility: **operator-confirmed** for floating dialogue text; timing/readability and tutorial/context prompts remain separate checks.
 - Controller-origin flat-theater beam: **live-exercised / visible in headset**; alignment and accurate controller-only UI operation remain open.
 - Controller-owned per-hand weapon direction and visual origin: **host-tested**.
-- Contextual F selection from the central HMD gaze: **headset-validated for box pickup/carry and pistol pickup**;
+- Contextual F selection from the central HMD gaze: **headset-validated for box pickup/carry/put-down and pistol pickup**;
   exact local-player `CheckTriggers` getters preserve native range/permissions.
-  Put-down, other devices and mounting still await physical acceptance.
+  Other devices and mounting still await physical acceptance.
 - Ballistic-origin ownership across the native attack transition: **host-tested**.
 - Sense tip direction convention: **live-tested diagnostically**; local `-Z` is the demonstrated pointing direction.
 - Exact-frame per-eye gameplay reticle from the controller firing ray: **live-exercised / visible**. Impacts are reported closer to it; physical weapon/muzzle alignment remains rejected. It is independent from the menu pointer.
 - Physical gun-origin/direction acceptance: **pending/rejected**.
 - Shot/effect coherence: **physically rejected** for invisible effects/impact feedback. A host-tested follow-up commits the measured emitter starting frame into its active/previous world transforms via native FXDetach. Native attack/hit/FX counters add consumption evidence without replay or spread queries. Actual bullets, tracers, light and effects remain pending headset acceptance.
-- Trigger-to-hand ownership: **host-tested follow-up**; R2 maps to native primary/right hand, L2 to secondary/left, with cross-hand retry rejected only for a tracked one-hand firearm. Native two-hand/tool semantics remain separate acceptance checks.
+- Trigger-to-hand ownership: **host-tested follow-up after physical inversion**; R2 maps through PlayerController action 10 to Attack hand 0/right, L2 through action 9 to hand 1/left. Cross-hand retry is rejected only for a tracked one-hand firearm. Native two-hand/tool semantics remain separate acceptance checks.
 - Motion-controlled reloads and richer world interactions: **planned**.
-- Expanded PC campaign controls: **host-tested / physically incomplete**; L1 box pickup/carry and pistol pickup are operator-confirmed, while broader interactions and secondary controls remain unaccepted. Native one-shot delivery after the locomotion lock is a **host-tested** correction, preserving analog shaping and pending edges.
+- Expanded PC campaign controls: **host-tested / physically incomplete**; L1 box pickup/carry/put-down, pistol pickup and Triangle + R2 logs are operator-confirmed. Focus and hands chords reached dispatch without accepted visible behavior. Broader interactions and other equipment remain unaccepted. Native one-shot delivery after the locomotion lock is a **host-tested** correction, preserving analog shaping and pending edges.
   The [exact PC catalogue](research/COJ_PC_CONTROLS_AND_HUD.md) records direct L1/F,
   separate Options/pause, the Triangle utility layer, focus toggle, alternate
   fire, put-away/discard, objectives/logs and six equipment intents. Save/load

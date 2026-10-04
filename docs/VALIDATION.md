@@ -10,12 +10,17 @@ Per-run logs, process IDs, videos, raw telemetry and evidence packages are local
 
 ## Current physical gate
 
-The latest operator confirms Options pause visibility/selection, L1 box pickup
-and carry, pistol pickup, reload, jump and physical/controller crouch. Pause and
+The latest operator confirms Options pause visibility/selection, L1 box pickup,
+carry and put-down, pistol pickup, Triangle + R2 dialogue/hint logs, reload,
+jump and physical/controller crouch. Pause and
 those specific interaction gestures are **headset-validated**. Shot effects and
-impact feedback remain rejected; either trigger can fire the single right pistol.
-The trigger ownership and active-emitter transform follow-ups are **host-tested**
-and require a fresh physical check. Floating dialogue subtitles remain confirmed. Full
+impact feedback remain rejected; only L2 fires the single right pistol and R2
+does not. Native attack/hit entries and successful emitter creation/commit are
+live-observed, but do not accept their invisible presentation. The adapter's
+missed `PlayerController` action-to-hand conversion is corrected and host-tested;
+R2 -> action 10 -> hand 0, L2 -> action 9 -> hand 1 still needs physical acceptance.
+Focus and hands chords reached dispatch but had no operator-confirmed effect.
+Floating dialogue subtitles remain confirmed. Full
 graphical HUD and protected-target red-X feedback are still **planned**.
 
 Independent native hands with retained torso/legs are **live-tested** for native
@@ -481,8 +486,9 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 **Input expansion physically exercised but incomplete/rejected; essential stereo
 text host-tested with operator-confirmed floating dialogue subtitles. Native
 graphical HUD capture/composition: planned.** The latest operator reports basic
-fire/recenter/crouch/jump/reload, usable pause selection, L1 box carry and pistol
-pickup, but invisible shot/impact effects and incorrect single-pistol trigger ownership. Red no-shoot
+fire/recenter/crouch/jump/reload, usable pause selection, L1 box carry/put-down,
+pistol pickup and Triangle + R2 logs, but invisible shot/impact effects and
+inverted single-pistol trigger ownership. Red no-shoot
 feedback was never implemented by the essential text route. The log confirms
 mapped F/weapon-cycle/modifier intents, not native mechanic execution.
 
@@ -507,11 +513,17 @@ tracked one-hand firearm's cross-hand retry, and preserve native two-hand modes,
 non-firearm tools and network/untracked fallback. FX checks require a live-world
 commit after writing the starting matrix; failed creation/frame/commit cases do
 not retain a bad emitter. Read-only native entry/status counters distinguish
-attack, impact, configured/created/committed FX and suppression. Physically test a
+attack, impact, configured/created/committed FX and suppression. Additional host
+checks cover clearing
+stale/uncommitted FX handles, all-or-nothing JNI observation, copied native FX
+global/camera reads and replacement/partial-read rejection. Low-rate global
+samples are distinct from per-emitter life or particle evidence; those remain
+unknown without an owner lookup. Physically test a
 right pistol with R2, verify L2 cannot fire it, and repeat for left/dual pistols
 when available. Check side-on muzzle flash/smoke and wall impact feedback.
-Triangle was observed without overlapping chords in the latest run; focus,
-hands and equipment were not exercised. Tutorial scripts disable kicking, so
+The latest run includes focus, hands and logs chords. Logs are operator-confirmed;
+visible focus and hands/put-away are not. Other equipment was unavailable.
+Tutorial scripts disable kicking, so
 absence of its animation there is not a binding rejection. XR optical focus
 magnification remains planned independently of native focus state.
 

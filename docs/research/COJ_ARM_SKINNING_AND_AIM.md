@@ -116,7 +116,8 @@ remain physical gates.
 Exact `WeaponFire.AttackFire` and `OnHit` prefixes count local tracked consumer
 entries without replaying either method or querying spread. The verified
 `ExecFXFire` path additionally records configured, created, committed and failed
-emitter masks. Periodic JNI observation reads five complete instance fields
+emitter masks. Periodic JNI observation reads five counters/status fields and
+the last successfully committed comb/smoke handles as one complete observation
 from each active weapon and clears partial reads on failure. Unavailable reads
 are reported at the same bounded observation cadence. Counters belong to weapon
 instances, can change on equipment replacement and can appear on both hands for
@@ -125,6 +126,21 @@ describe the latest verified FX call and can persist across a suppressed shot.
 These counters
 distinguish native consumption from input dispatch; they do not establish
 visible muzzle effects, wall impacts or shot alignment.
+
+The factory inserts detached emitters into the manager's update/draw membership;
+null parent alone does not demonstrate a missing update. Native global FX enable
+gates both paths. Particle draw chooses renderer camera +0x1B0, falling back to
++0x1B8, and can reject empty particle sets or their bounds. The full render-view
+wrapper includes the FX stage and queue flush. Creation/commit masks cannot
+establish first update, emission, lifetime, culling or actual pixels.
+
+The exact-build observational probe copies and rechecks the global enable word
+and particle camera before/after both eyes. It does not force flags or call
+update/draw. Emitter handles are manager-local: the native lookup first resolves
+the owning GameObject, then its level FX manager. An engine base and handle alone
+cannot select that manager safely; emitter liveness/particle counts remain
+unknown. Last committed handles are correlation values, cleared at each tracked
+FX entry before creation, and are not evidence that an emitter remains alive.
 
 ## Legacy measured arm reach
 

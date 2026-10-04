@@ -40,8 +40,8 @@ outside that manual are explicitly marked.
 | 6 | Strafe right | D | left stick |
 | 7 | Strafe left | A | left stick |
 | 8 | Show map, hidden from ordinary menu | not a documented PC control | absent; do not assign O to this slot |
-| 9 | Primary mouse / right-hand weapon action | left mouse | R2 |
-| 10 | Secondary mouse / left-hand weapon action | right mouse | L2 |
+| 9 | Left mouse / left-hand weapon action | left mouse | L2 |
+| 10 | Right mouse / right-hand weapon action | right mouse | R2 |
 | 11 | Jump | Space | right Cross |
 | 12 | Lean left | Q | custom-bindable native lean; room-scale lean remains camera translation |
 | 13 | Lean right | E | custom-bindable native lean; room-scale lean remains camera translation |
@@ -87,13 +87,25 @@ Hidden/developer and multiplayer text/voice actions remain outside this campaign
 layout. Native equipment actions decide whether the selected item exists; the
 selector does not yet query inventory or hide unavailable sectors.
 
-The mouse-button names do not identify physical hands. Exact
-`ArmedPlayerBeing.Attack(IZ)` first tries hand 0/right for action 9 and hand
-1/left for action 10, then can retry the opposite hand. For a locally tracked
+Native action IDs are not `Attack` hand indices. Exact
+`PlayerController.ExecuteInput(IFLjava/lang/Object;)V` converts action 10 to
+`ApplyAttack(0, pressed)` and action 9 to `ApplyAttack(1, pressed)`.
+`ArmedPlayerBeing.Attack(IZ)` then first tries that hand, 0/right or 1/left,
+and can retry the opposite hand. Equating action 9 with `Attack(0, ...)`
+physically inverted the VR triggers. The adapter now preserves the complete
+controller conversion: R2 -> action 10 -> hand 0, L2 -> action 9 -> hand 1.
+For a locally tracked
 firearm operated with one hand, the exact `CanAttack(II)Z` prefix now rejects
 that opposite-hand retry. Own-hand attacks, native two-hand operation, tools,
 missing tracking caches and forced-network attacks retain native eligibility.
-This trigger ownership correction is host-tested; physical acceptance is pending.
+Host JNI checks include this downstream conversion; corrected physical trigger
+ownership remains pending acceptance.
+
+A standalone shipped-Java fixture executes the unchanged `ExecuteInput`,
+`ApplyAttack` and `ApplyAttackState` bytecode against inert engine/player stubs.
+The formerly inverted request fails the right-hand assertion; action 10 reaches
+hand 0 and action 9 reaches hand 1. This establishes controller routing only,
+without game initialization or physical firing acceptance.
 
 `Data/InputActions.def` incorrectly labels quick save and quick load with the
 same ID 33. The shipped class identifies 33 as logs, 34 as quick load and 35 as
@@ -162,7 +174,8 @@ vector delegates to the original getter. Publication uses the central render
 camera in centimetres, with physical translation/height and actor-yaw ownership;
 it clears on lost tracking, blocking UI and player changes. The patch and JNI
 failure cleanup are host-tested. The operator confirms L1 box pickup/carry and
-pistol pickup; put-down, device use and mounting remain physical gates.
+pistol pickup. A subsequent L1 press releases the carried box; that put-down
+gesture is also operator-confirmed. Device use and mounting remain physical gates.
 
 ### Native character and tutorial eligibility
 
@@ -207,10 +220,11 @@ scripted target, and neither kick nor jump speed state. Neither character class
 overrides these checks. Native zoom smoothing and its `_SQUINT` game event do
 not establish magnification in the independently supplied XR eye frusta.
 
-The operator specifically confirms pause, L1 box and gun pickup, reload, jump
-and crouch in the exercised recovery path. This does not accept put-down,
-mounting, kick, focus, hands or equipment selection; Triangle plus stick equipment
-was explicitly untested. Run details remain in ignored local evidence, and the
+The operator specifically confirms pause, L1 box pickup/carry/put-down and gun
+pickup, reload, jump, crouch and Triangle + R2 dialogue/hint logs. Focus and hands
+intents reached the native dispatcher, but visible focus and put-away remain
+unaccepted. Mounting, kick and equipment selection retain separate gates; only
+one pistol was available. Run details remain in ignored local evidence, and the
 project validation document owns formal acceptance state.
 
 - **Contextual F:** the manual assigns pickup, put-down, devices and mounting to
