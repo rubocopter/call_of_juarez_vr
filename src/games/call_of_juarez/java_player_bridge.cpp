@@ -1216,7 +1216,8 @@ bool JavaPlayerBridge::TryObserveWeaponShotDiagnostics(
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
     const auto get_field = EnvFunction<GetFieldIdFn>(env, kGetFieldId);
     const auto get_int = EnvFunction<GetIntFieldFn>(env, kGetIntField);
-    if (!get_class || !get_method || !call_object || !get_field || !get_int) return false;
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    if (!get_class || !get_method || !call_object || !get_field || !get_int || !call_int) return false;
     void* cls = get_class(env, being_);
     if (ClearException(env, error, "shot observer player class failed") || !cls) {
         DeleteLocal(env, cls); return false;
@@ -1243,6 +1244,14 @@ bool JavaPlayerBridge::TryObserveWeaponShotDiagnostics(
             if (i < observed.values.size()) observed.values[i] = value;
             else observed.fx_handles[i - observed.values.size()] = value;
             ok = !ClearException(env, error, "shot observer counter read failed");
+        }
+    }
+    if (ok) {
+        void* owner_method=get_method(env,cls,"GetThisID","()I");
+        ok=!ClearException(env,error,"shot observer owner lookup failed") && owner_method;
+        if (ok) {
+            observed.owner_id=static_cast<std::uint32_t>(call_int(env,weapon,owner_method,nullptr));
+            ok=!ClearException(env,error,"shot observer owner read failed") && observed.owner_id;
         }
     }
     DeleteLocal(env, cls);

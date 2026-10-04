@@ -503,7 +503,7 @@ pickup/carry gestures. Actual shots/effects retain their own acceptance gate.
 Interaction gaze checks additionally cover the translated/crouched central HMD
 camera, actor-yaw compensation, invalid tracking/basis rejection, complete-pair
 JNI publication and clearing after a write failure or context loss. The exact
-archive changes only its three identified classes; `CheckTriggers` retains its
+archive changes only its four identified classes; `CheckTriggers` retains its
 native selection flow. Direct L1/F must still pick up and put down an available
 object while standing, crouching and moving, including after pause/dashboard
 transitions. Native interaction range and permissions must remain intact.
@@ -516,16 +516,30 @@ not retain a bad emitter. Read-only native entry/status counters distinguish
 attack, impact, configured/created/committed FX and suppression. Additional host
 checks cover clearing
 stale/uncommitted FX handles, all-or-nothing JNI observation, copied native FX
-global/camera reads and replacement/partial-read rejection. Low-rate global
-samples are distinct from per-emitter life or particle evidence; those remain
-unknown without an owner lookup. Physically test a
+global/camera reads and replacement/partial-read rejection. Live global samples
+show FX enabled and the particle draw camera matching each eye. The bounded
+owner-local emitter reader is **host-tested** for capacity/generation/subtype
+validation, finite values, replacement, partial-read cleanup and observation
+budget. Its actual emitter samples, first update, expiry and visible pixels
+still need a fresh live run. Physically test a
 right pistol with R2, verify L2 cannot fire it, and repeat for left/dual pistols
 when available. Check side-on muzzle flash/smoke and wall impact feedback.
-The latest run includes focus, hands and logs chords. Logs are operator-confirmed;
+The exercised runs include focus, hands and logs chords. Logs are operator-confirmed;
 visible focus and hands/put-away are not. Other equipment was unavailable.
 Tutorial scripts disable kicking, so
 absence of its animation there is not a binding rejection. XR optical focus
 magnification remains planned independently of native focus state.
+
+Pickup-triggered autosave exposed an unhandled native allocation exception
+through `TakeScreenshot -> ForceRender`. A **host-tested** exact-class workaround
+omits only quick/automatic-save GPU thumbnails while retaining native stale-preview
+cleanup and the remaining save/restore flow. The shipped Java verifier accepts
+the redirected private helper; this is not proof of successful save serialization
+or a general memory-pressure fix. Physically repeat box/pistol/ammunition pickup
+through autosave, check a fresh save exists and loads normally, and confirm pause
+selection still works. Quick/automatic saves intentionally have no generated
+preview while the patched archive is staged. After any crash, finish the current
+run and prepare a fresh ID before restarting.
 
 Menu operation and the alignment reticle
 do not establish complete campaign control or HUD coverage. The authoritative action catalogue

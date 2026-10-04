@@ -4884,18 +4884,36 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
     (void)UpdateLocalHeadVisibility(true, frame_sequence);
     const bool visual_body_offset_applied = g_room_scale_body_offset.active;
-    // Low-rate observation of the exact FX global/camera boundary. This does
-    // not resolve emitter ownership or infer visibility from native handles.
+    // Cold globals plus bounded early-shot emitter observations. Re-resolve the
+    // active weapon on this game thread; never retain an emitter/native pointer.
+    static CoJNativeFxObservationWindow fx_window;
+    std::array<CoJWeaponShotDiagnostics,2> fx_shots{};
+    std::array<bool,2> sample_emitters{};
+    const auto fx_now=GetTickCount64();
+    const bool fx_gameplay=gameplay_input.active && !loading_ui_input.suppress_gameplay;
+    if (!fx_gameplay) {
+        fx_window.Invalidate(0); fx_window.Invalidate(1);
+    } else if (fx_window.NeedsPoll(fx_now) &&
+        (gameplay_input.fire_left || gameplay_input.fire_right ||
+         fx_window.HasOpenWindow(fx_now) || ShouldObserveBodyFrame(frame_sequence))) {
+        for (int hand=0;hand<2;++hand) {
+            if (g_java_player_bridge.TryObserveWeaponShotDiagnostics(hand,fx_shots[hand]))
+                sample_emitters[hand]=fx_window.Observe(hand,fx_shots[hand].owner_id,
+                    fx_shots[hand].values[2],fx_now);
+            else fx_window.Invalidate(hand);
+        }
+    }
     const bool observe_fx = gameplay_input.active && !loading_ui_input.suppress_gameplay &&
         ShouldObserveBodyFrame(frame_sequence);
     const auto observe_native_fx = [&](CoJNativeFxPhase phase, const char* phase_name) noexcept {
-        if (!observe_fx) return;
+        if (!observe_fx && !sample_emitters[0] && !sample_emitters[1]) return;
         try {
             CoJNativeFxRequest request{};
             request.engine_base = reinterpret_cast<std::uintptr_t>(g_engine_base);
             request.exact_build_validated = g_engine_base &&
                 g_installed.load(std::memory_order_acquire);
             request.phase = phase;
+            if (observe_fx) {
             const auto fx = ReadCoJNativeFxSnapshot(request);
             std::ostringstream detail;
             detail << "frame_sequence=" << frame_sequence << ";phase=" << phase_name
@@ -4910,6 +4928,36 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                    << ";lookup_reason=" << CoJNativeFxReadReasonName(fx.lookup_reason)
                    << ";emitter_alive=unknown;particles=unknown;mutation=false;visual_acceptance=unverified";
             EmitEvent("native_fx_render_state", "observed_globals", detail.str());
+            }
+            for (int hand=0;hand<2;++hand) {
+                if (!sample_emitters[hand]) continue;
+                request.owner_id=fx_shots[hand].owner_id;
+                for (int kind=0;kind<2;++kind) {
+                    request.handle=static_cast<std::uint32_t>(fx_shots[hand].fx_handles[kind]);
+                    const auto fx=ReadCoJNativeFxSnapshot(request);
+                    std::ostringstream d;
+                    d << "frame_sequence=" << frame_sequence << ";phase=" << phase_name
+                      << ";side=" << (hand==0 ? "right" : "left")
+                      << ";kind=" << (kind==0 ? "comb" : "smoke")
+                      << ";fx_entries=" << fx_shots[hand].values[2]
+                      << ";owner_id=" << request.owner_id << ";handle=" << request.handle
+                      << ";lookup_reason=" << CoJNativeFxReadReasonName(fx.lookup_reason);
+                    if (fx.emitter) {
+                        const auto& e=*fx.emitter;
+                        d << ";emitter=" << e.emitter_address << ";manager=" << e.manager_address
+                          << ";type_rva=" << e.vtable_rva << ";clock=" << e.clock
+                          << ";birth=" << e.birth << ";lifetime=" << e.lifetime
+                          << ";time_scale=" << e.time_scale << ";enabled=" << e.enabled
+                          << ";render_enabled=" << e.render_enabled << ";live=" << e.live
+                          << ";emitted=" << e.emitted << ";expired=" << e.expired
+                          << ";position=" << e.position[0] << "," << e.position[1] << "," << e.position[2]
+                          << ";previous_position=" << e.previous_position[0] << ","
+                          << e.previous_position[1] << "," << e.previous_position[2];
+                    } else d << ";particles=unknown";
+                    d << ";mutation=false;visual_acceptance=unverified";
+                    EmitEvent("native_fx_emitter_state",fx.emitter ? "observed" : "unavailable",d.str());
+                }
+            }
         } catch (...) {
             // Diagnostics must never prevent camera/body/weapon restoration.
         }

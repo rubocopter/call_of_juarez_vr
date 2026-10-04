@@ -60,7 +60,7 @@ outside that manual are explicitly marked.
 | 26 | Select bow | 6 | utility sector 6 / custom equipment_6 |
 | 27 | Discard weapon | Backspace | Triangle + L1 / utility sector 8 |
 | 28 | Switch weapons, hidden from ordinary menu | not a documented PC control | absent; distinct from next/previous |
-| 29 | Hands / put weapons away | 0 | Triangle + Circle / utility sector 7 |
+| 29 | Hands / fists (native availability gates) | 0 | Triangle + Circle / utility sector 7 |
 | 30 | Contextual action / execute active trigger | F | L1, `interact` |
 | 31 | Reload | R | left Square |
 | 32 | Show objectives | O | Triangle + right-stick click |

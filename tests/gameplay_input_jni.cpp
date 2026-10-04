@@ -34,7 +34,7 @@ void* published_direction=nullptr;
 int construction_count=0;
 bool vector_write_fault=false;
 int observed_weapon;
-bool shot_field_fault=false, shot_read_fault=false;
+bool shot_field_fault=false, shot_read_fault=false, shot_owner_fault=false;
 constexpr const char* shot_fields[]{"cojvrShotSerial","cojvrHitSerial","cojvrFxSerial",
     "cojvrFxStatus","cojvrShotSuppressEffects","cojvrCombHandle","cojvrSmokeHandle"};
 constexpr int shot_values[]{12,9,12,63,0,101,202};
@@ -92,7 +92,14 @@ std::int32_t __stdcall Integer(void*, void* owner, void* field) {
     }
     return field==Ptr(button_field) ? static_cast<Action*>(owner)->id : 1;
 }
-void* __stdcall ObserveMethod(void*,void*,const char*,const char*) { return Ptr(301); }
+void* __stdcall ObserveMethod(void*,void*,const char* name,const char*) {
+    return Ptr(std::strcmp(name,"GetThisID")==0 ? 302 : 301);
+}
+std::int32_t __stdcall ObserveOwner(void*,void* owner,void* method,const JValue*) {
+    if (owner!=&observed_weapon || method!=Ptr(302)) { pending=true; return 0; }
+    if (shot_owner_fault) { pending=true; return 0; }
+    return 0x30000000;
+}
 void* __stdcall ObserveObject(void*,void*,void*,const JValue* args) {
     return args[0].i==0 ? &observed_weapon : nullptr;
 }
@@ -223,11 +230,19 @@ int main() {
         "interaction context loss failed to clear the pair");
     env_table[33]=reinterpret_cast<void*>(&ObserveMethod);
     env_table[36]=reinterpret_cast<void*>(&ObserveObject);
+    env_table[51]=reinterpret_cast<void*>(&ObserveOwner);
     CoJWeaponShotDiagnostics diagnostics{};
     ok &= Check(bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && diagnostics.valid &&
         diagnostics.values==std::array<int,5>{12,9,12,63,0}, "actual native shot counters were not read");
     ok &= Check(diagnostics.fx_handles==std::array<int,2>{101,202},
         "committed native FX handles were not observed");
+    ok &= Check(diagnostics.owner_id==0x30000000,
+        "FX diagnostic handle did not retain its freshly resolved active weapon owner");
+    shot_owner_fault=true;
+    ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && !diagnostics.valid &&
+        !diagnostics.owner_id && diagnostics.values==std::array<int,5>{} && !pending,
+        "owner failure retained stale emitter identity/counters or JNI exception");
+    shot_owner_fault=false;
     shot_field_fault=true;
     ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(0,diagnostics) && !diagnostics.valid &&
         diagnostics.values==std::array<int,5>{} && diagnostics.fx_handles==std::array<int,2>{} &&

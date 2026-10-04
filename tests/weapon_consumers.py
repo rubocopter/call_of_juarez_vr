@@ -321,4 +321,23 @@ class WeaponConsumers(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SHA-256"): patch_class(b"unknown")
         with self.assertRaisesRegex(ValueError,"SHA-256"): patch.patch_fire_class(b"unknown")
 
+class SaveThumbnailTests(unittest.TestCase):
+    def test_preserves_save_flow_and_rejects_unknown_call_boundary(self):
+        original=bytearray(270)
+        original[94:105]=b'\x2a\x2d\x11\x02\x00\x11\x01\x00\xb6\x01\x94'
+        original[214:226]=b'\xb2\x01\x7e\x2d\x2a\x2a\xb4\x00\xdb\xb6\x02\x2e'
+        result=patch.redirect_save_thumbnail(bytes(original),404,700)
+        self.assertEqual(len(result),len(original))
+        self.assertEqual(result[:102],original[:102])
+        self.assertEqual(result[105:],original[105:])
+        self.assertEqual(result[102:105],b'\xb7\x02\xbc')
+        with self.assertRaisesRegex(ValueError,'thumbnail'):
+            patch.redirect_save_thumbnail(bytes(original),403,700)
+        with self.assertRaisesRegex(ValueError,'thumbnail'):
+            patch.redirect_save_thumbnail(bytes(original[:-1]),404,700)
+
+    def test_unknown_module_fails_closed(self):
+        with self.assertRaisesRegex(ValueError,'SHA-256'):
+            patch.patch_save_module_class(b'unknown')
+
 if __name__=="__main__": unittest.main()

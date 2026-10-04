@@ -27,6 +27,7 @@ struct CoJWeaponAttackOrigins {
 struct CoJWeaponShotDiagnostics {
     std::array<int, 5> values{}; // attack entries, hits, FX entries, FX status, suppressed FX
     std::array<int, 2> fx_handles{}; // last committed comb/smoke; not retained emitter pointers
+    std::uint32_t owner_id = 0; // fresh active Weapon.GetThisID, game-thread observation only
     bool valid = false;
 };
 

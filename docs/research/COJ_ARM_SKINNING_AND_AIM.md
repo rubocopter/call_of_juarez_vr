@@ -135,12 +135,23 @@ wrapper includes the FX stage and queue flush. Creation/commit masks cannot
 establish first update, emission, lifetime, culling or actual pixels.
 
 The exact-build observational probe copies and rechecks the global enable word
-and particle camera before/after both eyes. It does not force flags or call
-update/draw. Emitter handles are manager-local: the native lookup first resolves
-the owning GameObject, then its level FX manager. An engine base and handle alone
-cannot select that manager safely; emitter liveness/particle counts remain
-unknown. Last committed handles are correlation values, cleared at each tracked
-FX entry before creation, and are not evidence that an emitter remains alive.
+and particle camera before/after both eyes. Live samples show FX enabled and the
+camera matching each eye. It does not force flags or call update/draw.
+Emitter handles are manager-local. A fresh `Weapon.GetThisID` follows the
+demonstrated handle+4 -> binding+4 -> GameObject chain. Native `FXIsEnabled`
+at `0x10F120` then follows owner+0x24 -> module+0x370 -> manager. Its slot table
+is manager+0x18, capacity+0x20 (grow `0xFCA80`), with 16-byte slots and a high-16
+generation match. Active count+0x1C is not a capacity bound.
+The read-only sampler rechecks that chain, slot and subtype. Only simple
+vtable `0x2FDE7C` and rotated `0x2FDEB8` expose live/emitted/expired counters
+at +0x40C/+0x410/+0x414. Their native update resets emitted/expired each tick.
+Emitter+4 is its manager; clock manager+4, birth emitter+0xC, lifetime+0x10
+and scale+0x14 govern expiry before update. Active/previous positions are
+emitter+0xE0/+0xF0; enable/render bytes are +0x5C/+0x5D.
+The bounded reader is host-tested; first update, destruction/culling and actual
+pixels remain unobserved. Replacement and unreadable/unknown types produce
+unknown observations, not zero particles. Last committed handles are cleared
+at each tracked FX entry before creation and alone do not establish liveness.
 
 ## Legacy measured arm reach
 

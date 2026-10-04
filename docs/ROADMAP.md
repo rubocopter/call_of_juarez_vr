@@ -12,9 +12,17 @@ pistol. The complete native controller route is now host-tested: action 10
 converts to right-hand Attack(0), action 9 to left-hand Attack(1). Corrected
 trigger ownership needs a fresh physical check. Native emitter creation/commit
 is live-observed; visible effects remain rejected.
-The candidate adds low-rate native FX global/draw-camera observations and last
-committed handles. Emitter update, lifetime and actual pixels remain unverified;
-this diagnostic addition does not fix or accept effect visibility.
+Live native FX samples show the global enable word set and the particle camera
+matching each eye. A host-tested bounded owner-local reader adds clock/lifetime,
+positions, flags and known-subtype particle counts with generation/replacement
+checks. Actual emission, expiry and pixels still need a fresh run; these
+diagnostics do not fix or accept effect visibility.
+
+Pickup-triggered autosave crashed in optional screenshot rendering with a native
+allocation exception. A host-tested exact-class workaround retains the save flow
+and stale-preview cleanup while omitting quick/automatic-save GPU thumbnails.
+Pickup/autosave and loading the resulting save require physical acceptance;
+the underlying resource pressure remains unresolved.
 
 The active presentation retains native torso/legs with independent native hands
 at original proportions. Authored holding sockets share the hand rigid map;

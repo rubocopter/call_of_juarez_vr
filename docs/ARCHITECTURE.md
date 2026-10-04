@@ -470,17 +470,38 @@ each tracked FX entry clears the previous pair before creation. JNI publishes
 the counters and handles together or discards the complete observation on error.
 The low-rate exact-build FX probe reads the native global enable word and the
 particle draw camera before/after the eye passes, using copied values and
-replacement checks. Handles are manager-local; without a demonstrated owner
-lookup, emitter lifetime, particle counts and liveness remain unknown. The probe
-does not call native update/draw, install hooks or force render flags.
+replacement checks. Live samples show FX enabled and the particle camera
+matching each eye; this does not establish emission or visible pixels.
+An additional bounded reader resolves fresh `Weapon.GetThisID` through its
+native GameObject/module FX manager, checks table capacity and slot generation,
+and copies clock/lifetime, positions, enable flags and particle counters only
+for the two measured emitter subtypes. All owner/table/slot/subtype roots are
+rechecked before publication. Unknown types, short reads and replacement discard
+the emitter observation. At most 16 positive FX-entry observations open 500 ms
+windows, sampled at 20 ms intervals before/after eye rendering; context loss
+closes a window without replenishing the process budget. The probe never calls
+native update/draw, installs hooks or forces render flags. These copied samples
+are not atomic lifecycle or draw-execution evidence.
 
 Native-stereo staging requires the recognized original `code.pak` and class
-SHA-256 for `ArmedPlayerBeing`, `WeaponFire` and `BeingTriggered`. The patched archive is a journaled deployment asset; all other archive
+SHA-256 for `ArmedPlayerBeing`, `WeaponFire`, `BeingTriggered` and
+`LawmanModuleSingle`. The patched archive is a journaled deployment asset; all other archive
 payloads are checked unchanged, its deployed hash joins run provenance, and
 unstaging/recovery restores the original archive byte-for-byte. Host tests cover
 hand selection, null/network fallback and interrupted deployment. The shipped
-Java 1.4 verifier accepts all three patched classes without initialization. This remains
+Java 1.4 verifier accepts all four patched classes without initialization. This remains
 host evidence, not actual-shot or headset acceptance.
+
+The exact `LawmanModuleSingle.QuickSave` thumbnail call is redirected to a private
+cleanup helper retaining the original thumbnail filename and stale-preview
+removal. It omits the optional GPU screenshot and its `ForceRender`, whose native
+allocation path produced an unhandled allocation exception during pickup-triggered
+autosave. All other QuickSave instructions, save serialization, sound/HUD
+restoration and original screenshot methods stay intact. While the patched
+archive is staged, quick/automatic saves have no generated thumbnail, including
+flat presentation. This is a host-tested workaround; the underlying resource
+pressure and physical save/load acceptance remain open. The exact boundary is
+documented in [save-thumbnail research](research/COJ_SAVE_THUMBNAIL_PATH.md).
 
 The gameplay reticle carries only projected alignment points and currently draws
 a fixed black/white cross; it does not transport the native no-shoot warning,

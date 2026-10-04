@@ -15,6 +15,7 @@ CLASS_SHA256 = "039b0c12682b99b6560d4597737d794acd4a2b4bb71060c1dc70a8b79ffc4478
 FIRE_CLASS_SHA256 = "d12b513c32db6e3223348f7058799c3702ea3a78746817753998f0de13c9c421"
 TRIGGERED_CLASS_SHA256 = "df43daa7fc55299f7a22907da8540a5e44a2bf57c1613f96cdc0d6a19d1045d2"
 PAK_SHA256 = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
+SAVE_MODULE_SHA256 = "ded02549df857e99f25d47c34c5ec9c23f0718cad0dd46079db6818d0dcd3c47"
 FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
           "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward")
 INTERACTION_FIELDS = ("cojvrInteractionOrigin", "cojvrInteractionDirection")
@@ -398,6 +399,62 @@ def patch_triggered_class(data: bytes) -> bytes:
             data[cp_end:fields_at] + u2(field_count + 2) + data[fields_at+2:fields_end] +
             extra_fields + methods + data[r.stream.tell():])
 
+def redirect_save_thumbnail(code: bytes, native_ref: int, cleanup_ref: int) -> bytes:
+    if len(code) != 270 or code[94:105] != (
+            b'\x2a\x2d\x11\x02\x00\x11\x01\x00\xb6'+u2(native_ref)):
+        raise ValueError('Unknown QuickSave thumbnail call boundary')
+    # Same-length replacement preserves save flow, branches and debug offsets.
+    return code[:102]+b'\xb7'+u2(cleanup_ref)+code[105:]
+
+def patch_save_module_class(data: bytes) -> bytes:
+    if hashlib.sha256(data).hexdigest() != SAVE_MODULE_SHA256:
+        raise ValueError('Unknown LawmanModuleSingle.class SHA-256; no mutation')
+    r=Reader(data);r.read(8);pool=parse_constant_pool(r)
+    cp_end=r.stream.tell();extra=bytearray();next_index=len(pool.entries)
+    def append(raw):
+        nonlocal next_index
+        index=next_index;next_index+=1;extra.extend(raw);return index
+    def utf8(value):
+        raw=value.encode();return append(b'\x01'+u2(len(raw))+raw)
+    def find(description):
+        return next(i for i in range(1,len(pool.entries)) if pool.entries[i] is not None
+                    and pool.describe(i)==description)
+    desc='(Ljava/lang/String;II)V'
+    name_id,desc_id=utf8('cojvrPrepareSaveThumbnail'),utf8(desc)
+    nt=append(b'\x0c'+u2(name_id)+u2(desc_id))
+    helper_ref=append(b'\x0a'+u2(find('LawmanModuleSingle'))+u2(nt))
+    native_ref=find('LawmanModuleSingle.TakeScreenshot'+desc)
+    r.read(6);r.read(r.u2()*2)
+    for _ in range(r.u2()):
+        r.read(6)
+        for _ in range(r.u2()):r.u2();r.read(r.u4())
+    methods_at=r.stream.tell();count=r.u2();methods=bytearray(u2(count+1))
+    cleanup=None;patched=0
+    for _ in range(count):
+        header=r.read(6);methods.extend(header)
+        name=pool.utf8(int.from_bytes(header[2:4],'big'))
+        descriptor=pool.utf8(int.from_bytes(header[4:6],'big'))
+        attributes=r.u2();methods.extend(u2(attributes))
+        for _ in range(attributes):
+            index=r.u2();attr=r.read(r.u4())
+            if pool.utf8(index)=='Code':
+                cr=Reader(attr);stack,locals_=cr.u2(),cr.u2();code=cr.read(cr.u4())
+                if name=='TakeScreenshot' and descriptor==desc:
+                    if len(code)!=61 or code[47]!=0xb2 or code[57]!=0xb8 or code[60]!=0xb1:
+                        raise ValueError('Unknown thumbnail cleanup boundary')
+                    # Preserve native filename construction and stale-preview
+                    # deletion; omit only the queued GPU capture and ForceRender.
+                    cleanup=(stack,locals_,code[:47]+b'\xb1')
+                if name=='QuickSave' and descriptor=='(I)V':
+                    code=redirect_save_thumbnail(code,native_ref,helper_ref)
+                    attr=attr[:8]+code+attr[8+len(code):];patched+=1
+            methods.extend(u2(index)+u4(len(attr))+attr)
+    if patched!=1 or cleanup is None:raise ValueError('Incomplete save-thumbnail boundary patch')
+    stack,locals_,code=cleanup
+    attr=u2(stack)+u2(locals_)+u4(len(code))+code+u2(0)+u2(0)
+    methods.extend(u2(2)+u2(name_id)+u2(desc_id)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
+    return data[:8]+u2(next_index)+data[10:cp_end]+extra+data[cp_end:methods_at]+methods+data[r.stream.tell():]
+
 def patch_archive(source: Path, output: Path):
     if source.resolve() == output.resolve() or output.exists():
         raise ValueError("Patch output must be a new separate file")
@@ -408,7 +465,8 @@ def patch_archive(source: Path, output: Path):
             raise ValueError("Duplicate archive entries")
         patched = {"ArmedPlayerBeing.class":patch_class(original.read("ArmedPlayerBeing.class")),
                    "WeaponFire.class":patch_fire_class(original.read("WeaponFire.class")),
-                   "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class"))}
+                   "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class")),
+                   "LawmanModuleSingle.class":patch_save_module_class(original.read("LawmanModuleSingle.class"))}
         with zipfile.ZipFile(output, "x") as result:
             result.comment = original.comment
             for info in original.infolist():

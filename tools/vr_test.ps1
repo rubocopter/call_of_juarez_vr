@@ -191,7 +191,7 @@ switch ($Action) {
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Circle kicks, L1 performs contextual F, R1 selects next weapon. Hold Triangle for secondary controls; see docs/research/COJ_PC_CONTROLS_AND_HUD.md."
-        Write-Host "Triangle + Square toggles native focus, Cross alternate fire, Circle puts weapons away, L1 discards, R1 previous weapon, R2 logs, right-stick click objectives. Right-stick sectors select equipment without snap/fire."
+        Write-Host "Triangle + Square toggles native focus state (VR zoom pending), Cross alternate fire, Circle selects hands/fists when the level permits, L1 discards, R1 previous weapon, R2 logs, right-stick click objectives. Right-stick sectors select equipment without snap/fire."
         Write-Host "Gameplay text: native tutorial hints, contextual prompts and enabled subtitles have a host-tested stereo presentation. Check appearance/disappearance and readability; graphics HUD and VR focus magnification remain pending."
         Write-Host "The previously inspected NoLogos argument did not bypass the intro videos in physical testing, so it is no longer part of the VR test procedure."
         if ($StartupOnly) {

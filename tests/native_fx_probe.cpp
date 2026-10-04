@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <bit>
 
 using namespace cojvr::games::call_of_juarez;
 namespace {
@@ -48,6 +49,27 @@ struct Fixture {
 };
 bool LookupUnavailable(const CoJNativeFxSnapshot& s) {
     return s.lookup_reason == CoJNativeFxReadReason::missing_owner_lookup_boundary;
+}
+constexpr std::uint32_t OwnerId=0x30000000, Binding=0x30000100,
+    Owner=0x30000200, Module=0x30001000, Manager=0x30002000,
+    Table=0x30003000, Emitter=0x30004000, Handle=0x12340002;
+void PopulateEmitter(Fixture& f) {
+    auto& w=f.words;
+    w[OwnerId+4]=Binding; w[Binding+4]=Owner; w[Owner]=Base+0x2F0000;
+    w[Owner+0x24]=Module; w[Module]=Base+0x2F1000; w[Module+0x370]=Manager;
+    w[Manager+0x18]=Table; w[Manager+0x20]=4;
+    w[Table+32]=Handle&0xFFFF0000; w[Table+36]=Emitter;
+    w[Emitter]=Base+0x2FDE7C; w[Emitter+4]=Manager; w[Emitter+0x58]=Handle;
+    w[Manager+4]=std::bit_cast<std::uint32_t>(1.5F);
+    for (auto offset:{0xC,0x10,0x14}) w[Emitter+offset]=std::bit_cast<std::uint32_t>(1.F);
+    w[Emitter+0x5C]=0x101;
+    for (auto offset:{0xE0,0xE4,0xE8,0xF0,0xF4,0xF8})
+        w[Emitter+offset]=std::bit_cast<std::uint32_t>(10.F);
+    w[Emitter+0x40C]=3; w[Emitter+0x410]=1; w[Emitter+0x414]=2;
+}
+CoJNativeFxSnapshot EmitterSample(Fixture& f, std::uint32_t handle=Handle) {
+    return ReadCoJNativeFxSnapshot({Base,true,handle,CoJNativeFxPhase::left_eye,OwnerId},
+        {Fixture::Read,&f});
 }
 }
 
@@ -104,7 +126,7 @@ int main() {
     s = ReadCoJNativeFxSnapshot({Base, false, 1, CoJNativeFxPhase::frame}, {Fixture::Read, &untrusted});
     if (untrusted.reads || s.global_fx || s.fx_camera_address ||
         s.lookup_reason != CoJNativeFxReadReason::unrecognized_engine) return 13;
-    for (auto base : {std::uintptr_t{0}, std::uintptr_t{0xFFFFFFFF}}) {
+    for (auto base : {std::uintptr_t{0}, std::uintptr_t{0xFFFFFFFF}, std::uintptr_t{0xFFA00000}}) {
         Fixture bad;
         s = ReadCoJNativeFxSnapshot({base, true, 1, CoJNativeFxPhase::frame}, {Fixture::Read, &bad});
         if (bad.reads || s.global_fx || s.lookup_reason != CoJNativeFxReadReason::invalid_engine_base) return 14;
@@ -119,6 +141,49 @@ int main() {
     s = ReadCoJNativeFxSnapshot({Base, true, 1, CoJNativeFxPhase::frame}, {});
     if (s.global_fx || s.global_reason != CoJNativeFxReadReason::read_failed) return 16;
     if (std::strcmp(CoJNativeFxReadReasonName(s.lookup_reason), "missing_owner_lookup_boundary")) return 17;
-    std::cout << "native FX observational fallback: memory failures and camera rechecks passed\n";
+    Fixture live; PopulateEmitter(live); s=EmitterSample(live);
+    if (!s.emitter || s.lookup_reason!=CoJNativeFxReadReason::observed ||
+        s.emitter->live!=3 || s.emitter->emitted!=1 || s.emitter->expired!=2 ||
+        s.emitter->clock!=1.5F || s.emitter->position[0]!=10.F ||
+        !s.emitter->enabled || !s.emitter->render_enabled) return 18;
+    Fixture rotated; PopulateEmitter(rotated); rotated.words[Emitter]=Base+0x2FDEB8;
+    if (!EmitterSample(rotated).emitter) return 19;
+    Fixture stale; PopulateEmitter(stale); s=EmitterSample(stale,0xABCD0002);
+    if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::stale_handle ||
+        stale.per_address.count(Emitter)) return 20;
+    Fixture index; PopulateEmitter(index); s=EmitterSample(index,0x1234FFFF);
+    if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::invalid_slot ||
+        index.per_address.count(Table+0xFFFF*16)) return 21;
+    for (auto address:{OwnerId+4,Binding+4,Owner+0x24,Module+0x370,
+                       Manager+0x18,Manager+0x20,Table+32,Table+36,Emitter}) {
+        Fixture changed; PopulateEmitter(changed); changed.change_at=address;
+        s=EmitterSample(changed);
+        if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::changed_during_read) return 22;
+    }
+    Fixture unknown; PopulateEmitter(unknown); unknown.words[Emitter]=Base+0x2F0000;
+    s=EmitterSample(unknown);
+    if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::unknown_emitter_type ||
+        unknown.per_address.count(Emitter+0x40C)) return 23;
+    Fixture partial_emitter; PopulateEmitter(partial_emitter);
+    partial_emitter.short_at=Emitter+0x410; partial_emitter.short_size=2;
+    s=EmitterSample(partial_emitter);
+    if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::partial_read) return 24;
+    Fixture nan; PopulateEmitter(nan); nan.words[Emitter+0xE0]=0x7FC00000;
+    s=EmitterSample(nan);
+    if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::invalid_values) return 25;
+    Fixture wrong_owner; PopulateEmitter(wrong_owner); wrong_owner.words[Owner]=0x40000000;
+    s=EmitterSample(wrong_owner);
+    if (s.emitter || s.lookup_reason!=CoJNativeFxReadReason::invalid_owner) return 26;
+    CoJNativeFxObservationWindow budget;
+    if (budget.Observe(0,OwnerId,0,0) || !budget.Observe(0,OwnerId,1,10) ||
+        budget.Observe(0,OwnerId,1,11) || !budget.Observe(0,OwnerId,1,30) ||
+        budget.Observe(0,OwnerId,1,510)) return 27;
+    budget.Invalidate(0);
+    for (int shot=2;shot<=16;++shot)
+        if (!budget.Observe(0,OwnerId,shot,static_cast<std::uint64_t>(shot)*1000)) return 28;
+    if (budget.Observe(0,OwnerId,17,17000) || budget.NeedsPoll(17000)) return 29;
+    budget.Invalidate(0); budget.Invalidate(1);
+    if (budget.Observe(1,OwnerId,1,18000) || budget.NeedsPoll(18000)) return 30;
+    std::cout << "native FX owner/generation/subtype reads, failure cleanup and bounded cadence passed\n";
     return 0;
 }
