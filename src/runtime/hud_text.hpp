@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/vr_types.hpp"
+#include "runtime/gameplay_ui.hpp"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -29,6 +30,11 @@ struct StereoHudTextOverlay {
     std::uint64_t frame_sequence = 0;
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};
+    GameplayUiSnapshot ui{};
+    bool compass_surface_valid = false;
+    std::array<Vec3,4> compass_head_corners{};
+    bool status_surface_valid = false;
+    std::array<Vec3,4> status_head_corners{};
 };
 
 } // namespace cojvr::runtime

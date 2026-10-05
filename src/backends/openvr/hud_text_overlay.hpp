@@ -27,6 +27,10 @@ struct HudPanelPlacement {
     float width_m = 1.15F;
     float center_y_m = 0.0F;
     float distance_m = 1.5F;
+    // Captured head-space corners for a tracked surface, in strip order.
+    // Geometry belongs to the producing frame, never the latest presenter pose.
+    bool captured_quad = false;
+    std::array<runtime::Vec3, 4> head_corners{};
 };
 
 struct ProjectedHudPanel {

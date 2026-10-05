@@ -66,12 +66,40 @@ through both views with successful pose/visibility restoration. The next
 operator clip still rejects bullet/effect origin at the visible gun; successful
 cache getters during rendering do not establish actual attack consumption.
 
+The latest side-on observation accepts visible FX/decals but rejects streak
+coherence: the first yellow streak appears behind the revolver while its barrel
+points the other way. The later moving flash alone does not establish an initial
+origin. Native counters, matching muzzle caches and committed emitter positions
+cannot promote this visual gate; no guessed origin offset follows from the clip.
+
 `WeaponFire.AttackFire` separately reads ballistic origin/direction and visual
 origin/direction, passes the visual origin to the shot light, and applies native
 pellet spread to both rays. `GetFireDirVisualizationForHand` previously sourced
 `m_avAimDir`, bypassing the tracked `GetBeingLookDirDevForHand` path. The current
 patch substitutes only that base-vector selection; the original accuracy and
 rotation suffix remains byte-for-byte intact.
+
+The local yellow trail has a separate native missile-mesh consumer:
+`AttackFire` copies the visual origin and velocity into `Missile`, loads the
+configured mesh, then calls `Missile.UpdatePosition`, which sets world position
+from `visualizationPosition` and direction from `visualizationVelocity`.
+In the pinned original, `ControlObject.SetDir` (`+0x88540 -> +0x87B50`) builds
+the world frame through `+0x1F3150`, placing the normalized input in its **+Z**
+row. The shipped `BulletTrail_Glow` mesh has identity orientation and packed
+positions spanning **-45.6856 to 0 cm along local Z**: an authored rearward tail,
+confirmed by an isolated host geometry projection. It is independent of the
+combustion/smoke emitter frame. A streak behind the muzzle therefore does not
+by itself demonstrate reversed ray direction or a wrong launch origin.
+
+`NewMissile` activates a pooled missile before the caller initializes its shot
+vectors; `AttackFire` finishes with `UpdatePosition` before returning. Static
+inspection does not establish whether any draw can observe the intermediate
+state. Safe diagnosis must correlate the actual attack/hand and missile identity,
+post-spread visual origin/velocity, birth time, first update and first rendered
+world frame with the same visible muzzle pose. This distinguishes the authored
+tail from stale launch data or premature visibility. No direction negation,
+origin offset or forced FX update follows from the current evidence; actual-shot
+visual acceptance remains open.
 
 `WeaponFire.ExecFXFire` originally attaches combustion and smoke to the
 weapon/barrel element. A render-only weapon restores before native update, so
@@ -380,5 +408,16 @@ remains a measured experiment, with hand orientation kept separate from
 positional reach.
 
 ## Current body acceptance boundary
+
+Billy's procedural whip uses a separate tracked holding-socket route. The
+bridge maps the independent right hand with its authored socket and publishes
+the exact native whip position/up/forward cache; `ComputeWhipPosition` consumes
+it only for the owned in-hands object. Naturally scheduled `AdditionalSynchro`
+owns the root/first-point placement and all cloth deformation. There is no
+gun-barrel prerequisite, whole-rope rigid transformation or forced simulation
+step. The cache/hand transaction and controller reticle are host-tested; the
+operator-reported fixed hand/separation remains a physical gate until the next
+candidate is observed. The exact control/axis contract is recorded in
+[the PC controls boundary](COJ_PC_CONTROLS_AND_HUD.md#exact-procedural-whip-contract).
 
 Do not promote Body IK based on write counts alone. Acceptance requires visually plausible arms across representative poses, stable first-person ownership, verified restoration and no degradation of tracking/recenter behavior. Lower-body writing remains blocked until the upper-body/body-anchor contract is acceptable.

@@ -141,6 +141,72 @@ function Complete-CojvrDeploymentRecovery([string]$GameDirectory) {
         throw "Unsupported or ambiguous deployment transaction journal '$JournalPath'."
     }
 
+    # Validate the entire retained inventory before removing even an earlier
+    # temporary/proxy. A late damaged executable backup must preserve all evidence.
+    foreach ($Asset in @($Journal.assets)) {
+        $Destination = Join-Path $GameDirectory ([string]$Asset.destination)
+        $Backup = if ([string]$Asset.backup) { Join-Path $GameDirectory ([string]$Asset.backup) } else { $null }
+        $Temporary = if ([string]$Asset.temporary) { Join-Path $GameDirectory ([string]$Asset.temporary) } else { $null }
+        $HadOriginal = [bool]$Asset.hadOriginal
+        $BackupPresent = $Backup -and (Test-Path -LiteralPath $Backup)
+        $DestinationPresent = Test-Path -LiteralPath $Destination
+        if ($BackupPresent -and -not $HadOriginal) { throw "Unexpected recovery backup '$Backup'." }
+        if ([string]$Asset.kind -eq 'file') {
+            $OriginalHash = [string]$Asset.originalSha256
+            $StagedHash = [string]$Asset.stagedSha256
+            if ($HadOriginal -and $OriginalHash -notmatch '^[A-Fa-f0-9]{64}$') {
+                throw "Original recovery identity is missing for '$Destination'."
+            }
+            if ($Temporary -and (Test-Path -LiteralPath $Temporary) -and
+                (-not (Test-Path -LiteralPath $Temporary -PathType Leaf) -or
+                 (Get-CojvrFileSha256 $Temporary) -ne $StagedHash)) {
+                throw "Recovery temporary file '$Temporary' changed externally."
+            }
+            if ($BackupPresent -and (-not (Test-Path -LiteralPath $Backup -PathType Leaf) -or
+                (Get-CojvrFileSha256 $Backup) -ne $OriginalHash)) {
+                throw "Recovery backup '$Backup' changed after the transaction started."
+            }
+            if ($DestinationPresent) {
+                if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) { throw "Recovery destination kind changed: '$Destination'." }
+                $Hash = Get-CojvrFileSha256 $Destination
+                if (($HadOriginal -and -not $BackupPresent -and $Hash -ne $OriginalHash) -or
+                    ($BackupPresent -and $Hash -ne $OriginalHash -and $Hash -ne $StagedHash) -or
+                    (-not $HadOriginal -and $Hash -ne $StagedHash)) {
+                    throw "Recovery destination '$Destination' cannot be proven."
+                }
+            } elseif ($HadOriginal -and -not $BackupPresent) {
+                throw "Recovery has no original for '$Destination'."
+            }
+        } elseif ([string]$Asset.kind -eq 'directory') {
+            if ($HadOriginal -and $null -eq $Asset.PSObject.Properties['originalManifest']) {
+                throw "Original directory recovery identity is missing for '$Destination'."
+            }
+            $OriginalManifest = @($Asset.originalManifest)
+            $StagedManifest = @($Asset.stagedManifest)
+            if ($Temporary -and (Test-Path -LiteralPath $Temporary) -and
+                (-not (Test-Path -LiteralPath $Temporary -PathType Container) -or
+                 -not (Test-CojvrDirectoryIsKnownStagedSubset $Temporary $StagedManifest))) {
+                throw "Recovery temporary directory '$Temporary' changed externally."
+            }
+            if ($BackupPresent -and (-not (Test-Path -LiteralPath $Backup -PathType Container) -or
+                -not (Test-CojvrDirectoryMatchesManifest $Backup $OriginalManifest))) {
+                throw "Recovery directory backup '$Backup' changed after the transaction started."
+            }
+            if ($DestinationPresent) {
+                if (-not (Test-Path -LiteralPath $Destination -PathType Container)) { throw "Recovery destination kind changed: '$Destination'." }
+                $Original = Test-CojvrDirectoryMatchesManifest $Destination $OriginalManifest
+                $Staged = Test-CojvrDirectoryIsKnownStagedSubset $Destination $StagedManifest
+                if (($HadOriginal -and -not $BackupPresent -and -not $Original) -or
+                    ($BackupPresent -and -not $Original -and -not $Staged) -or
+                    (-not $HadOriginal -and -not $Staged)) {
+                    throw "Recovery directory '$Destination' cannot be proven."
+                }
+            } elseif ($HadOriginal -and -not $BackupPresent) {
+                throw "Recovery has no original directory for '$Destination'."
+            }
+        } else { throw "Unknown recovery asset kind '$($Asset.kind)'." }
+    }
+
     foreach ($Asset in @($Journal.assets)) {
         $Destination = Join-Path $GameDirectory ([string]$Asset.destination)
         $Backup = if ([string]::IsNullOrWhiteSpace([string]$Asset.backup)) {

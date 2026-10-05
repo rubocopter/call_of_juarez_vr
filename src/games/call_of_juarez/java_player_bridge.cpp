@@ -406,7 +406,7 @@ float CoJSnapTurnState::Update(
     const cojvr::runtime::GameplayInputState& state) noexcept {
     constexpr float kEngageThreshold = 0.70F;
     constexpr float kReleaseThreshold = 0.35F;
-    constexpr float kSnapDegrees = 90.0F;
+    constexpr float kSnapDegrees = 45.0F;
 
     if (!state.active || !std::isfinite(state.turn.x)) {
         latched = false;
@@ -419,7 +419,9 @@ float CoJSnapTurnState::Update(
     }
     if (latched || std::fabs(turn_x) < kEngageThreshold) return 0.0F;
     latched = true;
-    return turn_x > 0.0F ? kSnapDegrees : -kSnapDegrees;
+    // CoJ's RotateHorizontally uses positive yaw for left. OpenVR stick X is
+    // positive to the right; convert here, leaving neutral input/wheel axes alone.
+    return turn_x > 0.0F ? -kSnapDegrees : kSnapDegrees;
 }
 
 CoJLoadingUiInputResult CoJLoadingUiInputGate::Update(
@@ -492,7 +494,7 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 void JavaPlayerBridge::Reset() noexcept {
     // A pending failed transaction still owns JNI references and restore data.
     // Do not erase its bindings even if the JVM cannot be reached right now.
-    if (!RestoreTrackedHands() || !RestoreTrackedWeapons()) return;
+    if (!RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
     std::string ignored;
     void* env = vm_ ? Environment(&ignored) : nullptr;
     if (env) {
@@ -618,6 +620,10 @@ void JavaPlayerBridge::Reset() noexcept {
     hud_text_sample_tick_ = 0;
     hud_text_sample_valid_ = false;
     hand_overlays_ = {};
+    gameplay_ui_cache_ = {};
+    gameplay_ui_player_generation_ = 0;
+    gameplay_ui_sample_tick_ = 0;
+    gameplay_ui_sample_valid_ = false;
     independent_hand_elements_ = {};
     independent_hand_generation_ = 0;
     independent_arms_object_ = nullptr;
@@ -1109,6 +1115,30 @@ bool JavaPlayerBridge::TryObserveHudText(runtime::HudTextSnapshot& text) noexcep
     return hud_text_sample_valid_;
 }
 
+bool JavaPlayerBridge::TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept {
+    ui={};return being_&&ReadCoJNoShoot(Environment(nullptr),being_,hand,ui);
+}
+
+bool JavaPlayerBridge::TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept {
+    ui = {};
+    if (!being_) {
+        gameplay_ui_cache_ = {};
+        gameplay_ui_sample_tick_ = 0;
+        gameplay_ui_sample_valid_ = false;
+        return false;
+    }
+    const auto tick = GetTickCount64();
+    if (gameplay_ui_player_generation_ != being_generation_ ||
+        !gameplay_ui_sample_tick_ || tick - gameplay_ui_sample_tick_ >= 100) {
+        gameplay_ui_cache_ = {};
+        gameplay_ui_player_generation_ = being_generation_;
+        gameplay_ui_sample_tick_ = tick;
+        gameplay_ui_sample_valid_ = ReadCoJGameplayUi(Environment(nullptr), being_, gameplay_ui_cache_);
+    }
+    ui = gameplay_ui_cache_;
+    return gameplay_ui_sample_valid_;
+}
+
 bool JavaPlayerBridge::TryObserveSubtitleState(
     CoJSubtitleRuntimeState& state,
     std::string* error) noexcept {
@@ -1311,6 +1341,7 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     const int hand, const JavaPlayerPosition& origin, const JavaPlayerPosition& direction,
     const bool valid, std::string* error) noexcept {
     if (hand < 0 || hand > 1 || !being_) return false;
+    const bool whip_cleared = valid || hand != 0 || ClearTrackedWhip(false, error);
     if (valid && (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z) ||
         !std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z))) return false;
     void* env = Environment(error);
@@ -1324,7 +1355,20 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     ElementWorldBasisTarget barrel_frame{};
     if (valid) {
         JavaPlayerPosition measured_origin{}, measured_direction{};
-        if (!TryGetWeaponBarrel(hand, measured_origin, measured_direction, error, nullptr, &barrel_frame)) {
+        bool tracked_whip = false;
+        if (hand == 0 && whip_frame_.valid && tracked_whip_) {
+            void* active_whip = nullptr;
+            const auto same = EnvFunction<IsSameObjectFn>(env, kIsSameObject);
+            tracked_whip = ReadOwnedWhip(env, hand, active_whip, error) && active_whip && same &&
+                same(env, active_whip, tracked_whip_);
+            DeleteLocal(env, active_whip);
+            if (!tracked_whip) {
+                (void)TryPublishWeaponRay(hand, {}, {}, false);
+                return false;
+            }
+            barrel_frame = whip_frame_;
+        }
+        if (!tracked_whip && !TryGetWeaponBarrel(hand, measured_origin, measured_direction, error, nullptr, &barrel_frame)) {
             (void)TryPublishWeaponRay(hand, {}, {}, false);
             return false;
         }
@@ -1365,7 +1409,7 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
         (void)ClearException(env, nullptr, "weapon ray publication rollback");
     }
     DeleteLocal(env, cls);
-    return origin_ok && direction_ok && up_ok && forward_ok;
+    return origin_ok && direction_ok && up_ok && forward_ok && whip_cleared;
 }
 
 bool JavaPlayerBridge::TryPublishInteractionRay(const JavaPlayerPosition& origin,
@@ -1474,6 +1518,180 @@ bool JavaPlayerBridge::RestoreTrackedWeapons(std::string* error, const int only_
     return ok;
 }
 
+bool JavaPlayerBridge::ReadOwnedWhip(void* env, const int hand, void*& whip, std::string* error) noexcept {
+    whip=nullptr;
+    if (!env || !being_ || hand<0 || hand>1) return false;
+    const auto cls=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto call=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto find=EnvFunction<FindClassFn>(env,kFindClass);
+    const auto instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto object=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    const auto boolean=EnvFunction<GetBooleanFieldFn>(env,kGetBooleanField);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    if (!cls || !method || !call || !find || !instance || !field || !object || !boolean || !same) return false;
+    void* player_class=cls(env,being_);
+    void* active=player_class ? method(env,player_class,"GetActiveWeapon","(I)LWeapon;") : nullptr;
+    const bool failed=ClearException(env,error,"whip active weapon lookup failed") || !active;
+    DeleteLocal(env,player_class);
+    if (failed) return false;
+    JValue args[1]{};args[0].i=hand;
+    void* weapon=call(env,being_,active,args);
+    if (ClearException(env,error,"whip active weapon read failed")) { DeleteLocal(env,weapon);return false; }
+    if (!weapon) return true;
+    void* whip_class=find(env,"WeaponWhip");
+    if (ClearException(env,error,"exact whip class unavailable") || !whip_class) { DeleteLocal(env,weapon);DeleteLocal(env,whip_class);return false; }
+    const bool is_whip=instance(env,weapon,whip_class)!=0;
+    if (ClearException(env,error,"whip instance check failed")) { DeleteLocal(env,weapon);DeleteLocal(env,whip_class);return false; }
+    if (!is_whip) { DeleteLocal(env,weapon);DeleteLocal(env,whip_class);return true; }
+    void* owner_id=field(env,whip_class,"cOwnerAPB","LArmedPlayerBeing;");
+    void* hands_id=field(env,whip_class,"m_bInHands","Z");
+    bool valid=!ClearException(env,error,"whip ownership fields unavailable") && owner_id && hands_id;
+    void* owner=valid ? object(env,weapon,owner_id) : nullptr;
+    valid=valid && !ClearException(env,error,"whip owner read failed") && owner && same(env,owner,being_);
+    if (valid) {
+        const bool in_hands=boolean(env,weapon,hands_id)!=0;
+        valid=!ClearException(env,error,"whip inventory state read failed") && in_hands;
+    }
+    DeleteLocal(env,owner);DeleteLocal(env,whip_class);
+    if (!valid) { DeleteLocal(env,weapon);SetError(error,"whip is not owned/in hands of current player");return false; }
+    whip=weapon;return true;
+}
+
+bool JavaPlayerBridge::TryGetActiveWhip(const int hand, bool& active, std::string* error) noexcept {
+    active=false;
+    void* env=Environment(error);void* whip=nullptr;
+    const bool ok=ReadOwnedWhip(env,hand,whip,error);
+    active=ok && whip;DeleteLocal(env,whip);return ok;
+}
+
+bool JavaPlayerBridge::ClearTrackedWhip(const bool release, std::string* error) noexcept {
+    whip_frame_={};
+    if (!tracked_whip_) return true;
+    void* env=Environment(error);
+    const auto get=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    const auto set=EnvFunction<SetObjectFieldFn>(env,kSetObjectField);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef);
+    if (!env || !get || !set || !same || !del) return false;
+    // Preflight every field before clearing any; retain references on ambiguity.
+    for (std::size_t i=0;i<whip_fields_.size();++i) {
+        if (!whip_fields_[i]) continue;
+        void* value=get(env,tracked_whip_,whip_fields_[i]);
+        const bool valid=!ClearException(env,error,"whip pose clear read failed") &&
+            (!value || (whip_vectors_[i] && same(env,value,whip_vectors_[i])));
+        DeleteLocal(env,value);
+        if (!valid) { SetError(error,"whip pose field ownership changed");return false; }
+    }
+    for (void* id:whip_fields_) if (id) {
+        set(env,tracked_whip_,id,nullptr);
+        if (ClearException(env,error,"whip pose clear failed")) return false;
+        void* actual = get(env, tracked_whip_, id);
+        const bool cleared = !ClearException(env, error, "whip clear verification failed") && !actual;
+        DeleteLocal(env, actual);
+        if (!cleared) return false;
+    }
+    if (release) {
+        for (void* vector:whip_vectors_) if (vector) del(env,vector);
+        del(env,tracked_whip_);tracked_whip_=nullptr;whip_fields_={};whip_vectors_={};
+    }
+    return true;
+}
+
+bool JavaPlayerBridge::TryPublishTrackedWhip(const int hand, const ElementWorldBasisTarget& socket,
+    std::string* error) noexcept {
+    if (!ClearTrackedWhip(false,error) || hand!=0) return false;
+    void* env=Environment(error);void* whip=nullptr;
+    if (!ReadOwnedWhip(env,hand,whip,error) || !whip) return false;
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto global=EnvFunction<NewGlobalRefFn>(env,kNewGlobalRef);
+    const auto cls=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto floating=EnvFunction<GetFloatFieldFn>(env,kGetFloatField);
+    const auto get=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    const auto set=EnvFunction<SetObjectFieldFn>(env,kSetObjectField);
+    const auto create=EnvFunction<NewObjectAFn>(env,kNewObjectA);
+    if (!same || !global || !cls || !field || !floating || !get || !set || !create || !EnsureVectorAccess(env,error)) {
+        DeleteLocal(env,whip);return false;
+    }
+    if (tracked_whip_ && !same(env,tracked_whip_,whip) && !ClearTrackedWhip(true,error)) { DeleteLocal(env,whip);return false; }
+    void* type=cls(env,whip);
+    if (ClearException(env,error,"whip pose class unavailable") || !type) { DeleteLocal(env,type);DeleteLocal(env,whip);return false; }
+    cojvr::runtime::Vec3 offsets{};
+    const char* offset_names[]={"m_fPositionLeft","m_fPositionUp","m_fPositionForward"};
+    float* components[]={&offsets.x,&offsets.y,&offsets.z};
+    bool ok=true;
+    for (std::size_t i=0;i<3 && ok;++i) {
+        void* id=field(env,type,offset_names[i],"F");
+        ok=!ClearException(env,error,"whip attachment offset unavailable") && id;
+        if (ok) { *components[i]=floating(env,whip,id);ok=!ClearException(env,error,"whip attachment offset failed"); }
+    }
+    const auto frame=ok ? BuildCoJWhipFrame(socket,offsets) : ElementWorldBasisTarget{};
+    ok=ok && frame.valid;
+    const char* names[]={"cojvrTrackedPosition","cojvrTrackedUp","cojvrTrackedForward"};
+    const cojvr::runtime::Vec3 values[]={frame.position,frame.up,frame.forward};
+    // On first use, never overwrite another writer's cache. Check the complete
+    // inventory before publishing even the first component.
+    for (std::size_t i=0;i<3 && ok;++i) {
+        if (!whip_fields_[i]) whip_fields_[i]=field(env,type,names[i],"LVector;");
+        ok=!ClearException(env,error,"exact whip pose cache unavailable") && whip_fields_[i];
+        void* value=ok ? get(env,whip,whip_fields_[i]) : nullptr;
+        ok=ok && !ClearException(env,error,"whip cache ownership read failed") &&
+            (!value || (whip_vectors_[i] && same(env,value,whip_vectors_[i])));
+        DeleteLocal(env,value);
+    }
+    if (!ok) { DeleteLocal(env,type);DeleteLocal(env,whip);return false; }
+    if (!tracked_whip_) {
+        tracked_whip_=global(env,whip);ok=!ClearException(env,error,"whip owner retain failed") && tracked_whip_;
+    }
+    for (std::size_t i=0;i<3 && ok;++i) {
+        if (!whip_fields_[i]) whip_fields_[i]=field(env,type,names[i],"LVector;");
+        ok=!ClearException(env,error,"exact whip pose cache unavailable") && whip_fields_[i];
+        if (ok && !whip_vectors_[i]) {
+            void* vector=create(env,vector_class_,vector_constructor_,nullptr);
+            ok=!ClearException(env,error,"whip vector construction failed") && vector;
+            if (ok) { whip_vectors_[i]=global(env,vector);ok=!ClearException(env,error,"whip vector retain failed") && whip_vectors_[i]; }
+            DeleteLocal(env,vector);
+        }
+        const auto v=values[i];
+        if (ok) ok=WriteVector(env,whip_vectors_[i],{v.x,v.y,v.z},error);
+        if (ok) {
+            set(env,tracked_whip_,whip_fields_[i],whip_vectors_[i]);
+            ok=!ClearException(env,error,"whip pose publication failed");
+            void* actual=ok ? get(env,tracked_whip_,whip_fields_[i]) : nullptr;
+            ok=ok && !ClearException(env,error,"whip pose readback failed") && actual && same(env,actual,whip_vectors_[i]);
+            JavaPlayerPosition read{};
+            ok=ok && ReadVector(env,actual,read,error) && read.x==v.x && read.y==v.y && read.z==v.z;
+            DeleteLocal(env,actual);
+        }
+    }
+    DeleteLocal(env,type);DeleteLocal(env,whip);
+    if (!ok) { (void)ClearTrackedWhip(false,error);return false; }
+    whip_frame_=frame;return true;
+}
+
+bool JavaPlayerBridge::VerifyTrackedWhip(bool& active, std::string* error) noexcept {
+    active=tracked_whip_ && whip_frame_.valid;
+    if (!active) return true;
+    void* env=Environment(error);void* current=nullptr;
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto get=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    bool ok=same && get && ReadOwnedWhip(env,0,current,error) && current && same(env,current,tracked_whip_);
+    DeleteLocal(env,current);
+    const cojvr::runtime::Vec3 values[]={whip_frame_.position,whip_frame_.up,whip_frame_.forward};
+    for (std::size_t i=0;i<3 && ok;++i) {
+        void* value=whip_fields_[i] ? get(env,tracked_whip_,whip_fields_[i]) : nullptr;
+        ok=!ClearException(env,error,"whip verification read failed") && value && same(env,value,whip_vectors_[i]);
+        JavaPlayerPosition read{};
+        ok=ok && ReadVector(env,value,read,error) &&
+            read.x==values[i].x && read.y==values[i].y && read.z==values[i].z;
+        DeleteLocal(env,value);
+    }
+    if (!ok) SetError(error,"tracked whip cache/owner changed");
+    return ok;
+}
+
 bool JavaPlayerBridge::TryApplyTrackedWeapon(
     const int hand, const cojvr::runtime::Vec3 wrist, const cojvr::runtime::Vec3 grip,
     const cojvr::runtime::Vec3 direction, const cojvr::runtime::Vec3 up,
@@ -1546,6 +1764,15 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
     if (hand < 0 || hand > 1 || !being_ || weapon_overlay_faulted_) return false;
     auto& overlay = weapon_overlays_[static_cast<std::size_t>(hand)];
     if (overlay.weapon) { SetError(error, "unrestored weapon transaction"); return false; }
+    if (unarmed_hand) {
+        bool whip=false;
+        if (!TryGetActiveWhip(hand,whip,error)) return false;
+        if (whip) {
+            *unarmed_hand=true;
+            SetError(error,"procedural whip uses native cloth anchor");
+            return false;
+        }
+    }
     void* env = Environment(error);
     if (!env || !EnsureElementWorldReadAccess(env, error) || !EnsureElementWorldBasisAccess(env, error)) return false;
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
@@ -3517,11 +3744,15 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    gameplay_ui_cache_ = {};
+    gameplay_ui_player_generation_ = 0;
+    gameplay_ui_sample_tick_ = 0;
+    gameplay_ui_sample_valid_ = false;
     hud_text_cache_ = {};
     hud_text_sample_tick_ = 0;
     hud_text_sample_valid_ = false;
     // Keep the captured actor and its method bindings until restoration succeeds.
-    if (!RestoreTrackedHands() || !RestoreTrackedWeapons()) return;
+    if (!RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
     if (being_) {
         (void)TryPublishInteractionRay({}, {}, false);
         (void)TryPublishWeaponRay(0, {}, {}, false);
@@ -3675,7 +3906,7 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* global_being = new_global(env, local_being);
     if (!global_being || ClearException(env, error, "NewGlobalRef(player being) failed")) return false;
 
-    if (!RestoreTrackedHands(error) || !RestoreTrackedWeapons(error)) {
+    if (!RestoreTrackedHands(error) || !RestoreTrackedWeapons(error) || !ClearTrackedWhip(true,error)) {
         if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,global_being);
         return false;
     }

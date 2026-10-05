@@ -6,9 +6,13 @@
 namespace cojvr::runtime {
 namespace {
 
-constexpr std::array<KnownBuild, 4> kBuilds{{
+constexpr std::array<KnownBuild, 5> kBuilds{{
     {GameId::call_of_juarez_dx9, RendererBackend::d3d9, "CoJ.exe",
      "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE"},
+    // Exact original with only IMAGE_FILE_LARGE_ADDRESS_AWARE set. Staging
+    // derives this image from the original and restores it transactionally.
+    {GameId::call_of_juarez_dx9, RendererBackend::d3d9, "CoJ.exe",
+     "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9"},
     {GameId::call_of_juarez_dx10, RendererBackend::d3d10, "CoJ_DX10.exe",
      "23EDE8E8B3BA0E9E662E83DA2B70D3F80BCADAC5BEE9554578C3AAA7AC109390"},
     {GameId::bound_in_blood, RendererBackend::d3d9, "CoJBiBGame_x86.exe",

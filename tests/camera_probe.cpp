@@ -316,6 +316,15 @@ int main() {
     left_gun.muzzle_verified = true;
     auto unarmed_right_tip = right_gun;
     unarmed_right_tip.muzzle_verified = false;
+    auto right_whip=unarmed_right_tip;
+    right_whip.whip_aim_verified=true;
+    if (SelectWeaponReticleHand(unarmed_left_tip,right_whip,true,false)!=CoJWeaponReticleHand::right) {
+        std::cerr<<"published whip aim must retain its right-hand reticle for either trigger\n";return 1;
+    }
+    right_whip.origin_valid=false;
+    if (SelectWeaponReticleHand(unarmed_left_tip,right_whip,false,true)!=CoJWeaponReticleHand::none) {
+        std::cerr<<"invalid whip pose retained a reticle\n";return 1;
+    }
     auto invalid_direction = right_gun;
     invalid_direction.direction_valid = false;
     auto invalid_origin = right_gun;

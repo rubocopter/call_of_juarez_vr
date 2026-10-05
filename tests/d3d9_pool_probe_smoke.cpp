@@ -1,3 +1,5 @@
+#include "backends/d3d9/system_d3d9.hpp"
+
 #include <d3d9.h>
 #include <windows.h>
 
@@ -22,7 +24,9 @@ int wmain(int argc, wchar_t** argv) {
     pp.Windowed = TRUE;
     pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
     pp.hDeviceWindow = window;
-    IDirect3D9* baseline_factory = Direct3DCreate9(D3D_SDK_VERSION);
+    const auto system_create = cojvr::backends::d3d9::SystemDirect3DCreate9();
+    if (!system_create || !cojvr::backends::d3d9::IsExpectedSystemD3D9Module()) return 13;
+    IDirect3D9* baseline_factory = system_create(D3D_SDK_VERSION);
     if (!baseline_factory) return 77;
     IDirect3DDevice9* baseline_device = nullptr;
     const HRESULT baseline_hr = baseline_factory->CreateDevice(

@@ -61,6 +61,24 @@ int main(int argc, char** argv) {
     Require(ProjectHudPanel(panel, left, 1600, 1600, {}, a) && ProjectHudPanel(panel, right, 1600, 1600, {}, b), "valid stereo optics must project");
     Require(a.left > b.left, "finite depth panel must have correct binocular disparity");
     Require(a.left + a.width <= 1600 && a.top + a.height <= 1600, "projection bounds must remain within eye");
+    HudPanelPlacement wrist{};
+    wrist.captured_quad = true;
+    wrist.head_corners = {{{-.15F,.05F,-.45F},{-.05F,.05F,-.45F},
+        {-.15F,-.05F,-.45F},{-.05F,-.05F,-.45F}}};
+    ProjectedHudPanel wrist_left{}, wrist_right{};
+    Require(ProjectHudPanel(panel,left,1600,1600,wrist,wrist_left) &&
+        ProjectHudPanel(panel,right,1600,1600,wrist,wrist_right),
+        "tracked wrist surface must project at close physical distance");
+    Require(wrist_left.left + wrist_left.width < a.left + a.width/2 &&
+        wrist_left.left - wrist_right.left > a.left - b.left,
+        "captured wrist position and close binocular disparity must replace head panel geometry");
+    wrist.head_corners[0].z = .1F;
+    Require(!ProjectHudPanel(panel,left,1600,1600,wrist,wrist_left),
+        "quad crossing behind an eye must fail closed");
+    wrist.head_corners[0].z = -.45F;
+    wrist.head_corners[2].x = std::numeric_limits<float>::quiet_NaN();
+    Require(!ProjectHudPanel(panel,left,1600,1600,wrist,wrist_left),
+        "invalid captured wrist corner must fail closed");
     left.eye_to_head.orientation = {0, 0.087156F, 0, 0.996195F};
     Require(ProjectHudPanel(panel, left, 1600, 1600, {}, a), "canted eye projection must be supported");
     Require(a.clip_positions[0][3] != a.clip_positions[1][3], "canted panel must preserve perspective-correct corner depths");
@@ -156,5 +174,38 @@ int main(int argc, char** argv) {
     Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced) &&
         ReadEye(device.Get(),context.Get(),targets[0].Get()) != resized_world,
         "device replacement must upload cached text onto the new owner");
+    clear_world();overlay.text={};
+    overlay.ui.wheel.active=overlay.ui.wheel.valid=true;
+    overlay.ui.wheel.available_mask=3;overlay.ui.wheel.selected=1;
+    overlay.ui.compass.active=true;overlay.ui.compass.north_direction={0,1};
+    overlay.ui.compass.marker_count=1;overlay.ui.compass.markers[0].direction={1,0};
+    overlay.compass_surface_valid=true;
+    overlay.compass_head_corners={{{-.22F,-.10F,-.4F},{-.10F,-.10F,-.4F},
+        {-.22F,-.22F,-.4F},{-.10F,-.22F,-.4F}}};
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),
+        "wheel and tracked wrist UI must compose onto replacement presenter device");
+    const auto ui_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    const auto ui_right=ReadEye(device.Get(),context.Get(),targets[1].Get());
+    Require(ui_left!=resized_world&&ui_left!=ui_right&&ui_left[0]==resized_world[0],
+        "real UI pixels must preserve outside world and distinct binocular geometry");
+    clear_world();overlay.ui={};overlay.compass_surface_valid=false;
+    overlay.ui.status.active=true;overlay.ui.status.line_count=1;
+    const std::u16string_view status=u"Salud  087";
+    overlay.ui.status.lines[0].length=static_cast<std::uint32_t>(status.size());
+    std::copy(status.begin(),status.end(),overlay.ui.status.lines[0].characters.begin());
+    overlay.status_surface_valid=true;
+    overlay.status_head_corners={{{-.22F,-.10F,-.4F},{-.06F,-.10F,-.4F},
+        {-.22F,-.15F,-.4F},{-.06F,-.15F,-.4F}}};
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),"status-only native HUD must compose");
+    const auto status_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(status_left!=resized_world&&status_left!=ReadEye(device.Get(),context.Get(),targets[1].Get())&&status_left[0]==resized_world[0],
+        "status must have real binocular wrist pixels while preserving the world outside");
+    clear_world();overlay.status_surface_valid=false;
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+        "invalid status surface resurrected a stale wrist panel");
+    clear_world();overlay.ui={};overlay.compass_surface_valid=false;
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+        "UI owner loss must remove all graphics from a fresh world frame");
     std::cout << "HUD Unicode raster, cache and stereo projection passed\n";
 }

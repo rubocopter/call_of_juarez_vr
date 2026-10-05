@@ -101,8 +101,8 @@ int main() {
     if (!RestoreGameShutdownHook()) return Fail("repeat restore was not idempotent");
     VirtualQuery(slot, &memory, sizeof(memory));
     if (memory.Protect != PAGE_READONLY) return Fail("restore lost IAT protection");
-    if (install(exe_hash, engine_hash) != GameShutdownHookStatus::installed)
-        return Fail("new installation after restore failed");
+    if (install("C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9", engine_hash) != GameShutdownHookStatus::installed)
+        return Fail("exact LAA-derived executable shutdown installation failed");
     VirtualProtect(data + 0x9000, 0x1000, PAGE_READWRITE, &old_protection);
     *slot = &ForeignDestroy;
     VirtualProtect(data + 0x9000, 0x1000, PAGE_READONLY, &old_protection);

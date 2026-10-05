@@ -59,6 +59,7 @@ cojvr::backends::d3d9::StereoReticleOverlay TestReticle(
     const std::uint64_t frame_sequence) {
     cojvr::backends::d3d9::StereoReticleOverlay reticle{};
     reticle.active = true;
+    reticle.no_shoot = true;
     reticle.frame_sequence = frame_sequence;
     reticle.eyes[0] = {.valid = true, .u = 0.25F, .v = 0.40F};
     reticle.eyes[1] = {.valid = true, .u = 0.75F, .v = 0.60F};
@@ -75,6 +76,12 @@ bool CaptureAndCollect(
     cojvr::runtime::StereoHudTextOverlay hud{};
     hud.frame_sequence = frame_sequence;
     if (frame_sequence % 2) {
+        hud.ui.wheel.valid=hud.ui.wheel.active=true;
+        hud.ui.wheel.available_mask=5;
+        hud.ui.wheel.selected=2;
+        hud.ui.compass.active=true;hud.ui.compass.north_direction={0,1};
+        hud.compass_surface_valid=true;
+        hud.compass_head_corners[0]={-.2F,-.3F,-.5F};
         hud.text.hint.length = 3;
         hud.text.hint.characters[0] = u'V';
         hud.text.hint.characters[1] = u'R';
@@ -168,10 +175,13 @@ int main() {
         frame.hud_text.frame_sequence != 1 || frame.hud_text.text.hint.view() != u"VR!" ||
         frame.hud_text.eyes[0].eye_to_head.position.x >= 0 ||
         frame.hud_text.eyes[1].eye_to_head.position.x <= 0 ||
+        !frame.hud_text.ui.wheel.active || frame.hud_text.ui.wheel.available_mask!=5 ||
+        frame.hud_text.ui.wheel.selected!=2 || !frame.hud_text.compass_surface_valid ||
+        frame.hud_text.compass_head_corners[0].z!=-.5F ||
         frame.render_pose_sequence != 42 || !frame.render_hmd_pose.orientation_valid ||
         !frame.render_hmd_pose.position_valid ||
         std::fabs(frame.render_hmd_pose.position.y - 1.65F) > 0.0001F ||
-        !frame.gameplay_reticle.active || frame.gameplay_reticle.frame_sequence != 1 ||
+        !frame.gameplay_reticle.active || !frame.gameplay_reticle.no_shoot || frame.gameplay_reticle.frame_sequence != 1 ||
         !frame.gameplay_reticle.eyes[0].valid || !frame.gameplay_reticle.eyes[1].valid ||
         std::fabs(frame.gameplay_reticle.eyes[0].u - 0.25F) > 0.0001F ||
         std::fabs(frame.gameplay_reticle.eyes[1].u - 0.75F) > 0.0001F ||
@@ -221,7 +231,8 @@ int main() {
     if (!CaptureAndCollect(capture, device.Get(), resized_target.Get(), 2, 1, frame) ||
         frame.eyes[0].width != 71 || frame.eyes[0].height != 39 ||
         frame.generation != 1 || frame.hud_text.frame_sequence != 2 ||
-        !frame.hud_text.text.hint.view().empty()) {
+        !frame.hud_text.text.hint.view().empty() || frame.hud_text.ui.wheel.active ||
+        frame.hud_text.ui.compass.active || frame.hud_text.compass_surface_valid) {
         std::cerr << capture.last_error() << '\n';
         return Fail("capture did not rebuild resources after a source resize");
     }

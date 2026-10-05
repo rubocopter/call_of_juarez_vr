@@ -156,9 +156,30 @@ int main() {
     const bool saw_traces = g_factory_queries > 0 && g_device_queries > 0 &&
         g_device_refs >= 2 && g_get_factory > 0 && g_cooperative > 0 &&
         g_clear > 0 && g_set_texture > 0 && g_swapchain_refs >= 2;
-    const bool restored = cojvr::backends::d3d9::RestoreAllSwapChainVtableHooks() &&
-        cojvr::backends::d3d9::RestoreAllDeviceVtableHooks() &&
-        cojvr::backends::d3d9::RestoreFactoryVtableHook(factory);
+    // Keep each cleanup independent so a failed owner does not suppress the
+    // remaining restores, and identify the failing boundary in host evidence.
+    const auto swapchain_status = cojvr::backends::d3d9::InspectAllSwapChainVtableHooks();
+    const auto device_status = cojvr::backends::d3d9::InspectAllDeviceVtableHooks();
+    const auto factory_status = cojvr::backends::d3d9::InspectAllFactoryVtableHooks();
+    const bool swapchain_restored = cojvr::backends::d3d9::RestoreAllSwapChainVtableHooks();
+    const bool device_restored = cojvr::backends::d3d9::RestoreAllDeviceVtableHooks();
+    const bool factory_restored = cojvr::backends::d3d9::RestoreFactoryVtableHook(factory);
+    const bool restored = swapchain_restored && device_restored && factory_restored;
+    if (!restored) {
+        const auto report = [](const auto& diagnostics) {
+            for (const auto& slot : diagnostics) {
+                std::cerr << slot.interface_name << '.' << slot.slot_name
+                    << " vtable=" << slot.vtable << " owned=" << slot.owned
+                    << " original=" << slot.original << " replacement=" << slot.replacement
+                    << " current=" << slot.current << '\n';
+            }
+        };
+        std::cerr << "restore swapchain=" << swapchain_restored
+            << " device=" << device_restored << " factory=" << factory_restored << '\n';
+        report(swapchain_status);
+        report(device_status);
+        report(factory_status);
+    }
     device->Release();
     alternate_factory->Release();
     factory->Release();

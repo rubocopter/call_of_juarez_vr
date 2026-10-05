@@ -222,7 +222,8 @@ not establish magnification in the independently supplied XR eye frusta.
 
 The operator specifically confirms pause, L1 box pickup/carry/put-down and gun
 pickup, reload, jump, crouch and Triangle + R2 dialogue/hint logs. Focus and hands
-intents reached the native dispatcher, but visible focus and put-away remain
+intents reached the native dispatcher. Focus now has operator-confirmed blur
+without perceived magnification; toggle-off/fire recovery and put-away remain
 unaccepted. Mounting, kick and equipment selection retain separate gates; only
 one pistol was available. Run details remain in ignored local evidence, and the
 project validation document owns formal acceptance state.
@@ -306,9 +307,112 @@ and subtitle panels onto its own D3D11 textures after fresh world copy. Full
 eye transforms/FOV retain stereo disparity and perspective under eye cant.
 This recovers essential text independently of native sprite alpha/coverage.
 Long text is wrapped with a bounded font/height fit; visual layout, timing and
-performance still require live acceptance. PC key names are preserved, and
+performance still require live acceptance. Isolated LMB/RMB/SPACE BAR/SPACEBAR
+tokens in hint copies map to L2/R2/Cross; dialogue and native strings are unchanged. Broader PC-key adaptation remains open, and
 native fading/animation styling is not reproduced. Pausing hints and other
 blocking UIs retain the existing flat UI/dismissal route.
+
+### Read-only health and ammunition presentation
+
+HUDManager's exact 23-component array supplies HUDPlayer at index 0,
+HUDAmmoCounters at 1 and HUDWeapons at 7. Each component's `m_Being` and
+`m_cHUDManager` must match the current player/manager; HUDPlayer's `m_cPlayer`
+is checked separately. Actual manager/component/child visibility is mandatory.
+HUDPlayer's `m_cHealth.m_sLocalizedText` already holds the game's normalized,
+padded health percentage (including the original nonzero minimum and invalid
+game-state blanking); no health calculation or UpdateHealth call is needed.
+
+HUDWeapons has six `m_tAmmoCounters` and matching `m_tSlotsWeaponInfo` caches.
+The shipped slot hierarchy is 2,1,0,4,3,5: left pistol, right pistol, long weapon,
+dynamite, Bible/whip, bow. `m_bShowAmmo` controls whether a counter is relevant;
+`m_bActiveAmmo` identifies active/actual slots. The compact card includes only
+those active/actual slot totals, not the entire inactive weapon list. A slot
+total is native presentation data, not a newly inferred magazine capacity.
+
+HUDAmmoCounters has three `m_cAmmoCountersTotal` entries: rifle, shotgun, pistol.
+Big/small bullet icon visibility and counter `m_fCurTextAlpha` gate their cached
+localized inventory-reserve strings. Native updates own counts, fading and
+permission changes. The reader copies bounded numeric text only; unexpected
+layout/text or JNI errors clear status independently of compass/inventory.
+No `UpdateWeapons`, `UpdateAmmoCounters`, weapon parameter factory or selection
+is invoked. Full native graphical styling and protected-target feedback remain
+separate boundaries. Host tests do not establish visor readability or live counts.
+
+### Native inventory and compass observation
+
+The inventory reader observes the exact game's `PawnInventory.m_aInvSlots`
+(`java.util.ArrayList`) and `m_aInvSlotsObjects` (`InvObject[]`). Each
+`InventorySlot` supplies `m_nType`, `m_nIndex` and `m_cPawn`; the indexed item's
+`cOwner` must identify the current player. A slot index is not a slot type.
+The six selection channels use slot types `2, 1, 0, 4, 3, 5`: left pistol,
+right pistol, long weapon, dynamite, Bible/whip and bow. Hands use type `7`.
+Native slots `11` and `12` hold objects only in the right/left hand and are not
+additional numbered equipment channels. A `WeaponWhip` instance distinguishes
+whip from Bible in the shared native slot; the reader never creates equipment.
+
+Ownership and observed permission are separate masks. Selection respects
+`PlayerBeing.m_bWeaponChangeEnabled`, the single-player carry permission
+`HumanBeing.m_bCanCarryWithWeaponInSingleGame` when `m_cCarriedObject` is non-null,
+and `m_bPunchingEnabled` for hands. Discard uses the separate change/throw gates,
+including `ArmedPlayerBeing.m_bWeaponThrowEnabled`; it is distinct from selecting
+hands. The existing native input consumers remain authoritative for ammunition,
+reload/attack transitions, nearby replacement, holstering and contextual execution.
+An owned weapon with zero ammunition is not automatically hidden or denied.
+These observed masks are not proof that a selection executed.
+
+`ArmedPlayerBeing.CanShowWeapon` must not be invoked as an observation predicate:
+its `Weapon.CanNoAmmoUse -> GetLogicParams -> GetParams` chain reaches
+`LawmanModule.GetWeaponParam`, which calls `CreateWeaponParam` if its cache has no
+entry. Likewise, inventory getters returning arrays allocate Java arrays.
+The observation path instead bounds and reads the existing slot collection,
+checks identities and reads the demonstrated permission fields. JNI exceptions
+clear the affected snapshot; all local references and pinned strings are released.
+No selection/update method runs, and no native reference crosses threads.
+
+Native objective direction belongs to `HUDManager.sm_cMainHUDManager`, whose
+23-component array contains `HUDCompass` at index `19`. The manager and compass
+must both identify the current player, the compass's `m_cHUDManager` must identify
+that manager, and the native owners must be actually visible. `HUDCompass`
+provides `m_fMapAngle`, `m_vPlayerPos`, `m_vPlayerForward` and the misleadingly
+named `m_vPlayerRight`: `CalculateMapAngle` fills the latter through
+`BeingCamera.GetLeftVector`; `CalculateWaypointPos` subsequently flattens it to
+`(-forward.z, 0, forward.x)`. Preserve this observed native left axis.
+
+`m_cWaypointsManager.m_cWaypoints` is a `java.util.Vector` of
+`HUDWaypointsManager$HUDWaypoint`. Each entry has `m_sName`, `m_vPos`,
+`m_bActive`, `m_nRotorIdx` and optional `m_cLocation`. `m_nRotorIdx` is the
+stable `UIRotorText$RotorTextElement.m_nIndex` identity, assigned from the
+monotonic `UIRotorText._idx`; it is not a vector index. Removing a location
+compacts the rotor collection without reassigning these identities. Resolve the
+bounded ID-to-index relation before selecting an element. Location-backed `m_vPos`
+aliases `DefLocation.m_vWorldPos`; the reader must not replay
+`DefLocation.UpdateObjectPos`. The rotor collection
+`m_cRotorText.m_cElements` supplies `UIRotorText$RotorTextElement.m_fAngle` and
+the concrete `m_cElement`, `m_cPoint` and `m_cObjectPoint` visibility. An active
+waypoint is shown only when at least one corresponding native sprite is actually
+visible. Labels use the existing text owner's `m_sLocalizedText`, with the
+cached waypoint name only when that text owner is absent. Bounds/type checks
+precede all array/collection accesses. Observation retains up to sixteen visible
+markers from a bounded collection and clears invalid/non-finite guidance.
+
+The native bearing convention is forward `90` degrees, left `180`, right `0`.
+For a bearing `a`, its horizontal world direction is
+`sin(a) * nativeForward - cos(a) * nativeLeft`. Native map rotation is
+`-m_fMapAngle`; that angle is
+`degrees(atan2(cameraLeft.z, cameraLeft.x)) + 90 + levelSunAngle`.
+The shipped `Compass` texture has `N` authored at the top; `HUD.scr` keeps
+`ID_COMPASS_MAIN` visible and `ID_COMPASS_NEEDLE` initially hidden. The native
+north direction follows `sin(mapAngle) * nativeLeft + cos(mapAngle) * nativeForward`.
+Consequently, a wrist presentation must preserve the level's native compass
+rotation and every observed objective marker, rather than infer north from XR
+yaw alone. Native world coordinates remain centimetres in the game adapter;
+renderer-facing dial directions and tracked surface geometry contain value data.
+
+The game-owner observation cache is bounded to a 100 ms sampling interval and
+invalidates with player generation/context loss. Reader fixtures establish
+ownership, permissions, visibility, bounds, Unicode and cleanup on the host;
+tracked wrist direction, native marker timing and in-headset readability remain
+separate live/physical gates.
 
 ### Native graphical capture
 
@@ -342,8 +446,68 @@ The native red no-shoot indication is separate from reticle alignment:
 crosshair returns false for no-shoot. Reusing the wrong owner or coloring the VR
 cross merely by hit distance would give incorrect feedback. Verify that native
 target selection corresponds to the current tracked weapon ray before attaching
-the native warning to that ray. Whip climb/grab helpers also use native target
-predicates and must remain distinguishable from ordinary weapon alignment.
+the native warning to that ray. The implemented consumer reads HUDManager
+components 3/4, validates HUDCrosshairHand/player/manager/hand identity and the
+actual visibility of its `dontShoot` Sprite. It also requires native
+`m_abCanFireAtTarget[hand] == false` and protected reasons 1 (friendly human) or
+3 (friendly LawmanActor) from `m_anCantFireReason`. Generic valid-target and
+empty-ammo states are not protection warnings.
+
+The original `CheckIfAimingAtFriendlyTarget(int, boolean)` owns the natural
+budgeted trace. Immediately after committing both `m_vLCStart`/`m_vLCEnd` vectors,
+a bounded exact-class patch tags its existing local Weapon into one nullable
+owner field per hand. Original instructions/branch destinations and native
+trace cadence are preserved; no trace, gameplay update or draw is replayed.
+The read-only consumer matches that tag to `GetActualWeaponNotEmpty(hand)`,
+current in-hands firearm ownership, a non-null cached collision, age at most
+0.25 seconds and the selected verified muzzle ray. Origin drift over 3 cm or
+angular drift over 3 degrees suppresses the flag; these are conservative stale
+presentation bounds, not gameplay range/permission tuning. The renderer draws
+an outlined red X at each matching captured eye point, preserving surrounding
+world pixels. Unknown original class hashes still fail closed. The reader,
+bytecode/JVM verification, geometry rejection, pixels and captured flag transport
+are host-tested; native warning appearance/target transitions remain a visor gate.
+Whip climb/grab helpers remain separate from firearm protection warnings.
+
+## Exact procedural whip contract
+
+`WeaponWhip.class` SHA-256
+`0a7ca8d2059582320251646fe2a992bf43ecf04470986128d99ff503366f5746`
+extends `WeaponFire`, but does not provide the gun barrel required by rigid
+weapon-element mapping. Treating it as an unverified firearm prevented the
+independent hand and controller reticle from being published.
+
+The shipped `InputSettings` maps action 9 to LMB and action 10 to RMB. The Sense
+routes are therefore L2/LMB and R2/RMB, irrespective of which hand holds the
+tool. `WpnLogicWhip.GetAttackMode` selects normal whip fire for input type 1
+(L2), alternate clutch fire for type 0 (R2), and respectively `DragOut`/`DragIn`
+when already clutched. Native drag removes/adds seven parts; L2 lengthens and
+R2 shortens. The native combined-button timing rule unclutches, as does jump
+while hanging. Preserve native availability, timing and permissions rather than
+converting these into two gun shots. The tracked one-hand firearm retry guard
+must specifically exclude `WeaponWhip`.
+
+`ComputeWhipPosition` uses the owner's right holding socket. Its native position
+offset is `socket + Z*m_fPositionLeft + X*m_fPositionUp + Y*m_fPositionForward`;
+the whip's up/forward are socket X/Y. Its loop shaping also consumes socket Z
+as `s_vLeft`, completed by `Vector.CalcCross(up,forward)` for the rigid tracked
+basis. Read the actual instance floats. A bounded
+bridge-owned three-vector cache supplies only those position/up/forward values
+for the recognized owned in-hands whip, with the original method retained for
+missing pose, other owners and network-forced attacks. The original
+`AdditionalSynchro` stays byte-for-byte unchanged: it places the root and first
+cloth point, retains loop shaping, segments, clutch world anchor and physics.
+Do not rotate the entire cloth, force an update/draw, change damage or guess new
+attachment offsets. Cache publication and clearing check object identity and
+readback; ambiguity retains the restore owner. Reuse vectors across frames.
+
+The reticle uses the controller right-tip direction and tracked holding origin
+only after hand/cache verification; it is a tool alignment aid, not a measured
+collision endpoint or proof of a successful clutch. Isolated mouse-button and
+space-bar names in hint/interaction presentation copies are translated to
+L2/R2/Cross. Native strings and subtitle dialogue are not edited. Bytecode,
+JNI lifecycle, ray selection and labels are host-tested; physical whip attack,
+clutch, length/release and visible hand cohesion remain open.
 
 ## Planned adaptation and acceptance boundary
 
@@ -369,8 +533,10 @@ predicates and must remain distinguishable from ordinary weapon alignment.
    aim, whip, bow, dynamite, Bible, concentration, duels, climbing and horses.
 
 The input expansion, essential text presentation and passive HUD observation are **host-tested**. Complete
-HUD capture, visible inventory wheel, wrist compass and XR focus magnification
-remain **planned/open**. New controls and special mechanics still require live
+HUD capture and XR focus magnification remain **planned/open**. The visible
+inventory wheel and objective wrist compass have operator acceptance for
+exercised contexts, with the smaller revised presentation still pending.
+New controls and special mechanics still require live
 and headset acceptance; source/manual findings are not physical acceptance. [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
 owns their acceptance gate; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-interactions)
 owns priority. Local settings snapshots and extracted manual/class evidence

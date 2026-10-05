@@ -4,6 +4,32 @@
 
 namespace cojvr::games::call_of_juarez {
 namespace {
+// Presentation only: exact default Sense action routes, never the native string
+// or subtitle dialogue. Replacements do not grow the bounded UTF-16 buffer.
+void ControllerHint(runtime::HudText& text) noexcept {
+    const auto source=text.view();
+    runtime::HudText translated{};
+    const auto word=[](char16_t c) {
+        return (c>=u'A' && c<=u'Z') || (c>=u'a' && c<=u'z') ||
+            (c>=u'0' && c<=u'9') || c==u'_' || c>=0x80;
+    };
+    for (std::size_t at=0;at<source.size();) {
+        std::u16string_view before{},after{};
+        for (const auto token:{std::u16string_view(u"SPACE BAR"),std::u16string_view(u"SPACEBAR"),std::u16string_view(u"LMB"),std::u16string_view(u"RMB")}) {
+            if (source.substr(at,token.size())==token &&
+                (at==0 || !word(source[at-1])) &&
+                (at+token.size()==source.size() || !word(source[at+token.size()]))) {
+                before=token;after=token==u"LMB" ? u"L2" : token==u"RMB" ? u"R2" : u"Cross";break;
+            }
+        }
+        if (before.empty()) translated.characters[translated.length++]=source[at++];
+        else {
+            for (const auto c:after) translated.characters[translated.length++]=c;
+            at+=before.size();
+        }
+    }
+    text=translated;
+}
 // Stable JNI 1.4 subset. All class/field/index contracts below are specific to
 // the hash-pinned shipped code.pak; callers enter through the exact-build bridge.
 union Value { std::int64_t alignment; void* object; };
@@ -203,6 +229,8 @@ bool ReadCoJHudText(void* env, void* player, runtime::HudTextSnapshot& out) noex
     Reader entry{env}; if (!entry.Check()) return false;
     const bool hud = ReadComponents(env,player,out);
     const bool subtitle = ReadSubtitle(env,out.subtitle);
+    ControllerHint(out.hint);
+    ControllerHint(out.interaction);
     return hud && subtitle;
 }
 }

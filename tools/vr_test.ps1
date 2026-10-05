@@ -8,7 +8,9 @@ param(
 
     [switch]$StartupOnly,
 
-    [switch]$KeepVideoSettings
+    [switch]$KeepVideoSettings,
+
+    [switch]$LargeAddressAware
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,7 +133,8 @@ switch ($Action) {
                 -ProxyPath $ProxyPath `
                 -BuildManifestPath $ManifestPath `
                 -ValidationProfile $ValidationProfile `
-                -IndependentHands:$BodyIkAtStart
+                -IndependentHands:$BodyIkAtStart `
+                -LargeAddressAware:$LargeAddressAware
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -187,6 +190,7 @@ switch ($Action) {
         Write-Host "Validation profile: $ValidationProfile"
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
+        Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { "$($VideoProfile.resolution), FSAA 0 (selected resolution preserved; restored by finish)" })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
@@ -267,7 +271,34 @@ switch ($Action) {
     "finish" {
         Assert-GameClosed
         if (-not (Test-Path -LiteralPath $StageStatePath -PathType Leaf)) {
-            throw "No staged VR test candidate was found."
+            $DeploymentJournal = Join-Path $ResolvedGameDirectory ".cojvr-deployment-transaction.json"
+            $PendingDeployment = Test-Path -LiteralPath $DeploymentJournal -PathType Leaf
+            $PendingVideo = Test-Path -LiteralPath $VideoProfileStatePath -PathType Leaf
+            if (-not $PendingDeployment -and -not $PendingVideo) {
+                throw "No staged VR test candidate or pending recovery was found."
+            }
+            # Unstage may have committed its restoration before video/cleanup
+            # failed. Retry only retained journals; do not infer a new live pass.
+            $RecoveryErrors = @()
+            if ($PendingDeployment) {
+                try {
+                    $RecoveryJournal = Get-Content -LiteralPath $DeploymentJournal -Raw | ConvertFrom-Json
+                    if ([string]$RecoveryJournal.operation -notin @('stage', 'unstage') -or
+                        @($RecoveryJournal.assets).Count -eq 0 -or
+                        @($RecoveryJournal.assets | Where-Object {
+                            $_.role -eq 'proxy' -and $_.kind -eq 'file' -and $_.destination -eq 'd3d9.dll'
+                        }).Count -ne 1) {
+                        throw "Deployment recovery journal has an invalid operation or incomplete asset inventory."
+                    }
+                    & (Join-Path $PSScriptRoot "unstage_d3d9_proxy.ps1") -GameDirectory $ResolvedGameDirectory
+                } catch { $RecoveryErrors += "Deployment recovery failed: $($_.Exception.Message)" }
+            }
+            try { [void](Restore-VrVideoProfile) } catch {
+                $RecoveryErrors += "Video settings recovery failed: $($_.Exception.Message)"
+            }
+            if ($RecoveryErrors.Count) { throw ($RecoveryErrors -join ' ') }
+            Write-Host "Pending VR restoration completed. No live validation was performed during recovery."
+            break
         }
 
         $VerificationError = $null

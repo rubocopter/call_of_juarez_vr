@@ -17,6 +17,8 @@ constexpr std::size_t kDestroyGameCallRva = 0x2105;
 constexpr std::uintptr_t kDestroyGameExportRva = 0x2d00;
 constexpr std::string_view kExecutableHash =
     "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE";
+constexpr std::string_view kLargeAddressExecutableHash =
+    "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9";
 constexpr std::string_view kEngineHash =
     "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8";
 using backends::d3d9::VtablePatch;
@@ -35,6 +37,10 @@ bool EqualHash(std::string_view value, std::string_view expected) noexcept {
     return true;
 }
 
+bool ExactExecutable(std::string_view value) noexcept {
+    return EqualHash(value, kExecutableHash) || EqualHash(value, kLargeAddressExecutableHash);
+}
+
 void __cdecl HookDestroyGame() {
     // The callback may restore this import. Keep the original target independently
     // of patch ownership and never hold a hook lock while joining the runtime.
@@ -50,7 +56,7 @@ GameShutdownHookStatus InstallGameShutdownHookForImage(
     std::span<std::byte> image, std::string_view executable_sha256,
     std::string_view engine_sha256, DestroyGameFunction original,
     BeforeGameDestroy before_destroy, void* context) noexcept {
-    if (!EqualHash(executable_sha256, kExecutableHash) ||
+    if (!ExactExecutable(executable_sha256) ||
         !EqualHash(engine_sha256, kEngineHash)) return GameShutdownHookStatus::unsupported_build;
     if (!original || !before_destroy || image.size() < kDestroyGameImportRva + sizeof(void*))
         return GameShutdownHookStatus::invalid_image;
@@ -99,7 +105,7 @@ GameShutdownHookStatus InstallCurrentGameShutdownHook(
     BeforeGameDestroy before_destroy, void* context) noexcept {
     try {
         const auto host = runtime::InspectCurrentHost();
-        if (!host || !EqualHash(host->sha256, kExecutableHash))
+        if (!host || !ExactExecutable(host->sha256))
             return GameShutdownHookStatus::unsupported_build;
         const auto engine = GetModuleHandleW(L"ChromeEngine3.dll");
         if (!engine) return GameShutdownHookStatus::target_mismatch;

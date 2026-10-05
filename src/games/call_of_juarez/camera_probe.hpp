@@ -50,6 +50,7 @@ struct CameraProbeReticlePoint {
 
 struct CameraStereoReticleOverlay {
     bool active = false;
+    bool no_shoot = false;
     std::uint64_t frame_sequence = 0;
     std::array<CameraProbeReticlePoint, 2> eyes{};
 };
@@ -149,6 +150,7 @@ struct CameraProbeWeaponRay {
     bool origin_valid = false;
     bool direction_valid = false;
     bool muzzle_verified = false;
+    bool whip_aim_verified = false;
 };
 
 struct CameraProbeInteractionRay {
@@ -167,7 +169,8 @@ struct CameraProbeInteractionRay {
 enum class CoJWeaponReticleHand { none, right, left };
 
 // Tip tracking alone cannot establish weapon alignment. Select only a published
-// verified muzzle, preferring left for left-only fire and otherwise right.
+// verified muzzle or the owned procedural whip ray; the whip keeps its native
+// two-trigger semantics. Firearms prefer left for left-only fire, else right.
 [[nodiscard]] CoJWeaponReticleHand SelectWeaponReticleHand(
     const CameraProbeWeaponRay& left,
     const CameraProbeWeaponRay& right,
@@ -219,6 +222,8 @@ struct CameraStereoFrameSample {
     cojvr::runtime::Pose right_controller{};
     cojvr::runtime::Pose left_aim{};
     cojvr::runtime::Pose right_aim{};
+    cojvr::runtime::FingerTrackingState left_fingers{};
+    cojvr::runtime::FingerTrackingState right_fingers{};
     cojvr::runtime::GameplayInputState gameplay{};
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     bool recenter_requested = false;

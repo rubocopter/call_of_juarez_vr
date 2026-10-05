@@ -19,6 +19,28 @@ The architecture intentionally mirrors the useful separation already proven in t
 
 ## Safety and provenance invariants
 
+The native-stereo workflow can stage an exact Large Address Aware derivative
+of the recognized x86 `CoJ.exe` on 64-bit Windows. Only the PE
+`IMAGE_FILE_LARGE_ADDRESS_AWARE` bit changes; executable/engine code and offsets
+remain identical. Original and derived SHA-256 identities are pinned separately.
+The executable is a journaled deployment asset with an original backup,
+temporary publication, stage/run correlation and byte-for-byte restoration.
+Recovery validates the complete retained inventory before any mutation; damaged
+late backups preserve earlier assets and journals. Unknown originals or derived
+images fail closed. The capacity correction is host-tested and the previously
+failing narrated transition is headset-validated for the exercised candidate;
+general loading stability and high-address compatibility remain separate gates.
+
+The camera/actor coherence diagnostic records captured absolute/relative HMD
+orientations, native and both-eye bases, pose/frame identity, monotonic time,
+snap delta and yaw ownership. Snap/recenter starts at most 180 stereo frames
+of burst samples; ordinary baseline sampling remains bounded. It reads completed
+frame data and does not rotate an actor, refresh an owner or force a render/FX
+update. Formatting failure cannot interfere with restoration. This trace supplies
+evidence for camera/actor ownership. Exercised head turns after snap are now
+accepted with Steam recording off; recording-associated pacing remains open.
+The diagnostic does not constitute a camera-policy fix.
+
 The stabilization work that made physical testing trustworthy is now a
 baseline contract rather than a separate remediation track:
 
@@ -35,6 +57,13 @@ baseline contract rather than a separate remediation track:
   cadence, repeat behavior, scene focus and submission;
 - `tools/vr_test.ps1 prepare` is the physical-test front door and `finish`
   collects available evidence and restores staging transactionally.
+
+Staging state retains the original proxy, runtime, control and input identities
+captured before deployment, including an explicit empty-directory manifest.
+Unstage checks all original backups against those identities before mutation;
+an older state without a required original identity fails closed. Retained
+deployment/video journals permit `finish` recovery after stage state removal.
+Recovery alone does not verify or accept a physical run.
 
 ## Exact-build integration
 
@@ -179,8 +208,52 @@ fire delivery. Presenter context generations retain focus/dashboard/pose losses
 even if no inactive sample reaches the game. Per-action availability is distinct
 from a released button; only an available release or valid centered stick rearms
 its barrier. Inactive contexts release every logical action before reacquisition. [The exact controls document](research/COJ_PC_CONTROLS_AND_HUD.md#secondary-sense-layer)
-owns the user layout and distinguishes gesture selection from a future visible
-inventory wheel. New mechanics remain host-tested pending physical acceptance.
+owns the user layout. The visible equipment wheel is headset-validated for
+exercised switching/put-away; its permission policy is host-tested: the game
+adapter reads owned inventory and cached permission gates, while native selection
+retains final transient/ammunition authority. A denied held gesture requires
+release before permission recovery can select it. New UI remains pending physical acceptance.
+
+## Equipment wheel and wrist compass
+
+The exact-build owner reads inventory and the naturally updated HUDCompass
+without calling gameplay eligibility helpers that can create weapon parameters.
+Native rotor IDs are resolved independently of vector positions. Visible, active
+waypoints and level-specific map orientation become bounded neutral dial values;
+JNI objects stay on the game thread. The compass mounts above the left tracked
+grip towards the forearm, uses captured head-space corners and hides with invalid
+tracking or native UI ownership. No arbitrary XR north replaces native guidance.
+
+The D3D11 presenter composites cached circular rasters with transparent outside
+coverage into fresh eye images. Wrist geometry follows each captured pose; compass
+pixel rebuild/upload is limited to 10 Hz. Wheel/compass metadata, eye optics and
+surface geometry retain capture identity through device/resource replacement.
+Native reads, eligibility release policy, real host composition and projection
+are host-tested. Attachment, guidance and readability are headset-validated for
+the exercised previous layout; the 20% smaller wheel/compass and revised dial
+await a new readability check. Sustained pacing retains its own gate.
+
+The same bounded game-owner sampling reads essential health/ammo presentation:
+HUDPlayer health text, HUDWeapons active/actual slot totals and HUDAmmoCounters
+reserve text. Manager/component/player identity, actual child visibility, native
+text alpha and cached slot permissions remain authoritative. No health/ammo
+update, weapon factory or inventory selection is invoked. At most ten copied
+UTF-16 lines accompany each captured frame; no native reference crosses threads.
+The presenter caches a rectangular brass/brown wrist card separate from the
+compass dial. Missing objectives do not hide status; invalid tracking, back-facing
+or distant wrist and gameplay-context loss suppress it. Readers and real stereo
+composition are host-tested; the exercised card, ammunition updates and
+damage-driven health updates have operator acceptance, while sustained pacing
+retains its headset gate. Inactive weapon-list graphics and protected-target
+warnings are not supplied by this card.
+
+Optional OpenVR skeletal summaries carry five curls per hand plus availability
+and the driver-reported estimated/partial/full tracking level. Missing skeleton
+actions do not disable ordinary controls. Input, pose, native UI and focus loss
+clear samples. Both hands have live-tested independent curls with partial tracking
+quality. This remains a sensing route;
+native finger animation awaits proven joint/rest retargeting inside the existing
+scoped hand transaction. Armed grip, carried objects and reload retain ownership.
 
 ## Essential gameplay text
 
@@ -220,7 +293,7 @@ path independently of arm IK.
 
 Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
 
-Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. Physical comparison now establishes native normal/walk speed and jump apex/duration parity with vanilla; movement/input/physics tuning is closed. The earlier visual impression of slow locomotion came from presentation cadence. Before native shaping, the current host candidate rotates the neutral left-stick vector by the residual physical HMD yaw left after the existing body-yaw ownership step, making locomotion head-relative without changing native speed/deadzone/run semantics. Run remains boolean. The snap-turn mechanism is physically proven at its earlier step; the current host candidate changes the exact actor step to ±90 degrees and requires one physical confirmation at that angle.
+Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. Physical comparison now establishes native normal/walk speed and jump apex/duration parity with vanilla; movement/input/physics tuning is closed. The earlier visual impression of slow locomotion came from presentation cadence. Before native shaping, the adapter rotates the neutral left-stick vector by the residual physical HMD yaw left after the existing body-yaw ownership step, making locomotion head-relative without changing native speed/deadzone/run semantics. The exercised direction/feel regression is operator-accepted. Run remains boolean. The later operator report identifies inverted snap direction as the disorientation cause, superseding earlier 45/90-degree comfort conclusions. OpenVR positive right-stick X maps to negative native RotateHorizontally yaw (right) and negative X to positive yaw (left). This sign conversion stays inside the CoJ adapter; wheel and neutral input axes remain unchanged. The step remains 45 degrees, with unchanged engage/release thresholds and held-stick latching. The corrected sign is headset-validated for the exercised direction.
 
 Physical crouch is detected from calibrated HMD-height change with hysteresis. The current host candidate merges that state with the mapped controller crouch action before the native gameplay-input transaction, so lowering the headset requests the shipped crouch action and should drive the game's crouched body animation while preserving native collision/physics ownership. The room-scale body overlay still applies only the mapped horizontal component to the local pelvis/skeleton for both eye renders and restores the natural pelvis world basis after the second eye. Vertical actor position, grounding and collision remain game-owned. Horizontal room-scale displacement still needs a separate stick-equivalent visual locomotion animation contract.
 
@@ -331,7 +404,8 @@ used negative-source-forward for physical forward. Camera room-scale translation
 also removes actor-owned yaw once, using the same leveled reference as arms and
 pelvis. These follow-ups are **live-exercised** after physical rejection of
 forward/backward movement and torso intrusion. The operator reports substantial
-overall improvement; individual movement/body-visibility acceptance remains open.
+overall improvement and accepts the exercised room-scale movement regression;
+hand/weapon attachment and loading stability retain separate gates.
 
 Physical crouch already lowers the tracked HMD; the native crouch animation also
 lowers the natural camera. A captured actor-relative camera height compensates
@@ -341,7 +415,8 @@ generation change/recenter resets calibration. The correction is applied to the
 rendered head, arm anchor and controller aim origin, never actor/collision
 position. Arm targets retain physical controller descent. Height compensation and
 successful arm/pelvis restoration are live-observed through normal shutdown;
-physical crouch comfort and first-person body visibility remain open.
+the exercised physical crouch/body-visibility regression is operator-accepted.
+Wrist/grip and reload recovery remain separate gates.
 
 All lower-arm element orientations use the same parent-plus-elbow composition.
 The earlier absolute writer used a direct segment rotation for the forearm and
@@ -489,7 +564,7 @@ SHA-256 for `ArmedPlayerBeing`, `WeaponFire`, `BeingTriggered` and
 payloads are checked unchanged, its deployed hash joins run provenance, and
 unstaging/recovery restores the original archive byte-for-byte. Host tests cover
 hand selection, null/network fallback and interrupted deployment. The shipped
-Java 1.4 verifier accepts all four patched classes without initialization. This remains
+Java 1.4 verifier accepts all five patched classes without initialization. This remains
 host evidence, not actual-shot or headset acceptance.
 
 The exact `LawmanModuleSingle.QuickSave` thumbnail call is redirected to a private
@@ -500,12 +575,15 @@ autosave. All other QuickSave instructions, save serialization, sound/HUD
 restoration and original screenshot methods stay intact. While the patched
 archive is staged, quick/automatic saves have no generated thumbnail, including
 flat presentation. This is a host-tested workaround; the underlying resource
-pressure and physical save/load acceptance remain open. The exact boundary is
+pressure remains open; the exercised new-autosave/load gesture has operator
+acceptance. The exact boundary is
 documented in [save-thumbnail research](research/COJ_SAVE_THUMBNAIL_PATH.md).
 
-The gameplay reticle carries only projected alignment points and currently draws
-a fixed black/white cross; it does not transport the native no-shoot warning,
-tutorials or other gameplay HUD. The [exact PC controls/HUD boundary](research/COJ_PC_CONTROLS_AND_HUD.md)
+The gameplay reticle carries projected alignment points and a value-only warning
+flag for that captured frame. Its normal black/white cross becomes a red X only
+for a visible native protected-target warning matching the selected verified
+firearm ray. It does not transport tutorials or the full graphical HUD.
+The [exact PC controls/HUD boundary](research/COJ_PC_CONTROLS_AND_HUD.md)
 records native feedback owners and incomplete mechanics coverage. Game adapters
 own native action/target/inventory semantics; a future renderer HUD layer owns
 capture and presentation, and shared runtime owns neutral logical input and UI
@@ -515,17 +593,25 @@ scheduled sprite and flush boundaries with current device/frame/target state.
 They never replay traversal or redirect rendering. The live route and usable
 alpha/coverage remain unproved, so HUD capture/composition is still pending.
 
-The gameplay reticle selects only a successfully published, verified weapon
-muzzle/direction. An unarmed controller tip cannot replace an available gun ray
-or imply weapon alignment. With no verified muzzle it is suppressed. It is
+The gameplay reticle selects a successfully published, verified firearm
+muzzle/direction or the separate owned procedural-whip ray. The exact whip has
+no barrel: a complete nullable instance pose cache preserves its holding-socket
+axes and authored offsets, while the naturally scheduled `AdditionalSynchro`
+continues to own cloth simulation. Native updates/draws are never forced.
+The right-hand whip ray requires matching active owner, cache readback and
+verified tracked hand through both eyes. Its two-trigger semantics are exempt
+from the one-hand firearm guard. An unarmed tip cannot imply weapon alignment.
+With neither verified route the reticle is suppressed. It is
 projected through each captured eye basis and asymmetric frustum and drawn on
 the matching compositor textures; it is excluded from flat-theater/menu
 presentation and does not share menu pointer ownership. It is an alignment aid,
 not a collision trace or a guarantee against native spread. Sampled
 `controller_weapon_tracking`, `controller_weapon_barrel` and
 `controller_weapon_restore` events distinguish verified visual pose/cache
-publication from actual bullet impact. Latest live evidence still rejects
-weapon placement and muzzle alignment; this follow-up is host-tested only.
+publication from actual bullet impact. Exercised pistol muzzle/FX coherence is
+operator-accepted; exercised whip usability and approximate reticle alignment
+also have operator acceptance. Exact collision/reach and broader climbing/tool
+gestures remain separate from that acceptance.
 
 ## D3D9 native-stereo transport
 

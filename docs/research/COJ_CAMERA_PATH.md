@@ -77,8 +77,8 @@ Run `20260920T090448Z-b1f54e3cb38e` physically exercised startup flat theater th
 The native camera/stereo seam remains established. Open gates include:
 
 - the bounded shared-transport cadence target and stereo/head-turn stability now pass; sustained pacing and frame-age outliers remain separate performance questions;
-- room-scale forward/backward translation and torso visibility remain rejected; the shared tracking-reference/sign follow-up is host-tested;
-- physical crouch adds native camera descent to physical HMD descent; captured actor-relative height compensation is host-tested and awaits comfort validation;
+- head-turn stability after snap is operator-accepted with Steam recording off. A later report identifies reversed snap direction as the disorientation cause; earlier 45/90-degree comfort conclusions are superseded. OpenVR positive stick X is right, while positive native RotateHorizontally yaw turns left. The adapter now maps positive X to -45 degrees and negative X to +45 degrees, retaining latch/threshold policy; direction correction is host-tested, pending visor acceptance. Recording-associated microskips recover when recording stops; recording compatibility and sustained pacing remain open. Sampled native basis/yaw compensation and delivery timings do not identify that overhead. The bounded camera/actor coherence trace retains exact poses and both-eye bases;
+- the exercised room-scale direction/body-visibility and physical crouch regressions are operator-accepted after the tracking-sign and duplicate-height correction; the active independent-hand wrist/grip/reload recovery checks are also operator-accepted;
 - flat-menu controller interaction is accepted in the exercised ordinary/Yes-No/gameplay-pause paths;
 - normal-quit inner shutdown, GPU drain and outer `run_end` are now live-tested through the exact-build pre-`DestroyGame` boundary; abnormal exit/device loss remain unproved. See [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md).
 

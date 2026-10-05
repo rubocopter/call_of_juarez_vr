@@ -44,6 +44,8 @@ struct OpenVrHandPoses {
     bool right_grip_active = false;
     bool left_aim_active = false;
     bool right_aim_active = false;
+    FingerTrackingState left_fingers{};
+    FingerTrackingState right_fingers{};
 };
 
 struct OpenVrTrackedPoses {

@@ -6,6 +6,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import patch_coj_weapon_consumers as patch
 from patch_coj_weapon_consumers import prefix, patch_class
 
+class TargetOwnerTagTests(unittest.TestCase):
+    def test_branch_relocation_keeps_original_destinations(self):
+        from inspect_java_bytecode import ConstantPool
+        original=bytes.fromhex('03 99 00 07 04 a7 ff fc b1')
+        changed=patch.insert_target_tag(original,4,b'\x00\x00\x00',ConstantPool([]))
+        self.assertEqual(changed,bytes.fromhex('03 99 00 0a 00 00 00 04 a7 ff f9 b1'))
+        with self.assertRaises(ValueError):patch.insert_target_tag(original,2,b'\x00',ConstantPool([]))
+
+    def test_native_trace_weapon_is_tagged_only_to_its_hand(self):
+        code=patch.target_owner_tag((41,42))
+        for hand,wanted in [(0,{41:'weapon'}),(1,{42:'weapon'}),(2,{})]:
+            owner={};locals_=[owner,hand,None,None,'weapon'];stack=[];pc=0
+            while pc<len(code):
+                at=pc;op=code[pc];pc+=1
+                if op==0x2a:stack.append(owner)
+                elif op==0x1b:stack.append(hand)
+                elif op==0x04:stack.append(1)
+                elif op==0x19:stack.append(locals_[code[pc]]);pc+=1
+                elif op==0xb5:
+                    field=int.from_bytes(code[pc:pc+2],'big');pc+=2;value=stack.pop();stack.pop()[field]=value
+                elif op in (0x99,0xa0,0xa7):
+                    delta=int.from_bytes(code[pc:pc+2],'big',signed=True);pc+=2
+                    take=True if op==0xa7 else (stack.pop()==0 if op==0x99 else stack.pop()!=stack.pop())
+                    if take:pc=at+delta
+                else:raise AssertionError(op)
+            self.assertEqual(owner,wanted);self.assertEqual(stack,[])
+
 def execute_effects(code, owner, definitions=None, visual=False, hand=0, fail_frame=False, fail_create=False,
                     fail_detach=False, require_current_frame=False, diagnostics=None):
     # Execute emitted JVM instructions and record world emitter arguments.
@@ -136,7 +163,7 @@ def execute_interaction(code, out, origin, direction, native_result=True):
         else: raise AssertionError(hex(op))
     raise AssertionError('Interaction helper did not return')
 
-def execute_attack_guard(code, hand, button, tracked=True, single=True, firearm=True, net=False):
+def execute_attack_guard(code, hand, button, tracked=True, single=True, firearm=True, net=False, whip=False):
     owner={1: [1,2,3] if tracked else None, 2: [1,2,3] if tracked else None, 3:net}
     locals_=[owner,hand,button,None]; stack=[]; pc=0
     while pc<len(code):
@@ -149,7 +176,7 @@ def execute_attack_guard(code, hand, button, tracked=True, single=True, firearm=
         elif op in (0xb4,0xb6,0xc1):
             ref=int.from_bytes(code[pc:pc+2],'big');pc+=2
             if op==0xb4: stack.append(stack.pop()[ref])
-            elif op==0xc1: stack.pop();stack.append(firearm)
+            elif op==0xc1: stack.pop();stack.append(whip if ref==7 else firearm)
             elif ref==4: stack.pop();stack.pop();stack.append('actual_weapon')
             elif ref==5: stack.pop();stack.pop();stack.append(not single)
             else: raise AssertionError(ref)
@@ -321,7 +348,56 @@ class WeaponConsumers(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SHA-256"): patch_class(b"unknown")
         with self.assertRaisesRegex(ValueError,"SHA-256"): patch.patch_fire_class(b"unknown")
 
+class WhipPoseTests(unittest.TestCase):
+    def test_whip_pose_boundary_is_exact_and_nullable(self):
+        patcher=getattr(patch,'patch_whip_class',None)
+        self.assertTrue(callable(patcher),'Exact native whip pose consumer is missing')
+        with self.assertRaisesRegex(ValueError,'WeaponWhip.class SHA-256'):
+            patcher(b'unknown')
+
+    def test_tracked_whip_preserves_both_native_trigger_modes(self):
+        code=patch.single_hand_attack_guard([1,2],3,4,6,5,7)
+        self.assertEqual(execute_attack_guard(code,0,1,whip=True),'original')
+        self.assertEqual(execute_attack_guard(code,0,1,whip=False),0)
+
+    def test_native_whip_consumer_copies_only_complete_owned_pose(self):
+        helper=getattr(patch,'whip_pose_prefix',None)
+        self.assertTrue(callable(helper),'Nullable whip pose boundary is missing')
+        code=helper([1,2,3],4,5,6,[7,8,9,11],10,12)
+        for missing in (None,1,2,3,4,5,6):
+            source={1:[1,2,3],2:[1,0,0],3:[0,1,0],4:{5:False},6:True}
+            if missing in (1,2,3,4): source[missing]=None
+            if missing==5: source[4][5]=True
+            if missing==6: source[6]=False
+            globals_={7:[11,12,13],8:[21,22,23],9:[31,32,33],11:[41,42,43]}
+            before={k:list(v) for k,v in globals_.items()}
+            stack=[];pc=0;returned=False
+            while pc<len(code):
+                at=pc;op=code[pc];pc+=1
+                if op==0x2a: stack.append(source)
+                elif op in (0xb4,0xb2,0xb6):
+                    ref=int.from_bytes(code[pc:pc+2],'big');pc+=2
+                    if op==0xb4: stack.append(stack.pop()[ref])
+                    elif op==0xb2: stack.append(globals_[ref])
+                    else:
+                        if ref==10:
+                            value=stack.pop();target=stack.pop();target[:]=value
+                        else:
+                            self.assertEqual(ref,12,'unexpected native update/draw/cloth call')
+                            b=stack.pop();a=stack.pop();target=stack.pop()
+                            target[:]=[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
+                elif op in (0xc6,0x99,0x9a):
+                    delta=int.from_bytes(code[pc:pc+2],'big',signed=True);pc+=2
+                    value=stack.pop()
+                    if value is None if op==0xc6 else value==0 if op==0x99 else value!=0: pc=at+delta
+                elif op==0xb1: returned=True;break
+                else: self.fail(hex(op))
+            self.assertFalse(stack)
+            self.assertEqual(returned,missing is None)
+            self.assertEqual(globals_,{7:source[1],8:source[2],9:source[3],11:[0,0,1]} if missing is None else before)
+
 class SaveThumbnailTests(unittest.TestCase):
+
     def test_preserves_save_flow_and_rejects_unknown_call_boundary(self):
         original=bytearray(270)
         original[94:105]=b'\x2a\x2d\x11\x02\x00\x11\x01\x00\xb6\x01\x94'

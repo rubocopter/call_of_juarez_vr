@@ -15,6 +15,7 @@
 #include "backends/d3d9/vr_present_policy.hpp"
 
 #include <windows.h>
+#include <psapi.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -148,6 +149,45 @@ const char* LegacyTextureKindName(
     return "unknown";
 }
 
+// Sample only at bounded allocation boundaries. This reports address capacity
+// separately from physical memory; it never frees, retries or changes a resource.
+void LogAddressSpace(const std::uint64_t sequence, const bool allocation_failed) noexcept {
+    try {
+        SYSTEM_INFO info{};
+        GetSystemInfo(&info);
+        const std::uint64_t limit = reinterpret_cast<std::uintptr_t>(info.lpMaximumApplicationAddress) + 1ULL;
+        std::uint64_t free_bytes = 0, largest_free = 0, used_bytes = 0;
+        std::uint64_t cursor = reinterpret_cast<std::uintptr_t>(info.lpMinimumApplicationAddress);
+        bool complete = true;
+        while (cursor < limit) {
+            MEMORY_BASIC_INFORMATION region{};
+            if (!VirtualQuery(reinterpret_cast<void*>(static_cast<std::uintptr_t>(cursor)), &region, sizeof(region)) ||
+                region.RegionSize == 0) { complete = false; break; }
+            const auto begin = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(region.BaseAddress));
+            const auto end = std::min(limit, begin + region.RegionSize);
+            if (end <= cursor) { complete = false; break; }
+            const auto bytes = end - cursor;
+            if (region.State == MEM_FREE) { free_bytes += bytes; largest_free = std::max(largest_free, bytes); }
+            else used_bytes += bytes;
+            cursor = end;
+        }
+        PROCESS_MEMORY_COUNTERS_EX counters{};
+        counters.cb = sizeof(counters);
+        const bool counters_valid = K32GetProcessMemoryInfo(GetCurrentProcess(),
+            reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters)) != FALSE;
+        std::ostringstream line;
+        line << "native_stereo_address_space: sequence=" << sequence
+             << ";thread_id=" << GetCurrentThreadId() << ";allocation_failed=" << allocation_failed
+             << ";map_complete=" << complete << ";user_address_limit=" << limit
+             << ";used_va_bytes=" << used_bytes << ";free_va_bytes=" << free_bytes
+             << ";largest_free_region_bytes=" << largest_free << ";counters_valid=" << counters_valid
+             << ";private_commit_bytes=" << counters.PrivateUsage
+             << ";peak_private_commit_bytes=" << counters.PeakPagefileUsage
+             << ";working_set_bytes=" << counters.WorkingSetSize;
+        LogLine(line.str());
+    } catch (...) {}
+}
+
 void LegacyTextureEvent(
     void*,
     const cojvr::games::call_of_juarez::LegacyTextureCreateEvent& event) noexcept {
@@ -183,6 +223,10 @@ void LegacyTextureEvent(
                  << std::dec;
         }
         LogLine(line.str());
+        if (event.phase == cojvr::games::call_of_juarez::LegacyTextureCreatePhase::result &&
+            (FAILED(event.result) || event.sequence == 1 || event.sequence % 64 == 0)) {
+            LogAddressSpace(event.sequence, FAILED(event.result));
+        }
     } catch (...) {
     }
 }
@@ -1373,6 +1417,8 @@ bool BeginStereoFrame(
     sample.left_aim = tracking.left_aim;
     sample.right_aim = tracking.right_aim;
     sample.gameplay = tracking.gameplay;
+    sample.left_fingers = tracking.left_fingers;
+    sample.right_fingers = tracking.right_fingers;
     sample.recenter_requested = tracking.recenter_requested;
     sample.ui_select_left = tracking.ui_select_left;
     sample.ui_select_right = tracking.ui_select_right;
@@ -1465,6 +1511,7 @@ bool SubmitStereoFrame(
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
     cojvr::backends::d3d9::StereoReticleOverlay capture_reticle{};
     capture_reticle.active = gameplay_reticle.active;
+    capture_reticle.no_shoot = gameplay_reticle.no_shoot;
     capture_reticle.frame_sequence = gameplay_reticle.frame_sequence;
     for (std::size_t eye = 0; eye < capture_reticle.eyes.size(); ++eye) {
         capture_reticle.eyes[eye] = {

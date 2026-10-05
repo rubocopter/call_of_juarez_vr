@@ -8,6 +8,14 @@ manifest = json.loads((root / "assets/openvr/actions.json").read_text(encoding="
 binding = json.loads((root / "assets/openvr/bindings/psvr2_sense.json").read_text(encoding="utf-8"))
 actions = {action["name"]: action for action in manifest["actions"]}
 assert len(actions) == len(manifest["actions"]), "duplicate manifest action"
+for side in ("left", "right"):
+    name = f"/actions/global/in/{side}_hand_skeleton"
+    assert name in actions, f"missing optional {side} finger skeleton action"
+    assert actions[name] == {"name": name, "type": "skeleton",
+                             "skeleton": f"/skeleton/hand/{side}", "requirement": "optional"}
+    skeletons = binding["bindings"]["/actions/global"]["skeleton"]
+    assert {"output": name, "path": f"/user/hand/{side}/input/skeleton/{side}"} in skeletons, \
+        f"{side} skeleton must bind to the actual Sense skeletal input"
 runtime = (root / "src/runtime/openvr_runtime.cpp").read_text(encoding="utf-8")
 lookups = set(re.findall(r'"(/actions/(?:global|gameplay)/in/[^\"]+)"', runtime))
 assert set(actions) == lookups, f"manifest/runtime mismatch: {set(actions) ^ lookups}"

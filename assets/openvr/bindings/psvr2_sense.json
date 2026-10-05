@@ -23,7 +23,16 @@
           "path": "/user/hand/right/pose/tip"
         }
       ],
-      "skeleton": [],
+      "skeleton": [
+        {
+          "output": "/actions/global/in/left_hand_skeleton",
+          "path": "/user/hand/left/input/skeleton/left"
+        },
+        {
+          "output": "/actions/global/in/right_hand_skeleton",
+          "path": "/user/hand/right/input/skeleton/right"
+        }
+      ],
       "sources": [
         {
           "inputs": {

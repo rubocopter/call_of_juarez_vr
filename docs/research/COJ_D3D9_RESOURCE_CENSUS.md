@@ -75,6 +75,45 @@ texture still failed and Chrome dereferenced its null pointer at
 `+0x23E3FD`. This was the point that rejected one-size-at-a-time retries and
 motivated the semantic adapter described below.
 
+Production gameplay loading also exposes this native null-dereference boundary
+after translated 1024x1024 DXT1 and DXT5 texture creations return
+`D3DERR_OUTOFVIDEOMEMORY` (`0x8876017C`). This establishes an allocation-failure
+boundary, not the source of resource pressure, a leak or a recenter cause.
+The repeated narrated campaign transition reaches the same `+0x23E3FD` null
+read through `LoadModule -> LoadCurrentLevel -> LoadLevelAfterFade`, including
+a repetition without input during loading. The native log also reports a
+failed temporary backbuffer surface with `E_OUTOFMEMORY` before the transition's
+save and the later `CreateTexture` failure. These are two observed allocation
+failures; the log does not establish common ownership or their pressure source.
+The audited original/system-D3D9 loading crash at `+0x22F262` is a different
+fault boundary and cannot be substituted for this failure's provenance.
+
+The two retained WER dumps contain `ProcessVmCountersStream` revision 2 with
+valid virtual-size counters. Peak virtual size is approximately 1,967 and
+2,023 MiB against the original x86 executable's 2,048 MiB user-address ceiling.
+The latter leaves only about 25 MiB at its recorded peak. WER records a later
+MSVCR71 exception during failure handling; the matching HotSpot log identifies
+the initial ChromeEngine null read. Peak and crash-time counters are distinct;
+neither dump has a complete VirtualQuery memory map, so fragmentation and
+ownership are not inferred from them.
+
+**Host-tested capacity mitigation:** an optional native-stereo deployment sets
+only `IMAGE_FILE_LARGE_ADDRESS_AWARE` at file byte `0x10E` (`0x0E -> 0x2E`).
+Original SHA-256 remains `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`;
+the exact derivative is `C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9`.
+Unknown originals fail closed; no other byte, section, code or offset changes.
+On 64-bit Windows this raises x86 user address capacity from 2 to 4 GiB per
+[Microsoft's address-space limits](https://learn.microsoft.com/en-us/windows/win32/memory/memory-limits-for-windows-releases).
+It does not increase VRAM or demonstrate a performance improvement. Synthetic
+x86 high-address allocation and exact-copy transactional failure/restore checks
+pass; the real narrated level transition and native/JVM high-address behavior
+remain physically unaccepted until exercised. Bounded production diagnostics
+sample total/free VA, largest free region and private commit without retrying,
+freeing or altering resource policy.
+Successful creation of preceding textures and bounded startup/Reset tests do
+not accept sustained loading or device-loss recovery. Preserve the failure and
+exact-build provenance; arbitrary per-size retries do not resolve this contract.
+
 The engine identity is `ChromeEngine3.dll` version `1.1.1.0st`, SHA-256
 `DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8`;
 the game executable SHA-256 is

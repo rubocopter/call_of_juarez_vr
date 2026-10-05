@@ -104,6 +104,8 @@ add_library(cojvr_d3d9_hooks STATIC
 add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/hud_boundary_probe.cpp
     src/games/call_of_juarez/hud_text_reader.cpp
+    src/games/call_of_juarez/gameplay_ui_reader.cpp
+    src/games/call_of_juarez/gameplay_ui_adapter.cpp
     src/games/call_of_juarez/camera_probe.cpp
     src/games/call_of_juarez/game_shutdown_hook.cpp
     src/games/call_of_juarez/body_adapter.cpp
@@ -146,6 +148,7 @@ if(COJVR_ENABLE_OPENVR)
         src/backends/openvr/d3d11_session.cpp
         src/backends/openvr/stereo_presenter.cpp
         src/backends/openvr/hud_text_overlay.cpp
+        src/backends/openvr/gameplay_ui_raster.cpp
         src/backends/d3d9/frame_mailbox.cpp
     )
     target_include_directories(cojvr_openvr_d3d11_backend PUBLIC src)
@@ -391,15 +394,32 @@ endif()
 
 if(COJVR_BUILD_TESTS)
     enable_testing()
-    add_executable(cojvr_d3d9_pool_probe_smoke tests/d3d9_pool_probe_smoke.cpp)
+    add_executable(cojvr_d3d9_pool_probe_smoke tests/d3d9_pool_probe_smoke.cpp
+        src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_d3d9_pool_probe_smoke PRIVATE src)
     target_compile_features(cojvr_d3d9_pool_probe_smoke PRIVATE cxx_std_20)
     target_compile_definitions(cojvr_d3d9_pool_probe_smoke PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-    target_link_libraries(cojvr_d3d9_pool_probe_smoke PRIVATE d3d9)
     add_test(NAME d3d9_pool_probe_smoke COMMAND cojvr_d3d9_pool_probe_smoke $<TARGET_FILE:cojvr_d3d9_pool_probe>)
     set_tests_properties(d3d9_pool_probe_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
     find_program(COJVR_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
     find_program(COJVR_PYTHON_EXECUTABLE NAMES python REQUIRED)
+    add_test(
+        NAME deployment_recovery
+        COMMAND "${COJVR_POWERSHELL_EXECUTABLE}" -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tests/deployment_recovery.ps1"
+            -SourceDirectory "${CMAKE_SOURCE_DIR}"
+            -BinaryDirectory "${CMAKE_BINARY_DIR}"
+    )
+    if(COJVR_ENABLE_OPENVR)
+        add_test(
+            NAME bootstrap_openvr
+            COMMAND "${COJVR_POWERSHELL_EXECUTABLE}" -NoProfile
+                -File "${CMAKE_SOURCE_DIR}/tests/bootstrap_openvr.ps1"
+                -SourceDirectory "${CMAKE_SOURCE_DIR}"
+                -BinaryDirectory "${CMAKE_BINARY_DIR}"
+        )
+    endif()
     add_test(
         NAME vr_video_profile
         COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
@@ -445,6 +465,20 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_build_identity_tests PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME build_identity_tests COMMAND cojvr_build_identity_tests)
+
+    add_executable(cojvr_large_address_space_fixture tests/large_address_space.cpp)
+    target_compile_features(cojvr_large_address_space_fixture PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_large_address_space_fixture PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(MSVC)
+        target_link_options(cojvr_large_address_space_fixture PRIVATE /LARGEADDRESSAWARE:NO)
+    endif()
+    add_test(NAME large_address_space COMMAND pwsh -NoProfile -File
+        "${CMAKE_SOURCE_DIR}/tests/large_address_space.ps1"
+        -FixturePath "$<TARGET_FILE:cojvr_large_address_space_fixture>")
+    set_tests_properties(large_address_space PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+    add_test(NAME coj_large_address COMMAND python "${CMAKE_SOURCE_DIR}/tests/coj_large_address.py")
+    add_test(NAME coj_executable_identity COMMAND pwsh -NoProfile -File
+        "${CMAKE_SOURCE_DIR}/tests/coj_executable_identity.ps1")
 
     add_test(NAME d3d9_probe COMMAND cojvr_d3d9_probe)
     set_tests_properties(d3d9_probe PROPERTIES SKIP_RETURN_CODE 77)
@@ -540,12 +574,27 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_hud_text_reader_test PRIVATE /utf-8)
     endif()
     add_test(NAME hud_text_reader COMMAND cojvr_hud_text_reader_test)
-    add_executable(cojvr_hud_text_overlay_test tests/hud_text_overlay.cpp src/backends/openvr/hud_text_overlay.cpp)
+    add_executable(cojvr_hud_text_overlay_test tests/hud_text_overlay.cpp src/backends/openvr/hud_text_overlay.cpp src/backends/openvr/gameplay_ui_raster.cpp)
     target_link_libraries(cojvr_hud_text_overlay_test PRIVATE cojvr_runtime gdi32 d3d11 d3dcompiler)
     if(MSVC)
         target_compile_options(cojvr_hud_text_overlay_test PRIVATE /utf-8)
     endif()
     add_test(NAME hud_text_overlay COMMAND cojvr_hud_text_overlay_test)
+    add_executable(cojvr_gameplay_ui_raster_test tests/gameplay_ui_raster.cpp src/backends/openvr/gameplay_ui_raster.cpp)
+    target_link_libraries(cojvr_gameplay_ui_raster_test PRIVATE cojvr_runtime gdi32)
+    if(MSVC)
+        target_compile_options(cojvr_gameplay_ui_raster_test PRIVATE /utf-8)
+    endif()
+    add_test(NAME gameplay_ui_raster COMMAND cojvr_gameplay_ui_raster_test)
+    add_executable(cojvr_gameplay_ui_adapter_test tests/gameplay_ui_adapter.cpp src/games/call_of_juarez/gameplay_ui_adapter.cpp)
+    target_link_libraries(cojvr_gameplay_ui_adapter_test PRIVATE cojvr_runtime)
+    add_test(NAME gameplay_ui_adapter COMMAND cojvr_gameplay_ui_adapter_test)
+    add_executable(cojvr_gameplay_ui_reader_test tests/gameplay_ui_reader.cpp src/games/call_of_juarez/gameplay_ui_reader.cpp)
+    target_link_libraries(cojvr_gameplay_ui_reader_test PRIVATE cojvr_runtime)
+    if(MSVC)
+        target_compile_options(cojvr_gameplay_ui_reader_test PRIVATE /utf-8)
+    endif()
+    add_test(NAME gameplay_ui_reader COMMAND cojvr_gameplay_ui_reader_test)
     target_link_libraries(cojvr_hud_boundary_probe_test PRIVATE cojvr_coj_camera_probe)
     add_test(NAME hud_boundary_probe COMMAND cojvr_hud_boundary_probe_test)
     add_executable(cojvr_gameplay_utility_test tests/gameplay_utility.cpp)
@@ -677,7 +726,7 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_ui_pointer_ownership_test PRIVATE cxx_std_20)
     add_test(NAME ui_pointer_ownership COMMAND cojvr_ui_pointer_ownership_test)
 
-    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp)
+    add_executable(cojvr_ui_cursor_jni_test tests/ui_cursor_jni.cpp src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp src/games/call_of_juarez/gameplay_ui_reader.cpp)
     target_link_libraries(cojvr_ui_cursor_jni_test PRIVATE cojvr_runtime)
     target_include_directories(cojvr_ui_cursor_jni_test PRIVATE src)
     target_compile_features(cojvr_ui_cursor_jni_test PRIVATE cxx_std_20)
@@ -685,13 +734,20 @@ if(COJVR_BUILD_TESTS)
         NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     add_test(NAME ui_cursor_jni COMMAND cojvr_ui_cursor_jni_test)
     add_executable(cojvr_gameplay_input_jni_test tests/gameplay_input_jni.cpp
-        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp)
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp src/games/call_of_juarez/gameplay_ui_reader.cpp)
     target_link_libraries(cojvr_gameplay_input_jni_test PRIVATE cojvr_runtime)
     target_include_directories(cojvr_gameplay_input_jni_test PRIVATE src)
     target_compile_features(cojvr_gameplay_input_jni_test PRIVATE cxx_std_20)
     target_compile_definitions(cojvr_gameplay_input_jni_test PRIVATE
         NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     add_test(NAME gameplay_input_jni COMMAND cojvr_gameplay_input_jni_test)
+    add_executable(cojvr_whip_tracking_jni_test tests/whip_tracking_jni.cpp
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp src/games/call_of_juarez/gameplay_ui_reader.cpp)
+    target_link_libraries(cojvr_whip_tracking_jni_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_whip_tracking_jni_test PRIVATE src)
+    target_compile_features(cojvr_whip_tracking_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_whip_tracking_jni_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME whip_tracking_jni COMMAND cojvr_whip_tracking_jni_test)
 
     add_executable(cojvr_native_fx_probe_test tests/native_fx_probe.cpp
         src/games/call_of_juarez/native_fx_probe.cpp)

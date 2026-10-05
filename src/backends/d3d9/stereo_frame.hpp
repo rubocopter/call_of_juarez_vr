@@ -55,6 +55,7 @@ struct StereoReticlePoint {
 // adapter for the exact eye cameras that produced this captured frame.
 struct StereoReticleOverlay {
     bool active = false;
+    bool no_shoot = false;
     std::uint64_t frame_sequence = 0;
     std::array<StereoReticlePoint, 2> eyes{};
 };

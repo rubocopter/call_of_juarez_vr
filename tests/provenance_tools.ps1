@@ -46,6 +46,7 @@ try {
         "set_hmd_camera_control.ps1",
         "verify_hmd_camera_live_test.ps1",
         "verify_native_stereo_live_test.ps1",
+        "coj_executable_identity.ps1",
         "summarize_native_stereo_run.ps1",
         "vr_test.ps1"
     )

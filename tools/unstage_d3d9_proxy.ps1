@@ -22,8 +22,10 @@ $TransactionJournal = Join-Path $GameDirectory ".cojvr-deployment-transaction.js
 if (Get-Process -Name CoJ -ErrorAction SilentlyContinue) {
     throw "Call of Juarez is running. Close it before unstaging the candidate."
 }
+$RecoveredTransaction = $false
 if (Test-Path -LiteralPath $TransactionJournal -PathType Leaf) {
     [void](Complete-CojvrDeploymentRecovery $GameDirectory)
+    $RecoveredTransaction = $true
     Write-Host "Recovered the previous interrupted CoJ VR deployment transaction."
 }
 
@@ -33,10 +35,22 @@ if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
         Write-Host "Removed the CoJ VR D3D9Ex bridge marker."
         return
     }
+    if ($RecoveredTransaction) { return }
     throw "No CoJ VR staging state was found. Refusing to modify d3d9.dll."
 }
 
 $StageState = Get-Content -LiteralPath $State -Raw | ConvertFrom-Json
+$ExecutableManaged = $StageState.PSObject.Properties.Name -contains "executableManaged" -and [bool]$StageState.executableManaged
+$Executable = Join-Path $GameDirectory "CoJ.exe"
+$ExecutableBackup = Join-Path $GameDirectory "CoJ.cojvr-backup.exe"
+if ($ExecutableManaged) {
+    if ([string]$StageState.originalExecutableSha256 -ne "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE" -or
+        [string]$StageState.stagedExecutableSha256 -ne "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9" -or
+        (Get-CojvrFileSha256 $Executable) -ne [string]$StageState.stagedExecutableSha256 -or
+        (Get-CojvrFileSha256 $ExecutableBackup) -ne [string]$StageState.originalExecutableSha256) {
+        throw "CoJ.exe or its original backup changed; refusing incomplete restoration."
+    }
+}
 $PlayerArchiveManaged = $StageState.PSObject.Properties.Name -contains "playerArchiveManaged" -and [bool]$StageState.playerArchiveManaged
 $PlayerArchive = Join-Path $GameDirectory "Data0.pak"
 $PlayerBackup = Join-Path $GameDirectory "Data0.cojvr-backup.pak"
@@ -110,7 +124,7 @@ $JournalAssets = @(
     [ordered]@{
         role = "proxy"; kind = "file"; destination = "d3d9.dll"; backup = "d3d9.cojvr-backup.dll"
         hadOriginal = [bool]$StageState.hadOriginalD3D9
-        originalSha256 = if ([bool]$StageState.hadOriginalD3D9) { Get-CojvrFileSha256 $Backup } else { $null }
+        originalSha256 = [string]$StageState.originalProxySha256
         stagedSha256 = ([string]$StageState.stagedProxySha256).ToUpperInvariant()
     }
 )
@@ -118,7 +132,7 @@ if ($CameraControlManaged) {
     $JournalAssets += [ordered]@{
         role = "camera_control"; kind = "file"; destination = "cojvr-camera-control.json"; backup = "cojvr-camera-control.cojvr-backup.json"
         hadOriginal = [bool]$StageState.hadOriginalCameraControl
-        originalSha256 = if ([bool]$StageState.hadOriginalCameraControl) { Get-CojvrFileSha256 $CameraControlBackup } else { $null }
+        originalSha256 = [string]$StageState.originalCameraControlSha256
         stagedSha256 = if (Test-Path -LiteralPath $CameraControl -PathType Leaf) { Get-CojvrFileSha256 $CameraControl } else { $null }
     }
 }
@@ -126,13 +140,13 @@ if ($OpenVrRuntimeManaged) {
     $JournalAssets += [ordered]@{
         role = "openvr_runtime"; kind = "file"; destination = "openvr_api.dll"; backup = "openvr_api.cojvr-backup.dll"
         hadOriginal = [bool]$StageState.hadOriginalOpenVr
-        originalSha256 = if ([bool]$StageState.hadOriginalOpenVr) { Get-CojvrFileSha256 $OpenVrBackup } else { $null }
+        originalSha256 = [string]$StageState.originalOpenVrSha256
         stagedSha256 = ([string]$StageState.stagedOpenVrSha256).ToUpperInvariant()
     }
 }
 if ($OpenVrInputManaged) {
     $OriginalInputManifest = if ([bool]$StageState.hadOriginalOpenVrInput) {
-        @(Get-CojvrDirectoryManifest $OpenVrInputBackup)
+        @($StageState.originalOpenVrInputManifest)
     } else { @() }
     $JournalAssets += [ordered]@{
         role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
@@ -158,7 +172,40 @@ if ($PlayerArchiveManaged) {
         stagedSha256 = [string]$StageState.stagedPlayerSha256
     }
 }
+# Check every original against the identity captured before stage, before any
+# restoration mutation. Never establish trust from the current backup bytes.
+if ($ExecutableManaged) {
+    $JournalAssets += [ordered]@{
+        role = "game_executable"; kind = "file"; destination = "CoJ.exe"; backup = "CoJ.cojvr-backup.exe"
+        hadOriginal = $true; originalSha256 = [string]$StageState.originalExecutableSha256
+        stagedSha256 = [string]$StageState.stagedExecutableSha256
+    }
+}
+foreach ($Asset in $JournalAssets) {
+    if (-not [bool]$Asset.hadOriginal) { continue }
+    $OriginalBackup = Join-Path $GameDirectory ([string]$Asset.backup)
+    if ($Asset.kind -eq "file") {
+        if ([string]$Asset.originalSha256 -notmatch '^[0-9a-fA-F]{64}$' -or
+            (Get-CojvrFileSha256 $OriginalBackup) -ne [string]$Asset.originalSha256) {
+            throw "Original backup '$OriginalBackup' differs from its initial staging identity or that identity is missing. Refusing restoration."
+        }
+    } elseif ($Asset.kind -eq "directory") {
+        if ($null -eq $StageState.PSObject.Properties['originalOpenVrInputManifest'] -or
+            -not (Test-CojvrDirectoryMatchesManifest $OriginalBackup @($Asset.originalManifest))) {
+            throw "Original input backup differs from its initial staging identity or that identity is missing. Refusing restoration."
+        }
+    }
+}
 [void](Write-CojvrDeploymentJournal $GameDirectory "unstage" ([string]$StageState.runId) ([string]$StageState.diagnosticMode) $JournalAssets)
+if ($ExecutableManaged) {
+    Remove-Item -LiteralPath $Executable -Force
+    Invoke-CojvrDeploymentCheckpoint "unstage_executable_removed"
+    Move-Item -LiteralPath $ExecutableBackup -Destination $Executable
+    Invoke-CojvrDeploymentCheckpoint "unstage_executable_original_restored"
+    if ((Get-CojvrFileSha256 $Executable) -ne [string]$StageState.originalExecutableSha256) {
+        throw "Original CoJ.exe was not restored byte-for-byte."
+    }
+}
 
 if ($PlayerArchiveManaged) {
     Remove-Item -LiteralPath $PlayerArchive -Force

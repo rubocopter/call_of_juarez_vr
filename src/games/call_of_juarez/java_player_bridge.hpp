@@ -3,6 +3,7 @@
 #include "runtime/vr_types.hpp"
 #include "runtime/hud_text.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
+#include "games/call_of_juarez/gameplay_ui_reader.hpp"
 
 #include <array>
 #include <cstdint>
@@ -130,7 +131,8 @@ struct CoJUiPointerDispatchPolicy {
 struct CoJSnapTurnState {
     bool latched = false;
 
-    // Return one exact game-yaw step when the right stick crosses the engage
+    // Return one CoJ yaw step (right stick +X -> negative/native right turn)
+    // when the right stick crosses the engage
     // threshold. The stick must return near centre before another step can fire.
     [[nodiscard]] float Update(
         const cojvr::runtime::GameplayInputState& state) noexcept;
@@ -203,6 +205,11 @@ enum class CoJInputDispatchPhase { all, non_fire, fire };
 // LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer().
 class JavaPlayerBridge final {
 public:
+    [[nodiscard]] bool TryGetActiveWhip(int hand, bool& active, std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryPublishTrackedWhip(int hand, const ElementWorldBasisTarget& socket,
+        std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool ClearTrackedWhip(bool release=false, std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool VerifyTrackedWhip(bool& active, std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryApplyTrackedWeapon(
         int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
         cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up,
@@ -302,6 +309,8 @@ public:
         std::string* error = nullptr) noexcept;
 
     [[nodiscard]] bool TryObserveHudText(runtime::HudTextSnapshot& text) noexcept;
+    [[nodiscard]] bool TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept;
+    [[nodiscard]] bool TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept;
     // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers
     // use this gaze ray; native look, ballistics, range and trigger rules remain
     // owned by the game. Context loss clears both nullable instance fields.
@@ -473,6 +482,11 @@ private:
         bool* unarmed_hand = nullptr) noexcept;
     std::array<WeaponOverlay, 2> weapon_overlays_{};
     std::array<void*, 8> weapon_ray_fields_{};
+    void* tracked_whip_ = nullptr;
+    std::array<void*,3> whip_fields_{};
+    std::array<void*,3> whip_vectors_{};
+    ElementWorldBasisTarget whip_frame_{};
+    [[nodiscard]] bool ReadOwnedWhip(void* env, int hand, void*& whip, std::string* error) noexcept;
     bool weapon_overlay_faulted_ = false;
     struct HandOverlay {
         void* object = nullptr;
@@ -587,6 +601,10 @@ private:
     std::uint64_t hud_text_player_generation_ = 0;
     std::uint64_t hud_text_sample_tick_ = 0;
     bool hud_text_sample_valid_ = false;
+    CoJGameplayUiSnapshot gameplay_ui_cache_{};
+    std::uint64_t gameplay_ui_player_generation_ = 0;
+    std::uint64_t gameplay_ui_sample_tick_ = 0;
+    bool gameplay_ui_sample_valid_ = false;
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     bool gameplay_input_applied_ = false;
     CoJSnapTurnState snap_turn_state_{};

@@ -36,6 +36,17 @@ struct Pose {
     bool position_valid = false;
 };
 
+// Skeletal animation fidelity reported by the runtime. Estimated curls are
+// controller-derived poses, not measurements of every finger joint.
+enum class FingerTrackingQuality : std::uint8_t { unavailable, estimated, partial, full };
+
+struct FingerTrackingState {
+    // Thumb, index, middle, ring, pinky; 0 straight, 1 fully curled.
+    std::array<float, 5> curls{};
+    FingerTrackingQuality quality = FingerTrackingQuality::unavailable;
+    bool available = false;
+};
+
 // XR-backend-neutral gameplay intent. Physical controller paths belong to the
 // runtime binding profile; numeric game action IDs belong to the game adapter.
 // Keeping this semantic state between them lets a presenter zero all held

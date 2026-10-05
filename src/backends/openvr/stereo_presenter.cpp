@@ -1,4 +1,5 @@
 #include "backends/openvr/stereo_presenter.hpp"
+#include "backends/openvr/reticle_pixels.hpp"
 
 #include "backends/d3d9/content_hash.hpp"
 #include "backends/openvr/d3d11_compositor.hpp"
@@ -123,6 +124,8 @@ struct OpenVrStereoPresenter::Impl {
     runtime::Pose latest_right_controller{};
     runtime::Pose latest_left_aim{};
     runtime::Pose latest_right_aim{};
+    runtime::FingerTrackingState latest_left_fingers{};
+    runtime::FingerTrackingState latest_right_fingers{};
     bool latest_left_handgrip_active = false;
     bool latest_right_handgrip_active = false;
     bool latest_left_aim_active = false;
@@ -414,6 +417,27 @@ struct OpenVrStereoPresenter::Impl {
                     texture_height - 1U,
                     static_cast<std::uint32_t>(
                         point.v * static_cast<float>(texture_height - 1U) + 0.5F));
+                if (frame.gameplay_reticle.no_shoot) {
+                    // Upload only contiguous opaque spans of the warning;
+                    // transparent gaps keep the captured world untouched.
+                    for(int y=-8;y<=8;++y){
+                        const int py=static_cast<int>(center_y)+y;
+                        if(py<0||py>=static_cast<int>(texture_height))continue;
+                        for(int x=-8;x<=8;){
+                            const int px=static_cast<int>(center_x)+x;
+                            if(px<0||px>=static_cast<int>(texture_width)||!NoShootReticlePixel(x,y)){++x;continue;}
+                            const int first=px;std::uint32_t count=0;
+                            while(x<=8&&static_cast<int>(center_x)+x<static_cast<int>(texture_width)){
+                                const auto color=NoShootReticlePixel(x,y);if(!color)break;
+                                pixels[count++]=color;++x;
+                            }
+                            D3D11_BOX box{static_cast<UINT>(first),static_cast<UINT>(py),0U,
+                                static_cast<UINT>(first)+count,static_cast<UINT>(py)+1U,1U};
+                            d3d11.context()->UpdateSubresource(textures[eye].Get(),0,&box,pixels.data(),count*4U,0);
+                        }
+                    }
+                    continue;
+                }
                 for (int offset = -1; offset <= 1; ++offset) {
                     const int horizontal_y = static_cast<int>(center_y) + offset;
                     const int vertical_x = static_cast<int>(center_x) + offset;
@@ -1217,6 +1241,13 @@ struct OpenVrStereoPresenter::Impl {
                         latest_left_aim_active = left_aim_valid;
                         latest_right_aim_active = right_aim_valid;
                         latest_gameplay = gameplay;
+                        // Finger samples are gameplay presentation values. A
+                        // failed poll or focus/menu/tracking loss must discard
+                        // them, even if the skeletal source remains active.
+                        latest_left_fingers = gameplay.active && left_handgrip_valid
+                            ? hand_poses.left_fingers : runtime::FingerTrackingState{};
+                        latest_right_fingers = gameplay.active && right_handgrip_valid
+                            ? hand_poses.right_fingers : runtime::FingerTrackingState{};
                         latest_ui_actions_allowed = input_polled && runtime_state.focused && !dashboard_visible;
                         latest_ui_select_left = actions.ui_select_left;
                         latest_ui_select_right = actions.ui_select_right;
@@ -1254,6 +1285,8 @@ struct OpenVrStereoPresenter::Impl {
                     PublishFlatUiPointer(flat_ui_pointer);
                     std::lock_guard lock(tracking_mutex);
                     latest_gameplay = {};
+                    latest_left_fingers = {};
+                    latest_right_fingers = {};
                     if (gameplay_context_active) ++gameplay_context_generation;
                     gameplay_context_active = false;
                     latest_pose = {};
@@ -1684,6 +1717,8 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_left_aim_active = false;
             impl_->latest_right_aim_active = false;
             impl_->latest_gameplay = {};
+            impl_->latest_left_fingers = {};
+            impl_->latest_right_fingers = {};
             impl_->gameplay_context_generation = 0;
             impl_->gameplay_context_active = false;
             impl_->latest_ui_select_left = false;
@@ -1769,6 +1804,8 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
     sample = {};
     try {
         std::lock_guard lock(impl_->tracking_mutex);
+        if (!impl_->running.load(std::memory_order_acquire) ||
+            impl_->stop_requested.load(std::memory_order_acquire)) return false;
         if (impl_->pose_sequence == 0 || !impl_->latest_pose.orientation_valid) return false;
         sample.pose = impl_->latest_pose;
         sample.left_controller = impl_->latest_left_controller;
@@ -1776,6 +1813,8 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.left_aim = impl_->latest_left_aim;
         sample.right_aim = impl_->latest_right_aim;
         sample.gameplay = impl_->latest_gameplay;
+        sample.left_fingers = impl_->latest_left_fingers;
+        sample.right_fingers = impl_->latest_right_fingers;
         sample.sequence = impl_->pose_sequence;
         sample.recenter_requested = impl_->recenter_pending;
         sample.ui_select_left = impl_->latest_ui_select_left;

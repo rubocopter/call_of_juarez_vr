@@ -42,6 +42,8 @@ struct OpenVrTrackingSample {
     runtime::Pose right_controller{};
     runtime::Pose left_aim{};
     runtime::Pose right_aim{};
+    runtime::FingerTrackingState left_fingers{};
+    runtime::FingerTrackingState right_fingers{};
     runtime::GameplayInputState gameplay{};
     std::uint64_t sequence = 0;
     bool recenter_requested = false;

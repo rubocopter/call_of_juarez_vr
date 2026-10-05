@@ -1,4 +1,4 @@
-"""Exact CoJ Java 1.4 shot/effects/interaction patch, restored with code.pak.
+"""Exact CoJ Java 1.4 shot/effects/interaction/whip patch, restored with code.pak.
 
 Nullable instance fields opt only the bridge-owned player into tracked rays.
 The untouched original methods handle other players, missing tracking and net fire.
@@ -9,19 +9,46 @@ import hashlib
 import struct
 import zipfile
 from pathlib import Path
-from inspect_java_bytecode import Reader, parse_constant_pool
+from inspect_java_bytecode import Reader, parse_constant_pool, disassemble
 
 CLASS_SHA256 = "039b0c12682b99b6560d4597737d794acd4a2b4bb71060c1dc70a8b79ffc4478"
 FIRE_CLASS_SHA256 = "d12b513c32db6e3223348f7058799c3702ea3a78746817753998f0de13c9c421"
 TRIGGERED_CLASS_SHA256 = "df43daa7fc55299f7a22907da8540a5e44a2bf57c1613f96cdc0d6a19d1045d2"
 PAK_SHA256 = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
 SAVE_MODULE_SHA256 = "ded02549df857e99f25d47c34c5ec9c23f0718cad0dd46079db6818d0dcd3c47"
+WHIP_CLASS_SHA256 = "0a7ca8d2059582320251646fe2a992bf43ecf04470986128d99ff503366f5746"
+WHIP_FIELDS = ("cojvrTrackedPosition", "cojvrTrackedUp", "cojvrTrackedForward")
 FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
           "cojvrRightFxUp", "cojvrLeftFxUp", "cojvrRightFxForward", "cojvrLeftFxForward")
 INTERACTION_FIELDS = ("cojvrInteractionOrigin", "cojvrInteractionDirection")
 SHOT_DIAGNOSTIC_FIELDS = ("cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
                           "cojvrFxStatus", "cojvrShotSuppressEffects",
                           "cojvrCombHandle", "cojvrSmokeHandle")
+TARGET_OWNER_FIELDS = ("cojvrRightTargetWeapon", "cojvrLeftTargetWeapon")
+
+def target_owner_tag(fields):
+    c=Code();c.emit(0x1b);c.branch(0x99,"right")
+    c.emit(0x1b,0x04);c.branch(0xa0,"end")
+    c.emit(0x2a,0x19,4);c.ref(0xb5,fields[1]);c.branch(0xa7,"end")
+    c.label("right");c.emit(0x2a,0x19,4);c.ref(0xb5,fields[0]);c.label("end")
+    return c.finish()
+
+def insert_target_tag(code, at, tag, pool):
+    positions=[int(line.split(':',1)[0]) for line in disassemble(code,pool)]
+    if at not in positions:raise ValueError("Target tag is not at an instruction boundary")
+    if any(code[pc] in (0xaa,0xab) for pc in positions):raise ValueError("Unexpected switch in exact target method")
+    changed=bytearray(code[:at]+tag+code[at:])
+    for pc in positions:
+        op=code[pc]
+        size=2 if 0x99<=op<=0xa8 or op in (0xc6,0xc7) else (4 if op in (0xc8,0xc9) else 0)
+        if not size:continue
+        target=pc+int.from_bytes(code[pc+1:pc+1+size],'big',signed=True)
+        new_pc=pc+(len(tag) if pc>=at else 0)
+        new_target=target+(len(tag) if target>=at else 0)
+        delta=new_target-new_pc
+        if delta<-(1<<(size*8-1)) or delta>=(1<<(size*8-1)):raise ValueError("Target branch relocation overflow")
+        changed[new_pc+1:new_pc+1+size]=delta.to_bytes(size,'big',signed=True)
+    return bytes(changed)
 
 def u2(n): return struct.pack(">H", n)
 def u4(n): return struct.pack(">I", n)
@@ -157,7 +184,7 @@ def tracked_event_prefix(owner_field, player_class, net_field, origins, counter,
     c.label('done')
     return c.finish()
 
-def single_hand_attack_guard(origins, net_field, actual_weapon, firearm_class, two_handed):
+def single_hand_attack_guard(origins, net_field, actual_weapon, firearm_class, two_handed, whip_class=None):
     """Reject native cross-hand fallback only for a tracked one-hand firearm."""
     c=Code()
     c.emit(0x2a);c.ref(0xb4,net_field);c.branch(0x9a,'native')
@@ -169,6 +196,8 @@ def single_hand_attack_guard(origins, net_field, actual_weapon, firearm_class, t
     c.label('cache');c.branch(0xc6,'native')
     c.emit(0x2a,0x1b);c.ref(0xb6,actual_weapon);c.emit(0x4e)
     c.emit(0x2d);c.ref(0xc1,firearm_class);c.branch(0x99,'native')
+    if whip_class is not None:
+        c.emit(0x2d);c.ref(0xc1,whip_class);c.branch(0x9a,'native')
     c.emit(0x2a,0x1b);c.ref(0xb6,two_handed);c.branch(0x9a,'native')
     c.emit(0x03,0xac)
     c.label('native')
@@ -214,22 +243,34 @@ def patch_class(data: bytes) -> bytes:
     except StopIteration: firearm_class=append(b"\x07"+u2(utf8("WeaponFire")))
     attack_guard=single_hand_attack_guard(refs[:2],net,
         find("ArmedPlayerBeing.GetActualWeapon(I)LWeapon;"),firearm_class,
-        find("ArmedPlayerBeing.IsActualWeaponOperatedTwoHand(I)Z"))
+        find("ArmedPlayerBeing.IsActualWeaponOperatedTwoHand(I)Z"),find("WeaponWhip"))
     targets = {
         ("GetFireOriginForWeapon", "(LWeapon;LVector;)Z"): (refs[:2], True),
         ("GetFireOriginVisualizationForHand", "(ILVector;)Z"): (refs[:2], False),
         ("GetBeingLookDirDevForHand", "(ILVector;)Z"): (refs[2:4], False),
     }
+    target_refs=[];weapon_descriptor=utf8("LWeapon;")
+    for name in TARGET_OWNER_FIELDS:
+        name_index=utf8(name);extra_fields.extend(u2(1)+u2(name_index)+u2(weapon_descriptor)+u2(0))
+        nt=append(b"\x0c"+u2(name_index)+u2(weapon_descriptor));target_refs.append(append(b"\x09"+u2(this_class)+u2(nt)))
+    target_method=("CheckIfAimingAtFriendlyTarget","(IZ)V")
     method_count = r.u2(); methods = bytearray(u2(method_count+1)); patched = set()
     for _ in range(method_count):
         header = r.read(6); name, desc = pool.utf8(int.from_bytes(header[2:4], "big")), pool.utf8(int.from_bytes(header[4:6], "big"))
         methods.extend(header); count = r.u2(); methods.extend(u2(count))
         for _ in range(count):
             attr_index = r.u2(); attr = r.read(r.u4()); target = targets.get((name, desc))
-            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in (visual_target,attack_target)):
+            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in (visual_target,attack_target,target_method)):
                 cr = Reader(attr); stack, locals_ = cr.u2(), cr.u2(); code = cr.read(cr.u4())
                 if cr.u2() != 0: raise ValueError("Unexpected shot exception table")
-                if (name,desc)==attack_target:
+                if (name,desc)==target_method:
+                    # Tag the local Weapon used by the natural trace, only after
+                    # both native LC segment vectors have been committed. Budget
+                    # skips preserve the old owner; no trace/update is replayed.
+                    expected=b'\x2a\xb4'+u2(find("ArmedPlayerBeing.m_vLCEnd[LVector;"))+b'\x1b\x32\xb2'+u2(find("ArmedPlayerBeing.sm_vrEndLVector;"))+b'\xb6'+u2(find("Vector.Set(LVector;)V"))
+                    if len(code)!=683 or code[390:402]!=expected:raise ValueError("Unexpected exact target segment commit")
+                    code=insert_target_tag(code,402,target_owner_tag(target_refs),pool)
+                elif (name,desc)==attack_target:
                     code=attack_guard+code
                 elif (name,desc)==visual_target:
                     if code[6:13] != b"\x2a\xb4"+u2(native_visual_array)+b"\x1b\x32\x4e":
@@ -242,12 +283,12 @@ def patch_class(data: bytes) -> bytes:
                 attr = u2(max(3, stack))+u2(max(5 if target and target[1] else 4, locals_))+u4(len(code))+code+u2(0)+u2(0)
                 patched.add((name, desc))
             methods.extend(u2(attr_index)+u4(len(attr))+attr)
-    if patched != set(targets)|{visual_target,attack_target}: raise ValueError("Incomplete shot boundary patch")
+    if patched != set(targets)|{visual_target,attack_target,target_method}: raise ValueError("Incomplete shot boundary patch")
     helper=visual_direction_source(refs[2:4],net,native_visual_array)
     attr=u2(2)+u2(3)+u4(len(helper))+helper+u2(0)+u2(0)
     methods.extend(u2(2)+u2(visual_name)+u2(visual_desc)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
     return (data[:8]+u2(next_index)+data[10:cp_end]+additions+
-            data[cp_end:fields_at]+u2(field_count+len(FIELDS))+data[fields_at+2:fields_end]+
+            data[cp_end:fields_at]+u2(field_count+len(FIELDS)+len(TARGET_OWNER_FIELDS))+data[fields_at+2:fields_end]+
             extra_fields+methods+data[r.stream.tell():])
 
 def patch_fire_class(data: bytes) -> bytes:
@@ -455,6 +496,69 @@ def patch_save_module_class(data: bytes) -> bytes:
     methods.extend(u2(2)+u2(name_id)+u2(desc_id)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
     return data[:8]+u2(next_index)+data[10:cp_end]+extra+data[cp_end:methods_at]+methods+data[r.stream.tell():]
 
+def whip_pose_prefix(fields, owner, net, in_hands, native_fields, vector_set, vector_cross):
+    # Consumed only by the naturally scheduled ComputeWhipPosition. No ODE,
+    # update or draw calls are injected; its caller retains all cloth ownership.
+    c=Code()
+    for field in fields:
+        c.emit(0x2a);c.ref(0xb4,field);c.branch(0xc6,'native')
+    c.emit(0x2a);c.ref(0xb4,owner);c.branch(0xc6,'native')
+    c.emit(0x2a);c.ref(0xb4,owner);c.ref(0xb4,net);c.branch(0x9a,'native')
+    c.emit(0x2a);c.ref(0xb4,in_hands);c.branch(0x99,'native')
+    for target,source in zip(native_fields,fields):
+        c.ref(0xb2,target);c.emit(0x2a);c.ref(0xb4,source);c.ref(0xb6,vector_set)
+    # Native loop shaping also consumes s_vLeft (holding-socket Z). Complete
+    # its rigid basis from the published socket X/Y; keep the cloth caller intact.
+    c.ref(0xb2,native_fields[3]);c.ref(0xb2,native_fields[1]);c.ref(0xb2,native_fields[2])
+    c.ref(0xb6,vector_cross)
+    c.emit(0xb1);c.label('native')
+    return c.finish()
+
+def patch_whip_class(data: bytes) -> bytes:
+    if hashlib.sha256(data).hexdigest()!=WHIP_CLASS_SHA256:
+        raise ValueError('Unknown WeaponWhip.class SHA-256; no mutation')
+    r=Reader(data);r.read(8);pool=parse_constant_pool(r);cp_end=r.stream.tell()
+    extra=bytearray();next_index=len(pool.entries)
+    def append(raw):
+        nonlocal next_index
+        index=next_index;next_index+=1;extra.extend(raw);return index
+    def utf8(value):
+        raw=value.encode('utf-8');return append(b'\x01'+u2(len(raw))+raw)
+    def find(value):
+        return next(i for i,e in enumerate(pool.entries) if e is not None and pool.describe(i)==value)
+    r.u2();this_class=r.u2();r.u2();r.read(r.u2()*2)
+    fields_at=r.stream.tell();field_count=r.u2()
+    for _ in range(field_count):
+        r.read(6)
+        for _ in range(r.u2()): r.u2();r.read(r.u4())
+    fields_end=r.stream.tell();descriptor=utf8('LVector;');fields=bytearray();refs=[]
+    for name in WHIP_FIELDS:
+        index=utf8(name);fields.extend(u2(1)+u2(index)+u2(descriptor)+u2(0))
+        nt=append(b'\x0c'+u2(index)+u2(descriptor))
+        refs.append(append(b'\x09'+u2(this_class)+u2(nt)))
+    apb=append(b'\x07'+u2(utf8('ArmedPlayerBeing')))
+    nt=append(b'\x0c'+u2(utf8('m_bNetAttackForced'))+u2(utf8('Z')))
+    net=append(b'\x09'+u2(apb)+u2(nt))
+    pre=whip_pose_prefix(refs,find('WeaponWhip.cOwnerAPBLArmedPlayerBeing;'),net,
+        find('WeaponWhip.m_bInHandsZ'),[find('WeaponWhip.'+n+'LVector;') for n in
+        ('s_vPosition','s_vUp','s_vForward','s_vLeft')],find('Vector.Set(LVector;)V'),
+        find('Vector.CalcCross(LVector;LVector;)V'))
+    method_count=r.u2();methods=bytearray(u2(method_count));patched=0
+    for _ in range(method_count):
+        header=r.read(6);name=pool.utf8(int.from_bytes(header[2:4],'big'));desc=pool.utf8(int.from_bytes(header[4:6],'big'))
+        methods.extend(header);count=r.u2();methods.extend(u2(count))
+        for _ in range(count):
+            index=r.u2();attr=r.read(r.u4())
+            if (name,desc)==('ComputeWhipPosition','()V') and pool.utf8(index)=='Code':
+                cr=Reader(attr);stack,locals_=cr.u2(),cr.u2();code=cr.read(cr.u4())
+                if cr.u2()!=0: raise ValueError('Unexpected whip exception table')
+                code=pre+code
+                attr=u2(max(3,stack))+u2(locals_)+u4(len(code))+code+u2(0)+u2(0);patched+=1
+            methods.extend(u2(index)+u4(len(attr))+attr)
+    if patched!=1: raise ValueError('Incomplete exact whip pose boundary')
+    return (data[:8]+u2(next_index)+data[10:cp_end]+extra+data[cp_end:fields_at]+
+        u2(field_count+len(WHIP_FIELDS))+data[fields_at+2:fields_end]+fields+methods+data[r.stream.tell():])
+
 def patch_archive(source: Path, output: Path):
     if source.resolve() == output.resolve() or output.exists():
         raise ValueError("Patch output must be a new separate file")
@@ -466,7 +570,8 @@ def patch_archive(source: Path, output: Path):
         patched = {"ArmedPlayerBeing.class":patch_class(original.read("ArmedPlayerBeing.class")),
                    "WeaponFire.class":patch_fire_class(original.read("WeaponFire.class")),
                    "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class")),
-                   "LawmanModuleSingle.class":patch_save_module_class(original.read("LawmanModuleSingle.class"))}
+                   "LawmanModuleSingle.class":patch_save_module_class(original.read("LawmanModuleSingle.class")),
+                   "WeaponWhip.class":patch_whip_class(original.read("WeaponWhip.class"))}
         with zipfile.ZipFile(output, "x") as result:
             result.comment = original.comment
             for info in original.infolist():
@@ -481,4 +586,4 @@ def patch_archive(source: Path, output: Path):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(); p.add_argument("source", type=Path); p.add_argument("output", type=Path)
     a = p.parse_args(); patch_archive(a.source, a.output)
-    print("Exact shot and interaction consumers patched; other payloads verified unchanged")
+    print("Exact shot, interaction and procedural-whip consumers patched; other payloads verified unchanged")

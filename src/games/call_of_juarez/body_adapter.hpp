@@ -325,6 +325,10 @@ struct TrackedWeaponFramePlan {
     cojvr::runtime::Vec3 camera_up, cojvr::runtime::Vec3 camera_forward,
     cojvr::runtime::Vec3 grip_position) noexcept;
 
+// Exact ComputeWhipPosition socket axes and actual instance offsets.
+[[nodiscard]] ElementWorldBasisTarget BuildCoJWhipFrame(
+    const ElementWorldBasisTarget& socket, cojvr::runtime::Vec3 native_offsets) noexcept;
+
 struct HandOrientationRotationPlan {
     BoneRotationDelta forearm_twist{};
     BoneRotationDelta hand{};

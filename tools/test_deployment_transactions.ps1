@@ -7,7 +7,8 @@ param(
 
     [Parameter(Mandatory = $true)]
     [string]$BuildManifestPath,
-    [switch]$IndependentHands
+    [switch]$IndependentHands,
+    [switch]$LargeAddressAware
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,6 +57,7 @@ function New-DeploymentFixture([string]$Name) {
         [System.Text.UTF8Encoding]::new($false))
     return [pscustomobject]@{
         path = $Fixture
+        executableHash = Get-CojvrFileSha256 (Join-Path $Fixture "CoJ.exe")
         codeHash = Get-CojvrFileSha256 (Join-Path $Fixture "code.pak")
         playerHash = $PlayerHash
         proxyHash = Get-CojvrFileSha256 (Join-Path $Fixture "d3d9.dll")
@@ -67,6 +69,11 @@ function New-DeploymentFixture([string]$Name) {
 
 function Assert-FixtureRecovered([object]$Fixture) {
     $Path = [string]$Fixture.path
+    Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "CoJ.exe")) -eq [string]$Fixture.executableHash) `
+        "Original CoJ.exe was not restored byte-for-byte."
+    foreach ($Name in @('CoJ.cojvr-backup.exe', 'CoJ.cojvr-installing.exe')) {
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $Path $Name))) "Recovered fixture retained $Name."
+    }
     if ($IndependentHands) {
         Assert-True ((Get-CojvrFileSha256 (Join-Path $Path "Data0.pak")) -eq [string]$Fixture.playerHash) `
             "Original Data0.pak was not restored byte-for-byte."
@@ -95,7 +102,7 @@ function Invoke-TestStage([string]$FixturePath) {
         -GameDirectory $FixturePath `
         -ProxyPath $ProxyPath `
         -BuildManifestPath $BuildManifestPath `
-        -ValidationProfile full -IndependentHands:$IndependentHands | Out-Null
+        -ValidationProfile full -IndependentHands:$IndependentHands -LargeAddressAware:$LargeAddressAware | Out-Null
 }
 
 $StageCheckpoints = @(
@@ -133,8 +140,12 @@ $UnstageCheckpoints = @(
 )
 
 if ($IndependentHands) {
-    $StageCheckpoints=@("stage_player_backup_created", "stage_player_published")
-    $UnstageCheckpoints=@("unstage_player_removed", "unstage_player_original_restored")
+    $StageCheckpoints += @("stage_player_backup_created", "stage_player_published")
+    $UnstageCheckpoints += @("unstage_player_removed", "unstage_player_original_restored")
+}
+if ($LargeAddressAware) {
+    $StageCheckpoints += @('stage_executable_backup_created', 'stage_executable_published')
+    $UnstageCheckpoints += @('unstage_executable_removed', 'unstage_executable_original_restored')
 }
 
 $PreviousFailureTest = $env:COJVR_DEPLOYMENT_FAILURE_TEST
@@ -159,9 +170,39 @@ try {
             [void](Complete-CojvrDeploymentRecovery ([string]$Fixture.path))
         }
         Assert-FixtureRecovered $Fixture
+        Assert-True (-not (Complete-CojvrDeploymentRecovery ([string]$Fixture.path))) 'Repeated deployment recovery changed a completed transaction.'
     }
 
     $CycleFixture = New-DeploymentFixture "repeated-cycle"
+    if ($LargeAddressAware) {
+        $Game = [string]$CycleFixture.path
+        $Executable = Join-Path $Game 'CoJ.exe'
+        $OriginalBytes = [IO.File]::ReadAllBytes($Executable)
+        [IO.File]::AppendAllText($Executable, 'tampering')
+        $Before = @(Get-CojvrDirectoryManifest $Game)
+        $Rejected = $false
+        try { Invoke-TestStage $Game } catch { $Rejected = $_.Exception.Message -match 'not the known exact build' }
+        Assert-True $Rejected 'Unknown original executable was accepted for LAA staging.'
+        Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) 'Unknown executable rejection changed assets.'
+        [IO.File]::WriteAllBytes($Executable, $OriginalBytes)
+        foreach ($Name in @('CoJ.cojvr-backup.exe', 'CoJ.cojvr-installing.exe')) {
+            $Path = Join-Path $Game $Name
+            [IO.File]::WriteAllText($Path, 'stale')
+            $Before = @(Get-CojvrDirectoryManifest $Game)
+            $Rejected = $false
+            try { Invoke-TestStage $Game } catch { $Rejected = $true }
+            Assert-True $Rejected "Stale $Name was overwritten."
+            Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) "Stale $Name rejection changed assets."
+            Remove-Item -LiteralPath $Path
+        }
+        $Rejected = $false
+        $Before = @(Get-CojvrDirectoryManifest $Game)
+        try {
+            & (Join-Path $PSScriptRoot 'stage_d3d9_proxy.ps1') -GameDirectory $Game -ProxyPath (Join-Path ([IO.Path]::GetDirectoryName($ProxyPath)) 'd3d9.dll') -LargeAddressAware | Out-Null
+        } catch { $Rejected = $_.Exception.Message -match 'requires the exact native-stereo candidate' }
+        Assert-True $Rejected 'LAA accepted a non-native-stereo proxy.'
+        Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) 'Wrong-mode LAA staging changed assets.'
+    }
     if ($IndependentHands) {
         $Player=Join-Path ([string]$CycleFixture.path) "Data0.pak"
         $Size=(Get-Item -LiteralPath $Player).Length
@@ -180,6 +221,29 @@ try {
         Invoke-TestStage ([string]$CycleFixture.path)
         Assert-True (Test-Path -LiteralPath (Join-Path ([string]$CycleFixture.path) ".cojvr-d3d9-stage.json")) `
             "Stage/unstage cycle $Cycle did not create staging state."
+        if ($LargeAddressAware) {
+            $Game = [string]$CycleFixture.path
+            $Run = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+            $Stage = Get-Content -LiteralPath (Join-Path $Game '.cojvr-d3d9-stage.json') -Raw | ConvertFrom-Json
+            $Actual = Get-CojvrFileSha256 (Join-Path $Game 'CoJ.exe')
+            $Executables = @($Run.deployment | Where-Object role -eq 'game_executable')
+            Assert-True ($Stage.executableManaged -and $Actual -eq $Stage.stagedExecutableSha256 -and
+                $Stage.originalExecutableSha256 -eq $CycleFixture.executableHash -and
+                $Run.game.executable.sha256 -eq $Actual -and $Run.game.executable.originalSha256 -eq $CycleFixture.executableHash -and
+                $Run.game.executable.knownExactBuild -and $Run.game.executable.largeAddressAware -and
+                $Executables.Count -eq 1 -and $Executables[0].sha256 -eq $Actual) 'LAA executable provenance does not match deployment.'
+            foreach ($Name in @('CoJ.exe', 'CoJ.cojvr-backup.exe')) {
+                $Target = Join-Path $Game $Name
+                $Bytes = [IO.File]::ReadAllBytes($Target)
+                [IO.File]::AppendAllText($Target, 'tampering')
+                $Before = @(Get-CojvrDirectoryManifest $Game)
+                $Rejected = $false
+                try { & (Join-Path $PSScriptRoot 'unstage_d3d9_proxy.ps1') -GameDirectory $Game | Out-Null } catch { $Rejected = $true }
+                Assert-True $Rejected "Changed $Name was accepted."
+                Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) "Rejected $Name restoration changed assets."
+                [IO.File]::WriteAllBytes($Target, $Bytes)
+            }
+        }
         if ($IndependentHands) {
             $Run=Get-Content -LiteralPath (Join-Path ([string]$CycleFixture.path) ".cojvr-run.json") -Raw | ConvertFrom-Json
             Assert-True ($Run.validation.handPresentation -eq "independent_native_hands" -and
@@ -220,9 +284,22 @@ try {
         $env:COJVR_DEPLOYMENT_FAILURE_TEST = $null
         $env:COJVR_DEPLOYMENT_FAIL_AFTER = $null
         if (Test-Path -LiteralPath (Join-Path ([string]$Fixture.path) ".cojvr-deployment-transaction.json")) {
-            [void](Complete-CojvrDeploymentRecovery ([string]$Fixture.path))
+            if ($LargeAddressAware -and $Checkpoint -eq 'unstage_state_removed') {
+                # Keep finish's local configuration/video state inside this
+                # fixture. Exercise its real recovery entry point after the
+                # executable and state have already been restored/removed.
+                $Workflow = Join-Path $TestRoot 'workflow/tools'
+                New-Item -ItemType Directory -Path $Workflow -Force | Out-Null
+                foreach ($Name in @('vr_test.ps1', 'coj_video_profile.ps1', 'unstage_d3d9_proxy.ps1', 'deployment_transaction.ps1')) {
+                    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $Name) -Destination (Join-Path $Workflow $Name)
+                }
+                & (Join-Path $Workflow 'vr_test.ps1') finish -GameDirectory ([string]$Fixture.path) | Out-Null
+            } else {
+                [void](Complete-CojvrDeploymentRecovery ([string]$Fixture.path))
+            }
         }
         Assert-FixtureRecovered $Fixture
+        Assert-True (-not (Complete-CojvrDeploymentRecovery ([string]$Fixture.path))) 'Repeated unstage recovery changed a completed transaction.'
     }
 
     Write-Host "PASS - deployment transaction integration: $($StageCheckpoints.Count) stage failures, $($UnstageCheckpoints.Count) unstage failures, 2 repeated cycles."

@@ -8,39 +8,117 @@ A higher state requires direct evidence for that boundary. Static disassembly, s
 
 Per-run logs, process IDs, videos, raw telemetry and evidence packages are local working data and belong under ignored `work/`. This document records only durable acceptance state and the current physical gate.
 
+Host recovery regressions cover altered original backups, empty input directories,
+mutable camera control and `finish` retries with deployment/video journals after
+stage state removal. Original identities remain mandatory; recovery-only completion
+does not promote live or headset validation.
+
 ## Current physical gate
+
+The previously failing narrated campaign transition is now **headset-validated
+for the exercised Large Address Aware candidate**: the operator crossed it and
+continued into playable whip content without crashing, followed by normal quit
+and verified restoration. Bounded read-only samples show actual used virtual
+address space above 2 GiB with no sampled allocation failures. WER process
+counters from the earlier crashes were near the original non-LAA x86 ceiling.
+Optional `prepare
+-LargeAddressAware` stages only the recognized executable's one-bit PE derivative
+on 64-bit Windows, allowing a 4 GiB user address space. Exact original/derived
+hashes, executable backup, all-inventory recovery preflight and interrupted
+stage/finish restoration are host-tested. A synthetic x86 process additionally
+proves high-address reserve/commit/write/free with the bit set and rejection
+without it. The exercised transition does not accept high-address compatibility
+of every native/JVM path or fix the underlying allocation ownership.
+
+Billy's whip is **headset-validated for the exercised use**: the operator reports
+usable controls and approximately matching reticle alignment, with no other
+problems in that session. Precise reach/collision, every attach/length/release
+gesture and broader climbing contexts remain separate checks; this acceptance
+does not tune native range or damage. The exact owned-whip pose cache and right-hand
+ray are host-tested; the natural `AdditionalSynchro` remains the cloth simulation
+owner. R2 (native RMB/action 10) grabs and, when attached, shortens; L2 (native
+LMB/action 9) attacks and, when attached, lengthens. R2+L2 releases; Cross also
+releases while hanging. The firearm empty-hand guard excludes this exact tool
+so its two-input semantics survive. Read-only hint copies replace isolated
+LMB/RMB/SPACE BAR/SPACEBAR with L2/R2/Cross; native text and dialogue stay intact.
+The next physical gate is native protected-target feedback. The operator accepts
+the corrected snap direction and the exercised left-wrist card, including
+ammunition and damage-driven health updates. Broader recovery, pause/load
+suppression or sustained pacing remain separate checks.
+The protected-target red X is host-tested: native warning visibility, current
+HUD/player/hand and weapon owner, bounded native age and traced/current ray
+coherence are required. This read never forces native updates/traces or changes
+firing permission. The corrected 45-degree snap maps right stick to right native
+turn and left stick to left and is headset-validated for the exercised direction.
+Transition save/load, repeated
+loading and sustained stability remain separate unconfirmed checks. Keep
+Steam recording off and graphics fixed. Retain the bounded address-space snapshots
+at allocation boundaries and any crash evidence. The new 80% wheel/compass sizes
+and revised compass dial also need a brief physical readability/attachment check;
+previous acceptance describes their former sizes.
 
 The latest operator confirms Options pause visibility/selection, L1 box pickup,
 carry and put-down, pistol pickup, Triangle + R2 dialogue/hint logs, reload,
 jump and physical/controller crouch. Pause and
-those specific interaction gestures are **headset-validated**. Shot effects and
-impact feedback remain rejected; only L2 fires the single right pistol and R2
-does not. Native attack/hit entries and successful emitter creation/commit are
-live-observed, but do not accept their invisible presentation. The adapter's
+those specific interaction gestures are **headset-validated**. The latest physical
+report confirms visible shot FX, impact decals, water and destructible bottles
+across exercised gameplay loads. Their visibility is **headset-validated** for
+those contexts, superseding the earlier invisible-effect rejection. Exact
+side-on/rolled muzzle origin, direction and flash/smoke/light coherence now have
+operator acceptance for the exercised pistol. Native attack/hit entries and emitter
+creation/commit telemetry do not expand that visual acceptance. The adapter's
 missed `PlayerController` action-to-hand conversion is corrected and host-tested;
-R2 -> action 10 -> hand 0, L2 -> action 9 -> hand 1 still needs physical acceptance.
-Focus and hands chords reached dispatch but had no operator-confirmed effect.
-Floating dialogue subtitles remain confirmed. Full
-graphical HUD and protected-target red-X feedback are still **planned**.
+The exercised single right pistol now accepts R2/right fire and rejects the
+empty left hand's trigger, matching R2 -> action 10 -> hand 0 and L2 -> action 9
+-> hand 1. Left/dual weapons retain separate physical acceptance.
+Triangle + Square has operator-confirmed blur but no perceived magnification;
+focus on/off recovery and fresh fire after exit are now operator-confirmed.
+Triangle + Circle hands/put-away remains unexecuted in the exercised context.
+Selecting the equipped weapon again in the wheel puts it away successfully;
+the chord is deferred and does not block this wheel-based workflow.
+Triangle + R2 mission logs and exercised modifier/menu held-input regressions
+are confirmed. Optical XR magnification remains planned.
+The operator accepts the exercised movement/stereo/head-turn/recenter and
+room-scale/crouch/head-relative regressions. A subsequent report identifies
+inverted snap direction as the disorientation cause, superseding the previous
+45/90-degree comfort conclusions. The sign correction at the retained 45-degree
+step is headset-validated for the exercised direction.
+Physical head-turn stability without recording remains separately accepted.
+The operator reports that microskips start with Steam recording and disappear
+when recording stops; the earlier association with snap is superseded by this
+observation. Recording compatibility and sustained pacing remain open; this
+correlation does not identify the source of recording overhead.
+A read-only camera/actor trace records captured HMD/relative orientations,
+native/eye bases and yaw ownership with a 180-stereo-frame burst after snap or
+recenter, then bounded baseline samples. It changes no camera or FX policy.
+A repeated crash during narrated/loading presentation, including a repetition
+without input during loading, leaves sustained loading stability open. The
+native texture-allocation failure and null dereference are correlated; their
+resource-pressure cause remains unproved. Proximity to Create does not establish
+causation.
+Floating dialogue subtitles remain confirmed. Full graphical HUD is still
+**planned**; protected-target red-X feedback is **host-tested**, pending visor acceptance.
 
-Independent native hands with retained torso/legs are **live-tested** for native
-mesh loading and the separated presentation of the observed player model. The operator reports substantial
-improvement but still rejects the gap between weapon and hand, especially the
-left wrist orientation. The active follow-up is **host-tested**: it includes each
+Independent native hands with retained torso/legs are **headset-validated for
+the exercised wrist/grip and reload/movement recovery checks**. This supersedes
+the earlier weapon-gap and wrist rejection for the active independent-hand path.
+The holding-socket follow-up includes each
 native holding socket, commits the weapon after its parent hand, verifies the
 muzzle through both eyes and uses absolute authored-socket grip orientation for
-unarmed hands. Comfortable wrists, hand/weapon cohesion and reload recovery
-remain pending physical gates. The combined regression below is the acceptance
+unarmed hands. Broader equipment and animation contexts remain separate gates.
+The combined regression below is the acceptance
 procedure; no T pose is required.
 
 The holding-socket follow-up is now **live-tested technically**: both-eye hand
 and weapon readbacks match, and pose/visibility restoration completes. The
-operator's next clip still rejects shots and effects originating away from the
-visible gun. The active **host-tested** follow-up unifies the visual direction
+earlier side-on clip showed a streak behind the gun. Exact mesh research shows
+a rearward-authored trail, so that image alone does not prove an inverted shot.
+The latest operator accepts exercised gun/effect coherence. The follow-up unifies the visual direction
 with the tracked ballistic base while preserving native spread, defers fire
 delivery until current muzzle publication, and creates combustion/smoke at the
 verified world muzzle without attachment to the restored native weapon. Actual
-bullet/tracer origin, direction, flash, smoke and light remain physical gates.
+missile birth/first-draw vectors remain a separate technical measurement gate;
+physical acceptance does not prove the internals of that diagnostic.
 
 First-level controller-only main-menu operation is **headset-validated** through
 the native sprite-tree mouse-event route: hover/highlight, selection and physical
@@ -282,9 +360,9 @@ successfully: ordinary menu levels, the Yes/No dialog and gameplay pause all
 accept the VR pointer. The allocation follow-up now also has operator-confirmed
 Options pause visibility and usable selection after gameplay loading.
 
-The next combined run checks correct trigger/weapon ownership, native shot
-effects and impact feedback, then explicitly exercises Triangle button chords.
-Body restore continuity and the 90-degree snap step remain regression gestures. Startup/transport
+The next combined run checks correct trigger/weapon ownership and precise
+muzzle/effect coherence, then explicitly exercises Triangle button chords.
+Body restore continuity and the 45-degree snap step remain regression gestures. Startup/transport
 verification confirms provenance and presentation only; the operator still
 confirms the physical gestures.
 
@@ -296,8 +374,9 @@ retains torso/legs and tracks native hands independently; it does not require a
 T pose or enlarge arm lengths. The last connected-arm candidate remained
 physically rejected: extending reach helped distance but produced unacceptable
 long limbs near the chest, and the post-swing orientation reference did not make
-that anatomy comfortable. The separated meshes now load in game, but free wrist
-rotation, hand/weapon cohesion and reload recovery remain pending gates.
+that anatomy comfortable. The active separated-hand path now has operator
+acceptance for exercised free wrist rotation, hand/weapon cohesion and reload
+recovery; broader equipment/animation contexts remain separate gates.
 
 Confirm that both player models load normally and that torso/legs remain visible
 without arm triangles stretching toward the controllers. Bring hands close to
@@ -329,7 +408,7 @@ both the viewpoint's distance to a fixed scene object and the body respond in th
 same physical direction. Lean forward and check for torso intrusion. Rotate
 and bend each arm through the previously deformed pose and check recovery.
 Exercise one right and one left snap turn
-and confirm that each step is exactly 90 degrees. Aim/fire with both hands where
+and confirm that each step is exactly 45 degrees and feels comfortable. Aim/fire with both hands where
 practical and confirm the gameplay reticle follows the visible weapon barrel.
 Check first shots, held/repeated fire, weapon switching, reload recovery and firing
 after crouching, physical steps and turning. The visible muzzle, tracer origin
@@ -402,13 +481,13 @@ For a future cadence regression, prepare normally, then enable the existing
 `vr-full` trace before launching the game manually:
 
 ```powershell
-pwsh -File E:\call_of_juarez_vr\tools\vr_test.ps1 prepare
-pwsh -File E:\call_of_juarez_vr\tools\set_movement_diagnostic.ps1 -GameDirectory 'C:\Program Files (x86)\Steam\steamapps\common\Call of Juarez' -Mode vr-full
+pwsh -File .\tools\vr_test.ps1 prepare
+pwsh -File .\tools\set_movement_diagnostic.ps1 -GameDirectory 'C:\Program Files (x86)\Steam\steamapps\common\Call of Juarez' -Mode vr-full
 ```
 
 Load a save and spend 30 seconds in ordinary gameplay, checking each eye for a
 current, distinct image and doing slow/fast head turns. Quit normally, then run
-`pwsh -File E:\call_of_juarez_vr\tools\vr_test.ps1 finish`. The retained movement
+`pwsh -File .\tools\vr_test.ps1 finish` from the repository root. The retained movement
 summary must contain the `vr-full` phase with update/stereo-pair cadence; an empty
 phase list cannot establish this gate. Body IK stays disabled for this profile.
 
@@ -448,12 +527,12 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Exact camera -> view/projection -> renderer path | live-tested | camera path reaches the renderer used for physical stereo |
 | Complete two-eye ChromeEngine render | live-tested | distinct eye rendering and SteamVR submission observed |
 | Physical eye scale | headset-validated | validated at the game/XR unit boundary |
-| HMD yaw/pitch/roll and positional offset | orientation headset-validated; translation follow-up host-tested after rejection | physical forward/backward and torso visibility remain rejected; camera Z sign and actor-yaw reference now match skeleton/reticle space |
+| HMD yaw/pitch/roll and positional offset | headset-validated for exercised regression without Steam recording | operator reports microskips during recording and recovery when it stops; recording compatibility, sustained loading/reset remain separate |
 | Explicit render-pose submission | headset-validated | removed the previous head-turn pull/snap-back artifact |
 | Recenter | headset-validated | controller recenter exercised physically |
-| Exact snap turn | mechanism headset-validated; 90-degree candidate host-tested | previous snap-turn behavior was exercised physically; the new 90-degree step requires one physical confirmation |
-| Head-relative stick locomotion | implemented / host-tested | residual physical HMD yaw rotates the neutral stick before the unchanged native InputAnalog shaping; physical direction/feel is pending |
-| Physical HMD-height crouch | live-exercised animation engagement; duplicate native-camera descent correction host-tested | comfort remains rejected; shared view/arm/aim correction awaits physical confirmation, explicit controller crouch retains native ownership |
+| Exact snap turn | headset-validated for exercised corrected direction | retained 45-degree step, right stick turns right/left turns left; head-turn stability without recording separately accepted |
+| Head-relative stick locomotion | headset-validated for exercised regression | operator accepts direction/feel; native InputAnalog shaping remains unchanged |
+| Physical HMD-height crouch | headset-validated for exercised regression | operator accepts movement/crouch regression; explicit controller crouch retains native ownership |
 | Flat-theater startup/load -> native stereo | headset-validated for exercised path | startup and level transition reached gameplay safely |
 | Local head/hair suppression | headset-validated for HMD view | shadow behavior remains separate |
 | D3D9Ex GPU-resident native-stereo transport | bounded acceptance passed; measured cadence and headset stereo validated | shared frames submit with explicit pose and drain on normal quit; production cadence approaches readback-off reference; sustained pacing/tail latency and pending-frame reset/device loss remain unproved |
@@ -463,33 +542,40 @@ cause. The old per-frame GPU-to-CPU transport is the demonstrated cause.
 | Native analog locomotion | headset-validated diagnostically | normal/walk speed matches vanilla within the measured transport runs; do not retune input or movement |
 | Native jump action | headset-validated diagnostically | measured apex/duration matches vanilla; do not retune jump or physics |
 | Locomotion divergence instrumentation | host-tested and physically completed | retained for cadence reporting; causal investigation is closed |
-| Room-scale visual body compensation | live-exercised / direction rejected; sign correction host-tested | physical forward/backward body displacement was inverted; corrected skeleton mapping and nested arm transaction await confirmation |
+| Room-scale visual body compensation | headset-validated for exercised regression | operator accepts the movement regression after the sign correction; wrist/grip/reload acceptance remains separate |
 | Physical-walk visual animation | planned/open | should reuse native locomotion animation semantics without surrendering collision ownership |
 | Sense tracking in game space | live-tested | left/right controller transforms reach the backend |
 | Visible arm writer/restoration | live-tested | geometry changes and restoration are proven |
 | Body IK continuity/anatomy | continuity physically improved; span calibration live-tested; anatomy rejected | calibration completes and arms are longer, but wrist/forearm orientation remains unnatural; solver target readback/restoration do not accept visual skinning |
-| Independent native hands with retained torso/legs | native loading/presentation live-tested; attachment follow-up host-tested | operator reports substantial improvement but rejects weapon gap and wrist pose; twenty-element hand/socket map, parent-before-child application, per-eye weapon readback and transactional restoration covered; wrist comfort, grip cohesion and reload recovery pending |
-| Native reload ownership | host-tested | VR writes yield during native reload state |
+| Independent native hands with retained torso/legs | headset-validated for exercised wrists/grip/reload and movement recovery | holding-socket follow-up supersedes the earlier gap/wrist rejection; original proportions retained; broader equipment/animation contexts remain separate |
+| Native reload ownership | headset-validated for exercised recovery | VR writes yield during native reload state; broader equipment remains separate |
 | Flat-menu pointer | headset-validated for exercised menus and recovered pause | Options pause appears correctly in the visor and permits pointer selection; allocation/Reset fault injection remains a host-only check |
 | Native body yaw with Body IK disabled | headset-validated for exercised path | continuous 35-degree boundary correction removed the observed body/hand stepping during physical head turns |
 | Cross/Circle/L2/R2 UI actions | exercised baseline menu selection accepted; Options pause recovery confirmed | retain per-action and loading regression checks |
-| Loading continuation | host-tested / latest run reached gameplay | an earlier physical load hang was not reproduced in the latest gameplay run; controller-only loading acceptance remains separate |
+| Loading continuation | exercised startup/load and previously failing narrated transition accepted with LAA | operator continued into playable whip content; normal quit/restoration and used VA above 2 GiB observed; transition save/load, sustained loading/resource-pressure and broader campaign remain separate |
 | Controller-origin UI beam | headset-validated for exercised menus and recovered pause | operator confirms recovered pause visibility and pointer selection; retain loading/dashboard regression checks |
-| Controller-owned weapon direction/visual origin | live-exercised technically; visual alignment rejected | rigid weapon-element map/cache publication and restoration observed; short clamped arms separate rendered hands from tracked weapons; actual shots and reload recovery remain pending |
+| Controller-owned weapon direction/visual origin | headset-validated for exercised pistol coherence | rigid weapon-element map/cache publication and restoration observed; active independent hands accepted; broader equipment remains separate |
 | Sense tip direction convention | live-tested diagnostically | local `-Z` is the demonstrated pointing direction |
-| Exact-frame gameplay weapon reticle | live-exercised; weapon-ownership follow-up host-tested | raw empty-hand tip selection was misleading with a sole gun; verified-muzzle-only selection awaits physical acceptance, native spread remains separate |
-| Physical gun origin/direction | pending/rejected | production shots must originate from the visible weapon/barrel |
+| Exact-frame gameplay weapon reticle | exercised pistol and approximate whip alignment headset-validated | firearm ray requires verified muzzle; procedural whip requires owned complete pose cache and tracked right hand; exact collision/reach and broader whip contexts remain separate |
+| Physical gun origin/direction | headset-validated for exercised pistol/side-on and roll checks | operator accepts visible coherence; rearward-authored BulletTrail geometry prevents inferring ray inversion from the earlier clip alone; exact missile birth/first draw remains unmeasured |
+| Native equipment wheel | headset-validated for exercised owned equipment and put-away | selecting the equipped weapon again puts it away; unavailable items and broader native permissions retain separate gates |
+| Native-objective left-wrist compass | headset-validated for exercised guidance/readability/attachment and snap/recenter checks | bounded native visibility and captured binocular wrist geometry; broader objective/campaign contexts remain separate |
+| Native health/ammo wrist card | headset-validated for exercised card, ammunition and damage-driven health updates | broader recovery/pacing retain their gates |
+| Native protected-target red X | host-tested | actual native warning + current trace weapon owner + selected verified firearm ray; bounded age/origin/direction coherence; visor appearance/target transitions pending |
+| Optional Sense finger sensing | live-tested technically, partial quality reported | independent skeletal-summary curls observed; native finger animation remains planned |
 | Supported end-to-end VR release | planned | project remains pre-alpha |
 
 ## PC mechanics and gameplay HUD completeness
 
-**Input expansion physically exercised but incomplete/rejected; essential stereo
+**Input expansion headset-validated for exercised controls; broader campaign incomplete. Essential stereo
 text host-tested with operator-confirmed floating dialogue subtitles. Native
 graphical HUD capture/composition: planned.** The latest operator reports basic
 fire/recenter/crouch/jump/reload, usable pause selection, L1 box carry/put-down,
-pistol pickup and Triangle + R2 logs, but invisible shot/impact effects and
-inverted single-pistol trigger ownership. Red no-shoot
-feedback was never implemented by the essential text route. The log confirms
+pistol pickup and Triangle + R2 logs. A later physical report accepts visible
+shot FX, impact decals, water and destructible bottles, exercised muzzle coherence
+and corrected single-pistol trigger ownership. Red no-shoot
+feedback has a separate host-tested native-warning/trace-owner route, pending
+visor acceptance; it is not inferred from text or hit distance. The log confirms
 mapped F/weapon-cycle/modifier intents, not native mechanic execution.
 
 The pause follow-up reserves and leases mono SYSTEMMEM buffers instead of
@@ -499,11 +585,14 @@ and resized Reset. A separate native-dispatch fixture reproduces one-shots lost
 under the locomotion lock and verifies delivery after analog commit, retry after
 failure, held-edge suppression and the independent fire phase. These follow-ups
 are **host-tested**; the operator separately confirms pause recovery and specific
-pickup/carry gestures. Actual shots/effects retain their own acceptance gate.
+pickup/carry gestures. Visible shot FX/decals now have operator acceptance;
+exercised pistol origin/direction/light coherence is now accepted; left/dual and
+broader equipment require their own available-context checks.
 Interaction gaze checks additionally cover the translated/crouched central HMD
 camera, actor-yaw compensation, invalid tracking/basis rejection, complete-pair
 JNI publication and clearing after a write failure or context loss. The exact
-archive changes only its four identified classes; `CheckTriggers` retains its
+archive changes only its five identified classes (including the procedural-whip
+consumer); `CheckTriggers` retains its
 native selection flow. Direct L1/F must still pick up and put down an available
 object while standing, crouching and moving, including after pause/dashboard
 transitions. Native interaction range and permissions must remain intact.
@@ -520,12 +609,16 @@ global/camera reads and replacement/partial-read rejection. Live global samples
 show FX enabled and the particle draw camera matching each eye. The bounded
 owner-local emitter reader is **host-tested** for capacity/generation/subtype
 validation, finite values, replacement, partial-read cleanup and observation
-budget. Its actual emitter samples, first update, expiry and visible pixels
-still need a fresh live run. Physically test a
+budget. Actual emitter samples, first update and expiry require their own
+technical evidence; operator-confirmed FX visibility does not prove those
+read-only observations. Physically test a
 right pistol with R2, verify L2 cannot fire it, and repeat for left/dual pistols
 when available. Check side-on muzzle flash/smoke and wall impact feedback.
 The exercised runs include focus, hands and logs chords. Logs are operator-confirmed;
-visible focus and hands/put-away are not. Other equipment was unavailable.
+focus blur, toggle-off/recovery and fresh fire are operator-confirmed. Optical XR
+zoom remains planned. Triangle + Circle remains unexecuted in the current
+context and is deferred; wheel selection successfully puts the weapon away.
+Acceptance covers equipment available in the exercised session.
 Tutorial scripts disable kicking, so
 absence of its animation there is not a binding rejection. XR optical focus
 magnification remains planned independently of native focus state.
@@ -535,8 +628,11 @@ through `TakeScreenshot -> ForceRender`. A **host-tested** exact-class workaroun
 omits only quick/automatic-save GPU thumbnails while retaining native stale-preview
 cleanup and the remaining save/restore flow. The shipped Java verifier accepts
 the redirected private helper; this is not proof of successful save serialization
-or a general memory-pressure fix. Physically repeat box/pistol/ammunition pickup
-through autosave, check a fresh save exists and loads normally, and confirm pause
+or a general memory-pressure fix. The operator now confirms that a new autosave
+loads successfully in the exercised session: that save/load gesture is
+**headset-validated**. Broader pickup contexts, repeated loading and resource
+pressure retain their own gates. Repeat box/pistol/ammunition pickup through
+autosave in further contexts and confirm pause
 selection still works. Quick/automatic saves intentionally have no generated
 preview while the patched archive is staged. After any crash, finish the current
 run and prepare a fresh ID before restarting.
@@ -575,7 +671,26 @@ aiming and adds acceptable pacing cost. The observation interval is at most
 100 ms between sampled game frames; reading/dismissal latency needs acceptance.
 Pausing hints and objectives/logs retain their existing native flat UI route.
 Native hints currently retain PC key names; controller-label adaptation is open.
-No complete graphical HUD, inventory wheel or XR zoom is claimed.
+No complete graphical HUD or XR zoom is claimed. The visible equipment wheel
+and native-objective left-wrist compass are **headset-validated for exercised
+switching/put-away, direction, visibility, binocular readability, wrist attachment
+and snap/recenter checks**. Broader campaign contexts retain the procedure below.
+Hold Triangle and use the right stick; one selection is latched
+per deflection, with neutral/release needed to rearm. Owned and cached-permitted
+sectors are enabled; native selection retains ammunition/reload/context authority.
+An unavailable held sector must remain blocked if permissions recover. Verify
+all available slots, native hands/discard context, and no delayed fire/snap after
+the layer, menu or dashboard. On the compass, verify native objective direction
+and disappearance, snap/recenter consistency, both-eye readability, wrist roll,
+attachment and pacing. Wrist geometry is captured each frame, while dial raster
+updates are limited to 10 Hz. These checks do not accept the broader graphical HUD.
+
+Optional Sense skeleton curls now retain their actual reported tracking quality
+and clear on ownership loss. Native fingers are not animated by this input path.
+Actual skeletal-summary availability and independent hand samples are
+**live-tested technically**, with partial tracking quality reported by the
+runtime. Future joint retarget/visible animation requires separate validation;
+touch/curls do not demonstrate full tracking or bone animation.
 
 When corresponding features are implemented, a controller-only campaign pass
 must demonstrate:

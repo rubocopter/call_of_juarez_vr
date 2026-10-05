@@ -104,6 +104,14 @@ int main() {
     Require(ReadCoJHudText(&holder,&player,text),"visible native owners must be readable");
     Require(text.interaction.view()==interaction_text.string && text.hint.view()==hint_text.string &&
         text.subtitle.view()==localized_subtitle.string,"must preserve native localized Unicode strings"); Clean();
+    hint_text.string=u"Press 'RMB' to catch; LMB + RMB release. SPACE BAR jumps; SPACEBAR too. ALMB remains.";
+    interaction_text.string=u"LMB para atacar; RMB para enganchar";
+    localized_subtitle.string=u"El diálogo dice LMB y RMB.";
+    Require(ReadCoJHudText(&holder,&player,text),"controller hint owners must remain readable");
+    Require(text.hint.view()==u"Press 'R2' to catch; L2 + R2 release. Cross jumps; Cross too. ALMB remains." &&
+        text.interaction.view()==u"L2 para atacar; R2 para enganchar" &&
+        text.subtitle.view()==localized_subtitle.string && hint_text.string.find(u"RMB")!=std::u16string::npos,
+        "VR hints must translate mouse/space tokens without changing dialogue or native text"); Clean();
     icon.visible=false; info.visible=false; settings.boolean=false;
     Require(ReadCoJHudText(&holder,&player,text) && text.interaction.view().empty() &&
         text.hint.view().empty() && text.subtitle.view().empty(),"hidden owners/settings must clear all text"); Clean();

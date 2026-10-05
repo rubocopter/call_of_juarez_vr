@@ -1,4 +1,5 @@
 #include "backends/openvr/hud_text_overlay.hpp"
+#include "backends/openvr/gameplay_ui_raster.hpp"
 #include "runtime/vr_math.hpp"
 #include <windows.h>
 #include <d3dcompiler.h>
@@ -106,7 +107,7 @@ bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
         !runtime::IsValidEyeFov(eye.fov) || !std::isfinite(placement.width_m) ||
         placement.width_m <= 0 || placement.width_m > 3 ||
         !std::isfinite(placement.center_y_m) || !std::isfinite(placement.distance_m) ||
-        placement.distance_m < 0.5F || placement.distance_m > 5) return false;
+        (!placement.captured_quad && (placement.distance_m < 0.5F || placement.distance_m > 5))) return false;
     const auto inverse = runtime::NormalizeQuaternion({-q.x, -q.y, -q.z, q.w});
     const float l = std::tan(eye.fov.angle_left), r = std::tan(eye.fov.angle_right);
     const float d = std::tan(eye.fov.angle_down), u = std::tan(eye.fov.angle_up);
@@ -116,6 +117,7 @@ bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
     for (std::size_t corner = 0; corner < 4; ++corner) {
         runtime::Vec3 p{(corner & 1) ? half_w : -half_w,
             placement.center_y_m + ((corner & 2) ? -half_h : half_h), -placement.distance_m};
+        if (placement.captured_quad) p = placement.head_corners[corner];
         p = runtime::RotateVector(inverse, {p.x - pose.position.x,
             p.y - pose.position.y, p.z - pose.position.z});
         const float w = -p.z;
@@ -147,13 +149,15 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11RasterizerState> rasterizer;
     ComPtr<ID3D11DepthStencilState> depth;
     std::array<HudTextRaster, 3> raster;
-    std::array<std::uint64_t, 3> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 3> images;
+    GameplayUiRaster ui_raster;
+    std::array<std::uint64_t, 6> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 6> images;
+    ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
     bool Initialize(ID3D11Device* device) {
-        if (owner.Get() == device && vs && ps && constants && sampler && rasterizer && depth) return true;
-        owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset();
+        if (owner.Get() == device && vs && ps && constants && sampler && rasterizer && depth && blend) return true;
+        owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset(); blend.Reset();
         images = {}; uploaded = {}; targets = {}; target_views = {};
         constexpr char shader[] =
             "cbuffer Corners:register(b0){float4 corners[4];};"
@@ -176,10 +180,17 @@ struct HudTextCompositor::Impl {
         rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
         D3D11_DEPTH_STENCIL_DESC dd{};
         dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
+        D3D11_BLEND_DESC bd{};
+        auto& rt=bd.RenderTarget[0];rt.BlendEnable=TRUE;
+        rt.SrcBlend=D3D11_BLEND_SRC_ALPHA;rt.DestBlend=D3D11_BLEND_INV_SRC_ALPHA;
+        rt.BlendOp=rt.BlendOpAlpha=D3D11_BLEND_OP_ADD;
+        rt.SrcBlendAlpha=D3D11_BLEND_ONE;rt.DestBlendAlpha=D3D11_BLEND_INV_SRC_ALPHA;
+        rt.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;
         return SUCCEEDED(device->CreateBuffer(&buffer, nullptr, &constants)) &&
             SUCCEEDED(device->CreateSamplerState(&sd, &sampler)) &&
             SUCCEEDED(device->CreateRasterizerState(&rd, &rasterizer)) &&
-            SUCCEEDED(device->CreateDepthStencilState(&dd, &depth));
+            SUCCEEDED(device->CreateDepthStencilState(&dd, &depth)) &&
+            SUCCEEDED(device->CreateBlendState(&bd,&blend));
     }
 };
 
@@ -200,13 +211,19 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
     if (overlay.text.hint.view().empty() && overlay.text.interaction.view().empty() &&
-        overlay.text.subtitle.view().empty()) return true;
+        overlay.text.subtitle.view().empty() && !overlay.ui.wheel.active &&
+        !(overlay.ui.compass.active && overlay.compass_surface_valid) &&
+        !(overlay.ui.status.active && overlay.status_surface_valid)) return true;
     try {
         if (!Prepare(device)) return false;
         const std::array<const runtime::HudText*, 3> texts{
             &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle};
-        std::array<HudPanelPlacement, 3> placement{{{1.15F, .48F, 1.5F},
-            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}}};
+        std::array<HudPanelPlacement, 6> placement{{{1.15F, .48F, 1.5F},
+            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}}};
+        placement[4].captured_quad=true;
+        placement[4].head_corners=overlay.compass_head_corners;
+        placement[5].captured_quad=true;
+        placement[5].head_corners=overlay.status_head_corners;
         const auto& subtitle = impl_->raster[2].Render(*texts[2]);
         const auto& interaction = impl_->raster[1].Render(*texts[1]);
         if (subtitle.width && interaction.width) {
@@ -217,10 +234,19 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             placement[1].center_y_m = std::max(placement[1].center_y_m,
                 subtitle_top + interaction_half_height + .05F);
         }
-        for (std::size_t part = 0; part < texts.size(); ++part) {
-            const auto& panel = impl_->raster[part].Render(*texts[part]);
+        auto compass=overlay.ui.compass;
+        if(!overlay.compass_surface_valid)compass.active=false;
+        const auto& wheel_panel=impl_->ui_raster.Wheel(overlay.ui.wheel);
+        const auto& compass_panel=impl_->ui_raster.Compass(compass,GetTickCount64());
+        auto status=overlay.ui.status;if(!overlay.status_surface_valid)status.active=false;
+        const auto& status_panel=impl_->ui_raster.Status(status);
+        for (std::size_t part = 0; part < placement.size(); ++part) {
+            const auto& panel = part<3 ? impl_->raster[part].Render(*texts[part]) :
+                (part==3 ? wheel_panel : (part==4 ? compass_panel : status_panel));
+            const auto revision=part<3 ? impl_->raster[part].rebuilds() :
+                (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : impl_->ui_raster.status_revision()));
             if (panel.pixels.empty()) { impl_->images[part].Reset(); continue; }
-            if (!impl_->images[part] || impl_->uploaded[part] != impl_->raster[part].rebuilds()) {
+            if (!impl_->images[part] || impl_->uploaded[part] != revision) {
                 D3D11_TEXTURE2D_DESC td{}; td.Width = panel.width; td.Height = panel.height;
                 td.MipLevels = td.ArraySize = 1; td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
                 td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_IMMUTABLE;
@@ -230,7 +256,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 impl_->images[part].Reset();
                 if (FAILED(device->CreateTexture2D(&td, &data, &texture)) ||
                     FAILED(device->CreateShaderResourceView(texture.Get(), nullptr, &impl_->images[part]))) return false;
-                impl_->uploaded[part] = impl_->raster[part].rebuilds();
+                impl_->uploaded[part] = revision;
             }
             std::array<ProjectedHudPanel, 2> quads{};
             std::array<D3D11_TEXTURE2D_DESC, 2> descriptions{};
@@ -258,7 +284,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 auto* sampler = impl_->sampler.Get();
                 const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(td.Width), static_cast<float>(td.Height), 0, 1};
                 context->OMSetRenderTargets(1, &render_target, nullptr);
-                context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+                context->OMSetBlendState(impl_->blend.Get(), nullptr, 0xFFFFFFFF);
                 context->OMSetDepthStencilState(impl_->depth.Get(), 0);
                 context->RSSetState(impl_->rasterizer.Get());
                 context->RSSetViewports(1, &viewport);

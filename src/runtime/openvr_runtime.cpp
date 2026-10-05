@@ -3,6 +3,7 @@
 #include <openvr.h>
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 #include <utility>
 #include <windows.h>
@@ -62,6 +63,7 @@ struct OpenVrRuntime::Impl {
     vr::VRActionHandle_t right_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
     vr::VRActionHandle_t left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     vr::VRActionHandle_t right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
+    std::array<vr::VRActionHandle_t, 2> hand_skeleton_actions{};
     std::array<vr::VRActionHandle_t, 30> gameplay_actions{};
     OpenVrDigitalActionEdge recenter_edge{};
     OpenVrDigitalActionEdge ui_select_left_edge{};
@@ -256,6 +258,7 @@ void OpenVrRuntime::Shutdown() noexcept {
     impl_->right_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
     impl_->left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     impl_->right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
+    impl_->hand_skeleton_actions.fill(vr::k_ulInvalidActionHandle);
     impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
     impl_->recenter_edge.Reset();
     impl_->ui_select_left_edge.Reset();
@@ -499,6 +502,7 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->right_hand_grip_pose_action = vr::k_ulInvalidActionHandle;
         impl_->left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
         impl_->right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
+        impl_->hand_skeleton_actions.fill(vr::k_ulInvalidActionHandle);
         impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
         impl_->recenter_edge.Reset();
         impl_->ui_select_left_edge.Reset();
@@ -630,6 +634,15 @@ bool OpenVrRuntime::InitializeGlobalActions(
                 static_cast<std::int32_t>(error));
         }
 
+        // Missing skeletal bindings must never disable tracking or gameplay.
+        std::array<vr::VRActionHandle_t, 2> hand_skeleton_actions{};
+        constexpr const char* skeleton_names[] = {
+            "/actions/global/in/left_hand_skeleton", "/actions/global/in/right_hand_skeleton"};
+        for (std::size_t index = 0; index < hand_skeleton_actions.size(); ++index) {
+            if (input->GetActionHandle(skeleton_names[index], &hand_skeleton_actions[index]) !=
+                vr::VRInputError_None) hand_skeleton_actions[index] = vr::k_ulInvalidActionHandle;
+        }
+
         vr::VRActionSetHandle_t gameplay_action_set = vr::k_ulInvalidActionSetHandle;
         error = input->GetActionSetHandle("/actions/gameplay", &gameplay_action_set);
         if (error != vr::VRInputError_None ||
@@ -696,6 +709,7 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->right_hand_grip_pose_action = right_hand_grip_pose_action;
         impl_->left_hand_aim_pose_action = left_hand_aim_pose_action;
         impl_->right_hand_aim_pose_action = right_hand_aim_pose_action;
+        impl_->hand_skeleton_actions = hand_skeleton_actions;
         impl_->gameplay_actions = gameplay_actions;
         return true;
     } catch (...) {
@@ -906,6 +920,36 @@ bool OpenVrRuntime::PollActions(
             gameplay_actions = {};
             return FailNoThrow(impl_.get(), "OpenVR hand pose action read failed");
         }
+
+        const auto read_fingers = [&](const std::size_t index, FingerTrackingState& fingers) noexcept {
+            fingers = {};
+            const auto action = impl_->hand_skeleton_actions[index];
+            if (action == vr::k_ulInvalidActionHandle) return;
+            vr::InputSkeletalActionData_t data{};
+            vr::EVRSkeletalTrackingLevel level{};
+            vr::VRSkeletalSummaryData_t summary{};
+            if (impl_->input->GetSkeletalActionData(action, &data, sizeof(data)) != vr::VRInputError_None ||
+                !data.bActive ||
+                impl_->input->GetSkeletalTrackingLevel(action, &level) != vr::VRInputError_None ||
+                impl_->input->GetSkeletalSummaryData(action, vr::VRSummaryType_FromDevice, &summary) !=
+                    vr::VRInputError_None) return;
+            switch (level) {
+            case vr::VRSkeletalTracking_Estimated: fingers.quality = FingerTrackingQuality::estimated; break;
+            case vr::VRSkeletalTracking_Partial: fingers.quality = FingerTrackingQuality::partial; break;
+            case vr::VRSkeletalTracking_Full: fingers.quality = FingerTrackingQuality::full; break;
+            default: return;
+            }
+            for (std::size_t finger = 0; finger < fingers.curls.size(); ++finger) {
+                const float curl = summary.flFingerCurl[finger];
+                if (!std::isfinite(curl) || curl < 0.0F || curl > 1.0F) {
+                    fingers = {}; return;
+                }
+                fingers.curls[finger] = curl;
+            }
+            fingers.available = true;
+        };
+        read_fingers(0, hand_poses.left_fingers);
+        read_fingers(1, hand_poses.right_fingers);
 
         const auto read_analog = [&](const std::size_t index, Vec2& value) noexcept {
             vr::InputAnalogActionData_t data{};

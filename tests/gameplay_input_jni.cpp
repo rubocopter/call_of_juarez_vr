@@ -17,7 +17,7 @@ namespace {
 using namespace cojvr::games::call_of_juarez;
 enum Id { actions_field=1, targets_field, target_field, next_field, lock_method,
     unlock_method, apply_method, eligible_method, direct_method, translate_method,
-    device_field, button_field, sign_field, origin_field, direction_field, x_field, y_field, z_field };
+    device_field, button_field, sign_field, origin_field, direction_field, x_field, y_field, z_field, rotate_method };
 void* Ptr(int value) { return reinterpret_cast<void*>(static_cast<std::uintptr_t>(value)); }
 struct Action { int id; };
 std::array<Action,48> actions{};
@@ -40,6 +40,7 @@ constexpr const char* shot_fields[]{"cojvrShotSerial","cojvrHitSerial","cojvrFxS
 constexpr int shot_values[]{12,9,12,63,0,101,202};
 std::array<int,48> accepted{}, rejected{};
 std::array<int,2> native_hand_attacks{};
+std::vector<float> native_turns;
 
 std::int32_t __stdcall GetEnv(void*, void** env, std::int32_t) { *env=&env_holder; return 0; }
 void* __stdcall Exception(void*) { return pending ? &exception : nullptr; }
@@ -117,7 +118,8 @@ std::uint8_t __stdcall Boolean(void*, void* owner, void* method, const JValue* a
     }
     return 1;
 }
-void __stdcall Void(void*, void*, void* method, const JValue*) {
+void __stdcall Void(void*, void*, void* method, const JValue* args) {
+    if(method==Ptr(rotate_method)){native_turns.push_back(args[0].f);return;}
     if (method==Ptr(lock_method)) { locked=true; ++locks; }
     else if (method==Ptr(unlock_method)) locked=false;
     else if (method==Ptr(apply_method)) ++commits;
@@ -257,5 +259,17 @@ int main() {
     shot_read_fault=false;
     ok &= Check(!bridge.TryObserveWeaponShotDiagnostics(1,diagnostics) && !diagnostics.valid,
         "empty hand acquired actual shot counters");
+    JavaPlayerBridge snap_bridge;Bind(snap_bridge);snap_bridge.being_=&player;
+    snap_bridge.rotate_horizontally_method_=Ptr(rotate_method);
+    cojvr::runtime::GameplayInputState turn{};turn.active=true;turn.turn.x=.9F;
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire)&&
+        native_turns==std::vector<float>{-45},"right stick delivered leftward native yaw");
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::fire)&&
+        snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire)&&native_turns.size()==1,
+        "held snap or fire phase duplicated rotation");
+    turn.turn={};snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire);
+    turn.turn.x=-.9F;
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire)&&
+        native_turns==std::vector<float>{-45,45},"left stick delivered rightward native yaw");
     return ok ? 0 : 1;
 }

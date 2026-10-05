@@ -775,6 +775,14 @@ ElementWorldBasisTarget BuildTrackedHandSocketFrame(
     return {position,target_up,target_forward,true};
 }
 
+ElementWorldBasisTarget BuildCoJWhipFrame(
+    const ElementWorldBasisTarget& socket, const cojvr::runtime::Vec3 offsets) noexcept {
+    auto up=socket.up,forward=socket.forward;
+    if (!socket.valid || !Finite(socket.position) || !Finite(offsets) || !NormalizeBasis(up,forward)) return {};
+    const auto x=Cross(up,forward);
+    return {Add(socket.position,Add(Scale(forward,offsets.x),Add(Scale(x,offsets.y),Scale(up,offsets.z)))),x,up,true};
+}
+
 TrackedWeaponFramePlan BuildTrackedWeaponFrame(
     const ElementWorldBasisTarget& natural_root,
     const cojvr::runtime::Vec3 natural_wrist,

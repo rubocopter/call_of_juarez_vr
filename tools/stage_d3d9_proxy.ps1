@@ -8,7 +8,8 @@ param(
 
     [ValidateSet("full", "performance", "transport", "startup")]
     [string]$ValidationProfile = "full",
-    [switch]$IndependentHands
+    [switch]$IndependentHands,
+    [switch]$LargeAddressAware
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,10 +53,14 @@ if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
 }
 
 $ExpectedCoJHash = "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE"
+$ExpectedLaaCoJHash = "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9"
 $ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $ProxyPath = [System.IO.Path]::GetFullPath($ProxyPath)
 $Executable = Join-Path $GameDirectory "CoJ.exe"
+$ExecutableBackup = Join-Path $GameDirectory "CoJ.cojvr-backup.exe"
+$ExecutableTemporary = Join-Path $GameDirectory "CoJ.cojvr-installing.exe"
+$PatchedExecutableSource = $null
 $ChromeEngine = Join-Path $GameDirectory "ChromeEngine3.dll"
 $Destination = Join-Path $GameDirectory "d3d9.dll"
 $Backup = Join-Path $GameDirectory "d3d9.cojvr-backup.dll"
@@ -102,6 +107,10 @@ $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
 if ($IndependentHands -and -not $IsNativeStereo) { throw "Independent hands require the native-stereo candidate." }
+if ($LargeAddressAware -and (-not $IsNativeStereo -or -not [Environment]::Is64BitOperatingSystem -or
+    [Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT)) {
+    throw "LargeAddressAware requires the exact native-stereo candidate on 64-bit Windows."
+}
 $IsPoolProbe = $ProxyLeaf -ieq "d3d9_pool_probe.dll"
 $IsCameraIntegration = $IsCameraProbe -or $IsHmdCamera -or $IsNativeStereo
 $IsOpenVrIntegration = $IsHmdCamera -or $IsNativeStereo
@@ -230,6 +239,9 @@ if ($IsCameraIntegration -or $IsPoolProbe) {
 if (Test-Path -LiteralPath $Backup) {
     throw "Backup '$Backup' already exists. Restore or remove it before staging another proxy."
 }
+if (Test-Path -LiteralPath $ExecutableBackup) {
+    throw "Original CoJ.exe backup already exists; refusing to overwrite it."
+}
 
 if (Test-Path -LiteralPath $State) {
     throw "A previous CoJ VR staging state already exists at '$State'. Unstage it first."
@@ -243,7 +255,7 @@ if ($IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrBackup)) {
 if ($IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputBackup)) {
     throw "OpenVR input backup '$OpenVrInputBackup' already exists. Restore or remove it before staging the native-stereo candidate."
 }
-foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary, $CodeTemporary, $PlayerTemporary)) {
+foreach ($TemporaryPath in @($ProxyTemporary, $CameraControlTemporary, $OpenVrTemporary, $OpenVrInputTemporary, $CodeTemporary, $PlayerTemporary, $ExecutableTemporary)) {
     if (Test-Path -LiteralPath $TemporaryPath) {
         throw "Temporary deployment path '$TemporaryPath' already exists without a recovery journal. Refusing to overwrite it."
     }
@@ -296,6 +308,14 @@ $JournalAssets = @(
         stagedSha256 = $ProxyHash
     }
 )
+$StagedExecutableHash = if ($LargeAddressAware) { $ExpectedLaaCoJHash } else { $ActualHash }
+if ($LargeAddressAware) {
+    $JournalAssets += [ordered]@{
+        role = "game_executable"; kind = "file"; destination = "CoJ.exe"; backup = "CoJ.cojvr-backup.exe"
+        temporary = "CoJ.cojvr-installing.exe"; hadOriginal = $true
+        originalSha256 = $ActualHash; stagedSha256 = $StagedExecutableHash
+    }
+}
 if ($IsCameraIntegration) {
     $JournalAssets += [ordered]@{
         role = "camera_control"; kind = "file"; destination = "cojvr-camera-control.json"; backup = "cojvr-camera-control.cojvr-backup.json"
@@ -314,10 +334,11 @@ if ($IsOpenVrIntegration) {
         stagedSha256 = $OpenVrHash
     }
 }
+$OriginalInputManifest = @()
 if ($IsNativeStereo) {
-    $OriginalInputManifest = if ($HadOriginalOpenVrInput) {
+    $OriginalInputManifest = @(if ($HadOriginalOpenVrInput) {
         @(Get-CojvrDirectoryManifest $OpenVrInputDestination)
-    } else { @() }
+    })
     $JournalAssets += [ordered]@{
         role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
         temporary = "cojvr_openvr_input.cojvr-installing"
@@ -366,6 +387,18 @@ if ($IndependentHands) {
 
 try {
     [void](Write-CojvrDeploymentJournal $GameDirectory "stage" $RunId $DiagnosticMode $JournalAssets)
+    if ($LargeAddressAware) {
+        $PatchedExecutableSource = Join-Path ([IO.Path]::GetTempPath()) ("cojvr-executable-" + [Guid]::NewGuid().ToString("N") + ".exe")
+        & python (Join-Path $PSScriptRoot "patch_coj_large_address.py") $Executable $PatchedExecutableSource
+        if ($LASTEXITCODE -ne 0 -or (Get-CojvrFileSha256 $PatchedExecutableSource) -ne $StagedExecutableHash) {
+            throw "Exact CoJ LargeAddressAware patch failed verification."
+        }
+        # Recheck the original immediately before taking ownership of it.
+        if ((Get-CojvrFileSha256 $Executable) -ne $ExpectedCoJHash) { throw "Original CoJ.exe changed before staging." }
+        Move-Item -LiteralPath $Executable -Destination $ExecutableBackup
+        Invoke-CojvrDeploymentCheckpoint "stage_executable_backup_created"
+        Install-CojvrVerifiedFile $PatchedExecutableSource $Executable $ExecutableTemporary $StagedExecutableHash "stage_executable_published"
+    }
 $HistoricalDirectory = Join-Path `
     (Join-Path $EvidenceRoot "historical") `
     ("{0}-{1}" -f [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"), ([Guid]::NewGuid().ToString("N").Substring(0, 8)))
@@ -451,9 +484,16 @@ if ($HadOriginal) {
             $CameraControlBytes $CameraControl $CameraControlTemporary $CameraControlStagedHash `
             "stage_camera_control_published"
     }
+    if ((Get-CojvrFileSha256 $Executable) -ne $StagedExecutableHash) {
+        throw "CoJ.exe changed during staging; refusing to publish candidate provenance."
+    }
     @{
-        schemaVersion = 1
+        schemaVersion = 2
+        executableManaged = $LargeAddressAware.IsPresent
+        originalExecutableSha256 = $ActualHash
+        stagedExecutableSha256 = $StagedExecutableHash
         hadOriginalD3D9 = $HadOriginal
+        originalProxySha256 = ($JournalAssets | Where-Object role -eq "proxy").originalSha256
         runId = $RunId
         diagnosticMode = $DiagnosticMode
         buildManifestId = [string]$BuildManifest.manifestId
@@ -461,8 +501,10 @@ if ($HadOriginal) {
         stagedProxySha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
         cameraControlManaged = $IsCameraIntegration
         hadOriginalCameraControl = $HadOriginalCameraControl
+        originalCameraControlSha256 = ($JournalAssets | Where-Object role -eq "camera_control").originalSha256
         openVrRuntimeManaged = $IsOpenVrIntegration
         hadOriginalOpenVr = $HadOriginalOpenVr
+        originalOpenVrSha256 = ($JournalAssets | Where-Object role -eq "openvr_runtime").originalSha256
         stagedOpenVrSha256 = if ($IsOpenVrIntegration) {
             (Get-FileHash -LiteralPath $OpenVrDestination -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
@@ -474,13 +516,14 @@ if ($HadOriginal) {
         originalCodeSha256 = if ($IsNativeStereo) { $OriginalCodeHash } else { $null }
         stagedCodeSha256 = if ($IsNativeStereo) { $PatchedCodeHash } else { $null }
         hadOriginalOpenVrInput = $HadOriginalOpenVrInput
+        originalOpenVrInputManifest = @($OriginalInputManifest)
         stagedOpenVrActionManifestSha256 = if ($IsNativeStereo) {
             (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "actions.json") -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
         stagedOpenVrSenseBindingSha256 = if ($IsNativeStereo) {
             (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json") -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
-    } | ConvertTo-Json | Set-Content -LiteralPath $State -Encoding UTF8
+    } | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $State -Encoding UTF8
     Invoke-CojvrDeploymentCheckpoint "stage_state_written"
 
     $Deployment = @(
@@ -490,6 +533,12 @@ if ($HadOriginal) {
             sha256 = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToUpperInvariant()
         }
     )
+    if ($LargeAddressAware) {
+        $Deployment += [ordered]@{
+            role = "game_executable"; destination = "CoJ.exe"
+            sha256 = (Get-CojvrFileSha256 $Executable); originalSha256 = $ActualHash
+        }
+    }
     if ($IsOpenVrIntegration) {
         $Deployment += [ordered]@{
             role = "openvr_runtime"
@@ -532,8 +581,10 @@ if ($HadOriginal) {
         game = [ordered]@{
             executable = [ordered]@{
                 fileName = "CoJ.exe"
-                sha256 = $ActualHash
-                knownExactBuild = $ActualHash -eq $ExpectedCoJHash
+                sha256 = (Get-CojvrFileSha256 $Executable)
+                originalSha256 = $ActualHash
+                largeAddressAware = $LargeAddressAware.IsPresent
+                knownExactBuild = (Get-CojvrFileSha256 $Executable) -eq $StagedExecutableHash
             }
             engine = [ordered]@{
                 fileName = "ChromeEngine3.dll"
@@ -589,6 +640,9 @@ if ($HadOriginal) {
     }
     throw
 } finally {
+    if ($PatchedExecutableSource -and (Test-Path -LiteralPath $PatchedExecutableSource -PathType Leaf)) {
+        Remove-Item -LiteralPath $PatchedExecutableSource -Force
+    }
       if ($PatchedPlayerSource -and (Test-Path -LiteralPath $PatchedPlayerSource -PathType Leaf)) {
           Remove-Item -LiteralPath $PatchedPlayerSource -Force
       }
@@ -612,7 +666,7 @@ if ($IsReadbackDiagnostic) {
 } else {
     Write-Host "Staged CoJ VR D3D9 forwarding proxy with Present/Reset observation hooks."
 }
-Write-Host "Build identity: $ActualHash"
+Write-Host "Build identity: $StagedExecutableHash"
 Write-Host "Build manifest ID: $($BuildManifest.manifestId)"
 Write-Host "Run ID: $RunId"
 if (-not $IsCameraIntegration -and -not $IsPoolProbe -and $ChromeEngineHash -ne $ExpectedChromeEngineHash) {

@@ -21,17 +21,19 @@ Call of Juarez (2006) is the reference implementation. The goal is a native-feel
 
 ## Current state
 
-Current evidence as of **2026-10-01**, for the inspected Steam build and tested
-PS VR2 / SteamVR host:
+Accepted evidence is scoped to the inspected Steam build and exercised
+PS VR2 / SteamVR host. [Validation](docs/VALIDATION.md) owns current acceptance
+and [Roadmap](docs/ROADMAP.md) owns the next gate:
 
 | Area | Accepted state and remaining limit |
 | --- | --- |
-| Native stereo and HMD | **Live-tested / headset-validated** real per-eye rendering, 6DoF head movement, positional offset and recentering. Correct stereo depth and stable head turns are confirmed. |
+| Native stereo and HMD | **Live-tested / headset-validated for exercised paths** real per-eye rendering, head orientation, recenter, room-scale, crouch and head turns with Steam recording off. Corrected 45-degree snap direction is headset-validated for the exercised run. Recording-associated microskips remain open. |
 | Startup and transport | **Live-tested** D3D9Ex compatibility, flat videos/menu presentation and GPU-resident native eye transport through private D3D11 into OpenVR, with explicit render-pose submission. Native CPU readback is removed on this path. |
 | Refresh and shutdown | **Live-tested** bounded HMD-derived rate cap at the configured 90 Hz and complete normal-quit copy drain / same-owner OpenVR shutdown. Sustained tail latency, refresh-change recovery and abnormal lifecycle remain open. |
 | Locomotion | Physical measurements confirm vanilla-equivalent movement and jump behavior. |
-| Menu pointer | Automatic native mouse-event laser interaction is **headset-validated for first-level main-menu options and mouse coexistence**. The latest combined candidate regressed all menu/controller UI dispatch by querying a nonexistent Java visibility field; the corrected optional `m_cYesNoDlg` routing is **implemented / host-tested**. Modal and pause-menu operation still need a physical retest. |
-| Body and weapons | Continuous body-yaw following with Body IK disabled is **headset-validated** for stable physical head turns. Arm/body IK remains **visually rejected** on the previous candidate; the solver now keeps valid hard-clamped positional ownership **implemented / host-tested**, pending physical continuity/anatomy validation. Weapon/barrel alignment remains unaccepted. |
+| Menu pointer | Automatic native mouse-event laser interaction is **headset-validated for exercised ordinary/Yes-No menus, recovered Options pause and mouse coexistence**. Loading/dashboard regressions remain separate. |
+| Body and weapons | Independent native hands retain torso/legs at original proportions. Exercised right-pistol/empty-left trigger ownership, wrist/grip/reload recovery and side-on/rolled firing/impact FX coherence are accepted; broader equipment and left/dual contexts remain separate. |
+| Controller UI | Native inventory wheel and objective wrist compass are **headset-validated for exercised switching/put-away, guidance, readability and attachment**. Optional skeletal finger sensing is live-tested with partial quality; native finger animation remains planned. |
 
 The rate cap follows the headset property, rather than a fixed 90 Hz setting.
 The accepted bounded run produced about 87 stereo pairs/s and 89 total
@@ -41,19 +43,26 @@ The menu candidate shows the laser **automatically while pointing**, with no
 L1/R1 requirement. **Same-hand L2/R2 selects**; a fresh trigger on the other hand
 chooses that ray. Moving or dragging the physical mouse gives it priority until
 1.5 seconds after the latest activity. Cross accepts and Circle goes back.
-The native mouse-event route is physically accepted for first-level main-menu
-hover/selection and for switching between laser and physical mouse input. The
-subsequent modal-routing candidate accidentally made `m_bYesNoDlgVisible`
-mandatory even though that field is absent from the shipped `MainMenuModule`;
-the resulting JNI exception disabled the menu/controller UI route in the latest
-physical run. Modal discovery now treats the shipped `m_cYesNoDlg` object as
-optional and clears its own lookup/read failures before falling back to the
-previously proven current-UI path. That correction is **implemented / host-tested**.
-The same run hung while loading a save through the physical mouse before gameplay
-started, so loading remains **experiment-pending** and must be retested after the
-UI regression is removed. Continuous body-yaw boundary following remains
-physically accepted with Body IK disabled. The next combined candidate enables
-Body IK and retests the full menu-to-gameplay path in one pass.
+Native mouse delivery and click routing are accepted for the ordinary, Yes/No
+and pause menus exercised. The immediate gate is native protected-target red-X
+feedback, host-tested and pending visor acceptance; corrected snap direction is
+headset-validated for the exercised run.
+An optional exact, reversible Large Address Aware candidate is host-tested for
+the measured x86 address-capacity pressure; the previously failing narrated
+transition now has operator acceptance with LAA. Repeated loading and broader
+high-address compatibility remain open. Exercised whip usability and approximate
+reticle alignment have operator acceptance; broader climbing/reach remain separate.
+The wrist card, exercised ammunition updates and damage-driven health updates are
+operator-accepted. Wheel and compass are now 20% smaller, with a
+revised compass dial, pending a readability check at the new sizes.
+Focus on/off and fresh fire are accepted; Triangle + Circle remains deferred in its current context,
+with put-away available through the wheel. Left/dual and broader campaign
+equipment retain separate gates. The
+quick-save workaround omits optional GPU thumbnails while staged; successful
+save/load is accepted for the exercised new autosave; underlying resource
+pressure remains open. Independent
+hands require no T pose or enlarged-arm calibration. Logs and native FX counters
+do not substitute for visible execution or headset comfort.
 Pending-frame renderer reset/device loss and abnormal shutdown remain separate
 from the accepted normal-quit path.
 

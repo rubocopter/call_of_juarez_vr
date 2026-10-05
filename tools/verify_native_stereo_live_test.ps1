@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ExpectedCoJHash = "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE"
+. (Join-Path $PSScriptRoot "coj_executable_identity.ps1")
 $ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
 
 $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
@@ -13,10 +13,7 @@ $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
 $Run = $Provenance.Run
 $Lines = @($Provenance.Lines)
 
-if (([string]$Run.game.executable.sha256).ToUpperInvariant() -ne $ExpectedCoJHash -or
-    -not [bool]$Run.game.executable.knownExactBuild) {
-    throw "The run was not bound to the exact inspected CoJ.exe build."
-}
+Assert-CoJExecutableProvenance $Run $Provenance.StageState
 if (([string]$Run.game.engine.sha256).ToUpperInvariant() -ne $ExpectedChromeEngineHash -or
     -not [bool]$Run.game.engine.knownInspectedBuild) {
     throw "The run was not bound to the exact inspected ChromeEngine3.dll build."

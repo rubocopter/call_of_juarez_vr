@@ -969,9 +969,9 @@ int main() {
         return 1;
     }
     snap_gameplay.turn.x = 0.8F;
-    if (!Near(snap_turn.Update(snap_gameplay), 90.0F) ||
+    if (!Near(snap_turn.Update(snap_gameplay), -45.0F) ||
         !Near(snap_turn.Update(snap_gameplay), 0.0F)) {
-        std::cerr << "right-stick snap turn did not latch at 90 degrees\n";
+        std::cerr << "right stick must latch one negative native yaw step (turn right)\n";
         return 1;
     }
     snap_gameplay.turn.x = 0.2F;
@@ -980,15 +980,15 @@ int main() {
         return 1;
     }
     snap_gameplay.turn.x = -0.9F;
-    if (!Near(snap_turn.Update(snap_gameplay), -90.0F)) {
-        std::cerr << "left-stick snap turn did not produce minus 90 degrees\n";
+    if (!Near(snap_turn.Update(snap_gameplay), 45.0F)) {
+        std::cerr << "left stick must produce positive native yaw (turn left)\n";
         return 1;
     }
     snap_gameplay.active = false;
     (void)snap_turn.Update(snap_gameplay);
     snap_gameplay.active = true;
     snap_gameplay.turn.x = 0.9F;
-    if (!Near(snap_turn.Update(snap_gameplay), 90.0F)) {
+    if (!Near(snap_turn.Update(snap_gameplay), -45.0F)) {
         std::cerr << "inactive gameplay did not reset the snap-turn latch\n";
         return 1;
     }
@@ -1665,6 +1665,18 @@ int main() {
     // Host tests run without the game's JVM. Discovery and all dependent
     // operations must therefore fail closed without creating or loading one.
     JavaPlayerBridge bridge;
+    const auto whip=BuildCoJWhipFrame({{30,40,50},{0,1,0},{0,0,1},true},{0,-2,10});
+    if (!whip.valid || !Near(whip.position.x,28) || !Near(whip.position.y,50) ||
+        !Near(whip.position.z,50) || !Near(whip.up.x,1) || !Near(whip.forward.y,1) ||
+        BuildCoJWhipFrame({},{}).valid) {
+        std::cerr<<"native whip socket axes/instance offsets are not preserved\n";return 1;
+    }
+    const auto rolled_whip=BuildCoJWhipFrame({{0,0,0},{1,0,0},{0,0,-1},true},{3,-2,10});
+    if (!rolled_whip.valid || !Near(rolled_whip.position.x,10) || !Near(rolled_whip.position.y,-2) ||
+        !Near(rolled_whip.position.z,-3) || !Near(rolled_whip.up.y,1) || !Near(rolled_whip.forward.x,1) ||
+        BuildCoJWhipFrame({{0,0,0},{0,1,0},{0,0,1},true},{std::numeric_limits<float>::quiet_NaN(),0,0}).valid) {
+        std::cerr<<"rolled whip frame or invalid authored offset accepted\n";return 1;
+    }
     std::string error;
     JavaPlayerPosition position{};
     JavaPlayerPosition joint{};
