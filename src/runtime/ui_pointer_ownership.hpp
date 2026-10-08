@@ -110,15 +110,15 @@ class UiPointerGameplayGate final {
 public:
     GameplayInputState Filter(bool menu, const GameplayInputState& raw) noexcept {
         Observe(menu, raw.active && (raw.digital_available & (1U << 6)) != 0, raw.interact,
-                raw.active && (raw.digital_available & (1U << 7)) != 0, raw.weapon_next);
+                raw.active && (raw.digital_available & (1U << 9)) != 0, raw.kick);
         auto result = raw;
         if (left_blocked_) {
             result.interact = false;
             result.digital_available &= ~(1U << 6);
         }
         if (right_blocked_) {
-            result.weapon_next = false;
-            result.digital_available &= ~(1U << 7);
+            result.kick = false;
+            result.digital_available &= ~(1U << 9);
         }
         return result;
     }

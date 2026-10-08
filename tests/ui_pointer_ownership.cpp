@@ -78,22 +78,22 @@ int main() {
     // Compose the actual shoulder filtering and neutral release policy. The
     // optional global pointer actions may be unbound during gameplay.
     UiPointerGameplayGate shoulders;
-    GameplayUtilityMapper mapper;
+    GameplayControlMapper mapper;
     GameplayInputState raw{};
     raw.active = true;
     (void)mapper.Update(shoulders.Filter(false, raw));
-    raw.interact = raw.weapon_next = true;
+    raw.interact = raw.kick = true;
     (void)shoulders.Filter(true, raw);
     (void)mapper.Update({}, false); // menu owns gameplay
     auto filtered = shoulders.Filter(false, raw);
     auto mapped = mapper.Update(filtered);
-    if (mapped.interact || mapped.weapon_next) return 29; // held through resume
-    raw.interact = raw.weapon_next = false;
+    if (mapped.interact || mapped.kick) return 29; // held through resume
+    raw.interact = raw.kick = false;
     filtered = shoulders.Filter(false, raw);
     (void)mapper.Update(filtered);
-    raw.interact = raw.weapon_next = true;
+    raw.interact = raw.kick = true;
     mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (!mapped.interact || !mapped.weapon_next) {
+    if (!mapped.interact || !mapped.kick) {
         std::cerr << "available gameplay release did not rearm shoulders with global pointer actions unbound\n";
         return 30;
     }
@@ -101,48 +101,42 @@ int main() {
     (void)shoulders.Filter(true, raw);
     (void)mapper.Update({}, false);
     raw.active = false;
-    raw.interact = raw.weapon_next = false;
+    raw.interact = raw.kick = false;
     (void)mapper.Update(shoulders.Filter(false, raw));
     if (!shoulders.left_blocked() || !shoulders.right_blocked()) return 37;
     raw.active = true;
-    raw.digital_available &= ~((1U << 6) | (1U << 7));
-    raw.interact = raw.weapon_next = false;
+    raw.digital_available &= ~((1U << 6) | (1U << 9));
+    raw.interact = raw.kick = false;
     (void)mapper.Update(shoulders.Filter(false, raw));
-    raw.digital_available |= (1U << 6) | (1U << 7);
-    raw.interact = raw.weapon_next = true;
+    raw.digital_available |= (1U << 6) | (1U << 9);
+    raw.interact = raw.kick = true;
     mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (mapped.interact || mapped.weapon_next || !shoulders.left_blocked() ||
+    if (mapped.interact || mapped.kick || !shoulders.left_blocked() ||
         !shoulders.right_blocked()) return 31;
     // One shoulder's valid release must not rearm the other held shoulder.
     raw.interact = false;
     (void)mapper.Update(shoulders.Filter(false, raw));
     raw.interact = true;
     mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (!mapped.interact || mapped.weapon_next || shoulders.left_blocked() ||
+    if (!mapped.interact || mapped.kick || shoulders.left_blocked() ||
         !shoulders.right_blocked()) return 32;
-    raw.interact = raw.weapon_next = false;
+    raw.interact = raw.kick = false;
     (void)mapper.Update(shoulders.Filter(false, raw));
-    raw.interact = raw.weapon_next = true;
+    raw.interact = raw.kick = true;
     mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (!mapped.interact || !mapped.weapon_next) return 33;
-    // Defaults leave the custom secondary actions unbound. Derivation uses
-    // the available raw shoulder actions after release and modifier entry.
-    raw = {}; raw.active = true; raw.digital_available = 0xF80002FFU;
-    (void)mapper.Update(shoulders.Filter(false, raw));
-    raw.utility_modifier = true;
-    (void)mapper.Update(shoulders.Filter(false, raw));
-    raw.interact = raw.weapon_next = true;
-    mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (!mapped.discard_weapon || !mapped.weapon_previous || mapped.interact ||
-        mapped.weapon_next) return 34;
-    // Leaving utility while held must not turn a secondary action into F/next.
-    raw.utility_modifier = false;
-    mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (mapped.interact || mapped.weapon_next) return 35;
-    raw.interact = raw.weapon_next = false;
-    (void)mapper.Update(shoulders.Filter(false, raw));
-    raw.interact = raw.weapon_next = true;
-    mapped = mapper.Update(shoulders.Filter(false, raw));
-    if (!mapped.interact || !mapped.weapon_next) return 36;
+    if (!mapped.interact || !mapped.kick) return 33;
+    // Wheel buttons are consumed; R1/L1 never become previous/throw.
+    raw={};raw.active=true;(void)mapper.Update(shoulders.Filter(false,raw));
+    raw.weapon_radial=true;(void)mapper.Update(shoulders.Filter(false,raw));
+    raw.interact=raw.kick=true;
+    mapped=mapper.Update(shoulders.Filter(false,raw));
+    if(mapped.discard_weapon||mapped.weapon_previous||mapped.interact||mapped.kick)return 34;
+    raw.weapon_radial=false;
+    mapped=mapper.Update(shoulders.Filter(false,raw));
+    if(mapped.interact||mapped.kick)return 35;
+    raw.interact=raw.kick=false;(void)mapper.Update(shoulders.Filter(false,raw));
+    raw.interact=raw.kick=true;
+    mapped=mapper.Update(shoulders.Filter(false,raw));
+    if(!mapped.interact||!mapped.kick)return 36;
     std::cout << "automatic hand ownership, selection, loss and gameplay gate passed\n";
 }

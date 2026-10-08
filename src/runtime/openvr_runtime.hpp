@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/openvr_state.hpp"
+#include "runtime/ui_haptics.hpp"
 #include "runtime/vr_types.hpp"
 
 #include <array>
@@ -19,6 +20,9 @@ struct OpenVrSystemInfo {
 struct OpenVrGlobalActions {
     bool recenter_requested = false;
     bool recenter_active = false;
+    // Raw state of the stable /recenter action path. The presenter resolves
+    // the default Create tap/hold gesture; an edge alone is not a recenter.
+    bool recenter_held = false;
     bool ui_select_left = false;
     bool ui_select_right = false;
     bool ui_select_left_pressed = false;
@@ -128,6 +132,9 @@ public:
         GameplayInputState& gameplay_actions,
         OpenVrHandPoses& hand_poses) noexcept;
     [[nodiscard]] bool global_actions_initialized() const noexcept;
+    // Presenter-owner only. Missing/failed optional output never disables input.
+    // Starts immediately; failed delivery is consumed, never queued or retried.
+    [[nodiscard]] bool SubmitUiHapticPulse(const UiHapticPulse& pulse) noexcept;
     void RecordEyeSubmission(Eye eye, bool succeeded) noexcept;
 
     [[nodiscard]] bool initialized() const noexcept;

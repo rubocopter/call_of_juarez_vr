@@ -112,6 +112,67 @@ int main() {
         text.interaction.view()==u"L2 para atacar; R2 para enganchar" &&
         text.subtitle.view()==localized_subtitle.string && hint_text.string.find(u"RMB")!=std::u16string::npos,
         "VR hints must translate mouse/space tokens without changing dialogue or native text"); Clean();
+    // Original campaign %KEY expressions expand to quoted default key names.
+    // Literal expectations also catch accidental replacement of prose/custom keys.
+    struct LabelCase { std::u16string_view source, expected; };
+    const LabelCase labels[]{
+        {u"To reload ammunition press 'R'.", u"To reload ammunition press 'Square'."},
+        {u"Use the 'F' key to pick up the box.", u"Use the 'L1' key to pick up the box."},
+        {u"Press the 'X' button to get a better view.", u"Press the 'R3' button to get a better view."},
+        {u"Press 'O' for objectives.", u"Press 'Create tap' for objectives."},
+        {u"Press 'Z' to enter single-revolver quick shooting mode.",
+         u"Press 'Circle' to enter single-revolver quick shooting mode."},
+        {u"Press 'C' to kick.", u"Press 'R1' to kick."},
+        {u"Use the 'CTRL' key to duck.", u"Use the 'L3' key to duck."},
+        {u"Use 'Ctrl Left' to duck and 'Space Bar' to jump.", u"Use 'L3' to duck and 'Cross' to jump."},
+        {u"Pulsa 'BARRA ESPACIADORA' para saltar.", u"Pulsa 'Cross' para saltar."},
+        {u"By holding the 'BLOQ MAYUS' button, you make the horse canter.",
+         u"By holding the 'R1 (hold)' button, you make the horse canter."},
+        {u"By holding 'Caps Lock', you make the horse canter.",
+         u"By holding 'R1 (hold)', you make the horse canter."},
+        {u"Press '1', or '2' to unholster your guns.",
+         u"Press 'Triangle hold / right stick Left / release', or 'Triangle hold / right stick Right / release' to unholster your guns."},
+        {u"Select '3', '4', '5', '6'.", u"Select 'Triangle hold / right stick Up / release', 'Triangle hold / right stick Down-right / release', 'Triangle hold / right stick Up-left / release', 'Triangle hold / right stick Up-right / release'."},
+        {u"Use your fists ('0'); discard with 'RETROCESO' or 'Backspace'.",
+         u"Use your fists ('Triangle hold / right stick Down / release'); discard with 'Triangle hold / right stick Down-left / release' or 'Triangle hold / right stick Down-left / release'."},
+        {u"[R] (F) \"X\" ‘O’ “Z”", u"[Square] (L1) \"R3\" ‘Create tap’ “Circle”"},
+        {u"F R X O Z C 0 1 2 3 4 5 6; O'Neil, don't, 'Ranger', (Fable), [Xray], FR, R2, F5.",
+         u"F R X O Z C 0 1 2 3 4 5 6; O'Neil, don't, 'Ranger', (Fable), [Xray], FR, R2, F5."},
+        {u"Pulsa F; Rápido, O elige 1. é'R' 'F'ñ A[R]B O'R'Neil. 'CTRL+R' [SHIFT+R] 'F",
+         u"Pulsa F; Rápido, O elige 1. é'R' 'F'ñ A[R]B O'R'Neil. 'CTRL+R' [SHIFT+R] 'F"},
+        {u"'Q' 'E' 'SHIFT' 'L' 'F5' 'F8' 'TAB' 'Y' 'U' 'T' 'V' '7' '8' '9' 'W' 'A' 'S' 'D'",
+         u"'Q' 'E' 'SHIFT' 'L' 'F5' 'F8' 'TAB' 'Y' 'U' 'T' 'V' '7' '8' '9' 'W' 'A' 'S' 'D'"},
+        {u"LMB RMB SPACE BAR SPACEBAR; XLMB RMB2 _RMB éLMB LMBñ SPACEBARCODE.",
+         u"L2 R2 Cross Cross; XLMB RMB2 _RMB éLMB LMBñ SPACEBARCODE."},
+    };
+    for (const auto& sample : labels) {
+        hint_text.string=interaction_text.string=localized_subtitle.string=sample.source;
+        Require(ReadCoJHudText(&holder,&player,text),"default-key hint owners must remain readable");
+        if (text.hint.view()!=sample.expected || text.interaction.view()!=sample.expected) {
+            std::cerr << "default Sense key label mismatch at case " << (&sample-labels) << '\n';
+            std::exit(1);
+        }
+        Require(hint_text.string==sample.source && interaction_text.string==sample.source &&
+            text.subtitle.view()==sample.source,"label adaptation must leave native strings and dialogue intact");
+        Clean();
+    }
+    hint_text.string=std::u16string(974,u'a') + u" '1' " + std::u16string(30,u'b');
+    Require(ReadCoJHudText(&holder,&player,text),"growing radial label must remain bounded");
+    Require(text.hint.length < cojvr::runtime::HudText::capacity && text.hint.view().back()==u'\u2026' &&
+        text.hint.view().find(u"Triangle hold / right stick Left / release")!=std::u16string_view::npos,
+        "growing labels must retain complete fitting gestures and mark truncated trailing prose"); Clean();
+    hint_text.string=std::u16string(990,u'a') + u" '1' end";
+    Require(ReadCoJHudText(&holder,&player,text) &&
+        text.hint.view()==std::u16string(990,u'a')+u" '\u2026",
+        "a radial gesture that cannot fit must truncate before that gesture"); Clean();
+    hint_text.string=std::u16string(976,u'a')+u" '1' \U0001F600";
+    Require(ReadCoJHudText(&holder,&player,text) && text.hint.view().back()==u'\u2026' &&
+        text.hint.view().find(u'\xD83D')==std::u16string_view::npos,
+        "expanded text must not split a trailing Unicode pair"); Clean();
+    hint_text.string=std::u16string(979,u'a')+u" '1' end";
+    Require(ReadCoJHudText(&holder,&player,text) &&
+        text.hint.view()==std::u16string(979,u'a')+u" '\u2026",
+        "ellipsis reservation must not erase the last character of a fitting radial label"); Clean();
     icon.visible=false; info.visible=false; settings.boolean=false;
     Require(ReadCoJHudText(&holder,&player,text) && text.interaction.view().empty() &&
         text.hint.view().empty() && text.subtitle.view().empty(),"hidden owners/settings must clear all text"); Clean();

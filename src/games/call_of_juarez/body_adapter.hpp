@@ -123,6 +123,10 @@ public:
     [[nodiscard]] float Update(
         float native_camera_y, float actor_y, bool physical_crouch,
         bool controller_crouch, bool reset) noexcept;
+    // Revalidate the cached pair correction after synchronous native input.
+    // Unknown same-owner state suspends output while retaining standing height.
+    [[nodiscard]] float RevalidateCorrection(float correction, bool same_owner,
+        bool mounted_observation_available, bool mounted) noexcept;
     void Reset() noexcept { *this = {}; }
 private:
     float reference_height_ = 0;
@@ -131,9 +135,13 @@ private:
     bool controller_recovery_ = false;
 };
 
+// Native Duck also reaches HorseController. Both synthetic sources require
+// a fresh, known on-foot owner; native desktop requests keep their own route.
 [[nodiscard]] bool ResolveCoJCrouchAction(
     bool requested_native_crouch,
-    bool physical_crouch_detected) noexcept;
+    bool physical_crouch_detected,
+    bool mounted_observation_available,
+    bool mounted) noexcept;
 
 // Rotate the neutral runtime stick into the actor-local movement frame using
 // the current HMD yaw left over after body-yaw ownership. Positive head yaw is
@@ -487,13 +495,20 @@ using CoJHandFrames = std::array<CoJHandElementFrame, 20>;
 using CoJElementRead = bool (*)(void*, int, ElementWorldBasisTarget&) noexcept;
 using CoJElementWrite = bool (*)(void*, int, const ElementWorldBasisTarget&) noexcept;
 
+// Exact shared Ray/Billy authored relaxed-rest -> fist poses. Preserve fresh
+// parent-local translations; never change Hand/socket/forearm frames.
+[[nodiscard]] bool BuildCoJFingerTargets(int hand, const CoJHandFrames& natural,
+    const CoJHandFrames& rigid, const cojvr::runtime::FingerTrackingState& fingers,
+    CoJHandFrames& out) noexcept;
+
 // Isolated hand geometry permits a rigid controller rotation without twisting
 // the connected arm mesh. All lower skin contributors and fingers share a map.
 class CoJHandOverlay final {
 public:
     [[nodiscard]] bool Apply(const CoJHandFrames& natural,
         const ElementWorldBasisTarget& source_hand, const ElementWorldBasisTarget& target_hand,
-        cojvr::runtime::Vec3 actor, void* context, CoJElementRead read, CoJElementWrite write) noexcept;
+        cojvr::runtime::Vec3 actor, void* context, CoJElementRead read, CoJElementWrite write,
+        const cojvr::runtime::FingerTrackingState* fingers = nullptr, int hand = -1) noexcept;
     [[nodiscard]] bool Restore(cojvr::runtime::Vec3 actor, void* context,
         CoJElementRead read, CoJElementWrite write) noexcept;
     [[nodiscard]] bool Verify(void* context, CoJElementRead read) const noexcept;
@@ -502,12 +517,14 @@ public:
     void RemoveCapturedBodyOffset(cojvr::runtime::Vec3 removed_offset) noexcept;
     [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] bool faulted() const noexcept { return faulted_; }
+    [[nodiscard]] bool fingers_active() const noexcept { return active_ && fingers_active_; }
 private:
     CoJHandFrames natural_{};
     CoJHandFrames targets_{};
     cojvr::runtime::Vec3 actor_{};
     bool active_ = false;
     bool faulted_ = false;
+    bool fingers_active_ = false;
 };
 
 [[nodiscard]] ArmElementFramePlan BuildArmElementFramePlan(

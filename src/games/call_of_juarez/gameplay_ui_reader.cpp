@@ -114,6 +114,111 @@ struct Reader {
 void Label(runtime::UiLabel& out,std::u16string_view text) noexcept {
     auto n=std::min(text.size(),out.capacity-1);std::copy_n(text.data(),n,out.characters.data());out.length=static_cast<std::uint32_t>(n);
 }
+void PoseStatus(void* env,void* component,runtime::UiLabel& out) noexcept {
+    out={};Reader r{env};
+    // Optional presentation only. The caller has verified the HUDPlayer's
+    // manager/player ownership. Use a separate reader so pose lookup failures
+    // clear their exception without discarding accepted health/ammo text.
+    if(r.Bool(component,"m_bForceUpdate"))return;
+    auto poses=r.Get(component,"m_aPoses","[LUIWindow;");
+    if(!poses.value||r.Size(poses,true)!=2)return;
+    auto standing=r.At(poses,0,true),crouched=r.At(poses,1,true);
+    if(!r.Instance(standing,"UIWindow")||!r.Instance(crouched,"UIWindow"))return;
+    const bool stand_visible=r.Visible(standing),crouch_visible=r.Visible(crouched);
+    const bool last_standing=r.Bool(component,"m_bLastStanding");
+    const bool in_shadow=r.Bool(component,"m_bLastHidden");
+    const float alpha=r.Float(component,"m_fAlpha");
+    if(!r.ok||stand_visible==crouch_visible||last_standing!=stand_visible||alpha<=0||alpha>1)return;
+    // Native hidden means shadow + enabled recognition feedback; it does not
+    // prove invisibility to enemies. No negative/"spotted" state is inferred.
+    Label(out,stand_visible?(in_shadow?u"De pie · En sombra":u"De pie"):
+        (in_shadow?u"Agachado · En sombra":u"Agachado"));
+}
+bool OwnedHudComponent(Reader& r,void* component,const char* type,void* hud,void* player) noexcept {
+    if(!component||!r.Instance(component,type))return false;
+    auto owner=r.Get(component,"m_Being","LBeing;");
+    auto manager=r.Get(component,"m_cHUDManager","LHUDManager;");
+    return r.Same(owner,player)&&r.Same(manager,hud)&&r.Visible(component);
+}
+bool VisibleTexture(Reader& r,void* sprite,const char* type) noexcept {
+    if(!sprite||!r.Instance(sprite,type)||!r.Visible(sprite))return false;
+    const float alpha=r.Float(sprite,"m_fTextureAlpha");
+    return r.ok&&alpha>0&&alpha<=1;
+}
+void ConcentrationStatus(void* env,void* components,void* hud,void* player,runtime::UiLabel& out) noexcept {
+    out={};Reader r{env};auto component=r.At(components,10,true);
+    if(!OwnedHudComponent(r,component,"HUDBulletTime",hud,player))return;
+    auto owner=r.Get(component,"m_cPlayer","LArmedPlayerBeing;");
+    if(!r.Same(owner,player))return;
+    auto icon=r.Get(component,"m_cIcon","LUIStatic;");
+    if(!VisibleTexture(r,icon,"UIStatic"))return;
+    const int mode=r.Int(component,"m_nMode");if(!r.ok)return;
+    // UpdateData commits the naturally selected icon mode. No eligibility
+    // query, cooldown clock or gameplay update is executed by observation.
+    switch(mode){
+    case 1:Label(out,u"Concentración · En uso");break;
+    case 2:Label(out,u"Concentración · Recargando");break;
+    case 3:case 4:Label(out,u"Concentración · Lista");break;
+    case 5:Label(out,u"Concentración · No preparada");break;
+    default:break;
+    }
+}
+bool CachedNumber(Reader& r,void* sprite,runtime::UiLabel& out) noexcept {
+    out={};if(!sprite)return r.ok;
+    if(!r.Instance(sprite,"UIStatic"))return false;
+    if(!r.Visible(sprite))return r.ok;
+    const float alpha=r.Float(sprite,"m_fCurTextAlpha");
+    if(!r.ok)return false;if(alpha<=0||alpha>1)return true;
+    auto text=r.Get(sprite,"m_sLocalizedText","Ljava/lang/String;");r.Copy(text,out);
+    const auto digits=out.view();
+    return r.ok&&digits.size()<=10&&
+        std::all_of(digits.begin(),digits.end(),[](char16_t c){return c>=u'0'&&c<=u'9';});
+}
+void CountdownStatus(void* env,void* components,void* hud,void* player,runtime::UiLabel& out) noexcept {
+    out={};Reader r{env};auto component=r.At(components,17,true);
+    if(!OwnedHudComponent(r,component,"HUDCountdownTimer",hud,player))return;
+    auto timer=r.Get(component,"m_cCountdownTimer","LCountdownTimer;");
+    if(!r.Instance(timer,"CountdownTimer"))return;
+    auto window=r.Get(component,"m_cWindow","LUIWindow;");
+    if(!r.Instance(window,"UIWindow")||!r.Visible(window))return;
+    auto bottom=r.Get(component,"m_cBottomText","LUIStatic;");
+    auto center=r.Get(component,"m_cCenterText","LUIStatic;");
+    runtime::UiLabel bottom_number{},center_number{};
+    if(!CachedNumber(r,bottom,bottom_number)||!CachedNumber(r,center,center_number))return;
+    const bool has_bottom=!bottom_number.view().empty(),has_center=!center_number.view().empty();
+    if(!r.ok||has_bottom==has_center)return;
+    // UpdateText stores int(time-to-finish)+1 in precisely one text owner.
+    // Duels use center text, ordinary titled timers use bottom text. Copy it
+    // unchanged: a countdown is not native permission to draw or fire.
+    const auto number=has_bottom?bottom_number.view():center_number.view();
+    Label(out,u"Cuenta atrás  ");
+    std::copy(number.begin(),number.end(),out.characters.begin()+out.length);
+    out.length+=static_cast<std::uint32_t>(number.size());
+}
+void AppendPercent(runtime::UiLabel& out,int percent) noexcept {
+    // Only callers' checked native 0-100 values reach this bounded formatter.
+    if(percent==100)out.characters[out.length++]=u'1';
+    if(percent>=10)out.characters[out.length++]=static_cast<char16_t>(u'0'+(percent/10)%10);
+    out.characters[out.length++]=static_cast<char16_t>(u'0'+percent%10);
+    out.characters[out.length++]=u'%';
+}
+void HorseStatus(void* env,void* components,void* hud,void* player,runtime::UiLabel& out) noexcept {
+    out={};Reader r{env};auto component=r.At(components,18,true);
+    if(!OwnedHudComponent(r,component,"HUDHorse",hud,player))return;
+    auto icon=r.Get(component,"m_cHorseIcon","LUIWindow;");
+    auto fill=r.Get(component,"m_cTirednessIconFill","LUIWindow;");
+    if(!VisibleTexture(r,icon,"UIWindow")||!VisibleTexture(r,fill,"UIWindow"))return;
+    if(r.Bool(component,"m_bUpdateHealthLevel"))return;
+    const int health=r.Int(component,"m_nHealthLevel");
+    const float fatigue=r.Float(component,"m_fLastTiredness");
+    if(!r.ok||health<0||health>100||fatigue<0||fatigue>100)return;
+    // Show/Reset invalidate these caches. Keep the native health percentage
+    // and fatigue meaning; do not infer remaining stamina or refresh the horse.
+    Label(out,u"Caballo · Salud ");AppendPercent(out,health);
+    constexpr std::u16string_view suffix=u" · Fatiga ";
+    std::copy(suffix.begin(),suffix.end(),out.characters.begin()+out.length);
+    out.length+=static_cast<std::uint32_t>(suffix.size());AppendPercent(out,static_cast<int>(fatigue));
+}
 bool Inventory(void* env,void* player,runtime::EquipmentWheelSnapshot& out) noexcept {
     Reader r{env};auto slots=r.Get(player,"m_aInvSlots","Ljava/util/ArrayList;");
     auto items=r.Get(player,"m_aInvSlotsObjects","[LInvObject;");
@@ -149,6 +254,7 @@ bool Inventory(void* env,void* player,runtime::EquipmentWheelSnapshot& out) noex
 }
 bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
     Reader r{env};runtime::WristStatusSnapshot value{};
+    runtime::UiLabel pose{};
     auto cls=r.Class("HUDManager");auto hud=r.Static(cls,"sm_cMainHUDManager","LHUDManager;");
     if(!hud.value)return r.ok;
     auto owner=r.Get(hud,"m_Being","LBeing;");
@@ -179,6 +285,7 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
         if(domain==0){
             auto health_player=r.Get(component,"m_cPlayer","LPlayerBeing;");if(!r.Same(health_player,player))continue;
             auto health=r.Get(component,"m_cHealth","LUIStatic;");append(health,u"Salud  ");
+            if(r.ok)PoseStatus(env,component,pose);
         }else if(domain==1){
             auto counters=r.Get(component,"m_tAmmoCounters","[LUIStatic;");
             auto infos=r.Get(component,"m_tSlotsWeaponInfo","[LHUDWeapons$WeaponInfo;");
@@ -207,7 +314,18 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
             }
         }
     }
-    if(r.ok){value.active=value.line_count!=0;out=value;}else out={};return r.ok;
+    if(r.ok){
+        // Isolate optional cached presentation failures from health/ammo and
+        // each other. Essential rows retain priority within the ten-row card;
+        // the transient countdown gets the first remaining row.
+        for(auto read:{CountdownStatus,HorseStatus,ConcentrationStatus}){
+            if(value.line_count==value.lines.size())break;
+            runtime::UiLabel optional{};read(env,components,hud,player,optional);
+            if(!optional.view().empty())value.lines[value.line_count++]=optional;
+        }
+        if(!pose.view().empty()&&value.line_count<value.lines.size())value.lines[value.line_count++]=pose;
+        value.active=value.line_count!=0;out=value;
+    }else out={};return r.ok;
 }
 bool Compass(void* env,void* player,CoJGameplayUiSnapshot& out) noexcept {
     Reader r{env};auto cls=r.Class("HUDManager");auto hud=r.Static(cls,"sm_cMainHUDManager","LHUDManager;");

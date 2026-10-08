@@ -695,7 +695,7 @@ if ($IsReadbackDiagnostic) {
     Write-Host "Start SteamVR manually before launching the game so the native-stereo runtime can initialize."
     Write-Host "Control file: '$CameraControl'."
     if ($ValidationProfile -ne "startup") {
-        Write-Host "In-headset recenter: press Create on the left PS VR2 Sense controller."
+        Write-Host "In-headset recenter: hold Create on the left PS VR2 Sense controller for 800 ms. A short tap requests Objectives on release."
         Write-Host "Terminal recenter remains available through tools\set_hmd_camera_control.ps1 as a diagnostic fallback."
         Write-Host "Movement phases: tools\set_movement_diagnostic.ps1 -GameDirectory '$GameDirectory' -Mode vr-full|vr-input-off|vr-readback-off|vr-single-eye"
     }

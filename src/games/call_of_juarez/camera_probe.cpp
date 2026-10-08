@@ -5,6 +5,9 @@
 #include "runtime/body_tracking.hpp"
 #include "runtime/gameplay_utility.hpp"
 #include "games/call_of_juarez/gameplay_ui_adapter.hpp"
+#include "games/call_of_juarez/motion_reload_adapter.hpp"
+#include "runtime/reload_visual.hpp"
+#include "runtime/interaction_gaze.hpp"
 
 #include "backends/d3d9/hook_registry.hpp"
 #include "runtime/build_identity.hpp"
@@ -112,7 +115,15 @@ CameraProbeEventCallback g_event_callback = nullptr;
 cojvr::runtime::PoseSource* g_pose_source = nullptr;
 cojvr::runtime::BodyTracker g_body_tracker;
 JavaPlayerBridge g_java_player_bridge;
-cojvr::runtime::GameplayUtilityMapper g_gameplay_utility;
+cojvr::runtime::GameplayControlMapper g_gameplay_controls;
+CoJContextualShoulderState g_contextual_shoulder;
+CoJGameplayOwnerState g_gameplay_owner;
+CoJGameplayCommandQueue g_gameplay_commands;
+CoJMotionReloadAdapter g_motion_reload;
+CoJInteractionActionGate g_interaction_action_gate;
+CoJMotionReloadRejectReason g_motion_reload_last_reject = CoJMotionReloadRejectReason::none;
+std::uint64_t g_motion_reload_last_diagnostic_ms = 0;
+bool g_gameplay_owner_release_pending=false;
 std::atomic_uint64_t g_diagnostic_left_eye_renders{0};
 std::atomic_uint64_t g_diagnostic_right_eye_renders{0};
 std::atomic_uint64_t g_diagnostic_stereo_pairs{0};
@@ -282,7 +293,7 @@ bool GameplayInputChanged(
         std::fabs(left.turn.x - right.turn.x) > kAxisChange ||
         std::fabs(left.turn.y - right.turn.y) > kAxisChange ||
         left.equipment_select != right.equipment_select ||
-        left.utility_modifier != right.utility_modifier ||
+        left.weapon_radial != right.weapon_radial ||
         std::any_of(cojvr::runtime::kGameplayDigitalMembers.begin(),
             cojvr::runtime::kGameplayDigitalMembers.end(), [&](const auto member) {
                 return left.*member != right.*member;
@@ -3639,7 +3650,9 @@ void ApplyTrackedWeapons(
     const cojvr::runtime::Pose& right_tip,
     const std::uint64_t frame_sequence,
     ControllerAimFrameObservation& aim,
-    const bool independent_hands) noexcept {
+    const bool independent_hands,
+    const runtime::FingerTrackingState& left_fingers,
+    const runtime::FingerTrackingState& right_fingers) noexcept {
     CameraProbeBasis basis{};
     CameraProbeVector camera{};
     if (!ReadNaturalCameraFrame(natural, basis, camera)) return;
@@ -3697,11 +3710,36 @@ void ApplyTrackedWeapons(
                 hand_target=TransformWeaponElementFrame(socket,target_socket,natural_hand);
             }
             hand_applied=hand_target.valid && g_java_player_bridge.TryApplyIndependentHand(
-                hand,natural_hand,hand_target,&error);
+                hand,natural_hand,hand_target,&error,left?&left_fingers:&right_fingers);
+            if(ShouldObserveBodyFrame(frame_sequence)){
+                try{EmitEvent("controller_finger_animation",g_java_player_bridge.finger_animation_active(hand)?"applied":"native",
+                    "frame_sequence="+std::to_string(frame_sequence)+";hand="+std::to_string(hand)+
+                    ";range=authored_rest_to_fist;transaction=independent_hand;visual_acceptance=unverified");}catch(...){}
+            }
             if (hand_applied && prepared) {
                 // The native attachment owns the child weapon. Commit its world
                 // frames only once every parent hand/socket frame is final.
                 applied=g_java_player_bridge.ApplyPreparedTrackedWeapon(hand,muzzle,&error);
+                if(applied && ShouldObserveBodyFrame(frame_sequence)) {
+                    try {
+                        CoJReloadGeometrySnapshot geometry{};
+                        std::string geometry_error;
+                        if(g_java_player_bridge.TryObserveReloadGeometry(hand,geometry,&geometry_error)) {
+                            std::string detail="frame_sequence="+std::to_string(frame_sequence)+
+                                ";hand="+std::to_string(hand)+";units=cm;owner=displayed_tracked_weapon;gate_clearance=unverified;interaction_enabled=false;model="+
+                                (geometry.model==CoJReloadModel::peacemaker?"peacemaker":"frontier")+
+                                ";drum="+RuntimeVectorText(geometry.drum.position)+
+                                ";drum_up="+RuntimeVectorText(geometry.drum.up)+
+                                ";gate="+RuntimeVectorText(geometry.gate.position)+
+                                ";gate_up="+RuntimeVectorText(geometry.gate.up)+
+                                ";gate_forward="+RuntimeVectorText(geometry.gate.forward)+
+                                ";inward="+RuntimeVectorText(geometry.drum.forward);
+                            for(std::size_t i=0;i<geometry.mouths.size();++i)
+                                detail+=";mouth"+std::to_string(i)+"="+RuntimeVectorText(geometry.mouths[i].position);
+                            EmitEvent("manual_reload_geometry","observed",detail);
+                        }
+                    } catch (...) {} // Optional diagnostics cannot interrupt restoration.
+                }
             }
             bool whip=false;
             if (hand==0 && hand_applied && !prepared &&
@@ -3768,7 +3806,18 @@ float UpdatePhysicalViewHeight(
     const CameraRenderStateSnapshot& natural_render_state,
     const bool input_active, const bool physical_crouch,
     const bool controller_crouch, const bool recentered,
+    const bool mounted_available, const bool mounted,
     const std::uint64_t frame_sequence) noexcept {
+    const auto observed_generation = g_java_player_bridge.being_generation();
+    const bool same_owner = observed_generation != 0 &&
+        observed_generation == g_physical_view_height_generation;
+    if (!mounted_available || mounted) {
+        (void)g_physical_view_height_state.RevalidateCorrection(
+            0, same_owner, mounted_available, mounted);
+        if (!same_owner || (mounted_available && mounted))
+            g_physical_view_height_generation = 0;
+        return 0;
+    }
     CameraProbeBasis basis{};
     CameraProbeVector camera_position{};
     JavaPlayerPosition actor{};
@@ -4428,6 +4477,16 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
 
     const CommandSnapshot snapshot = CurrentCommand();
+    const auto cancel_gameplay=[&]() noexcept {
+        g_interaction_action_gate.Cancel();
+        g_motion_reload.Cancel();
+        (void)g_java_player_bridge.ClearSingleRoundReload();
+        g_gameplay_controls={}; g_contextual_shoulder={}; g_gameplay_commands={};
+        g_gameplay_owner={}; g_physical_crouch_state={};
+        g_gameplay_owner_release_pending=true;
+        if (g_java_player_bridge.TryApplyGameplayInput({},nullptr))
+            g_gameplay_owner_release_pending=false;
+    };
     // The last ray survives native update/shot consumption but never a failed,
     // menu, disabled-tracking or incomplete next render sample.
     (void)g_java_player_bridge.TryPublishWeaponRay(0, {}, {}, false);
@@ -4435,10 +4494,12 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     (void)g_java_player_bridge.TryPublishInteractionRay({}, {}, false);
     std::string stale_weapon_error;
     if (!g_java_player_bridge.RestoreTrackedHands(&stale_weapon_error)) {
+        cancel_gameplay();
         EmitEvent("body_hand_restore","failed",stale_weapon_error);
         original(owner,view);return;
     }
     if (!g_java_player_bridge.RestoreTrackedWeapons(&stale_weapon_error)) {
+        cancel_gameplay();
         EmitEvent("controller_weapon_restore", "failed", stale_weapon_error);
         original(owner, view);
         return;
@@ -4450,10 +4511,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 snapshot.command.second_eye_render_enabled);
     }
     if (!snapshot.command.tracking_enabled || !StereoCallbacksReady()) {
-        (void)g_gameplay_utility.Update({}, false);
-        if (snapshot.command.vr_gameplay_input_enabled) {
-            (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
-        }
+        cancel_gameplay();
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
@@ -4463,14 +4521,14 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
 
     void* camera = CameraForView(view);
     if (!camera) {
-        (void)g_gameplay_utility.Update({}, false);
+        cancel_gameplay();
         original(owner, view);
         return;
     }
 
     CameraRenderStateSnapshot natural_render_state{};
     if (!CaptureCameraRenderState(camera, natural_render_state)) {
-        (void)g_gameplay_utility.Update({}, false);
+        cancel_gameplay();
         EmitEvent(
             "camera_native_stereo_state", "unavailable",
             "camera=" + std::to_string(reinterpret_cast<std::uintptr_t>(camera)));
@@ -4483,10 +4541,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         !sample.hmd_pose.pose.orientation_valid || sample.hmd_pose.sequence == 0 ||
         sample.eyes[0].eye != cojvr::runtime::Eye::left ||
         sample.eyes[1].eye != cojvr::runtime::Eye::right) {
-        (void)g_gameplay_utility.Update({}, false);
-        if (snapshot.command.vr_gameplay_input_enabled) {
-            (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
-        }
+        cancel_gameplay();
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
@@ -4513,10 +4568,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     cojvr::runtime::Pose relative_head_pose{};
     if (!g_pose_tracker.Update(sample.hmd_pose) ||
         !g_pose_tracker.CurrentPose(relative_head_pose)) {
-        (void)g_gameplay_utility.Update({}, false);
-        if (snapshot.command.vr_gameplay_input_enabled) {
-            (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr);
-        }
+        cancel_gameplay();
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
@@ -4662,20 +4714,39 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     }
     // Native blocking-UI ownership is authoritative even when the compositor
     // has not uploaded a flat frame. Apply neutral input policy on this owner
-    // thread so no short timer transition can leave the utility latch alive.
-    sample.gameplay = g_gameplay_utility.Update(sample.gameplay,
-        snapshot.command.vr_gameplay_input_enabled && game_timer_valid && !game_timer_frozen);
+    // thread so no short timer transition can leave the control latch alive.
+    bool mounted=false;
+    bool mounted_available=sample.gameplay.active &&
+        g_java_player_bridge.Refresh(nullptr) && g_java_player_bridge.TryObserveMounted(mounted);
+    const auto reset_gameplay_owner=[&]() noexcept {
+        g_interaction_action_gate.Cancel();
+        g_motion_reload.Cancel();
+        (void)g_java_player_bridge.ClearSingleRoundReload();
+        g_gameplay_controls={}; g_contextual_shoulder={}; g_gameplay_commands={};
+        g_physical_crouch_state={}; g_gameplay_owner_release_pending=true;
+    };
+    if (g_gameplay_owner.Update(mounted_available,mounted,g_java_player_bridge.being_generation()))
+        reset_gameplay_owner();
+    if (g_gameplay_owner_release_pending && g_java_player_bridge.TryApplyGameplayInput({},nullptr))
+        g_gameplay_owner_release_pending=false;
+    const auto raw_reload_input = sample.gameplay;
+    sample.gameplay = g_gameplay_controls.Update(sample.gameplay,
+        snapshot.command.vr_gameplay_input_enabled && game_timer_valid && !game_timer_frozen &&
+            !g_gameplay_owner_release_pending,
+        sample.objectives_requested);
     cojvr::runtime::GameplayInputState gameplay_input = sample.gameplay;
+    const bool on_foot_crouch_owner = mounted_available && !mounted;
     const bool physical_crouch = g_physical_crouch_state.Update(
-        sample.gameplay.active && relative_head_pose.position_valid,
+        sample.gameplay.active && relative_head_pose.position_valid && on_foot_crouch_owner,
         recentered,
         relative_head_pose.position.y);
     gameplay_input.crouch = ResolveCoJCrouchAction(
-        gameplay_input.crouch, physical_crouch);
-    const float physical_view_correction = UpdatePhysicalViewHeight(
+        gameplay_input.crouch, physical_crouch, mounted_available, mounted);
+    float physical_view_correction = UpdatePhysicalViewHeight(
         natural_render_state,
         gameplay_input.active && !loading_ui_input.suppress_gameplay,
-        physical_crouch, sample.gameplay.crouch, recentered, frame_sequence);
+        physical_crouch, sample.gameplay.crouch, recentered,
+        mounted_available, mounted, frame_sequence);
     float head_relative_move_yaw_degrees = 0.0F;
     bool head_relative_move_valid = false;
     if (gameplay_input.active && relative_head_pose.orientation_valid) {
@@ -4704,6 +4775,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         gameplay_input.fire_left = false;
         gameplay_input.fire_right = false;
     }
+    g_gameplay_commands.CaptureAndMerge(gameplay_input);
     CoJGameplayUiSnapshot native_gameplay_ui{};
     if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
         g_java_player_bridge.Refresh(nullptr)) {
@@ -4735,7 +4807,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     const bool gameplay_changed = !g_gameplay_telemetry_initialized ||
         GameplayInputChanged(gameplay_input, g_last_gameplay_telemetry);
     std::string gameplay_input_error;
-    // Native F calls CheckTriggers synchronously. Publish the central HMD gaze
+    // Native F calls CheckTriggers synchronously. Publish the left Sense aim
     // before its dispatch, preserving the native range and selection predicates.
     CameraProbeInteractionRay interaction_ray{};
     CameraProbeBasis interaction_basis{};
@@ -4756,39 +4828,227 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             g_body_yaw_generation == g_java_player_bridge.being_generation();
         const auto yaw = BuildBodyYawOwnershipUpdate(relative_head_pose,
             g_body_owned_yaw_degrees, yaw_owned, recentered);
-        interaction_ray = BuildTrackedInteractionRay(interaction_position, interaction_basis,
-            interaction_pose, yaw.valid ? yaw.camera_compensation_degrees : 0.0F);
+        interaction_ray = BuildTrackedHandInteractionRay(interaction_position, interaction_basis,
+            relative_head_pose,interaction_pose,relative_left_aim,
+            yaw.valid ? yaw.camera_compensation_degrees : 0.0F);
     }
     std::string interaction_error;
     const bool interaction_published = g_java_player_bridge.TryPublishInteractionRay(
         {interaction_ray.origin.x, interaction_ray.origin.y, interaction_ray.origin.z},
         {interaction_ray.direction.x, interaction_ray.direction.y, interaction_ray.direction.z},
         interaction_ray.valid, &interaction_error);
+    gameplay_input.interact=g_interaction_action_gate.Update(
+        gameplay_input.active && interaction_ray.valid && interaction_published,
+        raw_reload_input.active && (raw_reload_input.digital_available & (1U<<6))!=0,
+        raw_reload_input.interact,gameplay_input.interact);
     if (gameplay_input.interact || ShouldObserveBodyFrame(frame_sequence)) {
         try {
             EmitEvent("controller_interaction_gaze", interaction_ray.valid && interaction_published
-                ? "published" : "native_fallback",
+                ? "published" : "left_hand_unavailable",
                 "frame_sequence=" + std::to_string(frame_sequence) +
-                ";owner=BeingTriggered.CheckTriggers;source=central_hmd_render_pose;native_range=preserved;detail=" +
+                ";owner=BeingTriggered.CheckTriggers;source=left_controller_aim;native_range=preserved;detail=" +
                 interaction_error);
         } catch (...) {}
     }
-    const bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
-        g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error,
-            CoJInputDispatchPhase::non_fire);
+    // Observe the exact owner immediately before ordinary native dispatch.
+    // Pending interaction/UI/equipment intents cancel rather than retarget a
+    // completed journey. No new ammo/state/animation mutation occurs here.
+    CoJMotionReloadOwner reload_owner{};
+    CoJMotionReloadDiagnostic reload_diagnostic{};
+    const bool motion_reload_context = gameplay_input.active &&
+        snapshot.command.body_ik_enabled && snapshot.command.independent_hands_enabled &&
+        snapshot.command.vr_gameplay_input_enabled && game_timer_valid && !game_timer_frozen &&
+        mounted_available && !mounted && !loading_ui_input.suppress_gameplay;
+    bool reload_owner_observed = false;
+    if (motion_reload_context)
+        reload_owner_observed = g_java_player_bridge.TryObserveMotionReloadOwner(
+            reload_owner, &reload_diagnostic);
+    CoJMotionReloadOwner native_reload_owner{};
+    CoJMotionReloadDiagnostic native_reload_diagnostic{};
+    if(motion_reload_context && !reload_owner_observed && !reload_diagnostic.player_dead &&
+        (reload_diagnostic.reason==CoJMotionReloadRejectReason::dead_or_reloading ||
+         reload_diagnostic.reason==CoJMotionReloadRejectReason::two_handed ||
+         reload_diagnostic.reason==CoJMotionReloadRejectReason::armed_state)) {
+        if(!g_java_player_bridge.TryObserveNativeReloadRecoveryOwner(native_reload_owner,&native_reload_diagnostic)) {
+            reload_diagnostic.reason=native_reload_diagnostic.reason==CoJMotionReloadRejectReason::none
+                ?CoJMotionReloadRejectReason::jni_failure:native_reload_diagnostic.reason;
+            reload_diagnostic.player_dead|=native_reload_diagnostic.player_dead;
+            for(int hand=0;hand<2;++hand)
+                reload_diagnostic.attacking[hand]|=native_reload_diagnostic.attacking[hand];
+        }
+    }
+    const std::uint64_t reload_now_ms = GetTickCount64();
+    const bool reload_trigger_held = raw_reload_input.fire_left || raw_reload_input.fire_right;
+    const bool reload_diagnostic_changed = reload_diagnostic.reason != g_motion_reload_last_reject;
+    if (motion_reload_context && !reload_owner_observed &&
+        (reload_diagnostic_changed || (reload_trigger_held &&
+            reload_now_ms - g_motion_reload_last_diagnostic_ms >= 500))) {
+        try {
+            std::ostringstream detail;
+            const char* reload_weapon_class = nullptr;
+            if (reload_diagnostic.reason == CoJMotionReloadRejectReason::unsupported_weapon &&
+                (reload_diagnostic.armed_hand == 0 || reload_diagnostic.armed_hand == 1)) {
+                (void)g_java_player_bridge.TryObserveMotionReloadWeaponClassName(
+                    reload_diagnostic.armed_hand, reload_weapon_class);
+            }
+            detail << "frame_sequence=" << frame_sequence
+                   << ";reason=" << CoJMotionReloadRejectReasonName(reload_diagnostic.reason)
+                   << ";native_recovery_valid=" << native_reload_owner.valid
+                   << ";native_recovery_weapon=" << native_reload_owner.weapon_id
+                   << ";armed_hand=" << reload_diagnostic.armed_hand
+                   << ";weapon_class=" << (reload_weapon_class ? reload_weapon_class : "unknown")
+                   << ";trigger_left=" << raw_reload_input.fire_left
+                   << ";trigger_right=" << raw_reload_input.fire_right;
+            for (int hand = 0; hand < 2; ++hand) {
+                detail << ";h" << hand << "_states="
+                       << reload_diagnostic.states[hand][0] << ','
+                       << reload_diagnostic.states[hand][1] << ','
+                       << reload_diagnostic.states[hand][2] << ','
+                       << reload_diagnostic.states[hand][3]
+                       << ";h" << hand << "_weapons="
+                       << reload_diagnostic.weapon_present[hand][0] << ','
+                       << reload_diagnostic.weapon_present[hand][1] << ','
+                       << reload_diagnostic.weapon_present[hand][2]
+                       << ";h" << hand << "_occupied=" << reload_diagnostic.occupied[hand];
+                detail << ";h" << hand << "_recovery_states=";
+                for(const int state:native_reload_diagnostic.states[hand])detail << state << ',';
+            }
+            EmitEvent("motion_reload_owner", "rejected", detail.str());
+        } catch (...) {}
+        g_motion_reload_last_diagnostic_ms = reload_now_ms;
+    }
+    if (motion_reload_context) g_motion_reload_last_reject = reload_diagnostic.reason;
+    const auto prior_reload_stage = g_motion_reload.stage();
+    const auto motion_reload = g_motion_reload.Update(gameplay_input, raw_reload_input,
+        reload_owner, reload_diagnostic, g_java_player_bridge.being_generation(),
+        relative_head_pose, relative_left_controller, relative_right_controller,
+        motion_reload_context, recentered, sample.hmd_pose.sequence, reload_now_ms,
+        sample.native_gameplay_context_token,native_reload_owner);
+    // A still-held prior Square request cannot count as a new native edge.
+    // A discarded gesture is never retained for a later owner or retry.
+    if (motion_reload.reload && g_java_player_bridge.AppliedGameplayCommands().reload)
+        gameplay_input.reload = sample.gameplay.reload;
+    if (prior_reload_stage != g_motion_reload.stage() || motion_reload.reload) {
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";stage=" << static_cast<int>(g_motion_reload.stage())
+                   << ";armed_hand=" << reload_owner.armed_hand
+                   << ";weapon_id=" << reload_owner.weapon_id
+                   << ";owner_valid=" << reload_owner.valid
+                   << ";consumed_trigger_mask=" << static_cast<int>(motion_reload.consumed_trigger_mask)
+                   << ";reload_requested=" << motion_reload.reload
+                   << ";native_animation_owner=true;ammo_write=false";
+            EmitEvent("motion_reload_gesture", "observed", detail.str());
+        } catch (...) {}
+    }
+    g_gameplay_commands.PrepareDispatch(gameplay_input,g_java_player_bridge.AppliedGameplayCommands());
+    // A pending ticket belongs only to this immediate action31 delivery. The
+    // patched native request consumes it into native completion ownership;
+    // cancelling pending later cannot turn an accepted round into a full loop.
+    const bool single_round_request = motion_reload.reload && reload_owner.single_round_supported &&
+        gameplay_input.reload && !g_java_player_bridge.AppliedGameplayCommands().reload;
+    bool reload_ticket_ready = g_java_player_bridge.ClearSingleRoundReload(&gameplay_input_error);
+    if (reload_ticket_ready && single_round_request)
+        reload_ticket_ready = g_java_player_bridge.TryArmSingleRoundReload(reload_owner, &gameplay_input_error);
+    if (!reload_ticket_ready) gameplay_input.reload = false;
+    const bool interaction_pressed = gameplay_input.active && gameplay_input.interact &&
+        !g_java_player_bridge.AppliedGameplayCommands().interact;
+    CoJInteractionSelection interaction_before{};
+    if(interaction_pressed)
+        (void)g_java_player_bridge.TryObserveInteractionSelection(interaction_before);
+    bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
+        reload_ticket_ready && g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error,
+            CoJInputDispatchPhase::pre_shoulder);
+    if(interaction_pressed) {
+        CoJInteractionSelection interaction_after{};
+        (void)g_java_player_bridge.TryObserveInteractionSelection(interaction_after);
+        try {
+            std::ostringstream detail;
+            detail << "frame_sequence=" << frame_sequence
+                   << ";dispatch_completed=" << gameplay_input_ok
+                   << ";gaze_published=" << (interaction_ray.valid && interaction_published);
+            const auto append=[&](const char* prefix,const CoJInteractionSelection& selection) {
+                detail << ';' << prefix << "_valid=" << selection.valid
+                       << ';' << prefix << "_active_id=" << selection.active_id
+                       << ';' << prefix << "_executing_id=" << selection.executing_id
+                       << ';' << prefix << "_element=" << selection.active_element
+                       << ';' << prefix << "_range_valid=" << selection.range_valid
+                       << ';' << prefix << "_range_cm=" << selection.native_range_cm
+                       << ';' << prefix << "_disabled_valid=" << selection.disabled_valid
+                       << ';' << prefix << "_disabled=" << selection.detection_disabled;
+            };
+            append("before",interaction_before);append("after",interaction_after);
+            detail << ";source=cached_native_selection;trace_replayed=false;action_success=unproven";
+            EmitEvent("controller_interaction_selection","observed",detail.str());
+        } catch (...) {}
+    }
+    const bool reload_ticket_cleared = g_java_player_bridge.ClearSingleRoundReload();
+    if (single_round_request)
+        g_motion_reload.NoteSingleRoundDispatch(gameplay_input_ok && reload_ticket_cleared);
+    if (single_round_request || !reload_ticket_cleared) {
+        try {
+            EmitEvent("manual_reload_round", gameplay_input_ok ? "requested" : "rejected",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                ";weapon_id=" + std::to_string(reload_owner.weapon_id) +
+                ";pending_cleared=" + std::to_string(reload_ticket_cleared) +
+                ";transfer_owner=native_completion;ammo_write=false");
+        } catch (...) {}
+    }
+    g_gameplay_commands.Acknowledge(gameplay_input,g_java_player_bridge.AppliedGameplayCommands());
     // Objectives/logs can acquire a blocking UI inside non-fire dispatch.
     // Release its remaining intents before the later muzzle/fire phase.
     bool post_input_frozen = false;
-    if (gameplay_input.active && (!g_java_player_bridge.TryGetActiveGameTimerFrozen(
+    if (gameplay_input.active && (!g_java_player_bridge.TryGetActiveGamePresentationBlocked(
             post_input_frozen, nullptr) || post_input_frozen)) {
-        (void)g_gameplay_utility.Update({}, false);
+        (void)g_gameplay_controls.Update({}, false);
         gameplay_input = {};
         sample.left_fingers = {};
         sample.right_fingers = {};
         g_wheel_selection_gate.Update(gameplay_input, {});
         (void)g_java_player_bridge.TryPublishInteractionRay({}, {}, false);
         (void)g_java_player_bridge.TryApplyGameplayInput({}, nullptr, CoJInputDispatchPhase::non_fire);
+        // A native action can acquire mission-end/pause ownership after the
+        // initial sample. Yield this very frame before actor/body/eye writes.
+        cancel_gameplay();
+        (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
+        (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
+        (void)UpdateLocalHeadVisibility(false,frame_sequence);
+        original(owner,view);
+        return;
     }
+    // F can synchronously mount/dismount the player. Re-read the authoritative
+    // owner after interaction/UI dispatch before delivering either shoulder action.
+    mounted_available=gameplay_input.active && g_java_player_bridge.Refresh(nullptr) &&
+        g_java_player_bridge.TryObserveMounted(mounted);
+    if (g_gameplay_owner.Update(mounted_available,mounted,g_java_player_bridge.being_generation())) {
+        reset_gameplay_owner(); gameplay_input={}; sample.gameplay={};
+        if (g_java_player_bridge.TryApplyGameplayInput({},nullptr)) g_gameplay_owner_release_pending=false;
+    }
+    const bool same_height_owner = g_java_player_bridge.being_generation() != 0 &&
+        g_java_player_bridge.being_generation() == g_physical_view_height_generation;
+    physical_view_correction = g_physical_view_height_state.RevalidateCorrection(
+        physical_view_correction, same_height_owner, mounted_available, mounted);
+    if (!same_height_owner || (mounted_available && mounted))
+        g_physical_view_height_generation = 0;
+    g_contextual_shoulder.Update(gameplay_input,mounted_available,mounted,
+        g_java_player_bridge.being_generation());
+    g_gameplay_commands.CaptureShoulder(gameplay_input);
+    if (snapshot.command.vr_gameplay_input_enabled) {
+        auto shoulder_input=gameplay_input;
+        if (gameplay_input_ok) g_gameplay_commands.PrepareDispatch(shoulder_input,
+            g_java_player_bridge.AppliedGameplayCommands(),true);
+        if (!gameplay_input_ok) { shoulder_input.kick=false; shoulder_input.run=false; }
+        const bool shoulder_ok=g_java_player_bridge.TryApplyGameplayInput(shoulder_input,
+            &gameplay_input_error,CoJInputDispatchPhase::shoulder);
+        // A failed pre-shoulder batch postpones a pulse; a neutral release must
+        // not acknowledge it as a context cancellation.
+        if (gameplay_input_ok)
+            g_gameplay_commands.Acknowledge(shoulder_input,
+                g_java_player_bridge.AppliedGameplayCommands(),true);
+        gameplay_input_ok &= shoulder_ok;
+    }
+    if (!gameplay_input.active) g_gameplay_commands={};
     if ((snapshot.command.vr_gameplay_input_enabled && !gameplay_input_ok) ||
         gameplay_changed || ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -4802,6 +5062,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << ";jump=" << (gameplay_input.jump ? "true" : "false")
                             << ";reload=" << (gameplay_input.reload ? "true" : "false")
                             << ";run=" << (gameplay_input.run ? "true" : "false")
+                            << ";mounted_available=" << mounted_available
+                            << ";mounted=" << mounted
                             << ";crouch=" << (gameplay_input.crouch ? "true" : "false")
                             << ";physical_crouch=" << (physical_crouch ? "true" : "false")
                             << ";interact=" << (gameplay_input.interact ? "true" : "false")
@@ -4810,7 +5072,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                             << ";weapon_previous="
                             << (gameplay_input.weapon_previous ? "true" : "false")
                             << ";kick=" << (gameplay_input.kick ? "true" : "false")
-                            << ";utility=" << gameplay_input.utility_modifier
+                            << ";radial=" << gameplay_input.weapon_radial
                             << ";focus=" << gameplay_input.focus
                             << ";walk=" << gameplay_input.walk
                             << ";alternate_fire=" << gameplay_input.alternate_fire
@@ -4920,7 +5182,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         ApplyTrackedWeapons(natural_render_state, physical_view_correction,
             relative_head_pose, relative_left_controller, relative_right_controller,
             relative_left_aim, relative_right_aim, frame_sequence, aim_observation,
-            snapshot.command.independent_hands_enabled && snapshot.command.body_ik_enabled);
+            snapshot.command.independent_hands_enabled && snapshot.command.body_ik_enabled,
+            sample.left_fingers,sample.right_fingers);
     }
     // Native hand-state transitions can consume a ray as soon as fire is
     // delivered. Resolve the parent hand/socket and verified muzzle first;
@@ -5114,11 +5377,29 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     bool right_full_view_pass = false;
     bool right_view_guard_restored = false;
 
+    // One native focus cache sample for both render passes. Physical optics
+    // remain in sample.eyes for the menu, compass, wrist card and wheel.
+    auto render_eyes = sample.eyes;
+    CoJFocusZoom focus_zoom{};
+    const bool focus_available = gameplay_input.active &&
+        snapshot.command.vr_gameplay_input_enabled && !loading_ui_input.suppress_gameplay &&
+        g_java_player_bridge.TryObserveFocusZoom(focus_zoom);
+    const bool focus_applied = BuildCoJFocusRenderEyes(sample.eyes, focus_zoom, render_eyes);
+    if (ShouldObserveBodyFrame(frame_sequence)) {
+        try {
+            EmitEvent("native_focus_zoom", focus_available && focus_applied ? "observed" : "native_fallback",
+                "frame_sequence=" + std::to_string(frame_sequence) +
+                ";factor=" + std::to_string(focus_zoom.factor) +
+                ";maximum=" + std::to_string(focus_zoom.maximum) +
+                ";magnification=" + std::to_string(focus_zoom.magnification) +
+                ";source=cached_squint;native_update=false;ui_optics=physical");
+        } catch (...) {}
+    }
     ConfigureStereoEyeOverride(
         camera,
         render_head_pose,
         body_position_update.camera_yaw_compensation_degrees,
-        sample.eyes[0],
+        render_eyes[0],
         frame_sequence,
         sample.hmd_pose.sequence);
     original(owner, view);
@@ -5155,7 +5436,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             camera,
             render_head_pose,
             body_position_update.camera_yaw_compensation_degrees,
-            sample.eyes[1],
+            render_eyes[1],
             frame_sequence,
             sample.hmd_pose.sequence);
         right_full_view_pass = ReplayFullRenderViewForStereoEye(
@@ -5306,14 +5587,18 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 CoJNoShootSnapshot native_warning{};
                 const int hand=selected_hand==CoJWeaponReticleHand::left?1:0;
                 const bool observed=g_java_player_bridge.TryObserveNoShoot(hand,native_warning);
-                gameplay_reticle.no_shoot=observed&&CoJNoShootMatchesRay(native_warning,hand,
+                const auto warning_assessment=AssessCoJNoShootRay(native_warning,hand,
                     {ray.origin.x,ray.origin.y,ray.origin.z},{ray.direction.x,ray.direction.y,ray.direction.z});
+                gameplay_reticle.no_shoot=observed&&warning_assessment.reason==CoJNoShootRayReason::matched;
                 if (ShouldObserveBodyFrame(frame_sequence)) {
                     EmitEvent("native_no_shoot", "observed",
                         "frame_sequence="+std::to_string(frame_sequence)+
                         ";hand="+std::to_string(hand)+";valid="+std::to_string(native_warning.valid)+
                         ";native_visible="+std::to_string(native_warning.warning_visible)+
                         ";ray_coherent="+std::to_string(gameplay_reticle.no_shoot)+
+                        ";ray_gate="+CoJNoShootRayReasonName(warning_assessment.reason)+
+                        ";origin_drift_cm="+std::to_string(warning_assessment.origin_drift_cm)+
+                        ";direction_cosine="+std::to_string(warning_assessment.direction_cosine)+
                         ";reason="+std::to_string(native_warning.reason)+
                         ";age_seconds="+std::to_string(native_warning.age_seconds)+";trace_replayed=false");
                 }
@@ -5325,6 +5610,14 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         runtime::StereoHudTextOverlay hud_text{};
         hud_text.frame_sequence = frame_sequence;
         hud_text.eyes = sample.eyes;
+        const bool cartridge_visible = gameplay_input.active && motion_reload_context &&
+            reload_owner.single_round_supported && motion_reload.cartridge_held &&
+            motion_reload.cartridge_hand < 2;
+        auto cartridge_pose = motion_reload.cartridge_hand == 0
+            ? relative_right_controller : relative_left_controller;
+        cartridge_pose.position = motion_reload.cartridge_position;
+        (void)runtime::BuildReloadCartridgeOverlay(relative_head_pose,
+            cartridge_pose, cartridge_visible, hud_text);
         if (!loading_ui_input.suppress_gameplay) {
             const bool observed = g_java_player_bridge.TryObserveHudText(hud_text.text);
             CameraProbeBasis ui_basis{};
@@ -5337,6 +5630,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                     relative_left_controller, {reference.right.x, reference.right.y, reference.right.z},
                     {reference.forward.x, reference.forward.y, reference.forward.z}, hud_text);
             }
+            (void)runtime::BuildInteractionHandOverlay(relative_head_pose,relative_left_aim,
+                gameplay_input.active && gameplay_input.interact &&
+                interaction_ray.valid && interaction_published && !hud_text.ui.wheel.active,
+                hud_text);
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +
@@ -5671,6 +5968,11 @@ bool ObserveCameraGameTimerFrozen(
     bool& frozen,
     std::string* error) noexcept {
     return g_java_player_bridge.TryGetActiveGameTimerFrozen(frozen, error);
+}
+
+bool ObserveCameraGamePresentationBlocked(
+    bool& blocked,std::string* error) noexcept {
+    return g_java_player_bridge.TryGetActiveGamePresentationBlocked(blocked,error);
 }
 
 const char* CoJSubtitleDiagnosticStateName(
@@ -6104,6 +6406,31 @@ CameraProbeInteractionRay BuildTrackedInteractionRay(
     return {origin, {-applied.forward.x, -applied.forward.y, -applied.forward.z}, true};
 }
 
+CameraProbeInteractionRay BuildTrackedHandInteractionRay(
+    const CameraProbeVector camera_position,const CameraProbeBasis natural_basis,
+    const runtime::Pose& tracked_head,const runtime::Pose& render_head,
+    const runtime::Pose& left_aim,const float yaw) noexcept {
+    const auto finite=[](const auto& p) noexcept {
+        return std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z);
+    };
+    if(!tracked_head.position_valid || !render_head.position_valid ||
+        !finite(tracked_head.position) || !finite(render_head.position))return {};
+    auto corrected=left_aim;
+    corrected.position.x+=render_head.position.x-tracked_head.position.x;
+    corrected.position.y+=render_head.position.y-tracked_head.position.y;
+    corrected.position.z+=render_head.position.z-tracked_head.position.z;
+    return BuildTrackedInteractionRay(camera_position,natural_basis,corrected,yaw);
+}
+
+bool CoJInteractionActionGate::Update(bool ray_available,bool button_available,
+    bool raw_held,bool mapped_held) noexcept {
+    if(!ray_available || !button_available) {
+        release_required_=true;return false;
+    }
+    if(!raw_held)release_required_=false;
+    return !release_required_ && raw_held && mapped_held;
+}
+
 CameraProbeVector ApplyCameraTrackingOffset(
     const CameraProbeVector camera_position,
     const CameraProbeBasis recenter_basis,
@@ -6362,7 +6689,10 @@ void ShutdownCameraProbe() noexcept {
         g_stereo_frame_sequence.load(std::memory_order_acquire),
         "shutdown");
     g_java_player_bridge.Reset();
-    g_gameplay_utility = {};
+    g_gameplay_controls = {};
+    g_contextual_shoulder = {};
+    g_gameplay_owner={}; g_gameplay_commands={}; g_gameplay_owner_release_pending=false;
+    g_motion_reload = {};
     g_arm_span_calibration.Reset();
     g_arm_span_generation = 0;
     g_loading_ui_input_gate.Reset();

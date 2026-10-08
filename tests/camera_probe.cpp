@@ -290,6 +290,30 @@ int main() {
         return 1;
     }
     const CameraProbeFrustum valid_stereo_frustum = stereo_frustum;
+    // Exercise the focus render copies through the same native frustum and
+    // controller-reticle projection used by both world passes. UI retains
+    // the original optics; loss/recovery must not accumulate scale or IPD.
+    std::array<cojvr::runtime::EyeView,2> focus_optics{};
+    for(int i=0;i<2;++i){focus_optics[i].eye=i?cojvr::runtime::Eye::right:cojvr::runtime::Eye::left;
+        focus_optics[i].fov=asymmetric_fov;focus_optics[i].eye_to_head.position.x=i?.032F:-.032F;}
+    auto focus_render=focus_optics;
+    for(auto zoom:{CoJFocusZoom{1,2,2,true},CoJFocusZoom{},CoJFocusZoom{1,2,2,true},CoJFocusZoom{0,2,1,true}}){
+        const float scale=zoom.valid?zoom.magnification:1;
+        (void)BuildCoJFocusRenderEyes(focus_optics,zoom,focus_render);
+        for(int i=0;i<2;++i){
+            CameraProbeFrustum focused{};CameraProbeReticlePoint point{};
+            const float eye_x=i?3.2F:-3.2F;
+            if(!BuildCameraProbeFrustum(focus_render[i].fov,.25F,500,focused)||
+                !Near(focused.left,valid_stereo_frustum.left/scale)||
+                !Near(focused.right,valid_stereo_frustum.right/scale)||
+                !ProjectWorldAimRayToEyeReticle({13,4,5},{0,0,-1},{3+eye_x,4,5},native_identity,focused,100,point)||
+                !Near(point.u,.6F+(10-eye_x)*scale/200)||!Near(point.v,.55F)||
+                !Near(focus_render[i].eye_to_head.position.x,focus_optics[i].eye_to_head.position.x)||
+                !Near(focus_optics[i].fov.angle_left,asymmetric_fov.angle_left)){
+                std::cerr<<"focus render/reticle optics or physical UI/IPD recovery mismatch\n";return 1;
+            }
+        }
+    }
     cojvr::runtime::EyeFov invalid_fov = asymmetric_fov;
     invalid_fov.angle_left = std::numeric_limits<float>::quiet_NaN();
     if (BuildCameraProbeFrustum(invalid_fov, 0.25F, 500.0F, stereo_frustum) ||
@@ -720,6 +744,50 @@ int main() {
     gaze_pose.position = {};
     if (BuildTrackedInteractionRay(camera_position, {}, gaze_pose, 0).valid)
         return 1;
+
+    // L1 selection follows the left aim, regardless of HMD orientation. Room-scale
+    // collision/height correction shifts both rendered head and hand equally.
+    {
+    auto tracked_head=cojvr::runtime::Pose{};
+    tracked_head.position_valid=tracked_head.orientation_valid=true;
+    tracked_head.position={.1F,-.3F,-.2F};
+    tracked_head.orientation=AxisAngle(0,1,0,55);
+    auto render_head=tracked_head;render_head.position={.05F,-.25F,-.1F};
+    auto hand=tracked_head;hand.position={-.2F,-.5F,-.4F};
+    hand.orientation=AxisAngle(0,1,0,-20);
+    const auto hand_ray=BuildTrackedHandInteractionRay(camera_position,actor_owned_yaw,
+        tracked_head,render_head,hand,-20);
+    if(!hand_ray.valid || !NearVector(hand_ray.origin,{75,125,170},.002F) ||
+        !NearVector(hand_ray.direction,{kSin20,0,-kCos20},.002F)) {
+        std::cerr << "L1 interaction did not originate at corrected left aim independently of HMD\n";
+        return 1;
+    }
+    tracked_head.orientation=AxisAngle(1,0,0,35);
+    const auto looking_away=BuildTrackedHandInteractionRay(camera_position,actor_owned_yaw,
+        tracked_head,render_head,hand,-20);
+    if(!looking_away.valid || !NearVector(looking_away.origin,hand_ray.origin,.002F) ||
+        !NearVector(looking_away.direction,hand_ray.direction,.002F))return 1;
+    hand.position_valid=false;
+    if(BuildTrackedHandInteractionRay(camera_position,actor_owned_yaw,
+        tracked_head,render_head,hand,-20).valid)return 1;
+    hand.position_valid=true;render_head.position.x=std::numeric_limits<float>::quiet_NaN();
+    if(BuildTrackedHandInteractionRay(camera_position,actor_owned_yaw,
+        tracked_head,render_head,hand,-20).valid)return 1;
+    CoJInteractionActionGate action_gate;
+    if(action_gate.Update(true,true,true,true)) {
+        std::cerr << "L1 acquisition accepted a held action without observed release\n";return 1;
+    }
+    if(action_gate.Update(true,true,false,false) || !action_gate.Update(true,true,true,true))return 1;
+    if(action_gate.Update(false,true,true,true) || action_gate.Update(true,true,true,true)) {
+        std::cerr << "lost hand ray allowed held L1 to retarget on recovery\n";return 1;
+    }
+    if(action_gate.Update(true,false,false,false) || action_gate.Update(true,true,true,true))return 1;
+    if(action_gate.Update(true,true,false,false) || !action_gate.Update(true,true,true,true))return 1;
+    action_gate.Cancel();
+    if(action_gate.Update(true,true,true,true))return 1;
+    (void)action_gate.Update(true,true,false,false);
+    if(!action_gate.Update(true,true,true,true))return 1;
+    }
 
     std::cout << "PASS - camera controls, stereo frustum/eye mapping, HMD 6DOF and recenter\n";
     return 0;

@@ -5,6 +5,7 @@
 #include <limits>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace fixture {
@@ -22,16 +23,20 @@ struct O {
     int refs=0;
 };
 O hud_class,exception,player,other,hud,components,slots,objects,pistol,hands,slot0,slot1;
+O poses,standing,crouched;
 O compass,waypoints_manager,waypoints,wp,wp2,rotor,rotors,rotor0,rotor1,sprite,sprite2;
 O pos,forward,target,target2,label,label2,carried;
 O left;
 O health,health_text,ammo,totals,big,small,weapons,counters,infos,info,loaded,reserve;
 O big_icon,small_icon;
+O concentration,concentration_icon,countdown,countdown_window,countdown_timer,countdown_bottom,countdown_center;
+O horse,horse_icon,horse_fatigue;
 O cross,warning,starts,ends,start,end,can_fire,reasons,ages,collisions,collision;
 std::vector<O*> all{&hud_class,&exception,&player,&other,&hud,&components,&slots,&objects,&pistol,&hands,
     &slot0,&slot1,&compass,&waypoints_manager,&waypoints,&wp,&wp2,&rotor,&rotors,&rotor0,&rotor1,
     &sprite,&sprite2,&pos,&forward,&left,&target,&target2,&label,&label2,&carried};
 void* table[224]{};void** holder=table;bool pending=false;int pins=0,critical=0;std::string fail;
+O* fail_owner=nullptr;
 std::unordered_map<std::string,std::string> tokens;
 std::unordered_map<std::string,O> classes;
 void Require(bool b,const char* m){if(!b){std::cerr<<m<<'\n';std::exit(1);}}
@@ -44,7 +49,33 @@ void __stdcall Clear(void*){pending=false;}
 void __stdcall Delete(void*,void* v){auto o=static_cast<O*>(v);Require(o&&o->refs>0,"invalid delete");--o->refs;}
 unsigned char __stdcall Same(void*,void* a,void* b){return a==b;}
 void* __stdcall Class(void*,void* o){return Local(static_cast<O*>(o));}
-void* __stdcall Lookup(void*,void*,const char* n,const char*){Require(!pending,"JNI after exception");if(fail==n){pending=true;return nullptr;}return &tokens.emplace(n,n).first->second;}
+void* __stdcall Lookup(void*,void* owner,const char* n,const char* sig){
+    Require(!pending,"JNI after exception");
+    const auto& type=static_cast<O*>(owner)->type;
+    if(type=="HUDBulletTime"||type=="HUDCountdownTimer"||type=="HUDHorse"){
+        std::string expected;
+        if(std::strcmp(n,"m_Being")==0)expected="LBeing;";
+        else if(std::strcmp(n,"m_cHUDManager")==0)expected="LHUDManager;";
+        else if(std::strcmp(n,"IsActuallyVisible")==0)expected="()Z";
+        else if(type=="HUDBulletTime"){
+            if(std::strcmp(n,"m_cIcon")==0)expected="LUIStatic;";
+            if(std::strcmp(n,"m_cPlayer")==0)expected="LArmedPlayerBeing;";
+            if(std::strcmp(n,"m_nMode")==0)expected="I";
+        }else if(type=="HUDCountdownTimer"){
+            if(std::strcmp(n,"m_cWindow")==0)expected="LUIWindow;";
+            if(std::strcmp(n,"m_cCountdownTimer")==0)expected="LCountdownTimer;";
+            if(std::strcmp(n,"m_cBottomText")==0||std::strcmp(n,"m_cCenterText")==0)expected="LUIStatic;";
+        }else{
+            if(std::strcmp(n,"m_cHorseIcon")==0||std::strcmp(n,"m_cTirednessIconFill")==0)expected="LUIWindow;";
+            if(std::strcmp(n,"m_fLastTiredness")==0)expected="F";
+            if(std::strcmp(n,"m_nHealthLevel")==0)expected="I";
+            if(std::strcmp(n,"m_bUpdateHealthLevel")==0)expected="Z";
+        }
+        Require(!expected.empty()&&expected==sig,"unproven special HUD field/method signature requested");
+    }
+    if(fail==n&&(!fail_owner||fail_owner==owner)){pending=true;return nullptr;}
+    return &tokens.emplace(n,n).first->second;
+}
 std::string Name(void* id){return *static_cast<std::string*>(id);}
 void* __stdcall ObjectField(void*,void* o,void* id){Require(!pending,"pending object read");return Local(static_cast<O*>(o)->objects[Name(id)]);}
 int __stdcall IntField(void*,void* o,void* id){return static_cast<O*>(o)->ints[Name(id)];}
@@ -64,6 +95,22 @@ void* __stdcall Critical(void*,void* o,unsigned char*){Require(critical==0,"nest
 void __stdcall Unpin(void*,void*,void*,int mode){Require(critical==1&&mode==2,"read-only primitive release required");--critical;}
 template<class T>void Set(int i,T f){table[i]=reinterpret_cast<void*>(f);}
 void Init(){
+    for(auto o:{&concentration,&concentration_icon,&countdown,&countdown_window,&countdown_timer,
+        &countdown_bottom,&countdown_center,&horse,&horse_icon,&horse_fatigue})all.push_back(o);
+    concentration.type="HUDBulletTime";countdown.type="HUDCountdownTimer";horse.type="HUDHorse";
+    for(auto o:{&concentration,&countdown,&horse}){o->objects["m_Being"]=&player;o->objects["m_cHUDManager"]=&hud;}
+    concentration.objects["m_cPlayer"]=&player;concentration.objects["m_cIcon"]=&concentration_icon;
+    concentration_icon.type="UIStatic";concentration_icon.floats["m_fTextureAlpha"]=1;
+    concentration.ints["m_nMode"]=4;
+    countdown.objects["m_cWindow"]=&countdown_window;countdown_window.type="UIWindow";
+    countdown.objects["m_cCountdownTimer"]=&countdown_timer;countdown_timer.type="CountdownTimer";
+    countdown.objects["m_cBottomText"]=&countdown_bottom;countdown.objects["m_cCenterText"]=&countdown_center;
+    for(auto o:{&countdown_bottom,&countdown_center}){o->type="UIStatic";o->objects["m_sLocalizedText"]=o;o->floats["m_fCurTextAlpha"]=1;}
+    countdown_bottom.text=u"5";
+    horse.objects["m_cHorseIcon"]=&horse_icon;horse.objects["m_cTirednessIconFill"]=&horse_fatigue;
+    for(auto o:{&horse_icon,&horse_fatigue}){o->type="UIWindow";o->floats["m_fTextureAlpha"]=1;}
+    horse.ints["m_nHealthLevel"]=75;horse.floats["m_fLastTiredness"]=40;
+    for(auto o:{&poses,&standing,&crouched})all.push_back(o);
     for(auto o:{&cross,&warning,&starts,&ends,&start,&end,&can_fire,&reasons,&ages,&collisions,&collision})all.push_back(o);
     Set(222,Critical);Set(223,Unpin);
     cross.type="HUDCrosshairHand";warning.type="Sprite";cross.ints["m_iHand"]=0;
@@ -119,6 +166,89 @@ void Init(){
     rotor0.ints["m_nIndex"]=0;rotor1.ints["m_nIndex"]=1;
     target.floats["fZ"]=1000;target2.floats["fX"]=2000;label.text=u"Objetivo — niño";label2.text=u"Salida";
 }
+void SpecialStatusChecks(){
+    using namespace cojvr::games::call_of_juarez;CoJGameplayUiSnapshot out{};
+    auto read=[&](){Require(ReadCoJGameplayUi(&holder,&player,out)&&out.inventory.valid&&out.compass_valid,
+        "optional native HUD failure escaped its presentation domain");Clean();};
+    auto absent=[&](){read();Require(out.status.line_count==3&&out.status.lines[0].view()==u"Salud  087",
+        "hidden/invalid optional HUD must preserve health/ammo only");};
+    components.items[10]=&concentration;
+    struct Mode{int mode;std::u16string_view text;};
+    for(auto sample:{Mode{1,u"Concentración · En uso"},Mode{2,u"Concentración · Recargando"},
+        Mode{3,u"Concentración · Lista"},Mode{4,u"Concentración · Lista"},Mode{5,u"Concentración · No preparada"}}){
+        concentration.ints["m_nMode"]=sample.mode;read();
+        Require(out.status.line_count==4&&out.status.lines[3].view()==sample.text,"native concentration mode cache lost or conflated");
+    }
+    for(int mode:{-1,0,6}){concentration.ints["m_nMode"]=mode;absent();}concentration.ints["m_nMode"]=4;
+    concentration.objects["m_cPlayer"]=&other;absent();concentration.objects["m_cPlayer"]=&player;
+    concentration_icon.type="HUDHint";absent();concentration_icon.type="UIStatic";
+    concentration_icon.visible=false;absent();concentration_icon.visible=true;
+    for(float alpha:{0.F,-.1F,1.1F,std::numeric_limits<float>::quiet_NaN()}){
+        concentration_icon.floats["m_fTextureAlpha"]=alpha;absent();
+    }concentration_icon.floats["m_fTextureAlpha"]=1;
+    // HUDPlayer also has m_cPlayer; deny only the optional concentration owner.
+    fail_owner=&concentration;
+    for(const char* field:{"m_cIcon","m_cPlayer","m_nMode"}){fail=field;absent();}fail.clear();fail_owner=nullptr;
+    components.items[10]=nullptr;components.items[17]=&countdown;
+    read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Cuenta atrás  5",
+        "native countdown number must be copied without recalculating time or claiming draw permission");
+    read();Require(out.status.lines[3].view()==u"Cuenta atrás  5","reader advanced the native countdown");
+    countdown_bottom.text.clear();countdown_center.text=u"1";read();
+    Require(out.status.lines[3].view()==u"Cuenta atrás  1","duel center countdown did not retain native cached integer");
+    countdown_bottom.text=u"5";absent();countdown_center.text.clear();
+    for(auto text:{u"",u"-1",u"3s",u"12345678901"}){countdown_bottom.text=text;absent();}countdown_bottom.text=u"5";
+    countdown.objects["m_cCountdownTimer"]=nullptr;absent();countdown.objects["m_cCountdownTimer"]=&countdown_timer;
+    countdown_timer.type="Duel";absent();countdown_timer.type="CountdownTimer";
+    for(auto o:{&countdown_window,&countdown_bottom}){o->visible=false;absent();o->visible=true;}
+    countdown_bottom.floats["m_fCurTextAlpha"]=0;absent();countdown_bottom.floats["m_fCurTextAlpha"]=1;
+    countdown_bottom.type="UIWindow";absent();countdown_bottom.type="UIStatic";
+    for(const char* field:{"m_cWindow","m_cCountdownTimer","m_cBottomText","m_cCenterText"}){fail=field;absent();}fail.clear();
+    fail="m_sLocalizedText";fail_owner=&countdown_bottom;absent();fail.clear();fail_owner=nullptr;
+    components.items[17]=nullptr;components.items[18]=&horse;
+    read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Caballo · Salud 75% · Fatiga 40%",
+        "native horse condition caches must retain health and tiredness meanings");
+    for(auto sample:{std::pair{0,0.F},std::pair{100,100.F}}){
+        horse.ints["m_nHealthLevel"]=sample.first;horse.floats["m_fLastTiredness"]=sample.second;read();
+        Require(out.status.lines[3].view()==(sample.first==0?u"Caballo · Salud 0% · Fatiga 0%":u"Caballo · Salud 100% · Fatiga 100%"),
+            "horse cache percentage endpoints lost");
+    }horse.ints["m_nHealthLevel"]=75;horse.floats["m_fLastTiredness"]=40;
+    for(float fatigue:{-1.F,100.1F,std::numeric_limits<float>::quiet_NaN()}){horse.floats["m_fLastTiredness"]=fatigue;absent();}
+    horse.floats["m_fLastTiredness"]=40;
+    for(int health_level:{-1,101}){horse.ints["m_nHealthLevel"]=health_level;absent();}horse.ints["m_nHealthLevel"]=75;
+    horse.ints["m_bUpdateHealthLevel"]=1;absent();horse.ints["m_bUpdateHealthLevel"]=0;
+    for(auto o:{&horse_icon,&horse_fatigue}){
+        o->visible=false;absent();o->visible=true;
+        o->type="HUDHint";absent();o->type="UIWindow";
+        o->floats["m_fTextureAlpha"]=0;absent();o->floats["m_fTextureAlpha"]=1;
+    }
+    for(const char* field:{"m_cHorseIcon","m_cTirednessIconFill","m_nHealthLevel","m_bUpdateHealthLevel","m_fLastTiredness"}){fail=field;absent();}fail.clear();
+    for(auto o:{&concentration,&countdown,&horse}){
+        const int index=o==&concentration?10:o==&countdown?17:18;components.items[18]=nullptr;components.items[index]=o;
+        o->visible=false;absent();o->visible=true;
+        auto type=o->type;o->type="HUDHint";absent();o->type=type;
+        o->objects["m_Being"]=&other;absent();o->objects["m_Being"]=&player;
+        o->objects["m_cHUDManager"]=&other;absent();o->objects["m_cHUDManager"]=&hud;
+        for(const char* field:{"m_Being","m_cHUDManager","IsActuallyVisible"}){fail=field;fail_owner=o;absent();}fail.clear();fail_owner=nullptr;
+        components.items[index]=nullptr;
+    }
+    components.items[10]=&concentration;components.items[17]=&countdown;components.items[18]=&horse;
+    read();Require(out.status.line_count==6&&out.status.lines[3].view()==u"Cuenta atrás  5"&&
+        out.status.lines[4].view()==u"Caballo · Salud 75% · Fatiga 40%"&&out.status.lines[5].view()==u"Concentración · Lista",
+        "optional HUD priorities must retain native countdown, horse condition and concentration");
+    fail="m_nMode";read();Require(out.status.line_count==5&&out.status.lines[3].view()==u"Cuenta atrás  5",
+        "one optional HUD exception discarded another optional domain");fail.clear();
+    hud.objects["m_Being"]=&other;Require(ReadCoJGameplayUi(&holder,&player,out)&&!out.status.active,
+        "foreign HUD exposed optional status");Clean();hud.objects["m_Being"]=&player;
+    const auto saved_counters=counters.items,saved_infos=infos.items,saved_totals=totals.items,saved_big=big.items;
+    counters.items.assign(6,&loaded);infos.items.assign(6,&info);totals.items.assign(2,&reserve);totals.items.push_back(nullptr);
+    big.items.assign(3,&big_icon);read();
+    Require(out.status.line_count==10&&out.status.lines[8].view()==u"Reserva escopeta  12"&&out.status.lines[9].view()==u"Cuenta atrás  5",
+        "optional status exceeded ten rows, displaced health/ammo or failed countdown priority");
+    totals.items[2]=&reserve;read();Require(out.status.line_count==10&&out.status.lines[9].view()==u"Reserva pistola  12",
+        "full native health/ammo card displaced by optional status");
+    counters.items=saved_counters;infos.items=saved_infos;totals.items=saved_totals;big.items=saved_big;
+    components.items[10]=components.items[17]=components.items[18]=nullptr;
+}
 }
 int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;Init();CoJGameplayUiSnapshot out{};
     CoJNoShootSnapshot no{};
@@ -148,6 +278,51 @@ int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;
     Require(out.status.active&&out.status.line_count==3&&out.status.lines[0].view()==u"Salud  087"&&
         out.status.lines[1].view()==u"Derecha  3"&&out.status.lines[2].view()==u"Reserva pistola  12",
         "native health, loaded slot and inventory reserve must be copied without recalculation");
+    health.objects["m_aPoses"]=&poses;poses.items={&standing,&crouched};
+    standing.type=crouched.type="UIWindow";crouched.visible=false;
+    health.ints["m_bLastStanding"]=1;health.floats["m_fAlpha"]=.9F;
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.line_count==4&&
+        out.status.lines[3].view()==u"De pie","visible native standing pose missing from wrist card");Clean();
+    standing.visible=false;crouched.visible=true;health.ints["m_bLastStanding"]=0;
+    health.ints["m_bLastHidden"]=1;health.floats["m_fAlpha"]=.125F;
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[3].view()==u"Agachado · En sombra",
+        "native crouch/shadow feedback must follow HUD presentation caches");Clean();
+    health.ints["m_bLastHidden"]=0;health.floats["m_fAlpha"]=.9F;
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[3].view()==u"Agachado",
+        "leaving native shadow retained hidden feedback");Clean();
+    // Ambiguous visibility/cache transitions must not affect accepted health/ammo.
+    standing.visible=true;ReadCoJGameplayUi(&holder,&player,out);
+    Require(out.status.line_count==3,"two visible pose icons must suppress ambiguous stance only");Clean();standing.visible=false;
+    crouched.visible=false;ReadCoJGameplayUi(&holder,&player,out);
+    Require(out.status.line_count==3,"hidden native pose must not be resurrected");Clean();crouched.visible=true;
+    health.ints["m_bLastStanding"]=1;ReadCoJGameplayUi(&holder,&player,out);
+    Require(out.status.line_count==3,"pose cache/visible icon disagreement must be rejected");Clean();health.ints["m_bLastStanding"]=0;
+    health.ints["m_bForceUpdate"]=1;ReadCoJGameplayUi(&holder,&player,out);
+    Require(out.status.line_count==3,"reset/pending native update exposed stale pose");Clean();health.ints["m_bForceUpdate"]=0;
+    for(float alpha:{0.F,-.1F,1.1F,std::numeric_limits<float>::quiet_NaN()}){
+        health.floats["m_fAlpha"]=alpha;ReadCoJGameplayUi(&holder,&player,out);
+        Require(out.status.line_count==3,"invalid/transparent native pose alpha exposed stance");Clean();
+    }health.floats["m_fAlpha"]=.9F;
+    crouched.type="HUDHint";ReadCoJGameplayUi(&holder,&player,out);
+    Require(out.status.line_count==3,"foreign pose class accepted");Clean();crouched.type="UIWindow";
+    poses.items.push_back(&standing);ReadCoJGameplayUi(&holder,&player,out);
+    Require(out.status.line_count==3,"unknown native pose layout accepted");Clean();poses.items.pop_back();
+    for(const char* field:{"m_aPoses","m_bLastStanding","m_bLastHidden","m_bForceUpdate","m_fAlpha"}){
+        fail=field;Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.line_count==3&&out.inventory.valid,
+            "optional stance JNI failure must preserve health/ammo and clear exceptions");Clean();
+    }fail.clear();
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.line_count==4,"stance did not recover after optional failure");Clean();
+    health.visible=false;ReadCoJGameplayUi(&holder,&player,out);Require(out.status.line_count==2,"hidden native HUDPlayer leaked health/stance");Clean();health.visible=true;
+    const auto original_counters=counters.items,original_infos=infos.items;
+    const auto original_totals=totals.items,original_big=big.items;
+    counters.items.assign(6,&loaded);infos.items.assign(6,&info);
+    totals.items.assign(3,&reserve);big.items.assign(3,&big_icon);
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.line_count==10&&
+        out.status.lines[9].view()==u"Reserva pistola  12",
+        "optional pose must not exceed raster bounds or displace native health/ammo");Clean();
+    counters.items=original_counters;infos.items=original_infos;totals.items=original_totals;big.items=original_big;
+    health.objects["m_aPoses"]=nullptr;
+    SpecialStatusChecks();
     health_text.visible=false;ReadCoJGameplayUi(&holder,&player,out);Require(out.status.line_count==2,"hidden native health resurrected");Clean();health_text.visible=true;
     health_text.floats["m_fCurTextAlpha"]=0;ReadCoJGameplayUi(&holder,&player,out);Require(out.status.line_count==2,"transparent native health resurrected");Clean();health_text.floats["m_fCurTextAlpha"]=1;
     info.ints["m_bActiveAmmo"]=0;ReadCoJGameplayUi(&holder,&player,out);Require(out.status.line_count==2,"inactive slot claimed as loaded active ammo");Clean();info.ints["m_bActiveAmmo"]=1;

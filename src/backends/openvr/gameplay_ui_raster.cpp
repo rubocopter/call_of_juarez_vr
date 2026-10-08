@@ -75,6 +75,44 @@ bool Direction(const runtime::Vec2 p) {
     return std::isfinite(norm)&&norm>.9F&&norm<1.1F;
 }
 }
+const HudTextPanel& GameplayUiRaster::InteractionGaze() noexcept {
+    if (!interaction_gaze_pixels_.pixels.empty()) return interaction_gaze_pixels_;
+    try {
+        HudTextPanel panel{}; panel.width = panel.height = 32;
+        panel.pixels.assign(32 * 32, 0U);
+        for (int y = 0; y < 32; ++y) for (int x = 0; x < 32; ++x) {
+            const float dx = x - 15.5F, dy = y - 15.5F;
+            const float radius_squared = dx*dx + dy*dy;
+            // Cyan annulus with a dark outline; transparent hole and outside.
+            if (radius_squared >= 7.5F*7.5F && radius_squared <= 11.5F*11.5F)
+                panel.pixels[y*32+x] = radius_squared >= 8.5F*8.5F &&
+                    radius_squared <= 10.5F*10.5F ? 0xFF30E6F2U : 0xFF08161AU;
+        }
+        interaction_gaze_pixels_ = std::move(panel);
+    } catch (...) { interaction_gaze_pixels_ = {}; }
+    return interaction_gaze_pixels_;
+}
+const HudTextPanel& GameplayUiRaster::Cartridge() noexcept {
+    if(!cartridge_pixels_.pixels.empty())return cartridge_pixels_;
+    try {
+        HudTextPanel panel{};panel.width=48;panel.height=140;
+        panel.pixels.assign(panel.width*panel.height,0U);
+        // Transparent procedural marker, no text/native ammunition artwork.
+        for(int y=6;y<134;++y)for(int x=0;x<48;++x){
+            const bool tip=y<42;
+            const int half=tip?std::min(15,3+(y-6)/2):(y>=124?20:17);
+            const int dx=std::abs(x-24);if(dx>half)continue;
+            const int light=std::max(0,24-dx*2);
+            const bool edge=dx>=half-1||y==123||y==133;
+            const unsigned r=edge?104U:static_cast<unsigned>((tip?171:184)+light);
+            const unsigned g=edge?70U:static_cast<unsigned>((tip?86:139)+light);
+            const unsigned b=edge?31U:static_cast<unsigned>((tip?49:55)+light);
+            panel.pixels[y*48+x]=0xFF000000U|(r<<16)|(g<<8)|b;
+        }
+        cartridge_pixels_=std::move(panel);
+    }catch(...){cartridge_pixels_={};}
+    return cartridge_pixels_;
+}
 const HudTextPanel& GameplayUiRaster::Wheel(const runtime::EquipmentWheelSnapshot& state) noexcept {
     if(state==wheel_ && (!wheel_pixels_.pixels.empty() || !state.active))return wheel_pixels_;
     wheel_=state;wheel_pixels_={};++wheel_revision_;
@@ -90,7 +128,9 @@ const HudTextPanel& GameplayUiRaster::Wheel(const runtime::EquipmentWheelSnapsho
             if(state.selected==i)c.Circle(x,y,65,allowed?RGB(132,88,24):RGB(65,40,40));
             c.Text(state.labels[i].view(),x,y,allowed?RGB(245,235,205):RGB(100,105,110));
         }
-        c.Text(u"Equipo",kCenter,kCenter,RGB(245,235,205));wheel_pixels_=c.Finish();
+        c.Circle(kCenter,kCenter,72,RGB(38,45,53));
+        c.Text(state.selected<0?u"Cancelar":u"Confirmar",kCenter,kCenter,RGB(245,235,205));
+        wheel_pixels_=c.Finish();
     }catch(...){wheel_pixels_={};}
     return wheel_pixels_;
 }

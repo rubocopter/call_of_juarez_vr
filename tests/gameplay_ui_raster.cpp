@@ -19,12 +19,23 @@ int main(int argc,char** argv) {
     Require(NoShootReticlePixel(1,0)==0xFF000000U,"warning must retain contrasting outline");
     Require(NoShootReticlePixel(0,6)==0&&NoShootReticlePixel(9,9)==0,"warning must preserve world outside diagonals/footprint");
     GameplayUiRaster raster;
+    const auto& gaze=raster.InteractionGaze();
+    Require(gaze.width==32&&gaze.height==32&&gaze.pixels.size()==32*32,
+        "gaze marker must be a bounded immutable raster");
+    Require(gaze.pixels.front()==0&&gaze.pixels[16*32+16]==0,
+        "gaze ring must preserve scene pixels at center and outside footprint");
+    std::size_t cyan=0;
+    for(auto pixel:gaze.pixels)cyan+=(pixel>>24)==255&&((pixel>>8)&255)>200&&
+        (pixel&255)>200&&((pixel>>16)&255)<80;
+    Require(cyan>0&&cyan<gaze.pixels.size()/2,"gaze ring must visibly distinguish cyan from gun/warning cross");
+    const auto* gaze_pixels=gaze.pixels.data();
+    Require(raster.InteractionGaze().pixels.data()==gaze_pixels,"unchanged gaze marker rebuilt immutable pixels");
     EquipmentWheelSnapshot wheel{};
     wheel.valid=wheel.active=true; wheel.available_mask=3; wheel.selected=0;
-    const std::u16string_view names[]{u"Revólver",u"Pistola",u"Rifle",u"Dinamita",u"Biblia",u"Arco",u"Manos",u"Soltar"};
+    const std::u16string_view names[]{u"Arma larga",u"Arco",u"Pistola dcha",u"Dinamita",u"Manos",u"Throw weapon",u"Pistola izq",u"Biblia / látigo"};
     for(std::size_t i=0;i<8;++i){wheel.labels[i].length=static_cast<std::uint32_t>(names[i].size());
         std::copy(names[i].begin(),names[i].end(),wheel.labels[i].characters.begin());}
-    const std::u16string_view name=u"Revólver";
+    const std::u16string_view name=u"Arma larga";
     wheel.labels[0].length=static_cast<std::uint32_t>(name.size());
     std::copy(name.begin(),name.end(),wheel.labels[0].characters.begin());
     const auto first=raster.Wheel(wheel);
@@ -75,6 +86,26 @@ int main(int argc,char** argv) {
         (status_pixels.pixels[64*512+256]>>24)==255,"status card must have defined interior and transparent outside");
     const auto status_rev=raster.status_revision();(void)raster.Status(status);
     Require(status_rev==raster.status_revision(),"unchanged health/ammo must reuse pixels");
+    const std::u16string_view stance=u"Agachado · En sombra";
+    status.line_count=3;status.lines[2].length=static_cast<std::uint32_t>(stance.size());
+    std::copy(stance.begin(),stance.end(),status.lines[2].characters.begin());
+    const auto stance_pixels=raster.Status(status);
+    Require(stance_pixels.height==176&&stance_pixels.pixels!=status_pixels.pixels,
+        "stance/shadow feedback must reach the wrist raster without clipping");
+    if(argc>3)Save(stance_pixels,argv[3]);
+    status.line_count=2;status.lines[2]={};
+    Require(raster.Status(status).pixels==status_pixels.pixels,"removed stance left stale wrist pixels");
+    const std::u16string_view optional[]{u"Cuenta atrás  10",u"Caballo · Salud 100% · Fatiga 100%",
+        u"Concentración · No preparada",u"Agachado · En sombra"};
+    status.line_count=6;
+    for(int i=0;i<4;++i){status.lines[i+2].length=static_cast<std::uint32_t>(optional[i].size());
+        std::copy(optional[i].begin(),optional[i].end(),status.lines[i+2].characters.begin());}
+    const auto expanded=raster.Status(status);
+    Require(expanded.height==320&&expanded.pixels.size()==512*320,
+        "combined native optional feedback exceeded raster extent");
+    if(argc>4)Save(expanded,argv[4]);
+    status.line_count=2;for(int i=2;i<6;++i)status.lines[i]={};
+    Require(raster.Status(status).pixels==status_pixels.pixels,"optional feedback left stale pixels");
     status.lines[1].characters[9]=u'2';
     Require(raster.Status(status).pixels!=status_pixels.pixels,"shot count changes must reach status pixels");
     status.line_count=11;Require(raster.Status(status).pixels.empty(),"oversized status resurrected pixels");

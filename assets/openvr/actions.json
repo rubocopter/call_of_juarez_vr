@@ -1,5 +1,7 @@
 {
   "actions": [
+    {"name": "/actions/global/out/haptic_left", "type": "vibration", "requirement": "optional"},
+    {"name": "/actions/global/out/haptic_right", "type": "vibration", "requirement": "optional"},
     {"name": "/actions/global/in/recenter", "type": "boolean"},
     {"name": "/actions/global/in/ui_select_left", "type": "boolean"},
     {"name": "/actions/global/in/ui_select_right", "type": "boolean"},
@@ -43,7 +45,7 @@
     {"name": "/actions/gameplay/in/equipment_4", "type": "boolean", "requirement": "optional"},
     {"name": "/actions/gameplay/in/equipment_5", "type": "boolean", "requirement": "optional"},
     {"name": "/actions/gameplay/in/equipment_6", "type": "boolean", "requirement": "optional"},
-    {"name": "/actions/gameplay/in/utility_modifier", "type": "boolean", "requirement": "optional"}
+    {"name": "/actions/gameplay/in/weapon_radial", "type": "boolean", "requirement": "optional"}
   ],
   "action_sets": [
     {"name": "/actions/global", "usage": "leftright"},
@@ -58,8 +60,10 @@
   "localization": [
     {
       "language_tag": "en_US",
+      "/actions/global/out/haptic_left": "Left controller UI feedback",
+      "/actions/global/out/haptic_right": "Right controller UI feedback",
       "/actions/global": "Global VR controls",
-      "/actions/global/in/recenter": "Recenter view",
+      "/actions/global/in/recenter": "Create: tap objectives / hold recenter",
       "/actions/global/in/ui_select_left": "Select menu with left trigger",
       "/actions/global/in/ui_select_right": "Select menu with right trigger",
       "/actions/global/in/ui_pointer_left": "Hold to point at menu with left hand",
@@ -75,8 +79,8 @@
       "/actions/gameplay": "Gameplay",
       "/actions/gameplay/in/move": "Move",
       "/actions/gameplay/in/turn": "Turn",
-      "/actions/gameplay/in/fire_left": "Fire left weapon",
-      "/actions/gameplay/in/fire_right": "Fire right weapon",
+      "/actions/gameplay/in/fire_left": "Original left mouse / left hand action",
+      "/actions/gameplay/in/fire_right": "Original right mouse / right hand action",
       "/actions/gameplay/in/jump": "Jump",
       "/actions/gameplay/in/reload": "Reload",
       "/actions/gameplay/in/run": "Run",
@@ -103,12 +107,14 @@
       "/actions/gameplay/in/equipment_4": "Equipment 4",
       "/actions/gameplay/in/equipment_5": "Equipment 5",
       "/actions/gameplay/in/equipment_6": "Equipment 6",
-      "/actions/gameplay/in/utility_modifier": "Utility Modifier"
+      "/actions/gameplay/in/weapon_radial": "Weapon radial"
     },
     {
       "language_tag": "es_ES",
+      "/actions/global/out/haptic_left": "Respuesta háptica de interfaz izquierda",
+      "/actions/global/out/haptic_right": "Respuesta háptica de interfaz derecha",
       "/actions/global": "Controles VR globales",
-      "/actions/global/in/recenter": "Recentrar vista",
+      "/actions/global/in/recenter": "Create: toque objetivos / mantener recentrar",
       "/actions/global/in/ui_select_left": "Seleccionar menú con gatillo izquierdo",
       "/actions/global/in/ui_select_right": "Seleccionar menú con gatillo derecho",
       "/actions/global/in/ui_pointer_left": "Mantener para apuntar al menú con mano izquierda",
@@ -124,8 +130,8 @@
       "/actions/gameplay": "Juego",
       "/actions/gameplay/in/move": "Moverse",
       "/actions/gameplay/in/turn": "Girar",
-      "/actions/gameplay/in/fire_left": "Disparar arma izquierda",
-      "/actions/gameplay/in/fire_right": "Disparar arma derecha",
+      "/actions/gameplay/in/fire_left": "Acción original LMB / mano izquierda",
+      "/actions/gameplay/in/fire_right": "Acción original RMB / mano derecha",
       "/actions/gameplay/in/jump": "Saltar",
       "/actions/gameplay/in/reload": "Recargar",
       "/actions/gameplay/in/run": "Correr",
@@ -152,7 +158,7 @@
       "/actions/gameplay/in/equipment_4": "Seleccionar equipo 4",
       "/actions/gameplay/in/equipment_5": "Seleccionar equipo 5",
       "/actions/gameplay/in/equipment_6": "Seleccionar equipo 6",
-      "/actions/gameplay/in/utility_modifier": "Mantener para funciones secundarias"
+      "/actions/gameplay/in/weapon_radial": "Rueda de armas"
     }
   ]
 }

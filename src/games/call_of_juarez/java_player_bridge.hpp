@@ -4,6 +4,10 @@
 #include "runtime/hud_text.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/gameplay_ui_reader.hpp"
+#include "games/call_of_juarez/focus_zoom.hpp"
+#include "games/call_of_juarez/motion_reload_owner.hpp"
+#include "games/call_of_juarez/reload_geometry.hpp"
+#include "games/call_of_juarez/interaction_selection.hpp"
 
 #include <array>
 #include <cstdint>
@@ -70,6 +74,42 @@ struct CoJMovementObservation {
 struct CoJGameplayActionValue {
     int action = -1;
     float value = 0.0F;
+};
+
+// Single-player shoulder ownership. IsRidingHorse is an exact-game predicate;
+// unknown observation, player replacement and mount changes require release.
+class CoJContextualShoulderState final {
+public:
+    void Update(runtime::GameplayInputState& input, bool observation_available,
+        bool mounted, std::uint64_t player_generation) noexcept;
+private:
+    bool known_=false, mounted_=false, release_required_=true, pressed_=false;
+    std::uint64_t generation_=0;
+};
+
+// A native controller reset on owner/mount changes invalidates synthetic toggles.
+class CoJGameplayOwnerState final {
+public:
+    [[nodiscard]] bool Update(bool available, bool mounted, std::uint64_t generation) noexcept;
+private:
+    bool known_=false, mounted_=false;
+    std::uint64_t generation_=0;
+};
+
+// Retain generated pulses across a failed dispatch, cancel them on context loss,
+// and acknowledge each native action independently after partial delivery.
+class CoJGameplayCommandQueue final {
+public:
+    void CaptureAndMerge(runtime::GameplayInputState& input) noexcept;
+    void CaptureShoulder(runtime::GameplayInputState& input) noexcept;
+    void PrepareDispatch(runtime::GameplayInputState& input,
+        const runtime::GameplayInputState& applied, bool shoulder_phase = false) noexcept;
+    void Acknowledge(const runtime::GameplayInputState& attempted,
+        const runtime::GameplayInputState& delivered, bool shoulder_phase = false) noexcept;
+private:
+    runtime::GameplayInputState pending_{}, releasing_{};
+    std::uint64_t context_generation_=0;
+    bool objectives_pressed_=false;
 };
 
 struct CoJGameplayTargetSelection {
@@ -185,7 +225,7 @@ private:
 [[nodiscard]] std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
     const cojvr::runtime::GameplayInputState& state) noexcept;
 [[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
-enum class CoJInputDispatchPhase { all, non_fire, fire };
+enum class CoJInputDispatchPhase { all, non_fire, pre_shoulder, shoulder, fire };
 [[nodiscard]] bool ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase phase, int action) noexcept;
 [[nodiscard]] cojvr::runtime::GameplayInputState MergeCoJGameplayInputPhase(
     const cojvr::runtime::GameplayInputState& previous,
@@ -218,7 +258,11 @@ public:
         ElementWorldBasisTarget* tracked_hand = nullptr) noexcept;
     [[nodiscard]] bool TryApplyIndependentHand(int hand,
         const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
-        std::string* error = nullptr) noexcept;
+        std::string* error = nullptr, const runtime::FingerTrackingState* fingers = nullptr) noexcept;
+    [[nodiscard]] bool TryCanAnimateEmptyHand(int hand) noexcept;
+    [[nodiscard]] bool finger_animation_active(int hand) const noexcept {
+        return hand>=0&&hand<2&&hand_overlays_[hand].frames.fingers_active();
+    }
     [[nodiscard]] bool TryReadHandAttachment(int hand, ElementWorldBasisTarget& frame,
         std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryPrepareTrackedWeapon(int hand, cojvr::runtime::Vec3 socket,
@@ -289,6 +333,8 @@ public:
         std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetActiveGameTimerFrozen(
         bool& frozen, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryGetActiveGamePresentationBlocked(
+        bool& blocked, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryObserveSubtitleState(
         CoJSubtitleRuntimeState& state, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetWeaponReloading(
@@ -310,6 +356,30 @@ public:
 
     [[nodiscard]] bool TryObserveHudText(runtime::HudTextSnapshot& text) noexcept;
     [[nodiscard]] bool TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept;
+    [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
+    [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
+        CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveNativeReloadRecoveryOwner(CoJMotionReloadOwner& owner,
+        CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveInteractionSelection(CoJInteractionSelection& selection) noexcept;
+    // Exact-build/local game-owner call only, immediately before action 31.
+    // Only Frontier Regular/Peacemaker support this native per-round ticket.
+    // Java consumes pending into its native-owned active ticket on admission.
+    // Arm, immediately dispatch action31, then clear pending on either outcome.
+    // Also clear on Square, failed gesture, context loss or local-owner release.
+    // Observations never clear it; active survives until native completion.
+    [[nodiscard]] bool TryArmSingleRoundReload(CoJMotionReloadOwner owner,
+        std::string* error = nullptr) noexcept;
+    // No owned pending publication is a successful no-op without JNI work.
+    // Failed publication/cancellation remains owned until a null write succeeds.
+    [[nodiscard]] bool ClearSingleRoundReload(std::string* error = nullptr) noexcept;
+    // Read-only displayed-frame observation for exact reload-model research.
+    // Never admits a physical socket, changes a gate or owns ammunition.
+    [[nodiscard]] bool TryObserveReloadGeometry(int hand, CoJReloadGeometrySnapshot& geometry,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
+        const char*& class_name) noexcept;
+    [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;
     [[nodiscard]] bool TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept;
     // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers
     // use this gaze ray; native look, ballistics, range and trigger rules remain
@@ -331,6 +401,7 @@ public:
         const cojvr::runtime::GameplayInputState& state,
         std::string* error = nullptr,
         CoJInputDispatchPhase phase = CoJInputDispatchPhase::all) noexcept;
+    [[nodiscard]] runtime::GameplayInputState AppliedGameplayCommands() const noexcept;
     // Route an intentional VR UI-select press through the currently visible
     // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive
     // "press a key" gate; ordinary menus keep their Enter helper route.
@@ -458,6 +529,8 @@ private:
         void* env, void* vector, const JavaPlayerPosition& value, std::string* error) noexcept;
     [[nodiscard]] bool ClearException(void* env, std::string* error, const char* stage) noexcept;
     void ClearBeing(void* env) noexcept;
+    [[nodiscard]] bool ClearSingleRoundReloadField(void* env, std::string* error) noexcept;
+    bool single_round_reload_pending_ = false;
 
     [[nodiscard]] bool ReadObjectElementFrame(
         void* object, int element, JavaPlayerPosition& position,
@@ -606,6 +679,7 @@ private:
     std::uint64_t gameplay_ui_sample_tick_ = 0;
     bool gameplay_ui_sample_valid_ = false;
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
+    std::array<float,33> last_gameplay_action_values_{};
     bool gameplay_input_applied_ = false;
     CoJSnapTurnState snap_turn_state_{};
     float last_snap_turn_degrees_ = 0.0F;

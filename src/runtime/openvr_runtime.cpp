@@ -64,6 +64,9 @@ struct OpenVrRuntime::Impl {
     vr::VRActionHandle_t left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     vr::VRActionHandle_t right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     std::array<vr::VRActionHandle_t, 2> hand_skeleton_actions{};
+    std::array<vr::VRActionHandle_t, 2> hand_haptic_actions{};
+    std::array<vr::VRInputValueHandle_t, 2> hand_haptic_sources{};
+    UiHapticOutputGate haptic_output;
     std::array<vr::VRActionHandle_t, 30> gameplay_actions{};
     OpenVrDigitalActionEdge recenter_edge{};
     OpenVrDigitalActionEdge ui_select_left_edge{};
@@ -259,6 +262,9 @@ void OpenVrRuntime::Shutdown() noexcept {
     impl_->left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     impl_->right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
     impl_->hand_skeleton_actions.fill(vr::k_ulInvalidActionHandle);
+    impl_->hand_haptic_actions.fill(vr::k_ulInvalidActionHandle);
+    impl_->hand_haptic_sources.fill(vr::k_ulInvalidInputValueHandle);
+    impl_->haptic_output = {};
     impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
     impl_->recenter_edge.Reset();
     impl_->ui_select_left_edge.Reset();
@@ -503,6 +509,9 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->left_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
         impl_->right_hand_aim_pose_action = vr::k_ulInvalidActionHandle;
         impl_->hand_skeleton_actions.fill(vr::k_ulInvalidActionHandle);
+        impl_->hand_haptic_actions.fill(vr::k_ulInvalidActionHandle);
+        impl_->hand_haptic_sources.fill(vr::k_ulInvalidInputValueHandle);
+        impl_->haptic_output = {};
         impl_->gameplay_actions.fill(vr::k_ulInvalidActionHandle);
         impl_->recenter_edge.Reset();
         impl_->ui_select_left_edge.Reset();
@@ -681,7 +690,7 @@ bool OpenVrRuntime::InitializeGlobalActions(
             "/actions/gameplay/in/equipment_4",
             "/actions/gameplay/in/equipment_5",
             "/actions/gameplay/in/equipment_6",
-            "/actions/gameplay/in/utility_modifier",
+            "/actions/gameplay/in/weapon_radial",
         };
         std::array<vr::VRActionHandle_t, 30> gameplay_actions{};
         gameplay_actions.fill(vr::k_ulInvalidActionHandle);
@@ -711,9 +720,58 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->right_hand_aim_pose_action = right_hand_aim_pose_action;
         impl_->hand_skeleton_actions = hand_skeleton_actions;
         impl_->gameplay_actions = gameplay_actions;
+        // Optional per-hand vibration outputs, matching pinned SDK samples.
+        // Resolution failure affects only feedback, after required input setup.
+        constexpr const char* haptic_names[] = {
+            "/actions/global/out/haptic_left", "/actions/global/out/haptic_right"};
+        constexpr const char* source_names[] = {"/user/hand/left", "/user/hand/right"};
+        for (std::size_t index = 0; index < impl_->hand_haptic_actions.size(); ++index) {
+            auto& action = impl_->hand_haptic_actions[index];
+            auto& source = impl_->hand_haptic_sources[index];
+            bool ready = false;
+            try {
+                ready = input->GetActionHandle(haptic_names[index], &action) == vr::VRInputError_None &&
+                    input->GetInputSourceHandle(source_names[index], &source) == vr::VRInputError_None &&
+                    action != vr::k_ulInvalidActionHandle && source != vr::k_ulInvalidInputValueHandle;
+            } catch (...) {}
+            if (!ready) {
+                action = vr::k_ulInvalidActionHandle; source = vr::k_ulInvalidInputValueHandle;
+            } else impl_->haptic_output.Configure(static_cast<UiHapticHand>(index), true);
+        }
         return true;
     } catch (...) {
         return FailNoThrow(impl_.get(), "OpenVR global-action initialization raised an exception");
+    }
+}
+
+bool OpenVrRuntime::SubmitUiHapticPulse(const UiHapticPulse& pulse) noexcept {
+    if (!impl_ || !global_actions_initialized() || !UiHapticPulseValid(pulse) ||
+        !impl_->haptic_output.Available(pulse.hand)) return false;
+    try {
+        // Recheck actual focus/dashboard/input immediately before output rather
+        // than relying on the presenter's less frequent diagnostic state sample.
+        OpenVrPresentationState presentation{};
+        if (!ReadPresentationState(presentation) || !presentation.can_render_scene ||
+            presentation.scene_focus_process_id != presentation.process_id ||
+            !presentation.input_available || presentation.dashboard_visible || presentation.should_pause ||
+            state().shutdown_requested) return false;
+        auto* overlay = vr::VROverlay();
+        if (!overlay || overlay->IsDashboardVisible()) return false;
+        const auto role = pulse.hand == UiHapticHand::left
+            ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand;
+        const auto device = impl_->system->GetTrackedDeviceIndexForControllerRole(role);
+        if (device == vr::k_unTrackedDeviceIndexInvalid || !impl_->system->IsTrackedDeviceConnected(device)) {
+            impl_->haptic_output.Failed(pulse.hand); return false;
+        }
+        const auto index = static_cast<std::size_t>(pulse.hand);
+        return impl_->haptic_output.Dispatch(pulse, [&] {
+            return impl_->input->TriggerHapticVibrationAction(
+                impl_->hand_haptic_actions[index], 0.0F, pulse.duration_seconds,
+                pulse.frequency_hz, pulse.amplitude, impl_->hand_haptic_sources[index]) == vr::VRInputError_None;
+        });
+    } catch (...) {
+        impl_->haptic_output.Failed(pulse.hand);
+        return false;
     }
 }
 
@@ -747,6 +805,7 @@ bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
         }
 
         actions.recenter_active = data.bActive;
+        actions.recenter_held = data.bActive && data.bState;
         actions.recenter_requested = impl_->recenter_edge.Update(data.bActive, data.bState);
         const auto read_ui_select = [&](const vr::VRActionHandle_t action,
                                         bool& value,
@@ -838,6 +897,7 @@ bool OpenVrRuntime::PollActions(
                 static_cast<std::int32_t>(error));
         }
         global_actions.recenter_active = recenter.bActive;
+        global_actions.recenter_held = recenter.bActive && recenter.bState;
         global_actions.recenter_requested =
             impl_->recenter_edge.Update(recenter.bActive, recenter.bState);
 
@@ -973,7 +1033,7 @@ bool OpenVrRuntime::PollActions(
                 vr::k_ulInvalidInputValueHandle);
             if (digital_error != vr::VRInputError_None) return false;
             value = data.bActive && data.bState;
-            if (index == 29) gameplay_actions.utility_available = data.bActive;
+            if (index == 29) gameplay_actions.radial_available = data.bActive;
             else if (!data.bActive) gameplay_actions.digital_available &= ~(1U << (index - 2));
             return true;
         };
@@ -1006,7 +1066,7 @@ bool OpenVrRuntime::PollActions(
             !read_digital(26, gameplay_actions.equipment_select[3]) ||
             !read_digital(27, gameplay_actions.equipment_select[4]) ||
             !read_digital(28, gameplay_actions.equipment_select[5]) ||
-            !read_digital(29, gameplay_actions.utility_modifier)) {
+            !read_digital(29, gameplay_actions.weapon_radial)) {
             gameplay_actions = {};
             return FailNoThrow(impl_.get(), "OpenVR gameplay action read failed");
         }

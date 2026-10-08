@@ -150,8 +150,8 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11DepthStencilState> depth;
     std::array<HudTextRaster, 3> raster;
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 6> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 6> images;
+    std::array<std::uint64_t, 8> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 8> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -160,17 +160,17 @@ struct HudTextCompositor::Impl {
         owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset(); blend.Reset();
         images = {}; uploaded = {}; targets = {}; target_views = {};
         constexpr char shader[] =
-            "cbuffer Corners:register(b0){float4 corners[4];};"
+            "cbuffer Corners:register(b0){float4 corners[4];float4 material[4];};"
             "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;};"
-            "V VS(uint i:SV_VertexID){V o;o.p=corners[i];o.uv=float2(i&1,(i>>1)&1);return o;}"
+            "V VS(uint i:SV_VertexID){V o;o.p=corners[i];o.uv=material[i].xy;return o;}"
             "Texture2D img:register(t0);SamplerState smp:register(s0);"
-            "float4 PS(V v):SV_TARGET{return img.Sample(smp,v.uv);}";
+            "float4 PS(V v):SV_TARGET{float4 c=img.Sample(smp,v.uv);c.rgb*=material[0].z;return c;}";
         ComPtr<ID3DBlob> vcode, pcode;
         if (FAILED(D3DCompile(shader, sizeof(shader)-1, nullptr, nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vcode, nullptr)) ||
             FAILED(D3DCompile(shader, sizeof(shader)-1, nullptr, nullptr, nullptr, "PS", "ps_4_0", 0, 0, &pcode, nullptr)) ||
             FAILED(device->CreateVertexShader(vcode->GetBufferPointer(), vcode->GetBufferSize(), nullptr, &vs)) ||
             FAILED(device->CreatePixelShader(pcode->GetBufferPointer(), pcode->GetBufferSize(), nullptr, &ps))) return false;
-        D3D11_BUFFER_DESC buffer{}; buffer.ByteWidth = 64;
+        D3D11_BUFFER_DESC buffer{}; buffer.ByteWidth = 128;
         buffer.Usage = D3D11_USAGE_DEFAULT; buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         D3D11_SAMPLER_DESC sd{}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -210,20 +210,77 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     const std::array<ID3D11Texture2D*, 2>& targets) noexcept {
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
+    // Cartridge geometry is optional. Reject it in BOTH eyes without starving
+    // essential HUD panels or discarding the captured scene.
+    const bool cartridge_visible=[&]() noexcept {
+        if(!overlay.reload_cartridge_visible||
+            overlay.reload_cartridge_surface_count>overlay.reload_cartridge_max_surfaces)return false;
+        for(const auto& eye:overlay.eyes){
+            const auto& pose=eye.eye_to_head;const auto q=pose.orientation;
+            const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+            if(!pose.position_valid||!pose.orientation_valid||!std::isfinite(norm)||
+                std::abs(norm-1.F)>.001F||!runtime::IsValidEyeFov(eye.fov))return false;
+            const runtime::Quaternion inverse{-q.x,-q.y,-q.z,q.w};
+            const auto count=overlay.reload_cartridge_surface_count?overlay.reload_cartridge_surface_count:1;
+            for(std::size_t i=0;i<count;++i){
+                const auto& face=overlay.reload_cartridge_surfaces[i];
+                if(overlay.reload_cartridge_surface_count&&(!std::isfinite(face.material_uv.x)||!std::isfinite(face.material_uv.y)||
+                    face.material_uv.x<0||face.material_uv.x>1||face.material_uv.y<0||face.material_uv.y>1||
+                    !std::isfinite(face.shade)||face.shade<0||face.shade>1))return false;
+                const auto& corners=overlay.reload_cartridge_surface_count?face.head_corners:
+                    overlay.reload_cartridge_head_corners;
+                for(auto p:corners){
+                    p=runtime::RotateVector(inverse,{p.x-pose.position.x,p.y-pose.position.y,p.z-pose.position.z});
+                    if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||p.z>=-.05F)return false;
+                }
+            }
+        }
+        return true;
+    }();
+    // Independent optional interaction marker: invalid capture/optics in either eye
+    // hides it in both eyes while existing HUD panels retain their own gates.
+    const bool interaction_gaze_visible = [&]() noexcept {
+        if (!overlay.interaction_gaze_visible) return false;
+        for (const auto& eye : overlay.eyes) {
+            const auto& pose = eye.eye_to_head;
+            const auto q = pose.orientation;
+            const float norm = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+            if (!pose.position_valid || !pose.orientation_valid || !std::isfinite(norm) ||
+                std::abs(norm - 1.F) > .001F || !runtime::IsValidEyeFov(eye.fov)) return false;
+            const runtime::Quaternion inverse{-q.x,-q.y,-q.z,q.w};
+            for (auto p : overlay.interaction_gaze_head_corners) {
+                p = runtime::RotateVector(inverse, {p.x-pose.position.x,
+                    p.y-pose.position.y, p.z-pose.position.z});
+                if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+                    !std::isfinite(p.z) || p.z >= -.05F) return false;
+            }
+        }
+        return true;
+    }();
     if (overlay.text.hint.view().empty() && overlay.text.interaction.view().empty() &&
         overlay.text.subtitle.view().empty() && !overlay.ui.wheel.active &&
         !(overlay.ui.compass.active && overlay.compass_surface_valid) &&
-        !(overlay.ui.status.active && overlay.status_surface_valid)) return true;
+        !(overlay.ui.status.active && overlay.status_surface_valid) &&
+        !cartridge_visible && !interaction_gaze_visible) return true;
     try {
         if (!Prepare(device)) return false;
         const std::array<const runtime::HudText*, 3> texts{
             &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle};
-        std::array<HudPanelPlacement, 6> placement{{{1.15F, .48F, 1.5F},
-            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}}};
+        std::array<HudPanelPlacement, 8> placement{{{1.15F, .48F, 1.5F},
+            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {}}};
         placement[4].captured_quad=true;
         placement[4].head_corners=overlay.compass_head_corners;
         placement[5].captured_quad=true;
         placement[5].head_corners=overlay.status_head_corners;
+        // Slot seven carries captured controller-oriented surfaces (legacy quad
+        // when no surfaces are present), not game ammo.
+        // Like the existing transparent compositor panels, it is always on
+        // top: the transported color images contain no game depth for occlusion.
+        placement[6].captured_quad=true;
+        placement[6].head_corners=overlay.reload_cartridge_head_corners;
+        // Eighth slot owns captured interaction feedback, independent of weapon alignment.
+        placement[7].captured_quad = true;
+        placement[7].head_corners = overlay.interaction_gaze_head_corners;
         const auto& subtitle = impl_->raster[2].Render(*texts[2]);
         const auto& interaction = impl_->raster[1].Render(*texts[1]);
         if (subtitle.width && interaction.width) {
@@ -240,11 +297,22 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const auto& compass_panel=impl_->ui_raster.Compass(compass,GetTickCount64());
         auto status=overlay.ui.status;if(!overlay.status_surface_valid)status.active=false;
         const auto& status_panel=impl_->ui_raster.Status(status);
+        const HudTextPanel empty_cartridge{};
+        const auto& cartridge_panel=cartridge_visible?
+            impl_->ui_raster.Cartridge():empty_cartridge;
+        const HudTextPanel empty_gaze{};
+        const auto& gaze_panel = interaction_gaze_visible ?
+            impl_->ui_raster.InteractionGaze() : empty_gaze;
         for (std::size_t part = 0; part < placement.size(); ++part) {
             const auto& panel = part<3 ? impl_->raster[part].Render(*texts[part]) :
-                (part==3 ? wheel_panel : (part==4 ? compass_panel : status_panel));
+                (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
+                    (part==6 ? cartridge_panel : gaze_panel))));
             const auto revision=part<3 ? impl_->raster[part].rebuilds() :
-                (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : impl_->ui_raster.status_revision()));
+                (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : (part==5 ? impl_->ui_raster.status_revision() : 1)));
+            // Retain the immutable cartridge GPU cache across gesture hiding.
+            if(part==6&&!cartridge_visible)continue;
+            // Immutable marker pixels/GPU cache survive hidden captures.
+            if(part==7&&!interaction_gaze_visible)continue;
             if (panel.pixels.empty()) { impl_->images[part].Reset(); continue; }
             if (!impl_->images[part] || impl_->uploaded[part] != revision) {
                 D3D11_TEXTURE2D_DESC td{}; td.Width = panel.width; td.Height = panel.height;
@@ -255,51 +323,86 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 ComPtr<ID3D11Texture2D> texture;
                 impl_->images[part].Reset();
                 if (FAILED(device->CreateTexture2D(&td, &data, &texture)) ||
-                    FAILED(device->CreateShaderResourceView(texture.Get(), nullptr, &impl_->images[part]))) return false;
+                    FAILED(device->CreateShaderResourceView(texture.Get(), nullptr, &impl_->images[part]))) {
+                    if (part==7) continue; // Optional feedback failure preserves essential HUD.
+                    return false;
+                }
                 impl_->uploaded[part] = revision;
             }
-            std::array<ProjectedHudPanel, 2> quads{};
-            std::array<D3D11_TEXTURE2D_DESC, 2> descriptions{};
-            bool projected = true;
-            for (std::size_t eye = 0; eye < 2; ++eye) {
-                if (!targets[eye]) return false;
-                targets[eye]->GetDesc(&descriptions[eye]);
-                projected = ProjectHudPanel(panel, overlay.eyes[eye],
-                    descriptions[eye].Width, descriptions[eye].Height, placement[part], quads[eye]) && projected;
-            }
-            if (!projected) continue;
-            for (std::size_t eye = 0; eye < 2; ++eye) {
-                const auto& td = descriptions[eye];
-                const auto& quad = quads[eye];
-                if (impl_->targets[eye].Get() != targets[eye]) {
-                    impl_->target_views[eye].Reset();
-                    impl_->targets[eye] = targets[eye];
-                    if (FAILED(device->CreateRenderTargetView(targets[eye], nullptr, &impl_->target_views[eye]))) return false;
+            const bool cartridge_surfaces=part==6&&overlay.reload_cartridge_surface_count!=0;
+            const std::size_t surface_count=cartridge_surfaces?overlay.reload_cartridge_surface_count:1;
+            for(std::size_t surface=0;surface<surface_count;++surface){
+                auto surface_placement=placement[part];
+                if(cartridge_surfaces)surface_placement.head_corners=
+                    overlay.reload_cartridge_surfaces[surface].head_corners;
+                std::array<ProjectedHudPanel, 2> quads{};
+                std::array<bool,2> eye_projected{};
+                std::array<D3D11_TEXTURE2D_DESC, 2> descriptions{};
+                bool projected = true;
+                for (std::size_t eye = 0; eye < 2; ++eye) {
+                    if (!targets[eye]) return false;
+                    targets[eye]->GetDesc(&descriptions[eye]);
+                    eye_projected[eye] = ProjectHudPanel(panel, overlay.eyes[eye],
+                        descriptions[eye].Width, descriptions[eye].Height, surface_placement, quads[eye]);
+                    projected = eye_projected[eye] && projected;
                 }
-                if (!impl_->target_views[eye]) return false;
-                context->UpdateSubresource(impl_->constants.Get(), 0, nullptr, quad.clip_positions.data(), 0, 0);
-                auto* render_target = impl_->target_views[eye].Get();
-                auto* constant = impl_->constants.Get();
-                auto* image = impl_->images[part].Get();
-                auto* sampler = impl_->sampler.Get();
-                const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(td.Width), static_cast<float>(td.Height), 0, 1};
-                context->OMSetRenderTargets(1, &render_target, nullptr);
-                context->OMSetBlendState(impl_->blend.Get(), nullptr, 0xFFFFFFFF);
-                context->OMSetDepthStencilState(impl_->depth.Get(), 0);
-                context->RSSetState(impl_->rasterizer.Get());
-                context->RSSetViewports(1, &viewport);
-                context->IASetInputLayout(nullptr);
-                context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-                context->VSSetShader(impl_->vs.Get(), nullptr, 0);
-                context->VSSetConstantBuffers(0, 1, &constant);
-                context->GSSetShader(nullptr, nullptr, 0);
-                context->PSSetShader(impl_->ps.Get(), nullptr, 0);
-                context->PSSetShaderResources(0, 1, &image);
-                context->PSSetSamplers(0, 1, &sampler);
-                context->Draw(4, 0);
-                ID3D11ShaderResourceView* empty = nullptr;
-                context->PSSetShaderResources(0, 1, &empty);
-                context->OMSetRenderTargets(0, nullptr, nullptr);
+                if (!projected&&!cartridge_surfaces) continue;
+                for (std::size_t eye = 0; eye < 2; ++eye) {
+                    if(!eye_projected[eye])continue;
+                    if(cartridge_surfaces){
+                        const auto& c=surface_placement.head_corners;
+                        const runtime::Vec3 a{c[1].x-c[0].x,c[1].y-c[0].y,c[1].z-c[0].z};
+                        const runtime::Vec3 b{c[2].x-c[0].x,c[2].y-c[0].y,c[2].z-c[0].z};
+                        const runtime::Vec3 normal{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
+                        const auto e=overlay.eyes[eye].eye_to_head.position;
+                        // Convex surfaces only: back-face removal gives cartridge
+                        // self-occlusion without claiming unavailable game depth.
+                        if(normal.x*(e.x-c[0].x)+normal.y*(e.y-c[0].y)+normal.z*(e.z-c[0].z)<=0)continue;
+                    }
+                    const auto& td = descriptions[eye];
+                    const auto& quad = quads[eye];
+                    if (impl_->targets[eye].Get() != targets[eye]) {
+                        impl_->target_views[eye].Reset();
+                        impl_->targets[eye] = targets[eye];
+                        if (FAILED(device->CreateRenderTargetView(targets[eye], nullptr, &impl_->target_views[eye]))) return false;
+                    }
+                    if (!impl_->target_views[eye]) return false;
+                    struct DrawConstants {
+                        std::array<std::array<float,4>,4> corners;
+                        std::array<std::array<float,4>,4> material;
+                    } constants{quad.clip_positions,{}};
+                    for(std::size_t i=0;i<4;++i){
+                        constants.material[i]={static_cast<float>(i&1),static_cast<float>((i>>1)&1),1.F,0.F};
+                        if(cartridge_surfaces){
+                            const auto& face=overlay.reload_cartridge_surfaces[surface];
+                            constants.material[i]={face.material_uv.x,face.material_uv.y,face.shade,0.F};
+                        }
+                    }
+                    context->UpdateSubresource(impl_->constants.Get(), 0, nullptr, &constants, 0, 0);
+                    auto* render_target = impl_->target_views[eye].Get();
+                    auto* constant = impl_->constants.Get();
+                    auto* image = impl_->images[part].Get();
+                    auto* sampler = impl_->sampler.Get();
+                    const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(td.Width), static_cast<float>(td.Height), 0, 1};
+                    context->OMSetRenderTargets(1, &render_target, nullptr);
+                    context->OMSetBlendState(impl_->blend.Get(), nullptr, 0xFFFFFFFF);
+                    context->OMSetDepthStencilState(impl_->depth.Get(), 0);
+                    context->RSSetState(impl_->rasterizer.Get());
+                    context->RSSetViewports(1, &viewport);
+                    context->IASetInputLayout(nullptr);
+                    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+                    context->VSSetShader(impl_->vs.Get(), nullptr, 0);
+                    context->VSSetConstantBuffers(0, 1, &constant);
+                    context->GSSetShader(nullptr, nullptr, 0);
+                    context->PSSetShader(impl_->ps.Get(), nullptr, 0);
+                    context->PSSetConstantBuffers(0, 1, &constant);
+                    context->PSSetShaderResources(0, 1, &image);
+                    context->PSSetSamplers(0, 1, &sampler);
+                    context->Draw(4, 0);
+                    ID3D11ShaderResourceView* empty = nullptr;
+                    context->PSSetShaderResources(0, 1, &empty);
+                    context->OMSetRenderTargets(0, nullptr, nullptr);
+                }
             }
         }
         return true;

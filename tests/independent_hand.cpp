@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/body_adapter.hpp"
+#include "finger_fixture.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -23,7 +24,69 @@ struct Fixture {
     }
 };
 bool Close(float a,float b) { return std::fabs(a-b)<0.0001F; }
+bool FrameClose(const ElementWorldBasisTarget& a,const ElementWorldBasisTarget& b){
+    auto v=[](auto p,auto q){return std::fabs(p.x-q.x)<.001F&&std::fabs(p.y-q.y)<.001F&&std::fabs(p.z-q.z)<.001F;};
+    return a.valid==b.valid&&v(a.position,b.position)&&v(a.up,b.up)&&v(a.forward,b.forward);
+}
+bool FingerChecks(){
+    using namespace finger_fixture;
+    cojvr::runtime::FingerTrackingState curls{};curls.available=true;curls.quality=cojvr::runtime::FingerTrackingQuality::partial;
+    for(int hand=0;hand<2;++hand){
+        const auto& rest=hand?L_rest:R_rest;const auto& fist=hand?L_fist:R_fist;
+        CoJHandFrames out{};
+        for(float curl:{0.F,.5F,1.F}){
+            curls.curls.fill(curl);
+            if(!BuildCoJFingerTargets(hand,rest,rest,curls,out)){std::cerr<<"authored finger plan unavailable\n";return false;}
+            for(int i=0;i<20;++i){
+                if(out[i].element!=rest[i].element)return false;
+                if((curl==0||i<4||i==19)&&!FrameClose(out[i].frame,rest[i].frame))return false;
+                if(curl==1&&i>=4&&i<19&&!FrameClose(out[i].frame,fist[i].frame)){
+                    std::cerr<<"finger endpoint disagrees with isolated native world getter\n";return false;}
+                if(i>=4&&i<19){
+                    const int parent=(i-4)%3==0?3:i-1;
+                    auto distance=[](auto a,auto b){return std::sqrt((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y)+(a.z-b.z)*(a.z-b.z));};
+                    if(!Close(distance(out[i].frame.position,out[parent].frame.position),distance(rest[i].frame.position,rest[parent].frame.position)))return false;
+                }
+            }
+        }
+        for(int finger=0;finger<5;++finger){curls.curls.fill(0);curls.curls[finger]=1;
+            if(!BuildCoJFingerTargets(hand,rest,rest,curls,out))return false;
+            for(int i=4;i<19;++i)if(!FrameClose(out[i].frame,((i-4)/3==finger?fist:rest)[i].frame))return false;
+        }
+        const ElementWorldBasisTarget tracked{{3,5,7},{-1,0,0},{0,0,1},true};
+        CoJHandFrames rigid{};for(int i=0;i<20;++i)rigid[i]={rest[i].element,TransformWeaponElementFrame(rest[3].frame,tracked,rest[i].frame)};
+        curls.curls.fill(1);
+        if(!BuildCoJFingerTargets(hand,rest,rigid,curls,out))return false;
+        for(int i=4;i<19;++i)if(!FrameClose(out[i].frame,TransformWeaponElementFrame(rest[3].frame,tracked,fist[i].frame)))return false;
+        auto invalid=[&](){if(BuildCoJFingerTargets(hand,rest,rigid,curls,out))return false;for(int i=0;i<20;++i)if(!FrameClose(out[i].frame,rigid[i].frame))return false;return true;};
+        for(float bad:{-1.F,1.01F,std::numeric_limits<float>::quiet_NaN()}){curls.curls[4]=bad;if(!invalid())return false;}curls.curls.fill(1);
+        curls.available=false;if(!invalid())return false;curls.available=true;
+        curls.quality=cojvr::runtime::FingerTrackingQuality::unavailable;if(!invalid())return false;curls.quality=cojvr::runtime::FingerTrackingQuality::partial;
+        auto bad=rest;bad[15].frame.forward.x=std::numeric_limits<float>::quiet_NaN();if(BuildCoJFingerTargets(hand,bad,rigid,curls,out))return false;
+        Fixture f;f.frames=rest;CoJHandOverlay overlay;
+        if(!overlay.Apply(rest,rest[3].frame,tracked,{10,0,0},&f,Fixture::Read,Fixture::Write,&curls,hand)||
+            !overlay.fingers_active()||!overlay.Verify(&f,Fixture::Read))return false;
+        if(!overlay.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||overlay.fingers_active())return false;
+        for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=5;if(!FrameClose(f.frames[i].frame,expected))return false;}
+        for(int fail:{5,10,18,20}){f.frames=rest;f.writes=0;f.fail_at=fail;CoJHandOverlay partial;
+            if(partial.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand)||partial.active())return false;
+            for(int i=0;i<20;++i)if(!FrameClose(f.frames[i].frame,rest[i].frame))return false;
+        }
+        f.frames=rest;f.writes=0;f.fail_at=-1;CoJHandOverlay retry;
+        if(!retry.Apply(rest,rest[3].frame,tracked,{10,0,0},&f,Fixture::Read,Fixture::Write,&curls,hand))return false;
+        f.fail_restore=true;
+        if(retry.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||!retry.active()||!retry.faulted()||
+            retry.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand))return false;
+        f.fail_restore=false;if(!retry.Restore({20,0,0},&f,Fixture::Read,Fixture::Write))return false;
+        for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=10;if(!FrameClose(f.frames[i].frame,expected))return false;}
+        curls.available=false;f.frames=rest;CoJHandOverlay unavailable;
+        if(!unavailable.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand)||unavailable.fingers_active()||
+            !unavailable.Restore({},&f,Fixture::Read,Fixture::Write))return false;curls.available=true;
+    }
+    return true;
+}
 int main() {
+    if(!FingerChecks()){std::cerr<<"finger endpoint, independence, length or restoration contract failed\n";return 1;}
     const auto neutral_socket=BuildTrackedHandSocketFrame({0,0,0,1},{1,0,0},{0,1,0},{0,0,1},{1,2,3});
     const auto rolled_socket=BuildTrackedHandSocketFrame({0,0,0.70710678F,0.70710678F},{1,0,0},{0,1,0},{0,0,1},{1,2,3});
     if (!neutral_socket.valid || !Close(neutral_socket.forward.z,-1) ||

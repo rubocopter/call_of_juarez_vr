@@ -45,6 +45,7 @@ std::atomic_bool g_finalization_completed{false};
 wchar_t g_process_exit_log_path[32768]{};
 
 struct NativeStereoState {
+    std::atomic<std::uint64_t> frame_feedback_context_token{0};
     cojvr::backends::d3d9::D3D9StereoCapture capture;
     cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
     cojvr::backends::openvr::OpenVrStereoPresenter presenter;
@@ -795,9 +796,15 @@ bool PaceRenderFrame(NativeStereoState* state) noexcept {
 }
 
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
-    if (!device || !g_stereo.runtime_ready) return;
+    if (!device || !g_stereo.runtime_ready) {
+        g_stereo.presenter.PublishGameplayFeedbackContext(false);
+        return;
+    }
     if (g_stereo.frame_cadence.PresentNeedsPacing()) {
-        if (!PaceRenderFrame(&g_stereo)) return;
+        if (!PaceRenderFrame(&g_stereo)) {
+            g_stereo.presenter.PublishGameplayFeedbackContext(false);
+            return;
+        }
         (void)g_stereo.frame_cadence.PresentNeedsPacing();
     }
     try {
@@ -806,11 +813,19 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         const bool timer_valid =
             cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
                 timer_frozen, &timer_error);
+        bool presentation_blocked=true;
+        const bool presentation_valid=
+            cojvr::games::call_of_juarez::ObserveCameraGamePresentationBlocked(presentation_blocked);
         constexpr std::uint64_t kStereoFreshnessMs = 250;
         const std::uint64_t now_ms = GetTickCount64();
         const std::uint64_t last_stereo_ms =
             g_stereo.last_native_stereo_tick_ms.load(std::memory_order_acquire);
-        if (!(timer_valid && timer_frozen) && !g_stereo.flat_ui_select_release_required &&
+        if (!presentation_valid || presentation_blocked || g_stereo.flat_ui_select_release_required ||
+            last_stereo_ms == 0 || now_ms < last_stereo_ms ||
+            now_ms - last_stereo_ms >= kStereoFreshnessMs) {
+            g_stereo.presenter.PublishGameplayFeedbackContext(false);
+        }
+        if (presentation_valid && !presentation_blocked && !g_stereo.flat_ui_select_release_required &&
             last_stereo_ms != 0 && now_ms >= last_stereo_ms &&
             now_ms - last_stereo_ms < kStereoFreshnessMs) {
             g_stereo.flat_capture_active.store(false, std::memory_order_release);
@@ -822,7 +837,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             entered << "native_stereo_flat_theater: status=entered source="
                     << (source ? source : "unknown")
                     << ";reason="
-                    << (timer_valid && timer_frozen ? "game_timer_frozen" : "native_stereo_stale");
+                    << (presentation_blocked ? "native_blocking_presentation" : "native_stereo_stale");
             LogLine(entered.str());
         }
 
@@ -980,6 +995,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 std::string(g_stereo.flat_capture.collect_description()));
         }
     } catch (...) {
+        g_stereo.presenter.PublishGameplayFeedbackContext(false);
         LogLine("native_stereo_flat_theater: status=exception");
     }
 }
@@ -1360,13 +1376,22 @@ bool BeginStereoFrame(
     cojvr::games::call_of_juarez::CameraStereoFrameSample& sample) noexcept {
     sample = {};
     auto* state = static_cast<NativeStereoState*>(context);
-    if (!state || !state->runtime_ready ||
-        g_finalization_started.load(std::memory_order_acquire) || !state->presenter.running()) return false;
-    if (!PaceRenderFrame(state)) return false;
+    if (!state) return false;
+    if (!state->runtime_ready ||
+        g_finalization_started.load(std::memory_order_acquire) || !state->presenter.running() ||
+        !PaceRenderFrame(state)) {
+        state->presenter.PublishGameplayFeedbackContext(false);
+        return false;
+    }
     bool timer_frozen = false;
     std::string timer_error;
-    if (cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
-            timer_frozen, &timer_error) && timer_frozen) {
+    const bool timer_valid = cojvr::games::call_of_juarez::ObserveCameraGameTimerFrozen(
+        timer_frozen, &timer_error);
+    bool presentation_blocked=true;
+    const bool presentation_valid=cojvr::games::call_of_juarez::ObserveCameraGamePresentationBlocked(
+        presentation_blocked);
+    if (!presentation_valid || presentation_blocked) {
+        state->presenter.PublishGameplayFeedbackContext(false);
         state->last_native_stereo_tick_ms.store(0, std::memory_order_release);
         return false;
     }
@@ -1374,10 +1399,12 @@ bool BeginStereoFrame(
     if (!state->presenter.LatestTracking(tracking) ||
         !tracking.pose.orientation_valid || !tracking.pose.position_valid ||
         tracking.sequence == 0) {
+        state->presenter.PublishGameplayFeedbackContext(false);
         return false;
     }
     if (state->flat_ui_select_release_required) {
         if (tracking.ui_select_left || tracking.ui_select_right || tracking.ui_accept) {
+            state->presenter.PublishGameplayFeedbackContext(false);
             state->last_native_stereo_tick_ms.store(0, std::memory_order_release);
             return false;
         }
@@ -1389,6 +1416,9 @@ bool BeginStereoFrame(
             "game_timer_valid=true;game_timer_frozen=false;trigger_released=true;route=BeginStereoFrame");
     }
 
+    state->presenter.PublishGameplayFeedbackContext(timer_valid && !timer_frozen);
+    state->frame_feedback_context_token.store(
+        state->presenter.GameplayFeedbackContextToken(), std::memory_order_release);
     state->last_native_stereo_tick_ms.store(GetTickCount64(), std::memory_order_release);
     if (state->flat_capture_active.exchange(false, std::memory_order_acq_rel)) {
         LogLine("native_stereo_flat_theater: status=leaving reason=native_stereo_active");
@@ -1412,6 +1442,8 @@ bool BeginStereoFrame(
     }
     sample.hmd_pose.pose = tracking.pose;
     sample.hmd_pose.sequence = tracking.sequence;
+    sample.native_gameplay_context_token =
+        state->frame_feedback_context_token.load(std::memory_order_acquire);
     sample.left_controller = tracking.left_controller;
     sample.right_controller = tracking.right_controller;
     sample.left_aim = tracking.left_aim;
@@ -1420,6 +1452,7 @@ bool BeginStereoFrame(
     sample.left_fingers = tracking.left_fingers;
     sample.right_fingers = tracking.right_fingers;
     sample.recenter_requested = tracking.recenter_requested;
+    sample.objectives_requested = tracking.objectives_requested;
     sample.ui_select_left = tracking.ui_select_left;
     sample.ui_select_right = tracking.ui_select_right;
     sample.ui_select_left_pressed = tracking.ui_select_left_pressed;
@@ -1520,8 +1553,11 @@ bool SubmitStereoFrame(
             .v = gameplay_reticle.eyes[eye].v,
         };
     }
+    auto captured_hud_text = hud_text;
+    captured_hud_text.feedback_context_token =
+        state->frame_feedback_context_token.load(std::memory_order_acquire);
     const bool accepted = state->capture.EndFrame(
-        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle, hud_text);
+        frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle, captured_hud_text);
     if (!accepted) {
         LogTransportFailure(frame_sequence, "fence", state->capture.last_error());
     } else if (ShouldLogStereoTiming(frame_sequence)) {
@@ -1569,6 +1605,7 @@ bool QueryDiagnosticCounters(
 }
 
 bool StartStereoRuntime() noexcept {
+    g_stereo.frame_feedback_context_token.store(0, std::memory_order_release);
     std::string manifest_path;
     try {
         const auto manifest = GameDirectory() / L"cojvr_openvr_input" / L"actions.json";
@@ -1607,6 +1644,8 @@ bool StartStereoRuntime() noexcept {
 
 void Finalize() noexcept {
     if (g_finalization_started.exchange(true, std::memory_order_acq_rel)) return;
+    g_stereo.presenter.PublishGameplayFeedbackContext(false);
+    g_stereo.frame_feedback_context_token.store(0, std::memory_order_release);
     LogLine("native_stereo_pre_exit: stage=begin boundary=CoJ.exe!DestroyGame");
     g_stereo.runtime_ready = false;
     StopPresentHookWorker();

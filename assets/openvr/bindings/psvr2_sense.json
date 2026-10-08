@@ -4,7 +4,10 @@
   "bindings": {
     "/actions/global": {
       "chords": [],
-      "haptics": [],
+      "haptics": [
+        {"output": "/actions/global/out/haptic_left", "path": "/user/hand/left/output/haptic"},
+        {"output": "/actions/global/out/haptic_right", "path": "/user/hand/right/output/haptic"}
+      ],
       "poses": [
         {
           "output": "/actions/global/in/left_hand_grip_pose",
@@ -117,7 +120,7 @@
         {
           "inputs": {
             "click": {
-              "output": "/actions/gameplay/in/run"
+              "output": "/actions/gameplay/in/crouch"
             },
             "position": {
               "output": "/actions/gameplay/in/move"
@@ -129,7 +132,7 @@
         {
           "inputs": {
             "click": {
-              "output": "/actions/gameplay/in/crouch"
+              "output": "/actions/gameplay/in/focus"
             },
             "position": {
               "output": "/actions/gameplay/in/turn"
@@ -168,7 +171,7 @@
         {
           "inputs": {
             "click": {
-              "output": "/actions/gameplay/in/weapon_next"
+              "output": "/actions/gameplay/in/kick"
             }
           },
           "mode": "trigger",
@@ -186,7 +189,7 @@
         {
           "inputs": {
             "click": {
-              "output": "/actions/gameplay/in/utility_modifier"
+              "output": "/actions/gameplay/in/weapon_radial"
             }
           },
           "mode": "button",
@@ -204,7 +207,7 @@
         {
           "inputs": {
             "click": {
-              "output": "/actions/gameplay/in/kick"
+              "output": "/actions/gameplay/in/alternate_fire"
             }
           },
           "mode": "button",

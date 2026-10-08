@@ -25,6 +25,135 @@ SHOT_DIAGNOSTIC_FIELDS = ("cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
                           "cojvrFxStatus", "cojvrShotSuppressEffects",
                           "cojvrCombHandle", "cojvrSmokeHandle")
 TARGET_OWNER_FIELDS = ("cojvrRightTargetWeapon", "cojvrLeftTargetWeapon")
+MANUAL_RELOAD_FIELDS = ("cojvrManualReloadWeapon", "cojvrSingleRoundWeapon",
+                        "cojvrSingleRoundHand", "cojvrSingleRoundCompleted")
+
+def reload_class_guard(c, local, get_class, get_name, equals, class_names, whole_clip):
+    c.emit(0x19,local);c.ref(0xb6,whole_clip);c.branch(0x9a,'done')
+    # Java 1.4 has no ldc Class literal; compare exact runtime class names.
+    for i,name in enumerate(class_names):
+        c.emit(0x19,local);c.ref(0xb6,get_class);c.ref(0xb6,get_name)
+        c.ref(0x13,name);c.ref(0xb6,equals)
+        c.branch(0x9a,'consume') if i==0 else c.branch(0x99,'done')
+    c.label('consume')
+
+def manual_reload_admission(pending, net, get_class, get_name, equals,
+                            class_names, whole_clip, net_owner, net_game,
+                            active, active_hand, completed):
+    """At original offset 12: reject invalid manual mode before native request.
+
+    Null pending preserves Square/automatic reload. Whole-clip configuration and
+    all multiplayer sessions fail closed, rather than reloading a full magazine.
+    """
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,pending);c.branch(0xc6,'ordinary')
+    c.emit(0x1b);c.branch(0x99,'hand_ok')
+    c.emit(0x1b,0x04);c.branch(0xa0,'done')
+    c.label('hand_ok')
+    c.emit(0x2a);c.ref(0xb4,pending);c.emit(0x2c);c.branch(0xa6,'done')
+    c.emit(0x1d,0x10,21);c.branch(0xa0,'done')
+    c.emit(0x2a);c.ref(0xb4,net);c.branch(0x9a,'done')
+    c.ref(0xb8,net_game);c.branch(0x9a,'done')
+    c.emit(0x2a);c.ref(0xb6,net_owner);c.branch(0x99,'done')
+    reload_class_guard(c,2,get_class,get_name,equals,class_names,whole_clip)
+    # All throwing validation has finished. Publish the limiter before the
+    # native setter can commit reload or throw after a partial commit.
+    c.emit(0x2a,0x1b);c.ref(0xb5,active_hand)
+    c.emit(0x2a,0x03);c.ref(0xb5,completed)
+    c.emit(0x2a,0x2c);c.ref(0xb5,active)
+    c.branch(0xa7,'native')
+    c.label('done')
+    c.emit(0x2a,0x01);c.ref(0xb5,pending)
+    c.emit(0x2a);c.ref(0xb4,active_hand);c.emit(0x1b);c.branch(0xa0,'reject')
+    c.emit(0x2a,0x01);c.ref(0xb5,active)
+    c.emit(0x2a,0x03);c.ref(0xb5,completed)
+    c.label('reject');c.emit(0xb1)
+    c.label('ordinary')
+    c.emit(0x2a);c.ref(0xb4,active_hand);c.emit(0x1b);c.branch(0xa0,'native')
+    c.emit(0x2a,0x01);c.ref(0xb5,active)
+    c.emit(0x2a,0x03);c.ref(0xb5,completed)
+    c.label('native')
+    return c.finish()
+
+def manual_reload_public_reconcile(active, is_reloading, pending, active_hand, current_state):
+    c=Code()
+    # Desired state becomes move before current ReloadEnd finishes. Do not let
+    # another public request discard the consumed latch during that interval.
+    c.emit(0x2a);c.ref(0xb4,active);c.branch(0xc6,'reconcile')
+    for state in (20,21,22):
+        c.emit(0x2a,0x2a);c.ref(0xb4,active_hand);c.ref(0xb6,current_state)
+        c.emit(0x10,state);c.branch(0x9f,'closing')
+    c.label('reconcile')
+    c.emit(0x2a);c.ref(0xb6,is_reloading);c.branch(0x9a,'done')
+    c.emit(0x2a,0x01);c.ref(0xb5,active)
+    c.branch(0xa7,'done')
+    c.label('closing')
+    c.emit(0x2a,0x01);c.ref(0xb5,pending);c.emit(0xb1)
+    c.label('done')
+    return c.finish()
+
+def manual_reload_completion_guard(active, active_hand, completed, actual_weapon):
+    """Entry guard runs before the original transfer and event, including reentry."""
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,active);c.branch(0xc6,'done')
+    c.emit(0x2a);c.ref(0xb4,active_hand);c.emit(0x1b);c.branch(0xa0,'done')
+    c.emit(0x1c,0x10,21);c.branch(0xa0,'done')
+    c.emit(0x2a,0x1b);c.ref(0xb6,actual_weapon)
+    c.emit(0x2a);c.ref(0xb4,active);c.branch(0xa6,'done')
+    c.emit(0x2a);c.ref(0xb4,completed);c.branch(0x99,'first')
+    c.emit(0xb1)
+    c.label('first')
+    # Mark before WeaponReload, not merely afterwards: callbacks may reenter.
+    c.emit(0x2a,0x04);c.ref(0xb5,completed)
+    c.label('done')
+    return c.finish()
+
+def manual_reload_consume(pending):
+    """Post-setter cleanup is field-only and cannot erase the committed limiter."""
+    c=Code()
+    c.emit(0x2a,0x01);c.ref(0xb5,pending)
+    return c.finish()
+
+def manual_reload_end_cleanup(active, active_hand, completed):
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,active_hand);c.emit(0x1b);c.branch(0xa0,'done')
+    c.emit(0x2a,0x01);c.ref(0xb5,active)
+    c.emit(0x2a,0x03);c.ref(0xb5,completed)
+    c.label('done')
+    return c.finish()
+
+def manual_reload_replacement_cleanup(active, active_hand, desired_weapon, completed):
+    """Replacement revokes obsolete ownership without touching native states."""
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,active);c.branch(0xc6,'done')
+    c.emit(0x2a);c.ref(0xb4,active_hand);c.emit(0x1b);c.branch(0xa0,'done')
+    c.emit(0x2a,0x1b);c.ref(0xb6,desired_weapon)
+    c.emit(0x2a);c.ref(0xb4,active);c.branch(0xa5,'done')
+    c.emit(0x2a,0x01);c.ref(0xb5,active)
+    c.emit(0x2a,0x03);c.ref(0xb5,completed)
+    c.label('done')
+    return c.finish()
+
+def manual_reload_limiter(ticket, ticket_hand, completed):
+    """At original offset 49, retain completed ownership and force native local 8.
+
+    Pending may be cancelled by the bridge; active belongs to native callbacks.
+    Native transfer/result local 7, cleanup and game event remain untouched.
+    """
+    c=Code()
+    c.emit(0x2a);c.ref(0xb4,ticket);c.branch(0xc6,'done')
+    c.emit(0x1b);c.branch(0x99,'hand_ok')
+    c.emit(0x1b,0x04);c.branch(0xa0,'done')
+    c.label('hand_ok')
+    c.emit(0x2a);c.ref(0xb4,ticket_hand);c.emit(0x1b);c.branch(0xa0,'done')
+    c.emit(0x2a);c.ref(0xb4,ticket);c.emit(0x19,4);c.branch(0xa6,'done')
+    c.emit(0x19,4,0x19,5);c.branch(0xa6,'done')
+    c.emit(0x1c,0x10,21);c.branch(0xa0,'done')
+    c.emit(0x15,6,0x10,21);c.branch(0xa0,'done')
+    c.emit(0x2a,0x04);c.ref(0xb5,completed)
+    c.emit(0x04,0x36,8)
+    c.label('done')
+    return c.finish()
 
 def target_owner_tag(fields):
     c=Code();c.emit(0x1b);c.branch(0x99,"right")
@@ -33,7 +162,7 @@ def target_owner_tag(fields):
     c.label("right");c.emit(0x2a,0x19,4);c.ref(0xb5,fields[0]);c.label("end")
     return c.finish()
 
-def insert_target_tag(code, at, tag, pool):
+def insert_target_tag(code, at, tag, pool, include_target=False):
     positions=[int(line.split(':',1)[0]) for line in disassemble(code,pool)]
     if at not in positions:raise ValueError("Target tag is not at an instruction boundary")
     if any(code[pc] in (0xaa,0xab) for pc in positions):raise ValueError("Unexpected switch in exact target method")
@@ -44,7 +173,7 @@ def insert_target_tag(code, at, tag, pool):
         if not size:continue
         target=pc+int.from_bytes(code[pc+1:pc+1+size],'big',signed=True)
         new_pc=pc+(len(tag) if pc>=at else 0)
-        new_target=target+(len(tag) if target>=at else 0)
+        new_target=target+(len(tag) if target>at or (target==at and not include_target) else 0)
         delta=new_target-new_pc
         if delta<-(1<<(size*8-1)) or delta>=(1<<(size*8-1)):raise ValueError("Target branch relocation overflow")
         changed[new_pc+1:new_pc+1+size]=delta.to_bytes(size,'big',signed=True)
@@ -254,16 +383,76 @@ def patch_class(data: bytes) -> bytes:
         name_index=utf8(name);extra_fields.extend(u2(1)+u2(name_index)+u2(weapon_descriptor)+u2(0))
         nt=append(b"\x0c"+u2(name_index)+u2(weapon_descriptor));target_refs.append(append(b"\x09"+u2(this_class)+u2(nt)))
     target_method=("CheckIfAimingAtFriendlyTarget","(IZ)V")
+    manual_refs=[]
+    for name,desc in zip(MANUAL_RELOAD_FIELDS,(weapon_descriptor,weapon_descriptor,utf8('I'),utf8('Z'))):
+        name_index=utf8(name)
+        # Transient instance fields; native SGSave/SGLoad remain authoritative.
+        extra_fields.extend(u2(0x0081)+u2(name_index)+u2(desc)+u2(0))
+        nt=append(b'\x0c'+u2(name_index)+u2(desc))
+        manual_refs.append(append(b'\x09'+u2(this_class)+u2(nt)))
+    def method_ref(owner,name,desc):
+        cls=append(b'\x07'+u2(utf8(owner)))
+        nt=append(b'\x0c'+u2(utf8(name))+u2(utf8(desc)))
+        return append(b'\x0a'+u2(cls)+u2(nt))
+    names=tuple(append(b'\x08'+u2(utf8(name))) for name in
+                ('WeaponPistolFrontier1878_Regular','WeaponPistolPeacemaker'))
+    class_methods=(
+        method_ref('java/lang/Object','getClass','()Ljava/lang/Class;'),
+        method_ref('java/lang/Class','getName','()Ljava/lang/String;'),
+        method_ref('java/lang/String','equals','(Ljava/lang/Object;)Z'),names,
+        method_ref('Weapon','IsReloadWholeClipAtOnce','()Z'),
+        find('ArmedPlayerBeing.GetNetIsOwner()Z'))
+    limiter=manual_reload_limiter(*manual_refs[1:])
+    consume=manual_reload_consume(manual_refs[0])
+    admission=manual_reload_admission(manual_refs[0],net,*class_methods,
+        find('ArmedPlayerBeing.IsNetGame()Z'),*manual_refs[1:])
+    reconcile=manual_reload_public_reconcile(manual_refs[1],
+        find('ArmedPlayerBeing.IsWeaponReloading()Z'),manual_refs[0],manual_refs[2],
+        find('ArmedPlayerBeing.GetHandStateMashineState(I)I'))
+    completion_guard=manual_reload_completion_guard(*manual_refs[1:],
+        find('ArmedPlayerBeing.GetActualWeapon(I)LWeapon;'))
+    pending_clear=b'\x2a\x01\xb5'+u2(manual_refs[0])
+    cleanup=manual_reload_end_cleanup(*manual_refs[1:])
+    replacement_cleanup=manual_reload_replacement_cleanup(*manual_refs[1:3],
+        find('ArmedPlayerBeing.GetDesiredWeapon(I)LWeapon;'),manual_refs[3])
+    reload_target=('OnHandStateFinished_Reload','(IIZ)V')
+    reload_request=('ReloadWeapon','(I)V')
+    reload_public=('ReloadWeapon','()V')
+    reload_end=('OnHandStateFinished_ReloadEnd','(IIZ)V')
+    reload_replacement=('UpdateHandState','(IZ)V')
+    reload_targets={reload_target,reload_request,reload_public,reload_end,reload_replacement}
+    relocation_pool=parse_constant_pool(Reader(u2(next_index)+data[10:cp_end]+additions))
     method_count = r.u2(); methods = bytearray(u2(method_count+1)); patched = set()
     for _ in range(method_count):
         header = r.read(6); name, desc = pool.utf8(int.from_bytes(header[2:4], "big")), pool.utf8(int.from_bytes(header[4:6], "big"))
         methods.extend(header); count = r.u2(); methods.extend(u2(count))
         for _ in range(count):
             attr_index = r.u2(); attr = r.read(r.u4()); target = targets.get((name, desc))
-            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in (visual_target,attack_target,target_method)):
+            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in {visual_target,attack_target,target_method}|reload_targets):
                 cr = Reader(attr); stack, locals_ = cr.u2(), cr.u2(); code = cr.read(cr.u4())
                 if cr.u2() != 0: raise ValueError("Unexpected shot exception table")
-                if (name,desc)==target_method:
+                if (name,desc)==reload_public:
+                    if len(code)!=98 or code[7]!=0xb1 or code[97]!=0xb1:
+                        raise ValueError('Unexpected exact public reload boundary')
+                    for at in (97,7):
+                        code=insert_target_tag(code,at,pending_clear,relocation_pool,include_target=True)
+                    code=reconcile+code
+                elif (name,desc)==reload_request:
+                    if len(code)!=19 or code[15:18]!=b'\xb6'+u2(find('ArmedPlayerBeing.SetDesiredWeaponState(II)V')):
+                        raise ValueError('Unexpected exact protected reload boundary')
+                    code=insert_target_tag(code,18,consume,pool)
+                    code=insert_target_tag(code,12,admission,relocation_pool)
+                elif (name,desc)==reload_end:
+                    code=cleanup+code
+                elif (name,desc)==reload_replacement:
+                    code=replacement_cleanup+code
+                elif (name,desc)==reload_target:
+                    expected=b'\x2a\x19\x04\xb6'+u2(find('ArmedPlayerBeing.WeaponReload(LWeapon;)Z'))+b'\x36\x07'
+                    if len(code)!=117 or code[26:34]!=expected or code[47:49]!=b'\x36\x08':
+                        raise ValueError('Unexpected exact reload completion boundary')
+                    code=insert_target_tag(code,49,limiter,pool)
+                    code=completion_guard+code
+                elif (name,desc)==target_method:
                     # Tag the local Weapon used by the natural trace, only after
                     # both native LC segment vectors have been committed. Budget
                     # skips preserve the old owner; no trace/update is replayed.
@@ -283,12 +472,12 @@ def patch_class(data: bytes) -> bytes:
                 attr = u2(max(3, stack))+u2(max(5 if target and target[1] else 4, locals_))+u4(len(code))+code+u2(0)+u2(0)
                 patched.add((name, desc))
             methods.extend(u2(attr_index)+u4(len(attr))+attr)
-    if patched != set(targets)|{visual_target,attack_target,target_method}: raise ValueError("Incomplete shot boundary patch")
+    if patched != set(targets)|{visual_target,attack_target,target_method}|reload_targets: raise ValueError("Incomplete shot boundary patch")
     helper=visual_direction_source(refs[2:4],net,native_visual_array)
     attr=u2(2)+u2(3)+u4(len(helper))+helper+u2(0)+u2(0)
     methods.extend(u2(2)+u2(visual_name)+u2(visual_desc)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
     return (data[:8]+u2(next_index)+data[10:cp_end]+additions+
-            data[cp_end:fields_at]+u2(field_count+len(FIELDS)+len(TARGET_OWNER_FIELDS))+data[fields_at+2:fields_end]+
+            data[cp_end:fields_at]+u2(field_count+len(FIELDS)+len(TARGET_OWNER_FIELDS)+len(MANUAL_RELOAD_FIELDS))+data[fields_at+2:fields_end]+
             extra_fields+methods+data[r.stream.tell():])
 
 def patch_fire_class(data: bytes) -> bytes:

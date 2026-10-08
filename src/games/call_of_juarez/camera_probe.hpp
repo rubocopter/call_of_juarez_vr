@@ -166,6 +166,24 @@ struct CameraProbeInteractionRay {
     const cojvr::runtime::Pose& render_head_pose,
     float actor_yaw_compensation_degrees) noexcept;
 
+// Hand pose stays in the shared recentered tracking space. Apply only the
+// render head's collision/height translation delta, never its look orientation.
+[[nodiscard]] CameraProbeInteractionRay BuildTrackedHandInteractionRay(
+    CameraProbeVector camera_position, CameraProbeBasis natural_basis,
+    const cojvr::runtime::Pose& tracked_head, const cojvr::runtime::Pose& render_head,
+    const cojvr::runtime::Pose& left_aim, float actor_yaw_compensation_degrees) noexcept;
+
+// Missing publication/pose/button or owner loss requires a real L1 release.
+// Prevent a held button from falling back to gaze or retargeting after recovery.
+class CoJInteractionActionGate final {
+public:
+    [[nodiscard]] bool Update(bool ray_available,bool button_available,
+        bool raw_held,bool mapped_held) noexcept;
+    void Cancel() noexcept { release_required_=true; }
+private:
+    bool release_required_=true;
+};
+
 enum class CoJWeaponReticleHand { none, right, left };
 
 // Tip tracking alone cannot establish weapon alignment. Select only a published
@@ -218,6 +236,8 @@ using CameraProbeEventCallback = void (*)(
 
 struct CameraStereoFrameSample {
     cojvr::runtime::PoseSample hmd_pose{};
+    // Active native gameplay availability/epoch, independent of texture uploads.
+    std::uint64_t native_gameplay_context_token = 0;
     cojvr::runtime::Pose left_controller{};
     cojvr::runtime::Pose right_controller{};
     cojvr::runtime::Pose left_aim{};
@@ -227,6 +247,7 @@ struct CameraStereoFrameSample {
     cojvr::runtime::GameplayInputState gameplay{};
     std::array<cojvr::runtime::EyeView, 2> eyes{};
     bool recenter_requested = false;
+    bool objectives_requested = false;
     bool ui_select_left = false;
     bool ui_select_right = false;
     bool ui_select_left_pressed = false;
@@ -276,6 +297,9 @@ struct CameraStereoDiagnosticCounters {
     CoJUiDispatchRoute* route = nullptr) noexcept;
 [[nodiscard]] bool ObserveCameraGameTimerFrozen(
     bool& frozen,
+    std::string* error = nullptr) noexcept;
+[[nodiscard]] bool ObserveCameraGamePresentationBlocked(
+    bool& blocked,
     std::string* error = nullptr) noexcept;
 
 [[nodiscard]] const char* CoJSubtitleDiagnosticStateName(

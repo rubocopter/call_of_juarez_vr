@@ -75,6 +75,7 @@ bool CaptureAndCollect(
     cojvr::backends::d3d9::StereoCpuFrame& frame) {
     cojvr::runtime::StereoHudTextOverlay hud{};
     hud.frame_sequence = frame_sequence;
+    hud.feedback_context_token = frame_sequence * 2 + 1;
     if (frame_sequence % 2) {
         hud.ui.wheel.valid=hud.ui.wheel.active=true;
         hud.ui.wheel.available_mask=5;
@@ -172,6 +173,7 @@ int main() {
         return 1;
     }
     if (frame.capture_sequence != 1 || frame.generation != 1 ||
+        frame.hud_text.feedback_context_token != 3 ||
         frame.hud_text.frame_sequence != 1 || frame.hud_text.text.hint.view() != u"VR!" ||
         frame.hud_text.eyes[0].eye_to_head.position.x >= 0 ||
         frame.hud_text.eyes[1].eye_to_head.position.x <= 0 ||
@@ -255,6 +257,7 @@ int main() {
     if (!CaptureAndCollect(capture, device.Get(), back_buffer.Get(), 3, 2, frame) ||
         frame.eyes[0].width != 83 || frame.eyes[0].height != 41 ||
         frame.generation != 2 || frame.hud_text.frame_sequence != 3 ||
+        frame.hud_text.feedback_context_token != 7 ||
         frame.hud_text.text.hint.view() != u"VR!") {
         std::cerr << capture.last_error() << '\n';
         return Fail("capture did not recover on the post-Reset generation");

@@ -10,6 +10,7 @@
 #include "runtime/hmd_frame_pacing.hpp"
 #include "runtime/ui_pointer_ownership.hpp"
 #include "runtime/openvr_runtime.hpp"
+#include "runtime/gameplay_utility.hpp"
 #include "runtime/vr_math.hpp"
 
 #include <d3d11.h>
@@ -105,6 +106,7 @@ const std::uint8_t* CpuEyeData(const d3d9::CpuEyeFrame& eye) noexcept {
 
 struct OpenVrStereoPresenter::Impl {
     d3d9::FrameMailbox mailbox;
+    runtime::GameplayUiFeedbackContextMailbox feedback_context;
     std::thread worker;
     std::atomic_bool stop_requested{false};
     std::atomic_bool running{false};
@@ -135,6 +137,8 @@ struct OpenVrStereoPresenter::Impl {
     bool gameplay_context_active = false;
     std::uint64_t pose_sequence = 0;
     bool recenter_pending = false;
+    runtime::AuxiliaryObjectivesPending objectives_pending{};
+    runtime::AuxiliaryButtonGesture create_gesture{};
     bool latest_ui_select_left = false;
     bool latest_ui_select_right = false;
     bool ui_select_left_pressed_pending = false;
@@ -730,6 +734,7 @@ struct OpenVrStereoPresenter::Impl {
         FlatUiPointerSample flat_ui_pointer{};
         runtime::UiPointerOwnership pointer_ownership;
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
+        runtime::EquipmentWheelHaptics wheel_haptics;
         std::uint64_t input_sample_sequence = 0;
         std::uint64_t last_input_log_sequence = 0;
         std::uint32_t last_raw_pressed = 0;
@@ -942,8 +947,12 @@ struct OpenVrStereoPresenter::Impl {
                     break;
                 }
                 if (stop_requested.load(std::memory_order_acquire)) break;
+                bool wheel_haptic_context = false;
+                bool wheel_haptic_deflected = false;
                 if (pose_ok) {
                     bool recenter = false;
+                    bool objectives = false;
+                    bool auxiliary_available = false;
                     runtime::OpenVrGlobalActions actions{};
                     runtime::GameplayInputState gameplay{};
                     runtime::GameplayInputState polled_gameplay{};
@@ -952,17 +961,25 @@ struct OpenVrStereoPresenter::Impl {
                     if (input_ready.load(std::memory_order_acquire)) {
                         if (runtime.PollActions(actions, polled_gameplay, hand_poses)) {
                             input_polled = true;
-                            recenter = actions.recenter_requested;
+                            const bool native_gameplay_active =
+                                have_active_presentation_mode &&
+                                active_presentation_mode ==
+                                    d3d9::FramePresentationMode::native_stereo;
+                            auxiliary_available = actions.recenter_active && runtime_state.focused &&
+                                !dashboard_visible && tracked_poses.hmd.orientation_valid &&
+                                tracked_poses.hmd.position_valid;
+                            const auto auxiliary=create_gesture.Update(
+                                auxiliary_available,
+                                actions.recenter_held, GetTickCount64(),
+                                native_gameplay_active && !polled_gameplay.weapon_radial);
+                            recenter = auxiliary.recenter;
+                            objectives = auxiliary.objectives;
                             if (recenter && tracked_poses.hmd.orientation_valid &&
                                 tracked_poses.hmd.position_valid) {
                                 flat_theater_anchor_pose = tracked_poses.hmd;
                                 flat_theater_anchor_valid = true;
                                 Log("native_stereo_flat_theater: status=recentered source=global_action");
                             }
-                            const bool native_gameplay_active =
-                                have_active_presentation_mode &&
-                                active_presentation_mode ==
-                                    d3d9::FramePresentationMode::native_stereo;
                             const auto shoulder_gameplay = pointer_gameplay_gate.Filter(
                                 have_active_presentation_mode && !native_gameplay_active, polled_gameplay);
                             if (!dashboard_visible && runtime_state.focused &&
@@ -978,7 +995,7 @@ struct OpenVrStereoPresenter::Impl {
                                     }
                                 }
                             }
-                            // Retain pre-policy availability/chords and the
+                            // Retain pre-policy availability/buttons and the
                             // shoulder result separately. Analog jitter does
                             // not trigger logging; the heartbeat still records
                             // both sticks at least once per 90 successful polls.
@@ -1002,8 +1019,8 @@ struct OpenVrStereoPresenter::Impl {
                                 }
                             }
                             const std::uint32_t input_flags =
-                                (polled_gameplay.utility_modifier ? 1U : 0U) |
-                                (polled_gameplay.utility_available ? 1U << 1 : 0U) |
+                                (polled_gameplay.weapon_radial ? 1U : 0U) |
+                                (polled_gameplay.radial_available ? 1U << 1 : 0U) |
                                 (polled_gameplay.move_available ? 1U << 2 : 0U) |
                                 (polled_gameplay.turn_available ? 1U << 3 : 0U) |
                                 (actions.ui_pointer_left_active ? 1U << 4 : 0U) |
@@ -1028,8 +1045,8 @@ struct OpenVrStereoPresenter::Impl {
                                        << ";raw_available_mask=0x" << std::hex << polled_gameplay.digital_available
                                        << ";raw_pressed_mask=0x" << raw_pressed
                                        << ";forwarded_available_mask=0x" << gameplay.digital_available << std::dec
-                                       << ";utility_modifier=" << polled_gameplay.utility_modifier
-                                       << ";utility_available=" << polled_gameplay.utility_available
+                                       << ";weapon_radial=" << polled_gameplay.weapon_radial
+                                       << ";radial_available=" << polled_gameplay.radial_available
                                        << ";move_available=" << polled_gameplay.move_available
                                        << ";turn_available=" << polled_gameplay.turn_available
                                        << ";move=" << polled_gameplay.move.x << ',' << polled_gameplay.move.y
@@ -1064,11 +1081,17 @@ struct OpenVrStereoPresenter::Impl {
                             }
                         }
                     }
+                    // Keep pose/render fallback independent from gameplay ownership.
+                    if (!tracked_poses.hmd.orientation_valid || !tracked_poses.hmd.position_valid)
+                        gameplay = {};
                     if (gameplay.active != gameplay_context_active) {
                         ++gameplay_context_generation;
                         gameplay_context_active = gameplay.active;
                     }
                     gameplay.input_context_generation = gameplay_context_generation;
+                    gameplay.objectives_event_available = auxiliary_available;
+                    if (!input_polled)
+                        (void)create_gesture.Update(false,false,GetTickCount64());
                     const bool left_handgrip_valid = input_polled &&
                         hand_poses.left_grip_active &&
                         hand_poses.left_grip.position_valid &&
@@ -1077,6 +1100,24 @@ struct OpenVrStereoPresenter::Impl {
                         hand_poses.right_grip_active &&
                         hand_poses.right_grip.position_valid &&
                         hand_poses.right_grip.orientation_valid;
+                    // Current raw held Triangle and finite right-stick input
+                    // gate captured wheel metadata; a delayed wheel cannot buzz
+                    // after release. The captured highlight remains authoritative.
+                    wheel_haptic_context = right_handgrip_valid &&
+                        runtime::WheelHapticInputAvailable(polled_gameplay,
+                            gameplay.active, input_polled, runtime_state.focused,
+                            dashboard_visible, tracked_poses.hmd, hand_poses.right_grip) &&
+                        !actions.pause && !actions.ui_back && !actions.ui_accept && !recenter && !objectives;
+                    if (wheel_haptic_context) {
+                        runtime::OpenVrPresentationState current{};
+                        wheel_haptic_context = runtime.ReadPresentationState(current) &&
+                            current.can_render_scene && current.scene_focus_process_id == current.process_id &&
+                            current.input_available && !current.dashboard_visible && !current.should_pause;
+                        // The mapper clears selection at <= .55. Suppress output
+                        // immediately if raw input has already returned to center;
+                        // do not derive a sector or selection from that stick.
+                        wheel_haptic_deflected = std::hypot(polled_gameplay.turn.x, polled_gameplay.turn.y) > .55F;
+                    }
                     const bool left_aim_valid = input_polled &&
                         hand_poses.left_aim_active &&
                         hand_poses.left_aim.position_valid &&
@@ -1241,6 +1282,8 @@ struct OpenVrStereoPresenter::Impl {
                         latest_left_aim_active = left_aim_valid;
                         latest_right_aim_active = right_aim_valid;
                         latest_gameplay = gameplay;
+                        objectives_pending.Observe(auxiliary_available,
+                            gameplay.active && !gameplay.weapon_radial, objectives);
                         // Finger samples are gameplay presentation values. A
                         // failed poll or focus/menu/tracking loss must discard
                         // them, even if the skeletal source remains active.
@@ -1280,11 +1323,13 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     ++pose_updates;
                 } else {
+                    (void)create_gesture.Update(false,false,GetTickCount64());
                     pointer_ownership.Suspend();
                     flat_ui_pointer = {};
                     PublishFlatUiPointer(flat_ui_pointer);
                     std::lock_guard lock(tracking_mutex);
                     latest_gameplay = {};
+                    objectives_pending.Observe(false,false,false);
                     latest_left_fingers = {};
                     latest_right_fingers = {};
                     if (gameplay_context_active) ++gameplay_context_generation;
@@ -1297,6 +1342,10 @@ struct OpenVrStereoPresenter::Impl {
                     pause_pressed_pending = false;
                 }
 
+                wheel_haptics.UpdateNativeContext(feedback_context.Snapshot(),
+                    std::chrono::steady_clock::now());
+                wheel_haptics.UpdateContext(wheel_haptic_context, gameplay_context_generation,
+                    std::chrono::steady_clock::now());
                 d3d9::StereoCpuFrame frame{};
                 const bool have_new_frame = mailbox.WaitConsumeLatest(
                     frame, cadence.scene_submission_allowed(dashboard_visible) ? 0U : 2U);
@@ -1355,6 +1404,45 @@ struct OpenVrStereoPresenter::Impl {
                         const auto shared_stats_after = shared_bridge.stats();
                         log_retired_leases(shared_stats_after.copy_fences_completed);
                         if (uploaded) {
+                            // Feedback observes only fresh accepted captures;
+                            // compositor repeats, rejected uploads and stale
+                            // metadata never produce events. Resource replacement
+                            // and context reacquisition establish silent baselines.
+                            if (frame.presentation_mode == d3d9::FramePresentationMode::native_stereo &&
+                                frame.hud_text.frame_sequence == frame.capture_sequence &&
+                                frame.render_pose_sequence != 0 &&
+                                frame.render_hmd_pose.orientation_valid && frame.render_hmd_pose.position_valid) {
+                                // Upload may span a native loss/reacquire edge.
+                                wheel_haptics.UpdateNativeContext(feedback_context.Snapshot(),
+                                    std::chrono::steady_clock::now());
+                                const auto pulse = wheel_haptics.Observe(frame.hud_text.ui.wheel,
+                                    frame.capture_sequence, frame.generation, frame.device_id,
+                                    frame.capture_time, std::chrono::steady_clock::now(),
+                                    frame.hud_text.feedback_context_token);
+                                if (pulse && wheel_haptic_deflected) {
+                                    const bool delivered = feedback_context.Matches(frame.hud_text.feedback_context_token) &&
+                                        runtime.SubmitUiHapticPulse(*pulse);
+                                    // No delivery failure is retained for retry;
+                                    // context failures also require a fresh baseline.
+                                    if (!delivered) wheel_haptics.UpdateContext(false,
+                                        gameplay_context_generation, std::chrono::steady_clock::now());
+                                    runtime::OptionalUiHapticDiagnostic([&] {
+                                    std::ostringstream feedback;
+                                    feedback << "openvr_ui_haptic: event=wheel_highlight;hand=right"
+                                             << ";status=" << (delivered ? "submitted" : "dropped")
+                                             << ";frame_sequence=" << frame.capture_sequence
+                                             << ";device_id=" << frame.device_id
+                                             << ";generation=" << frame.generation
+                                             << ";context_generation=" << gameplay_context_generation
+                                             << ";sector=" << frame.hud_text.ui.wheel.selected
+                                             << ";duration_seconds=" << pulse->duration_seconds
+                                             << ";frequency_hz=" << pulse->frequency_hz
+                                             << ";amplitude=" << pulse->amplitude;
+                                    Log(feedback.str());
+                                    });
+                                }
+                            } else wheel_haptics.UpdateContext(false, gameplay_context_generation,
+                                std::chrono::steady_clock::now());
                             if (shared_frame) {
                                 const LeaseTelemetry lease{
                                     .device_id = frame.device_id,
@@ -1498,6 +1586,8 @@ struct OpenVrStereoPresenter::Impl {
                                 Log(line.str());
                             }
                         } else {
+                            wheel_haptics.UpdateContext(false, gameplay_context_generation,
+                                std::chrono::steady_clock::now());
                             ++rejected_frames;
                             Log("native_stereo_presenter_frame: status=rejected frame_sequence=" +
                                 std::to_string(frame.capture_sequence) + ";error=" + ErrorCopy());
@@ -1682,6 +1772,14 @@ struct OpenVrStereoPresenter::Impl {
 OpenVrStereoPresenter::OpenVrStereoPresenter() : impl_(std::make_unique<Impl>()) {}
 OpenVrStereoPresenter::~OpenVrStereoPresenter() { Stop(); }
 
+void OpenVrStereoPresenter::PublishGameplayFeedbackContext(bool available) noexcept {
+    impl_->feedback_context.Publish(available);
+}
+
+std::uint64_t OpenVrStereoPresenter::GameplayFeedbackContextToken() const noexcept {
+    return impl_->feedback_context.Snapshot();
+}
+
 bool OpenVrStereoPresenter::Start(
     std::string action_manifest_path,
     const PresenterLogCallback log_callback,
@@ -1728,6 +1826,8 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_ui_actions_allowed = false;
             impl_->pose_sequence = 0;
             impl_->recenter_pending = false;
+            impl_->objectives_pending = {};
+            impl_->create_gesture = {};
             impl_->ui_select_left_pressed_pending = false;
             impl_->ui_select_right_pressed_pending = false;
             impl_->ui_accept_pressed_pending = false;
@@ -1774,6 +1874,9 @@ bool OpenVrStereoPresenter::Start(
 
 void OpenVrStereoPresenter::Stop() noexcept {
     if (!impl_) return;
+    // Start also calls Stop: invalidate the epoch even if already unavailable.
+    // Never reset to zero and accidentally reuse a previous capture token.
+    impl_->feedback_context.Reset();
     impl_->stop_requested.store(true, std::memory_order_release);
     impl_->mailbox.Stop();
     try {
@@ -1817,6 +1920,7 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.right_fingers = impl_->latest_right_fingers;
         sample.sequence = impl_->pose_sequence;
         sample.recenter_requested = impl_->recenter_pending;
+        sample.objectives_requested = impl_->objectives_pending.Consume();
         sample.ui_select_left = impl_->latest_ui_select_left;
         sample.ui_select_right = impl_->latest_ui_select_right;
         sample.ui_select_left_pressed = impl_->ui_select_left_pressed_pending;

@@ -78,13 +78,18 @@ struct GameplayInputState {
     bool lean_right = false;
     // Logical equipment channels; each game adapter defines their inventory meaning.
     std::array<bool, 6> equipment_select{};
-    bool utility_modifier = false;
+    bool weapon_radial = false;
+    // UI highlight is metadata, never a held equipment action.
+    int radial_highlight = -1;
+    bool radial_confirmed = false;
     // Availability is distinct from an observed release. Mask order is
     // kGameplayDigitalMembers followed by the six equipment channels.
     std::uint32_t digital_available = 0xFFFFFFFFU;
     bool move_available = true;
     bool turn_available = true;
-    bool utility_available = true;
+    bool radial_available = true;
+    // Availability of the global gesture source behind generated Objectives.
+    bool objectives_event_available = true;
     std::uint64_t input_context_generation = 0;
     bool active = false;
 };

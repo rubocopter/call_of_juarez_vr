@@ -1,5 +1,6 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "games/call_of_juarez/hud_text_reader.hpp"
+#include "games/call_of_juarez/presentation_owner.hpp"
 
 #include <windows.h>
 
@@ -8,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <type_traits>
 
 namespace cojvr::games::call_of_juarez {
@@ -357,32 +359,138 @@ bool UseDirectAnalogCoJLocomotion(const int action) noexcept {
 
 bool ShouldDispatchCoJGameplayAction(const CoJInputDispatchPhase phase, const int action) noexcept {
     const bool fire=action==9 || action==10;
-    return phase==CoJInputDispatchPhase::all ||
-        (phase==CoJInputDispatchPhase::fire ? fire : !fire);
+    const bool shoulder=action==18 || action==39;
+    switch (phase) {
+    case CoJInputDispatchPhase::all: return true;
+    case CoJInputDispatchPhase::fire: return fire;
+    case CoJInputDispatchPhase::non_fire: return !fire;
+    case CoJInputDispatchPhase::pre_shoulder: return !fire && !shoulder;
+    case CoJInputDispatchPhase::shoulder: return shoulder;
+    }
+    return false;
 }
 
 cojvr::runtime::GameplayInputState MergeCoJGameplayInputPhase(
     const cojvr::runtime::GameplayInputState& previous,
     const cojvr::runtime::GameplayInputState& current, const CoJInputDispatchPhase phase) noexcept {
-    auto result=current.active ? current : cojvr::runtime::GameplayInputState{};
-    if (phase==CoJInputDispatchPhase::non_fire) {
-        result.fire_left=previous.fire_left;
-        result.fire_right=previous.fire_right;
-        result.active=current.active || previous.active;
-    } else if (phase==CoJInputDispatchPhase::fire) {
-        const bool left=result.fire_left,right=result.fire_right;
-        result=previous;
-        result.fire_left=left;result.fire_right=right;result.active=current.active;
-        // Non-fire release failure leaves its last applied values intact.
-        // Releasing fire cannot surrender ownership of those native actions.
-        for (const auto& value : BuildCoJGameplayActionValues(previous)) {
-            if (ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase::non_fire,value.action) && value.value!=0.0F) {
-                result.active=true;
-                break;
-            }
+    auto result=current.active ? current : runtime::GameplayInputState{};
+    if (phase==CoJInputDispatchPhase::non_fire || phase==CoJInputDispatchPhase::pre_shoulder) {
+        result.fire_left=previous.fire_left; result.fire_right=previous.fire_right;
+        if (phase==CoJInputDispatchPhase::pre_shoulder) {
+            result.run=previous.run; result.kick=previous.kick;
+        }
+    } else if (phase==CoJInputDispatchPhase::fire || phase==CoJInputDispatchPhase::shoulder) {
+        const auto selected=result; result=previous;
+        if (phase==CoJInputDispatchPhase::fire) {
+            result.fire_left=selected.fire_left; result.fire_right=selected.fire_right;
+        } else { result.run=selected.run; result.kick=selected.kick; }
+    }
+    result.active=current.active;
+    // Preserve ownership of held values outside a partial release phase.
+    for (const auto& value : BuildCoJGameplayActionValues(previous)) {
+        if (!ShouldDispatchCoJGameplayAction(phase,value.action) && value.value!=0.0F) {
+            result.active=true; break;
         }
     }
     return result;
+}
+
+bool CoJGameplayOwnerState::Update(const bool available, const bool mounted,
+    const std::uint64_t generation) noexcept {
+    if (!available || generation==0) {
+        const bool changed=known_; known_=false; generation_=0; return changed;
+    }
+    const bool changed=!known_ || mounted_!=mounted || generation_!=generation;
+    known_=true; mounted_=mounted; generation_=generation; return changed;
+}
+
+void CoJGameplayCommandQueue::CaptureAndMerge(runtime::GameplayInputState& input) noexcept {
+    if (context_generation_!=input.input_context_generation) {
+        pending_={}; objectives_pressed_=false; context_generation_=input.input_context_generation;
+    }
+    if (!input.active || input.weapon_radial) { pending_={}; objectives_pressed_=false; return; }
+    if (!input.radial_available) {
+        pending_.equipment_select={}; pending_.hands=pending_.discard_weapon=false;
+        pending_.radial_confirmed=false; pending_.radial_highlight=-1;
+    }
+    if (input.radial_available && input.radial_confirmed) {
+        pending_.radial_confirmed=true; pending_.radial_highlight=input.radial_highlight;
+        for (std::size_t i=0;i<input.equipment_select.size();++i)
+            pending_.equipment_select[i]|=input.equipment_select[i];
+        pending_.hands|=input.hands; pending_.discard_weapon|=input.discard_weapon;
+    }
+    if (!input.objectives_event_available) pending_.objectives=false;
+    pending_.objectives|=input.objectives_event_available && input.objectives && !objectives_pressed_;
+    objectives_pressed_=input.objectives;
+    for (std::size_t i=0;i<input.equipment_select.size();++i)
+        input.equipment_select[i]|=pending_.equipment_select[i];
+    input.hands|=pending_.hands; input.discard_weapon|=pending_.discard_weapon;
+    input.objectives|=pending_.objectives;
+    if (pending_.radial_confirmed) {
+        input.radial_confirmed=true; input.radial_highlight=pending_.radial_highlight;
+    }
+}
+
+void CoJGameplayCommandQueue::CaptureShoulder(runtime::GameplayInputState& input) noexcept {
+    if (!input.active || input.weapon_radial || (input.digital_available & (1U<<9))==0) {
+        pending_.kick=false; return;
+    }
+    pending_.kick|=input.kick; input.kick|=pending_.kick;
+}
+
+void CoJGameplayCommandQueue::PrepareDispatch(runtime::GameplayInputState& input,
+    const runtime::GameplayInputState& applied, const bool shoulder_phase) noexcept {
+    // A prior pulse may still be held after a failed release. Deliver neutral
+    // first, then the queued new pulse; old held history is not its acknowledgement.
+    if (shoulder_phase) {
+        releasing_.kick=pending_.kick && input.kick && applied.kick;
+        if (releasing_.kick) input.kick=false;
+        return;
+    }
+    for (std::size_t i=0;i<input.equipment_select.size();++i) {
+        releasing_.equipment_select[i]=pending_.equipment_select[i] &&
+            input.equipment_select[i] && applied.equipment_select[i];
+        if (releasing_.equipment_select[i]) input.equipment_select[i]=false;
+    }
+    releasing_.hands=pending_.hands && input.hands && applied.hands;
+    releasing_.discard_weapon=pending_.discard_weapon && input.discard_weapon && applied.discard_weapon;
+    releasing_.objectives=pending_.objectives && input.objectives && applied.objectives;
+    if (releasing_.hands) input.hands=false;
+    if (releasing_.discard_weapon) input.discard_weapon=false;
+    if (releasing_.objectives) input.objectives=false;
+}
+
+void CoJGameplayCommandQueue::Acknowledge(const runtime::GameplayInputState& attempted,
+    const runtime::GameplayInputState& delivered, const bool shoulder_phase) noexcept {
+    if (!attempted.active || attempted.weapon_radial) { pending_={}; return; }
+    if (shoulder_phase) {
+        if (!releasing_.kick && (!attempted.kick || delivered.kick)) pending_.kick=false;
+        return;
+    }
+    for (std::size_t i=0;i<attempted.equipment_select.size();++i)
+        if (!releasing_.equipment_select[i] && (!attempted.equipment_select[i] || delivered.equipment_select[i]))
+            pending_.equipment_select[i]=false;
+    if (!releasing_.hands && (!attempted.hands || delivered.hands)) pending_.hands=false;
+    if (!releasing_.discard_weapon && (!attempted.discard_weapon || delivered.discard_weapon)) pending_.discard_weapon=false;
+    if (!releasing_.objectives && (!attempted.objectives || delivered.objectives)) pending_.objectives=false;
+    bool equipment=pending_.hands || pending_.discard_weapon;
+    for (const auto held:pending_.equipment_select) equipment|=held;
+    if (!equipment) { pending_.radial_confirmed=false; pending_.radial_highlight=-1; }
+}
+
+runtime::GameplayInputState JavaPlayerBridge::AppliedGameplayCommands() const noexcept {
+    const auto values=BuildCoJGameplayActionValues({});
+    const auto pressed=[&](const int id) noexcept {
+        for (std::size_t i=0;i<values.size();++i)
+            if (values[i].action==id) return last_gameplay_action_values_[i]>.35F;
+        return false;
+    };
+    runtime::GameplayInputState result{};
+    constexpr int ids[]{23,22,21,24,25,26};
+    for (std::size_t i=0;i<result.equipment_select.size();++i) result.equipment_select[i]=pressed(ids[i]);
+    result.hands=pressed(29); result.discard_weapon=pressed(27);
+    result.reload=pressed(31);
+    result.objectives=pressed(32); result.kick=pressed(39); return result;
 }
 
 CoJGameplayTargetSelection BuildCoJGameplayTargetSelection(
@@ -492,6 +600,7 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 }
 
 void JavaPlayerBridge::Reset() noexcept {
+    if (single_round_reload_pending_ && !ClearSingleRoundReload()) return;
     // A pending failed transaction still owns JNI references and restore data.
     // Do not erase its bindings even if the JVM cannot be reached right now.
     if (!RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
@@ -631,6 +740,7 @@ void JavaPlayerBridge::Reset() noexcept {
     independent_arms_were_hidden_ = false;
     independent_hand_faulted_ = false;
     last_gameplay_input_ = {};
+    last_gameplay_action_values_ = {};
     gameplay_input_applied_ = false;
     snap_turn_state_ = {};
     last_snap_turn_degrees_ = 0.0F;
@@ -792,20 +902,24 @@ bool JavaPlayerBridge::EnsureCampaignAccess(void* env, std::string* error) noexc
     }
 
     void* local_game_class = find_class(env, "LawmanGame");
-    if (!local_game_class || ClearException(env, error, "FindClass(LawmanGame) failed")) {
+    if (ClearException(env, error, "FindClass(LawmanGame) failed") || !local_game_class) {
         DeleteLocal(env, local_game_class);
         return false;
     }
     void* global_game_class = new_global(env, local_game_class);
     DeleteLocal(env, local_game_class);
-    if (!global_game_class || ClearException(env, error, "NewGlobalRef(LawmanGame) failed")) {
+    if (ClearException(env, error, "NewGlobalRef(LawmanGame) failed") || !global_game_class) {
+        if (global_game_class) {
+            if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef))
+                delete_global(env, global_game_class);
+        }
         return false;
     }
 
     void* active_module_field = get_static_field(
         env, global_game_class, "sm_cActiveGameModule", "LLawmanModule;");
-    if (!active_module_field ||
-        ClearException(env, error, "LawmanGame.sm_cActiveGameModule lookup failed")) {
+    if (ClearException(env, error, "LawmanGame.sm_cActiveGameModule lookup failed") ||
+        !active_module_field) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
             delete_global(env, global_game_class);
         }
@@ -813,8 +927,8 @@ bool JavaPlayerBridge::EnsureCampaignAccess(void* env, std::string* error) noexc
     }
 
     void* local_single_class = find_class(env, "LawmanModuleSingle");
-    if (!local_single_class ||
-        ClearException(env, error, "FindClass(LawmanModuleSingle) failed")) {
+    if (ClearException(env, error, "FindClass(LawmanModuleSingle) failed") ||
+        !local_single_class) {
         DeleteLocal(env, local_single_class);
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
             delete_global(env, global_game_class);
@@ -823,9 +937,10 @@ bool JavaPlayerBridge::EnsureCampaignAccess(void* env, std::string* error) noexc
     }
     void* global_single_class = new_global(env, local_single_class);
     DeleteLocal(env, local_single_class);
-    if (!global_single_class ||
-        ClearException(env, error, "NewGlobalRef(LawmanModuleSingle) failed")) {
+    if (ClearException(env, error, "NewGlobalRef(LawmanModuleSingle) failed") ||
+        !global_single_class) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
+            if(global_single_class)delete_global(env,global_single_class);
             delete_global(env, global_game_class);
         }
         return false;
@@ -1095,6 +1210,25 @@ bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
     return true;
 }
 
+bool JavaPlayerBridge::TryGetActiveGamePresentationBlocked(
+    bool& blocked,std::string* error) noexcept {
+    blocked=true;
+    void* env=Environment(error);
+    if(!env || !EnsureCampaignAccess(env,error))return false;
+    const auto get_static=EnvFunction<GetStaticObjectFieldFn>(env,kGetStaticObjectField);
+    const auto is_instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    if(!get_static || !is_instance)return false;
+    void* module=get_static(env,lawman_game_class_,active_game_module_field_);
+    if(ClearException(env,error,"blocking presentation module read failed") || !module){DeleteLocal(env,module);return false;}
+    const bool owned=is_instance(env,module,lawman_module_single_class_)!=0;
+    if(ClearException(env,error,"blocking presentation module type failed") || !owned){DeleteLocal(env,module);return false;}
+    CoJPresentationOwner state{};
+    const bool observed=ReadCoJPresentationOwner(env,module,state);
+    DeleteLocal(env,module);
+    if(!observed){SetError(error,"native blocking presentation observation unavailable");return false;}
+    blocked=state.blocked();return true;
+}
+
 bool JavaPlayerBridge::TryObserveHudText(runtime::HudTextSnapshot& text) noexcept {
     text = {};
     if (!being_) {
@@ -1117,6 +1251,238 @@ bool JavaPlayerBridge::TryObserveHudText(runtime::HudTextSnapshot& text) noexcep
 
 bool JavaPlayerBridge::TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept {
     ui={};return being_&&ReadCoJNoShoot(Environment(nullptr),being_,hand,ui);
+}
+
+bool JavaPlayerBridge::TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept {
+    zoom={};return being_&&ReadCoJFocusZoom(Environment(nullptr),being_,zoom);
+}
+
+bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
+    CoJMotionReloadDiagnostic* diagnostic) noexcept {
+    owner={};
+    if (diagnostic) *diagnostic = {};
+    if (!being_) {
+        if (diagnostic) diagnostic->reason = CoJMotionReloadRejectReason::invalid_context;
+        return false;
+    }
+    return ReadCoJMotionReloadOwner(Environment(nullptr),being_,owner,diagnostic);
+}
+
+bool JavaPlayerBridge::TryObserveNativeReloadRecoveryOwner(CoJMotionReloadOwner& owner,
+    CoJMotionReloadDiagnostic* diagnostic) noexcept {
+    owner={};
+    if(diagnostic)*diagnostic={};
+    if(!being_)return false;
+    const auto player=being_;
+    const auto generation=being_generation_;
+    const bool observed=ReadCoJNativeReloadRecoveryOwner(Environment(nullptr),player,owner,diagnostic);
+    if(player!=being_ || generation!=being_generation_) {
+        owner={};
+        if(diagnostic){*diagnostic={};diagnostic->reason=CoJMotionReloadRejectReason::invalid_context;}
+        return false;
+    }
+    return observed;
+}
+
+bool JavaPlayerBridge::TryObserveInteractionSelection(CoJInteractionSelection& selection) noexcept {
+    selection={};
+    if(!being_)return false;
+    const auto player=being_;
+    const auto generation=being_generation_;
+    const bool observed=ReadCoJInteractionSelection(Environment(nullptr),player,selection);
+    if(player!=being_ || generation!=being_generation_){selection={};return false;}
+    return observed;
+}
+
+bool JavaPlayerBridge::TryObserveMotionReloadWeaponClassName(int hand,
+    const char*& class_name) noexcept {
+    class_name = nullptr;
+    return being_ && ReadCoJMotionReloadWeaponClassName(
+        Environment(nullptr), being_, hand, class_name);
+}
+
+bool JavaPlayerBridge::ClearSingleRoundReloadField(void* env, std::string* error) noexcept {
+    if (!being_) {
+        SetError(error, "pending reload owner unavailable for cancellation");
+        return false;
+    }
+    constexpr std::size_t required[]{kGetObjectClass, kGetFieldId, kSetObjectField,
+        kDeleteLocalRef, kExceptionOccurred, kExceptionClear};
+    for (auto slot : required) if (!EnvFunction<void*>(env, slot)) {
+        SetError(error, "pending reload ticket JNI functions unavailable");
+        return false;
+    }
+    if (ClearException(env, error, "pending reload ticket clear entry")) return false;
+    void* cls = EnvFunction<GetObjectClassFn>(env, kGetObjectClass)(env, being_);
+    bool failed = ClearException(env, error, "pending reload player class lookup") || !cls;
+    void* field = nullptr;
+    if (!failed) {
+        field = EnvFunction<GetFieldIdFn>(env, kGetFieldId)(
+            env, cls, "cojvrManualReloadWeapon", "LWeapon;");
+        failed = ClearException(env, error, "pending reload field unavailable") || !field;
+    }
+    DeleteLocal(env, cls);
+    if (failed) {
+        SetError(error, "pending reload field unavailable; no ticket action");
+        return false;
+    }
+    EnvFunction<SetObjectFieldFn>(env, kSetObjectField)(env, being_, field, nullptr);
+    if (ClearException(env, error, "pending reload ticket clear failed")) return false;
+    single_round_reload_pending_ = false;
+    SetError(error, "");
+    return true;
+}
+
+bool JavaPlayerBridge::ClearSingleRoundReload(std::string* error) noexcept {
+    // Per-frame cancellation must not attach to the VM or look up optional
+    // patch fields unless this bridge owns a publication (even a failed one).
+    if (!single_round_reload_pending_) { SetError(error, ""); return true; }
+    if (!being_) {
+        SetError(error, "pending reload owner unavailable for cancellation");
+        return false;
+    }
+    return ClearSingleRoundReloadField(Environment(error), error);
+}
+
+bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
+    std::string* error) noexcept {
+    // Never touch the native-owned cojvrSingleRoundWeapon. The pending field
+    // is consumed by accepted ReloadWeapon(I); the parent clears pending after
+    // immediate action31 dispatch (including failure), Square or cancellation.
+    if (single_round_reload_pending_ && !ClearSingleRoundReload(error)) return false;
+    if (!being_ || !owner.valid || !owner.single_round_supported ||
+        owner.armed_hand < 0 || owner.armed_hand > 1 ||
+        owner.weapon_id == 0) {
+        SetError(error, "invalid pending reload owner"); return false;
+    }
+    void* env = Environment(error);
+    constexpr std::size_t required[]{kFindClass, kGetObjectClass, kGetMethodId,
+        kCallObjectMethodA, kCallIntMethodA, kIsSameObject, kGetFieldId,
+        kSetObjectField, kDeleteLocalRef, kExceptionOccurred, kExceptionClear};
+    for (auto slot : required) if (!EnvFunction<void*>(env, slot)) {
+        SetError(error, "pending reload ticket JNI functions unavailable"); return false;
+    }
+    CoJMotionReloadOwner fresh{};
+    if (!ReadCoJMotionReloadOwner(env, being_, fresh) || !fresh.valid || !fresh.single_round_supported ||
+        fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
+        SetError(error, "pending reload owner changed or ineligible"); return false;
+    }
+    struct Locals {
+        void* env;
+        std::array<void*, 8> refs{};
+        std::size_t count = 0;
+        void* Keep(void* ref) noexcept { if (ref) refs[count++] = ref; return ref; }
+        ~Locals() { while (count) DeleteLocal(env, refs[--count]); }
+    } locals{env};
+    const auto clean = [&]() noexcept {
+        return !ClearException(env, error, "pending reload ticket JNI operation failed");
+    };
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
+    const auto same = EnvFunction<IsSameObjectFn>(env, kIsSameObject);
+    void* cls = locals.Keep(get_class(env, being_));
+    if (!clean() || !cls) return false;
+    void* field = EnvFunction<GetFieldIdFn>(env, kGetFieldId)(
+        env, cls, "cojvrManualReloadWeapon", "LWeapon;");
+    if (!clean() || !field) { SetError(error, "pending reload field unavailable; no ticket action"); return false; }
+    JValue hand{}; hand.i = owner.armed_hand;
+    std::array<void*, 3> weapons{};
+    constexpr const char* getters[]{"GetActualWeaponNotEmpty", "GetActiveWeapon", "GetDesiredWeapon"};
+    for (std::size_t i = 0; i < weapons.size(); ++i) {
+        void* method = get_method(env, cls, getters[i], "(I)LWeapon;");
+        if (!clean() || !method) return false;
+        weapons[i] = locals.Keep(call_object(env, being_, method, &hand));
+        if (!clean() || !weapons[i]) return false;
+    }
+    for (std::size_t i = 1; i < weapons.size(); ++i) {
+        const bool equal = same(env, weapons[0], weapons[i]) != 0;
+        if (!clean() || !equal) { SetError(error, "pending reload weapon identity changed"); return false; }
+    }
+    void* weapon_class = locals.Keep(get_class(env, weapons[0]));
+    if (!clean() || !weapon_class) return false;
+    bool allowed = false;
+    for (const char* name : {"WeaponPistolFrontier1878_Regular", "WeaponPistolPeacemaker"}) {
+        void* candidate = locals.Keep(EnvFunction<FindClassFn>(env, kFindClass)(env, name));
+        if (!clean() || !candidate) return false;
+        const bool equal = same(env, weapon_class, candidate) != 0;
+        if (!clean()) return false;
+        allowed = allowed || equal;
+    }
+    if (!allowed) { SetError(error, "weapon does not support single-round reload ticket"); return false; }
+    void* id_method = get_method(env, weapon_class, "GetThisID", "()I");
+    if (!clean() || !id_method) return false;
+    const auto id = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA)(env, weapons[0], id_method, nullptr);
+    if (!clean() || id <= 0 || static_cast<std::uint64_t>(id) != owner.weapon_id) {
+        SetError(error, "pending reload weapon ID changed"); return false;
+    }
+    // Recheck state after the acquisition and class/ID reads, then verify that
+    // the acquired actual reference still denotes the freshly read actual.
+    if (!ReadCoJMotionReloadOwner(env, being_, fresh) || !fresh.valid || !fresh.single_round_supported ||
+        fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
+        SetError(error, "pending reload owner changed before publication"); return false;
+    }
+    void* actual_method = get_method(env, cls, getters[0], "(I)LWeapon;");
+    if (!clean() || !actual_method) return false;
+    void* actual = locals.Keep(call_object(env, being_, actual_method, &hand));
+    if (!clean() || !actual) return false;
+    const bool equal = same(env, weapons[0], actual) != 0;
+    if (!clean() || !equal) { SetError(error, "pending reload actual weapon replaced"); return false; }
+    // Even an exceptional write may need cancellation; retain the owner until
+    // a null write succeeds. Java's field owns its reference, no native global.
+    single_round_reload_pending_ = true;
+    EnvFunction<SetObjectFieldFn>(env, kSetObjectField)(env, being_, field, weapons[0]);
+    if (!clean()) { (void)ClearSingleRoundReloadField(env, nullptr); return false; }
+    SetError(error, "");
+    return true;
+}
+
+bool JavaPlayerBridge::TryObserveMounted(bool& mounted) noexcept {
+    mounted=false;
+    if (!being_) return false;
+    void* env=Environment(nullptr);
+    const auto get_class=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto get_method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto call=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    if (!get_class || !get_method || !call ||
+        !EnvFunction<ExceptionOccurredFn>(env,kExceptionOccurred) ||
+        !EnvFunction<ExceptionClearFn>(env,kExceptionClear) ||
+        !EnvFunction<DeleteLocalRefFn>(env,kDeleteLocalRef)) return false;
+    if (ClearException(env,nullptr,"mounted observation entry")) return false;
+    void* cls=get_class(env,being_);
+    if (ClearException(env,nullptr,"mounted class lookup") || !cls) {
+        DeleteLocal(env,cls);return false;
+    }
+    // The shipped HumanBeing predicate only reads m_cHorse != null. Resolve on
+    // the current verified player; do not retain a stale owner or infer HUD state.
+    void* method=get_method(env,cls,"IsRidingHorse","()Z");
+    if (ClearException(env,nullptr,"IsRidingHorse lookup") || !method) {
+        DeleteLocal(env,cls);return false;
+    }
+    const bool value=call(env,being_,method,nullptr)!=0;
+    DeleteLocal(env,cls);
+    if (ClearException(env,nullptr,"IsRidingHorse observation")) return false;
+    mounted=value;return true;
+}
+
+void CoJContextualShoulderState::Update(runtime::GameplayInputState& input,
+    const bool observation_available, const bool mounted, const std::uint64_t generation) noexcept {
+    const bool held=input.kick;
+    input.kick=false;
+    if (!input.active || !observation_available || generation==0 ||
+        (input.digital_available&(1U<<9))==0) {
+        input.run=false;known_=false;release_required_=true;pressed_=false;return;
+    }
+    if (!known_ || generation_!=generation || mounted_!=mounted) {
+        release_required_=true;pressed_=false;
+    }
+    known_=true;generation_=generation;mounted_=mounted;
+    if (!held) release_required_=false;
+    if (!release_required_) {
+        if (mounted) input.run|=held;
+        else input.kick=held&&!pressed_;
+    }
+    pressed_=held;
 }
 
 bool JavaPlayerBridge::TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept {
@@ -1714,6 +2080,74 @@ bool JavaPlayerBridge::TryPrepareTrackedWeapon(
     return CaptureTrackedWeapon(hand,socket,grip,direction,up,error,&natural_hand,&tracked_hand,&unarmed_hand);
 }
 
+bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
+    CoJReloadGeometrySnapshot& geometry, std::string* error) noexcept {
+    geometry={};
+    if(hand<0 || hand>1 || !being_)return false;
+    const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
+    if(!overlay.applied || !overlay.weapon || !overlay.active)return false;
+    void* env=Environment(error);
+    if(!env)return false;
+    const char* class_name=nullptr;
+    if(!ReadCoJMotionReloadWeaponClassName(env,being_,hand,class_name) || !class_name)return false;
+    const std::string_view name{class_name};
+    const auto model=name=="WeaponPistolPeacemaker"?CoJReloadModel::peacemaker:
+        name=="WeaponPistolFrontier1878_Regular"?CoJReloadModel::frontier:CoJReloadModel::unknown;
+    if(model==CoJReloadModel::unknown)return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method_fn=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto int_fn=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto object_fn=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto string_fn=EnvFunction<NewStringUtfFn>(env,kNewStringUtf);
+    const auto same_fn=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    if(!cls_fn || !method_fn || !int_fn || !object_fn || !string_fn || !same_fn)return false;
+    void* cls=cls_fn(env,being_);
+    if(ClearException(env,error,"reload geometry player class") || !cls){DeleteLocal(env,cls);return false;}
+    void* actual_method=method_fn(env,cls,"GetActualWeaponNotEmpty","(I)LWeapon;");
+    const bool lookup_failed=ClearException(env,error,"reload geometry actual lookup") || !actual_method;
+    DeleteLocal(env,cls);if(lookup_failed)return false;
+    JValue hand_arg[1]{};hand_arg[0].i=hand;
+    void* actual=object_fn(env,being_,actual_method,hand_arg);
+    bool failed=ClearException(env,error,"reload geometry actual read");
+    bool same=false;
+    if(!failed && actual){same=same_fn(env,actual,overlay.weapon)!=0;failed=ClearException(env,error,"reload geometry identity");}
+    DeleteLocal(env,actual);if(failed || !same)return false;
+    cls=cls_fn(env,overlay.weapon);
+    if(ClearException(env,error,"reload geometry weapon class") || !cls){DeleteLocal(env,cls);return false;}
+    void* id_method=method_fn(env,cls,"GetElementID","(Ljava/lang/String;)I");
+    failed=ClearException(env,error,"reload geometry element lookup") || !id_method;
+    DeleteLocal(env,cls);if(failed)return false;
+    const auto read=[&](const char* element_name,ElementWorldBasisTarget& frame) noexcept {
+        void* text=string_fn(env,element_name);
+        if(ClearException(env,error,"reload geometry element name") || !text){DeleteLocal(env,text);return false;}
+        JValue args[1]{};args[0].l=text;
+        const int index=int_fn(env,overlay.weapon,id_method,args);
+        const bool bad=ClearException(env,error,"reload geometry element id");
+        DeleteLocal(env,text);
+        if(bad || index<0 || static_cast<std::size_t>(index)>=overlay.targets.size())return false;
+        JavaPlayerPosition p{},u{},f{};
+        if(!ReadObjectElementFrame(overlay.weapon,index,p,u,f,error))return false;
+        frame={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};
+        const auto& target=overlay.targets[static_cast<std::size_t>(index)];
+        const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float epsilon){return
+            std::abs(a.x-b.x)<=epsilon && std::abs(a.y-b.y)<=epsilon && std::abs(a.z-b.z)<=epsilon;};
+        return target.valid && close(frame.position,target.position,.1F) &&
+            close(frame.up,target.up,.001F) && close(frame.forward,target.forward,.001F);
+    };
+    CoJReloadGeometrySnapshot observed{};observed.model=model;
+    if(!read(model==CoJReloadModel::peacemaker?"ColtDrum":"GunDrum",observed.drum) ||
+        !read(model==CoJReloadModel::peacemaker?"ColtLock":"GunLoader",observed.gate) ||
+        !BuildCoJReloadMouthFrames(model,observed.drum,observed.mouths))return false;
+    // Named-element reads must not publish a snapshot belonging to a weapon
+    // replaced during JNI observation. This remains observation, not admission.
+    actual=object_fn(env,being_,actual_method,hand_arg);
+    failed=ClearException(env,error,"reload geometry final actual read");
+    same=false;
+    if(!failed && actual){same=same_fn(env,actual,overlay.weapon)!=0;failed=ClearException(env,error,"reload geometry final identity");}
+    DeleteLocal(env,actual);if(failed || !same)return false;
+    observed.valid=true;geometry=observed;return true;
+}
+
 bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::string* error) noexcept {
     active=false;
     if (hand<0 || hand>1) return false;
@@ -1883,9 +2317,55 @@ bool JavaPlayerBridge::TryReadHandAttachment(const int hand,
     return ReadHandFrame(&io,element,frame);
 }
 
+bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
+    if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
+    void* env=Environment(nullptr);
+    if(!env||ClearException(env,nullptr,"finger eligibility entry exception"))return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto object=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto boolean=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    if(!cls_fn||!lookup||!object||!boolean||!integer)return false;
+    void* cls=cls_fn(env,being_);
+    if(ClearException(env,nullptr,"finger player class failure")||!cls){DeleteLocal(env,cls);return false;}
+    void* methods[8]{};
+    constexpr const char* names[]{"GetActiveWeapon","GetHandStateMashineState","HasSomethingInHand","IsNotAlive",
+        "GetHandStateMashineDestinyState","GetDesiredWeaponState","GetDesiredWeapon","IsDesiredWeaponOperatedTwoHand"};
+    constexpr const char* signatures[]{"(I)LWeapon;","(I)I","(I)Z","()Z","(I)I","(I)I","(I)LWeapon;","(I)Z"};
+    bool ok=true;
+    for(int i=0;i<8;++i){methods[i]=lookup(env,cls,names[i],signatures[i]);
+        if(ClearException(env,nullptr,"finger eligibility method failure")||!methods[i]){ok=false;break;}}
+    DeleteLocal(env,cls);if(!ok)return false;
+    JValue args[1]{};args[0].i=hand;
+    void* weapon=object(env,being_,methods[0],args);
+    const bool has_active=weapon!=nullptr;
+    ok=!ClearException(env,nullptr,"finger active weapon failure");DeleteLocal(env,weapon);
+    if(!ok||has_active)return false;
+    const int state=integer(env,being_,methods[1],args);
+    if(ClearException(env,nullptr,"finger native state failure")||state!=0)return false;
+    // SetDesiredWeapon can queue an equip before the current state changes.
+    const int destiny=integer(env,being_,methods[4],args);
+    if(ClearException(env,nullptr,"finger destination state failure")||destiny!=0)return false;
+    const int desired_state=integer(env,being_,methods[5],args);
+    if(ClearException(env,nullptr,"finger desired state failure")||desired_state!=0)return false;
+    weapon=object(env,being_,methods[6],args);
+    const bool has_desired=weapon!=nullptr;
+    ok=!ClearException(env,nullptr,"finger desired weapon failure");DeleteLocal(env,weapon);
+    if(!ok||has_desired)return false;
+    JValue other[1]{};other[0].i=1-hand;
+    const bool pending_shared=boolean(env,being_,methods[7],other)!=0;
+    if(ClearException(env,nullptr,"finger pending shared weapon failure")||pending_shared)return false;
+    // This includes carried objects and the other hand's two-handed weapon.
+    const bool occupied=boolean(env,being_,methods[2],args)!=0;
+    if(ClearException(env,nullptr,"finger occupied hand failure")||occupied)return false;
+    const bool dead=boolean(env,being_,methods[3],nullptr)!=0;
+    return !ClearException(env,nullptr,"finger native life state failure")&&!dead;
+}
+
 bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
     const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
-    std::string* error) noexcept {
+    std::string* error, const runtime::FingerTrackingState* fingers) noexcept {
     if (hand<0 || hand>1 || !being_ || independent_hand_faulted_) return false;
     void* env=Environment(error);
     if (!env || !EnsureElementWorldReadAccess(env,error) || !EnsureElementWorldBasisAccess(env,error) ||
@@ -1933,8 +2413,9 @@ bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
         overlay.object=global(env,being_);
         if (!overlay.object || ClearException(env,error,"hand transaction reference failed")) return false;
         io.object=overlay.object;
+        const auto* accepted_fingers=fingers&&fingers->available&&TryCanAnimateEmptyHand(hand)?fingers:nullptr;
         const bool ok=overlay.frames.Apply(frames,natural_hand,tracked_hand,
-            {actor.x,actor.y,actor.z},&io,ReadHandFrame,WriteHandFrame);
+            {actor.x,actor.y,actor.z},&io,ReadHandFrame,WriteHandFrame,accepted_fingers,hand);
         if (!ok && !overlay.frames.active()) { del(env,overlay.object);overlay.object=nullptr; }
         if (overlay.frames.faulted()) independent_hand_faulted_=true;
         return ok;
@@ -2120,8 +2601,9 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
     std::string* error, const CoJInputDispatchPhase phase) noexcept {
+    if (!state.active && single_round_reload_pending_ && !ClearSingleRoundReload(error)) return false;
     float snap_turn_degrees=0.0F;
-    if (phase!=CoJInputDispatchPhase::fire) {
+    if (phase!=CoJInputDispatchPhase::fire && phase!=CoJInputDispatchPhase::shoulder) {
         last_snap_turn_degrees_ = 0.0F;
         last_analog_transaction_applied_ = false;
         snap_turn_degrees = snap_turn_state_.Update(state);
@@ -2179,9 +2661,9 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     }
 
     const auto values = BuildCoJGameplayActionValues(state);
-    const auto previous_values = gameplay_input_applied_
-        ? BuildCoJGameplayActionValues(last_gameplay_input_)
-        : BuildCoJGameplayActionValues({});
+    auto previous_values = BuildCoJGameplayActionValues({});
+    for (std::size_t i=0;i<previous_values.size();++i)
+        previous_values[i].value=last_gameplay_action_values_[i];
     bool analog_transaction_needed = false;
     for (std::size_t index = 0; index < values.size(); ++index) {
         if (ShouldDispatchCoJGameplayAction(phase,values[index].action) &&
@@ -2428,6 +2910,11 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             ok = false;
         } else if (ok) {
             last_analog_transaction_applied_ = true;
+            for (std::size_t i=0;i<values.size();++i)
+                if (ShouldDispatchCoJGameplayAction(phase,values[i].action) &&
+                    UseDirectAnalogCoJLocomotion(values[i].action))
+                    last_gameplay_action_values_[i]=values[i].value;
+            for (const auto value:last_gameplay_action_values_) gameplay_input_applied_|=value!=0.0F;
         }
     }
 
@@ -2443,6 +2930,9 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                 ok = false;
                 break;
             }
+            // A later action can fail: never replay a transition already delivered.
+            last_gameplay_action_values_[index]=values[index].value;
+            if (values[index].value!=0.0F) gameplay_input_applied_=true;
         }
     }
     DeleteLocal(env, actions);
@@ -2450,7 +2940,8 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     DeleteLocal(env, controller);
     if (!ok) return false;
     last_gameplay_input_ = MergeCoJGameplayInputPhase(last_gameplay_input_,state,phase);
-    gameplay_input_applied_ = last_gameplay_input_.active;
+    gameplay_input_applied_ = state.active;
+    for (const auto value:last_gameplay_action_values_) gameplay_input_applied_|=value!=0.0F;
     return true;
 }
 
@@ -3744,6 +4235,7 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    if (single_round_reload_pending_ && !ClearSingleRoundReloadField(env, nullptr)) return;
     gameplay_ui_cache_ = {};
     gameplay_ui_player_generation_ = 0;
     gameplay_ui_sample_tick_ = 0;
@@ -3906,7 +4398,8 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* global_being = new_global(env, local_being);
     if (!global_being || ClearException(env, error, "NewGlobalRef(player being) failed")) return false;
 
-    if (!RestoreTrackedHands(error) || !RestoreTrackedWeapons(error) || !ClearTrackedWhip(true,error)) {
+    if ((single_round_reload_pending_ && !ClearSingleRoundReloadField(env,error)) ||
+        !RestoreTrackedHands(error) || !RestoreTrackedWeapons(error) || !ClearTrackedWhip(true,error)) {
         if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,global_being);
         return false;
     }
@@ -4008,13 +4501,13 @@ bool JavaPlayerBridge::EnsureVectorAccess(void* env, std::string* error) noexcep
     }
 
     void* local_class = find_class(env, "Vector");
-    if (!local_class || ClearException(env, error, "FindClass(Vector) failed")) {
+    if (ClearException(env, error, "FindClass(Vector) failed") || !local_class) {
         DeleteLocal(env, local_class);
         return false;
     }
     void* global_class = new_global(env, local_class);
     DeleteLocal(env, local_class);
-    if (!global_class || ClearException(env, error, "NewGlobalRef(Vector) failed")) return false;
+    if (ClearException(env, error, "NewGlobalRef(Vector) failed") || !global_class) return false;
 
     void* constructor = get_method(env, global_class, "<init>", "()V");
     void* x_field = get_field(env, global_class, "fX", "F");
@@ -4214,11 +4707,16 @@ bool JavaPlayerBridge::ReadVector(
         SetError(error, "JNI GetFloatField is unavailable");
         return false;
     }
-    value.x = get_float(env, vector, vector_x_field_);
-    value.y = get_float(env, vector, vector_y_field_);
-    value.z = get_float(env, vector, vector_z_field_);
-    return !ClearException(env, error, "Vector read failed") &&
-        std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    JavaPlayerPosition observed{};
+    observed.x = get_float(env, vector, vector_x_field_);
+    if (ClearException(env, error, "Vector x read failed")) return false;
+    observed.y = get_float(env, vector, vector_y_field_);
+    if (ClearException(env, error, "Vector y read failed")) return false;
+    observed.z = get_float(env, vector, vector_z_field_);
+    if (ClearException(env, error, "Vector z read failed") ||
+        !std::isfinite(observed.x) || !std::isfinite(observed.y) || !std::isfinite(observed.z)) return false;
+    value=observed;
+    return true;
 }
 
 bool JavaPlayerBridge::WriteVector(
@@ -4657,7 +5155,7 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
         return false;
     }
     void* vector = new_object(env, vector_class_, vector_constructor_, nullptr);
-    if (!vector || ClearException(env, error, "Vector construction for element frame failed")) {
+    if (ClearException(env, error, "Vector construction for element frame failed") || !vector) {
         DeleteLocal(env, vector);
         return false;
     }

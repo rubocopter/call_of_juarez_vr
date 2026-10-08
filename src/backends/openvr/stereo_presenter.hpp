@@ -47,6 +47,7 @@ struct OpenVrTrackingSample {
     runtime::GameplayInputState gameplay{};
     std::uint64_t sequence = 0;
     bool recenter_requested = false;
+    bool objectives_requested = false;
     bool ui_select_left = false;
     bool ui_select_right = false;
     bool ui_select_left_pressed = false;
@@ -95,6 +96,8 @@ public:
         FlatUiPointerCallback flat_ui_callback = nullptr,
         void* flat_ui_context = nullptr) noexcept;
     void Stop() noexcept;
+    void PublishGameplayFeedbackContext(bool available) noexcept;
+    [[nodiscard]] std::uint64_t GameplayFeedbackContextToken() const noexcept;
 
     [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame) noexcept;
     [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;

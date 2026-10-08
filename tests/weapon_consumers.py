@@ -6,6 +6,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import patch_coj_weapon_consumers as patch
 from patch_coj_weapon_consumers import prefix, patch_class
 
+
+def original_reload_class(archive):
+    """Read exact original bytes even while a VR candidate is staged."""
+    import hashlib
+    import zipfile
+    candidates=(archive,archive.with_name('code.cojvr-backup.pak'))
+    found=False
+    for candidate in candidates:
+        if not candidate.exists():continue
+        found=True
+        with zipfile.ZipFile(candidate) as z:
+            original=z.read('ArmedPlayerBeing.class')
+        if hashlib.sha256(original).hexdigest()==patch.CLASS_SHA256:
+            return original
+    if found:
+        raise ValueError('Exact original ArmedPlayerBeing.class unavailable; no mutation')
+    raise unittest.SkipTest('Exact shipped archive unavailable')
 class TargetOwnerTagTests(unittest.TestCase):
     def test_branch_relocation_keeps_original_destinations(self):
         from inspect_java_bytecode import ConstantPool
@@ -415,5 +432,294 @@ class SaveThumbnailTests(unittest.TestCase):
     def test_unknown_module_fails_closed(self):
         with self.assertRaisesRegex(ValueError,'SHA-256'):
             patch.patch_save_module_class(b'unknown')
+
+class ManualReloadTests(unittest.TestCase):
+    def test_patched_request_publication_setter_throw_cleanup_and_callback(self):
+        import zipfile
+        from inspect_java_bytecode import parse_class
+        archive=Path('C:/Program Files (x86)/Steam/steamapps/common/Call of Juarez/code.pak')
+        pool,methods=parse_class(patch.patch_class(original_reload_class(archive)))
+        code=next(m.code for m in methods if m.name=='ReloadWeapon' and m.descriptor=='(I)V')
+        fields={'cojvrManualReloadWeaponLWeapon;':11,'cojvrSingleRoundWeaponLWeapon;':1,
+                'cojvrSingleRoundHandI':2,'cojvrSingleRoundCompletedZ':15,'m_bNetAttackForcedZ':3}
+        for fault in ('validation','whole_clip','net_game','non_owner','before_commit','after_commit',None):
+            weapon=object();owner={11:weapon,1:None,2:0,15:False,3:False,'weapon':weapon}
+            stack=[];locals_=[owner,0,None,None];pc=0;setter_calls=0;desired=1
+            try:
+                while pc<len(code):
+                    at=pc;op=code[pc];pc+=1
+                    if 0x2a<=op<=0x2d:stack.append(locals_[op-0x2a])
+                    elif 0x1a<=op<=0x1d:stack.append(locals_[op-0x1a])
+                    elif op==0x4d:locals_[2]=stack.pop()
+                    elif op==0x3e:locals_[3]=stack.pop()
+                    elif op in (0x19,0x15):stack.append(locals_[code[pc]]);pc+=1
+                    elif op in (0x01,0x03,0x04):stack.append(None if op==0x01 else op-0x03)
+                    elif op==0x10:stack.append(code[pc]);pc+=1
+                    elif op in (0xb4,0xb5,0xb6,0xb8,0x13):
+                        ref=int.from_bytes(code[pc:pc+2],'big');pc+=2;name=pool.describe(ref)
+                        if op==0x13:stack.append(name.strip("'"));continue
+                        if op in (0xb4,0xb5):
+                            field=fields[name.split('.',1)[1]]
+                            if op==0xb4:stack.append(stack.pop()[field])
+                            else:value=stack.pop();stack.pop()[field]=value
+                            continue
+                        if 'SetDesiredWeaponState(II)V' in name:
+                            state=stack.pop();stack.pop();stack.pop()
+                            self.assertIs(owner[1],weapon,'Limiter must exist before setter entry')
+                            self.assertFalse(owner[15]);setter_calls+=1
+                            if fault=='before_commit':raise RuntimeError('setter')
+                            desired=state
+                            if fault=='after_commit':raise RuntimeError('setter')
+                            continue
+                        self.assertEqual(setter_calls,0,'No getter may execute after native setter')
+                        if op==0xb8:stack.append(fault=='net_game')
+                        elif 'GetDesiredWeapon(I)' in name:stack.pop();stack.pop();stack.append(weapon)
+                        elif 'GetWeaponReloadState' in name:stack.pop();stack.pop();stack.append(21)
+                        elif 'IsReloadWholeClipAtOnce' in name:
+                            stack.pop()
+                            if fault=='validation':raise RuntimeError('validation')
+                            stack.append(fault=='whole_clip')
+                        elif 'getClass' in name:stack.pop();stack.append('class')
+                        elif 'getName' in name:stack.pop();stack.append('WeaponPistolPeacemaker')
+                        elif 'equals' in name:arg=stack.pop();stack.append(stack.pop()==arg)
+                        elif 'GetNetIsOwner' in name:stack.pop();stack.append(fault!='non_owner')
+                        else:self.fail(name)
+                    elif op in (0x99,0x9a,0xc6,0x9f,0xa0,0xa6,0xa7):
+                        delta=int.from_bytes(code[pc:pc+2],'big',signed=True);pc+=2
+                        if op==0xa7:take=True
+                        elif op in (0x9f,0xa0,0xa6):
+                            b=stack.pop();a=stack.pop();take=a==b if op==0x9f else a!=b if op==0xa0 else a is not b
+                        else:value=stack.pop();take=value is None if op==0xc6 else value==0 if op==0x99 else value!=0
+                        if take:pc=at+delta
+                    elif op==0xb1:break
+                    else:self.fail(hex(op))
+            except RuntimeError:pass
+            owner[11]=None  # Parent's dispatch finally/cancellation cleanup.
+            if desired==1:
+                self.run_limiter(operation='reconcile',shared=owner,reloading=False,current_state=1)
+                self.assertIsNone(owner[1]);self.assertEqual(setter_calls,int(fault=='before_commit'))
+                transfers=0  # Setter never entered reload: no native completion is scheduled.
+            else:
+                transfers=0
+                for _ in range(2):
+                    if self.run_limiter(operation='guard',shared=owner)=='rejected':continue
+                    transfers+=1
+                    self.assertTrue(self.run_limiter(shared=owner)[1])
+                self.assertEqual(transfers,1)
+                self.run_limiter(operation='end',shared=owner)
+                self.assertIsNone(owner[1])
+
+    def run_limiter(self, hand=0, ticket_hand=0, kind='WeaponPistolPeacemaker',
+                    net=False, owned=True, whole=False, desired_state=21,
+                    callback_state=21, match=True, desired_match=True, ticket=True,
+                    native_stop=False, success=True, operation='limit', shared=None,
+                    reloading=True, net_game=False, completed=False, current_state=1):
+        weapon=object(); other=object()
+        owner={1:weapon if ticket and match else other if ticket else None,
+               2:ticket_hand,3:net}
+        owner[11]=weapon if ticket and match else other if ticket else None
+        owner[15]=completed
+        if shared is not None:
+            owner=shared;weapon=owner['weapon']
+        locals_=[owner,hand,callback_state,True,weapon,
+                 weapon if desired_match else other,desired_state,success,native_stop]
+        if operation=='consume':
+            locals_[2]=weapon;locals_[3]=desired_state
+            code=patch.manual_reload_admission(11,3,4,5,6,(9,10),7,8,14,1,2,15)+patch.manual_reload_consume(11)
+        elif operation=='end':code=patch.manual_reload_end_cleanup(1,2,15)
+        elif operation=='replace':code=patch.manual_reload_replacement_cleanup(1,2,12,15)
+        elif operation=='reconcile':code=patch.manual_reload_public_reconcile(1,13,11,2,16)
+        elif operation=='guard':code=patch.manual_reload_completion_guard(1,2,15,17)
+        elif operation=='admit':
+            locals_[2]=weapon;locals_[3]=desired_state
+            code=patch.manual_reload_admission(11,3,4,5,6,(9,10),7,8,14,1,2,15)
+        else:code=patch.manual_reload_limiter(1,2,15)
+        stack=[];pc=0
+        while pc<len(code):
+            at=pc;op=code[pc];pc+=1
+            if 0x2a<=op<=0x2d:stack.append(locals_[op-0x2a])
+            elif 0x1a<=op<=0x1d:stack.append(locals_[op-0x1a])
+            elif op in (0x19,0x15):stack.append(locals_[code[pc]]);pc+=1
+            elif op==0x36:locals_[code[pc]]=stack.pop();pc+=1
+            elif op==0x01:stack.append(None)
+            elif op==0x03:stack.append(0)
+            elif op==0x04:stack.append(1)
+            elif op==0x10:stack.append(code[pc]);pc+=1
+            elif op in (0xb4,0xb5,0xb6,0xb8,0x13):
+                ref=int.from_bytes(code[pc:pc+2],'big');pc+=2
+                if op==0xb4:stack.append(stack.pop()[ref])
+                elif op==0xb5:
+                    value=stack.pop();stack.pop()[ref]=value
+                elif op==0x13:stack.append({9:'WeaponPistolFrontier1878_Regular',10:'WeaponPistolPeacemaker'}[ref])
+                elif op==0xb8:self.assertEqual(ref,14);stack.append(net_game)
+                elif ref==6:arg=stack.pop();stack.append(stack.pop()==arg)
+                elif ref==12:
+                    stack.pop();stack.pop();stack.append(locals_[5])
+                elif ref==13:stack.pop();stack.append(reloading)
+                elif ref==16:stack.pop();stack.pop();stack.append(current_state)
+                elif ref==17:stack.pop();stack.pop();stack.append(weapon)
+                else:
+                    stack.pop();stack.append({4:'class',5:kind,7:whole,8:owned}[ref])
+            elif op in (0x99,0x9a,0xc6,0x9f,0xa0,0xa5,0xa6,0xa7):
+                delta=int.from_bytes(code[pc:pc+2],'big',signed=True);pc+=2
+                if op==0xa7:take=True
+                elif op in (0x9f,0xa0,0xa5,0xa6):
+                    b=stack.pop();a=stack.pop()
+                    take=a==b if op==0x9f else a!=b if op==0xa0 else a is b if op==0xa5 else a is not b
+                else:
+                    value=stack.pop();take=value is None if op==0xc6 else value==0 if op==0x99 else value!=0
+                if take:pc=at+delta
+            elif op==0xb1:
+                self.assertEqual(stack,[])
+                if operation!='guard':self.assertIsNone(owner[11],'Rejected manual intent must be cleared')
+                if operation=='consume':return owner
+                return 'rejected'
+            else:self.fail(hex(op))
+        self.assertEqual(stack,[])
+        self.assertEqual(locals_[7],success,'Native event result must stay unchanged')
+        if operation=='admit':return 'native'
+        if operation!='limit':return owner
+        return owner[1],locals_[8]
+
+    def test_pending_consumption_survives_bridge_cancel_then_completes_once(self):
+        for hand in (0,1):
+            owner=self.run_limiter(operation='consume',hand=hand)
+            self.assertIsNone(owner[11])
+            self.assertIsNotNone(owner[1]);self.assertEqual(owner[2],hand)
+            owner['weapon']=owner[1]
+            owner[11]=None  # Renderer/pause cancellation owns pending only.
+            self.assertEqual(self.run_limiter(hand=hand,shared=owner),(owner['weapon'],True))
+            self.assertTrue(owner[15])
+            self.assertEqual(self.run_limiter(operation='guard',hand=hand,shared=owner),'rejected')
+
+    def test_unmatched_or_ineligible_selected_request_never_arms_active(self):
+        for args in ({'match':False},{'ticket':False},{'net':True},{'owned':False},
+                     {'whole':True},{'kind':'WeaponPistolSchofield_A'},{'desired_state':149}):
+            with self.subTest(args=args):
+                owner=self.run_limiter(operation='consume',**args)
+                self.assertIsNone(owner[1]);self.assertIsNone(owner[11])
+
+    def test_native_end_cleans_only_its_own_hand(self):
+        self.assertIsNone(self.run_limiter(operation='end')[1])
+        self.assertIsNotNone(self.run_limiter(operation='end',ticket_hand=1)[1])
+
+    def test_replacement_and_public_reconciliation_preserve_active_reload(self):
+        self.assertIsNotNone(self.run_limiter(operation='replace')[1])
+        self.assertIsNone(self.run_limiter(operation='replace',desired_match=False)[1])
+        self.assertIsNotNone(self.run_limiter(operation='replace',desired_match=False,ticket_hand=1)[1])
+        self.assertIsNotNone(self.run_limiter(operation='reconcile',reloading=True)[1])
+        self.assertIsNone(self.run_limiter(operation='reconcile',reloading=False)[1])
+
+    def test_ineligible_ticket_rejects_before_native_reload_state_or_transfer(self):
+        self.assertEqual(self.run_limiter(operation='admit'),'native')
+        self.assertEqual(self.run_limiter(operation='admit',ticket=False,whole=True),'native')
+        for args in ({'whole':True},{'net':True},{'net_game':True},{'owned':False},
+                     {'match':False},{'kind':'WeaponPistolSchofield_A'},
+                     {'kind':'DerivedPeacemaker'},{'desired_state':149},{'hand':2}):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_limiter(operation='admit',**args),'rejected')
+
+    def test_matching_ticket_closes_on_success_or_failure_both_hands(self):
+        for hand in (0,1):
+            for success in (False,True):
+                for kind in ('WeaponPistolPeacemaker','WeaponPistolFrontier1878_Regular'):
+                    with self.subTest(hand=hand,success=success,kind=kind):
+                        remaining,stop=self.run_limiter(hand=hand,ticket_hand=hand,success=success,kind=kind)
+                        self.assertIsNotNone(remaining);self.assertTrue(stop)
+
+    def test_duplicate_completion_before_end_cannot_repeat_transfer_or_event(self):
+        for success in (False,True):
+            owner=self.run_limiter(operation='consume')
+            owner['weapon']=owner[1];transfers=0;events=0
+            for desired in (21,1,1):
+                guarded=self.run_limiter(operation='guard',shared=owner,desired_state=desired)
+                if guarded=='rejected':continue
+                transfers+=1
+                self.run_limiter(shared=owner,success=success)
+                events+=int(success)
+            self.assertEqual(transfers,1);self.assertEqual(events,int(success))
+            self.assertIsNotNone(owner[1])
+            self.assertEqual(self.run_limiter(operation='reconcile',shared=owner,
+                reloading=False,current_state=22),'rejected')
+            self.run_limiter(operation='end',shared=owner)
+            self.assertIsNone(owner[1])
+            self.assertFalse(owner[15])
+
+    def test_completion_guard_blocks_reentry_before_limiter_and_spares_foreign_callbacks(self):
+        owner=self.run_limiter(operation='consume')
+        owner['weapon']=owner[1]
+        self.assertFalse(owner[15])
+        self.assertIs(self.run_limiter(operation='guard',shared=owner),owner)
+        self.assertTrue(owner[15])
+        # Reentry while the original WeaponReload is still executing, before
+        # offset-49 limiter or native event has run, is already suppressed.
+        self.assertEqual(self.run_limiter(operation='guard',shared=owner),'rejected')
+        for args in ({'hand':1},{'callback_state':149},{'ticket':False},{'match':False}):
+            with self.subTest(args=args):
+                self.assertIsInstance(self.run_limiter(operation='guard',completed=True,**args),dict)
+        self.run_limiter(operation='replace',shared=owner,desired_match=False)
+        self.assertIsNone(owner[1]);self.assertFalse(owner[15])
+
+    def test_non_owned_stale_whole_clip_and_foreign_callbacks_fall_through(self):
+        for args in ({'ticket':False},{'match':False},{'desired_match':False},
+                     {'ticket_hand':1},{'hand':2,'ticket_hand':2},
+                     {'desired_state':149},{'callback_state':149},
+                     {'desired_state':1}):
+            with self.subTest(args=args):
+                remaining,stop=self.run_limiter(**args)
+                self.assertFalse(stop)
+                self.assertEqual(remaining is None,args.get('ticket') is False)
+
+    def test_preserves_native_stop_without_scoped_active_ownership(self):
+        self.assertEqual(self.run_limiter(ticket=False,native_stop=True),(None,True))
+        self.assertEqual(self.run_limiter(ticket=False),(None,False))
+
+    def test_exact_archive_callback_keeps_transfer_event_and_native_close(self):
+        import zipfile
+        from inspect_java_bytecode import parse_class,disassemble
+        archive=Path('C:/Program Files (x86)/Steam/steamapps/common/Call of Juarez/code.pak')
+        original=original_reload_class(archive)
+        pool,methods=parse_class(patch.patch_class(original))
+        method=next(m for m in methods if m.name=='OnHandStateFinished_Reload')
+        lines=disassemble(method.code,pool)
+        self.assertEqual(sum('WeaponReload(LWeapon;)Z' in line for line in lines),1)
+        self.assertEqual(sum('GameMode.OnGameEvent(I)V' in line for line in lines),1)
+        self.assertEqual(sum('SetDesiredWeaponState(II)V' in line for line in lines),1)
+        self.assertTrue(any('cojvrSingleRoundWeaponLWeapon;' in line for line in lines))
+        self.assertFalse(any('cojvrManualReloadWeaponLWeapon;' in line for line in lines))
+        transfer_index=next(i for i,line in enumerate(lines) if 'WeaponReload(LWeapon;)Z' in line)
+        guard_prefix=lines[:transfer_index]
+        self.assertTrue(any('cojvrSingleRoundCompletedZ' in line and 'getfield' in line for line in guard_prefix))
+        self.assertTrue(any('cojvrSingleRoundCompletedZ' in line and 'putfield' in line for line in guard_prefix))
+        self.assertTrue(any(' return' in line for line in guard_prefix),
+                        'Duplicate guard must return before the natural transfer')
+        request=next(m for m in methods if m.name=='ReloadWeapon' and m.descriptor=='(I)V')
+        request_lines=disassemble(request.code,pool)
+        self.assertTrue(any('cojvrManualReloadWeaponLWeapon;' in line for line in request_lines))
+        self.assertTrue(any('cojvrSingleRoundHandI' in line for line in request_lines))
+        whole=next(i for i,line in enumerate(request_lines) if 'IsReloadWholeClipAtOnce()Z' in line)
+        native_request=next(i for i,line in enumerate(request_lines) if 'SetDesiredWeaponState(II)V' in line)
+        self.assertLess(whole,native_request,'Whole-clip admission must precede native request')
+        self.assertTrue(any('cojvrSingleRoundWeaponLWeapon;' in line and 'putfield' in line
+                            for line in request_lines[:native_request]))
+        self.assertFalse(any('invoke' in line for line in request_lines[native_request+1:]))
+        self.assertFalse(any('cojvrSingleRoundWeaponLWeapon;' in line
+                             for line in request_lines[native_request+1:]))
+        self.assertTrue(any('IsNetGame()Z' in line and 'invokestatic' in line for line in request_lines))
+        public=next(m for m in methods if m.name=='ReloadWeapon' and m.descriptor=='()V')
+        self.assertEqual(sum('cojvrManualReloadWeaponLWeapon;' in line and 'putfield' in line
+                             for line in disassemble(public.code,pool)),3)
+        end=next(m for m in methods if m.name=='OnHandStateFinished_ReloadEnd')
+        self.assertTrue(any('cojvrSingleRoundWeaponLWeapon;' in line for line in disassemble(end.code,pool)))
+        update=next(m for m in methods if m.name=='UpdateHandState')
+        self.assertTrue(any('cojvrSingleRoundWeaponLWeapon;' in line for line in disassemble(update.code,pool)))
+        self.assertFalse(any('SetAmmoCount' in line or 'SetAmount' in line for line in lines))
+        for target in (method,request,public,end,update):
+            decoded=disassemble(target.code,pool)
+            boundaries={int(line.split(':',1)[0]) for line in decoded}
+            for line in decoded:
+                if any(' '+op+' ' in line for op in ('ifeq','ifne','ifnull','ifnonnull',
+                       'if_icmpne','if_icmpeq','if_icmplt','ifle','ifgt','if_acmpne','if_acmpeq','goto')):
+                    self.assertIn(int(line.split()[-1]),boundaries,line)
 
 if __name__=="__main__": unittest.main()

@@ -4,27 +4,82 @@
 
 namespace cojvr::games::call_of_juarez {
 namespace {
-// Presentation only: exact default Sense action routes, never the native string
-// or subtitle dialogue. Replacements do not grow the bounded UTF-16 buffer.
+// Presentation only, for documented default campaign keys. These already
+// expanded UIStatic copies have no action identity: custom PC rebinding remains
+// ambiguous. Never change native strings or subtitle dialogue. New key labels
+// require explicit notation; bare letters/numbers are ordinary localized text.
 void ControllerHint(runtime::HudText& text) noexcept {
     const auto source=text.view();
     runtime::HudText translated{};
+    struct Label { std::u16string_view key, sense; bool explicit_only=true; };
+    // Original InputSettings/Manual defaults and current default Sense routes.
+    // Spanish names were independently observed through DIPROP_KEYNAME on this
+    // host. Other locale names and custom-only/unmapped keys stay unchanged.
+    constexpr Label labels[]{
+        {u"SPACE BAR",u"Cross",false}, {u"SPACEBAR",u"Cross",false},
+        {u"LMB",u"L2",false}, {u"RMB",u"R2",false},
+        {u"Space Bar",u"Cross"}, {u"BARRA ESPACIADORA",u"Cross"},
+        {u"CTRL",u"L3"}, {u"Ctrl Left",u"L3"}, {u"CTRL LEFT",u"L3"},
+        {u"Caps Lock",u"R1 (hold)"}, {u"CAPS LOCK",u"R1 (hold)"},
+        {u"BLOQ MAYUS",u"R1 (hold)"},
+        {u"Backspace",u"Triangle hold / right stick Down-left / release"},
+        {u"BACKSPACE",u"Triangle hold / right stick Down-left / release"},
+        {u"RETROCESO",u"Triangle hold / right stick Down-left / release"},
+        {u"R",u"Square"}, {u"F",u"L1"}, {u"X",u"R3"},
+        {u"O",u"Create tap"}, {u"Z",u"Circle"}, {u"C",u"R1"},
+        {u"0",u"Triangle hold / right stick Down / release"},
+        {u"1",u"Triangle hold / right stick Left / release"},
+        {u"2",u"Triangle hold / right stick Right / release"},
+        {u"3",u"Triangle hold / right stick Up / release"},
+        {u"4",u"Triangle hold / right stick Down-right / release"},
+        {u"5",u"Triangle hold / right stick Up-left / release"},
+        {u"6",u"Triangle hold / right stick Up-right / release"},
+    };
     const auto word=[](char16_t c) {
         return (c>=u'A' && c<=u'Z') || (c>=u'a' && c<=u'z') ||
             (c>=u'0' && c<=u'9') || c==u'_' || c>=0x80;
     };
+    const auto explicit_key=[&](std::size_t at,std::size_t length) {
+        const auto end=at+length;
+        if (at==0 || end>=source.size()) return false;
+        const auto open=source[at-1],close=source[end];
+        const bool paired=(open==u'\'' && close==u'\'') || (open==u'"' && close==u'"') ||
+            (open==u'[' && close==u']') || (open==u'(' && close==u')') ||
+            (open==u'\u2018' && close==u'\u2019') || (open==u'\u201C' && close==u'\u201D');
+        return paired && (at==1 || !word(source[at-2])) &&
+            (end+1==source.size() || !word(source[end+1]));
+    };
+    const auto high=[](char16_t c) { return c>=0xD800 && c<=0xDBFF; };
+    const auto low=[](char16_t c) { return c>=0xDC00 && c<=0xDFFF; };
+    const auto append=[&](std::u16string_view fragment,bool more) {
+        // If native text follows, keep room for an ellipsis before committing
+        // this whole fragment. A later overflow must not erase a gesture tail.
+        const auto limit=runtime::HudText::capacity-1-(more ? 1u : 0u);
+        if (fragment.size()>limit-translated.length) {
+            translated.characters[translated.length++]=u'\u2026';
+            return false;
+        }
+        for (const auto c:fragment) translated.characters[translated.length++]=c;
+        return true;
+    };
     for (std::size_t at=0;at<source.size();) {
         std::u16string_view before{},after{};
-        for (const auto token:{std::u16string_view(u"SPACE BAR"),std::u16string_view(u"SPACEBAR"),std::u16string_view(u"LMB"),std::u16string_view(u"RMB")}) {
-            if (source.substr(at,token.size())==token &&
+        for (const auto& label:labels) {
+            const auto end=at+label.key.size();
+            if (source.substr(at,label.key.size())==label.key &&
+                (explicit_key(at,label.key.size()) || (!label.explicit_only &&
                 (at==0 || !word(source[at-1])) &&
-                (at+token.size()==source.size() || !word(source[at+token.size()]))) {
-                before=token;after=token==u"LMB" ? u"L2" : token==u"RMB" ? u"R2" : u"Cross";break;
+                (end==source.size() || !word(source[end]))))) {
+                before=label.key;after=label.sense;break;
             }
         }
-        if (before.empty()) translated.characters[translated.length++]=source[at++];
+        if (before.empty()) {
+            const auto count=high(source[at]) && at+1<source.size() && low(source[at+1]) ? 2u : 1u;
+            if (!append(source.substr(at,count),at+count<source.size())) break;
+            at+=count;
+        }
         else {
-            for (const auto c:after) translated.characters[translated.length++]=c;
+            if (!append(after,at+before.size()<source.size())) break; // Never expose a partial radial gesture.
             at+=before.size();
         }
     }

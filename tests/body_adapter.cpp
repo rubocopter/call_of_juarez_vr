@@ -125,11 +125,25 @@ int main() {
         std::cerr << "physical crouch did not reset on recenter/tracking loss\n";
         return 1;
     }
-    if (!ResolveCoJCrouchAction(false, true) ||
-        !ResolveCoJCrouchAction(true, false) ||
-        !ResolveCoJCrouchAction(true, true)) {
+    if (!ResolveCoJCrouchAction(false, true, true, false) ||
+        !ResolveCoJCrouchAction(true, false, true, false) ||
+        !ResolveCoJCrouchAction(true, true, true, false)) {
         std::cerr << "physical head-height crouch did not drive the native crouch action\n";
         return 1;
+    }
+
+    // The native action is also delivered to HorseController. A mounted or
+    // unobserved owner must not receive a rider's synthetic Duck request.
+    for (const bool manual : {false, true}) {
+        for (const bool physical : {false, true}) {
+            if (ResolveCoJCrouchAction(manual, physical, true, true) ||
+                ResolveCoJCrouchAction(manual, physical, false, false) ||
+                ResolveCoJCrouchAction(manual, physical, false, true) ||
+                ResolveCoJCrouchAction(manual, physical, true, false) != (manual || physical)) {
+                std::cerr << "rider/unknown crouch ownership did not preserve on-foot-only Duck\n";
+                return 1;
+            }
+        }
     }
 
     const Vec2 head_forward_right = RotateCoJMoveForHeadRelativeYaw({0.0F, 1.0F}, 90.0F);
@@ -168,7 +182,7 @@ int main() {
         !ShouldDispatchCoJNativeUiNavigation(false, true, true, true) ||
         !ShouldDispatchCoJNativeUiNavigation(true, false, true, false) ||
         ShouldDispatchCoJNativeUiNavigation(false, false, true, true)) {
-        std::cerr << "Circle/kick must not pause live gameplay; Options must own pause\n";
+        std::cerr << "Circle/alternate-fire must not pause live gameplay; Options must own pause\n";
         return 1;
     }
     if (!ui_back_available.dispatch || ui_back_available.key_code != 1 ||
@@ -1170,6 +1184,32 @@ int main() {
         return 1;
     }
     CoJPhysicalViewHeightState physical_view;
+    CoJPhysicalViewHeightState crouch_owner_view;
+    (void)crouch_owner_view.Update(1155,1000,false,false,true);
+    const float before_mount=crouch_owner_view.Update(1105,1000,true,false,false);
+    if (!Near(before_mount,50) ||
+        !Near(crouch_owner_view.RevalidateCorrection(before_mount,true,false,false),0) ||
+        !Near(crouch_owner_view.Update(1105,1000,true,false,false),50)) {
+        std::cerr << "transient owner loss applied a stale correction or forgot standing height\n";
+        return 1;
+    }
+    if (!Near(crouch_owner_view.RevalidateCorrection(before_mount,true,true,true),0) ||
+        !Near(crouch_owner_view.Update(1120,1000,false,false,false),0) ||
+        !Near(crouch_owner_view.Update(1080,1000,true,false,false),40)) {
+        std::cerr << "synchronous mount retained the old scalar or standing reference\n";
+        return 1;
+    }
+    if (!Near(crouch_owner_view.RevalidateCorrection(40,false,true,false),0) ||
+        !Near(crouch_owner_view.Update(2140,2000,false,false,false),0) ||
+        !Near(crouch_owner_view.Update(2100,2000,true,false,false),40)) {
+        std::cerr << "new owner inherited the previous view height\n";
+        return 1;
+    }
+    if (!Near(crouch_owner_view.RevalidateCorrection(
+            std::numeric_limits<float>::quiet_NaN(),true,true,false),0)) {
+        std::cerr << "owner revalidation accepted a non-finite correction\n";
+        return 1;
+    }
     if (!Near(physical_view.Update(1155, 1000, false, false, true), 0) ||
         !Near(physical_view.Update(1105, 1000, true, false, false), 50) ||
         !Near(physical_view.Update(1205, 1100, true, false, false), 50) ||

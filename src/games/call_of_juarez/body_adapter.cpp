@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/body_adapter.hpp"
+#include "games/call_of_juarez/finger_authored_poses.hpp"
 #include "runtime/vr_math.hpp"
 
 #include <algorithm>
@@ -644,8 +645,11 @@ bool CoJPhysicalCrouchState::Update(
 
 bool ResolveCoJCrouchAction(
     const bool requested_native_crouch,
-    const bool physical_crouch_detected) noexcept {
-    return requested_native_crouch || physical_crouch_detected;
+    const bool physical_crouch_detected,
+    const bool mounted_observation_available,
+    const bool mounted) noexcept {
+    return mounted_observation_available && !mounted &&
+        (requested_native_crouch || physical_crouch_detected);
 }
 
 cojvr::runtime::Vec2 RotateCoJMoveForHeadRelativeYaw(
@@ -835,9 +839,53 @@ bool HandFramesAgree(const CoJHandFrames& expected, void* context, CoJElementRea
     return true;
 }
 }
+bool BuildCoJFingerTargets(const int hand, const CoJHandFrames& natural, const CoJHandFrames& rigid,
+    const cojvr::runtime::FingerTrackingState& fingers, CoJHandFrames& out) noexcept {
+    out=rigid;
+    using runtime::FingerTrackingQuality;
+    if(hand<0||hand>1||!fingers.available||
+        (fingers.quality!=FingerTrackingQuality::estimated&&fingers.quality!=FingerTrackingQuality::partial&&
+         fingers.quality!=FingerTrackingQuality::full))return false;
+    for(auto curl:fingers.curls)if(!std::isfinite(curl)||curl<0||curl>1)return false;
+    auto rigid_frame=[](const ElementWorldBasisTarget& f){
+        return f.valid&&Finite(f.position)&&Finite(f.up)&&Finite(f.forward)&&
+            std::fabs(Dot(f.up,f.up)-1)<.002F&&std::fabs(Dot(f.forward,f.forward)-1)<.002F&&
+            std::fabs(Dot(f.up,f.forward))<.002F;
+    };
+    for(std::size_t i=0;i<natural.size();++i){
+        if(natural[i].element<0||natural[i].element!=rigid[i].element||
+            !rigid_frame(natural[i].frame)||!rigid_frame(rigid[i].frame))return false;
+        for(std::size_t j=0;j<i;++j)if(natural[i].element==natural[j].element)return false;
+    }
+    auto targets=rigid;
+    for(int bone=0;bone<15;++bone){
+        const int index=4+bone,parent=bone%3==0?3:index-1;
+        const auto& n=natural[parent].frame;const auto& p=targets[parent].frame;
+        const auto local=WorldToBasis(Subtract(natural[index].frame.position,n.position),Cross(n.up,n.forward),n.up,n.forward);
+        const auto& authored=detail::kCoJFingerPoses[hand][bone];
+        const auto a=runtime::NormalizeQuaternion(authored.rest);
+        auto b=runtime::NormalizeQuaternion(authored.fist);
+        float dot=a.x*b.x+a.y*b.y+a.z*b.z+a.w*b.w;
+        if(dot<0){b={-b.x,-b.y,-b.z,-b.w};dot=-dot;}
+        const float t=fingers.curls[bone/3];float wa=1-t,wb=t;
+        if(dot<.9995F){const float angle=std::acos(std::clamp(dot,-1.F,1.F));
+            const float sine=std::sin(angle);wa=std::sin((1-t)*angle)/sine;wb=std::sin(t*angle)/sine;}
+        const auto q=runtime::NormalizeQuaternion({a.x*wa+b.x*wb,a.y*wa+b.y*wb,a.z*wa+b.z*wb,a.w*wa+b.w*wb});
+        // Exact native XYZW polynomial stores axes in rows, not the runtime's
+        // quaternion-vector column convention. World composition is local*parent.
+        const runtime::Vec3 local_up{2*(q.x*q.y+q.z*q.w),1-2*(q.x*q.x+q.z*q.z),2*(q.y*q.z-q.x*q.w)};
+        const runtime::Vec3 local_forward{2*(q.x*q.z-q.y*q.w),2*(q.y*q.z+q.x*q.w),1-2*(q.x*q.x+q.y*q.y)};
+        const auto x=Cross(p.up,p.forward);
+        auto& frame=targets[index].frame;
+        frame={Add(p.position,BasisToWorld(local,x,p.up,p.forward)),
+            BasisToWorld(local_up,x,p.up,p.forward),BasisToWorld(local_forward,x,p.up,p.forward),true};
+        if(!rigid_frame(frame))return false;
+    }
+    out=targets;return true;
+}
 bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasisTarget& source,
     const ElementWorldBasisTarget& target, const cojvr::runtime::Vec3 actor, void* context,
-    CoJElementRead read, CoJElementWrite write) noexcept {
+    CoJElementRead read, CoJElementWrite write, const cojvr::runtime::FingerTrackingState* fingers, const int hand) noexcept {
     if (active_ || faulted_ || !read || !write || !Finite(actor)) return false;
     CoJHandFrames targets{};
     for (std::size_t i=0;i<natural.size();++i) {
@@ -846,6 +894,9 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
         targets[i]={natural[i].element,TransformWeaponElementFrame(source,target,natural[i].frame)};
         if (!targets[i].frame.valid) return false;
     }
+    fingers_active_=false;
+    if(fingers){CoJHandFrames curled{};if(BuildCoJFingerTargets(hand,natural,targets,*fingers,curled)){
+        targets=curled;fingers_active_=true;}}
     natural_=natural; targets_=targets; actor_=actor; active_=true;
     for (const auto& sample : targets) {
         if (!write(context,sample.element,sample.frame)) {
@@ -876,6 +927,7 @@ bool CoJHandOverlay::Restore(const cojvr::runtime::Vec3 actor, void* context,
     ok=ok && HandFramesAgree(natural_,context,read);
     if (!ok) { faulted_=true;return false; }
     active_=false;
+    fingers_active_=false;
     return true;
 }
 
@@ -1441,6 +1493,18 @@ cojvr::runtime::Vec3 BuildTrackedHandTarget(
     };
     valid = Finite(target);
     return target;
+}
+
+float CoJPhysicalViewHeightState::RevalidateCorrection(
+    const float correction, const bool same_owner,
+    const bool mounted_observation_available, const bool mounted) noexcept {
+    if (!same_owner || (mounted_observation_available && mounted)) {
+        Reset();
+        return 0;
+    }
+    if (!mounted_observation_available || !std::isfinite(correction) || correction < 0)
+        return 0;
+    return correction;
 }
 
 float CoJPhysicalViewHeightState::Update(

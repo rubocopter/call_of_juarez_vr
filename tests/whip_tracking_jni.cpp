@@ -26,6 +26,9 @@ int player_type,whip_type,vector_type,exception;
 void* env_table[174]{};void** env_holder=env_table;
 void* vm_table[8]{};void** vm_holder=vm_table;
 bool pending=false,fail_write=false,fail_read=false,ignore_clear=false,fail_boolean=false,fail_class=false;
+bool has_item=false,dead=false;int hand_state=0;const char* fail_method=nullptr;
+int destiny_state=0,desired_state=0;Object* desired=nullptr;bool desired_two_hand[2]{};
+int fail_call=0;
 int constructions=0,globals=0;
 std::int32_t __stdcall GetEnv(void*,void** out,std::int32_t) { *out=&env_holder;return 0; }
 void* __stdcall Exception(void*) { return pending ? &exception : nullptr; }
@@ -40,8 +43,25 @@ void* __stdcall Class(void*,void* obj) {
 }
 void* __stdcall Find(void*,const char* name) { return std::strcmp(name,"WeaponWhip")==0 ? &whip_type : &vector_type; }
 std::uint8_t __stdcall Instance(void*,void* obj,void*) { return static_cast<Object*>(obj)->whip; }
-void* __stdcall Method(void*,void*,const char* name,const char*) { return std::strcmp(name,"GetActiveWeapon")==0 ? Ptr(50) : nullptr; }
-void* __stdcall Call(void*,void*,void*,const JValue* args) { return args[0].i==0 ? active : nullptr; }
+void* __stdcall Method(void*,void*,const char* name,const char*) {
+    if(fail_method&&std::strcmp(fail_method,name)==0){pending=true;return nullptr;}
+    const char* names[]{"GetActiveWeapon","GetHandStateMashineState","HasSomethingInHand","IsNotAlive",
+        "GetHandStateMashineDestinyState","GetDesiredWeaponState","GetDesiredWeapon","IsDesiredWeaponOperatedTwoHand"};
+    for(int i=0;i<8;++i)if(std::strcmp(name,names[i])==0)return Ptr(50+i);return nullptr;
+}
+int __stdcall CallInt(void*,void*,void* id,const JValue*){
+    if(fail_call==Number(id)){pending=true;return 0;}
+    return Number(id)==51?hand_state:Number(id)==54?destiny_state:Number(id)==55?desired_state:-1;
+}
+std::uint8_t __stdcall CallBool(void*,void*,void* id,const JValue* args){
+    if(fail_call==Number(id)){pending=true;return 0;}
+    if(fail_boolean){fail_boolean=false;pending=true;return 0;}
+    return Number(id)==52?has_item:Number(id)==57?desired_two_hand[args[0].i]:dead;
+}
+void* __stdcall Call(void*,void*,void* id,const JValue* args) {
+    if(fail_call==Number(id)){pending=true;return nullptr;}
+    return Number(id)==56?desired:args[0].i==0 ? active : nullptr;
+}
 void* __stdcall Field(void*,void*,const char* name,const char*) {
     const char* names[]{"","fX","fY","fZ","cOwnerAPB","m_bInHands","m_fPositionLeft","m_fPositionUp","m_fPositionForward",
         "cojvrTrackedPosition","cojvrTrackedUp","cojvrTrackedForward","cojvrRightOrigin","cojvrLeftOrigin",
@@ -76,6 +96,7 @@ int main() {
     env_table[24]=reinterpret_cast<void*>(Same);env_table[30]=reinterpret_cast<void*>(New);
     env_table[31]=reinterpret_cast<void*>(Class);env_table[32]=reinterpret_cast<void*>(Instance);
     env_table[33]=reinterpret_cast<void*>(Method);env_table[36]=reinterpret_cast<void*>(Call);
+    env_table[39]=reinterpret_cast<void*>(CallBool);env_table[51]=reinterpret_cast<void*>(CallInt);
     env_table[94]=reinterpret_cast<void*>(Field);env_table[95]=reinterpret_cast<void*>(Get);
     env_table[96]=reinterpret_cast<void*>(Boolean);env_table[102]=reinterpret_cast<void*>(Float);
     env_table[104]=reinterpret_cast<void*>(Set);env_table[111]=reinterpret_cast<void*>(SetFloat);
@@ -88,6 +109,29 @@ int main() {
     weapon.floats[offset_forward]=replacement.floats[offset_forward]=10;
     ElementWorldBasisTarget socket{{30,40,50},{0,1,0},{0,0,1},true};
     bool ok=true,known=false;
+    active=nullptr;
+    ok &= Check(bridge.TryCanAnimateEmptyHand(0)&&bridge.TryCanAnimateEmptyHand(1),"fresh empty idle hands rejected");
+    has_item=true;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"carry/shared secondary hand allowed finger animation");has_item=false;
+    dead=true;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"dead hand allowed finger animation");dead=false;
+    hand_state=1;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"non-idle hand allowed finger animation");hand_state=0;
+    destiny_state=1;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"pending state-machine transition allowed fingers");destiny_state=0;
+    desired_state=1;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"pending desired state allowed fingers");desired_state=0;
+    desired=&weapon;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"pending weapon before state change allowed fingers");desired=nullptr;
+    for(int side=0;side<2;++side){
+        desired_two_hand[1-side]=true;
+        ok &= Check(!bridge.TryCanAnimateEmptyHand(side),"other hand pending shared weapon allowed fingers");
+        desired_two_hand[1-side]=false;
+    }
+    for(auto name:{"GetActiveWeapon","GetHandStateMashineState","HasSomethingInHand","IsNotAlive",
+        "GetHandStateMashineDestinyState","GetDesiredWeaponState","GetDesiredWeapon","IsDesiredWeaponOperatedTwoHand"}){
+        fail_method=name;ok &= Check(!bridge.TryCanAnimateEmptyHand(0)&&!pending,"eligibility lookup failure leaked/allowed fingers");fail_method=nullptr;
+    }
+    for(int id:{50,51,52,53,54,55,56,57}){
+        fail_call=id;ok &= Check(!bridge.TryCanAnimateEmptyHand(0)&&!pending,"eligibility call failure leaked/allowed fingers");fail_call=0;
+    }
+    fail_boolean=true;ok &= Check(!bridge.TryCanAnimateEmptyHand(0)&&!pending,"eligibility read failure allowed fingers");
+    ok &= Check(!bridge.TryCanAnimateEmptyHand(-1)&&!bridge.TryCanAnimateEmptyHand(2),"invalid finger hand accepted");
+    active=&weapon;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"tool weapon accepted as empty for fingers");
     weapon.fields[forward]=&foreign;
     ok &= Check(!bridge.TryPublishTrackedWhip(0,socket) && !weapon.fields[position] &&
         weapon.fields[forward]==&foreign && constructions==0 && globals==0,"first publication overwrote foreign cache");
