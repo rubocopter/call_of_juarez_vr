@@ -69,7 +69,8 @@ context and calls `0xCC420` with left-button press then release. L2/R2 ray selec
 uses this native click path. Cross/global accept retains Java Enter; loading UI,
 intro skip and pausing-hint routes retain their special handling. The button path
 does not retain a native context or object across calls and remains exact-build
-gated. It is **implemented / host-tested** and still awaits physical acceptance.
+gated. It is physically accepted for exercised ordinary menus, visible Yes/No dialogs
+and gameplay pause; broader navigation remains a separate gate.
 
 Selection has a separate paused-hint precheck before resolving the current UI.
 The shipped hierarchy is `LawmanModule -> Module -> GameObject`, while
@@ -104,7 +105,7 @@ GameMode hint precheck and native `0xCC420` pointer-click route are also physica
 accepted in the exercised ordinary menus, visible Yes/No dialog and gameplay
 pause menu.
 
-Loading reached gameplay in the latest runs; controller-only continuation remains
+Loading reaches gameplay in exercised sessions; controller-only continuation remains
 a separate acceptance boundary. Operator confirmation remains required even when
 transport and native input telemetry pass. Exact native boundaries must not be
 generalized to another Chrome Engine build or another game.

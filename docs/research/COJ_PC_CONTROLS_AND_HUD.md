@@ -21,7 +21,7 @@ The current VR path is independently established by `GameplayInputState`,
 `BuildCoJGameplayActionValues`. Third-party Steam Input layouts are not PC
 defaults or evidence that an action exists in this build.
 
-## Complete native catalogue and present Sense coverage
+## Complete native catalogue and logical VR intents
 
 There are 48 action slots. The ordinary controls menu enables 43: all except
 8, 28, 36, 37 and 38. Developer-key mode can additionally enable 36 and 37.
@@ -29,63 +29,63 @@ An unused slot, hidden action or unassigned toggle must not be mistaken for a
 missing mandatory campaign button. PC keys below are official defaults; rows
 outside that manual are explicitly marked.
 
-| ID | Native action / PC meaning | PC default | Current VR route |
+| ID | Native action / PC meaning | PC default | VR logical intent |
 | --- | --- | --- | --- |
-| 0 | Look up | unassigned | tracked HMD; no digital look binding |
-| 1 | Look down | unassigned | tracked HMD; no digital look binding |
-| 2 | Turn left | unassigned | right-stick snap; native continuous look kept neutral |
-| 3 | Turn right | unassigned | right-stick snap; native continuous look kept neutral |
-| 4 | Forward | W | left stick |
-| 5 | Backward | S | left stick |
-| 6 | Strafe right | D | left stick |
-| 7 | Strafe left | A | left stick |
-| 8 | Show map, hidden from ordinary menu | not a documented PC control | absent; do not assign O to this slot |
-| 9 | Left mouse / left-hand weapon action | left mouse | L2 |
-| 10 | Right mouse / right-hand weapon action | right mouse | R2 |
-| 11 | Jump | Space | right Cross |
-| 12 | Lean left | Q | custom-bindable native lean; room-scale lean remains camera translation |
-| 13 | Lean right | E | custom-bindable native lean; room-scale lean remains camera translation |
-| 14 | Walk | Shift | Triangle + left-stick click; analog speed remains separate |
+| 0 | Look up | unassigned | tracked HMD; no digital look intent |
+| 1 | Look down | unassigned | tracked HMD; no digital look intent |
+| 2 | Turn left | unassigned | adapter snap; native continuous look neutral |
+| 3 | Turn right | unassigned | adapter snap; native continuous look neutral |
+| 4 | Forward | W | move.y positive |
+| 5 | Backward | S | move.y negative |
+| 6 | Strafe right | D | move.x positive |
+| 7 | Strafe left | A | move.x negative |
+| 8 | Show map, hidden from ordinary menu | not a documented PC control | absent; O is action 32 |
+| 9 | Left mouse / left-hand weapon action | left mouse | fire_left (original LMB semantics) |
+| 10 | Right mouse / right-hand weapon action | right mouse | fire_right (original RMB semantics) |
+| 11 | Jump | Space | jump |
+| 12 | Lean left | Q | lean_left, custom only; physical lean remains camera translation |
+| 13 | Lean right | E | lean_right, custom only; physical lean remains camera translation |
+| 14 | Walk | Shift | walk, custom only; default retains analog magnitude |
 | 15 | Toggle walk | unassigned | absent |
-| 16 | Crouch | left Ctrl | right-stick click and physical crouch policy |
-| 17 | Toggle crouch | unassigned | absent |
-| 18 | Horse gallop / multiplayer run | Caps Lock | left-stick click, named `run` |
+| 16 | Crouch | left Ctrl | crouch: VR toggle OR physical height |
+| 17 | Toggle crouch | unassigned | native persistent toggle deliberately unused by VR |
+| 18 | Horse gallop / multiplayer run | Caps Lock | run: contextual shoulder while mounted |
 | 19 | Toggle horse gallop / run | unassigned | absent |
-| 20 | Toggle alternate fire | Z | Triangle + Cross |
-| 21 | Select rifle / long weapon | 3 | utility sector 3 / custom equipment_3 |
-| 22 | Select right pistol | 2 | utility sector 2 / custom equipment_2 |
-| 23 | Select left pistol | 1 | utility sector 1 / custom equipment_1 |
-| 24 | Select dynamite | 4 | utility sector 4 / custom equipment_4 |
-| 25 | Select Bible (Ray) / whip (Billy) | 5 (manual labels whip) | utility sector 5 / custom equipment_5 |
-| 26 | Select bow | 6 | utility sector 6 / custom equipment_6 |
-| 27 | Discard weapon | Backspace | Triangle + L1 / utility sector 8 |
+| 20 | Toggle alternate fire | Z | alternate_fire |
+| 21 | Select rifle / long weapon | 3 | equipment_select[2] / SelectRifle |
+| 22 | Select right pistol | 2 | equipment_select[1] / SelectPistolRight |
+| 23 | Select left pistol | 1 | equipment_select[0] / SelectPistolLeft |
+| 24 | Select dynamite | 4 | equipment_select[3] / SelectDynamite |
+| 25 | Select Bible (Ray) / whip (Billy) | 5 (manual labels whip) | equipment_select[4] / SelectContextualTool |
+| 26 | Select bow | 6 | equipment_select[5] / SelectBow |
+| 27 | Discard weapon | Backspace | discard_weapon / ThrowWeapon |
 | 28 | Switch weapons, hidden from ordinary menu | not a documented PC control | absent; distinct from next/previous |
-| 29 | Hands / fists (native availability gates) | 0 | Triangle + Circle / utility sector 7 |
-| 30 | Contextual action / execute active trigger | F | L1, `interact` |
-| 31 | Reload | R | left Square |
-| 32 | Show objectives | O | Triangle + right-stick click |
-| 33 | Show dialogue and hint logs | L | Triangle + R2 |
-| 34 | Quick load | F8 | custom binding only; no default combat chord |
-| 35 | Quick save | F5 | custom binding only; no default combat chord |
+| 29 | Hands / fists (native availability gates) | 0 | hands |
+| 30 | Contextual action / execute active trigger | F | interact |
+| 31 | Reload | R | reload |
+| 32 | Show objectives | O | objectives |
+| 33 | Show dialogue and hint logs | L | logs, custom only |
+| 34 | Quick load | F8 | quick_load, custom only |
+| 35 | Quick save | F5 | quick_save, custom only |
 | 36 | Unnamed/developer slot | not a documented PC control | absent |
 | 37 | Cheat menu/developer slot | not a documented PC control | absent |
-| 38 | Bullet-time slot, hidden from ordinary menu | not a documented PC control | absent; concentration uses native weapon-state transitions |
-| 39 | Kick | C | right Circle during gameplay; back only in owned UI |
-| 40 | Focus / squint | X | Triangle + Square toggles native focus; VR magnification open |
+| 38 | Bullet-time slot, hidden from ordinary menu | not a documented PC control | absent; native weapon-state concentration |
+| 39 | Kick | C | kick: contextual shoulder on foot |
+| 40 | Focus / squint | X | focus: direct VR toggle; magnification observes native squint |
 | 41 | Multiplayer statistics | Tab | absent |
 | 42 | Multiplayer chat | Y | absent |
 | 43 | Multiplayer team chat | U | absent |
 | 44 | Multiplayer team/class selection | T | absent |
 | 45 | Multiplayer voice | V | absent |
-| 46 | Next weapon | mouse wheel up | R1 |
-| 47 | Previous weapon | mouse wheel down | Triangle + R1 |
+| 46 | Next weapon | mouse wheel up | weapon_next, custom only |
+| 47 | Previous weapon | mouse wheel down | weapon_previous, custom only |
 
-The manifest exposes thirty gameplay actions, including the utility modifier and
-custom-bindable campaign controls. The game adapter supplies thirty-three native
-values: shaped movement, neutral continuous look, and the demonstrated action IDs.
-Hidden/developer and multiplayer text/voice actions remain outside this campaign
-layout. Native equipment actions decide whether the selected item exists; the
-selector does not yet query inventory or hide unavailable sectors.
+The manifest retains thirty gameplay inputs, including the weapon-radial input
+and optional custom campaign actions. The adapter supplies thirty-three native
+values. Native selection retains final ammunition/reload/context authority;
+the wheel observes owned inventory and cached permissions without selecting
+anything during highlighting. Hidden/developer and multiplayer text/voice
+actions remain outside the default campaign layout.
 
 Native action IDs are not `Attack` hand indices. Exact
 `PlayerController.ExecuteInput(IFLjava/lang/Object;)V` converts action 10 to
@@ -98,8 +98,9 @@ For a locally tracked
 firearm operated with one hand, the exact `CanAttack(II)Z` prefix now rejects
 that opposite-hand retry. Own-hand attacks, native two-hand operation, tools,
 missing tracking caches and forced-network attacks retain native eligibility.
-Host JNI checks include this downstream conversion; corrected physical trigger
-ownership remains pending acceptance.
+Host JNI checks include this downstream conversion. Corrected right-pistol and
+empty-left-trigger ownership is operator-accepted; left/dual firing and native
+two-hand/tool contexts retain separate physical gates.
 
 A standalone shipped-Java fixture executes the unchanged `ExecuteInput`,
 `ApplyAttack` and `ApplyAttackState` bytecode against inert engine/player stubs.
@@ -111,50 +112,147 @@ without game initialization or physical firing acceptance.
 same ID 33. The shipped class identifies 33 as logs, 34 as quick load and 35 as
 quick save. Do not build new mappings from that duplicate definition.
 
-Options has a separate global pause action. Circle is back in flat menus or a
-valid frozen native UI, and kick in ordinary gameplay. Unknown timer ownership
-cannot authorize Circle navigation. Explicit Options can request the native
-Escape route to open pause. Create/recenter, Cross/accept and L2/R2 ray selection
-retain their existing routes.
+### Default Sense controls
 
-### Secondary Sense layer
+This is the sole user-facing default control table. The OpenVR binding supplies
+physical state; GameplayControlMapper resolves wheel ownership and direct
+toggles on the game owner. Only the CoJ adapter translates logical intents to
+native IDs. No keyboard settings or OS-global key/mouse injection is introduced.
 
-Hold left Triangle for secondary functions. L1 otherwise performs contextual F.
-Normal fire, jump, reload, kick, gallop/run and stick shaping retain their native
-semantics. While the modifier is active, firing and snap turning are suppressed.
-
-| With Triangle held | Intent |
+| Sense | Gameplay |
 | --- | --- |
-| Square | toggle native focus; repeat to exit |
-| Cross | alternate fire mode |
-| Circle | put weapons away / hands |
-| L1 | discard weapon |
-| R1 | previous weapon |
-| R2 | open dialogue/hint logs |
-| Left-stick click | slow walk while held |
-| Right-stick click | objectives |
+| Left stick | head-relative movement; small deflection gives native analog slow movement |
+| L3 | on-foot crouch toggle, merged with physical crouch |
+| Right stick | 45-degree snap turn |
+| R3 | Focus toggle; XR magnification follows real native squint |
+| L2 | original LMB / left-hand action |
+| R2 | original RMB / right-hand action |
+| L1 | Action / contextual F from the left Sense aim ray; reference ring only while held |
+| R1 | fresh Kick press on foot; hold Horse run / gallop when mounted |
+| Square | Reload |
+| Cross | Jump |
+| Circle | Toggle alternate fire |
+| Triangle | hold weapon/equipment radial; release to confirm or cancel |
+| Create tap | Objectives, decided on release before 800 ms |
+| Create hold | Recenter VR once at 800 ms; release cannot also send Objectives |
+| Options | Pause / native Escape |
 
-The right stick provides eight gesture sectors, clockwise from up: left pistol,
-right pistol, rifle, dynamite, Bible/whip, bow, hands and discard. Start from a
-neutral stick, deflect to choose, and return to neutral before choosing again.
-Crossing sectors while deflected retains the first choice. This is quick selection,
-not a visible inventory wheel; item icons, available-item filtering and tracked
-wheel presentation remain planned.
+Triangle has no modifier or tap action. Hands and Throw are wheel sectors only
+by default. A deliberate free-hand trigger journey from a head-relative waist
+zone to the armed grip, releasing there, requests native Reload. This hybrid
+gesture is operator-accepted for the exercised Peacemaker. Schofield retains
+that whole-clip path; Square remains available.
 
-Unavailable controls cannot count as observed releases. Native blocking UI and
-presenter context generations reset the layer without relying on texture uploads.
-Inputs held before entering the layer must be released before becoming secondary
-actions. Closing it cannot turn a held logs trigger into a shot or a held selection
-stick into a snap. Focus persists after leaving the layer so ordinary aiming/fire
-can continue, but resets on focus/menu/pose loss. Explicit custom focus remains a
-held action. Save/load and native Q/E lean are available to deliberate custom
-SteamVR bindings; no save/load chord is assigned during combat. Actual XR zoom
-magnification is still open, despite native focus-state delivery.
+The experimental Peacemaker/Frontier cartridge-paced extension requests one
+native round per insertion. Its intended continuation replenishes a solid,
+controller-oriented presentation cartridge in the empty support hand after an
+observed native reload interval; further insertions use fresh trigger press and
+release near the gun without returning to the waist. No round is counted or
+queued by VR code. The exercised continuation is physically rejected: it still
+stopped after one round and was uncomfortable. Recovery now distinguishes native
+two-hand animation occupancy from a carried object through passive `IsCarrying`
+reads, and suppresses the support trigger during the accepted reload sequence.
+These corrections are host-tested, awaiting physical acceptance. Initial admission
+still requires one eligible pistol, an empty support hand and on-foot ownership.
+Precise chamber/socket loading, gate opening, ejection and persistent native hold
+remain future work. See [reload acceptance](../VALIDATION.md#hybrid-motion-reload-acceptance)
+and [exact reload ownership](COJ_RELOAD_OWNERSHIP.md).
 
-Triangle alone only opens the layer; it does not request focus or hands. Hold
-Triangle, then freshly press Square for focus or Circle for hands. Release any
-button held before layer entry first. A layer-active record without that chord
-or a right-stick selection is not evidence that a secondary mechanic was tried.
+Next/previous weapon, logs, quick save/load, digital lean and explicit
+Walk retain native keyboard and optional custom logical routes, with no default
+Sense binding. Quick Load has no default controller gesture.
+
+| Direction | Logical action | CoJ native route |
+| --- | --- | --- |
+| Up | SelectRifle | action 21 / PC 3 / long weapon |
+| Up-right | SelectBow | action 26 / PC 6 |
+| Right | SelectPistolRight | action 22 / PC 2 |
+| Down-right | SelectDynamite | action 24 / PC 4 |
+| Down | Hands | action 29 / PC 0; native fists/holster semantics |
+| Down-left | ThrowWeapon | action 27 / Backspace; distinct from Hands |
+| Left | SelectPistolLeft | action 23 / PC 1 |
+| Up-left | SelectContextualTool | action 25 / PC 5; Bible for Ray / whip for Billy |
+
+The kWeaponRadialActions table is shared by intent resolution and presentation
+ordering. Native inventory stays in semantic channel order; the adapter remaps
+labels, ownership and permissions into clockwise spatial order for the renderer.
+Slot 5 is demonstrated by the shipped action catalogue and inventory type 3.
+The reader distinguishes a WeaponWhip instance from the Bible in that same
+slot. No separate invented Bible action exists.
+
+Triangle opens the wheel on its first eligible held sample. Right-stick
+highlighting emits no native command, including while crossing Throw. A single
+logical equipment command is emitted on an available Triangle release with
+a valid highlighted sector. Center or unavailable/invalid stick cancels.
+The retained 0.65 deflection threshold engages selection; 0.55 disengages it,
+providing 0.10 radial hysteresis. A selected sector retains its highlight until
+the angle exceeds its 22.5-degree half-width by 5 degrees. Unobserved inventory
+shows disabled sectors; owned/permitted selection still requires a valid native
+snapshot. A denied highlight cannot execute merely because permission recovers;
+center or another sector starts a fresh gesture.
+
+While open, the wheel consumes digital gameplay buttons and all right-stick
+turning. It retains established manual crouch/Focus state and left-stick movement.
+On closing, held buttons must release before gameplay resumes. Snap stays blocked
+through the closing sample and subsequent deflected samples until an available
+finite right stick returns inside radius 0.25. This barrier is additional to the
+existing native snap thresholds, 0.70 engage and 0.35 horizontal release.
+
+Menu/UI owns shared buttons before the wheel: Cross Accept, Circle Back,
+L2/R2 tracked-hand pointer selection and Options native pause/navigation.
+Gameplay actions and Triangle radial are suppressed in a native blocking UI.
+Unavailable controls do not count as releases. Menu/loading/dashboard/tracking
+loss and presenter context generations clear held gameplay and manual toggles;
+reacquisition requires an actual available release. Native special states retain
+their own eligibility after these context gates.
+
+Create resolves at the presenter sample rate with a monotonic clock. A short
+gesture becomes an Objectives event only on release; a hold becomes one Recenter
+event at 800 ms, or on release if the threshold fell between samples. Events
+survive faster presenter polling through the tracking mailbox. Gameplay owns
+Objectives delivery: menus and the open wheel consume it. Input/focus/dashboard/
+pose loss cancels the gesture and any undelivered mailbox tap, and requires
+release before restarting. The game-side retry queue also cancels generated
+Objectives when the Create source becomes unavailable; optional held Objectives
+retains edge semantics.
+
+L3 keeps a neutral manual toggle and merges it with physical crouch through
+native action 16. Action 17 is not suitable here: ToggleDuck flips persistent
+m_bToggleDuck, clears toggle-run/walk, and has no release undo; physical
+Duck(true) clears that latch. VR action-16 ownership remains releasable at
+context loss, and explicit crouch keeps the established camera-height policy.
+
+Synthetic manual and physical Duck require a fresh known on-foot owner. Native
+action 16 shares the category-1 target chain with HorseController, whose inherited
+Duck can make Horse.CanRun reject gallop. Mounted or unobserved player state
+therefore neutralizes VR Duck and suppresses physical crouch-height compensation;
+ordinary tracked HMD translation remains active. Mount/dismount resets the
+manual latch through the existing controller-owner boundary. Desktop/native
+input keeps its original route. This is separate from proving horse behavior
+or view comfort during a manual campaign run.
+
+R3 changes only native action 40. Optical magnification remains derived from
+the real cached m_fSquintFactor and m_fCurrentMaxSquintZoom, including native
+decay after Focus release; a rejected logical request cannot invent a zoom
+factor. There is no second R3-controlled magnification latch. Desired/current
+bows and scoped Winchester retain their existing special-zoom exclusion.
+
+Default slow movement needs no synthesized Shift: the native float path preserves
+the shipped independent 0.04-per-axis deadzone and remapping to actions 4-7.
+For example, forward deflection 0.20 becomes magnitude 1/6. Head-relative rotation,
+speed policy and native physics are unchanged. Billy stealth comfort/noise remains
+a physical acceptance check; no new Walk threshold or hysteresis is introduced.
+Physical room-scale lean remains camera translation; Q/E are retained natively
+and unbound on Sense. Duel/special-camera lean still needs eligible live evidence.
+
+The revised layout is operator-accepted for exercised available contexts:
+release-confirmed wheel selection, snap rearm, wheel haptics, on-foot crouch,
+ordinary R3 Focus, Create hold recenter/tap Objectives and encountered HUD rows.
+Kick remains inconclusive under campaign eligibility; no horse was available.
+Other weapons, mounted routing and special mechanics remain pending rather than
+failed. The replacement left-hand L1 route and held-only ring are host-tested,
+not physically accepted. [VALIDATION.md](../VALIDATION.md#revised-sense-control-acceptance)
+owns the acceptance gates.
 
 ## Mechanics that a button list does not cover
 
@@ -162,20 +260,66 @@ The native controller rejects digital one-shots while
 `LockApplyControllerState` is active. `ApplyState` does not replay F, reload,
 weapon selection, jump or kick. The adapter therefore commits only shaped
 analog actions 4-7 under that lock and dispatches digital transitions after
-unlock/apply; an analog failure leaves their edges pending for retry.
+unlock/apply; an analog failure leaves generated radial/Objectives/Kick pulses
+pending for retry inside the same context. Delivery is acknowledged per native
+action, so a later digital failure cannot replay an earlier successful command.
+A prior unreleased pulse is neutralized before a new confirmation; its held
+history cannot acknowledge the new command. Inventory denial, a new wheel or
+context/owner loss cancels pending commands.
 
 `BeingTriggered.ExecuteTrigger` calls `CheckTriggers` on the press transition.
 Its original look origin/direction getters follow the character, independently
 of temporary stereo-camera and per-hand weapon overrides. The exact class patch
 substitutes only those two calls with private helpers selecting a complete
-nullable HMD gaze pair. The original 148-byte selection method retains all
+nullable tracked interaction pair. The original 148-byte selection method retains all
 branch offsets, native trigger range and target/permission tests. Missing either
-vector delegates to the original getter. Publication uses the central render
-camera in centimetres, with physical translation/height and actor-yaw ownership;
+vector delegates to the original getter. Publication now uses the left Sense aim
+origin and local -Z in centimetres, with shared render translation/height correction
+and actor-yaw ownership. L1 dispatch is suppressed when that hand ray is unavailable,
+so its fallback cannot turn a held hand action into head-gaze selection;
 it clears on lost tracking, blocking UI and player changes. The patch and JNI
-failure cleanup are host-tested. The operator confirms L1 box pickup/carry and
-pistol pickup. A subsequent L1 press releases the carried box; that put-down
-gesture is also operator-confirmed. Device use and mounting remain physical gates.
+failure cleanup are host-tested. Box pickup/carry, pistol pickup, box put-down
+and small-drawer opening were operator-confirmed through the earlier HMD route.
+They do not validate the replacement left-hand route. Device use and mounting
+remain physical gates.
+
+A small cyan hand-directed ring identifies the ray used by L1 Action independently
+of the weapon aiming cross, only while L1 is held with a published valid left aim
+in live gameplay. It hides on release, equipment wheel and blocking presentation.
+The earlier permanent HMD ring made drawers openable by operator report but was
+uncomfortable; that acceptance does not promote the replacement hand route.
+Its finite binocular depth is presentation geometry, not native interaction range
+or proof of a usable target. Small drawers still require the original native
+collision element, reach and door/permission state; those predicates are unchanged.
+Fresh Action dispatch diagnostics read the cached active/executing trigger IDs
+and active element before/after dispatch without replaying selection or a trace.
+Dispatch completion is not proof that the selected native action succeeded.
+
+### Contextual shoulder ownership
+
+The fresh original-class audit establishes HumanBeing.IsRidingHorse()Z as
+a pure m_cHorse != null read inherited by Ray/Billy. The bridge resolves this
+predicate on the verified current local player every game input frame; validity
+is separate from its value. CoJContextualShoulderState uses player generation,
+observed mount state and available releases. Unknown state, owner replacement,
+mount/dismount and context loss release the shoulder and require a fresh gesture.
+
+On foot the default shoulder pulses action 39 once per fresh press. Mounted it
+holds action 18 until release. The combined fallback is deliberately rejected:
+PlayerController.CanExecuteInput rejects rider kick, but InputDigital.Translate
+walks the target list, and HorseController admits action 39 through its inherited
+kick consumer. The horse can reach Creature.PerformKick / WpnAttackHorseKick.
+Player rejection therefore does not prove C harmless mounted. On-foot single
+player CanRun normally denies run through m_bAllowRunInSingleGame == false,
+but action 18 still changes run state and scripts may alter that permission.
+F is delivered before the shoulder phase, then the predicate is read again:
+F can mount/dismount synchronously, invalidating the earlier observation.
+Player/mount changes clear manual crouch/Focus, queued commands and owned native
+input history, requiring release before a fresh gesture. Failed neutral cleanup
+keeps gameplay disabled until it succeeds. No gameplay permission is overridden.
+JNI fault/recovery, partial delivery, generation transitions,
+exclusive routes and releases are host-tested; campaign horse behavior remains
+unaccepted physically.
 
 ### Native character and tutorial eligibility
 
@@ -217,16 +361,32 @@ Native focus action 40 sets `PlayerController.m_bSquint` and applies
 `PlayerBeing.Squint`. The player must be movable to accept the setter;
 `IsSquint` additionally requires `CanSquint`: alive, movable, not looking at a
 scripted target, and neither kick nor jump speed state. Neither character class
-overrides these checks. Native zoom smoothing and its `_SQUINT` game event do
-not establish magnification in the independently supplied XR eye frusta.
+overrides these checks. `GetSquintZoom` linearly interpolates from 1 to cached
+`m_fCurrentMaxSquintZoom` using `m_fSquintFactor`; the native default maximum is
+2. `BeingCamera.UpdateZoom` divides its tangent FOV by native zoom before atan.
+The VR adapter copies those two finite bounded caches once per stereo pair,
+scaling every asymmetric render-eye tangent by the same native factor. It keeps
+runtime/UI optics and eye transforms unchanged and retains native entry/decay
+smoothing. `GetBeingZoom` may invoke `CalculateZoom` and is not an observation
+API. Missing/invalid caches or inactive gameplay use physical optics. Other
+scope/cinematic zoom is deliberately outside this squint contract.
+`ArmedPlayerBeing.GetDestinyMaxSquintZoom` averages ordinary weapon zoom values
+into the maximum cache; the reader preserves that native result. Its
+`GetSquintFactor` additionally combines bow concentration, and `GetSquintZoom`
+switches to a separate scope result when `IsScopeVisible`. Therefore desired
+and current `WeaponBow`/`WeaponRifleWinchesterScope` objects exclude this ordinary
+focus projection. The two hand getters only read native state; no parameter
+factory or scope getter is called. Lookup/owner ambiguity uses physical optics.
+Reader and projection tests are host-tested. Ordinary R3 Focus is
+operator-accepted for exercised use; bow/scoped optics and broader alignment,
+comfort and recovery retain their own gates. The `_SQUINT` event or blur alone
+does not establish magnification acceptance.
 
-The operator specifically confirms pause, L1 box pickup/carry/put-down and gun
-pickup, reload, jump, crouch and Triangle + R2 dialogue/hint logs. Focus and hands
-intents reached the native dispatcher. Focus now has operator-confirmed blur
-without perceived magnification; toggle-off/fire recovery and put-away remain
-unaccepted. Mounting, kick and equipment selection retain separate gates; only
-one pistol was available. Run details remain in ignored local evidence, and the
-project validation document owns formal acceptance state.
+Exercised pause, pickup/carry/put-down, gun firing, hybrid reload, jump,
+on-foot crouch, ordinary Focus and available wheel switching retain their scoped
+operator acceptance. Former-layout logs remain a baseline observation, with no
+default Sense binding now. Mounting, kick eligibility and broader equipment
+contexts remain separate gates; dispatch alone does not validate them.
 
 - **Contextual F:** the manual assigns pickup, put-down, devices and mounting to
   the same action. `HUDActiveTrigger.UpdateText` reads
@@ -275,13 +435,14 @@ The current native-stereo pair is captured in the camera render-view hook.
 `CameraStereoReticleOverlay` carries only activation, frame sequence and two
 projected points; the presenter draws a fixed black/white cross. It carries no
 native HUD sprites/text, target identity, no-shoot state or weapon availability.
-The operator reports missing gameplay HUD. This demonstrates incomplete
-presentation, not that every native HUD object has stopped updating.
+Gameplay HUD recovery covers essential text and selected native wrist feedback.
+It does not reproduce the complete native graphical HUD.
 
 ### Essential text owners
 
-The essential text route is **implemented / host-tested**, with live/headset
-acceptance pending. `HUDManager.sm_cMainHUDManager.m_Being` must identify the
+The essential text route is **implemented / host-tested**; floating dialogue
+and encountered HUD elements have operator acceptance, while unencountered
+tutorial/context transitions and broader readability remain pending. `HUDManager.sm_cMainHUDManager.m_Being` must identify the
 bridge's current player. The shipped 23-element `m_aHudComponents` array assigns
 index 9 to `HUD_ACTIVE_TRIGGER` and 11 to `HUD_HINT`; component instance types
 are checked before reading. Interaction text comes from
@@ -307,9 +468,16 @@ and subtitle panels onto its own D3D11 textures after fresh world copy. Full
 eye transforms/FOV retain stereo disparity and perspective under eye cant.
 This recovers essential text independently of native sprite alpha/coverage.
 Long text is wrapped with a bounded font/height fit; visual layout, timing and
-performance still require live acceptance. Isolated LMB/RMB/SPACE BAR/SPACEBAR
-tokens in hint copies map to L2/R2/Cross; dialogue and native strings are unchanged. Broader PC-key adaptation remains open, and
-native fading/animation styling is not reproduced. Pausing hints and other
+performance still require live acceptance. Hint/interaction copies adapt isolated
+LMB/RMB/SPACE BAR/SPACEBAR and explicitly delimited default campaign keys to Sense
+labels, including complete Triangle hold/right-stick direction/release gestures.
+The original templates use `%KEY(_ACTION_...)`; expanded text no longer carries
+action identity. English key names and independently observed Spanish DirectInput
+aliases are supported. Native strings, dialogue, bare letters/digits and unmapped
+keys remain unchanged. Expansion preserves complete fitting gestures and UTF-16
+pairs within the 1023-unit bound. Custom rebindings and other locale names remain
+ambiguous/unadapted; native fading/animation styling is not reproduced. The copied
+labels are host-tested, with live readability pending. Pausing hints and other
 blocking UIs retain the existing flat UI/dismissal route.
 
 ### Read-only health and ammunition presentation
@@ -336,7 +504,29 @@ permission changes. The reader copies bounded numeric text only; unexpected
 layout/text or JNI errors clear status independently of compass/inventory.
 No `UpdateWeapons`, `UpdateAmmoCounters`, weapon parameter factory or selection
 is invoked. Full native graphical styling and protected-target feedback remain
-separate boundaries. Host tests do not establish visor readability or live counts.
+separate boundaries. Exercised card readability, ammunition and damage-driven
+health updates are operator-accepted; broader transitions remain pending.
+
+### Read-only stance and shadow presentation
+
+The same owned HUDPlayer supplies exactly two `m_aPoses` windows: standing at
+index 0 and crouched at 1. `UpdateData` shows one and hides the other, then caches
+`m_bLastStanding`. Riding/using a cannon uses the native standing icon; this is
+HUD posture feedback, not an independent classification of physical HMD height.
+`m_bLastHidden` means `IsInShadow` with native recognition feedback enabled.
+The game applies its cached `m_fAlpha` to both pose icons. Shadow does not prove
+enemy invisibility, and false does not prove detection or even that recognition
+feedback is enabled.
+
+The wrist card adds a bounded posture line, with `En sombra` only for the positive
+native shadow cache. Both windows must exist with the exact UIWindow type,
+exactly one must be actually visible, and the visible index must match the cache.
+Pending `m_bForceUpdate`, nonfinite/transparent/out-of-range alpha, unexpected
+layout or JNI failure suppress this optional line without hiding health/ammo.
+No pose, shadow, recognition or HUD update methods execute. Health/ammo retains
+priority within the ten-row raster limit. Host ownership/fault tests and raster
+composition establish host behavior only. Encountered HUD rows have operator
+acceptance; unexercised posture/shadow transitions retain physical gates.
 
 ### Native inventory and compass observation
 
@@ -411,8 +601,9 @@ renderer-facing dial directions and tracked surface geometry contain value data.
 The game-owner observation cache is bounded to a 100 ms sampling interval and
 invalidates with player generation/context loss. Reader fixtures establish
 ownership, permissions, visibility, bounds, Unicode and cleanup on the host;
-tracked wrist direction, native marker timing and in-headset readability remain
-separate live/physical gates.
+exercised wrist direction, readability, attachment and snap/recenter behavior
+have operator acceptance. Broader objective contexts and native marker timing
+retain separate live/physical gates.
 
 ### Native graphical capture
 
@@ -462,11 +653,21 @@ The read-only consumer matches that tag to `GetActualWeaponNotEmpty(hand)`,
 current in-hands firearm ownership, a non-null cached collision, age at most
 0.25 seconds and the selected verified muzzle ray. Origin drift over 3 cm or
 angular drift over 3 degrees suppresses the flag; these are conservative stale
-presentation bounds, not gameplay range/permission tuning. The renderer draws
-an outlined red X at each matching captured eye point, preserving surrounding
+presentation bounds, not gameplay range/permission tuning.
+The sampled warning assessment records the rejection category, origin drift in
+centimetres and normalized direction cosine. Unavailable/hidden native warnings,
+wrong-hand ownership, unsupported reason, stale age and invalid geometry remain
+distinct from origin/angular drift. These diagnostics do not relax either bound
+or force a native trace.
+The renderer draws an outlined red X at each matching captured eye point, preserving surrounding
 world pixels. Unknown original class hashes still fail closed. The reader,
 bytecode/JVM verification, geometry rejection, pixels and captured flag transport
 are host-tested; native warning appearance/target transitions remain a visor gate.
+The operator reports that the warning appears on the monitor but not in the
+visor. The native-signal-driven outlined red weapon aiming cross is implemented and
+host-tested in the captured-eye compositor. Its visor visibility and protected
+target transitions remain pending; the earlier warning presentation was
+physically rejected. No physical visibility fix is claimed.
 Whip climb/grab helpers remain separate from firearm protection warnings.
 
 ## Exact procedural whip contract
@@ -506,38 +707,59 @@ only after hand/cache verification; it is a tool alignment aid, not a measured
 collision endpoint or proof of a successful clutch. Isolated mouse-button and
 space-bar names in hint/interaction presentation copies are translated to
 L2/R2/Cross. Native strings and subtitle dialogue are not edited. Bytecode,
-JNI lifecycle, ray selection and labels are host-tested; physical whip attack,
-clutch, length/release and visible hand cohesion remain open.
+JNI lifecycle, ray selection and labels are host-tested; physical whip use and
+approximately aligned reticle are accepted for exercised contexts. Exact
+clutch, length/release, collision reach and broader climbing remain open.
 
-## Planned adaptation and acceptance boundary
+## Optional native wrist feedback
 
-1. Recover readable hints/tutorials, subtitles, contextual action, health/ammo,
-   native no-shoot feedback and special countdown/aiming states. Each must retain
-   native availability and dismissal rules, including paused hints. Choose the
-   UI render/capture owner from measured ordering and keep UI work outside the
-   second world-render simulation/update path.
-2. Physically validate Options/pause versus Circle/kick, focus, alternate fire,
-   put-away/discard, direct weapon choice, objectives and logs. Explicit slow
-   walk and accessibility crouch must remain available. Keep quick load/save
-   accessible without accidental activation during combat.
-3. Replace shoulder weapon cycling with a tracked radial selector backed by
-   native inventory and actions 21-27/29 as appropriate. Show only available
-   items; respect per-character, per-hand and native reload/attack ownership.
-   Opening/selecting the wheel must suppress conflicting snap/fire actions and
-   release them safely on focus loss. Keep throw distinct from selecting hands.
-4. Move compass/objective direction and compact status to a wrist presentation
-   once reliable native feedback exists. Retain essential tutorials/subtitles
-   where they remain readable without looking at the wrist. A wrist compass
-   must preserve waypoints, not merely reproduce north.
-5. Establish separate physical gates for contextual carry/put-down, two-handed
-   aim, whip, bow, dynamite, Bible, concentration, duels, climbing and horses.
+The fixed HUDManager component array supplies concentration at index 10,
+countdown at 17 and horse at 18. Each read checks actual visibility and matching
+inherited player/manager owners independently of health/ammo.
+`HUDBulletTime.m_nMode` is committed after native icon selection: 1 running,
+2 cooldown, 3/4 available and 5 player not ready; modes -1/0 hide the icon.
+Copy only a visible typed icon with positive cached texture alpha and matching
+`m_cPlayer`; do not invoke eligibility or time queries.
 
-The input expansion, essential text presentation and passive HUD observation are **host-tested**. Complete
-HUD capture and XR focus magnification remain **planned/open**. The visible
-inventory wheel and objective wrist compass have operator acceptance for
-exercised contexts, with the smaller revised presentation still pending.
-New controls and special mechanics still require live
-and headset acceptance; source/manual findings are not physical acceptance. [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
-owns their acceptance gate; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-interactions)
-owns priority. Local settings snapshots and extracted manual/class evidence
-belong under ignored `work/`.
+`HUDCountdownTimer.UpdateText` populates exactly one of bottom/center numerical
+text owners, clearing the other. It presents `int(time_to_finish)+1`; copy the
+existing digits, never recalculate seconds or infer drawing permission.
+`LawmanModuleSingle.OnDuelReady` starts this timer with an empty title, selecting
+the center owner; duel start stops it. Require the owned timer/window, exclusive
+visible numerical text and valid text alpha; malformed or ambiguous text hides
+only this optional row.
+
+`HUDHorse.UpdateHorseData` caches fatigue in `m_fLastTiredness` on the native
+0-100 scale. This is fatigue, not remaining stamina. Its inherited cached
+`m_nHealthLevel` preserves native percentage/feedback lag; skip pending
+`m_bUpdateHealthLevel` and reset values. Require the visible typed horse/fill
+icons and positive bounded texture alpha. No horse update/getter is called.
+Health/ammo retain ten-row priority, followed by countdown, horse,
+concentration and posture/shadow. JNI exceptions clear independently. Reader
+faults and combined raster are host-tested; live transitions/readability and
+concentration/duel/horse input mechanics retain distinct gates.
+
+## Current acceptance and remaining work
+
+Essential hints/interactions/subtitles use read-only native owners and finite-depth
+stereo presentation; encountered HUD elements and floating dialogue are
+operator-accepted. Health/ammo, equipment wheel and objective wrist compass are
+accepted in exercised contexts. Posture/shadow, concentration and countdown have
+host tests and scoped acceptance only where encountered. Horse feedback and
+special campaign transitions remain pending. Complete graphical HUD capture is
+still planned; passive sprite/flush hooks do not establish usable alpha or live
+capture coverage.
+
+Remaining gates are the left-hand L1 route and held-only ring; corrected
+cartridge-paced continuation; protected-target red weapon cross visibility;
+retry/held-input recovery after the accepted death-screen visibility; broader
+inventory permissions, other weapons and campaign mechanics. Full cylinder
+loading, bow, scoped optics, dynamite, Bible, concentration, duels, climbing and
+horses require their own native ownership and physical evidence. Kick is
+inconclusive, not a demonstrated binding failure.
+
+[VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
+owns acceptance; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-interactions)
+owns priority. Source/manual findings and host tests do not promote physical
+gates. Local settings, extracted classes/manuals and run evidence belong under
+ignored `work/`.

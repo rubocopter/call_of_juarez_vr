@@ -23,7 +23,7 @@ private helper. It retains the original screenshot helper's first 47 bytes
 (filename construction and stale-preview deletion) followed by return.
 QuickSave length, branches, exception/debug metadata and every other instruction
 remain unchanged. Original screenshot methods are untouched. Archive identity
-and all four changed payloads are checked, and finish restores the original
+and the exact allowed changed payloads are checked, and finish restores the original
 archive byte-for-byte.
 
 Quick/automatic saves have no newly generated preview while this archive is

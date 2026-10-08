@@ -2,808 +2,335 @@
 
 ## Product boundary
 
-Call of Juarez VR turns the original Windows games into native-feeling PCVR experiences. Call of Juarez (2006) is the current reference implementation. The project may promote only game-neutral contracts that are independently demonstrated by another title; exact Chrome Engine layouts, RVAs, Java classes and gameplay behavior remain game-specific.
+Call of Juarez (2006), Windows x86, is the reference implementation for native
+stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
+tracked head and independent native hands with the game's torso and legs.
+Connected full-arm IK and full physical reloads remain development work.
+D3D10, OpenXR and additional games are separate future/experimental tracks.
 
-The supported end state is native stereo rendering, tracked head and hands, full-body IK and interactions rebuilt for VR.
+Only game-neutral policy may be reused from Penumbra VR Framework. HPL layouts,
+addresses and hooks do not apply here. Chrome Engine contracts remain CoJ-specific
+until a second game independently demonstrates them. [VALIDATION.md](VALIDATION.md)
+owns acceptance state and unresolved physical gates; [ROADMAP.md](ROADMAP.md)
+owns development priorities.
 
 ## Layering
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| Shared runtime | tracking/recenter policy, neutral eye data, logical actions, haptics, validation-neutral state | exact game addresses/classes |
-| Renderer backend | D3D device/frame ownership, capture, transport, render targets, compositor presentation | player/weapon/UI semantics |
+| Shared runtime | tracking/recenter, metre-space eye data, logical actions, haptics, gesture policy | exact game addresses/classes |
+| Renderer backend | device/frame ownership, capture/transport, render targets, compositor | player/weapon/UI semantics |
 | Game backend | exact camera, actor, skeleton, UI, input, weapon and physics seams | reusable compositor policy |
-| Diagnostics/evidence | provenance, structured telemetry, hook/device identity, run correlation | gameplay policy |
-
-The architecture intentionally mirrors the useful separation already proven in the Penumbra VR Framework while keeping all HPL-specific implementation details out of this repository.
+| Diagnostics/evidence | source/build/deployment correlation, hook/device identity, telemetry | gameplay policy |
 
 ## Safety and provenance invariants
 
-The native-stereo workflow can stage an exact Large Address Aware derivative
-of the recognized x86 `CoJ.exe` on 64-bit Windows. Only the PE
-`IMAGE_FILE_LARGE_ADDRESS_AWARE` bit changes; executable/engine code and offsets
-remain identical. Original and derived SHA-256 identities are pinned separately.
-The executable is a journaled deployment asset with an original backup,
-temporary publication, stage/run correlation and byte-for-byte restoration.
-Recovery validates the complete retained inventory before any mutation; damaged
-late backups preserve earlier assets and journals. Unknown originals or derived
-images fail closed. The capacity correction is host-tested and the previously
-failing narrated transition is headset-validated for the exercised candidate;
-general loading stability and high-address compatibility remain separate gates.
+Game-specific mutation requires recognized executable/engine/archive SHA-256
+identity, not filenames. Unknown builds, ambiguous ownership, invalid bases/poses
+and failed restoration fail closed. Hooks retain object/generation identity,
+preserve foreign replacements and undo only their own changes.
 
-The camera/actor coherence diagnostic records captured absolute/relative HMD
-orientations, native and both-eye bases, pose/frame identity, monotonic time,
-snap delta and yaw ownership. Snap/recenter starts at most 180 stereo frames
-of burst samples; ordinary baseline sampling remains bounded. It reads completed
-frame data and does not rotate an actor, refresh an owner or force a render/FX
-update. Formatting failure cannot interfere with restoration. This trace supplies
-evidence for camera/actor ownership. Exercised head turns after snap are now
-accepted with Steam recording off; recording-associated pacing remains open.
-The diagnostic does not constitute a camera-policy fix.
+Each physical candidate binds source state, build manifest, deployed hashes and
+one fresh run ID to one game process. `tools/vr_test.ps1 prepare` builds, checks
+and stages; `finish` collects evidence and restores original assets transactionally.
+The operator starts and closes the game and SteamVR. Retained inventory and
+backup identities are checked before any recovery mutation; missing or damaged
+backups preserve the journal instead of permitting partial restoration.
 
-The stabilization work that made physical testing trustworthy is now a
-baseline contract rather than a separate remediation track:
-
-- every physical candidate binds source commit/dirty state, supported-game
-  SHA-256, build manifest, deployed proxy hash, a fresh run ID and restoration
-  state;
-- a run ID belongs to one game process; a second process requires a new
-  `prepare` cycle;
-- hooks own a specific object/generation, preserve foreign hooks and restore
-  only their own mutations;
-- ambiguous build, object, generation, camera basis, tracked pose, restoration
-  or provenance state fails closed for game-specific mutation;
-- game render callbacks produce frames, while the presenter owns compositor
-  cadence, repeat behavior, scene focus and submission;
-- `tools/vr_test.ps1 prepare` is the physical-test front door and `finish`
-  collects available evidence and restores staging transactionally.
-
-Staging state retains the original proxy, runtime, control and input identities
-captured before deployment, including an explicit empty-directory manifest.
-Unstage checks all original backups against those identities before mutation;
-an older state without a required original identity fails closed. Retained
-deployment/video journals permit `finish` recovery after stage state removal.
-Recovery alone does not verify or accept a physical run.
+The optional Large Address Aware derivative changes only the PE flag of the
+recognized x86 executable. Original and derivative hashes are pinned separately;
+code/RVAs remain identical and the executable is journaled/restored. This improves
+user address capacity, not VRAM. Exact identities and allocation boundaries live
+in [the resource census](research/COJ_D3D9_RESOURCE_CENSUS.md).
 
 ## Exact-build integration
 
-Game-specific mutation is SHA-256 gated. A recognized filename is never sufficient to authorize exact offsets or bytecode/native seams. Unknown builds may use safe generic diagnostics only.
+The active renderer uses D3D9Ex shared textures for D3D11/OpenVR transport;
+classic D3D9 remains the compatibility reference. The exact observed MANAGED
+texture/cube requests translate to DEFAULT|DYNAMIC; WRITEONLY VB/IB requests
+translate to DEFAULT while preserving usage, format/FVF and size. This is bounded
+compatibility, not generic MANAGED emulation. Successful BeginStateBlock returns
+immediately reacquire owned hook slots because the engine can rewrite its vtable.
+A periodic watchdog alone cannot protect the next engine call.
 
-The active Call of Juarez integration is Windows x86 and the D3D9 API. The
-native-stereo implementation currently has an experimental
-`IDirect3D9Ex` factory/device path for shared eye images. Exact-game Ex startup
-is now live-tested for the bounded production startup/reset path on the
-inspected Steam build/host, and a live classic-D3D9 probe confirms successful
-`D3DPOOL_MANAGED` texture creation, which an Ex device does not support. The
-resource census is incomplete, so classic D3D9 remains the compatibility
-reference while the transport/device decision is open. An independent
-classic-D3D9 startup probe now establishes successful MANAGED texture, cube,
-vertex-buffer and index-buffer requests, and immediate hook restoration
-after BeginStateBlock prevents the observed loss of creation-hook coverage.
-The native-stereo worker's 100 ms reacquisition is not equivalent to recovery
-before the next engine call. The production Ex compatibility layer is now
-**host-tested** for the exact observed MANAGED WRITEONLY VB/IB profiles: it
-maps them to DEFAULT while preserving usage/format/FVF, and it immediately
-reacquires its HookRegistry slots when BeginStateBlock returns. The host test
-reproduced `D3DERR_INVALIDCALL` before those changes and now exercises
-Lock/Unlock plus post-state-block creation successfully. Texture translation
-remains DEFAULT|DYNAMIC. A manual production run now retains Ex identity,
-completes a reset and sustains Present/capture through normal outer finalization.
-The geometry-based texture extent correction is now live-tested: flat startup
-content reaches the compositor, and videos/menu visibility is headset-validated
-on PS VR2. Production shared native-stereo publication, D3D11 copy and successful
-new-frame submission with an explicit render pose are now **live-tested** in
-gameplay. Normal-quit inner presenter shutdown and complete finalization are
-also **live-tested**. The short-run production cadence target is measured,
-and the operator confirms correct stereo depth and stable head turns in-headset.
-Sustained pacing and tail latency remain separate from that bounded acceptance.
-The exact profiles and evidence limits live in
-[the resource census](research/COJ_D3D9_RESOURCE_CENSUS.md).
-D3D10 is a later
-renderer target.
-OpenVR/SteamVR is the primary runtime for the PS VR2 path; OpenXR remains
-separate and experimental.
+The journaled `code.pak` patches target verified original classes only and retain
+native fallback paths. The `Data0.pak` player-mesh partition is similarly hash
+pinned. All original archives restore byte-for-byte. Optional quick/automatic
+save-preview capture is suppressed at its exact invocation while ordinary save
+serialization remains native; see [save thumbnails](research/COJ_SAVE_THUMBNAIL_PATH.md).
 
 ## Camera and stereo
 
-The proven exact-game path is:
+`Camera -> View/Projection -> full ChromeEngine3 render-view wrapper -> D3D9 target -> presenter -> SteamVR`
 
-`Camera -> View/Projection -> ChromeEngine3 render-view wrapper -> D3D9 target -> presenter -> SteamVR`
+The natural camera remains authoritative. Each eye uses a scoped transient
+camera/view transaction and restores it afterward. The exact source basis is
+right/up/forward/position; no cross-product reconstruction of its first axis.
+Reflected/non-rigid bases fail closed. XR data stays in metres; only the CoJ
+adapter converts to centimetres.
 
-The game camera remains authoritative. VR applies transient offsets around each render pass and restores the natural state afterward.
-
-Key exact-game rules:
-
-- source camera basis is right/up/forward/position;
-- reflected or invalid bases fail closed instead of reconstructing an axis;
-- HMD eye transforms are metres, Call of Juarez world units are centimetres;
-- metres-to-centimetres conversion happens only in the Call of Juarez adapter;
-- each eye must execute the complete render-view wrapper at `0x00030FB0`;
-- core-only `0x00030E00` is insufficient for a valid second-eye pass;
-- the exact render pose used to create a frame travels with that frame and is submitted through OpenVR explicit-pose submission.
-
-Native stereo has physical validation for real distinct eye rendering, correct physical baseline, head orientation, positional offset and explicit render-pose behavior.
+Both eyes execute full wrapper `0x00030FB0`, including its guard and post-core
+work. Core-only `0x00030E00` cannot supply a valid second-eye result. Capture
+reads each currently bound color RT0, not a swap-chain backbuffer that may echo
+both eyes. Frame identity includes the exact HMD render pose/sequence submitted
+through OpenVR explicit-pose submission. See [camera contracts](research/COJ_CAMERA_PATH.md).
 
 ## Presentation modes
 
-The D3D9 path has two presentation modes:
+`native_stereo` contains two game eye renders. `flat_theater` projects native
+Present content onto a finite-depth head-anchored plane for startup, menus,
+loading and blocking native UI. Per-eye geometry and asymmetric optics determine
+texture extents; identical centered images or fixed padding are insufficient.
 
-- `native_stereo`: two real game render passes with distinct eye content;
-- `flat_theater`: a head-anchored finite-depth screen for startup, menus, loading and other non-stereo states.
-
-The device `Present` path can publish flat content when no native-stereo producer is active. The presenter claims and maintains compositor scene ownership, repeats the latest frame at compositor cadence, and returns to native stereo when the game resumes the two-eye render path.
-
-Flat-theater projection uses per-eye geometry rather than identical centered images, avoiding the earlier doubled-menu artifact. Texture padding uses both eyes' projected screen centers and asymmetric FOV to keep the entire source rectangle in bounds; the live optical trace confirms that a fixed 35% margin alone could not contain the PS VR2 startup image. The extent correction is live-tested, with videos/menu visibility headset-validated. Immediate capture reserves a mono SYSTEMMEM ring during startup; both eyes borrow the same locked surface through a producer lease. Consumer completion permits owner-thread unlocking/reuse. Matching same-device Reset preserves the reservation while new frames receive the current generation; dimensions/format/device changes defer replacement until leases release. No persistent DEFAULT-pool resource or duplicated CPU eye image is retained. The operator confirms recovered Options pause visibility and pointer selection. Allocation/Reset failure injection remains host-tested.
-
-Create on the left Sense controller recenters/reanchors the current VR reference.
+Game callbacks produce captured frames; the presenter owns compositor cadence,
+scene focus, repeat behavior and submission. Immediate flat capture reserves a
+mono SYSTEMMEM ring, with both eyes borrowing one producer lease. Consumer
+completion permits owner-thread unlock/reuse. Matching same-device Reset retains
+the reservation with fresh generation metadata; incompatible replacements defer
+until leases release. No persistent DEFAULT resource or duplicate CPU eye image
+is retained for this path.
 
 ## Flat UI ownership
 
-UI pointing is presentation plus exact-game UI policy:
+The active exact `LawmanModuleSingle` supplies `IsTimerFreezed`,
+`IsMainPlayerAlive` and `IsMenuMissionEndVisible` (menu 38). A stopped timer,
+dead player, visible mission-end UI or unavailable observation yields native
+stereo/body/gameplay ownership and captures native Present in flat theater.
+A post-input check aborts the frame before body/eye writes if dispatch acquired
+blocking UI. Death UI cannot be inferred from timer state alone.
 
-1. OpenVR supplies `/pose/tip` and global UI actions.
-2. The presenter automatically intersects the tracked Sense ray with the flat screen and reports normalized/source coordinates plus controller and hit positions. No L1/R1 activation is required. It initially prefers the right tracked hand, retains a valid owner, and a fresh L2/R2 press chooses that hand. Focus/input/pose loss releases the owner. A valid tip missing the screen does not switch to a different grip ray or the other hand.
-3. The presenter publishes a hand/claim/click mailbox. On the game thread, the current UI's native sprite-tree mouse dispatcher receives the previous and projected source-pixel positions, performing the shipped bounds/capture tests and enter/move/leave callbacks. Only then does `MainMenuModule.GetGlobalCursor() -> UICursor.SetPos -> OnMouseMove` update the cursor visual. Native calls require the recognized executable and ChromeEngine SHA-256. There is no desktop cursor warp, `SendInput` movement or `WM_MOUSEMOVE` publication. Exact seams and limits are recorded in [the UI mouse boundary](research/COJ_UI_MOUSE_PATH.md).
-4. UI resolution follows the object that actually owns mouse processing. The shipped `MainMenuModule` exposes `m_cYesNoDlg` but no `m_bYesNoDlgVisible` field. Modal discovery therefore treats a non-null `m_cYesNoDlg` as optional input-root metadata; a missing field, null object or JNI observation failure is cleared locally before falling back to the existing `FindUI(m_nCurUI)` route. The global `MainMenuModule` current UI is preferred for menu/pause routing; the active-game module remains the fallback when no global UI is available.
-5. Before/after writing, the resolved UI's `GetMousePos(LVector;)Z` observes native input coordinates in X/Z, normalized to source X/Y. Sprite `UICursor.GetPos` is a distinguishable fallback only when no concrete UI exists during startup. Movement beyond the last accepted VR input position or a held physical mouse button gives the mouse priority for 1.5 seconds after its latest activity; observation continues while the laser is hidden. Native input readback must match within one pixel before accepting delivery.
-6. Cross is global accept, Circle is UI back, Options is explicit pause/navigation, and L2/R2 select from the owning ray. Circle navigation is allowed only in flat UI or a valid frozen native UI; ordinary gameplay retains its kick action. A queued trigger press retains its target until a subsequent game `Present` observes it still applied. An accepted tap survives ordinary trigger release; failed mouse delivery/readback, ownership/focus loss, Back/Options/Cross navigation and a change in the shipped `MainMenuModule.m_nCurUI` index cancel it. Failed delivery releases the retained target so the automatic ray continues moving. Selection rechecks native input/index and serializes dispatch with mailbox cancellation; an old hand/claim/click completion cannot consume a newer click. Gameplay weapon bindings remain in their existing gameplay action set. A shoulder held through a menu-to-game transition cannot interact or switch weapons until an active released sample is observed.
-7. Back dispatches normal Escape press/release through the active `GameUserInterface.CallOnInputKeyGlobal`. When gameplay has no current UI, it calls `LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)` so the shipped module creates the pause UI. `MainMenuModule.ShowPrevUI()` is not a valid Escape substitute. Startup skip uses `IntroModule.OnInputKey`, while blocking load continuation uses `GameUILoading.OnInputKey(IZC)V` directly.
-8. Paused-hint dismissal follows `LawmanModule.m_GameMode -> GameMode.GetHintManager() -> HintManager`. `LawmanModule` extends `Module` and does not expose `GetHintManager`; looking up that getter on the module blocks selection once a campaign module exists. Field/method lookup uses the declaring shipped classes and clears lookup exceptions before fallback. A null game mode or hint manager allows ordinary UI selection; only a pausing hint consumes the press.
+The presenter intersects tracked `/pose/tip` with the flat screen automatically,
+retains a valid hand owner and lets a fresh L2/R2 select that hand. No shoulder
+activation is required. A valid tip missing the screen does not switch rays.
+A hand/claim/click mailbox carries value-only coordinates to the game thread.
 
-The earlier sprite-only internal-cursor route is **physically rejected**:
-the cursor sprite moves without option highlighting or usable ray selection.
-`UICursor.GetPos` reads the sprite; `OnMouseMove` moves that sprite;
-`SetProcessMouse` merely enables a native processing flag. Their success does
-not establish delivery to the menu's native mouse consumer. Regression fixtures
-distinguish sprite coordinates from input coordinates and actual hover events.
-Native sprite-tree delivery and failed-click cancellation are **implemented /
-host-tested**. A local exact-binary probe executes the shipped recursive
-dispatcher against synthetic sprites and verifies enter/move/leave callbacks.
-First-level main-menu hover/selection and physical-mouse takeover/resume are
-**headset-validated**. A later candidate regressed all menu/controller UI input
-by making a nonexistent `m_bYesNoDlgVisible` field mandatory; inspection of the
-shipped class confirmed only `m_cYesNoDlg`. Exception-safe optional dialog
-discovery now promotes that reusable dialog to the input root only when its
-`IsActuallyVisible()` method reports true. Gameplay-pause current-UI routing is
-also **implemented / host-tested**. Static tracing then separated hover from
-activation: pointer selection dispatches native left-button press/release through
-the current UI input context (`ChromeEngine3 + 0xCC420`) instead of synthesizing
-Java Enter.
-Cross/global accept retains the shipped Enter route, while loading and paused-hint
-special cases keep their own native semantics. Selection diagnostics distinguish
-mailbox/focus/readback rejection from native dispatch failure. The new click path
-is now **headset-validated for the exercised ordinary, Yes/No and gameplay-pause
-menus**. The prewarmed mono capture follow-up now has operator-confirmed pause
-visibility and selection after loading, recovering the frozen-visor regression.
-Its allocation denial and Reset cases retain their separate host-test scope.
-Earlier Windows-only and simultaneous Java/Windows routes remain physically
-rejected.
+The exact native sprite-tree dispatcher `0xC8F00` receives previous/new source
+positions before the visual cursor is moved. `GetMousePos` observes native input
+in X/Z, normalized to source X/Y; visual cursor echo is not proof of hover.
+The global MainMenuModule UI is preferred for pause; an actually visible
+`m_cYesNoDlg` is the modal root. Object existence alone is insufficient.
+Passive discovery uses `FindUI`/existing fields rather than creating UI factories.
+
+L2/R2 select through native input-context mouse press/release at `0xCC420`.
+Cross retains global accept, Circle UI-back and Options pause. Back uses native
+Escape routing, not `ShowPrevUI`. Intro/loading and pausing hints use their own
+shipped consumers; HintManager belongs to GameMode through `LawmanModule.m_GameMode`.
+Native input readback must agree within one pixel. Physical mouse activity has
+priority for 1.5 seconds; observation continues while the VR beam is hidden.
+
+Queued clicks retain matching hand/claim/index identity through a confirming
+Present. Failed delivery, owner/focus loss, navigation or UI-index change cancels
+only the matching click. Held gameplay shoulders cannot cross into gameplay
+until an available released sample. [Exact UI seams](research/COJ_UI_MOUSE_PATH.md)
+record binary contracts and rejected sprite-only/Windows-input alternatives.
 
 ## Expanded campaign input
 
-The shared runtime carries semantic walk/focus/alternate-fire, put-away/discard,
-objectives/logs, save/load, lean and six equipment intents. Only the CoJ adapter
-maps them to exact native action IDs, including authoritative logs 33, load 34
-and save 35. The existing non-fire/fire transaction remains phased: current
-muzzle publication precedes fire delivery, and pending releases retain ownership.
-Only shaped movement executes under the native controller-state lock. The batch
-unlocks and applies before digital one-shots: native F, reload, jump, kick and
-weapon selection reject locked calls and are not replayed by ApplyState. A failed
-analog batch does not consume pending one-shot edges. This separation is host-tested.
-Menu shoulder release barriers observe the availability and state of the actual
-gameplay actions, independently of optional global UI bindings. Raw action masks,
-utility-layer state and forwarding decisions are recorded on transitions and a
-bounded heartbeat to distinguish unavailable bindings from native dispatch failures.
+The runtime exposes semantic actions; only the CoJ adapter maps native IDs.
+Shaped analog actions 4–7 execute under the shipped controller-state lock,
+then unlock/apply before digital one-shots. Native F/reload/jump/kick/equipment
+reject locked calls and are not replayed by ApplyState. Partial delivery retains
+per-action history and unsent edges without replaying successful commands.
 
-`GameplayUtilityMapper` owns the default secondary layer and release barriers.
-Triangle selects secondary functions; L1 directly interacts, R1 cycles forward.
-The layer suppresses fire/snap, latches one right-stick sector per deflection,
-and blocks held buttons from changing meaning at entry or firing/turning at exit.
-Focus toggles deliberately with Triangle/Square, permits ordinary fire after
-leaving the layer, and clears on context loss. Explicit custom focus stays held.
-The CoJ owner applies this neutral policy after observing native timer/UI
-ownership, independently of asynchronously uploaded presentation mode. A post-input
-timer check releases intents when objectives/logs acquire a blocking UI before
-fire delivery. Presenter context generations retain focus/dashboard/pose losses
-even if no inactive sample reaches the game. Per-action availability is distinct
-from a released button; only an available release or valid centered stick rearms
-its barrier. Inactive contexts release every logical action before reacquisition. [The exact controls document](research/COJ_PC_CONTROLS_AND_HUD.md#secondary-sense-layer)
-owns the user layout. The visible equipment wheel is headset-validated for
-exercised switching/put-away; its permission policy is host-tested: the game
-adapter reads owned inventory and cached permission gates, while native selection
-retains final transient/ammunition authority. A denied held gesture requires
-release before permission recovery can select it. New UI remains pending physical acceptance.
+The control mapper owns release-confirmed radial commands, Focus/manual crouch
+toggles and held-button barriers. The wheel consumes right-stick/digital gameplay
+input, retains existing movement/toggles and blocks snap until a centered sample.
+Native permission remains final; denied sectors require center/another sector
+before becoming eligible again. Unavailable actions never count as releases.
+
+Fresh verified `IsRidingHorse` observation selects on-foot kick or mounted gallop;
+unknown/changed owner requires release. F can mount synchronously, so mount/context
+is rechecked before later shoulder/crouch/body/fire consumers. On-foot native
+action 16 merges manual and physical crouch; persistent toggle action 17 is unused.
+Mounted/unknown owners suppress synthetic crouch and its camera compensation.
+Create hold recenters once at 800 ms; a short released tap requests Objectives.
+[The controls document](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
+owns the sole default layout and exact action mappings.
+
+Optional wheel haptics describe fresh highlighting, not command success: right
+hand, 12 ms, amplitude 0.18, 120 Hz, minimum 80 ms cadence and maximum 100 ms capture
+age. Initial/reacquired/context/resource baselines are silent; stale/centered
+captures and output failures never queue/retry. Per-hand output faults are isolated.
 
 ## Equipment wheel and wrist compass
 
-The exact-build owner reads inventory and the naturally updated HUDCompass
-without calling gameplay eligibility helpers that can create weapon parameters.
-Native rotor IDs are resolved independently of vector positions. Visible, active
-waypoints and level-specific map orientation become bounded neutral dial values;
-JNI objects stay on the game thread. The compass mounts above the left tracked
-grip towards the forearm, uses captured head-space corners and hides with invalid
-tracking or native UI ownership. No arbitrary XR north replaces native guidance.
+Read-only game-thread readers copy native inventory permissions, actual rotor
+IDs, visible waypoint/map orientation and owned HUD caches into bounded neutral
+snapshots. No eligibility factory, timer, HUD or gameplay update is invoked.
+JNI references never cross threads. The compass follows the captured left grip
+and native guidance; invalid pose, back-facing geometry and blocking UI hide it.
 
-The D3D11 presenter composites cached circular rasters with transparent outside
-coverage into fresh eye images. Wrist geometry follows each captured pose; compass
-pixel rebuild/upload is limited to 10 Hz. Wheel/compass metadata, eye optics and
-surface geometry retain capture identity through device/resource replacement.
-Native reads, eligibility release policy, real host composition and projection
-are host-tested. Attachment, guidance and readability are headset-validated for
-the exercised previous layout; the 20% smaller wheel/compass and revised dial
-await a new readability check. Sustained pacing retains its own gate.
+The presenter caches transparent wheel/compass rasters and a separate wrist
+status card. Native health/ammunition have priority within ten copied rows;
+optional countdown, horse, concentration and posture/shadow rows fail independently.
+Fatigue is not remaining stamina; shadow does not guarantee enemy invisibility.
+Pixel rebuilds and bounded game-owner observation run at up to 10 Hz while each
+captured frame retains its own geometry, optics and resource identity.
 
-The same bounded game-owner sampling reads essential health/ammo presentation:
-HUDPlayer health text, HUDWeapons active/actual slot totals and HUDAmmoCounters
-reserve text. Manager/component/player identity, actual child visibility, native
-text alpha and cached slot permissions remain authoritative. No health/ammo
-update, weapon factory or inventory selection is invoked. At most ten copied
-UTF-16 lines accompany each captured frame; no native reference crosses threads.
-The presenter caches a rectangular brass/brown wrist card separate from the
-compass dial. Missing objectives do not hide status; invalid tracking, back-facing
-or distant wrist and gameplay-context loss suppress it. Readers and real stereo
-composition are host-tested; the exercised card, ammunition updates and
-damage-driven health updates have operator acceptance, while sustained pacing
-retains its headset gate. Inactive weapon-list graphics and protected-target
-warnings are not supplied by this card.
-
-Optional OpenVR skeletal summaries carry five curls per hand plus availability
-and the driver-reported estimated/partial/full tracking level. Missing skeleton
-actions do not disable ordinary controls. Input, pose, native UI and focus loss
-clear samples. Both hands have live-tested independent curls with partial tracking
-quality. This remains a sensing route;
-native finger animation awaits proven joint/rest retargeting inside the existing
-scoped hand transaction. Armed grip, carried objects and reload retain ownership.
+Ordinary Focus reads cached squint factor/maximum and applies
+`1 + (maximum - 1) * factor` to copied asymmetric render-eye tangents. Eye transforms,
+IPD, runtime and UI optics remain unchanged. It never calls CalculateZoom via
+GetBeingZoom. Invalid caches/context fall back to physical optics; bows and scoped
+Winchester remain excluded from this ordinary route.
 
 ## Essential gameplay text
 
-The CoJ adapter reads the current player's shipped HUD text owners and active
-dialogue on the game thread. It preserves localized UIStatic text, native sprite
-visibility, subtitle settings and checked dialogue-line ownership. It performs
-no HUD update, sprite replay or native render-target redirection. Observation is
-bounded to 10 Hz and clears on player replacement, missing owners or failed JNI
-reads. Each value-only UTF-16 snapshot travels with the captured frame sequence
-and that frame's exact static eye optics; native references never reach the
-presenter. [The controls/HUD research](research/COJ_PC_CONTROLS_AND_HUD.md)
-owns the exact class/field/index contracts.
+Bounded readers preserve owned native visibility/alpha, localized hint/interaction
+text and subtitle settings/dialogue ownership. UTF-16 snapshots travel with exact
+capture identity and eye optics. The D3D11 presenter caches finite-depth Unicode
+panels after copying fresh world content; empty snapshots remove old panels.
 
-The OpenVR D3D11 presenter caches Unicode text rasters and draws small opaque
-panels into its owned eye textures after copying fresh world content. Full
-per-eye transforms and asymmetric FOV produce finite-depth, perspective-correct
-panels; pixels outside those polygons retain the world image. Empty snapshots
-remove text through the next world copy, flat menus retain their existing route,
-and resources release before presenter-device shutdown. This text route is
-**host-tested**, separate from native graphical HUD capture and pending live
-prompt visibility, latency, readability and headset comfort acceptance. The
-operator confirms floating dialogue subtitles in the latest physical run;
-this does not accept contextual prompts or the complete graphical HUD.
+Copied prompts translate only explicitly delimited default campaign keys and
+observed aliases into Sense gestures. Native strings/dialogue/bare letters and
+digits remain unchanged; custom bindings and unobserved locale names are outside
+the mapping. Text/status recovery is separate from graphical native HUD capture.
 
 ## Tracking, locomotion and body ownership
 
-Room-scale HMD translation is camera-owned. The native actor keeps authoritative world position, grounding, collision and ordinary locomotion. Body yaw follows HMD yaw only outside the configured comfort cone; actor yaw must not be applied a second time when mapping controller targets.
+Native actor position, collision, grounding and locomotion remain authoritative.
+Analog movement preserves the shipped per-axis 0.04 shaping and float actions 4–7.
+Residual HMD yaw rotates the stick before shaping. Body yaw absorbs only excess
+outside the 35-degree free-look cone; that yaw is removed once from tracked camera,
+hand and weapon mapping. Snap maps positive stick X to native -45 degrees and
+negative X to +45 degrees, retaining engage/release latching.
 
-Yaw ownership runs even with Body IK disabled. The previous 35-degree engage /
-20-degree residual policy produced actor jumps of at least 15 degrees, matching
-the native body/hand stepping observed during physical head turns. The correction
-keeps the 35-degree free-look cone and absorbs only the excess continuously at
-its boundary. Rendering still uses previous committed ownership, and recenter
-establishes a fresh baseline. Slow/fast physical head turns were reported stable
-with Body IK disabled, so this boundary is **headset-validated** for the exercised
-path independently of arm IK.
-
-Sense handgrip poses feed body/IK tracking. `/pose/tip` remains separately available for UI and weapon aim.
-
-Native analog movement uses the shipped `InputAnalog` contract: per-axis 0.04 deadzone/saturation and native float actions 4-7. Each action follows only `m_Targets[InputSettings.GetTargetTypeForAction(action)]`, and analog updates reproduce the shipped `LockApplyControllerState -> dispatch/Translate -> UnlockApplyControllerState -> ApplyControllerState` transaction. Physical comparison now establishes native normal/walk speed and jump apex/duration parity with vanilla; movement/input/physics tuning is closed. The earlier visual impression of slow locomotion came from presentation cadence. Before native shaping, the adapter rotates the neutral left-stick vector by the residual physical HMD yaw left after the existing body-yaw ownership step, making locomotion head-relative without changing native speed/deadzone/run semantics. The exercised direction/feel regression is operator-accepted. Run remains boolean. The later operator report identifies inverted snap direction as the disorientation cause, superseding earlier 45/90-degree comfort conclusions. OpenVR positive right-stick X maps to negative native RotateHorizontally yaw (right) and negative X to positive yaw (left). This sign conversion stays inside the CoJ adapter; wheel and neutral input axes remain unchanged. The step remains 45 degrees, with unchanged engage/release thresholds and held-stick latching. The corrected sign is headset-validated for the exercised direction.
-
-Physical crouch is detected from calibrated HMD-height change with hysteresis. The current host candidate merges that state with the mapped controller crouch action before the native gameplay-input transaction, so lowering the headset requests the shipped crouch action and should drive the game's crouched body animation while preserving native collision/physics ownership. The room-scale body overlay still applies only the mapped horizontal component to the local pelvis/skeleton for both eye renders and restores the natural pelvis world basis after the second eye. Vertical actor position, grounding and collision remain game-owned. Horizontal room-scale displacement still needs a separate stick-equivalent visual locomotion animation contract.
+Room-scale camera and controller targets share tracking-Z/yaw conventions.
+Only horizontal room-scale displacement enters the render-only pelvis overlay;
+vertical actor position stays native. Physical crouch height uses a calibrated
+hysteresis and compensates duplicate native camera descent without altering
+collision. Recenter/player/mount changes invalidate the relevant references.
+Physical-walk animation remains unresolved; root updates affect child animation
+and gameplay events. See [animation ownership](research/COJ_ARM_SKINNING_AND_AIM.md#physical-walk-animation-ownership).
 
 ## Body IK
 
-The active `prepare -BodyIkAtStart` candidate uses **independent native hands
-with the native torso and legs retained**. The stretched arm experiment was
-physically rejected even after successful span calibration and post-swing wrist
-reference correction. The native connected arm skinning is therefore removed
-from the active controller overlay rather than enlarged again. The legacy arm
-solver remains a diagnostic path, not the default presentation.
+The active `-BodyIkAtStart` presentation hides the partitioned connected arm mesh
+only during independent-hand ownership and retains native torso/legs. Twenty
+named forearm/twist/hand/finger/holding-socket frames per hand receive one rigid
+map; armed hands share the measured weapon map, unarmed sockets map to absolute
+grip orientation. There is no upper-arm enlargement or span fit in this mode.
+Native animation owns reload. Both eye draws verify frames and arm visibility.
 
-For the exact Ray/Billy player assets, a hash-pinned `Data0.pak` transform partitions
-arm triangles into a separate `CoJVRHiddenArms` mesh node. The complementary body
-mesh retains torso, legs and hand triangles; vertex positions, skin weights,
-palettes and original element indices remain unchanged. NPC assets are unchanged.
-The extra node is hidden only while the tracked hand overlay owns rendering.
-Native animations, including reload, retain the original combined geometry.
-The entire original archive is journaled and restored byte-for-byte by `finish`.
-Native loading and the separated presentation are live-tested for the observed
-player model. The operator
-reports a substantial improvement, but rejects hand/weapon separation and wrist
-orientation; comfort and grip cohesion remain physical gates.
+Parent hand/socket applies before child weapon; restoration restores the parent
+before its captured child and then the outer pelvis. Captured positions rebase
+by actor translation. Failed restoration retains references for retry and blocks
+further mutation. An outer pelvis restore subtracts its removed offset from any
+retained inner capture exactly once. The legacy connected-arm solver is diagnostic;
+its hierarchy/writer limits remain in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md).
 
-Each hand overlay captures twenty named forearm/twist/hand/finger/socket world frames
-and moves them together with one rigid transform. There is no arm-span fit,
-upper-arm write or bounded wrist residual in this mode. Armed hands use the same
-captured weapon-to-controller transform as the weapon, retaining the animated
-finger/grip relation. The authored `left_hand`/`right_hand` holding socket is
-included; it is distinct from `Bip01 L/R Hand` and owns the attached weapon child.
-Unarmed hands map that socket directly to the absolute tracked grip orientation,
-without fitting an arbitrary initial animated pose. Element
-readback and hidden-arm state are checked through both eye draws. Restore retains
-native proportions, rebases captured positions by actor translation and restores
-the prior arm visibility before the outer pelvis restore. Failed restoration
-retains references and bindings for retry and blocks further hand mutation.
-When the outer pelvis restores while an inner hand retry is pending, its removed
-offset is subtracted from that retained capture exactly once.
-The same adjustment applies to a deferred child weapon capture.
-These ownership, asset and recovery contracts are **host-tested**; they do not
-establish visual headset acceptance.
-
-The weapon transaction captures native frames before moving its parent hand.
-Hand and holding socket are applied first, then the child weapon's world frames.
-The muzzle is verified after application and through both eye draws on every
-frame; any failed eye readback invalidates the published ray for that frame even
-if the next eye recovers. Restoration reverses ownership:
-restore the parent hand/socket before the captured child weapon, then the outer
-pelvis. A failed parent restore retains the child capture for retry and prevents
-rebinding either owner. Verifying the weapon before moving the hand was disproved
-by live barrel readback and cannot establish rendered grip or muzzle alignment.
-
-The legacy body adapter reads the live Call of Juarez skeleton and builds game-space controller targets. Arm solving uses measured native segment lengths; it does not silently scale skeleton bones.
-
-For the observed exact model:
-
-- the native two-bone upper+forearm chain is about 49.843 game units;
-- FORETWIST behaves as a sibling of forearm beneath upper;
-- hand follows forearm and does not inherit FORETWIST roll;
-- `EBones` ordering is semantic numbering, not parentage;
-- the earlier visible writer `RotateElementWithChildren(ILVector;F)V` post-multiplies an element and then enters the engine's recursive child/notification path at `ChromeEngine3 + 0x82F00`;
-- the current candidate precomputes complete upper/forearm/FORETWIST/hand world frames and writes each explicitly through `FromUpForwardPosElementWorld`, avoiding that recursive propagation boundary;
-- natural orientation bases are restored after stereo capture while captured world positions are rebased by any actor translation that occurred during the transaction; restoration is verified against that rebased state and failure disables further mutation.
-
-The visible writer and restore path are live-exercised, but the previous Body IK
-candidate remains visually rejected. Its positional gate returned ownership to
-native animation whenever the controller target exceeded the measured arm reach
-by more than 10%, even though the two-bone solver already hard-clamps unreachable
-targets to the measured chain. That produced visible ownership alternation.
-Current host code keeps positional ownership for every valid finite solver plan,
-including hard-clamped targets, while the separate conservative upper/forearm
-rotation gate, 30-degree hand-residual limit, disabled FORETWIST controller roll,
-reload yielding, rollback and restoration remain unchanged. This continuity
-change is **live-exercised technically** with relatively stable tracked hands,
-but visible short arms still reject physical anatomy/reach acceptance.
-Shoulder/clavicle participation remains a separate measured
-experiment. Lower-body writing remains unpromoted.
-
-The physical run with the absolute-frame writer removed the earlier severe
-locomotion/performance regression: the operator reported a dramatic recovery in
-movement while Body IK remained active. That run exposed a narrower ownership
-bug instead. After joystick locomotion, an arm branch could restore to the world
-position captured before the actor moved, leaving the hand behind and stretching
-the mesh back toward the player; a native reload animation re-synchronized it.
-Rebasing the captured natural positions by the same-frame actor translation
-reduced but did not eliminate the failure. Follow-up evidence shows a second
-boundary: shoulder/elbow/wrist and all arm element positions can remain fixed in
-world space across adjacent frames while the actor keeps moving. The current host
-candidate therefore keeps the same-frame restore rebase and additionally detects
-only a complete positional branch that stayed unchanged while the actor moved;
-that stale natural sample is translated by the inter-frame actor delta before the
-next IK solve. Native geometry that actually animates is left untouched. Both
-continuity corrections are **implemented / host-tested** and the combined result
-has been physically exercised with a large continuity improvement: hands no
-longer remain stranded in world space, although occasional recovery delay and
-torsion still reject anatomy. The continuity baseline is the corrected natural
-frame restored by the previous transaction, rather than an unapplied raw sample.
-
-The render pelvis, arms and weapon elements form nested transactions: apply the horizontal
-pelvis overlay, read/solve/write arms, map weapon elements, draw both eyes,
-restore weapons, restore arms, then restore
-pelvis. Continuity samples exclude the temporary pelvis offset. Earlier ordering
-moved the solved hands again through parent propagation before both eye draws.
-Camera, pelvis and controller positions now share the same tracking Z convention:
-the native camera source forward axis is the view's backward axis. The earlier
-camera translation reflected Z while the skeleton and visible gameplay reticle
-used negative-source-forward for physical forward. Camera room-scale translation
-also removes actor-owned yaw once, using the same leveled reference as arms and
-pelvis. These follow-ups are **live-exercised** after physical rejection of
-forward/backward movement and torso intrusion. The operator reports substantial
-overall improvement and accepts the exercised room-scale movement regression;
-hand/weapon attachment and loading stability retain separate gates.
-
-Physical crouch already lowers the tracked HMD; the native crouch animation also
-lowers the natural camera. A captured actor-relative camera height compensates
-that duplicate native drop while physical crouch is active and through native
-pose recovery. Explicit controller crouch retains native camera ownership;
-generation change/recenter resets calibration. The correction is applied to the
-rendered head, arm anchor and controller aim origin, never actor/collision
-position. Arm targets retain physical controller descent. Height compensation and
-successful arm/pelvis restoration are live-observed through normal shutdown;
-the exercised physical crouch/body-visibility regression is operator-accepted.
-Wrist/grip and reload recovery remain separate gates.
-
-All lower-arm element orientations use the same parent-plus-elbow composition.
-The earlier absolute writer used a direct segment rotation for the forearm and
-a composed rotation for FORETWIST/hand, producing different axial frames despite
-correct joint endpoints. A host regression reproduces and corrects that mismatch.
-The hand residual limit and captured native restoration lengths remain unchanged.
-Grip targets now use the same untracked camera plus physical-height correction as
-tip targets, rather than an animated-head anchor. The head-to-shoulder offset
-chooses the elbow plane independently of the current idle/reload elbow pose.
-A stable bilateral T pose measures controller span and fits the render-only arm
-lengths after subtracting measured native shoulder width, preserving the native
-upper/forearm ratio. Thirty consecutive horizontal bilateral samples within 1% span
-variation commit that measurement; ordinary aiming cannot calibrate it. Extension
-is judged in the horizontal hand-to-hand frame, independently of recenter yaw,
-with the head between both hands and bounded height/shoulder-plane offset. The
-previous fixed recenter-X/Z test physically rejected an extended T pose and left
-the native short chain clamped while the weapon followed the real controller.
-Pending calibration reports its reason and stable-sample count. Invalid
-tracking/outliers retain the native default. Calibration persists across recenter
-and resets with player generation. Joint-relative FORETWIST/hand offsets follow
-the fitted elbow/wrist endpoints. Native animation/physics and restored frames
-retain their original proportions. Calibration completion and longer reach are
-now physically exercised; visual anatomy remains rejected. Solver-target readback
-does not validate skinning. Large hand-orientation residuals still yield to the
-composed native frame, so wrist/forearm orientation and recovery remain physical
-gates independently of successful span measurement.
-
-Initial hand-orientation calibration uses the composed hand basis after positional
-upper/elbow IK. The earlier native pre-IK reference required the wrist to undo
-the initial arm swing even with an unchanged controller orientation. Recenter
-rebases from the last verified displayed hand basis, including rejected residuals,
-rather than an unmet controller target. The correction is now physically
-exercised, but the resulting enlarged connected limbs remain unacceptable near
-the torso. The independent-hand candidate replaces this presentation; the
-diagnostic solver keeps its existing hand/twist limits.
-
-Normal successful arm tracking/restore telemetry is sampled to reduce synchronous logging overhead; faults, rollback and failed restoration remain unconditional evidence.
-Arm apply/restore elapsed times are measured while IK or movement tracing is
-enabled. Sampled timing events mark body-observation frames; movement tracing
-also retains per-frame durations and IK state, so observation/logging cost can
-be distinguished from ordinary frames. Timing diagnostics cannot accept visual
-anatomy or establish a locomotion cause without physical evidence.
-When movement tracing is enabled, sampled actor-position observations also bracket
-upper-body and arm application, room-scale application/restoration, both eye draws
-and arm restoration. These are read-only observations of the native position;
-they do not repair actor state or surrender collision/physics ownership.
+Optional finger curls interpolate exact Ray/Billy authored relaxed-rest/fist
+local orientations while preserving translations/lengths and Hand/socket frames.
+All fifteen targets join the existing transaction. Empty-hand eligibility checks
+actual/active/desired equipment and pending states, carrying and shared two-hand
+ownership. Missing curls or ambiguity retain native fingers. Armed/tools/reload
+remain native-owned; curl zero means authored rest, not maximum opening.
 
 ## Weapon ownership
 
-The tracked grip positions the weapon and `/pose/tip` supplies its direction
-and up axis. The adapter captures all active weapon element world frames and
-measures `Weapon.GetBarrelOrigin/GetBarrelDir` against the authored holding socket. A rigid
-map aligns the barrel axis to the tracked tip while retaining measured
-socket-to-muzzle geometry and each animated element's relative frame. Every
-element is written through `FromUpForwardPosElementWorld`; readback must agree
-with the planned muzzle before publishing a shot ray. The general object
-`FromUpForwardPos` setter is unsuitable: its native `+0x878F0` helper calls the
-same recursive `+0x82F00` notification boundary rejected for locomotion.
+Tracked grip anchors the authored holding socket; tip -Z supplies direction.
+The adapter rigidly maps all measured weapon elements through
+`FromUpForwardPosElementWorld`, preserving internal animation/socket-to-muzzle
+geometry. The general object setter is unsafe because it reaches recursive
+`+0x82F00` notification. Readback verifies the complete muzzle basis through both
+eyes before ray publication. Shared two-hand weapons have one visual owner.
 
-The weapon transaction is nested inside arm/pelvis rendering and restores every
-captured element, rebasing positions by actor translation and verifying axes and
-positions. Partial failure rolls back the affected hand only; failed restoration
-retains its transaction and disables further weapon mutation. A weapon shared
-by both hands has one visual owner. Native reload owns weapon/arm animation.
+Exact-class nullable per-instance vectors feed native ballistic/visual origin
+and direction consumers after current muzzle publication. Null caches, unknown
+hands and network-forced attacks retain original methods; native spread remains
+downstream. Invalid/menu/generation boundaries clear ownership. Persistent FX
+use detached configured emitters, full native barrel frames and FXDetach commit;
+a starting transform alone is insufficient. Native counters demonstrate consumption,
+not visible hits/effects. [Weapon research](research/COJ_ARM_SKINNING_AND_AIM.md)
+retains exact consumers, emitter layout and authored rearward-trail interpretation.
 
-Shipped Java separates ordinary ballistic origin (`Being.m_vLookFromPoint`),
-visual origin (`m_avAimFromPoint`) and per-hand direction
-(`m_avLookDirDevForHand`). Publishing the global origin on a trigger edge did not
-establish ownership at the later actual attack. That mutation has been removed.
-An exact-hash `ArmedPlayerBeing.class` patch adds nullable per-instance right/left
-origin/direction vectors. `GetFireOriginForWeapon`,
-`GetFireOriginVisualizationForHand` and `GetBeingLookDirDevForHand` consume those
-vectors when available, with the entire original bytecode as fallback. The
-network-forced path, untracked players and downstream native accuracy/spread
-retain native behavior. Only the resolved local player receives verified muzzle
-vectors; they survive native aim updates until the next render sample and are
-cleared for menus, lost tracking, failed publication or player changes. Both
-first and held/repeated attacks use the per-hand consumer boundary.
+Contextual F now uses the left Sense aim ray through exact local-player
+CheckTriggers, retaining native range, collision-element and permission decisions.
+Missing publication suppresses Action until an available release; there is no HMD
+fallback. The small cyan reference follows that ray only while L1 is held in eligible
+gameplay, outside the wheel. Its nominal 1.5 m depth is presentation geometry,
+not a collision hit or native range. Cached active/executing trigger diagnostics
+are passive, bounded and sampled before/after fresh F edges; they never trace or
+select. This replacement's physical gate is separate from the accepted older
+HMD-based drawer interaction.
 
-The same transactional archive also patches the exact `BeingTriggered.class`.
-Only the two look getters called by `CheckTriggers` select nullable local-player
-interaction origin/direction. Its branch layout, native range, target predicates
-and execution remain unchanged; global look getters and other beings retain the
-original behavior. The adapter publishes the central HMD render gaze before F,
-including camera-only room-scale translation, crouch-height correction and actor
-yaw compensation. Both vectors are required together and cleared on failure,
-menu/tracking invalidation and player replacement. This route is host-tested;
-the operator confirms L1 box pickup/carry/put-down and pistol pickup. Devices,
-mounting and contextual prompt visibility retain separate physical gates.
+Motion reload is a hybrid request into native action 31, retaining Square and
+native ammo/reserve/state/animation authority. Exact passive admission supports
+four audited single-pistol/empty-support classes; the paced single-round extension
+is limited to Peacemaker/Frontier. A waist pickup, held journey and release near
+the grip requests one native round. Following an observed reload interval, ordinary
+eligible ownership must recover before the presentation-only solid token replenishes.
+Fresh trigger press/release can then request another round without returning to waist.
 
-Input dispatch has two exact-game phases. Non-fire actions retain the existing
-pre-body order, including native analog shaping, snap turn, reload and weapon
-selection. Only actions 9/10 are deferred until the current hand/socket and
-weapon transaction publishes its verified muzzle. Digital transition history
-is merged by phase, including an inactive held-fire release; neither analog
-movement nor snap turn is dispatched twice.
-A successful fire-only release retains any non-fire values whose release failed,
-so an inactive retry still owns and clears those native actions.
-Physical right fire maps to action 10, which `PlayerController.ExecuteInput`
-converts to `Attack(0, pressed)`; left fire maps to action 9 and `Attack(1, pressed)`.
-Action IDs and attack indices are distinct. The shipped `Attack(IZ)` can retry another
-hand after rejection. A tracked local one-hand `WeaponFire` cannot accept that
-cross-hand fallback in `CanAttack(II)`. Native two-hand operation, non-firearm
-tools, untracked beings and network-forced attacks preserve their original path.
+A separate passive recovery reader preserves an accepted continuation through
+verified native reload/two-hand animation. It proves no carried object via
+IsCarrying, rather than mistaking HasSomethingInHand's animation fallback for a
+world object. Held support trigger is consumed through verified reload until an
+available release, preventing cross-hand attack. No VR ammo counter or retry queue
+exists. Precise cartridge-tip/chamber policy and displayed drum/gate observation
+are implemented separately but not enabled as physical loading. Full gate/ejection,
+persistent native session and save/load cancellation remain unresolved. See
+[reload ownership](research/COJ_RELOAD_OWNERSHIP.md).
 
-The separate `GetFireDirVisualizationForHand` consumer selects the same nullable
-tracked base direction before executing its unchanged native accuracy/rotation
-suffix. `WeaponFire.AttackFire` therefore supplies a coherent ballistic and
-visual ray to traces and the shot light. A second exact-hash class patch guards
-`WeaponFire.ExecFXFire`: for the tracked local player's known hand with valid
-cached origin/direction and barrel up/forward, combustion and smoke are detached
-initialized with the complete measured barrel frame through `FXSetStartXForm`,
-then committed through `FXDetach` to update active/previous world transforms.
-The create-call's orientation vector describes emitter +Y; authored barrel FX
-emit along -X, so passing the shot direction there is incorrect. Full-basis eye
-readback preserves weapon roll. Missing vectors retain native fallback; failed
-full-frame effect initialization deletes that emitter. Null parent/element -1
-prevents restored weapon poses from moving effects after emission. Unknown hands,
-other players and network-forced fire execute the original attached-emitter code.
-Read-only per-weapon diagnostics count actual local `AttackFire`, `OnHit` and
-tracked `ExecFXFire` entries. A status mask separates configured, created,
-committed and failed emitters. These do not invoke spread or replay attacks;
-successful counters/handles still do not establish visible FX or impact alignment.
-Only successfully initialized/committed comb and smoke handles are published;
-each tracked FX entry clears the previous pair before creation. JNI publishes
-the counters and handles together or discards the complete observation on error.
-The low-rate exact-build FX probe reads the native global enable word and the
-particle draw camera before/after the eye passes, using copied values and
-replacement checks. Live samples show FX enabled and the particle camera
-matching each eye; this does not establish emission or visible pixels.
-An additional bounded reader resolves fresh `Weapon.GetThisID` through its
-native GameObject/module FX manager, checks table capacity and slot generation,
-and copies clock/lifetime, positions, enable flags and particle counters only
-for the two measured emitter subtypes. All owner/table/slot/subtype roots are
-rechecked before publication. Unknown types, short reads and replacement discard
-the emitter observation. At most 16 positive FX-entry observations open 500 ms
-windows, sampled at 20 ms intervals before/after eye rendering; context loss
-closes a window without replenishing the process budget. The probe never calls
-native update/draw, installs hooks or forces render flags. These copied samples
-are not atomic lifecycle or draw-execution evidence.
-
-Native-stereo staging requires the recognized original `code.pak` and class
-SHA-256 for `ArmedPlayerBeing`, `WeaponFire`, `BeingTriggered` and
-`LawmanModuleSingle`. The patched archive is a journaled deployment asset; all other archive
-payloads are checked unchanged, its deployed hash joins run provenance, and
-unstaging/recovery restores the original archive byte-for-byte. Host tests cover
-hand selection, null/network fallback and interrupted deployment. The shipped
-Java 1.4 verifier accepts all five patched classes without initialization. This remains
-host evidence, not actual-shot or headset acceptance.
-
-The exact `LawmanModuleSingle.QuickSave` thumbnail call is redirected to a private
-cleanup helper retaining the original thumbnail filename and stale-preview
-removal. It omits the optional GPU screenshot and its `ForceRender`, whose native
-allocation path produced an unhandled allocation exception during pickup-triggered
-autosave. All other QuickSave instructions, save serialization, sound/HUD
-restoration and original screenshot methods stay intact. While the patched
-archive is staged, quick/automatic saves have no generated thumbnail, including
-flat presentation. This is a host-tested workaround; the underlying resource
-pressure remains open; the exercised new-autosave/load gesture has operator
-acceptance. The exact boundary is
-documented in [save-thumbnail research](research/COJ_SAVE_THUMBNAIL_PATH.md).
-
-The gameplay reticle carries projected alignment points and a value-only warning
-flag for that captured frame. Its normal black/white cross becomes a red X only
-for a visible native protected-target warning matching the selected verified
-firearm ray. It does not transport tutorials or the full graphical HUD.
-The [exact PC controls/HUD boundary](research/COJ_PC_CONTROLS_AND_HUD.md)
-records native feedback owners and incomplete mechanics coverage. Game adapters
-own native action/target/inventory semantics; a future renderer HUD layer owns
-capture and presentation, and shared runtime owns neutral logical input and UI
-ownership policy. Exact native inspection establishes world-before-sprites-before-
-batch-flush on the combined callback; passive probes now correlate the naturally
-scheduled sprite and flush boundaries with current device/frame/target state.
-They never replay traversal or redirect rendering. The live route and usable
-alpha/coverage remain unproved, so HUD capture/composition is still pending.
-
-The gameplay reticle selects a successfully published, verified firearm
-muzzle/direction or the separate owned procedural-whip ray. The exact whip has
-no barrel: a complete nullable instance pose cache preserves its holding-socket
-axes and authored offsets, while the naturally scheduled `AdditionalSynchro`
-continues to own cloth simulation. Native updates/draws are never forced.
-The right-hand whip ray requires matching active owner, cache readback and
-verified tracked hand through both eyes. Its two-trigger semantics are exempt
-from the one-hand firearm guard. An unarmed tip cannot imply weapon alignment.
-With neither verified route the reticle is suppressed. It is
-projected through each captured eye basis and asymmetric frustum and drawn on
-the matching compositor textures; it is excluded from flat-theater/menu
-presentation and does not share menu pointer ownership. It is an alignment aid,
-not a collision trace or a guarantee against native spread. Sampled
-`controller_weapon_tracking`, `controller_weapon_barrel` and
-`controller_weapon_restore` events distinguish verified visual pose/cache
-publication from actual bullet impact. Exercised pistol muzzle/FX coherence is
-operator-accepted; exercised whip usability and approximate reticle alignment
-also have operator acceptance. Exact collision/reach and broader climbing/tool
-gestures remain separate from that acceptance.
+Protected-target feedback can color the per-eye aiming cross red only from coherent
+native warning/trace-owner/ray observations. Invalid observations clear it. Source
+implementation and host checks do not establish visor visibility. Billy's whip
+uses its authored holding-socket cache and naturally scheduled AdditionalSynchro;
+no rigid whole-rope transform or forced simulation is introduced.
 
 ## D3D9 native-stereo transport
 
-The previous native-stereo path was:
+`RT0 -> StretchRect shared D3D9Ex DEFAULT ring -> handle/pose/lease mailbox -> D3D11 OpenSharedResource/CopyResource -> owned OpenVR textures`
 
-`DEFAULT render target -> StretchRect DEFAULT ring target -> GetRenderTargetData SYSTEMMEM -> LockRect/CPU copy -> mailbox -> D3D11 UpdateSubresource -> OpenVR`
+Three slots hold separate non-MSAA eye textures and a D3D9 event query. One
+bounded FLUSH poll can submit commands, but the producer never waits. Ready pairs
+publish atomically. A D3D11 completion query retains the producer lease until
+both consumer copies complete. Ring exhaustion skips production; replacement or
+failure releases leases safely. Rebuild/invalidation defers while a consumer owns
+a slot. OpenSharedResource itself does not copy.
 
-At the physically exercised 1920x1080-per-eye source, readback/copy cost was
-about 7-7.5 ms median, 9-9.5 ms p95 and 10-12 ms maximum. Disabling only that
-boundary, while retaining both complete ChromeEngine eye renders, changed game
-update cadence from about 83 Hz to 138 Hz. This is the demonstrated bottleneck.
+This removes native-stereo CPU readback/LockRect/UpdateSubresource; immediate flat
+capture remains separate. The classic CPU stereo path is diagnostic compatibility,
+not the active performance path. Telemetry separates production, new submissions,
+repeats, drops, frame age and query retirement from compositor refresh.
 
-The live-tested D3D9Ex path replaces it with:
-
-`DEFAULT render target -> StretchRect D3D9Ex shared DEFAULT texture ring -> mailbox(handle + pose + lease) -> D3D11 OpenSharedResource -> CopyResource presenter texture -> OpenVR`
-
-The ring has three slots, each containing separate left/right
-`IDirect3DTexture9` render targets (`D3DUSAGE_RENDERTARGET`, `D3DPOOL_DEFAULT`,
-non-MSAA) and an event query. The currently observed game source is render
-target 0/backbuffer, `D3DFMT_A8R8G8B8`, `D3DPOOL_DEFAULT`, non-MSAA. `StretchRect`
-is therefore one GPU copy per eye, not an MSAA resolve in the demonstrated
-configuration. A future multisampled source would be resolved by that same
-operation into the non-MSAA shared texture.
-
-The producer ends a D3D9 event query after both eyes. At a later frame it first
-polls without flushing. If the query has not yet been submitted, that slot gets
-one `D3DGETDATA_FLUSH` poll; this submits pending commands but never waits, and
-subsequent `S_FALSE` results leave the slot GPU-owned. A ready pair is published atomically with the exact
-render pose and capture time. The presenter opens each shared handle on its
-matching-adapter D3D11 device, queues one `CopyResource` per eye into its stable
-OpenVR submission textures, ends a D3D11 event query and submits without a CPU
-wait. The lease keeps both source textures unavailable to the producer until
-that D3D11 query completes. A mailbox replacement or failure releases the same
-lease safely; ring exhaustion drops/skips production rather than stalling the
-game thread.
-
-Resource lifetime is also host-tested across teardown and producer transitions.
-A size/device/generation rebuild or explicit invalidation is deferred while a
-consumer still owns a producer slot. Disabling diagnostic capture therefore no
-longer destroys the ring. During finalization producer callbacks are stopped and
-hooks restored first, then the presenter is joined so pending mailbox/bridge
-leases are released before the D3D9 capture rings are destroyed. Steady-state
-presentation never waits on those D3D11 event queries. Shutdown is the sole
-exception: if copies are still pending, the presenter issues one bounded
-D3D11 event-query completion barrier after them before releasing their leases.
-If that drain fails or times out, the bridge retains the leases until its D3D11
-session is destroyed instead of recycling D3D9 resources prematurely.
-
-The native-stereo GPU path removes `GetRenderTargetData`, SYSTEMMEM staging,
-`LockRect`, the approximately 16 MiB stereo CPU copy, sampled CPU eye hashes and
-`UpdateSubresource`. It retains two necessary GPU copies per eye: the game
-target-to-shared `StretchRect` and shared-to-presenter `CopyResource`.
-`OpenSharedResource` itself does not copy. Both synchronization points are
-nonblocking during steady-state presentation and telemetry reports
-producer/consumer waits, queue/ring depth, drops, overwrites, frame age,
-copy-fence retirement, submissions and repeats. The bounded shutdown-only drain
-described above is not part of the frame loop.
-
-The bounded production trace now measures approximately 136 Hz game updates
-and 135.5 rendered stereo pairs/s, close to the readback-off reference and well
-above the old CPU-transport path. Pair production rate is distinct from compositor
-submission and headset refresh. The operator confirms correct depth and stable
-head turns; sampled native CPU readback/copy and producer/consumer waits are zero.
-The mailbox can replace unconsumed pairs, and ring drops and frame-age outliers
-still occur. This establishes the short cadence target, not sustained tail-latency
-or pending-frame reset/device-loss acceptance.
-
-**Implemented / host-tested / live-tested bounded HMD rate cap:** production rate is now
-scheduled from OpenVR `Prop_DisplayFrequency_Float`, read and refreshed by the
-single runtime owner. It follows the configured HMD rate (for example 90 or
-120 Hz); neither a desktop mode nor a fixed 90 Hz value supplies the target.
-One shared CPU schedule covers native stereo and flat/menu presentation without
-double-waiting. Before each native stereo pair it waits until a bounded,
-cancellation-aware deadline, then reads the latest tracking sample. Rate changes,
-reset and pauses rebase the schedule, with no catch-up bursts. Loss of HMD timing
-retains the last valid HMD cap while desktop vsync remains disabled; a safe game
-Reset restores the requested interval when timing is unavailable.
-Each Create/Reset uses one property sample; only success commits its sampled
-cadence and latest game interval, including preservation across failed Reset.
-Failed attempts also restore the caller's interval before reuse of its parameters.
-If timing first appears after creation with desktop vsync still active, the cap
-remains deferred until a game-owned Reset disables that wait. This cap controls
-rate; it does not phase-lock the game renderer to the compositor. `WaitGetPoses`
-still owns compositor pacing.
-
-With valid VR timing, factory creation/reset uses `D3DPRESENT_INTERVAL_IMMEDIATE`
-to avoid a second monitor-vsync wait. The desktop display mode remains game-owned.
-Diagnostics retain requested/effective Present interval, reported HMD refresh,
-producer target, CPU schedule wait and separate new/total submission rates.
-The intentional schedule wait is separate from zero-wait GPU transport. A bounded
-physical run reports configured HMD refresh and target at 90 Hz, producer pairs
-around 87/s and total compositor submissions around 89/s, with complete normal
-closure. The operator reports improved smoothness. Refresh changes, unavailable
-timing recovery, phase alignment and sustained tail latency remain unvalidated.
-
-API source: [OpenVR v2.15.6 header](https://github.com/ValveSoftware/openvr/blob/v2.15.6/headers/openvr.h),
-the pinned SDK already used by this repository; Valve's
-[compositor overview](https://github.com/ValveSoftware/openvr/wiki/IVRCompositor_Overview)
-describes the separate pose/render/submit boundary.
-
-Full GPU sharing is not available from a classic `IDirect3D9` device: shared
-DEFAULT-pool handles for DXGI/D3D11 interop require D3D9Ex. If the game cannot
-create or run on the substituted Ex device, the candidate fails over at device
-creation to the prior classic-D3D9 deferred CPU path and reports the reason.
-That fallback still uses `GetRenderTargetData` and is not acceptable for the
-current physical transport gate. `GetRenderTargetData` also remains in the
-immediate flat-theater/menu capture, currently sampled every second `Present`,
-because that path composes CPU-side pointer/UI content and avoids persistent
-DEFAULT resources across resets. Its prewarmed mono SYSTEMMEM ring avoids
-full-frame allocations after level loading. It is not used by native stereo when the
-D3D9Ex path is active.
-
-A previous production D3D9Ex candidate crashed the exact game during physical
-testing. Independent LTR research on the same game build has since moved the
-compatibility boundary forward: a semantic adapter maps observed usage-0
-MANAGED 2D/cube textures to `DEFAULT | DYNAMIC`, maps the observed MANAGED
-WRITEONLY vertex/index buffers to DEFAULT while preserving their metadata, and
-restores the device hook set immediately after `BeginStateBlock`. That research
-path is **live-tested** through a bounded 120-Present startup window. A real
-reset kept all nine tracked adapted resources alive; four directly hashable
-textures retained identical contents and a generation-1 texture remained bound
-in generation 2. The same research path also exercised the two-slot x86/x64
-transport across reset: a stalled generation was cancelled and the new
-generation completed 12/12 submissions with matching ready/done values and zero
-sampled mismatches.
-
-The production mod now contains the corresponding bounded VB/IB translation
-and immediate `BeginStateBlock` hook reacquisition alongside its existing
-texture translation. The bounded production compatibility/startup/reset path
-is now **live-tested**: Ex identity, successful translated texture allocation,
-reset, sustained Present and flat capture are observed. The corrected allocation
-now passes the complete startup gate, with compositor uploads/submissions and
-operator-confirmed videos/menu in the visor. Production shared native-stereo
-frames now reach D3D11 and both compositor eyes successfully with their explicit
-render pose. Bounded cadence, operator-confirmed stereo/head-turn stability and
-normal-quit inner shutdown now pass. Texture contents across reset, pending-frame
-production reset and device loss remain unpromoted. The research results are scoped evidence for
-this build/host; they do not establish generic MANAGED or device-loss semantics.
-
-OFXR-Bridge is not part of the active architecture. It is an experimental
-OpenXR optical-flow frame-generation layer and cannot replace this D3D9/OpenVR
-resource boundary.
+The game producer cap follows the HMD display-frequency property. One bounded
+cancellation-aware CPU schedule covers stereo and flat modes, rebases at rate/reset/
+pause changes and samples latest tracking afterward. Valid HMD timing selects
+IMMEDIATE presentation to avoid monitor-vsync double wait; desktop mode remains
+native. Failed Create/Reset restores caller parameters and does not commit cadence.
+Missing timing retains the last valid cap; late timing can require native Reset.
+The cap is not compositor phase lock; WaitGetPoses owns presenter cadence.
 
 ## Evidence and lifecycle
 
-Every physical candidate correlates source state, build manifest, deployed proxy, run ID, runtime telemetry and retained evidence metadata. Raw run material remains local under ignored `work/` and may be discarded after its durable conclusion is represented by source, tests or the focused research documents.
+The exact pre-DestroyGame import boundary stops producers/restores hooks, joins the
+presenter, drains pending GPU copies, releases capture resources and forwards
+native destruction once. Atexit is too late for worker cleanup and only reports
+incomplete shutdown without COM/GPU/thread work. [Shutdown contracts](research/COJ_SHUTDOWN_BOUNDARY.md)
+retain exact hashes/RVAs, ownership and final-counter requirements.
 
-Validation states are:
+Steady-state GPU queries do not wait. Shutdown alone permits a bounded completion
+barrier; failed drains retain leases until D3D11 session destruction. Final GPU/
+proxy summaries must be unique and agree on copied/completed totals, zero pending
+copies/abandoned leases and full published-lease reclamation.
 
-`planned` -> `implemented` -> `host-tested` -> `live-tested` -> `headset-validated` -> `supported`
-
-Earlier shared-stereo gameplay stopped finalization at capture cleanup after
-incomplete inner presenter shutdown. A fresh physical run now completes the
-exact pre-exit boundary, real owning-runtime shutdown, capture cleanup, hook
-restoration and `run_end`. This normal-quit lifecycle is **live-tested**.
-
-The candidate now finalizes before the exact executable's imported
-`ChromeEngine3!DestroyGame`, with both binary hashes, the loaded call site and
-export/import identity checked before mutation. The original call is preserved
-and import restoration respects foreign ownership. This is **implemented /
-host-tested / live-tested**: a real x86 DLL/host exit fixture shows owner cleanup before
-original forwarding and DLL atexit, while its unhooked baseline skips cleanup.
-The GPU fixture also verifies producer resource reclamation after pending
-consumer copies drain. The physical run's unique final GPU/proxy records agree:
-all consumer copies complete, with zero pending copies or abandoned leases and
-all published producer leases reclaimed. Abnormal exit and device loss remain
-**experiment-pending**.
-
-An unpublished final producer frame is cancelled during resource release rather
-than submitted after quit. A **host-tested** telemetry correction refreshes ring
-depth after slot reset; the physical binary's final depth was stale despite
-completed cleanup. A subsequent physical run now reports final depth zero,
-all published leases reclaimed and consumer copies fully drained; the corrected
-final statistic is **live-tested**.
-
-Runtime state has explicit process lifetime; DLL static destruction does not
-repeat GPU/COM/thread cleanup. Atexit only reports incomplete pre-exit shutdown
-through a direct file write that avoids the shared logger mutex. It cannot
-replace the success summary. See the exact contract and evidence limits in
-[the shutdown boundary](research/COJ_SHUTDOWN_BOUNDARY.md).
+Raw videos/logs/dumps and run metadata belong under ignored local evidence and may
+be removed once their durable conclusions are captured in source, tests and focused
+research. Active staging/recovery journals and their original backups must remain
+intact. Cleanup cannot substitute for finish or promote a physical gate.
 
 ## Primary validation hardware
 
-Current physical development uses PS VR2 through SteamVR with PS VR2 Sense controllers. Hardware-specific bindings belong to assets/runtime input; game logic consumes logical actions and tracked poses.
+PS VR2 with Sense controllers through SteamVR is the development reference.
+Bindings belong to runtime assets; game logic consumes logical actions/poses.
+Compatibility with other devices requires independent acceptance.
 
 ## Physical-candidate image quality
 
-The reversible Video.scr profile preserves the game's selected resolution and
-quality settings, enforcing only FSAA 0 for the demonstrated non-MSAA shared
-transport. It records the actual resolution and applied settings hash, journals
-recovery before writing, and restores the original bytes on finish. The native
-render target remains game-owned; OpenVR recommended eye dimensions alone do not
-allocate a larger ChromeEngine target. Higher game resolution therefore needs its
-own physical cadence, clarity, loading and reset checks. Changing graphics during
-an active run does not establish renderer reset/device-loss acceptance.
+`prepare` preserves the selected game resolution and stages FSAA 0 unless the
+operator elects to keep video settings. Original video configuration is journaled
+and restored by `finish`. Source resolution, eye target extents and runtime optics
+retain explicit provenance; no silent supersampling/performance preset replaces
+native ownership. Frame-generation experiments remain separate from the active
+stereo path. Sustained pacing, recording compatibility, resource loss and broader
+campaign behavior retain independent gates.

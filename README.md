@@ -13,98 +13,49 @@
   <a href="https://ko-fi.com/onitaku"><img alt="Support me on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
 </p>
 
-**An experimental native-PCVR conversion for Techland's Call of Juarez games.**
+**A native PCVR conversion of Call of Juarez (2006), built around tracked head and hands.**
 
-Call of Juarez (2006) is the reference implementation. The goal is a native-feeling VR conversion with stereo rendering from the game engine, tracked head and hands, full-body integration and interactions rebuilt around motion controllers.
+> **Pre-alpha â€” no public release yet.** Core VR gameplay works in the exercised Steam build with PS VR2 through SteamVR. Broader campaign coverage, recovery and comfort still need validation.
 
-> **Pre-alpha — no public release yet.** Native stereo and the core HMD path are working in-headset. Current development is focused on the remaining playability and comfort blockers before the first backend can be considered usable end to end.
+## What works
 
-## Current state
+- Native per-eye stereo, head tracking, recentering, room-scale movement, physical crouching and snap turning.
+- Native movement and jump behavior, with head-relative controller locomotion.
+- Tracked independent hands and weapons, retaining the original torso and legs. Pistol firing, visible muzzle/impact effects and exercised whip use work in-headset.
+- Controller-operated menus and pause, an equipment wheel with haptic feedback, a wrist compass and the encountered health/ammo HUD and subtitles.
+- Ordinary Focus, Create hold to recenter and Create tap for objectives. The corrected death screen is visible in the headset.
+- Exercised pickup, carry, put-down and drawer opening. The latest candidate moves L1 selection to the left controller and removes the permanent head-gaze ring; that replacement still needs a headset check.
 
-Accepted evidence is scoped to the inspected Steam build and exercised
-PS VR2 / SteamVR host. [Validation](docs/VALIDATION.md) owns current acceptance
-and [Roadmap](docs/ROADMAP.md) owns the next gate:
+## Still in development
 
-| Area | Accepted state and remaining limit |
-| --- | --- |
-| Native stereo and HMD | **Live-tested / headset-validated for exercised paths** real per-eye rendering, head orientation, recenter, room-scale, crouch and head turns with Steam recording off. Corrected 45-degree snap direction is headset-validated for the exercised run. Recording-associated microskips remain open. |
-| Startup and transport | **Live-tested** D3D9Ex compatibility, flat videos/menu presentation and GPU-resident native eye transport through private D3D11 into OpenVR, with explicit render-pose submission. Native CPU readback is removed on this path. |
-| Refresh and shutdown | **Live-tested** bounded HMD-derived rate cap at the configured 90 Hz and complete normal-quit copy drain / same-owner OpenVR shutdown. Sustained tail latency, refresh-change recovery and abnormal lifecycle remain open. |
-| Locomotion | Physical measurements confirm vanilla-equivalent movement and jump behavior. |
-| Menu pointer | Automatic native mouse-event laser interaction is **headset-validated for exercised ordinary/Yes-No menus, recovered Options pause and mouse coexistence**. Loading/dashboard regressions remain separate. |
-| Body and weapons | Independent native hands retain torso/legs at original proportions. Exercised right-pistol/empty-left trigger ownership, wrist/grip/reload recovery and side-on/rolled firing/impact FX coherence are accepted; broader equipment and left/dual contexts remain separate. |
-| Controller UI | Native inventory wheel and objective wrist compass are **headset-validated for exercised switching/put-away, guidance, readability and attachment**. Optional skeletal finger sensing is live-tested with partial quality; native finger animation remains planned. |
+Manual reload is experimental. A gesture can request native pistol reload, but the cartridge-paced continuation is not yet accepted in-headset. Physical cylinder opening, chamber loading and ejection remain future work.
 
-The rate cap follows the headset property, rather than a fixed 90 Hz setting.
-The accepted bounded run produced about 87 stereo pairs/s and 89 total
-submissions/s; this does not establish 90 fresh frames/s or phase-lock.
+Broader weapons, horses, duels, climbing and recovery across campaign transitions remain separate checks. Protected-target warning visibility and compatibility with Steam recording are unresolved. Full connected-arm/body IK is not the active presentation.
 
-The menu candidate shows the laser **automatically while pointing**, with no
-L1/R1 requirement. **Same-hand L2/R2 selects**; a fresh trigger on the other hand
-chooses that ray. Moving or dragging the physical mouse gives it priority until
-1.5 seconds after the latest activity. Cross accepts and Circle goes back.
-Native mouse delivery and click routing are accepted for the ordinary, Yes/No
-and pause menus exercised. The immediate gate is native protected-target red-X
-feedback, host-tested and pending visor acceptance; corrected snap direction is
-headset-validated for the exercised run.
-An optional exact, reversible Large Address Aware candidate is host-tested for
-the measured x86 address-capacity pressure; the previously failing narrated
-transition now has operator acceptance with LAA. Repeated loading and broader
-high-address compatibility remain open. Exercised whip usability and approximate
-reticle alignment have operator acceptance; broader climbing/reach remain separate.
-The wrist card, exercised ammunition updates and damage-driven health updates are
-operator-accepted. Wheel and compass are now 20% smaller, with a
-revised compass dial, pending a readability check at the new sizes.
-Focus on/off and fresh fire are accepted; Triangle + Circle remains deferred in its current context,
-with put-away available through the wheel. Left/dual and broader campaign
-equipment retain separate gates. The
-quick-save workaround omits optional GPU thumbnails while staged; successful
-save/load is accepted for the exercised new autosave; underlying resource
-pressure remains open. Independent
-hands require no T pose or enlarged-arm calibration. Logs and native FX counters
-do not substitute for visible execution or headset comfort.
-Pending-frame renderer reset/device loss and abnormal shutdown remain separate
-from the accepted normal-quit path.
-
-[Validation](docs/VALIDATION.md) records the durable physical acceptance state. Per-run logs, videos, telemetry, agent handoffs and temporary evidence remain local under ignored working directories.
-
-## Games
-
-| Game | Project state |
-| --- | --- |
-| **Call of Juarez (2006)** | Active reference implementation and current physical-test target. |
-| **Call of Juarez: Bound in Blood** | Planned. No Chrome Engine assumptions are promoted until the reference backend is mature enough to justify reuse. |
-| **Call of Juarez: Gunslinger** | Planned. Game-specific work has not started. |
+Only Call of Juarez (2006) is under active development. Bound in Blood and Gunslinger are planned; D3D9/OpenVR remains the primary path, with OpenXR and D3D10 separate future or experimental tracks.
 
 ## Documentation
 
-[Roadmap](docs/ROADMAP.md) ·
-[Architecture](docs/ARCHITECTURE.md) ·
-[Validation](docs/VALIDATION.md)
-
-Focused exact-game research:
-[camera/stereo](docs/research/COJ_CAMERA_PATH.md) ·
-[arm/weapon ownership](docs/research/COJ_ARM_SKINNING_AND_AIM.md) ·
-[menu mouse input](docs/research/COJ_UI_MOUSE_PATH.md) ·
-[D3D9 resource census](docs/research/COJ_D3D9_RESOURCE_CENSUS.md)
-
-The README is intentionally a project landing page. Detailed run chronology and temporary implementation handoffs are not versioned as project documentation.
+[Validation and current limits](docs/VALIDATION.md) Â·
+[Roadmap](docs/ROADMAP.md) Â·
+[Architecture](docs/ARCHITECTURE.md) Â·
+[Default Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
 
 <details>
 <summary><strong>Development</strong></summary>
 
-Native targets are Windows/x86. Development currently requires Visual Studio 2022 / Build Tools with C++ support and CMake 3.25+.
+Windows/x86 targets require Visual Studio 2022 or Build Tools with C++ support and CMake 3.25+. Use [OpenVR bootstrap](tools/bootstrap_openvr.ps1) before configuring a fresh checkout; [OpenXR bootstrap](tools/bootstrap_openxr.ps1) supplies the optional experimental runtime.
 
 ```powershell
 cmake --preset win32-debug
-cmake --build --preset debug
-ctest --preset debug
+cmake --build --preset release
+ctest --preset release
 ```
 
-For a physical candidate use `tools/vr_test.ps1`. SteamVR and Call of Juarez are launched manually. Read [AGENTS.md](AGENTS.md) before changing runtime integration or promoting validation state.
+For physical candidates use `tools/vr_test.ps1 prepare` and `finish`. SteamVR and the game are started manually. Read [AGENTS.md](AGENTS.md) before changing integration or validation state.
 
 </details>
 
 ## Disclaimer
 
-Call of Juarez VR is an unofficial community project and is not affiliated with or endorsed by Techland, Ubisoft, Valve or Sony Interactive Entertainment.
+An unofficial community project, not affiliated with or endorsed by Techland, Ubisoft, Valve or Sony Interactive Entertainment.

@@ -14,15 +14,13 @@ The camera contract uses the game's complete source basis. The authoritative sou
 
 The live game also required a game-specific yaw sign correction after the native right/up/forward basis was established.
 
-The later physical room-scale gate contradicts the earlier tracking-position
-reflection: forward/backward movement remains inverted and leaning exposes the
-avatar. The source axis named forward is the view's backward axis in the visible
-gameplay reticle convention. Position offsets now map tracking Z with the same
-sign as skeleton/controller targets; camera translation also removes actor-owned
-yaw once, using their shared leveled tracking reference. Host tests verify that
-a physical forward step approaches a visible world-ray target and that camera
-and pelvis offsets agree after body yaw. This follow-up awaits physical
-confirmation and does not alter native source layouts or stereo wrappers.
+Camera translation and skeleton/controller targets share the demonstrated
+tracking-Z sign and leveled reference. The source axis named forward is the
+view's backward axis in the gameplay-reticle convention. Actor-owned yaw is
+removed exactly once. Earlier reflected tracking-Z or camera-only translation
+exposed the avatar/inverted physical motion; the corrected room-scale direction,
+body visibility and physical-crouch regression are operator-accepted for the
+exercised context. Source layouts and stereo wrappers are unchanged.
 
 ## Render-view ownership
 
@@ -41,7 +39,7 @@ OpenVR eye-to-head transforms are in metres. Static Call of Juarez data establis
 
 The Call of Juarez adapter now performs the only metres -> centimetres conversion. Shared XR/runtime math stays in metres.
 
-Physical run `20260916T153109Z-8976b8f77775` exercised the corrected `100` game-units/metre baseline and left-Sense Create recenter.
+The corrected 100 game-units/metre eye baseline and recenter have physical acceptance for the exercised path.
 
 ## Capture boundary
 
@@ -60,7 +58,9 @@ The presenter is decoupled from the game render callback. New stereo frames ente
 
 An early deferred-presenter version acquired compositor timing before a valid scene frame existed and could leave the SteamVR dashboard over the game. Later lifecycle work delays compositor pacing until a scene frame is ready and records focus/dashboard state.
 
-Physical run `20260916T221254Z-861f3c15abd4` validated the scene-focus/lifecycle correction. Strong head-turn ghosting remained until the exact HMD render pose and pose sequence were carried with each captured frame and submitted using OpenVR explicit-pose submission. Run `20260916T224239Z-e43b46698e5c` physically removed the previous pull/snap-back behavior.
+Scene-focus/lifecycle ownership and explicit render-pose submission removed the
+previous head-turn pull/snap-back behavior. Render pose/sequence must remain bound
+to the captured frame rather than substituted from a newer tracking poll.
 
 ## Flat theater
 
@@ -70,14 +70,23 @@ The flat image is projected as a finite-depth, head-centered plane with per-eye 
 
 Flat capture is immediate and keeps no persistent default-pool resource across loading/reset. This avoids the earlier reset/load hazard.
 
-Run `20260920T090448Z-b1f54e3cb38e` physically exercised startup flat theater through a level load into native stereo.
+Startup flat theater through level load into native stereo is physically exercised.
+Death/mission-end ownership also yields to native flat presentation even while
+the timer runs: pure module getters observe alive state and menu 38, and a
+post-input check prevents body/eye writes after terminal UI acquisition. Failure-
+screen visibility is operator-accepted; retry/held-control recovery remains separate.
 
 ## Current open camera/presentation issues
 
 The native camera/stereo seam remains established. Open gates include:
 
 - the bounded shared-transport cadence target and stereo/head-turn stability now pass; sustained pacing and frame-age outliers remain separate performance questions;
-- head-turn stability after snap is operator-accepted with Steam recording off. A later report identifies reversed snap direction as the disorientation cause; earlier 45/90-degree comfort conclusions are superseded. OpenVR positive stick X is right, while positive native RotateHorizontally yaw turns left. The adapter now maps positive X to -45 degrees and negative X to +45 degrees, retaining latch/threshold policy; direction correction is host-tested, pending visor acceptance. Recording-associated microskips recover when recording stops; recording compatibility and sustained pacing remain open. Sampled native basis/yaw compensation and delivery timings do not identify that overhead. The bounded camera/actor coherence trace retains exact poses and both-eye bases;
+- head-turn stability with Steam recording off and corrected snap direction are
+  operator-accepted for exercised use. OpenVR positive stick X maps to native
+  -45-degree yaw (right), negative X to +45 degrees (left); native yaw uses the
+  opposite sign. Recording-associated microskips and sustained pacing remain
+  open. The bounded coherence trace observes poses/both-eye bases without
+  rotating an actor or forcing render/FX updates;
 - the exercised room-scale direction/body-visibility and physical crouch regressions are operator-accepted after the tracking-sign and duplicate-height correction; the active independent-hand wrist/grip/reload recovery checks are also operator-accepted;
 - flat-menu controller interaction is accepted in the exercised ordinary/Yes-No/gameplay-pause paths;
 - normal-quit inner shutdown, GPU drain and outer `run_end` are now live-tested through the exact-build pre-`DestroyGame` boundary; abnormal exit/device loss remain unproved. See [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md).

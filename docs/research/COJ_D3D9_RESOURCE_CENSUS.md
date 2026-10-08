@@ -11,16 +11,10 @@ startup and a real reset with those observed resource classes adapted. The
 earlier gameplay capture remains sparse and no complete gameplay, device-loss or
 generic MANAGED-emulation claim follows from these results.
 
-The engine's session log confirms a DX9 level load, roughly 42 seconds of
-play and more than 4,000 rendered frames with ordinary shutdown. The probe
-recorded successful factory/device hook installation but only three resource
-creations: a 16x16 `A8R8G8B8` MANAGED texture (`levels=0`), a 128x128
-`A8R8G8B8` MANAGED cube texture (`levels=1`), and a 262,144-byte
-`D3DPOOL_DEFAULT` dynamic/write-only vertex buffer. Those are observations,
-not a representative resource census. Hook displacement, another device or
-another resource-creation path are possible explanations for the low count;
-none has been demonstrated. The later startup census below supplies the missing
-VB/IB evidence; no volume-texture creation has been observed.
+Classic D3D9 is the compatibility reference. Observed MANAGED creation succeeds
+there but is invalid on D3D9Ex. The startup profiles below define the production
+translation scope; no volume-texture creation has been observed. Counts describe
+requests in a bounded window, not simultaneously resident resources.
 
 Microsoft's [D3DPOOL contract](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dpool)
 states that `D3DPOOL_MANAGED` is valid for `IDirect3DDevice9` but invalid for
@@ -30,29 +24,14 @@ the pool at creation would not by itself preserve those behaviors.
 
 ## Independent startup census with immediate hook restoration
 
-**Live-tested (research probe, same host/build):** an independent native
-classic-D3D9 probe restored its device creation/observer hooks immediately
-after `BeginStateBlock`, which was observed rewriting the device vtable.
-In a bounded startup window it recorded 1,552 successful creations across
-the five instrumented creation APIs, 39 hook refreshes and an early summary
-of 120 successful Presents. All recorded allocation HRESULTs were `S_OK`;
-the original allocation parameters were preserved. This establishes much
-broader startup coverage than the earlier three-record gameplay capture,
-but does not complete a gameplay census or measure locking, updates,
-destruction, residency or reset recovery. No volume-texture call occurred.
-A traced repeat also passes with 1,538 successful creations, eleven MANAGED
-calls, 39 hook refreshes and the same 120-Present summary. Its exception
-tracer records zero access violations. Total video/SYSTEMMEM allocation
-counts vary with the observed window; neither summary is a final frame count.
+**Live-tested research probe:** restoring creation/observer hooks immediately
+after BeginStateBlock establishes MANAGED 2D/cube/VB/IB profiles with successful
+classic-D3D9 allocations. BeginStateBlock rewrites the observed device vtable;
+a 100 ms watchdog cannot guarantee coverage before the next native call. The
+bounded census does not measure complete gameplay locking, destruction, residency
+or device-loss recovery.
 
-| Creation kind | DEFAULT | MANAGED | SYSTEMMEM |
-| --- | ---: | ---: | ---: |
-| 2D texture | 33 | 8 | 1,507 |
-| Cube texture | 0 | 1 | 0 |
-| Vertex buffer | 1 | 1 | 0 |
-| Index buffer | 0 | 1 | 0 |
-
-The eleven MANAGED calls comprise ten distinct allocation profiles:
+The bounded census contains these ten distinct MANAGED allocation profiles:
 
 | Kind | Extent / length | Levels | Usage | Format / FVF | Calls |
 | --- | --- | ---: | --- | --- | ---: |
@@ -67,13 +46,10 @@ The eleven MANAGED calls comprise ten distinct allocation profiles:
 | 2D texture | 1024x512 | 1 | 0 | X8R8G8B8 | 2 |
 | 2D texture | 512x256 | 1 | 0 | A8R8G8B8 | 1 |
 
-**Historical live-tested allocation step:** the independent
-Ex-backed probe rejected the first five profiles with `D3DERR_INVALIDCALL`
-and retried those exact calls as DEFAULT with `S_OK`/non-null results.
-The tracked VB completed 24 Lock/Unlock pairs. The following 1x1 MANAGED
-texture still failed and Chrome dereferenced its null pointer at
-`+0x23E3FD`. This was the point that rejected one-size-at-a-time retries and
-motivated the semantic adapter described below.
+Per-size Ex retries were rejected: translating a few allocations still left
+later MANAGED requests invalid and the engine dereferenced a null texture at
+`+0x23E3FD`. Compatibility must cover the observed resource semantics rather
+than a growing whitelist of dimensions.
 
 Production gameplay loading also exposes this native null-dereference boundary
 after translated 1024x1024 DXT1 and DXT5 texture creations return
@@ -88,14 +64,11 @@ failures; the log does not establish common ownership or their pressure source.
 The audited original/system-D3D9 loading crash at `+0x22F262` is a different
 fault boundary and cannot be substituted for this failure's provenance.
 
-The two retained WER dumps contain `ProcessVmCountersStream` revision 2 with
-valid virtual-size counters. Peak virtual size is approximately 1,967 and
-2,023 MiB against the original x86 executable's 2,048 MiB user-address ceiling.
-The latter leaves only about 25 MiB at its recorded peak. WER records a later
-MSVCR71 exception during failure handling; the matching HotSpot log identifies
-the initial ChromeEngine null read. Peak and crash-time counters are distinct;
-neither dump has a complete VirtualQuery memory map, so fragmentation and
-ownership are not inferred from them.
+WER virtual-size counters establish address-space pressure close to the original
+x86 2 GiB ceiling, with a recorded peak leaving approximately 25 MiB. They do not
+supply a complete VirtualQuery map or prove fragmentation, resource ownership,
+a leak or VRAM exhaustion. Failure-handling exceptions must not replace the
+initial native allocation/null-read boundary in diagnosis.
 
 **Host-tested capacity mitigation:** an optional native-stereo deployment sets
 only `IMAGE_FILE_LARGE_ADDRESS_AWARE` at file byte `0x10E` (`0x0E -> 0x2E`).
@@ -106,8 +79,9 @@ On 64-bit Windows this raises x86 user address capacity from 2 to 4 GiB per
 [Microsoft's address-space limits](https://learn.microsoft.com/en-us/windows/win32/memory/memory-limits-for-windows-releases).
 It does not increase VRAM or demonstrate a performance improvement. Synthetic
 x86 high-address allocation and exact-copy transactional failure/restore checks
-pass; the real narrated level transition and native/JVM high-address behavior
-remain physically unaccepted until exercised. Bounded production diagnostics
+pass; the previously failing narrated transition has since been operator-accepted
+with the derivative. General native/JVM high-address compatibility and broader
+loading stability remain separate gates. Bounded production diagnostics
 sample total/free VA, largest free region and private commit without retrying,
 freeing or altering resource policy.
 Successful creation of preceding textures and bounded startup/Reset tests do
@@ -118,7 +92,8 @@ The engine identity is `ChromeEngine3.dll` version `1.1.1.0st`, SHA-256
 `DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8`;
 the game executable SHA-256 is
 `5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE`.
-Evidence is from an independent research build, not this mod's candidate.
+The startup census is from an independent research probe; production integration
+coverage is distinguished below.
 Raw run evidence and provenance remain under ignored `work/`.
 
 **Implemented / host-tested integration:** the production Ex compatibility
@@ -133,43 +108,28 @@ all owned slots on successful return. This preserves the registry's existing
 ownership/conflict rules. Slots 26, 27 and 60 are compile-time checked in the
 vtable-layout test. Texture compatibility remains DEFAULT|DYNAMIC.
 
-**Live-tested production startup/reset:** a manual exact-game run retains Ex
-factory/device identity, records successful Presents beyond frame 2,970,
-completes a successful reset into generation 2 and continues flat capture.
-All 380 logged translated texture results (332 2D, 48 cube) return S_OK.
-This production trace has no individual VB/IB telemetry, so it does not extend
-their allocation/Lock coverage beyond the host test. Outer hooks restore and
-the proxy finalizes; the inner presenter does not finish shutdown. The first
-production run rejected flat frames before upload/submission. A subsequent
-manual startup run now passes with geometry-derived texture extents: logged
-PS VR2 optics confirm the asymmetric clipping cause, frames upload/submit without
-rejection, and the operator sees videos/menu plus a pointer in the visor.
-The extent correction is live-tested and startup visibility headset-validated;
-pointer usability remains open. Production shared native-stereo
-publication, D3D11 copy and explicit-pose submission have since been live-tested
-in gameplay. Pre-`DestroyGame` normal-quit shutdown, GPU drain and complete
-finalization are now live-tested; see [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md). Production
-texture contents/update/reset ownership, device loss and broader gameplay remain
-unproved. The bounded shared-transport cadence target now passes near the
-readback-off reference, with operator-confirmed stereo depth/head-turn stability;
-sustained pacing and pending-frame reset/device loss remain separate gates.
+**Production coverage:** exact-game Ex startup and a real Reset retain device
+identity and continue Present/flat capture. Geometry-derived texture extents
+restore startup videos/menu visibility; the native pointer is physically accepted
+for exercised ordinary/modal/pause menus. Shared native-stereo publication,
+D3D11 copy and explicit-pose submission are live-tested in gameplay. The bounded
+cadence target, stereo depth and head-turn stability with recording off have
+operator acceptance. Normal-quit inner shutdown/GPU drain/finalization are
+live-tested through the [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md).
 
-**Live-tested research semantic adapter and reset:** the independent LTR path
-retries observed usage-0 MANAGED 2D/cube textures as
-`D3DPOOL_DEFAULT | D3DUSAGE_DYNAMIC` and observed MANAGED WRITEONLY VB/IB
-requests as `D3DPOOL_DEFAULT` while preserving their usage and metadata. In the
-bounded real-game run all nine observed MANAGED creations adapt successfully,
-118 CPU-write lock traces return non-null data, 39 `BeginStateBlock` refreshes
-retain the hook set, and the run reaches 118 EndScenes / 120 Presents with zero
-exception markers. A subsequent engine-driven reset keeps all nine tracked
-adapted resources alive. Four directly lockable textures have identical level-0
-hashes before and after reset, and a generation-1 texture is still bound at stage
-0 by generation-2 draws. The same LTR experiment cancels a stalled two-slot
-transport generation at reset and completes 12/12 submissions in the replacement
-generation with ready=done=12, 12 D3D12 consumer copies and zero sampled
-mismatches. This is scoped evidence for this exact build/host; device loss,
-non-lockable resources, broader gameplay, visual correctness and the production
-mod candidate remain separate gates.
+Texture contents/update/reset ownership, pending-frame reset, device loss,
+sustained tail latency, recording compatibility and broader gameplay remain
+separate gates. Production traces do not extend VB/IB Lock coverage beyond the
+focused host tests or establish generic MANAGED emulation.
+
+**Independent semantic-adapter evidence:** an Ex-backed research path maps
+usage-0 MANAGED 2D/cube textures to DEFAULT|DYNAMIC and WRITEONLY MANAGED VB/IB
+to DEFAULT, preserving metadata. Bounded native allocation/CPU-write locks and
+an engine-driven Reset succeed. Directly lockable level-0 texture hashes remain
+unchanged across Reset and an older texture remains bound by newer-generation
+draws. Its separate transport cancels a stalled generation and completes copies
+in the replacement generation. This scoped research result does not accept
+production texture-content/reset semantics, non-lockable resources or device loss.
 
 ## Measurement contract
 
@@ -192,8 +152,8 @@ format; `D3DFMT_UNKNOWN` is recorded for vertex buffers.
 The exact inspected `CoJ.exe` and `ChromeEngine3.dll` SHA-256 hashes are
 required at staging. A fresh run ID and build manifest bind the staged DLL to
 the capture. The operator must launch the game, reach gameplay and exit
-normally. The analyzer writes the raw per-call CSV and a summary under ignored
-`work/evidence/d3d9_pool_probe/<run-id>/`.
+normally. The analyzer writes the raw per-call CSV and a summary under
+local ignored evidence storage.
 
 ## Interpretation boundary
 

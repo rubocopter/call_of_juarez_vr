@@ -23,8 +23,8 @@ The archive and both mesh entries are SHA-256 pinned; unknown inputs fail closed
 Only player mesh entries change, leaving NPCs and unrelated compressed records
 untouched. Native loading and the separated hand presentation are now live-tested
 for the observed player model;
-the operator reports substantial improvement while still rejecting grip cohesion
-and wrist orientation.
+the later holding-socket and wrist ownership follow-up has operator acceptance
+for exercised grip cohesion, wrist comfort and reload/movement recovery.
 
 For each hand, the rigid overlay includes `Forearm`, `ForeTwist`, `ForeTwist1`,
 `Hand`, all fifteen `Finger*` elements and the authored `left_hand`/`right_hand`
@@ -34,8 +34,9 @@ hands use the measured weapon rigid map, preserving native finger animation.
 The separate arm node is hidden only during hand ownership and restores to its
 previous visibility after both eyes; reload yields to native animation. Element
 and visibility readback, failed-write rollback, retry retention and actor-relative
-restore are host-tested. Mesh appearance, full wrist comfort and actual shots
-remain physical gates.
+restore are host-tested. The exercised independent-hand appearance, wrist/grip
+cohesion and side-on/rolled pistol shots have operator acceptance. Broader
+equipment/animation and sustained recovery remain separate gates.
 
 ## Native holding socket and child weapon
 
@@ -57,20 +58,17 @@ The tracked grip anchors the native holding socket rather than substituting the
 wrist pivot. For an unarmed hand, the authored socket maps to absolute controller
 grip orientation; it does not retain a fit to the first animated/controller pose.
 Socket mapping, rollback and both-eye verifier rejection are host-tested.
-Physical grip, left wrist comfort and actual-shot alignment remain pending.
+Exercised independent-hand grip/wrist comfort and side-on/rolled pistol coherence
+have operator acceptance. Broader equipment, anatomy and recovery remain separate
+gates; this does not accept the legacy connected-arm solver.
 
 ## Shot visualization and emitter ownership
 
-The holding-socket candidate now has live matching hand and weapon readbacks
-through both views with successful pose/visibility restoration. The next
-operator clip still rejects bullet/effect origin at the visible gun; successful
-cache getters during rendering do not establish actual attack consumption.
-
-The latest side-on observation accepts visible FX/decals but rejects streak
-coherence: the first yellow streak appears behind the revolver while its barrel
-points the other way. The later moving flash alone does not establish an initial
-origin. Native counters, matching muzzle caches and committed emitter positions
-cannot promote this visual gate; no guessed origin offset follows from the clip.
+Matching hand/weapon readbacks through both views and successful restoration
+establish transaction coherence, not actual attack consumption. Exercised pistol
+shots, flash/smoke/light, impacts, water and destructible bottles are operator-
+accepted. Actual missile birth/first-draw vectors remain unmeasured; a rearward
+yellow streak alone is not evidence of an inverted ray.
 
 `WeaponFire.AttackFire` separately reads ballistic origin/direction and visual
 origin/direction, passes the visual origin to the shot light, and applies native
@@ -99,7 +97,7 @@ post-spread visual origin/velocity, birth time, first update and first rendered
 world frame with the same visible muzzle pose. This distinguishes the authored
 tail from stale launch data or premature visibility. No direction negation,
 origin offset or forced FX update follows from the current evidence; actual-shot
-visual acceptance remains open.
+birth/first-draw correlation remains open.
 
 `WeaponFire.ExecFXFire` originally attaches combustion and smoke to the
 weapon/barrel element. A render-only weapon restores before native update, so
@@ -214,7 +212,7 @@ boundary than the geometry writer itself.
 
 `FromUpForwardPosElementWorld` (`ChromeEngine3 + 0x9A350`) writes the requested
 absolute world frame and metadata directly and does not call that recursive
-`+0x82F00` path. The current host candidate therefore:
+`+0x82F00` path. The retained connected-arm diagnostic therefore:
 
 1. reads and retains the natural complete element frames;
 2. solves shoulder/elbow/wrist targets from measured geometry;
@@ -229,30 +227,12 @@ writer remains historically live-exercised. The absolute writer is now physicall
 exercised and produced a large recovery in locomotion/performance, supporting the
 recursive-notification interference diagnosis.
 
-That physical run exposed a separate restore-ownership defect. The actor could
-translate between capture and restore while the stored natural arm frames retained
-their old world positions; one observed shoulder stayed at its captured coordinates
-while the actor moved, matching the stretched-arm/hand-left-behind result. Native
-reload subsequently re-synchronized the branch. Storing actor position at capture
-and rebasing the restored shoulder/elbow/wrist and element positions reduced the
-visible failure in the next run, but did not remove it. The follow-up telemetry
-then isolated an inter-frame case: the complete arm positional chain could remain
-byte-for-byte effectively fixed across repeated samples while the actor continued
-to translate, with actor-to-upper-arm distance growing from the normal roughly
-150 game units to several hundred units before native animation snapped the branch
-back into sync.
-
-The current host candidate retains actor-relative restore and also compares each
-fresh natural arm sample with the previous corrected/restored natural sample for
-the same actor generation and recenter sequence. If the actor moved materially while shoulder/elbow/wrist
-and all four sampled element positions stayed within float-scale world-position
-tolerance, only those positions are translated by the actor delta before the next
-IK solve; the current orientation bases are preserved. Any positional animation
-change leaves the natural sample untouched. A per-arm cumulative rebase count is
-sampled in tracking telemetry. This combined continuity contract is
-**physically exercised with improved continuity**, but occasional recovery delay
-and limb torsion still reject anatomy. Comparing against an unapplied raw sample
-would not describe the actual next-frame state after the corrected frame is restored.
+Restore captures actor position and rebases all captured element positions by
+actor translation. Between frames, a same-owner/generation/recenter natural chain
+that stayed positionally fixed while the actor moved is rebased by actor delta;
+any positional animation change leaves it untouched. Compare against the previous
+corrected/restored state, not an unapplied raw sample. Axes remain natural.
+This improves continuity but does not accept connected-arm anatomy.
 
 The absolute writer also contained an orientation composition mismatch: the
 forearm used the direct positional-plan basis, while FORETWIST and hand used
@@ -277,22 +257,15 @@ native shoulder width and fits upper/forearm lengths in their native ratio for
 the render transaction. Ordinary aiming cannot calibrate this fit. All captured
 native frames are restored; this is a measured user fit, not arbitrary global
 bone scaling. Fitted FORETWIST and hand frames retain joint-relative offsets.
-These anatomy changes are host-tested and await physical acceptance.
+The diagnostic fit has host checks and physical calibration observations;
+connected-arm visual anatomy remains rejected.
 
-Physical follow-up disproves the original fixed recenter-X/Z T-pose criterion:
-the operator extended both arms, but visor offset from the shoulder plane and
-turning caused rejection, leaving the native chain clamped near the torso while
-the tracked weapon stayed near the real hand. Extension is now measured in the
-horizontal hand-to-hand frame, with the head between both hands, bounded vertical
-and shoulder-plane offsets, the same measured-span bounds and stable-sample
-requirement. Pending calibration telemetry retains the rejection reason and
-sample count. Observed-pose and yaw-rotated host regressions pass. Physical
-follow-up now completes calibration and confirms longer arms, while still
-rejecting wrist/forearm anatomy. Successful solver-target readback coexists with
-large hand-orientation residuals that the safety boundary does not apply. This
-separates span detection from the remaining orientation/skinning problem; it
-does not justify increasing reach again or lifting the residual limit without
-demonstrating correct ownership.
+Span calibration measures extension in the horizontal hand-to-hand frame, with
+the head between hands and bounded vertical/shoulder-plane offsets. A fixed
+recenter-X/Z criterion rejected real T poses when the user turned. Stable samples
+and measured-span bounds remain required. Calibration now succeeds, but longer
+arms and reachable endpoints do not establish acceptable wrist/forearm skinning.
+This fit belongs only to the connected-arm diagnostic, not independent hands.
 
 The initial orientation reference previously paired a controller pose with the
 native hand basis before upper/elbow IK. If controller position differed from
@@ -302,15 +275,13 @@ uses the composed post-IK hand basis. Recenter preserves the last read-back
 displayed hand basis rather than a requested target that the residual gate
 rejected. This is host-tested; visual wrist/forearm acceptance remains pending.
 
-Another physical rejection showed that applying actor-owned HMD yaw again to the controller/body reference rotates arms a second time. Current host source removes actor-owned yaw from that mapping. Run `20260920T235112Z-6b2d91cda4a5` then showed that leaving room-scale translation camera-only exposes the stationary local avatar during a physical step or crouch. The next candidate moved the local pelvis with full XYZ HMD translation, but non-promotable run `20260921T163309Z-481defca3401` measured up to `12.892973` game units of vertical pelvis offset while the body still entered the headset view. Current host source therefore applies only mapped horizontal room-scale translation to the local pelvis/skeleton for both eye renders and restores it afterwards, while vertical actor position, grounding and collision stay game-owned.
-
-The render-only pelvis translation uses the same horizontal sign convention as
-tracked skeleton targets. The next physical pass still rejected inverted
-forward/backward movement and exposed the whole avatar when leaning. The remaining
-disagreement was in the camera: its position helper reflected tracking Z, and its
-translation reference retained actor-owned yaw while skeleton targets removed it.
-The camera follow-up now shares the skeleton/reticle convention and tracking
-reference. This is host-tested, not physically accepted.
+Actor-owned HMD yaw must be removed once from controller/body references.
+The render-only pelvis overlay applies horizontal HMD translation for both eyes
+and restores it afterward; vertical actor position/grounding/collision remain
+native. Full XYZ pelvis translation and camera-only room-scale motion were
+rejected. Camera translation now shares skeleton/reticle tracking-Z and yaw
+conventions. The exercised physical direction, leaning/body-visibility and crouch
+regressions are operator-accepted, independently of connected-arm anatomy.
 
 Pelvis application precedes arm reads/solving; arm restoration precedes pelvis
 restoration. Earlier eye probes showed the pelvis moving already solved endpoints
@@ -322,22 +293,16 @@ both caused a duplicate view-height drop. An actor-relative native camera-height
 reference now compensates that drop for physical crouch and its pose recovery,
 with the same correction in arm anchors and controller aim origins. Explicit
 controller crouch remains native-owned; generation/recenter resets the reference.
-No vertical actor or pelvis translation is introduced. Comfort remains a physical
-gate.
+No vertical actor or pelvis translation is introduced. The exercised on-foot physical-crouch regression has operator acceptance;
+mounted behavior and broader recovery remain separate gates.
 
 ## Telemetry cost
 
-Run `20260920T161307Z-474f0b054338` emitted 11,192 successful arm-tracking and 11,192 successful restore records while the user observed jerky movement even with keyboard. Latest complete single-process evidence `20260921T192639Z-1d70905cb4f8` still rejects movement and measures classic-D3D9 CPU copy at 7.112 ms median and 9.056 ms p95, so renderer transport remains a measured performance problem independent of arm logging.
-
-Routine arm telemetry remains sampled; write failures, rollback and restoration faults remain unconditional. Arm solving still has to be evaluated independently from renderer frame pacing.
-
-The later Body-IK regression narrows this further. Direct arm apply/restore cost
-was about 0.13 ms in the observed run, sampled body/actor boundaries did not show
-Body IK directly writing `PlayerBeing` position, yet actor-position jump apexes
-collapsed to only a few centimetres while native vertical speed still rose. That
-evidence makes raw solver CPU cost and direct actor-position mutation poor primary
-explanations; the recursive notification boundary above is the current static
-hypothesis being removed by the absolute-frame candidate.
+Routine arm telemetry is sampled; write failures, rollback and restoration faults
+remain unconditional. The classic stereo CPU readback/copy was a measured renderer
+bottleneck and has been replaced by the shared GPU path. It must not be confused
+with arm-solving cost. Recursive arm notification also interfered with native
+locomotion despite low measured solver cost; restoration must avoid that boundary.
 
 ## Weapon direction and origins
 
@@ -376,38 +341,90 @@ from the menu pointer.
 
 ## Latest anatomy rejection
 
-The latest operator clip reports further improvement but still rejects residual
-anatomy, inverted physical displacement and whole-avatar intrusion on leaning.
-Physical crouch comfort remains rejected. Impacts are closer to the visible
-reticle, but weapon placement and muzzle origin remain rejected; live barrel
-observations confirm a large positional/angular mismatch with the controller ray.
-Sampled `Weapon.GetOwnerAttackOrigin/GetOwnerAttackOriginVisualization` now
-distinguish ballistic and visual origins from the barrel. Those getters are
-read-only; diagnostic calls do not query the accuracy/spread direction path.
-The native hand residual limit remains unchanged. A measured bilateral-span
-render fit is now implemented; its visual anatomy has not yet been accepted.
+The connected-arm experiment remains physically rejected despite improved
+continuity, successful measured-span calibration and corrected post-swing wrist
+reference. Near-chest enlarged limbs and unnatural wrists are not fixed by successful
+solver readback. Independent native hands supersede this presentation for active
+candidates; accepted movement/crouch/weapon regressions must not be described as
+still rejected because an earlier arm experiment failed.
 
-An earlier rejected clip showed a different failure mode: safety blocks some extreme writes, but the arms repeatedly return to the native/default game pose as the Sense controllers move. Telemetry does not support solving this by scaling the upper/forearm chain globally:
+The diagnostic solver retains finite hard-clamped positional plans rather than
+falling back to idle for every unreachable target. Native bone proportions,
+conservative upper/forearm rotation, the 30-degree hand residual, disabled
+FORETWIST controller roll and shipped reload ownership remain separate gates.
+Indices 6/11 and clavicle/shoulder participation remain unproved. Further global
+length enlargement or lifting wrist limits without ownership evidence is unjustified.
 
-- retained formal evidence sampled controller targets up to 75.800 units against the ~49.843-unit measured native reach;
-- the latest run denied 43/128 sampled arm updates, including 32 reach-unsafe samples, while 80 samples rejected the hand residual;
-- elbow and wrist positional targets can still be reached while the resulting orientation is anatomically invalid;
-- reload introduces a visible conflict between native animation and VR-driven element rotation.
+## Physical-walk animation ownership
 
-The previous candidate applied a hand residual only when the original mismatch
-was at most 30 degrees and also rejected positional arm writes more than 10%
-beyond measured reach. That second rule was redundant with the two-bone solver's
-existing hard clamp and caused valid unreachable targets to fall back visibly to
-native animation. Current host code keeps ownership for every valid finite
-positional IK plan, including a hard-clamped target at the measured native reach.
-The conservative upper/forearm rotation plan, 30-degree hand residual, disabled
-FORETWIST controller roll and shipped reload ownership remain independent safety
-gates. This continuity change is **implemented / host-tested**; physical
-anatomy/reach acceptance is still pending. Clavicle/shoulder participation
-remains a measured experiment, with hand orientation kept separate from
-positional reach.
+The original `Creature.OnBeingsFrame` updates movement state, its state machine
+and the root animation node in that order. `GetAnimSpeedState` normally reads
+the real state machine; a render-time `m_iAnimSpeedState` write alone cannot
+select walking for a standing actor. Earlier writes can feed native movement
+state. The root's timing also supplies body/hand/weapon child nodes, so it is
+not an independent legs-only owner.
+
+Native direction/grade selection uses the actual velocity and `GetMoveLimit`.
+The movement phase derives from the registered sequence's frame count, authored
+distance normalization, mesh time and native animation/slomo policy. The script's
+movement `FPS` value is distance in centimetres over a cycle in this path;
+it is not an assumed fixed animation frequency. Replaying `UpdateMoveState`,
+`UpdateMoveStateMashine` or `UpdateMoveAnimationNodes` advances gameplay/time
+state and cannot provide a render-only sample.
+
+The native `UpdateAnimations` route (`+0x97370 -> +0x44230 -> +0x21DFE0`)
+enters mutable sequence processing at `+0x21D9A0`. Functional
+`SetFrame(IFI)` at `+0x96540` reaches recursive child/notification processing
+at `+0x82F00`. Neither is established as an event-free sampler, and restoring
+bone matrices cannot restore all sequence, morph, cache and attachment state.
+Shipped walking events can update the ground/material cache, play footsteps and
+reach `MakeNoise`; a physical-only visual overlay must not duplicate those events.
+
+Physical-walk animation remains planned. Implementation requires demonstrated
+natural evaluation versus both-eye render order, an event-free sampler or a
+complete reversible animation transaction, isolation of physical-only events,
+fresh grounded/pending-state eligibility and both-model clip coverage. HMD
+velocity must also distinguish lean/discontinuities from walking and define
+coexistence with stick locomotion. These static findings do not validate a
+runtime animation writer or physical walking.
 
 ## Current body acceptance boundary
+
+The original Ray/Billy weighted finger hierarchy identifies `Finger0` thumb,
+`Finger1` index, `Finger2` middle, `Finger3` ring and `Finger4` pinky. Resolve names
+per observed owner/generation; their numeric mesh indices differ. Billy's authored
+animation script includes the Ray first-person animation set. `Unarmed_Stand`
+supplies relaxed rest and `Hands_Stand` supplies an authored fist; neither proves
+general anatomical limits or maximum opening.
+
+For ANM1 version `0x10015` type 3, scalar channels are compressed descriptors,
+not float pointers. The original evaluator at engine `+0x253190` supplies XYZW
+quaternions after the rotation-mode selector at `+0x251E90`; ignoring that mode
+can rotate child fingers incorrectly. Isolated execution of the original reader
+and independent authored 3DA comparisons establishes the endpoint quaternions.
+The actual skeletal consumer's TRS conversion at `+0x219530` calls XYZW converter
+`+0x1F8A20`. Isolated conversion and world getter `+0x41E40` establish row-major
+axes and `local * parent_world`; the default affine multiply is `+0x1F4C20`.
+These exact-game seams are research evidence, not new production hooks/offsets.
+The similarly named `ElementSetWorldMatrixFromQuatPos` angle/axis route and
+physics WXYZ converter are not equivalent replacements.
+
+The host-tested initial retarget shortest-arc interpolates those authored local
+orientations for the five available curls, preserving fresh parent-local
+translations, Hand/socket and forearm/twist frames. All fifteen targets enter the
+existing twenty-frame transaction before any write; no second writer is added.
+Require active/desired weapon null, current/destination/desired hand states zero,
+no other-hand desired two-hand weapon, alive player and
+`HasSomethingInHand(hand)==false`, which includes carried objects and the other
+hand's shared two-hand weapon. `SetDesiredWeapon` can queue an equip while the
+current state is still empty: `GetDesiredWeapon`, `GetDesiredWeaponState`,
+`GetHandStateMashineDestinyState` and `IsDesiredWeaponOperatedTwoHand` observe
+those pending states without advancing them. Reload/context/pose loss retain native ownership.
+Invalid curls or a failed optional lookup retain the original rigid map. Native
+world-getter endpoint fixtures, independent fingers, transformed roots, length
+preservation, rollback and restore/retry are host-tested; visible motion/contact
+and equipment transitions remain live/headset gates. Curl zero deliberately
+means authored relaxed rest. This does not claim complete finger tracking.
 
 Billy's procedural whip uses a separate tracked holding-socket route. The
 bridge maps the independent right hand with its authored socket and publishes
@@ -416,8 +433,9 @@ it only for the owned in-hands object. Naturally scheduled `AdditionalSynchro`
 owns the root/first-point placement and all cloth deformation. There is no
 gun-barrel prerequisite, whole-rope rigid transformation or forced simulation
 step. The cache/hand transaction and controller reticle are host-tested; the
-operator-reported fixed hand/separation remains a physical gate until the next
-candidate is observed. The exact control/axis contract is recorded in
+operator accepts exercised whip use and approximately matching reticle alignment.
+Exact reach/collision, all clutch/length/release gestures and broader climbing
+remain separate gates. The exact control/axis contract is recorded in
 [the PC controls boundary](COJ_PC_CONTROLS_AND_HUD.md#exact-procedural-whip-contract).
 
 Do not promote Body IK based on write counts alone. Acceptance requires visually plausible arms across representative poses, stable first-person ownership, verified restoration and no degradation of tracking/recenter behavior. Lower-body writing remains blocked until the upper-body/body-anchor contract is acceptable.
