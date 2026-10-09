@@ -93,9 +93,9 @@ int main(){
     Require(BuildReloadCartridgeOverlay(head,grip,true,out),"valid carrying pose rejected");
     Require(out.reload_cartridge_visible&&out.frame_sequence==123&&out.feedback_context_token==77&&
         out.eyes[0].eye_to_head.position.x==-.032F,"capture metadata changed");
-    Require(out.reload_cartridge_surface_count==14&&out.reload_cartridge_surface_count<=16,"bounded closed cartridge faces");
+    Require(out.reload_cartridge_surface_count==16&&out.reload_cartridge_surface_count<=16,"bounded closed CC0-profile cartridge faces");
     const auto captured=out.reload_cartridge_surfaces;
-    for(std::size_t i=0;i<14;++i){
+    for(std::size_t i=0;i<16;++i){
         const auto& c=captured[i].head_corners;
         const auto a=Sub(c[1],c[0]),b=Sub(c[2],c[0]);
         const Vec3 normal{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
@@ -109,13 +109,18 @@ int main(){
         Require(Near(captured[i].head_corners[2],tip->position)&&
             Near(captured[i].head_corners[3],tip->position),"tip does not match all tapered faces");
     auto edge=Sub(captured[0].head_corners[2],captured[0].head_corners[0]);
-    Require(Near(edge,{0,0,.025F}),"case axis must follow grip -Z rather than face head");
+    Require(Near(edge,{0,0,.03264F}),"CC0-profile case axis must follow grip -Z rather than face head");
+    for(std::size_t i=14;i<16;++i){
+        Require(Near(captured[i].head_corners[0].z,grip.position.z-.00661F),"primer must lie on case base");
+        Require(Near(captured[i].material_uv.y,108.F/140.F),"primer must select distinct material patch");
+    }
     float minx=1,maxx=-1,miny=1,maxy=-1,minz=1,maxz=-1;
     for(std::size_t i=0;i<out.reload_cartridge_surface_count;++i)for(auto p:captured[i].head_corners){
         minx=std::min(minx,p.x);maxx=std::max(maxx,p.x);miny=std::min(miny,p.y);maxy=std::max(maxy,p.y);
         minz=std::min(minz,p.z);maxz=std::max(maxz,p.z);
     }
-    Require(Near(maxx-minx,.012F)&&Near(maxy-miny,.0103923048F)&&Near(maxz-minz,.035F),"cartridge is a bounded 3D solid");
+    Require(Near(maxx-minx,.01306F)&&Near(maxy-miny,.01131028F)&&
+        Near(maxz-minz,.04089F),"simplified cartridge matches the inspected CC0 .44 Magnum envelope");
     head.position={1,2,3};grip.position={1.2F,1.7F,2.6F};
     Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&
         Near(out.reload_cartridge_surfaces[0].head_corners[0],captured[0].head_corners[0]),"common translation changed geometry");
@@ -128,7 +133,7 @@ int main(){
         {.70710678F,0,0,.70710678F},{0,0,.70710678F,.70710678F}}}){
         grip.orientation=rotation;
         Require(BuildReloadCartridgeOverlay(head,grip,true,out),"rotated cartridge rejected");
-        for(std::size_t f=0;f<14;++f)for(std::size_t c=0;c<4;++c){
+        for(std::size_t f=0;f<16;++f)for(std::size_t c=0;c<4;++c){
             auto local=Sub(captured[f].head_corners[c],grip.position);
             auto expected=RotateVector(rotation,local);
             Require(Near(Sub(out.reload_cartridge_surfaces[f].head_corners[c],grip.position),expected),"geometry lost controller yaw/pitch/roll");
@@ -164,6 +169,8 @@ int main(){
     Require(panel.width==48&&panel.height==140&&panel.pixels.size()==48*140,"cartridge raster extent");
     auto body=panel.pixels[80*48+24],copper=panel.pixels[24*48+24];
     Require((body>>24)==255&&(copper>>24)==255&&body!=copper,"opaque brass/copper patches");
+    auto primer=panel.pixels[108*48+24];
+    Require((primer>>24)==255&&primer!=body&&primer!=copper,"distinct opaque primer patch");
     const auto* pixels=panel.pixels.data();Require(raster.Cartridge().pixels.data()==pixels,"static raster rebuilt");
     grip=head;grip.position={0,-.1F,-.4F};
     Require(BuildReloadCartridgeOverlay(head,grip,true,out),"stereo fixture pose rejected");
@@ -204,23 +211,34 @@ int main(){
     ComPtr<ID3D11Texture2D> readback;
     Require(SUCCEEDED(device->CreateTexture2D(&desc,nullptr,&readback)),"readback creation failed");
     std::array<std::uint64_t,2> sum_x{},fingerprint{};
-    std::array<unsigned,2> copper_pixels{};
+    std::array<unsigned,2> copper_pixels{},primer_pixels{};
+    const auto primer_rgb=panel.pixels[108*48+24];
+    const auto primer_shade=out.reload_cartridge_surfaces[14].shade;
+    const auto expected_primer=[&](int shift){
+        return static_cast<int>(std::lround(((primer_rgb>>shift)&255)*primer_shade));
+    };
     auto coverage=[&](int eye){
         context->CopyResource(readback.Get(),targets[eye].Get());D3D11_MAPPED_SUBRESOURCE mapped{};
         Require(SUCCEEDED(context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped)),"readback map failed");
         unsigned count=0;
-        sum_x[eye]=fingerprint[eye]=0;copper_pixels[eye]=0;
+        sum_x[eye]=fingerprint[eye]=0;copper_pixels[eye]=primer_pixels[eye]=0;
         for(unsigned y=0;y<1024;++y){auto* row=reinterpret_cast<const std::uint32_t*>(
             static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch);
             for(unsigned x=0;x<1024;++x)if(row[x]){
                 ++count;sum_x[eye]+=x;
                 fingerprint[eye]=fingerprint[eye]*1099511628211ULL+row[x]+x+1024ULL*y;
                 if(((row[x]>>16)&255)>((row[x]>>8)&255)*1.7F)++copper_pixels[eye];
+                if(std::abs(static_cast<int>((row[x]>>16)&255)-expected_primer(16))<=2&&
+                    std::abs(static_cast<int>((row[x]>>8)&255)-expected_primer(8))<=2&&
+                    std::abs(static_cast<int>(row[x]&255)-expected_primer(0))<=2)
+                    ++primer_pixels[eye];
             }}
         context->Unmap(readback.Get(),0);return count;
     };
     auto left_count=coverage(0),right_count=coverage(1);
     Require(left_count>0&&right_count>0,"solid must produce visible pixels in both eyes");
+    Require(primer_pixels[0]>0&&primer_pixels[1]>0,
+        "WARP rear view must draw primer over the coplanar case base in both eyes");
     Require(static_cast<double>(sum_x[0])/left_count>static_cast<double>(sum_x[1])/right_count&&
         fingerprint[0]!=fingerprint[1],"WARP eyes must differ with correct stereo disparity");
     const auto initial_hash=fingerprint[0];

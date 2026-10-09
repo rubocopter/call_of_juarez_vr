@@ -6,10 +6,19 @@
 
 namespace cojvr::runtime {
 namespace reload_visual_detail {
-inline constexpr float base_z = -.0125F, shoulder_z = -.0375F, tip_z = -.0475F;
-inline constexpr std::array<Vec3,6> ring{{{.006F,0,0},{.003F,.0051961524F,0},
-    {-.003F,.0051961524F,0},{-.006F,0,0},{-.003F,-.0051961524F,0},
-    {.003F,-.0051961524F,0}}};
+// Low-poly visual proxy sized from Pichuliru's CC0 Flat Ammunition .44 Magnum
+// OBJ envelope (metres): Y [-.010396, .030494], radius <= .00653.
+// The original 224-triangle mesh is NOT loaded. Keep the existing exported tip
+// fixed so the independent motion-reload insertion contract cannot drift.
+inline constexpr float source_base_y = -.010396F, source_tip_y = .030494F;
+inline constexpr float source_shoulder_y = .022244F;
+inline constexpr float tip_z = -.0475F;
+inline constexpr float base_z = tip_z + source_tip_y - source_base_y;
+inline constexpr float shoulder_z = tip_z + source_tip_y - source_shoulder_y;
+inline constexpr float radius = .00653F;
+inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.8660254F,0},
+    {-radius*.5F,radius*.8660254F,0},{-radius,0,0},{-radius*.5F,-radius*.8660254F,0},
+    {radius*.5F,-radius*.8660254F,0}}};
 [[nodiscard]] inline bool Valid(const Pose& p) noexcept {
     const auto q=p.orientation;
     const float n=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
@@ -37,7 +46,9 @@ inline constexpr std::array<Vec3,6> ring{{{.006F,0,0},{.003F,.0051961524F,0},
 }
 
 // Capture with the eye images' head/support poses. Six case faces, six tapered
-// bullet faces and two base quads: fixed storage, no geometry allocations.
+// bullet faces, two base quads and two primer quads: fixed storage, no allocations.
+// This is an authored 16-surface approximation of a CC0 model's dimensions,
+// rather than an imported copy of the original mesh or materials.
 // The color-only compositor cannot occlude this cartridge against scene depth.
 [[nodiscard]] inline bool BuildReloadCartridgeOverlay(const Pose& head,
     const Pose& support, bool visible, StereoHudTextOverlay& out) noexcept {
@@ -62,7 +73,7 @@ inline constexpr std::array<Vec3,6> ring{{{.006F,0,0},{.003F,.0051961524F,0},
     const auto vertex=[](std::size_t i,float z){auto p=ring[i];p.z=z;return p;};
     for(std::size_t i=0;i<6;++i){
         const auto j=(i+1)%6;
-        const float shade=.65F+.35F*(ring[i].y/.006F+1.F)*.5F;
+        const float shade=.65F+.35F*(ring[i].y/radius+1.F)*.5F;
         capture({vertex(i,shoulder_z),vertex(j,shoulder_z),vertex(i,base_z),vertex(j,base_z)},
             {.5F,80.F/140.F},shade);
         // A degenerate quad is a triangle; its shared apex is the exported tip.
@@ -73,6 +84,15 @@ inline constexpr std::array<Vec3,6> ring{{{.006F,0,0},{.003F,.0051961524F,0},
         {.5F,80.F/140.F},.65F);
     capture({vertex(0,base_z),vertex(3,base_z),vertex(5,base_z),vertex(4,base_z)},
         {.5F,80.F/140.F},.65F);
+    // Rear primer, overlaid on the base. This is intentionally coplanar:
+    // the cartridge uses ordered compositor quads and no scene depth buffer.
+    const auto primer_vertex=[](std::size_t i){
+        auto p=ring[i];p.x*=.35F;p.y*=.35F;p.z=base_z;return p;
+    };
+    capture({primer_vertex(0),primer_vertex(1),primer_vertex(3),primer_vertex(2)},
+        {.5F,108.F/140.F},.88F);
+    capture({primer_vertex(0),primer_vertex(3),primer_vertex(5),primer_vertex(4)},
+        {.5F,108.F/140.F},.88F);
     for(std::size_t i=0;i<count;++i)for(const auto p:faces[i].head_corners)
         if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||p.z>=-.05F)return false;
     out.reload_cartridge_surfaces=faces;

@@ -97,7 +97,8 @@ const HudTextPanel& GameplayUiRaster::Cartridge() noexcept {
     try {
         HudTextPanel panel{};panel.width=48;panel.height=140;
         panel.pixels.assign(panel.width*panel.height,0U);
-        // Transparent procedural marker, no text/native ammunition artwork.
+        // Procedural brass/copper shading, plus a separate rear-primer swatch.
+        // Geometry uses an authored low-poly CC0 .44 Magnum silhouette.
         for(int y=6;y<134;++y)for(int x=0;x<48;++x){
             const bool tip=y<42;
             const int half=tip?std::min(15,3+(y-6)/2):(y>=124?20:17);
@@ -109,6 +110,10 @@ const HudTextPanel& GameplayUiRaster::Cartridge() noexcept {
             const unsigned b=edge?31U:static_cast<unsigned>((tip?49:55)+light);
             panel.pixels[y*48+x]=0xFF000000U|(r<<16)|(g<<8)|b;
         }
+        // Primer is sampled by the final two cartridge quads, not a texture
+        // obtained from the original game or from the downloadable model.
+        for(int y=104;y<116;++y)for(int x=19;x<30;++x)
+            panel.pixels[y*48+x]=0xFFB3A28BU;
         cartridge_pixels_=std::move(panel);
     }catch(...){cartridge_pixels_={};}
     return cartridge_pixels_;

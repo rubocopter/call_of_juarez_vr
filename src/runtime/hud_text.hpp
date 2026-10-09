@@ -34,10 +34,21 @@ struct ReloadCartridgeSurface {
     float shade = 0.F;
 };
 
+// One capture's native-confirmed insertion event. No ammunition or retry queue.
+struct ReloadInsertionFeedback {
+    bool accepted = false;
+    std::uint8_t hand = 2; // Native convention: 0 right, 1 left, 2 absent.
+    std::uint64_t event_sequence = 0;
+    std::uint64_t input_generation = 0;
+    bool diagnostics = false;
+    std::uint64_t owner_token = 0; // Opaque game-owned epoch; 0 is unobserved.
+};
+
 struct StereoHudTextOverlay {
     std::uint64_t frame_sequence = 0;
     // Capture-time game-owner availability/epoch, independent of textures.
     std::uint64_t feedback_context_token = 0;
+    ReloadInsertionFeedback reload_feedback{};
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};
     GameplayUiSnapshot ui{};

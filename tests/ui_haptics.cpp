@@ -123,6 +123,18 @@ int main() {
         Require(!resource.Frame(1,2,1010,255,device_change?1:2,device_change?2:1), "resource replacement baseline silent");
         Require(resource.Frame(2,3,1020,255,device_change?1:2,device_change?2:1).has_value(), "fresh replacement change recovers");
     }
+    for (bool device_change : {false,true}) {
+        Fixture restart; (void)restart.Frame(0,1,1000);
+        Require(restart.Frame(1,25,1010).has_value(), "original resource highlight delivers before sequence reset");
+        const auto next_generation=device_change?1U:2U;
+        const auto next_device=device_change?2U:1U;
+        Require(!restart.Frame(2,1,1110,255,next_generation,next_device),
+            "replacement with restarted capture sequence establishes silent baseline");
+        Require(restart.Frame(3,2,1200,255,next_generation,next_device).has_value(),
+            "replacement with restarted capture sequence recovers fresh highlight");
+        Require(!restart.Frame(4,2,1210,255,next_generation,next_device),
+            "replacement capture cannot repeat the same sequence");
+    }
     Fixture pending_resource; (void)pending_resource.Frame(0,1,1000);
     Require(!pending_resource.policy.Observe(Wheel(1),2,2,1,Time(1005),Time(1010)), "replacement rejects already captured sample");
     Require(!pending_resource.policy.Observe(Wheel(2),3,2,1,Time(1006),Time(1011)), "pre-replacement queued highlight cannot replay");

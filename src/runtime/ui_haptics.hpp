@@ -116,15 +116,22 @@ public:
     std::optional<UiHapticPulse> Observe(const EquipmentWheelSnapshot& wheel, std::uint64_t sequence,
         std::uint64_t generation, std::uint64_t device, UiHapticTime captured, UiHapticTime now,
         std::uint64_t native_token = 0) noexcept {
-        if (sequence == 0 || sequence <= last_sequence_ || generation < resource_generation_) return {};
-        last_sequence_ = sequence;
+        if (generation == 0 || device == 0 || generation < resource_generation_) {
+            have_highlight_ = false;
+            return {};
+        }
         if (generation != resource_generation_ || device != resource_device_) {
             have_highlight_ = false;
             resource_generation_ = generation; resource_device_ = device;
             // All captures already queued before the replacement was observed
             // are discarded, including a second sample from the new resource.
             resource_since_ = now;
+            // A new resource may restart capture numbering while the transport
+            // keeps a separate monotonic sequence.
+            last_sequence_ = 0;
         }
+        if (sequence == 0 || sequence <= last_sequence_) return {};
+        last_sequence_ = sequence;
         if ((have_native_context_ &&
              (!GameplayUiFeedbackContextMailbox::Available(native_context_token_) ||
               native_token != native_context_token_ || captured < native_since_)) ||

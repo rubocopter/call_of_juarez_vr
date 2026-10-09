@@ -11,6 +11,7 @@
 #include "runtime/ui_pointer_ownership.hpp"
 #include "runtime/openvr_runtime.hpp"
 #include "runtime/gameplay_utility.hpp"
+#include "runtime/reload_haptics.hpp"
 #include "runtime/vr_math.hpp"
 
 #include <d3d11.h>
@@ -107,6 +108,7 @@ const std::uint8_t* CpuEyeData(const d3d9::CpuEyeFrame& eye) noexcept {
 struct OpenVrStereoPresenter::Impl {
     d3d9::FrameMailbox mailbox;
     runtime::GameplayUiFeedbackContextMailbox feedback_context;
+    std::atomic<std::uint64_t> reload_feedback_owner{0};
     std::thread worker;
     std::atomic_bool stop_requested{false};
     std::atomic_bool running{false};
@@ -735,6 +737,7 @@ struct OpenVrStereoPresenter::Impl {
         runtime::UiPointerOwnership pointer_ownership;
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
         runtime::EquipmentWheelHaptics wheel_haptics;
+        runtime::ReloadInsertionHaptics reload_haptics;
         std::uint64_t input_sample_sequence = 0;
         std::uint64_t last_input_log_sequence = 0;
         std::uint32_t last_raw_pressed = 0;
@@ -949,6 +952,7 @@ struct OpenVrStereoPresenter::Impl {
                 if (stop_requested.load(std::memory_order_acquire)) break;
                 bool wheel_haptic_context = false;
                 bool wheel_haptic_deflected = false;
+                bool reload_haptic_context = false;
                 if (pose_ok) {
                     bool recenter = false;
                     bool objectives = false;
@@ -1100,6 +1104,17 @@ struct OpenVrStereoPresenter::Impl {
                         hand_poses.right_grip_active &&
                         hand_poses.right_grip.position_valid &&
                         hand_poses.right_grip.orientation_valid;
+                    reload_haptic_context=left_handgrip_valid&&right_handgrip_valid&&
+                        runtime::ReloadHapticInputAvailable(polled_gameplay,gameplay.active,
+                            input_polled,runtime_state.focused,dashboard_visible,
+                            tracked_poses.hmd,hand_poses.left_grip,hand_poses.right_grip)&&
+                        !actions.pause&&!actions.ui_back&&!actions.ui_accept&&!recenter&&!objectives;
+                    if(reload_haptic_context){
+                        runtime::OpenVrPresentationState current{};
+                        reload_haptic_context=runtime.ReadPresentationState(current)&&
+                            current.can_render_scene&&current.scene_focus_process_id==current.process_id&&
+                            current.input_available&&!current.dashboard_visible&&!current.should_pause;
+                    }
                     // Current raw held Triangle and finite right-stick input
                     // gate captured wheel metadata; a delayed wheel cannot buzz
                     // after release. The captured highlight remains authoritative.
@@ -1346,6 +1361,9 @@ struct OpenVrStereoPresenter::Impl {
                     std::chrono::steady_clock::now());
                 wheel_haptics.UpdateContext(wheel_haptic_context, gameplay_context_generation,
                     std::chrono::steady_clock::now());
+                reload_haptics.UpdateContext(reload_haptic_context,gameplay_context_generation,
+                    feedback_context.Snapshot(),std::chrono::steady_clock::now());
+                reload_haptics.UpdateOwner(reload_feedback_owner.load(std::memory_order_acquire));
                 d3d9::StereoCpuFrame frame{};
                 const bool have_new_frame = mailbox.WaitConsumeLatest(
                     frame, cadence.scene_submission_allowed(dashboard_visible) ? 0U : 2U);
@@ -1441,8 +1459,40 @@ struct OpenVrStereoPresenter::Impl {
                                     Log(feedback.str());
                                     });
                                 }
-                            } else wheel_haptics.UpdateContext(false, gameplay_context_generation,
-                                std::chrono::steady_clock::now());
+                                const auto reload_now=std::chrono::steady_clock::now();
+                                reload_haptics.UpdateOwner(reload_feedback_owner.load(std::memory_order_acquire));
+                                reload_haptics.UpdateContext(reload_haptic_context,gameplay_context_generation,
+                                    feedback_context.Snapshot(),reload_now);
+                                const auto reload_pulse=reload_haptics.Observe(frame.hud_text.reload_feedback,
+                                    frame.capture_sequence,frame.generation,frame.device_id,
+                                    frame.capture_time,reload_now,frame.hud_text.feedback_context_token);
+                                if(reload_pulse){
+                                    const bool delivered=feedback_context.Matches(frame.hud_text.feedback_context_token)&&
+                                        reload_feedback_owner.load(std::memory_order_acquire)==frame.hud_text.reload_feedback.owner_token&&
+                                        runtime.SubmitUiHapticPulse(*reload_pulse);
+                                    if(!delivered)reload_haptics.UpdateContext(false,gameplay_context_generation,
+                                        feedback_context.Snapshot(),std::chrono::steady_clock::now());
+                                    if(frame.hud_text.reload_feedback.diagnostics)runtime::OptionalUiHapticDiagnostic([&]{
+                                        std::ostringstream feedback;
+                                        feedback<<"openvr_reload_haptic: event=insert_accepted;hand="
+                                            <<(reload_pulse->hand==runtime::UiHapticHand::left?"left":"right")
+                                            <<";status="<<(delivered?"submitted":"dropped")
+                                            <<";frame_sequence="<<frame.capture_sequence
+                                            <<";device_id="<<frame.device_id<<";generation="<<frame.generation
+                                            <<";context_generation="<<gameplay_context_generation
+                                            <<";feedback_owner="<<frame.hud_text.reload_feedback.owner_token
+                                            <<";duration_seconds="<<reload_pulse->duration_seconds
+                                            <<";frequency_hz="<<reload_pulse->frequency_hz
+                                            <<";amplitude="<<reload_pulse->amplitude;
+                                        Log(feedback.str());
+                                    });
+                                }
+                            } else {
+                                wheel_haptics.UpdateContext(false,gameplay_context_generation,
+                                    std::chrono::steady_clock::now());
+                                reload_haptics.UpdateContext(false,gameplay_context_generation,
+                                    feedback_context.Snapshot(),std::chrono::steady_clock::now());
+                            }
                             if (shared_frame) {
                                 const LeaseTelemetry lease{
                                     .device_id = frame.device_id,
@@ -1780,6 +1830,10 @@ std::uint64_t OpenVrStereoPresenter::GameplayFeedbackContextToken() const noexce
     return impl_->feedback_context.Snapshot();
 }
 
+void OpenVrStereoPresenter::PublishReloadFeedbackOwner(std::uint64_t token) noexcept {
+    impl_->reload_feedback_owner.store(token, std::memory_order_release);
+}
+
 bool OpenVrStereoPresenter::Start(
     std::string action_manifest_path,
     const PresenterLogCallback log_callback,
@@ -1877,6 +1931,7 @@ void OpenVrStereoPresenter::Stop() noexcept {
     // Start also calls Stop: invalidate the epoch even if already unavailable.
     // Never reset to zero and accidentally reuse a previous capture token.
     impl_->feedback_context.Reset();
+    impl_->reload_feedback_owner.store(0, std::memory_order_release);
     impl_->stop_requested.store(true, std::memory_order_release);
     impl_->mailbox.Stop();
     try {

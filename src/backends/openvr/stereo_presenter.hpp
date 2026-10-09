@@ -98,6 +98,7 @@ public:
     void Stop() noexcept;
     void PublishGameplayFeedbackContext(bool available) noexcept;
     [[nodiscard]] std::uint64_t GameplayFeedbackContextToken() const noexcept;
+    void PublishReloadFeedbackOwner(std::uint64_t token) noexcept;
 
     [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame) noexcept;
     [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;
