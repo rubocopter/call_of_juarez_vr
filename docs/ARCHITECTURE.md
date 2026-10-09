@@ -31,6 +31,10 @@ Game-specific mutation requires recognized executable/engine/archive SHA-256
 identity, not filenames. Unknown builds, ambiguous ownership, invalid bases/poses
 and failed restoration fail closed. Hooks retain object/generation identity,
 preserve foreign replacements and undo only their own changes.
+Cleanup also recognizes a slot already pointing to its exact retained original,
+without rewriting it. A foreign destination or incomplete memory-protection
+restoration still reports failure. Original targets remain available to in-flight
+callbacks after retirement. This cleanup case has deterministic host coverage.
 
 Each physical candidate binds source state, build manifest, deployed hashes and
 one fresh run ID to one game process. `tools/vr_test.ps1 prepare` builds, checks
@@ -237,6 +241,11 @@ sustained waiting and sampled scoped presentation/restoration recover to ready.
 Square preparation/closure, continued hand tracking, repeated manual loading
 and weapon/menu recovery have scoped operator acceptance. Exact port clearance,
 prolonged comfort and other interruption contexts require further evidence.
+Manual Square rearming is scoped to available gameplay, player/context/input
+generation and the observed weapon. Loss invalidates a prior released baseline;
+held Square cannot open a recovered session until a fresh available release.
+Discharging the existing physical claim remains possible after disabling manual
+reload, so the conventional path can recover. This strengthening is host-tested.
 The default candidate retains the legacy native-animation route; the persistent
 flow requires `-ManualReload`. See
 [reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).
@@ -276,7 +285,13 @@ tracking metres. The exact-game Ray skin and authored .7/.7 thumb/index curls
 supplied the reference; a bounded pad separation and live bone-frame
 verification reject incompatible poses. Delivery is host-tested and bounded
 live-tested, but the latest close-up does not establish convincing contact.
-Orientation remains controller-grip based and native scene depth is absent.
+The host-tested candidate also derives orientation from the displayed distal
+frames: the mean distal +X direction is projected perpendicular to the measured
+thumb-to-index pad gap. Mesh -Z follows that tangent; both centre and axes are
+converted through the exact camera basis. Degenerate tangent, changed bones,
+invalid basis or failed restoration hides the cartridge. This changes only the
+visual pose, not gesture admission. The revised axis has no live/visor acceptance;
+native scene depth is still absent from the compositor.
 Missing or unrestored hand/weapon
 presentation hides the manual cartridge. Native ammunition and the existing
 free-hand trigger pickup/release insertion gesture are unchanged. Scene-depth
@@ -292,6 +307,15 @@ pickup after successful hand/weapon recovery. Sequence mismatch reports
 unavailable. The observer never changes finger policy or animation time. Joint
 origins remain distinct from skin contact; Validation owns the accepted visibility
 and unresolved grip fit.
+
+Default-off diagnostics can additionally observe current D3D9 render target,
+depth surface descriptions, viewport, depth states and view/projection at full
+eye completion. At most six observations per manual opening accompany initial
+held-cartridge appearances. COM references are released immediately; there is
+no texture copy, readback, depth sampling or render-state mutation. Matching
+dimensions/MSAA are layout evidence only, never eye/hand content or occlusion
+admission. The backend owns these renderer-specific observations. The reader is
+host-tested; exact-game depth content remains unobserved.
 
 ## Weapon ownership
 
@@ -376,6 +400,16 @@ faults never queue or retry feedback and cannot affect native loading. This
 policy is host-tested, with live submission records and operator acceptance of
 insertion-only delivery in the exercised manual context. Broader recovery and
 prolonged comfort remain pending; Validation owns those acceptance limits.
+
+The host-tested manual candidate additionally emits a distinct qualified
+zone-entry cue (9 ms, amplitude 0.10, 90 Hz), without a native transfer. First
+pickup requires the same completed journey/time as insertion; replenished rounds
+require a fresh held trigger claim. Entry uses the active 14 cm grip zone,
+withdrawal beyond 18 cm rearms the cue, and 180 ms bounds its output cadence.
+The dormant explicit-socket policy also requires its qualified trajectory.
+Entry and acceptance use independent cadences so entry cannot suppress immediate
+acceptance. Both use the same freshness/ownership fences; neither event queues.
+This extension has no live or headset acceptance yet.
 
 Protected-target feedback can color the per-eye aiming cross red only from coherent
 native warning/trace-owner/ray observations. Invalid observations clear it. Source

@@ -89,14 +89,67 @@ Optional acceptance haptics require coherent native unit readbacks and fresh
 capture/tracking/gameplay ownership. Host tests cover duplicate/stale captures,
 replacement, release barriers and output faults; live submission records and
 operator feedback accept insertion-only delivery in the exercised context.
-Zone-entry feedback and insertion-specific sound remain pending.
+The revised zone-entry cue is implemented and host-tested, without live/visor
+acceptance; insertion-specific sound remains pending. The soft cue signals a
+qualified held approach, grants no round, and does not delay the stronger
+native-confirmed insertion cue. Withdrawal hysteresis and separate cadences
+prevent boundary jitter from repeatedly pulsing.
 
 `manual_reload_pinch` and `manual_reload_cartridge` have bounded applied/visible
 and idle/hidden observations. The optional `manual_reload_finger_reference`
 reader has bounded live snapshots of native/displayed distal fingers; its
 `weapon_id=0` diagnostic field cannot independently prove weapon ownership.
+The revised host-tested emitter uses the native reload snapshot instead of
+ordinary admission (which is unavailable while waiting), with explicit snapshot
+validity, armed hand and context. New correlation remains pending runtime.
 Joint observations do not measure skin contact. The current compositor lacks
 scene-depth occlusion; improved anchor position alone does not qualify the grip.
+
+## Consolidated candidate batch — host-tested, awaiting runtime and visor
+
+This candidate combines a displayed-finger tangent axis for the CC0 cartridge,
+qualified zone-entry feedback, stricter Square rearming after ownership/input/
+tracking loss and native Square recovery after disabling manual reload. Native
+ammunition, the 14 cm insertion zone and body presentation remain unchanged.
+Both-hand geometry and rotated-camera tests, fresh/duplicate/invalid gestures,
+haptic priority/freshness and context/disable barriers have host coverage.
+The read-only D3D9 depth observer is host-tested against a real host device,
+including absent depth, attached D16 state and subsequent reset. It has no
+exact-game observations yet and cannot authorize occlusion.
+
+Use one fresh canonical candidate when the operator is available. There is no
+request to repeat separate micro-tests or unavailable campaign contexts.
+
+1. **Grip:** open an eligible revolver, wait with an empty support hand, take a
+   cartridge with its trigger. Inspect close-up, wrist roll and palm-up/down.
+   Compare the visible loading port before and after opening at a similar angle.
+   Check the bullet follows the pinching fingers rather than cutting through
+   them. The current compositor still cannot hide it behind fingers/walls;
+   record that limitation separately from position/axis fit.
+2. **Feedback and transfer:** carry into the grip zone while held. Expect one
+   soft entry cue and no ammunition change. Small boundary oscillation must not
+   repeatedly vibrate. Release for one stronger cue and exactly one native round.
+   Repeat several insertions; withdraw clearly to rearm entry feedback.
+3. **Drop and closure:** release away from the gun, close with Square, reopen,
+   close with the armed trigger, then release/press to fire. No extra insertion,
+   retained pinch or firing on the closing press.
+4. **Held-control recovery:** carry a round, pause/change weapon/recenter or
+   temporarily lose tracking, then recover with Square/triggers still held.
+   No stale round, queued insertion or automatic reopening. Release and press
+   deliberately to recover; also check returning from a menu while already
+   `READY` with Square held.
+5. **Lifecycle:** in eligible scenes, save/load, die/retry and use canonical
+   `disable` during manual loading. Confirm restored control and conventional
+   reload after releasing/pressing Square. Unavailable cases remain pending.
+6. **Interaction and coverage:** left-Sense L1 drawer/pickup/carry/put-down while
+   looking elsewhere; cyan reference only while held. Repeat reload with a
+   left-hand assignment or Frontier if available in the same session.
+
+The default-off trace records zone entry/withdrawal, visual position/tip axis,
+native insertions and submitted haptic type. Up to six `manual_reload_depth`
+observations per opening record each eye's current target/depth/state at initial
+held appearances; matching layout is not proven content. The offline analyzer
+keeps these distinctions and never promotes a physical gate.
 
 ## Hybrid motion reload acceptance
 
@@ -153,6 +206,11 @@ Arbitrary reset, abnormal shutdown, sustained pacing and campaign transitions
 remain open. A skipped classic shared-texture environmental test is neither a
 pass nor physical validation. Transient host D3D9 CreateDevice failures have also
 been observed; their cause has not been established.
+The host startup contract additionally exposed partially restored factory slots
+already pointing to retained originals. Cleanup now acknowledges those exact
+targets without a write, preserving foreign conflicts and protection-failure
+recovery. A deterministic regression and repeated host startup checks cover this
+case; the external restorer and exact-game lifecycle effects remain unobserved.
 
 ## Closed locomotion diagnosis
 

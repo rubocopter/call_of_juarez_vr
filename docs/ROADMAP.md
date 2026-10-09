@@ -23,14 +23,21 @@ Immediate work, in order:
    bounded live delivery evidence, but the latest close-up does not establish
    finger contact. Qualify a safe hand/scene-occlusion boundary and a measured
    cartridge axis relative to displayed fingers; avoid further arbitrary offset
-   tuning. The current compositor has no native scene depth. Batch one physical
+   tuning. A measured tangent axis is now implemented and host-tested for both
+   hands; its visual fit is still unobserved. A bounded read-only D3D9 depth
+   observer is ready to collect the next batch, without enabling occlusion.
+   The current compositor has no native scene depth. Batch one physical
    grip/roll/release/insertion/recovery check after a material correction.
 2. **Qualify the native loading port.** Existing read-only root/barrel/gate/drum
    observations show changed gate pose and independent drum motion. Displayed
    six-mouth pivot rankings have bounded live evidence, but a pivot is not a
    socket. Establish visible opening/clearance before enabling precise insertion
    or any independent mechanical writer. The current grip zone stays active.
-3. **Close relevant recovery and interaction gates.** Batch manual tracking,
+3. **Close relevant recovery and interaction gates.** Square rearming across
+   ownership/availability loss and conventional recovery after disable are
+   strengthened and host-tested. Qualified zone-entry feedback is host-tested;
+   native insertion retains its stronger independently gated pulse.
+   Batch manual tracking,
    held-control, save/load, death/retry and disable checks; broaden mirrored and
    Frontier coverage when available. The replacement left-Sense L1 ray and
    held-only cyan reference still need acceptance, independent of the earlier
@@ -82,8 +89,9 @@ Exercised menus, wheel/haptics, Focus, Create timing, compass and HUD/subtitles
 are achieved. Persistent manual reload has scoped acceptance; convincing grip,
 precise chamber loading, mechanical clearance and broader recovery remain open.
 Spent-case ejection and complete graphical HUD capture are planned. Zone-entry
-feedback, insertion-specific sound and direct native loose-round loading are
-pending; none blocks the existing functional prototype.
+feedback is implemented/host-tested, awaiting physical acceptance.
+Insertion-specific sound and direct native loose-round loading remain pending;
+none blocks the existing functional prototype.
 
 ## Milestone 5 — additional renderers and games
 

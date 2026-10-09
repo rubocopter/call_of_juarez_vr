@@ -580,7 +580,8 @@ queued events even when gameplay availability stays unchanged; the presenter
 rechecks the published atomic epoch before output. Tests cover native replacement
 without a controller intent and same-owner reacquisition without epoch reuse.
 This guard follows sampled ownership; it cannot detect an unsampled native change.
-No zone-entry pulse, sound call, mechanical writer or asset replacement is added.
+The later host-tested zone cue is described below. No insertion-specific sound
+call or independent mechanical writer is admitted.
 
 ### Installed ammunition resources — pickup meshes, not loose cartridges
 
@@ -672,7 +673,7 @@ visual finger fit, orientation/scale, appearance quality and comfort remain open
 
 The current estimated pinch interpolates the shared authored rest/fist endpoints
 at thumb/index .7/.7; it is not the original loading finger pose. Its attachment
-uses bone-local skin-derived reference points and retains the controller grip
+used bone-local skin-derived reference points and retained the controller grip
 orientation. Offline vertex measurements are not runtime proof of skin contact,
 and grip orientation does not establish a cartridge axis fitted to
 the fingers. The compositor draws the cartridge after the captured scene without
@@ -706,3 +707,45 @@ native/displayed references, changed frame rejection and post-restore rejection.
 Keep the current accepted reload flow and visible mesh while qualifying native
 finger-pose reuse plus a measured contact/axis reference; there is no new IK,
 animation-time setter, ammunition state or independent mechanical writer.
+
+### Displayed contact tangent and depth inspection — host-tested only
+
+The revised visual frame retains the verified skin-pad midpoint and constructs
+up from thumb toward index. Native distal +X axes point along each digit;
+their mean projected perpendicular to the pad gap supplies projectile direction.
+Mesh -Z follows it. The offline Ray replay at .7/.7 yields hand-local directions
+approximately left `(-.05292,.99517,.08269)` and right
+`(.09508,-.95800,.27053)`. These are derived pose measurements, not socket axes
+or a new native animation. A degenerate mean/gap, changed live bone or failed
+scoped restoration hides the visual. Native centimetres and orientation convert
+through the current exact camera basis; the mesh centre meets the midpoint.
+Tests cover both hands, camera rotation, invalid basis and post-restore rejection.
+Runtime visibility/contact/comfort for this axis remain unobserved.
+The revised finger-reference emitter also takes weapon/armed-hand/context from
+the current native reload snapshot, not the ordinary idle admission reader.
+This removes the source of the historical zero ID while waiting. Snapshot
+validity is explicit; the changed emitter has no fresh live correlation yet.
+
+The renderer's read-only `manual_reload_depth` observer records target/depth
+surface identities/descriptions, viewport/depth states and available fixed-
+function view/projection at full eye completion. It samples at most six times
+per manual opening around held appearances. Real host D3D9 tests establish
+non-mutating observation and resource release before reset. This does not prove
+Chrome's eye-depth lifetime, hand contents, shader matrices, sampleable format
+or cross-API transport. `occlusion_admission=false` remains mandatory; no new
+draw/depth-copy path is enabled.
+
+Qualified held entry into the existing grip zone now supplies a separate 9 ms,
+amplitude .10, 90 Hz cue. Initial pickup uses the insertion journey/time guards;
+replenished cartridges require a fresh press. Withdrawal beyond 18 cm rearms
+the 14 cm entry, with a separate 180 ms output cadence. The native-confirmed
+18 ms/.25/120 Hz insertion pulse retains its own 80 ms cadence and priority.
+Freshness/ownership/restoration fences apply to both. Host tests cover boundary
+jitter, immediate acceptance after entry and reacquisition. No ammunition is
+granted on entry and physical delivery of the new cue remains pending.
+
+Square's released baseline is now tied to usable gameplay and observed player,
+context/input generation and weapon. Lost availability or ownership invalidates
+it. Fresh physical release still discharges an old claim after disabling manual
+reload so the conventional path can recover. Host tests reproduce held recovery
+boundaries; live/menu/disable coverage for this strengthening is pending.
