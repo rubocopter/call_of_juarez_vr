@@ -20,20 +20,20 @@ Manual insertion acceptance haptics have scoped headset acceptance and correlate
 live submission records through the existing optional OpenVR output. They require
 coherent native unit readbacks and fresh capture/ownership; no-replay guards are
 host-tested, while broader physical recovery and prolonged comfort remain open.
-Zone-entry feedback, insertion sound and direct loading of an individual cartridge
-mesh remain pending. A CC0 .44 Magnum-inspired low-poly visual profile is now
-implemented and host-tested as a compositor proxy; it is not an imported OBJ.
-
-The free hand now requests a bounded thumb/index cartridge pinch while carrying
-a round during `MANUAL_LOAD` (implemented and host-tested). It uses the existing
-authored finger rest/fist interpolation and still requires the native empty-hand
-eligibility check; the armed hand and ammunition path are unchanged. The curl
-values and visual cartridge-to-finger fit require headset validation, including
-immediate return to normal finger tracking on release/cancellation. The visual
-cartridge now uses a 16-surface silhouette scaled to the inspected CC0 .44 Magnum
-asset envelope, with a drawn rear primer. The tracked insertion-tip position is
-unchanged. Original-game pickup meshes remain unverified as loose revolver rounds;
-the downloaded OBJ/GLB/FBX mesh and texture are not used by the renderer.
+Zone-entry feedback, insertion sound and direct loading of a native-game cartridge
+mesh remain pending. The first CC0-inspired 16-surface visual and pinch integration
+were physically rejected for appearance/contact and native loading-pose takeover.
+The corrective candidate is **implemented and host-tested**, awaiting a fresh
+headset run: full CC0 .44 Magnum OBJ geometry, authored colors, bounded per-eye
+batching and attachment to verified displayed distal thumb/index joints. A scoped
+same-owner manual-recovery exception admits the support finger overlay; the
+pinch requires an actually held trigger claim. While waiting without a round,
+normal/rest fingers replace the native loading pose. Armed-hand and ammunition
+ownership remain unchanged. Source/bake identity, ownership guards, release,
+bone-anchor restoration and WARP stereo rendering have host checks. Actual finger
+contact, orientation/scale, comfort and recovery still need physical observation.
+Original-game pickups remain unverified as loose revolver rounds; no proprietary
+asset is distributed. The existing grip insertion zone remains the active route.
 
 The new `post_overlay` gate-pivot-to-six-mouth ranking and offline report are
 **host-tested diagnostics**. They use observed native drum phase and owner

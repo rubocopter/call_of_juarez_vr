@@ -30,6 +30,8 @@
 
 Manual reload is experimental, with scoped headset acceptance of the opt-in `-ManualReload` flow: left Square opens/closes without automatic loading, hands remain tracked, the free-hand trigger carries/releases successive cartridges, insertion haptics work and weapon/menu interruptions recover. Native one-round transfers have correlated live evidence on a right-hand Peacemaker. Exact loading-port clearance, individual chamber loading, broader recovery, prolonged comfort and mirrored/Frontier contexts still need qualification; ejection remains future work. See [validation and remaining gates](docs/VALIDATION.md#persistent-manual-reload-candidate).
 
+The latest visual correction imports a [CC0 cartridge mesh](assets/models/README.md) and anchors it to verified support-finger joints. Its held-trigger pinch and stereo rendering have host tests; appearance/contact still await a fresh headset check after rejection of the previous proxy presentation.
+
 Broader weapons, horses, duels, climbing and recovery across campaign transitions remain separate checks. Protected-target warning visibility and compatibility with Steam recording are unresolved. Full connected-arm/body IK is not the active presentation.
 
 Only Call of Juarez (2006) is under active development. Bound in Blood and Gunslinger are planned; D3D9/OpenVR remains the primary path, with OpenXR and D3D10 separate future or experimental tracks.

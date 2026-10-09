@@ -676,29 +676,51 @@ contains `Data/Player/Equipment/Ammo/ShortAmmo.dds` and other ammunition texture
 but a texture alone is neither a standalone mesh nor a proven runtime attachment.
 
 The revolver meshes expose the mechanical elements above, with no demonstrated
-individual cartridge node. The original fourteen-surface compositor approximation
-was replaced by a **16-surface, host-tested visual proxy** using the measured
-envelope of a third-party CC0 model. This does not load a mesh through the native
-engine or compositor; the game's ammo state, tracking, trigger, insertion-tip offset
-and native mutation boundaries are unchanged.
+individual cartridge node. The first CC0 derivative was a **16-surface visual
+proxy**, not an imported mesh. Its physical presentation was rejected: the operator
+observed no convincing asset change/contact and a loading pinch on opening.
+Correlated runtime events report the requested estimated overlay as unavailable.
+The ordinary empty-hand gate rejects the reload's temporary two-hand animation
+occupancy, even though the existing reload-recovery reader already distinguishes
+it from an actual carried object.
+
+The correction is **implemented and host-tested**, with no fresh live/visor
+acceptance. A bridge-owned manual opening/wait admits support fingers only after
+matching native recovery and probe observations for the same weapon/armed hand.
+Failed observation, foreign equipment, carrying, death and armed-hand requests
+remain rejected. The pinch requires a held physical trigger claim; waiting with
+no claimed round uses live curls or estimated authored rest. A replenished-ready
+token alone does not request the pinch or a visible manual cartridge.
+
+The manual visual centre now follows the midpoint of the **verified displayed
+distal thumb/index joints** after the scoped finger write. Native cm are projected
+through the exact current camera basis back into XR metres. Missing/changed bone
+frames and failed hand/weapon restoration hide the round. This is an attachment
+reference, not measured finger-pad contact; that fit still requires a headset
+observation. The accepted grip insertion gesture and native ammo are unchanged.
 
 The source reference is Pichuliru's [CC0 Flat Ammunition](https://opengameart.org/content/cc0-flat-ammunition)
 (2022), `OBJ/Loose Ammo/44 Magnum.obj`: the inspected 122 vertices / 224
 triangles have bounds X,Z +/-0.00653 m and Y -0.010396 to +0.030494 m.
-The simplified six-sided brass case, tapered copper nose and two rear-primer
-quads use the established ordered compositor raster, staying within 16 surfaces.
-Host WARP readback confirms that the rear primer is drawn over the coplanar case
-base in both eyes for a rear-facing fixture; headset appearance remains untested.
-The previously exported tip remains at grip-local Z -0.0475 m; case base/shoulder
-positions derive from the measured source Y offsets. No original polygon data or
-third-party textures are embedded. The model's license is CC0; credit is voluntary.
+The current manual visual retains all **122 source positions / 224 triangles**,
+with a right-handed OBJ-axis conversion and authored brass/copper/primer colors.
+The checked-in CC0 OBJ and generated runtime arrays are bound by source SHA-256
+and a deterministic bake check. Attribution/license and regeneration instructions
+are in [assets/models](../../assets/models/README.md). The old six-sided proxy
+remains available for the separate legacy route and its regression fixtures.
+The compositor batches bounded geometry into one upload/draw per eye, with
+back-face rejection and far-to-near face ordering. Host WARP checks produce
+binocular front/side/rear pixels and suppress malformed optional geometry without
+losing the rest of the HUD. It does not read game scene depth, create an engine
+ammunition object or establish visually correct contact. The source nose centre
+retains the exported local Z -0.0475 m offset; the manual attachment translates
+the complete visual around the displayed joint midpoint. No third-party texture
+or proprietary game asset is embedded.
 
 Also examined as a possible source: [Revolver Game Asset](https://opengameart.org/content/revolver-game-asset)
 by loafbrr_1 (CC0, 2021), whose downloaded archive includes `.357` FBX meshes
-and a textured `RevolverAmmo.gltf`. These assets require a mesh/material render
-path, so the light .44 silhouette is preferred for the current color-only overlay.
-The detailed OBJ profile could not be verified in this iteration beyond its
-previously measured envelope: this is an approximation, not a claim of faithful
-source-mesh decimation or a verified historical match to the game revolver.
-No game asset may be committed or distributed. Real mesh import, true scene depth
-occlusion, visual finger fit and physical headset acceptance remain open.
+and a textured `RevolverAmmo.gltf`. These alternatives are not loaded by the active
+renderer. The imported .44 geometry is not a verified historical/calibre match to
+the in-game revolver. No proprietary game asset may be committed or distributed.
+True scene-depth occlusion, visual finger fit and physical headset acceptance
+remain open.

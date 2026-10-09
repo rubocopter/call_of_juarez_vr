@@ -251,8 +251,24 @@ Optional finger curls interpolate exact Ray/Billy authored relaxed-rest/fist
 local orientations while preserving translations/lengths and Hand/socket frames.
 All fifteen targets join the existing transaction. Empty-hand eligibility checks
 actual/active/desired equipment and pending states, carrying and shared two-hand
-ownership. Missing curls or ambiguity retain native fingers. Armed/tools/reload
-remain native-owned; curl zero means authored rest, not maximum opening.
+ownership. Missing curls or ambiguity normally retain native fingers. A bridge-owned
+manual opening/wait can admit the empty support hand through the existing native
+reload-recovery reader plus a matching weapon/hand/probe snapshot. Actual carrying,
+replacement, death and failed reads still reject it; the armed hand remains native.
+During manual waiting the support uses current curls, or authored rest when no
+curl sample exists. The estimated cartridge pinch requires a physical trigger
+claim and held round, not merely an open weapon or a replenished available token.
+Curl zero means authored rest, not maximum opening.
+
+The manual cartridge uses the full third-party CC0 .44 Magnum OBJ (122 positions,
+224 triangles), baked into bounded runtime geometry with authored colors. It is
+captured with the stereo pair and batched into one compositor draw per eye. Its
+centre follows the midpoint of verified displayed distal thumb/index joint frames,
+converted from native centimetres into tracking metres. This is an attachment
+reference, not measured finger-pad contact. Missing or unrestored hand/weapon
+presentation hides the manual cartridge. Native ammunition and the existing grip
+insertion gesture are unchanged. Scene-depth occlusion and physical visual fit
+remain pending; asset provenance is in [assets/models](../assets/models/README.md).
 
 ## Weapon ownership
 
