@@ -695,12 +695,15 @@ remain rejected. The pinch requires a held physical trigger claim; waiting with
 no claimed round uses live curls or estimated authored rest. A replenished-ready
 token alone does not request the pinch or a visible manual cartridge.
 
-The manual visual centre now follows the midpoint of the **verified displayed
-distal thumb/index joints** after the scoped finger write. Native cm are projected
-through the exact current camera basis back into XR metres. Missing/changed bone
-frames and failed hand/weapon restoration hide the round. This is an attachment
-reference, not measured finger-pad contact; that fit still requires a headset
-observation. The accepted grip insertion gesture and native ammo are unchanged.
+The manual visual centre now follows the midpoint of two **skin-derived offsets
+on the verified displayed distal thumb/index bones** after the scoped finger write.
+The offsets were estimated offline from the exact-game Ray skin at authored
+thumb/index curl .7/.7 (roughly 1.1 cm between estimated pads for a 1.2 cm case).
+Native cm are projected through the current camera basis into XR metres.
+Invalid owner/bone frames, a pad gap outside 0.6–1.8 cm and failed restoration
+hide the round. This is a **host-tested** contact estimate; its fit requires a headset
+observation. The accepted free-hand trigger pickup/release insertion gesture and
+native ammo are unchanged.
 
 The source reference is Pichuliru's [CC0 Flat Ammunition](https://opengameart.org/content/cc0-flat-ammunition)
 (2022), `OBJ/Loose Ammo/44 Magnum.obj`: the inspected 122 vertices / 224
@@ -719,7 +722,7 @@ binocular front/side/rear pixels and suppress malformed optional geometry withou
 losing the rest of the HUD. It does not read game scene depth, create an engine
 ammunition object or establish visually correct contact. The source nose centre
 retains the exported local Z -0.0475 m offset; the manual attachment translates
-the complete visual around the displayed joint midpoint. No proprietary game
+the complete visual around the displayed skin-derived midpoint. No proprietary game
 asset is embedded.
 
 The current correction uses [Revolver Game Asset](https://opengameart.org/content/revolver-game-asset)
@@ -737,17 +740,20 @@ the fingers. Correlated live events identify the textured mesh and native unit
 readbacks. WARP front/side/rear draws produce binocular pixels, distinguish
 lead/brass colors and reject corrupted optional UVs/normals in both eyes. Optional
 reference-image output uses the actual compositor; it is not a headset capture.
-The old proxy retains its separate raster/cache; the accepted grip insertion,
-native ammunition and scoped joint anchor are unchanged. Neither imported model
+The old proxy retains its separate raster/cache; the accepted trigger/release
+insertion and native ammunition are unchanged. The skin-derived anchor is a new
+host-tested candidate following operator rejection of the previous joint midpoint.
+Neither imported model
 is a demonstrated historical/calibre match. Scene-depth occlusion, native lighting,
 visual finger fit, orientation/scale, appearance quality and comfort remain open.
 
 ### Finger-contact boundary — visibility accepted, grip unresolved
 
-The current estimated pinch interpolates the shared authored rest/fist endpoints;
-it is not the original loading finger pose. Its attachment averages distal joint
-origins and retains the controller grip orientation. Joint origins do not identify
-skin contact, and grip orientation does not establish a cartridge axis fitted to
+The current estimated pinch interpolates the shared authored rest/fist endpoints
+at thumb/index .7/.7; it is not the original loading finger pose. Its attachment
+uses bone-local skin-derived reference points and retains the controller grip
+orientation. Offline vertex measurements are not runtime proof of skin contact,
+and grip orientation does not establish a cartridge axis fitted to
 the fingers. The compositor draws the cartridge after the captured scene without
 scene depth: native fingers cannot correctly occlude it, even with a better
 geometric attachment. A complete grip correction therefore needs qualified finger

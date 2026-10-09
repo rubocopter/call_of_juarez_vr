@@ -28,26 +28,26 @@ identify the imported geometry, but it still used the placeholder color swatches
 The current correction has **scoped headset acceptance for visibility**: the
 operator confirms the textured cartridge appears, but explicitly reports that it
 does not look held between the fingers. It uses one CC0 .357 glTF cartridge with
-source UVs/normals, a cropped
-albedo and authored metal shading, bounded per-eye batching and attachment to
-verified displayed distal thumb/index joints. Native scene depth remains absent.
-A scoped
-same-owner manual-recovery exception admits the support finger overlay; the
+source UVs/normals, cropped albedo, authored metal shading, bounded per-eye
+batching and a new **host-tested**
+skin-derived midpoint on verified displayed distal thumb/index bones. The
+.7/.7 thumb/index pose and its guard use an offline exact-game Ray-skin reference;
+live and headset contact are unverified. Native scene depth remains absent.
+A scoped same-owner manual-recovery exception admits the support finger overlay; the
 pinch requires an actually held trigger claim. While waiting without a round,
 normal/rest fingers replace the native loading pose. Armed-hand and ammunition
 ownership remain unchanged. Source/bake identity, ownership guards, release,
-bone-anchor restoration and WARP stereo rendering have host checks. Finger
-contact is a confirmed unresolved presentation issue; orientation/scale, appearance
-quality, comfort and broader recovery remain unaccepted. Prioritize a measured
-grip correction: compare the native loading finger pose with the displayed pose,
-then qualify a contact reference, orientation and finger occlusion. The compositor
-currently draws the round over the captured hand without native scene depth, so
-anchor tuning alone cannot establish convincing contact. The new read-only pickup
-finger-reference trace is host-tested only;
-batch its live check with that correction. No new physical trial is required
-merely to reconfirm visibility.
+bone-anchor restoration and WARP stereo rendering have host checks. The new contact
+anchor is a candidate correction; orientation/scale, appearance quality, comfort
+and broader recovery remain unaccepted. Qualify that anchor, axis and finger
+occlusion together in one physical trial. The compositor currently draws the
+round over the captured hand without native scene depth; anchor tuning alone
+cannot establish convincing contact. The read-only pickup finger-reference
+trace is host-tested only; batch its live check with this correction. No new
+physical trial is required merely to reconfirm visibility.
 Original-game pickups remain unverified as loose revolver rounds; no proprietary
-asset is distributed. The existing grip insertion zone remains the active route.
+asset is distributed. The existing free-hand trigger pickup/release insertion zone
+remains the active route.
 
 The new `post_overlay` gate-pivot-to-six-mouth ranking and offline report are
 **host-tested diagnostics**. They use observed native drum phase and owner

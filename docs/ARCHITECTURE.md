@@ -267,11 +267,15 @@ material adapts the orange case palette to brass and uses authored head-space
 preview lights/reflection; it does not sample native environment lighting. The
 prior full .44 OBJ with placeholder swatches was physically rejected. Geometry is
 captured with the stereo pair and batched into one compositor draw per eye. Its
-centre follows the midpoint of verified displayed distal thumb/index joint frames,
-converted from native centimetres into tracking metres. This is an attachment
-reference, not measured finger-pad contact. Missing or unrestored hand/weapon
-presentation hides the manual cartridge. Native ammunition and the existing grip
-insertion gesture are unchanged. Scene-depth occlusion and physical visual fit
+centre now uses the midpoint of two skin-derived local offsets on the verified
+displayed distal thumb/index frames, converted from native centimetres into
+tracking metres. The exact-game Ray skin and authored .7/.7 thumb/index curls
+supplied the host-tested reference; a bounded pad separation and live bone-frame
+verification reject incompatible poses. This is an estimated contact reference,
+not headset-confirmed contact. Missing or unrestored hand/weapon
+presentation hides the manual cartridge. Native ammunition and the existing
+free-hand trigger pickup/release insertion gesture are unchanged. Scene-depth
+occlusion and physical visual fit
 remain pending; asset provenance is in [assets/models](../assets/models/README.md).
 Captured UVs/normals and asset/bake identities fail closed independently of the
 essential HUD. Legacy gestures keep their original proxy material/cache.
