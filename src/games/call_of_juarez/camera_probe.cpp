@@ -3904,7 +3904,7 @@ bool ApplyTrackedWeapons(
                         grip.position.y+delta.x*basis.up.x+delta.y*basis.up.y+delta.z*basis.up.z,
                         grip.position.z+delta.x*basis.forward.x+delta.y*basis.forward.y+delta.z*basis.forward.z};
                     const auto centre=runtime::RotateVector(grip.orientation,{0,0,
-                        (runtime::reload_visual_detail::tip_z+runtime::reload_visual_detail::base_z)*.5F});
+                        runtime::textured_reload_mesh::centre_z});
                     pose.position={pose.position.x-centre.x,pose.position.y-centre.y,pose.position.z-centre.z};
                     g_reload_cartridge_anchors[hand]=pose;
                 }
@@ -6020,7 +6020,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             EmitEvent("manual_reload_cartridge",drawn?"visible":"hidden",
                 "frame_sequence="+std::to_string(frame_sequence)+
                 ";hand="+std::to_string(motion_reload.cartridge_hand)+
-                ";mesh=cc0_44_magnum;triangles=224;anchor="+
+                ";mesh=cc0_textured_357;triangles=92;source_uv=true;source_albedo=true;anchor="+
                 (manual_cartridge?std::string("verified_distal_thumb_index_midpoint"):std::string("support_grip"))+
                 ";physical_claim="+std::to_string(physically_held)+
                 ";finger_contact=headset_unverified;scene_depth=false");

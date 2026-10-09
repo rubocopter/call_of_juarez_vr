@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <limits>
 #include <type_traits>
 #include <wrl/client.h>
@@ -91,7 +93,7 @@ int main(){
         hand=head;hand.position={0,-.1F,-.4F};
         StereoHudTextOverlay imported{};
         Require(BuildReloadCartridgeOverlay(head,hand,true,imported)&&
-            imported.reload_cartridge_surface_count==224,
+            imported.reload_cartridge_surface_count==92&&imported.reload_cartridge_textured,
             "production cartridge must contain the imported CC0 mesh, not the silhouette proxy");
     }
     RenderedTipInsertionJourneys();
@@ -220,7 +222,7 @@ int main(){
     ComPtr<ID3D11Texture2D> readback;
     Require(SUCCEEDED(device->CreateTexture2D(&desc,nullptr,&readback)),"readback creation failed");
     std::array<std::uint64_t,2> sum_x{},fingerprint{};
-    std::array<unsigned,2> copper_pixels{},primer_pixels{};
+    std::array<unsigned,2> copper_pixels{},primer_pixels{},lead_pixels{},brass_pixels{};
     const auto primer_rgb=panel.pixels[108*48+24];
     const auto primer_shade=out.reload_cartridge_surfaces[14].shade;
     const auto expected_primer=[&](int shift){
@@ -230,13 +232,16 @@ int main(){
         context->CopyResource(readback.Get(),targets[eye].Get());D3D11_MAPPED_SUBRESOURCE mapped{};
         Require(SUCCEEDED(context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped)),"readback map failed");
         unsigned count=0;
-        sum_x[eye]=fingerprint[eye]=0;copper_pixels[eye]=primer_pixels[eye]=0;
+        sum_x[eye]=fingerprint[eye]=0;copper_pixels[eye]=primer_pixels[eye]=lead_pixels[eye]=brass_pixels[eye]=0;
         for(unsigned y=0;y<1024;++y){auto* row=reinterpret_cast<const std::uint32_t*>(
             static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch);
             for(unsigned x=0;x<1024;++x)if(row[x]){
                 ++count;sum_x[eye]+=x;
                 fingerprint[eye]=fingerprint[eye]*1099511628211ULL+row[x]+x+1024ULL*y;
                 if(((row[x]>>16)&255)>((row[x]>>8)&255)*1.7F)++copper_pixels[eye];
+                const unsigned red=(row[x]>>16)&255,green=(row[x]>>8)&255,blue=row[x]&255;
+                if(std::max({red,green,blue})-std::min({red,green,blue})<5&&red>40)++lead_pixels[eye];
+                if(red>60&&green>red*.72F&&blue<green*.7F)++brass_pixels[eye];
                 if(std::abs(static_cast<int>((row[x]>>16)&255)-expected_primer(16))<=2&&
                     std::abs(static_cast<int>((row[x]>>8)&255)-expected_primer(8))<=2&&
                     std::abs(static_cast<int>(row[x]&255)-expected_primer(0))<=2)
@@ -315,17 +320,46 @@ int main(){
     for(auto rotation:std::array<Quaternion,3>{{{0,0,0,1},{0,.70710678F,0,.70710678F},{0,1,0,0}}}){
         grip.orientation=rotation;
         for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
-        Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&out.reload_cartridge_surface_count==224,
+        Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&out.reload_cartridge_surface_count==92,
             "imported source mesh capture failed");
         Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&
             coverage(0)>0&&coverage(1)>0&&fingerprint[0]!=fingerprint[1],
             "imported mesh must have actual WARP pixels and binocular disparity at front/side/rear");
         const auto imported=out;
         for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
-        out.reload_cartridge_surfaces[100].head_corners[0].x=std::numeric_limits<float>::quiet_NaN();
+        out.reload_cartridge_surfaces[50].head_corners[0].x=std::numeric_limits<float>::quiet_NaN();
         Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
             "invalid imported triangle must suppress both eyes");
         out=imported;
+        out.reload_cartridge_surfaces[50].corner_normal[0].x=std::numeric_limits<float>::quiet_NaN();
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
+            "invalid optional cartridge normal must suppress both eyes");
+        out=imported;
+        out.reload_cartridge_surfaces[50].corner_uv[0].x=std::numeric_limits<float>::quiet_NaN();
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
+            "invalid optional cartridge UV must suppress both eyes");
+        out=imported;
+    }
+    grip.orientation={0,.70710678F,0,.70710678F};
+    for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+    Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&compositor.Draw(device.Get(),context.Get(),out,123,raw),
+        "textured cartridge reference render failed");
+    Require(coverage(0)>0&&coverage(1)>0&&lead_pixels[0]>5&&lead_pixels[1]>5,
+        "production cartridge must show the source lead material, not placeholder brass/copper swatches");
+    Require(brass_pixels[0]>20&&brass_pixels[1]>20,
+        "textured cartridge case must render as brass rather than the orange source palette");
+    if(const auto* destination=std::getenv("COJVR_RELOAD_RENDER_OUTPUT")){
+        std::filesystem::create_directories(destination);
+        for(int eye=0;eye<2;++eye){
+            context->CopyResource(readback.Get(),targets[eye].Get());D3D11_MAPPED_SUBRESOURCE mapped{};
+            Require(SUCCEEDED(context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped)),"reference image map failed");
+            std::ofstream image(std::filesystem::path(destination)/(eye?"right.ppm":"left.ppm"),std::ios::binary);
+            image<<"P6\n1024 1024\n255\n";
+            for(unsigned y=0;y<1024;++y){const auto* row=reinterpret_cast<const std::uint32_t*>(
+                static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch);
+                for(unsigned x=0;x<1024;++x){const char rgb[]{static_cast<char>(row[x]>>16),static_cast<char>(row[x]>>8),static_cast<char>(row[x])};image.write(rgb,3);}}
+            context->Unmap(readback.Get(),0);Require(image.good(),"reference image write failed");
+        }
     }
     std::cout<<"reload visual geometry/raster passed\n";
 }

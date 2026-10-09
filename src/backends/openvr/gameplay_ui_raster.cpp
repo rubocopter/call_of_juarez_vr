@@ -1,4 +1,5 @@
 #include "backends/openvr/gameplay_ui_raster.hpp"
+#include "backends/openvr/reload_cartridge_texture.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
@@ -91,6 +92,15 @@ const HudTextPanel& GameplayUiRaster::InteractionGaze() noexcept {
         interaction_gaze_pixels_ = std::move(panel);
     } catch (...) { interaction_gaze_pixels_ = {}; }
     return interaction_gaze_pixels_;
+}
+const HudTextPanel& GameplayUiRaster::TexturedCartridge() noexcept {
+    if(!textured_cartridge_pixels_.pixels.empty())return textured_cartridge_pixels_;
+    try {
+        textured_cartridge_pixels_.width=reload_atlas::width;
+        textured_cartridge_pixels_.height=reload_atlas::height;
+        textured_cartridge_pixels_.pixels.assign(reload_atlas::pixels.begin(),reload_atlas::pixels.end());
+    }catch(...){textured_cartridge_pixels_={};}
+    return textured_cartridge_pixels_;
 }
 const HudTextPanel& GameplayUiRaster::Cartridge() noexcept {
     if(!cartridge_pixels_.pixels.empty())return cartridge_pixels_;

@@ -32,6 +32,9 @@ struct ReloadCartridgeSurface {
     // Sample an opaque material patch in the immutable brass/copper raster.
     Vec2 material_uv{};
     float shade = 0.F;
+    std::array<Vec2,4> corner_uv{};
+    std::array<float,4> corner_shade{};
+    std::array<Vec3,4> corner_normal{};
 };
 
 // One capture's native-confirmed insertion event. No ammunition or retry queue.
@@ -58,6 +61,7 @@ struct StereoHudTextOverlay {
     std::array<Vec3,4> status_head_corners{};
     // Controller-oriented presentation only: never native ammo/inventory.
     bool reload_cartridge_visible = false;
+    bool reload_cartridge_textured = false;
     std::array<Vec3,4> reload_cartridge_head_corners{};
     static constexpr std::size_t reload_cartridge_max_surfaces = 224;
     std::uint32_t reload_cartridge_surface_count = 0;

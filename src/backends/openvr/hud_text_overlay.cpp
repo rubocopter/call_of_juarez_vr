@@ -144,6 +144,7 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11Device> owner;
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11VertexShader> cartridge_vs;
+    ComPtr<ID3D11PixelShader> cartridge_ps;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11Buffer> constants;
     ComPtr<ID3D11Buffer> cartridge_constants;
@@ -158,9 +159,9 @@ struct HudTextCompositor::Impl {
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
     bool Initialize(ID3D11Device* device) {
-        if (owner.Get() == device && vs && cartridge_vs && ps && constants && cartridge_constants && sampler && rasterizer && depth && blend) return true;
+        if (owner.Get() == device && vs && cartridge_vs && cartridge_ps && ps && constants && cartridge_constants && sampler && rasterizer && depth && blend) return true;
         owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset(); blend.Reset();
-        cartridge_vs.Reset();cartridge_constants.Reset();
+        cartridge_vs.Reset();cartridge_ps.Reset();cartridge_constants.Reset();
         images = {}; uploaded = {}; targets = {}; target_views = {};
         constexpr char shader[] =
             "cbuffer Corners:register(b0){float4 corners[4];float4 material[4];};"
@@ -175,17 +176,33 @@ struct HudTextCompositor::Impl {
             FAILED(device->CreatePixelShader(pcode->GetBufferPointer(), pcode->GetBufferSize(), nullptr, &ps))) return false;
         constexpr unsigned mesh_corners=runtime::StereoHudTextOverlay::reload_cartridge_max_surfaces*4;
         const std::string mesh_shader="cbuffer Mesh:register(b0){float4 corners["+
-            std::to_string(mesh_corners)+"];float4 material["+std::to_string(mesh_corners)+"];};"
-            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;};"
+            std::to_string(mesh_corners)+"];float4 material["+std::to_string(mesh_corners)+
+            "];float4 normal["+std::to_string(mesh_corners)+"];float4 head["+std::to_string(mesh_corners)+"];};"
+            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;float3 n:TEXCOORD2;float3 view:TEXCOORD3;};"
             "V VS(uint i:SV_VertexID){uint j=i%6;uint k=(i/6)*4+"
             "(j==0?0:j==1?1:j==2?2:j==3?2:j==4?1:3);"
-            "V o;o.p=corners[k];o.uv=material[k].xy;o.shade=material[k].z;return o;}";
+            "V o;o.p=corners[k];o.uv=material[k].xy;o.shade=material[k].z;o.n=normal[k].xyz;o.view=-head[k].xyz;return o;}"
+            "Texture2D img:register(t0);SamplerState smp:register(s0);"
+            "float4 PS(V v):SV_TARGET{float3 c=img.Sample(smp,v.uv).rgb;"
+            // Adapt the source's orange case palette to brass; retain the lead nose.
+            // Preview lights/reflection are authored, not sampled game lighting.
+            "if(c.r>c.g*1.3&&c.r>c.b*2)c*=float3(.84,1.24,1.6);"
+            "float3 n=normalize(v.n),view=normalize(v.view),light=normalize(float3(-.35,.7,.62));"
+            "float diffuse=max(0,dot(n,light));float3 halfv=normalize(light+view);"
+            "float highlight=pow(max(0,dot(n,halfv)),48);"
+            "float3 reflection=reflect(-view,n);float sky=saturate(reflection.y*.5+.5);"
+            "float3 environment=lerp(float3(.16,.12,.065),float3(.52,.6,.68),sky);"
+            "float3 color=c*(.25+.5*diffuse)+c*environment*.55+highlight*.6;"
+            "return float4(saturate(color),1);}";
         if(FAILED(D3DCompile(mesh_shader.data(),mesh_shader.size(),nullptr,nullptr,nullptr,
             "VS","vs_4_0",0,0,&vcode,nullptr))||
-            FAILED(device->CreateVertexShader(vcode->GetBufferPointer(),vcode->GetBufferSize(),nullptr,&cartridge_vs)))return false;
+            FAILED(device->CreateVertexShader(vcode->GetBufferPointer(),vcode->GetBufferSize(),nullptr,&cartridge_vs))||
+            FAILED(D3DCompile(mesh_shader.data(),mesh_shader.size(),nullptr,nullptr,nullptr,
+                "PS","ps_4_0",0,0,&pcode,nullptr))||
+            FAILED(device->CreatePixelShader(pcode->GetBufferPointer(),pcode->GetBufferSize(),nullptr,&cartridge_ps)))return false;
         D3D11_BUFFER_DESC buffer{}; buffer.ByteWidth = 128;
         buffer.Usage = D3D11_USAGE_DEFAULT; buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        auto mesh_buffer=buffer;mesh_buffer.ByteWidth=mesh_corners*32;
+        auto mesh_buffer=buffer;mesh_buffer.ByteWidth=mesh_corners*64;
         D3D11_SAMPLER_DESC sd{}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
@@ -242,6 +259,13 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 if(overlay.reload_cartridge_surface_count&&(!std::isfinite(face.material_uv.x)||!std::isfinite(face.material_uv.y)||
                     face.material_uv.x<0||face.material_uv.x>1||face.material_uv.y<0||face.material_uv.y>1||
                     !std::isfinite(face.shade)||face.shade<0||face.shade>1))return false;
+                if(overlay.reload_cartridge_textured)for(unsigned j=0;j<4;++j){
+                    const auto uv=face.corner_uv[j];const auto shade=face.corner_shade[j];
+                    if(!std::isfinite(uv.x)||!std::isfinite(uv.y)||uv.x<0||uv.x>1||uv.y<0||uv.y>1||
+                        !std::isfinite(shade)||shade<0||shade>1)return false;
+                    const auto n=face.corner_normal[j];const float normal_norm=n.x*n.x+n.y*n.y+n.z*n.z;
+                    if(!std::isfinite(normal_norm)||std::abs(normal_norm-1.F)>.01F)return false;
+                }
                 const auto& corners=overlay.reload_cartridge_surface_count?face.head_corners:
                     overlay.reload_cartridge_head_corners;
                 for(auto p:corners){
@@ -314,7 +338,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const auto& status_panel=impl_->ui_raster.Status(status);
         const HudTextPanel empty_cartridge{};
         const auto& cartridge_panel=cartridge_visible?
-            impl_->ui_raster.Cartridge():empty_cartridge;
+            (overlay.reload_cartridge_textured?impl_->ui_raster.TexturedCartridge():impl_->ui_raster.Cartridge()):empty_cartridge;
         const HudTextPanel empty_gaze{};
         const auto& gaze_panel = interaction_gaze_visible ?
             impl_->ui_raster.InteractionGaze() : empty_gaze;
@@ -323,7 +347,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
             const auto revision=part<3 ? impl_->raster[part].rebuilds() :
-                (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : (part==5 ? impl_->ui_raster.status_revision() : 1)));
+                (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : (part==5 ? impl_->ui_raster.status_revision() : part==6&&overlay.reload_cartridge_textured?2:1)));
             // Retain the immutable cartridge GPU cache across gesture hiding.
             if(part==6&&!cartridge_visible)continue;
             // Immutable marker pixels/GPU cache survive hidden captures.
@@ -349,7 +373,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 // One bounded constant upload and draw per eye, even for the
                 // imported mesh. Do not add a Draw/UpdateSubresource per triangle.
                 constexpr std::size_t corners=runtime::StereoHudTextOverlay::reload_cartridge_max_surfaces*4;
-                struct MeshConstants{std::array<std::array<float,4>,corners> positions{},materials{};};
+                struct MeshConstants{std::array<std::array<float,4>,corners> positions{},materials{},normals{},head{};};
                 for(std::size_t eye=0;eye<2;++eye){
                     if(!targets[eye])return false;
                     D3D11_TEXTURE2D_DESC td{};targets[eye]->GetDesc(&td);
@@ -365,7 +389,12 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                         const runtime::Vec3 n{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
                         if(n.x*(e.x-c[0].x)+n.y*(e.y-c[0].y)+n.z*(e.z-c[0].z)<=0)continue;
                         for(unsigned j=0;j<4;++j){batch.positions[4*faces+j]=projected.clip_positions[j];
-                            batch.materials[4*faces+j]={face.material_uv.x,face.material_uv.y,face.shade,0};}
+                            const auto uv=overlay.reload_cartridge_textured?face.corner_uv[j]:face.material_uv;
+                            const auto shade=overlay.reload_cartridge_textured?face.corner_shade[j]:face.shade;
+                            batch.materials[4*faces+j]={uv.x,uv.y,shade,0};
+                            const auto vertex_normal=face.corner_normal[j],p=face.head_corners[j];
+                            batch.normals[4*faces+j]={vertex_normal.x,vertex_normal.y,vertex_normal.z,0};
+                            batch.head[4*faces+j]={p.x-e.x,p.y-e.y,p.z-e.z,0};}
                         ++faces;
                     }
                     if(!faces)continue;
@@ -384,7 +413,8 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     context->RSSetState(impl_->rasterizer.Get());context->RSSetViewports(1,&viewport);
                     context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                     context->VSSetShader(impl_->cartridge_vs.Get(),nullptr,0);context->VSSetConstantBuffers(0,1,&constant);
-                    context->GSSetShader(nullptr,nullptr,0);context->PSSetShader(impl_->ps.Get(),nullptr,0);
+                    context->GSSetShader(nullptr,nullptr,0);
+                    context->PSSetShader(overlay.reload_cartridge_textured?impl_->cartridge_ps.Get():impl_->ps.Get(),nullptr,0);
                     context->PSSetShaderResources(0,1,&image);context->PSSetSamplers(0,1,&sampler);
                     context->Draw(6*faces,0);
                     ID3D11ShaderResourceView* empty=nullptr;context->PSSetShaderResources(0,1,&empty);
