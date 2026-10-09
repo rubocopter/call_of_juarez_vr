@@ -59,7 +59,7 @@ struct StereoHudTextOverlay {
     // Controller-oriented presentation only: never native ammo/inventory.
     bool reload_cartridge_visible = false;
     std::array<Vec3,4> reload_cartridge_head_corners{};
-    static constexpr std::size_t reload_cartridge_max_surfaces = 16;
+    static constexpr std::size_t reload_cartridge_max_surfaces = 224;
     std::uint32_t reload_cartridge_surface_count = 0;
     std::array<ReloadCartridgeSurface,reload_cartridge_max_surfaces> reload_cartridge_surfaces{};
     // Captured HMD-forward feedback only; no selected target or collision claim.

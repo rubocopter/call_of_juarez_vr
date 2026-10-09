@@ -43,7 +43,7 @@ void RenderedTipInsertionJourneys(){
                 input.cartridge_tip=BuildReloadCartridgeTipPose(support);
                 Require(input.cartridge_tip.has_value(),"moving support must produce real tip pose");
                 StereoHudTextOverlay rendered{};
-                Require(BuildReloadCartridgeOverlay(input.head,support,true,rendered),
+                Require(BuildReloadCartridgeProxyOverlay(input.head,support,true,rendered),
                     "insertion journey must retain valid rendered cartridge");
                 const auto apex=Sub(input.cartridge_tip->position,input.head.position);
                 for(std::size_t f=1;f<12;f+=2)
@@ -85,12 +85,21 @@ void RenderedTipInsertionJourneys(){
     }
 }
 int main(){
+    {
+        Pose head{}, hand{};
+        head.position_valid=head.orientation_valid=true;
+        hand=head;hand.position={0,-.1F,-.4F};
+        StereoHudTextOverlay imported{};
+        Require(BuildReloadCartridgeOverlay(head,hand,true,imported)&&
+            imported.reload_cartridge_surface_count==224,
+            "production cartridge must contain the imported CC0 mesh, not the silhouette proxy");
+    }
     RenderedTipInsertionJourneys();
     Pose head{},grip{};head.position_valid=head.orientation_valid=true;
     grip=head;grip.position={.2F,-.3F,-.4F};
     StereoHudTextOverlay out{};out.frame_sequence=123;out.feedback_context_token=77;
     out.eyes[0].eye_to_head.position.x=-.032F;
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out),"valid carrying pose rejected");
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out),"valid carrying pose rejected");
     Require(out.reload_cartridge_visible&&out.frame_sequence==123&&out.feedback_context_token==77&&
         out.eyes[0].eye_to_head.position.x==-.032F,"capture metadata changed");
     Require(out.reload_cartridge_surface_count==16&&out.reload_cartridge_surface_count<=16,"bounded closed CC0-profile cartridge faces");
@@ -122,17 +131,17 @@ int main(){
     Require(Near(maxx-minx,.01306F)&&Near(maxy-miny,.01131028F)&&
         Near(maxz-minz,.04089F),"simplified cartridge matches the inspected CC0 .44 Magnum envelope");
     head.position={1,2,3};grip.position={1.2F,1.7F,2.6F};
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out)&&
         Near(out.reload_cartridge_surfaces[0].head_corners[0],captured[0].head_corners[0]),"common translation changed geometry");
     head.orientation=grip.orientation={0,.70710678F,0,.70710678F};
     grip.position={.6F,1.7F,2.8F};
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out)&&
         Near(out.reload_cartridge_surfaces[0].head_corners[0],captured[0].head_corners[0]),"common rotation changed geometry");
     head.position={};head.orientation={};grip.position={.2F,-.3F,-.4F};
     for(auto rotation:std::array<Quaternion,3>{{{0,.70710678F,0,.70710678F},
         {.70710678F,0,0,.70710678F},{0,0,.70710678F,.70710678F}}}){
         grip.orientation=rotation;
-        Require(BuildReloadCartridgeOverlay(head,grip,true,out),"rotated cartridge rejected");
+        Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out),"rotated cartridge rejected");
         for(std::size_t f=0;f<16;++f)for(std::size_t c=0;c<4;++c){
             auto local=Sub(captured[f].head_corners[c],grip.position);
             auto expected=RotateVector(rotation,local);
@@ -153,17 +162,17 @@ int main(){
             Require(face.material_uv.x==0&&face.material_uv.y==0&&face.shade==0,"hidden material metadata persisted");
         }
     };
-    Require(!BuildReloadCartridgeOverlay(head,grip,false,out),"hidden helper succeeded");hidden();
+    Require(!BuildReloadCartridgeProxyOverlay(head,grip,false,out),"hidden helper succeeded");hidden();
     grip.orientation.w=2;
-    Require(!BuildReloadCartridgeTipPose(grip)&&!BuildReloadCartridgeOverlay(head,grip,true,out),"unnormalized pose accepted");hidden();
+    Require(!BuildReloadCartridgeTipPose(grip)&&!BuildReloadCartridgeProxyOverlay(head,grip,true,out),"unnormalized pose accepted");hidden();
     grip=head;grip.position.x=std::numeric_limits<float>::infinity();
-    Require(!BuildReloadCartridgeTipPose(grip)&&!BuildReloadCartridgeOverlay(head,grip,true,out),"nonfinite pose accepted");hidden();
+    Require(!BuildReloadCartridgeTipPose(grip)&&!BuildReloadCartridgeProxyOverlay(head,grip,true,out),"nonfinite pose accepted");hidden();
     grip=head;grip.position_valid=false;
-    Require(!BuildReloadCartridgeTipPose(grip)&&!BuildReloadCartridgeOverlay(head,grip,true,out),"untracked grip accepted");
+    Require(!BuildReloadCartridgeTipPose(grip)&&!BuildReloadCartridgeProxyOverlay(head,grip,true,out),"untracked grip accepted");
     grip=head;grip.position={0,0,.5F};
-    Require(!BuildReloadCartridgeOverlay(head,grip,true,out),"behind-head cartridge accepted");hidden();
+    Require(!BuildReloadCartridgeProxyOverlay(head,grip,true,out),"behind-head cartridge accepted");hidden();
     grip.position={0,0,-.02F};
-    Require(!BuildReloadCartridgeOverlay(head,grip,true,out),"partially near-plane cartridge accepted");hidden();
+    Require(!BuildReloadCartridgeProxyOverlay(head,grip,true,out),"partially near-plane cartridge accepted");hidden();
     cojvr::backends::openvr::GameplayUiRaster raster;
     const auto& panel=raster.Cartridge();
     Require(panel.width==48&&panel.height==140&&panel.pixels.size()==48*140,"cartridge raster extent");
@@ -173,7 +182,7 @@ int main(){
     Require((primer>>24)==255&&primer!=body&&primer!=copper,"distinct opaque primer patch");
     const auto* pixels=panel.pixels.data();Require(raster.Cartridge().pixels.data()==pixels,"static raster rebuilt");
     grip=head;grip.position={0,-.1F,-.4F};
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out),"stereo fixture pose rejected");
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out),"stereo fixture pose rejected");
     EyeView left{},right_eye{};
     left.eye_to_head=head;left.eye_to_head.position.x=-.032F;
     left.fov=FovFromTangents(-1,1,1,-1);right_eye=left;right_eye.eye_to_head.position.x=.032F;
@@ -185,7 +194,7 @@ int main(){
     Require(l.left>r.left,"finite-depth cartridge must retain binocular disparity");
     const auto previous=placement.head_corners;
     grip.position.x=.1F;
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out)&&
         out.reload_cartridge_surfaces[0].head_corners[0].x>previous[0].x,"support motion must move next capture");
     Require(Near(placement.head_corners[0],previous[0]),"previous capture must remain value-only");
     using Microsoft::WRL::ComPtr;
@@ -246,19 +255,19 @@ int main(){
         fingerprint[0]==initial_hash,"repeated immutable capture changed rendering");
     for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
     grip.orientation={0,.70710678F,0,.70710678F};
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out)&&
         compositor.Draw(device.Get(),context.Get(),out,123,raw),"side-on solid draw failed");
     Require(coverage(0)>0&&coverage(1)>0&&fingerprint[0]!=initial_hash&&
         copper_pixels[0]>0&&copper_pixels[1]>0,"side-on geometry must change silhouette and expose copper tip");
     const auto side_hash=fingerprint[0];
     for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
     grip.orientation={.5F,.5F,.5F,.5F};
-    Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&
+    Require(BuildReloadCartridgeProxyOverlay(head,grip,true,out)&&
         compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)>0&&
         coverage(1)>0&&fingerprint[0]!=side_hash,"WARP must preserve grip roll about cartridge axis");
     const auto valid_overlay=out;
     for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
-    out.reload_cartridge_surface_count=17;
+    out.reload_cartridge_surface_count=out.reload_cartridge_max_surfaces+1;
     Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
         "unbounded optional surface count must suppress both cartridge eyes");
     out=valid_overlay;out.reload_cartridge_surfaces[0].head_corners[0].z=0;
@@ -298,8 +307,25 @@ int main(){
     }
     out=valid_overlay;
     for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
-    Require(!BuildReloadCartridgeOverlay(head,grip,false,out),"hidden helper succeeded");
+    Require(!BuildReloadCartridgeProxyOverlay(head,grip,false,out),"hidden helper succeeded");
     Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
         "hidden cartridge left visible pixels");
+    out={};out.eyes={left,right_eye};out.frame_sequence=123;
+    grip.position={0,-.1F,-.22F};
+    for(auto rotation:std::array<Quaternion,3>{{{0,0,0,1},{0,.70710678F,0,.70710678F},{0,1,0,0}}}){
+        grip.orientation=rotation;
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&out.reload_cartridge_surface_count==224,
+            "imported source mesh capture failed");
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&
+            coverage(0)>0&&coverage(1)>0&&fingerprint[0]!=fingerprint[1],
+            "imported mesh must have actual WARP pixels and binocular disparity at front/side/rear");
+        const auto imported=out;
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        out.reload_cartridge_surfaces[100].head_corners[0].x=std::numeric_limits<float>::quiet_NaN();
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
+            "invalid imported triangle must suppress both eyes");
+        out=imported;
+    }
     std::cout<<"reload visual geometry/raster passed\n";
 }

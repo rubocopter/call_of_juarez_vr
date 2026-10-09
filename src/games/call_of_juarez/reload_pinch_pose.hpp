@@ -1,5 +1,7 @@
 #pragma once
 #include "runtime/vr_types.hpp"
+#include "games/call_of_juarez/motion_reload_owner.hpp"
+#include "games/call_of_juarez/reload_trace.hpp"
 #include <cmath>
 
 namespace cojvr::games::call_of_juarez {
@@ -11,6 +13,8 @@ struct CoJReloadPinchInput {
     bool cartridge_held=false;
     int cartridge_hand=2;
     int armed_hand=-1;
+    int claimed_hand=2;
+    bool trigger_held=false;
     runtime::Pose left{},right{};
 };
 
@@ -24,11 +28,21 @@ struct CoJReloadPinchInput {
             std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&
             std::isfinite(norm)&&std::fabs(norm-1.F)<.02F;
     };
-    if(!input.manual_load||!input.cartridge_held||
-       (input.cartridge_hand!=0&&input.cartridge_hand!=1)||
+    if(!input.manual_load||
        (input.armed_hand!=0&&input.armed_hand!=1)||
-       input.cartridge_hand==input.armed_hand||
        !tracked(input.left)||!tracked(input.right))return false;
+
+    const int support=1-input.armed_hand;
+    const bool carrying=input.cartridge_held&&input.cartridge_hand==support&&
+        input.claimed_hand==support&&input.trigger_held;
+    // Native reload holds a two-hand loading pose even with no VR round. Keep
+    // ordinary estimated/rest fingers while waiting, rather than inheriting it.
+    auto& target=support==0?right:left;
+    if(!carrying){
+        if(!target.available){target={};target.available=true;
+            target.quality=runtime::FingerTrackingQuality::estimated;}
+        return false;
+    }
 
     // Interpolate the established exact-game authored rest/fist quaternions.
     // These values are an approximate thumb/index pinch, pending visor tuning.
@@ -38,5 +52,16 @@ struct CoJReloadPinchInput {
     pinch.curls={.62F,.55F,.88F,.88F,.82F};
     (input.cartridge_hand==0?right:left)=pinch;
     return true;
+}
+
+// Recovery already distinguishes an actual carried object from temporary
+// two-hand reload occupancy. Only a bridge-owned same-weapon manual interval
+// may use this exception to the ordinary empty-idle finger gate.
+[[nodiscard]] inline bool CoJManualSupportFingersAllowed(bool owned,int hand,
+    const CoJMotionReloadOwner& recovery,const CoJReloadTraceSnapshot& native) noexcept {
+    return owned&&hand>=0&&hand<2&&recovery.valid&&recovery.single_round_supported&&
+        native.valid&&native.probe_valid&&native.weapon_id!=0&&
+        recovery.weapon_id==native.weapon_id&&recovery.armed_hand==native.armed_hand&&
+        native.armed_hand==1-hand&&(native.probe_status==1||native.probe_status==2);
 }
 }

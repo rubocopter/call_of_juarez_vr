@@ -518,6 +518,8 @@ public:
     [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] bool faulted() const noexcept { return faulted_; }
     [[nodiscard]] bool fingers_active() const noexcept { return active_ && fingers_active_; }
+    [[nodiscard]] bool ReadPinchAnchor(cojvr::runtime::Vec3& world,void* context,
+        CoJElementRead read) const noexcept;
 private:
     CoJHandFrames natural_{};
     CoJHandFrames targets_{};

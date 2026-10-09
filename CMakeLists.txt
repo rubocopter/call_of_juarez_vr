@@ -434,6 +434,7 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME reload_wait_probe COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_wait_probe.py")
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
     add_test(NAME manual_reload_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_analysis.py")
+    add_test(NAME reload_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_reload_cartridge.py" --check)
     add_test(NAME openvr_action_assets COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/openvr_action_assets.py")
     add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(

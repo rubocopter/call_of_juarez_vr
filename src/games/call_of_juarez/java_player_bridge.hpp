@@ -266,6 +266,7 @@ public:
     }
     [[nodiscard]] bool TryReadHandAttachment(int hand, ElementWorldBasisTarget& frame,
         std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryReadReloadPinchAnchor(int hand,runtime::Vec3& world) noexcept;
     [[nodiscard]] bool TryPrepareTrackedWeapon(int hand, cojvr::runtime::Vec3 socket,
         cojvr::runtime::Vec3 grip, cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up,
         const ElementWorldBasisTarget& natural_hand, ElementWorldBasisTarget& tracked_hand,

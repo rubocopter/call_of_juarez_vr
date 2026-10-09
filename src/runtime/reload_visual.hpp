@@ -1,6 +1,8 @@
 #pragma once
 #include "runtime/hud_text.hpp"
 #include "runtime/vr_math.hpp"
+#include "runtime/reload_cartridge_mesh.hpp"
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -50,7 +52,7 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
 // This is an authored 16-surface approximation of a CC0 model's dimensions,
 // rather than an imported copy of the original mesh or materials.
 // The color-only compositor cannot occlude this cartridge against scene depth.
-[[nodiscard]] inline bool BuildReloadCartridgeOverlay(const Pose& head,
+[[nodiscard]] inline bool BuildReloadCartridgeProxyOverlay(const Pose& head,
     const Pose& support, bool visible, StereoHudTextOverlay& out) noexcept {
     out.reload_cartridge_visible=false;
     out.reload_cartridge_head_corners={}; // Legacy sprite only; new captures use surfaces.
@@ -99,5 +101,47 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
     out.reload_cartridge_surface_count=count;
     out.reload_cartridge_visible=true;
     return true;
+}
+
+// Full imported CC0 geometry; colors are authored for the existing compositor.
+// All capture data stays value-only. Far-to-near ordering provides bounded
+// self overlap; no native scene depth or ammunition object is claimed.
+[[nodiscard]] inline bool BuildReloadCartridgeOverlay(const Pose& head,
+    const Pose& anchor,bool visible,StereoHudTextOverlay& out) noexcept {
+    out.reload_cartridge_visible=false;out.reload_cartridge_surface_count=0;
+    out.reload_cartridge_head_corners={};out.reload_cartridge_surfaces={};
+    using namespace reload_visual_detail;
+    if(!visible||!Valid(head)||!Valid(anchor))return false;
+    const auto q=head.orientation;
+    const Quaternion inverse{-q.x,-q.y,-q.z,q.w};
+    std::array<Vec3,reload_mesh::vertices.size()> captured{};
+    for(std::size_t i=0;i<captured.size();++i){
+        const auto p=RotateVector(anchor.orientation,reload_mesh::vertices[i]);
+        captured[i]=RotateVector(inverse,{anchor.position.x-head.position.x+p.x,
+            anchor.position.y-head.position.y+p.y,anchor.position.z-head.position.z+p.z});
+        const auto v=captured[i];
+        if(!std::isfinite(v.x)||!std::isfinite(v.y)||!std::isfinite(v.z)||v.z>=-.05F)return false;
+    }
+    auto& surfaces=out.reload_cartridge_surfaces;
+    for(std::size_t i=0;i<reload_mesh::triangles.size();++i){
+        const auto t=reload_mesh::triangles[i];auto& face=surfaces[i];
+        face.head_corners={captured[t[0]],captured[t[1]],captured[t[2]],captured[t[2]]};
+        const auto a=reload_mesh::vertices[t[0]],b=reload_mesh::vertices[t[1]],c=reload_mesh::vertices[t[2]];
+        const float z=(a.z+b.z+c.z)/3.F;
+        const float r2=(a.x*a.x+a.y*a.y+b.x*b.x+b.y*b.y+c.x*c.x+c.y*c.y)/3.F;
+        face.material_uv={.5F,z<=shoulder_z?24.F/140.F:
+            z>base_z-.001F&&r2<.000007F?108.F/140.F:80.F/140.F};
+        const Vec3 u{b.x-a.x,b.y-a.y,b.z-a.z},v{c.x-a.x,c.y-a.y,c.z-a.z};
+        const Vec3 n{u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
+        const float length=std::sqrt(n.x*n.x+n.y*n.y+n.z*n.z);
+        if(!std::isfinite(length)||length<=0)return false;
+        face.shade=.72F+.28F*std::max(0.F,n.y/length);
+    }
+    std::sort(surfaces.begin(),surfaces.end(),[](const auto& a,const auto& b){
+        const auto depth=[](const auto& f){return f.head_corners[0].z+f.head_corners[1].z+f.head_corners[2].z;};
+        return depth(a)<depth(b);
+    });
+    out.reload_cartridge_surface_count=static_cast<std::uint32_t>(reload_mesh::triangles.size());
+    out.reload_cartridge_visible=true;return true;
 }
 }

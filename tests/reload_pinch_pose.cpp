@@ -30,6 +30,7 @@ bool TestPinch(const unsigned support) {
     input.manual_load=true;
     input.cartridge_held=true;
     input.cartridge_hand=support;
+    input.claimed_hand=support;input.trigger_held=true;
     input.armed_hand=1-static_cast<int>(support);
     input.left=TrackedPose();
     input.right=TrackedPose();
@@ -46,10 +47,12 @@ bool TestGuards() {
     input.manual_load=true;
     input.cartridge_held=true;
     input.cartridge_hand=0;
+    input.claimed_hand=0;input.trigger_held=true;
     input.armed_hand=1;
     input.left=TrackedPose();input.right=TrackedPose();
     const auto unchanged=[](const CoJReloadPinchInput& test){
         cojvr::runtime::FingerTrackingState left{},right{};
+        left.available=right.available=true;
         left.curls={.1F,.2F,.3F,.4F,.5F};
         right.curls={.5F,.4F,.3F,.2F,.1F};
         const auto prior_left=left,prior_right=right;
@@ -60,6 +63,8 @@ bool TestGuards() {
     auto rejected=input;rejected.manual_load=false;if(!unchanged(rejected))return false;
     rejected=input;rejected.cartridge_held=false;if(!unchanged(rejected))return false;
     rejected=input;rejected.cartridge_hand=2;if(!unchanged(rejected))return false;
+    rejected=input;rejected.claimed_hand=2;if(!unchanged(rejected))return false;
+    rejected=input;rejected.trigger_held=false;if(!unchanged(rejected))return false;
     rejected=input;rejected.armed_hand=0;if(!unchanged(rejected))return false;
     rejected=input;rejected.armed_hand=-1;if(!unchanged(rejected))return false;
     rejected=input;rejected.left.position_valid=false;if(!unchanged(rejected))return false;
@@ -74,11 +79,35 @@ bool TestGuards() {
     if(!ApplyCoJReloadPinch(input,left,right))return false;
     left=raw_left;right=raw_right;
     input.cartridge_held=false;
-    return unchanged(input)&&Same(left,raw_left)&&Same(right,raw_right);
+    return !ApplyCoJReloadPinch(input,left,right)&&Same(left,raw_left)&&
+        right.available&&right.quality==cojvr::runtime::FingerTrackingQuality::estimated&&
+        right.curls==std::array<float,5>{};
 }
 }
 
 int main() {
+    CoJMotionReloadOwner owner{0,42,true,true};
+    CoJReloadTraceSnapshot native{};native.valid=native.probe_valid=true;
+    native.armed_hand=0;native.weapon_id=42;native.probe_status=2;
+    if(!CoJManualSupportFingersAllowed(true,1,owner,native)||
+       CoJManualSupportFingersAllowed(false,1,owner,native)||
+       CoJManualSupportFingersAllowed(true,0,owner,native))return 1;
+    for(int fault=0;fault<7;++fault){auto o=owner;auto n=native;
+        if(fault==0)o.valid=false;if(fault==1)o.weapon_id++;
+        if(fault==2)o.armed_hand=1;if(fault==3)o.single_round_supported=false;
+        if(fault==4)n.probe_valid=false;if(fault==5)n.valid=false;if(fault==6)n.probe_status=3;
+        if(CoJManualSupportFingersAllowed(true,1,o,n))return 1;
+    }
+    CoJReloadPinchInput waiting{};
+    waiting.manual_load=true;waiting.armed_hand=0;
+    waiting.left=TrackedPose();waiting.right=TrackedPose();
+    cojvr::runtime::FingerTrackingState free{},armed{};
+    (void)ApplyCoJReloadPinch(waiting,free,armed);
+    if(!free.available||free.quality!=cojvr::runtime::FingerTrackingQuality::estimated||
+       free.curls!=std::array<float,5>{}||armed.available){
+        std::cerr<<"Empty manual support must restore resting fingers instead of retaining native reload pinch\n";
+        return 1;
+    }
     if(!TestPinch(0)||!TestPinch(1)||!TestGuards()){
         std::cerr<<"Reload pinch selection or tracking guard failed\n";
         return 1;

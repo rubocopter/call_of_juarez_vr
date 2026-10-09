@@ -908,9 +908,20 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
     }
     return true;
 }
-bool CoJHandOverlay::Verify(void* context, CoJElementRead read) const noexcept {
-    return active_ && read && HandFramesAgree(targets_,context,read);
-}
+  bool CoJHandOverlay::Verify(void* context, CoJElementRead read) const noexcept {
+      return active_ && read && HandFramesAgree(targets_,context,read);
+  }
+  bool CoJHandOverlay::ReadPinchAnchor(runtime::Vec3& world,void* context,
+      CoJElementRead read) const noexcept {
+      world={};
+      if(faulted_||!fingers_active()||!Verify(context,read))return false;
+      // Distal thumb/index joints, in the verified displayed frame (cm).
+      // This is an attachment reference, not a measured finger-pad contact.
+      const auto thumb=targets_[6].frame.position,index=targets_[9].frame.position;
+      const float distance=Length(Subtract(thumb,index));
+      if(!std::isfinite(distance)||distance>8.F)return false;
+      world=Scale(Add(thumb,index),.5F);return Finite(world);
+  }
 void CoJHandOverlay::RemoveCapturedBodyOffset(const cojvr::runtime::Vec3 offset) noexcept {
     if (!active_ || !Finite(offset)) return;
     for (auto& sample : natural_) sample.frame.position=Subtract(sample.frame.position,offset);

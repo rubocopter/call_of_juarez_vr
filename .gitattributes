@@ -7,3 +7,5 @@
 *.txt text eol=lf
 *.cmake text eol=lf
 CMakeLists.txt text eol=lf
+# Preserve the imported asset bytes used by its source-identity check.
+assets/models/44_magnum.obj -text

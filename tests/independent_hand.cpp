@@ -66,7 +66,17 @@ bool FingerChecks(){
         Fixture f;f.frames=rest;CoJHandOverlay overlay;
         if(!overlay.Apply(rest,rest[3].frame,tracked,{10,0,0},&f,Fixture::Read,Fixture::Write,&curls,hand)||
             !overlay.fingers_active()||!overlay.Verify(&f,Fixture::Read))return false;
+        cojvr::runtime::Vec3 anchor{};
+        if(!overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        const auto a=f.frames[6].frame.position,b=f.frames[9].frame.position;
+        if(!Close(anchor.x,(a.x+b.x)*.5F)||!Close(anchor.y,(a.y+b.y)*.5F)||
+           !Close(anchor.z,(a.z+b.z)*.5F))return false;
+        const auto prior=f.frames[6].frame;
+        f.frames[6].frame.position.x+=1;
+        if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        f.frames[6].frame=prior;
         if(!overlay.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||overlay.fingers_active())return false;
+        if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=5;if(!FrameClose(f.frames[i].frame,expected))return false;}
         for(int fail:{5,10,18,20}){f.frames=rest;f.writes=0;f.fail_at=fail;CoJHandOverlay partial;
             if(partial.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand)||partial.active())return false;

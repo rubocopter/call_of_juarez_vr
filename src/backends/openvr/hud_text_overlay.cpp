@@ -143,8 +143,10 @@ bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
 struct HudTextCompositor::Impl {
     ComPtr<ID3D11Device> owner;
     ComPtr<ID3D11VertexShader> vs;
+    ComPtr<ID3D11VertexShader> cartridge_vs;
     ComPtr<ID3D11PixelShader> ps;
     ComPtr<ID3D11Buffer> constants;
+    ComPtr<ID3D11Buffer> cartridge_constants;
     ComPtr<ID3D11SamplerState> sampler;
     ComPtr<ID3D11RasterizerState> rasterizer;
     ComPtr<ID3D11DepthStencilState> depth;
@@ -156,22 +158,34 @@ struct HudTextCompositor::Impl {
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
     bool Initialize(ID3D11Device* device) {
-        if (owner.Get() == device && vs && ps && constants && sampler && rasterizer && depth && blend) return true;
+        if (owner.Get() == device && vs && cartridge_vs && ps && constants && cartridge_constants && sampler && rasterizer && depth && blend) return true;
         owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset(); blend.Reset();
+        cartridge_vs.Reset();cartridge_constants.Reset();
         images = {}; uploaded = {}; targets = {}; target_views = {};
         constexpr char shader[] =
             "cbuffer Corners:register(b0){float4 corners[4];float4 material[4];};"
-            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;};"
-            "V VS(uint i:SV_VertexID){V o;o.p=corners[i];o.uv=material[i].xy;return o;}"
+            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;};"
+            "V VS(uint i:SV_VertexID){V o;o.p=corners[i];o.uv=material[i].xy;o.shade=material[0].z;return o;}"
             "Texture2D img:register(t0);SamplerState smp:register(s0);"
-            "float4 PS(V v):SV_TARGET{float4 c=img.Sample(smp,v.uv);c.rgb*=material[0].z;return c;}";
+            "float4 PS(V v):SV_TARGET{float4 c=img.Sample(smp,v.uv);c.rgb*=v.shade;return c;}";
         ComPtr<ID3DBlob> vcode, pcode;
         if (FAILED(D3DCompile(shader, sizeof(shader)-1, nullptr, nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vcode, nullptr)) ||
             FAILED(D3DCompile(shader, sizeof(shader)-1, nullptr, nullptr, nullptr, "PS", "ps_4_0", 0, 0, &pcode, nullptr)) ||
             FAILED(device->CreateVertexShader(vcode->GetBufferPointer(), vcode->GetBufferSize(), nullptr, &vs)) ||
             FAILED(device->CreatePixelShader(pcode->GetBufferPointer(), pcode->GetBufferSize(), nullptr, &ps))) return false;
+        constexpr unsigned mesh_corners=runtime::StereoHudTextOverlay::reload_cartridge_max_surfaces*4;
+        const std::string mesh_shader="cbuffer Mesh:register(b0){float4 corners["+
+            std::to_string(mesh_corners)+"];float4 material["+std::to_string(mesh_corners)+"];};"
+            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;};"
+            "V VS(uint i:SV_VertexID){uint j=i%6;uint k=(i/6)*4+"
+            "(j==0?0:j==1?1:j==2?2:j==3?2:j==4?1:3);"
+            "V o;o.p=corners[k];o.uv=material[k].xy;o.shade=material[k].z;return o;}";
+        if(FAILED(D3DCompile(mesh_shader.data(),mesh_shader.size(),nullptr,nullptr,nullptr,
+            "VS","vs_4_0",0,0,&vcode,nullptr))||
+            FAILED(device->CreateVertexShader(vcode->GetBufferPointer(),vcode->GetBufferSize(),nullptr,&cartridge_vs)))return false;
         D3D11_BUFFER_DESC buffer{}; buffer.ByteWidth = 128;
         buffer.Usage = D3D11_USAGE_DEFAULT; buffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        auto mesh_buffer=buffer;mesh_buffer.ByteWidth=mesh_corners*32;
         D3D11_SAMPLER_DESC sd{}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
         sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
         sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
@@ -187,6 +201,7 @@ struct HudTextCompositor::Impl {
         rt.SrcBlendAlpha=D3D11_BLEND_ONE;rt.DestBlendAlpha=D3D11_BLEND_INV_SRC_ALPHA;
         rt.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;
         return SUCCEEDED(device->CreateBuffer(&buffer, nullptr, &constants)) &&
+            SUCCEEDED(device->CreateBuffer(&mesh_buffer,nullptr,&cartridge_constants)) &&
             SUCCEEDED(device->CreateSamplerState(&sd, &sampler)) &&
             SUCCEEDED(device->CreateRasterizerState(&rd, &rasterizer)) &&
             SUCCEEDED(device->CreateDepthStencilState(&dd, &depth)) &&
@@ -330,6 +345,53 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 impl_->uploaded[part] = revision;
             }
             const bool cartridge_surfaces=part==6&&overlay.reload_cartridge_surface_count!=0;
+            if(cartridge_surfaces){
+                // One bounded constant upload and draw per eye, even for the
+                // imported mesh. Do not add a Draw/UpdateSubresource per triangle.
+                constexpr std::size_t corners=runtime::StereoHudTextOverlay::reload_cartridge_max_surfaces*4;
+                struct MeshConstants{std::array<std::array<float,4>,corners> positions{},materials{};};
+                for(std::size_t eye=0;eye<2;++eye){
+                    if(!targets[eye])return false;
+                    D3D11_TEXTURE2D_DESC td{};targets[eye]->GetDesc(&td);
+                    MeshConstants batch{};unsigned faces=0;
+                    for(unsigned surface=0;surface<overlay.reload_cartridge_surface_count;++surface){
+                        const auto& face=overlay.reload_cartridge_surfaces[surface];
+                        auto capture=placement[part];capture.head_corners=face.head_corners;
+                        ProjectedHudPanel projected{};
+                        if(!ProjectHudPanel(panel,overlay.eyes[eye],td.Width,td.Height,capture,projected))continue;
+                        const auto& c=face.head_corners;const auto e=overlay.eyes[eye].eye_to_head.position;
+                        const runtime::Vec3 a{c[1].x-c[0].x,c[1].y-c[0].y,c[1].z-c[0].z};
+                        const runtime::Vec3 b{c[2].x-c[0].x,c[2].y-c[0].y,c[2].z-c[0].z};
+                        const runtime::Vec3 n{a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};
+                        if(n.x*(e.x-c[0].x)+n.y*(e.y-c[0].y)+n.z*(e.z-c[0].z)<=0)continue;
+                        for(unsigned j=0;j<4;++j){batch.positions[4*faces+j]=projected.clip_positions[j];
+                            batch.materials[4*faces+j]={face.material_uv.x,face.material_uv.y,face.shade,0};}
+                        ++faces;
+                    }
+                    if(!faces)continue;
+                    if(impl_->targets[eye].Get()!=targets[eye]){
+                        impl_->target_views[eye].Reset();impl_->targets[eye]=targets[eye];
+                        if(FAILED(device->CreateRenderTargetView(targets[eye],nullptr,&impl_->target_views[eye])))return false;
+                    }
+                    if(!impl_->target_views[eye])return false;
+                    context->UpdateSubresource(impl_->cartridge_constants.Get(),0,nullptr,&batch,0,0);
+                    auto* render_target=impl_->target_views[eye].Get();auto* constant=impl_->cartridge_constants.Get();
+                    auto* image=impl_->images[part].Get();auto* sampler=impl_->sampler.Get();
+                    const D3D11_VIEWPORT viewport{0,0,static_cast<float>(td.Width),static_cast<float>(td.Height),0,1};
+                    context->OMSetRenderTargets(1,&render_target,nullptr);
+                    context->OMSetBlendState(impl_->blend.Get(),nullptr,0xFFFFFFFF);
+                    context->OMSetDepthStencilState(impl_->depth.Get(),0);
+                    context->RSSetState(impl_->rasterizer.Get());context->RSSetViewports(1,&viewport);
+                    context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                    context->VSSetShader(impl_->cartridge_vs.Get(),nullptr,0);context->VSSetConstantBuffers(0,1,&constant);
+                    context->GSSetShader(nullptr,nullptr,0);context->PSSetShader(impl_->ps.Get(),nullptr,0);
+                    context->PSSetShaderResources(0,1,&image);context->PSSetSamplers(0,1,&sampler);
+                    context->Draw(6*faces,0);
+                    ID3D11ShaderResourceView* empty=nullptr;context->PSSetShaderResources(0,1,&empty);
+                    context->OMSetRenderTargets(0,nullptr,nullptr);
+                }
+                continue;
+            }
             const std::size_t surface_count=cartridge_surfaces?overlay.reload_cartridge_surface_count:1;
             for(std::size_t surface=0;surface<surface_count;++surface){
                 auto surface_placement=placement[part];

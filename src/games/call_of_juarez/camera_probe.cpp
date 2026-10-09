@@ -127,6 +127,8 @@ bool g_manual_reload_presentation=false, g_manual_reload_geometry_event=false;
 bool g_manual_reload_geometry_logging_enabled=false;
 int g_reload_pinch_last_hand=-1;
 bool g_reload_pinch_last_applied=false;
+std::array<runtime::Pose,2> g_reload_cartridge_anchors{};
+bool g_reload_cartridge_last_visible=false;
 struct ReloadReadyGeometryReference {
     std::uint64_t player=0,context=0,weapon=0;
     int hand=-1;
@@ -3724,6 +3726,7 @@ bool ApplyTrackedWeapons(
     const runtime::FingerTrackingState& right_fingers,
     const bool manual_presentation=false,
     const std::uint64_t native_context=0) noexcept {
+    g_reload_cartridge_anchors={};
     CameraProbeBasis basis{};
     CameraProbeVector camera{};
     if (!ReadNaturalCameraFrame(natural, basis, camera)) return false;
@@ -3891,6 +3894,21 @@ bool ApplyTrackedWeapons(
             }
             hand_applied=hand_target.valid && g_java_player_bridge.TryApplyIndependentHand(
                 hand,natural_hand,hand_target,&error,left?&left_fingers:&right_fingers);
+            if(manual_presentation&&hand_applied){
+                runtime::Vec3 anchor{};
+                if(g_java_player_bridge.TryReadReloadPinchAnchor(hand,anchor)){
+                    const runtime::Vec3 delta{(anchor.x-grip_world.x)/kGameUnitsPerMeter,
+                        (anchor.y-grip_world.y)/kGameUnitsPerMeter,(anchor.z-grip_world.z)/kGameUnitsPerMeter};
+                    auto pose=grip;
+                    pose.position={grip.position.x+delta.x*basis.right.x+delta.y*basis.right.y+delta.z*basis.right.z,
+                        grip.position.y+delta.x*basis.up.x+delta.y*basis.up.y+delta.z*basis.up.z,
+                        grip.position.z+delta.x*basis.forward.x+delta.y*basis.forward.y+delta.z*basis.forward.z};
+                    const auto centre=runtime::RotateVector(grip.orientation,{0,0,
+                        (runtime::reload_visual_detail::tip_z+runtime::reload_visual_detail::base_z)*.5F});
+                    pose.position={pose.position.x-centre.x,pose.position.y-centre.y,pose.position.z-centre.z};
+                    g_reload_cartridge_anchors[hand]=pose;
+                }
+            }
             if(ShouldObserveBodyFrame(frame_sequence)){
                 try{EmitEvent("controller_finger_animation",g_java_player_bridge.finger_animation_active(hand)?"applied":"native",
                     "frame_sequence="+std::to_string(frame_sequence)+";hand="+std::to_string(hand)+
@@ -5497,6 +5515,9 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         pinch.cartridge_held=motion_reload.cartridge_held;
         pinch.cartridge_hand=motion_reload.cartridge_hand;
         pinch.armed_hand=manual_input.native.armed_hand;
+        pinch.claimed_hand=motion_reload.claimed_hand;
+        pinch.trigger_held=motion_reload.cartridge_hand==0?raw_reload_input.fire_right:
+            motion_reload.cartridge_hand==1?raw_reload_input.fire_left:false;
         pinch.left=relative_left_controller;
         pinch.right=relative_right_controller;
         const bool pinch_requested=ApplyCoJReloadPinch(pinch,visual_left_fingers,visual_right_fingers);
@@ -5976,16 +5997,35 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             hud_text.reload_feedback.accepted=false;
             (void)PublishReloadFeedbackOwner(0, 0, {});
         }
+        const bool manual_cartridge=snapshot.command.manual_reload_installed;
+        const bool physically_held=motion_reload.claimed_hand==motion_reload.cartridge_hand&&
+            (motion_reload.cartridge_hand==0?raw_reload_input.fire_right:
+             motion_reload.cartridge_hand==1?raw_reload_input.fire_left:false);
+        const bool anchored=motion_reload.cartridge_hand<2&&
+            g_reload_cartridge_anchors[motion_reload.cartridge_hand].position_valid;
         const bool cartridge_visible = gameplay_input.active && motion_reload_context &&
             (snapshot.command.manual_reload_installed ?
                 g_manual_reload_presentation&&g_manual_reload.phase()==CoJManualReloadPhase::manual_load :
                 reload_owner.single_round_supported) && motion_reload.cartridge_held &&
-            motion_reload.cartridge_hand < 2;
+            motion_reload.cartridge_hand < 2&&
+            (!manual_cartridge||(physically_held&&anchored&&hands_restored&&weapon_restored));
         auto cartridge_pose = motion_reload.cartridge_hand == 0
             ? relative_right_controller : relative_left_controller;
         cartridge_pose.position = motion_reload.cartridge_position;
-        (void)runtime::BuildReloadCartridgeOverlay(relative_head_pose,
-            cartridge_pose, cartridge_visible, hud_text);
+        if(manual_cartridge&&anchored)cartridge_pose=g_reload_cartridge_anchors[motion_reload.cartridge_hand];
+        const bool drawn=manual_cartridge?
+            runtime::BuildReloadCartridgeOverlay(relative_head_pose,cartridge_pose,cartridge_visible,hud_text):
+            runtime::BuildReloadCartridgeProxyOverlay(relative_head_pose,cartridge_pose,cartridge_visible,hud_text);
+        if(manual_cartridge&&snapshot.command.reload_trace_enabled&&drawn!=g_reload_cartridge_last_visible){
+            EmitEvent("manual_reload_cartridge",drawn?"visible":"hidden",
+                "frame_sequence="+std::to_string(frame_sequence)+
+                ";hand="+std::to_string(motion_reload.cartridge_hand)+
+                ";mesh=cc0_44_magnum;triangles=224;anchor="+
+                (manual_cartridge?std::string("verified_distal_thumb_index_midpoint"):std::string("support_grip"))+
+                ";physical_claim="+std::to_string(physically_held)+
+                ";finger_contact=headset_unverified;scene_depth=false");
+        }
+        g_reload_cartridge_last_visible=drawn;
         if (!loading_ui_input.suppress_gameplay) {
             const bool observed = g_java_player_bridge.TryObserveHudText(hud_text.text);
             CameraProbeBasis ui_basis{};

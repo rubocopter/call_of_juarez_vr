@@ -131,6 +131,10 @@ int main() {
     }
     fail_boolean=true;ok &= Check(!bridge.TryCanAnimateEmptyHand(0)&&!pending,"eligibility read failure allowed fingers");
     ok &= Check(!bridge.TryCanAnimateEmptyHand(-1)&&!bridge.TryCanAnimateEmptyHand(2),"invalid finger hand accepted");
+    bridge.manual_reload_owned_=true;
+    ok &= Check(!bridge.TryCanAnimateEmptyHand(1)&&!pending&&globals==0,
+        "unavailable native manual recovery must not fall through to ordinary idle finger admission");
+    bridge.manual_reload_owned_=false;
     active=&weapon;ok &= Check(!bridge.TryCanAnimateEmptyHand(0),"tool weapon accepted as empty for fingers");
     weapon.fields[forward]=&foreign;
     ok &= Check(!bridge.TryPublishTrackedWhip(0,socket) && !weapon.fields[position] &&

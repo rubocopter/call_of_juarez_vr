@@ -1,6 +1,7 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "games/call_of_juarez/hud_text_reader.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/reload_pinch_pose.hpp"
 
 #include <windows.h>
 
@@ -2410,6 +2411,14 @@ bool JavaPlayerBridge::TryReadHandAttachment(const int hand,
 
 bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
     if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
+    if(manual_reload_owned_){
+        CoJMotionReloadOwner recovery{};
+        CoJReloadTraceSnapshot native{};
+        if(TryObserveNativeReloadRecoveryOwner(recovery)&&TryObserveReloadTrace(native,true)&&
+            CoJManualSupportFingersAllowed(true,hand,recovery,native))return true;
+        // Failed manual ownership observation must not fall through to idle.
+        return false;
+    }
     void* env=Environment(nullptr);
     if(!env||ClearException(env,nullptr,"finger eligibility entry exception"))return false;
     const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
@@ -2511,6 +2520,15 @@ bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
         if (overlay.frames.faulted()) independent_hand_faulted_=true;
         return ok;
     } catch (...) { SetError(error,"independent hand capture failed");return false; }
+}
+
+bool JavaPlayerBridge::TryReadReloadPinchAnchor(int hand,runtime::Vec3& world) noexcept {
+    world={};
+    if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
+    auto& overlay=hand_overlays_[hand];
+    if(!overlay.object||!TryCanAnimateEmptyHand(hand))return false;
+    HandIoContext io{this,overlay.object,nullptr};
+    return overlay.frames.ReadPinchAnchor(world,&io,ReadHandFrame);
 }
 
 bool JavaPlayerBridge::RestoreTrackedHands(std::string* error) noexcept {
