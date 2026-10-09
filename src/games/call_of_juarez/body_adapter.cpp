@@ -922,6 +922,20 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       if(!std::isfinite(distance)||distance>8.F)return false;
       world=Scale(Add(thumb,index),.5F);return Finite(world);
   }
+bool CoJHandOverlay::ReadReloadFingerObservation(CoJReloadFingerObservation& out,
+    void* context, CoJElementRead read) const noexcept {
+    out={};
+    if(faulted_||!fingers_active()||!Verify(context,read))return false;
+    const ElementWorldBasisTarget identity{{},{0,1,0},{0,0,1},true};
+    CoJReloadFingerObservation observation{};
+    for(std::size_t digit=0;digit<2;++digit){
+        const auto distal=digit==0?6U:9U;
+        observation.native[digit]=TransformWeaponElementFrame(natural_[3].frame,identity,natural_[distal].frame);
+        observation.displayed[digit]=TransformWeaponElementFrame(targets_[3].frame,identity,targets_[distal].frame);
+        if(!observation.native[digit].valid||!observation.displayed[digit].valid)return false;
+    }
+    observation.valid=true;out=observation;return true;
+}
 void CoJHandOverlay::RemoveCapturedBodyOffset(const cojvr::runtime::Vec3 offset) noexcept {
     if (!active_ || !Finite(offset)) return;
     for (auto& sample : natural_) sample.frame.position=Subtract(sample.frame.position,offset);

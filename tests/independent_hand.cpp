@@ -68,15 +68,31 @@ bool FingerChecks(){
             !overlay.fingers_active()||!overlay.Verify(&f,Fixture::Read))return false;
         cojvr::runtime::Vec3 anchor{};
         if(!overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        const int writes_before_observation=f.writes;
+        CoJReloadFingerObservation contact{};
+        if(!overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||!contact.valid||
+           f.writes!=writes_before_observation)return false;
+        const ElementWorldBasisTarget identity{{},{0,1,0},{0,0,1},true};
+        for(int digit=0;digit<2;++digit){
+            const int distal=digit?9:6;
+            const auto expected_native=TransformWeaponElementFrame(rest[3].frame,identity,rest[distal].frame);
+            const auto expected_displayed=TransformWeaponElementFrame(f.frames[3].frame,identity,f.frames[distal].frame);
+            if(!FrameClose(contact.native[static_cast<std::size_t>(digit)],expected_native)||
+               !FrameClose(contact.displayed[static_cast<std::size_t>(digit)],expected_displayed)){
+                std::cerr<<"Reload finger observation mixed native/displayed or world/hand-local frames\n";return false;}
+        }
         const auto a=f.frames[6].frame.position,b=f.frames[9].frame.position;
         if(!Close(anchor.x,(a.x+b.x)*.5F)||!Close(anchor.y,(a.y+b.y)*.5F)||
            !Close(anchor.z,(a.z+b.z)*.5F))return false;
         const auto prior=f.frames[6].frame;
         f.frames[6].frame.position.x+=1;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid||
+           contact.native[0].valid||contact.displayed[0].valid)return false;
         f.frames[6].frame=prior;
         if(!overlay.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||overlay.fingers_active())return false;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid)return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=5;if(!FrameClose(f.frames[i].frame,expected))return false;}
         for(int fail:{5,10,18,20}){f.frames=rest;f.writes=0;f.fail_at=fail;CoJHandOverlay partial;
             if(partial.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand)||partial.active())return false;
@@ -87,10 +103,12 @@ bool FingerChecks(){
         f.fail_restore=true;
         if(retry.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||!retry.active()||!retry.faulted()||
             retry.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand))return false;
+        if(retry.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid)return false;
         f.fail_restore=false;if(!retry.Restore({20,0,0},&f,Fixture::Read,Fixture::Write))return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=10;if(!FrameClose(f.frames[i].frame,expected))return false;}
         curls.available=false;f.frames=rest;CoJHandOverlay unavailable;
         if(!unavailable.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand)||unavailable.fingers_active()||
+            unavailable.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid||
             !unavailable.Restore({},&f,Fixture::Read,Fixture::Write))return false;curls.available=true;
     }
     return true;

@@ -495,6 +495,13 @@ using CoJHandFrames = std::array<CoJHandElementFrame, 20>;
 using CoJElementRead = bool (*)(void*, int, ElementWorldBasisTarget&) noexcept;
 using CoJElementWrite = bool (*)(void*, int, const ElementWorldBasisTarget&) noexcept;
 
+// Observation only: distal thumb/index frames in their respective Hand-local
+// centimetre bases. Joint origins are not finger-pad contacts or insertion sockets.
+struct CoJReloadFingerObservation {
+    std::array<ElementWorldBasisTarget,2> native{}, displayed{};
+    bool valid = false;
+};
+
 // Exact shared Ray/Billy authored relaxed-rest -> fist poses. Preserve fresh
 // parent-local translations; never change Hand/socket/forearm frames.
 [[nodiscard]] bool BuildCoJFingerTargets(int hand, const CoJHandFrames& natural,
@@ -520,6 +527,8 @@ public:
     [[nodiscard]] bool fingers_active() const noexcept { return active_ && fingers_active_; }
     [[nodiscard]] bool ReadPinchAnchor(cojvr::runtime::Vec3& world,void* context,
         CoJElementRead read) const noexcept;
+    [[nodiscard]] bool ReadReloadFingerObservation(CoJReloadFingerObservation& out,
+        void* context, CoJElementRead read) const noexcept;
 private:
     CoJHandFrames natural_{};
     CoJHandFrames targets_{};

@@ -128,6 +128,8 @@ bool g_manual_reload_geometry_logging_enabled=false;
 int g_reload_pinch_last_hand=-1;
 bool g_reload_pinch_last_applied=false;
 std::array<runtime::Pose,2> g_reload_cartridge_anchors{};
+std::array<CoJReloadFingerObservation,2> g_reload_finger_observations{};
+std::uint64_t g_reload_finger_observation_sequence=0;
 bool g_reload_cartridge_last_visible=false;
 struct ReloadReadyGeometryReference {
     std::uint64_t player=0,context=0,weapon=0;
@@ -3727,6 +3729,8 @@ bool ApplyTrackedWeapons(
     const bool manual_presentation=false,
     const std::uint64_t native_context=0) noexcept {
     g_reload_cartridge_anchors={};
+    g_reload_finger_observations={};
+    g_reload_finger_observation_sequence=frame_sequence;
     CameraProbeBasis basis{};
     CameraProbeVector camera{};
     if (!ReadNaturalCameraFrame(natural, basis, camera)) return false;
@@ -3907,6 +3911,10 @@ bool ApplyTrackedWeapons(
                         runtime::textured_reload_mesh::centre_z});
                     pose.position={pose.position.x-centre.x,pose.position.y-centre.y,pose.position.z-centre.z};
                     g_reload_cartridge_anchors[hand]=pose;
+                    // Snapshot before restoration, only for the next pickup
+                    // event. No native pose/time setter or additional write.
+                    if(g_manual_reload_geometry_logging_enabled&&!g_reload_cartridge_last_visible)
+                        (void)g_java_player_bridge.TryReadReloadFingerObservation(hand,g_reload_finger_observations[hand]);
                 }
             }
             if(ShouldObserveBodyFrame(frame_sequence)){
@@ -6024,6 +6032,26 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 (manual_cartridge?std::string("verified_distal_thumb_index_midpoint"):std::string("support_grip"))+
                 ";physical_claim="+std::to_string(physically_held)+
                 ";finger_contact=headset_unverified;scene_depth=false");
+            if(drawn&&!g_arm_rotation_faulted&&motion_reload.cartridge_hand<2){
+                const auto fingers=g_reload_finger_observation_sequence==frame_sequence?
+                    g_reload_finger_observations[motion_reload.cartridge_hand]:CoJReloadFingerObservation{};
+                std::string detail="frame_sequence="+std::to_string(frame_sequence)+
+                    ";hand="+std::to_string(motion_reload.cartridge_hand)+
+                    ";weapon_id="+std::to_string(reload_owner.weapon_id)+
+                    ";player_generation="+std::to_string(g_java_player_bridge.being_generation())+
+                    ";units=cm;basis=each_hand_local;sampling=pre_restore_verified;mutation=false;finger_pad_contact=false";
+                if(fingers.valid)for(std::size_t digit=0;digit<2;++digit){
+                    const std::string name=digit==0?"thumb":"index";
+                    for(const bool native:{true,false}){
+                        const auto& frame=(native?fingers.native:fingers.displayed)[digit];
+                        const auto prefix=";"+name+(native?"_native":"_displayed");
+                        detail+=prefix+"_position="+RuntimeVectorText(frame.position)+
+                            prefix+"_up="+RuntimeVectorText(frame.up)+
+                            prefix+"_forward="+RuntimeVectorText(frame.forward);
+                    }
+                }
+                EmitEvent("manual_reload_finger_reference",fingers.valid?"observed":"unavailable",detail);
+            }
         }
         g_reload_cartridge_last_visible=drawn;
         if (!loading_ui_input.suppress_gameplay) {

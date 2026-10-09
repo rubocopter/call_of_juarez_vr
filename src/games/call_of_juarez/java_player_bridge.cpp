@@ -2531,6 +2531,15 @@ bool JavaPlayerBridge::TryReadReloadPinchAnchor(int hand,runtime::Vec3& world) n
     return overlay.frames.ReadPinchAnchor(world,&io,ReadHandFrame);
 }
 
+bool JavaPlayerBridge::TryReadReloadFingerObservation(int hand,CoJReloadFingerObservation& out) noexcept {
+    out={};
+    if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
+    auto& overlay=hand_overlays_[hand];
+    if(!overlay.object||!TryCanAnimateEmptyHand(hand))return false;
+    HandIoContext io{this,overlay.object,nullptr};
+    return overlay.frames.ReadReloadFingerObservation(out,&io,ReadHandFrame);
+}
+
 bool JavaPlayerBridge::RestoreTrackedHands(std::string* error) noexcept {
     if (!independent_arms_object_ && !hand_overlays_[0].object && !hand_overlays_[1].object) return true;
     void* env=Environment(error);
