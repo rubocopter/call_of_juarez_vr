@@ -78,17 +78,16 @@ screen visibility is operator-accepted; retry/held-control recovery remains sepa
 
 ## Current open camera/presentation issues
 
-The native camera/stereo seam remains established. Open gates include:
+The native camera/stereo seam, exercised room-scale direction/physical crouch,
+independent-hand ownership, corrected snap direction and ordinary flat menus
+have scoped acceptance. OpenVR positive stick X maps to native -45-degree yaw
+(right), negative X to +45 degrees (left); native yaw has the opposite sign.
+Normal-quit cleanup has bounded live evidence through the exact pre-DestroyGame
+boundary; see [shutdown contracts](COJ_SHUTDOWN_BOUNDARY.md).
 
-- the bounded shared-transport cadence target and stereo/head-turn stability now pass; sustained pacing and frame-age outliers remain separate performance questions;
-- head-turn stability with Steam recording off and corrected snap direction are
-  operator-accepted for exercised use. OpenVR positive stick X maps to native
-  -45-degree yaw (right), negative X to +45 degrees (left); native yaw uses the
-  opposite sign. Recording-associated microskips and sustained pacing remain
-  open. The bounded coherence trace observes poses/both-eye bases without
-  rotating an actor or forcing render/FX updates;
-- the exercised room-scale direction/body-visibility and physical crouch regressions are operator-accepted after the tracking-sign and duplicate-height correction; the active independent-hand wrist/grip/reload recovery checks are also operator-accepted;
-- flat-menu controller interaction is accepted in the exercised ordinary/Yes-No/gameplay-pause paths;
-- normal-quit inner shutdown, GPU drain and outer `run_end` are now live-tested through the exact-build pre-`DestroyGame` boundary; abnormal exit/device loss remain unproved. See [shutdown boundary](COJ_SHUTDOWN_BOUNDARY.md).
+Open gates are sustained pacing/frame age, Steam recording-associated microskips,
+arbitrary reset/device loss/abnormal exit, dashboard/loading ownership and
+death/retry/held-control recovery. The bounded coherence trace observes poses
+and both-eye bases; it does not rotate an actor or force render/FX updates.
 
 Do not reopen established camera offsets or stereo wrapper choices without contradictory physical/native evidence.

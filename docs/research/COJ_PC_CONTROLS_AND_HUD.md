@@ -129,7 +129,7 @@ native IDs. No keyboard settings or OS-global key/mouse injection is introduced.
 | R2 | original RMB / right-hand action |
 | L1 | Action / contextual F from the left Sense aim ray; reference ring only while held |
 | R1 | fresh Kick press on foot; hold Horse run / gallop when mounted |
-| Square | Reload |
+| Square | Reload; opens/closes an admitted Peacemaker/Frontier session with `-ManualReload` |
 | Cross | Jump |
 | Circle | Toggle alternate fire |
 | Triangle | hold weapon/equipment radial; release to confirm or cancel |
@@ -138,25 +138,22 @@ native IDs. No keyboard settings or OS-global key/mouse injection is introduced.
 | Options | Pause / native Escape |
 
 Triangle has no modifier or tap action. Hands and Throw are wheel sectors only
-by default. A deliberate free-hand trigger journey from a head-relative waist
-zone to the armed grip, releasing there, requests native Reload. This hybrid
-gesture is operator-accepted for the exercised Peacemaker. Schofield retains
-that whole-clip path; Square remains available.
+by default. With `-ManualReload`, fresh Square prepares an admitted single
+Peacemaker/Frontier with empty support. The free-hand **trigger**, not Grip,
+picks up a cartridge at waist and releases it near the weapon to insert one
+native round. Square again or armed trigger closes; release before firing or
+reopening. Scoped headset acceptance covers sustained waiting, tracked hands,
+successive loading, insertion-only haptics and exercised menu/weapon recovery.
+Cartridge contact/occlusion, precise chamber loading, mirrored/Frontier contexts
+and broader recovery remain open.
 
-The experimental Peacemaker/Frontier cartridge-paced extension requests one
-native round per insertion. Its intended continuation replenishes a solid,
-controller-oriented presentation cartridge in the empty support hand after an
-observed native reload interval; further insertions use fresh trigger press and
-release near the gun without returning to the waist. No round is counted or
-queued by VR code. The exercised continuation is physically rejected: it still
-stopped after one round and was uncomfortable. Recovery now distinguishes native
-two-hand animation occupancy from a carried object through passive `IsCarrying`
-reads, and suppresses the support trigger during the accepted reload sequence.
-These corrections are host-tested, awaiting physical acceptance. Initial admission
-still requires one eligible pistol, an empty support hand and on-foot ownership.
-Precise chamber/socket loading, gate opening, ejection and persistent native hold
-remain future work. See [reload acceptance](../VALIDATION.md#hybrid-motion-reload-acceptance)
-and [exact reload ownership](COJ_RELOAD_OWNERSHIP.md).
+Without this opt-in, the retained hybrid trigger journey requests native reload;
+the Peacemaker/Frontier paced extension limits each natural completion to one
+round and has bounded live continuation evidence. Native animation still takes
+the hands in that legacy route. Schofield retains whole-clip behavior.
+No VR ammunition replica is maintained in either route. See
+[manual acceptance](../VALIDATION.md#persistent-manual-reload-candidate) and
+[exact reload ownership](COJ_RELOAD_OWNERSHIP.md).
 
 Next/previous weapon, logs, quick save/load, digital lean and explicit
 Walk retain native keyboard and optional custom logical routes, with no default
@@ -750,8 +747,9 @@ special campaign transitions remain pending. Complete graphical HUD capture is
 still planned; passive sprite/flush hooks do not establish usable alpha or live
 capture coverage.
 
-Remaining gates are the left-hand L1 route and held-only ring; corrected
-cartridge-paced continuation; protected-target red weapon cross visibility;
+Remaining gates are the left-hand L1 route and held-only ring; convincing
+manual-cartridge grip, exact loading-port clearance and broader manual recovery;
+protected-target red weapon cross visibility;
 retry/held-input recovery after the accepted death-screen visibility; broader
 inventory permissions, other weapons and campaign mechanics. Full cylinder
 loading, bow, scoped optics, dynamite, Bible, concentration, duels, climbing and

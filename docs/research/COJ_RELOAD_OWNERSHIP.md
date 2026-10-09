@@ -5,6 +5,16 @@ These contracts apply to the original Steam Call of Juarez (2006) archive
 `F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12`.
 Game hand indices are 0/right and 1/left.
 
+## Active scope
+
+The opt-in `-ManualReload` candidate has scoped headset acceptance for Square
+opening/closing, tracked hands, successive trigger-carried native rounds,
+insertion-only haptics and exercised weapon/menu recovery. The legacy hybrid,
+paced and bounded-wait routes below remain compatibility/research contracts;
+they are not the current persistent manual UX. [Validation](../VALIDATION.md)
+owns acceptance. Finger contact, loading-port clearance and broader recovery
+remain unresolved; do not infer them from callback or geometry observations.
+
 ## Native request and completion
 
 `PlayerController.ExecuteInput(IFLjava/lang/Object;)V` action 31 calls
@@ -127,22 +137,11 @@ This keeps ammunition,
 capacity, reserve checks and completion timing native-owned while avoiding a
 new waist pickup for every chamber.
 
-The earlier paced continuation was physically rejected: it loaded one round
-without replenishing the token. Recovery first failed on temporary native two-hand
-ownership and later on `support_occupied`. The corrected passive reader distinguishes
-carried objects from animation occupancy and preserves the support-trigger release
-barrier. A subsequent right-hand Peacemaker capture and correlated runtime logs
-observe repeated replenished-ready admission and unit HUD/reserve changes
-3/43 -> 4/42 -> 5/41 -> 6/40. This is bounded live evidence for paced continuation,
-not acceptance of comfortable presentation, all interruptions or manual loading.
-Native animation still takes the hands during each cycle. That capture predates
-the new reload trace, so it does not establish animation-clock cadence or a safe
-persistent wait/cancel seam.
-
-Full manual cylinder reload remains planned pending measured loading-port and
-ejection geometry, tracked pose ownership during reload, save/load recovery and
-physical validation of the cartridge-paced extension. Constructor single-round
-defaults are insufficient; the request checks live native parameters.
+The corrected paced recovery distinguishes temporary two-hand animation
+occupancy from a carried object. Bounded live Peacemaker observations establish
+replenishment and unit count/reserve changes. Native animation still takes the
+hands in this legacy route. Persistent tracked loading is implemented separately
+below; individual chamber geometry, clearance and ejection remain unresolved.
 
 ## Offline cylinder and loading-gate geometry
 
@@ -197,7 +196,8 @@ owner/model/frame measurements never authorize a socket. The offline analyzer
 parses these optional fields conservatively into `port_probe`, counts unique
 pivot rankings, reports malformed combinations as `invalid_mechanical_geometry`,
 and remains compatible with older evidence. Both C++ geometry and Python
-analyzer have host tests; **this new ranking has no live or headset validation**.
+analyzer have host tests; the ranking also has **bounded live observations**,
+without headset validation of a usable socket.
 No insertion-zone change, independent gate writer or chamber selection is
 enabled. The previously accepted ~14 cm grip zone stays active.
 
@@ -212,10 +212,10 @@ third boolean argument for transfer, so cancellation needs a no-transfer guard.
 
 The original `StateMashine.Update()Z` transition boundary at bytecode offsets
 54–63 precedes `SetCurrentState` clearing the old state, after transition
-eligibility. It is a concrete investigation seam, not an enabled pause API.
-An owner-scoped hold there requires proof of cadence, cancellation, replacement,
-save/load and restoration before integration. The existing one-round native route
-remains authoritative while that session boundary is unresolved.
+eligibility. It is the demonstrated logical seam used by the bounded-wait and persistent
+manual derivatives below, not a general mesh pause API. The owner-scoped veto,
+zero-transfer close and scoped tracked presentation are implemented and tested
+at their stated boundaries; broader engine save/load/recovery remains open.
 
 ## Audited input, animation and observation boundary
 
@@ -257,15 +257,12 @@ capacity, null begin/end reload sounds and a body reload `SoundBuffer` for
 owns this sound. The declaration is not proof of an insertion-specific sound or
 of audible timing; no additional sound call or haptic event is introduced here.
 
-Native animation retains both hands during reload because the tracked-weapon
-render path explicitly returns when reload observation is unavailable or true.
-The independent forearm/finger/socket and child-weapon transactions are therefore
-not applied in that interval. A render-only exception could retain controller
-ownership while leaving game events native, but it has not demonstrated gate,
-socket, muzzle and both-eye restoration together. Neither a new IK system nor a
-global animation freeze is needed to investigate that narrow exception.
+Conventional and legacy-paced reload retain native hand/weapon presentation.
+The persistent candidate below applies an owner-qualified exception for the
+existing restorable independent-hand/weapon maps. This has scoped tracked-hand
+acceptance without establishing a mechanical writer or exact loading socket.
 
-The active cartridge remains a value-only compositor token, not an engine object:
+The legacy-paced cartridge remains a value-only compositor token, not an engine object:
 fresh free-hand **trigger** pickup at the waist, controller-oriented fourteen-face
 solid, held travel and trigger release within 14 cm of the armed grip after the
 minimum journey. Grip buttons retain their existing actions. Mere proximity
@@ -301,22 +298,13 @@ never confirms transfer, and never treats a constant zero as an empty gun.
 Contrast it with the native HUD and reserve before claiming exactly-one-round
 runtime acceptance; authoritative runtime count storage still needs correlation.
 
-A bounded right-hand Peacemaker runtime capture now observes a useful virtual
-`GetAmmoCount(0)` readback: three paced cycles increment 3 -> 4 -> 5 -> 6 while
-reserve decrements 50 -> 49 -> 48 -> 47. One further full-gun request leaves both
-values and the ordinary state unchanged. A later fresh Square press loads
-2 -> 6 and consumes four reserve units, 47 -> 43. These observations establish
-the getter's useful behavior in that loaded context; they do not locate the
-final count storage, generalize to other classes or prove callback-level transfer.
-
-In that capture the sampled begin/body/end states each report play/duration 0.3
-in the native clock. Paced count changes are first observed after entering end
-22, with ordinary admission/replenishment after approximately 0.9 native-clock
-units from the request. During conventional Square continuation, intermediate
-count/reserve changes are observed with state 21 unchanged and start time reset
-for the next 0.3 interval. This is consistent with transitions being traversed
-inside one native update; state IDs alone cannot identify a completion or safe
-hold. The sample does not observe every callback or actual mesh ANM frame.
+Bounded right-hand Peacemaker observations establish useful virtual
+`GetAmmoCount(0)` values: admitted paced reloads change loaded +1/reserve -1,
+full-gun requests leave counts unchanged and conventional Square can load the
+remaining capacity. This does not locate final count storage or generalize to
+other weapon classes. Sampled begin/body/end play/duration is 0.3 native-clock
+units, while transitions may traverse inside one update and reset the state
+start time. State IDs alone do not identify every callback or actual ANM frame.
 
 Events report old/new states, cartridge presence, entry/exit of the legacy grip
 zone, reload intent, context/recenter/tracking/conflict cancellation and owner
@@ -330,13 +318,9 @@ Pre-dispatch render sampling can miss transitions traversed in one native update
 It cannot prove callback order, sound playback, an exact ANM frame or a safe hold.
 
 Reader fault/replacement/reference-cleanup, event filtering and control parsing
-are host-tested; the read-only trace is live-tested in the bounded Peacemaker
-context above. This does not establish a pause or operator acceptance of an open
-session. The proposed
-`READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY` is now implemented in the
-separate host-tested candidate below. The bounded logical wait/zero-transfer
-close has runtime evidence; that does not promote persistent ownership or visual
-mechanical preparation to live/headset validation. No insertion credits are used.
+are host-tested; read-only trace has bounded Peacemaker live evidence. Persistent
+manual-session acceptance is separate and described below. No insertion credits
+or second ammunition authority are used.
 
 ### Bounded pre-Clear wait probe — implemented, host-tested, bounded live-tested
 
@@ -396,41 +380,20 @@ does not accelerate its native clock; the bounded zero-transfer close resumes
 with native updates. Immediate tracking/menu/mod-disable cancellation remains a
 gate for the future persistent session.
 
-The bounded right-hand Peacemaker runtime capture records 13 probe cycles.
-All reach status 1 -> 2 -> 3 -> 4 and native begin/body/end, with no loaded-count
-increase or reserve consumption while the probe owns the reload. Nine deadline
-exits are sampled 1.501–1.524 native-clock units after waiting begins; four early
-exits have attack state 31 desired. Five closing samples have attack desired in
-total: one coincides with the deadline. This supports the native desired-state
-cancellation path, not the exact input/callback timing of every exit.
+Bounded right-hand Peacemaker runtime evidence establishes armed -> waiting ->
+closing -> cleared status, approximately 1.5-native-clock deadline exits and
+earlier desired-attack exits, with no reload transfer under probe ownership.
+Native Square, automatic reload and shooting recover. A first cleared sample
+can already include a shot; compare reload accounting within owned intervals,
+not count equality across a whole cleanup frame.
 
-One first-cleared sample already observes a shot (3 -> 2, reserve unchanged).
-Transfer assertions must separate probe ownership from resumed native attack;
-they cannot require count equality across an entire sampled cleanup frame.
-Fresh Square subsequently loads 0 -> 6, reserve 50 -> 44, and another ordinary
-automatic reload later consumes six reserve rounds. Repeated probes after that
-ordinary reload and subsequent shots establish bounded cleanup/rearm in this
-context. Unknown-build rejection, missing-state admission and failure cleanup
-retain their host-test status; this run does not exercise those failures.
+The clip shows original hand/arm movement. This probe grants zero rounds and
+has no persistent `MANUAL_LOAD` or Square preparation; mechanical hold,
+save/load and broader interruption behavior remain unqualified. The logical
+veto seam is reused by the persistent candidate below. Repeating the probe is
+not necessary to establish that already observed seam.
 
-The correlated clip shows original hand/arm movement and recovery. A fixed
-loading-gate/drum pose is unresolved. In particular, `manual_reload_geometry`
-is sampled only after successful tracked-weapon application; `ApplyTrackedWeapons`
-returns during native reloading. Ordinary mapped geometry records therefore
-provide no held-state mechanical evidence. No mesh frame/pause command was
-invoked. Save/load, menu/tracking/mod-disable, death and weapon replacement
-during an admitted wait remain open; final shutdown is not proof of cancellation
-from the held state.
-
-This probe grants **zero rounds**, uses the existing support-trigger gesture and
-leaves reload presentation native-owned. It does not change body composition,
-hands, placeholder geometry, sound calls or VR feedback. It has no persistent
-`MANUAL_LOAD`, insertion credits or Square preparation. The integrated candidate
-below adds scoped tracked weapon/hand presentation and persistent loading, but
-still requires observation of actual native mechanical frames before claiming a
-visually prepared session.
-
-## Persistent manual candidate — host-tested and bounded live-tested
+## Persistent manual candidate — scoped headset acceptance
 
 `tools/coj_manual_reload.py` extends the exact zero-transfer derivative only when
 selected with `--manual-reload` / canonical `-ManualReload`. It cannot combine
@@ -527,48 +490,21 @@ unavailable/stale poses/input, held-button barriers and fail-closed Square.
 These are stand-ins for native scheduling/ammunition and do not constitute
 Chrome JVM, live animation, engine save roundtrip or physical validation.
 
-A bounded right-hand Peacemaker capture now establishes persistent native waiting
-with scoped tracked presentation. Sixteen preparations return to ready: eleven
-close through a fresh Square press and five load 4/4/6/6/1 rounds before native
-full-gun closing. All 21 accepted insertions have correlated loaded +1/reserve -1
-readbacks; no additional transfer is observed during waiting/closing. Thirteen
-wait entries are sampled, with the longest lasting 8.464 native-clock units,
-demonstrating renewal beyond the original bounded 1.5 interval. The video shows
-independent hands and the placeholder journey, HUD 0/36 then 4/32, subsequent
-shooting and an exit menu after closing. Sampled hand/weapon eye guards match and
-restoration events report success. This is live evidence in one context, not
-operator acceptance of comfort or all interruption boundaries.
+Complete inventoried right-hand Peacemaker captures establish persistent
+waiting beyond the original watchdog interval, correlated native unit transfers,
+Square/armed-trigger/full-gun closing and coherent scoped presentation/restoration.
+Operator acceptance includes independent hands, successive loading,
+insertion-only haptics and exercised weapon/menu recovery. The analyzer accepts
+runtime `(x,y,z)` vectors and fixture vectors, rejecting malformed/non-finite
+data; reviewed captures have no unexplained transfer. None of this establishes
+every interruption, mirrored/Frontier use or prolonged comfort.
 
-The analyzer's vector reader now accepts the runtime `(x,y,z)` format as well as
-bare fixture vectors; malformed/non-finite data still fails. After this host-tested
-reader correction, the same inventoried capture has no analysis issues and 41
-same-frame mechanical observations. Thirty waiting samples have gate/drum
-distance 4.236–4.246 cm and relative up cosine -0.940–0.766. The changing up
-cosine includes native cylinder rotation; it does not isolate gate rotation.
-Those 41 historical observations precede source-qualified root/barrel
-instrumentation, so none establishes independent gate movement or loading-port
-clearance. New host-tested local-frame calculations compare gate and drum with
-both root and barrel and reject scaled or non-orthogonal frames, but still need
-a fresh runtime capture and visible loading-port observation before claiming
-the gate is held open or selecting an independent mechanical writer. The
-original log remains unchanged.
+Gate-to-drum metrics alone conflate both parts' motion and cannot isolate gate
+opening. Source-qualified root/barrel `pre_native` observations are required;
+`post_overlay` verifies mapping, not native mechanical advance. Native mechanics
+remain the only writer until visible clearance and safe ownership are qualified.
 
-A later complete physical run exercises the source-qualified sampler alongside
-the persistent manual session. Offline correlation yields twelve further
-one-round native transfers, all exactly loaded +1/reserve -1, ten native wait
-entries and no analyzer issues. Square, armed-trigger (`fire_close`) and native
-full-gun closing appear in the state transitions; none by itself establishes
-every input/recovery gate. The sampler yields 26 eligible same-frame `pre_native`
-observations (19 while waiting). During those waiting observations gate-to-root
-up cosine stays between 0.642787 and 0.642788 while drum-to-root up cosine
-changes from roughly 0 to -0.866; the large gate/drum-relative change therefore
-does not establish gate opening. Root/barrel mapping and `post_overlay` readbacks
-are present, but there is no direct visual confirmation of a clear loading port.
-The operator reports the prototype flow appears functional, without an itemized
-mechanical or interruption signoff. Preserve the native mechanics as the only
-writer pending a focused opening/clearance investigation.
-
-The next opt-in diagnostic adds a **bounded natural `READY` reference** before
+The read-only diagnostic supplies a **bounded natural `READY` reference** before
 the scoped weapon/hand overlay, with at most three geometry attempts and one
 emitted reference per eligible player-generation/native-context/weapon/hand
 identity. It requires manual policy `READY`, native observation and probe validity,
@@ -587,47 +523,31 @@ compares that baseline with later same-owner, same-model, coherent same-frame
 or uncorrelated traces cannot supply a comparison. Its `*_change_from_ready`
 metrics include `gate_root_up_cosine_change_from_ready`; every row retains
 `gate_open_confirmed=false`. Analyzer fixtures cover valid/rejected references
-and owner mismatches. The C++ observer compiles and its offline consumer has
-host tests. A subsequent complete inventoried right-hand Peacemaker runtime
-capture now includes 12 eligible natural `READY` references, 24 later
-same-owner, same-model `pre_native` comparisons and 48 coherent same-frame
-mechanical observations. The same capture correlates 13/13 accepted native
-insertions with exactly loaded +1/reserve -1, samples seven wait entries and
-has no offline-analyzer issues. Natural `READY` gate-to-root up cosine is
-approximately 1.000; waiting `pre_native` samples are approximately 0.642788,
-with a relative position displacement around (-0.107, -0.145, -0.298) cm.
-The native gate thus changes its measured pose relative to the weapon root,
-and independent drum motion is observed. These are bounded runtime findings,
-not a determination of hinge direction, physical port clearance or permission
-to write a mechanical pose. The accompanying clip's viewing angle does not
-resolve the actual loading port; keep `gate_open_confirmed=false` and retain
-native mechanics ownership. Host verification covers the observer/analyzer;
-headset mechanical clearance remains pending.
+and owner mismatches. The observer/consumer are host-tested and have bounded
+live same-owner
+Peacemaker reference/comparison evidence. Natural `READY` gate-to-root up cosine
+is approximately 1.000 versus 0.642788 while waiting, with a relative position
+change around (-0.107, -0.145, -0.298) cm. Independent drum motion is observed.
+The video does not establish visible port clearance. Keep
+`gate_open_confirmed=false` and native mechanical ownership.
 
 The offline consumer now also projects the complete gate/drum up and forward
 axes into each weapon-root/barrel reference frame, orthonormalizes the sampled
 bases, and reports a 3D rotation angle plus local translation relative to an
 eligible same-owner natural `READY` pose. Synthetic host tests distinguish a
-global rigid weapon motion from independent component rotations. Recalculation
-from the preserved, previously inventoried capture's event timeline yields
-24/24 same-owner comparisons: the gate has an approximately **50.000-degree**
-relative rotation (range 49.999958–50.000121 degrees to root) and 0.346–0.356 cm
-local translation; the drum shows roughly **30–150 degrees** relative rotation
-and no material relative displacement (under 0.007 cm). The barrel reference
-independently agrees on the gate angle. This tighter measurement is **offline
-derived from existing bounded live telemetry**, not a new headset trial or
-independent evidence of visible port clearance, a hinge axis or writable gate
-control. Exact per-sample results remain under ignored `work/`.
+global rigid weapon motion from independent component rotations. Derived
+same-owner live vectors measure approximately 50 degrees of gate
+rotation relative to root/barrel and 0.346–0.356 cm local translation; the drum
+rotates roughly 30–150 degrees with under 0.007 cm relative displacement.
+These are offline calculations from bounded live telemetry, not proof of a hinge
+axis, visible clearance or a safe writer. Per-sample data stays local.
 
-Unresolved: actual loading-gate clearance during the sustained animation,
-reload skin/attachment comfort, broader interruption recovery, mirrored/Frontier
-content and insertion sound playback. Active-load menu/tracking loss, save/load,
-death/retry, weapon replacement and armed-trigger close were not established by
-this capture.
-The separate mesh elements and offline ANM sampling prove useful observations,
-not a safe independent gate/drum writer. No `PauseAnim`/frame setter, new IK,
-connected-arm/body change, physics simulation or proprietary asset is added.
-Keep the placeholder; qualify this derivative only through the combined gate in
+Unresolved: port clearance, convincing cartridge contact/axis/occlusion,
+tracking/save/load/death/disable and held-input recovery, mirrored/Frontier use,
+prolonged comfort and insertion sound. Mesh elements and offline ANM sampling
+are useful observations; no `PauseAnim`/frame setter, new IK, connected-arm
+change, physics simulation or proprietary asset is added. Retain the textured
+CC0 visual and accepted flow while qualifying these contracts through
 [Validation](../VALIDATION.md#persistent-manual-reload-candidate).
 
 ### Optional acceptance haptic — host-tested with scoped headset acceptance
@@ -742,9 +662,8 @@ readbacks. WARP front/side/rear draws produce binocular pixels, distinguish
 lead/brass colors and reject corrupted optional UVs/normals in both eyes. Optional
 reference-image output uses the actual compositor; it is not a headset capture.
 The old proxy retains its separate raster/cache; the accepted trigger/release
-insertion and native ammunition are unchanged. The skin-derived anchor is a new
-host-tested and bounded live-tested candidate following operator rejection of
-the previous joint midpoint; visual grip remains unaccepted.
+insertion and native ammunition are unchanged. The skin-derived anchor has host tests and bounded live delivery evidence;
+visual grip remains unaccepted.
 Neither imported model
 is a demonstrated historical/calibre match. Scene-depth occlusion, native lighting,
 visual finger fit, orientation/scale, appearance quality and comfort remain open.
@@ -770,10 +689,10 @@ successful cartridge contact. Temporary meshes, sampled poses and replay images
 stay local under ignored `work/`; no proprietary asset is distributed.
 
 The default-off `manual_reload_finger_reference` event is **host-tested and
-bounded live-tested**. The skin-anchor capture contains seven observed snapshots,
-paired with seven visible/applied and seven hidden/idle transitions; five accepted
-insertions have coherent native unit readbacks. Its supplied video still shows a
-superimposed-looking round rather than demonstrated finger-pad contact.
+bounded live-tested**. Reviewed native/displayed snapshots accompany
+applied/visible and idle/hidden transitions and coherent native unit insertions.
+The supplied close-up still appears superimposed rather than demonstrating
+finger-pad contact.
 At a newly visible physical pickup, it snapshots the
 pre-overlay native and verified displayed distal thumb/index frames, each
 expressed in its own Hand-local centimetre basis. It includes weapon/player,

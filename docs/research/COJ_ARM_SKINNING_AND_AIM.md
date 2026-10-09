@@ -32,7 +32,9 @@ holding socket: twenty frames per hand. Moving all retained skin contributors
 together avoids applying an isolated wrist twist to a connected sleeve. Armed
 hands use the measured weapon rigid map, preserving native finger animation.
 The separate arm node is hidden only during hand ownership and restores to its
-previous visibility after both eyes; reload yields to native animation. Element
+previous visibility after both eyes. Conventional reload yields to native
+animation; the opt-in manual session retains these tracked maps under its
+same-owner recovery exception. Element
 and visibility readback, failed-write rollback, retry retention and actor-relative
 restore are host-tested. The exercised independent-hand appearance, wrist/grip
 cohesion and side-on/rolled pistol shots have operator acceptance. Broader
@@ -419,7 +421,12 @@ no other-hand desired two-hand weapon, alive player and
 hand's shared two-hand weapon. `SetDesiredWeapon` can queue an equip while the
 current state is still empty: `GetDesiredWeapon`, `GetDesiredWeaponState`,
 `GetHandStateMashineDestinyState` and `IsDesiredWeaponOperatedTwoHand` observe
-those pending states without advancing them. Reload/context/pose loss retain native ownership.
+those pending states without advancing them. Ordinary reload/context/pose loss
+retain native fingers. An admitted persistent manual opening/wait instead uses
+the same-owner reload-recovery exception for empty support fingers; carrying,
+replacement, death and failed reads still reject it. Its pinch requires a held
+free-trigger claim. The .7/.7 skin-derived anchor has bounded live delivery but
+unaccepted contact; see [reload research](COJ_RELOAD_OWNERSHIP.md#finger-contact-boundary--visibility-accepted-grip-unresolved).
 Invalid curls or a failed optional lookup retain the original rigid map. Native
 world-getter endpoint fixtures, independent fingers, transformed roots, length
 preservation, rollback and restore/retry are host-tested; visible motion/contact
@@ -438,4 +445,8 @@ Exact reach/collision, all clutch/length/release gestures and broader climbing
 remain separate gates. The exact control/axis contract is recorded in
 [the PC controls boundary](COJ_PC_CONTROLS_AND_HUD.md#exact-procedural-whip-contract).
 
-Do not promote Body IK based on write counts alone. Acceptance requires visually plausible arms across representative poses, stable first-person ownership, verified restoration and no degradation of tracking/recenter behavior. Lower-body writing remains blocked until the upper-body/body-anchor contract is acceptable.
+Do not promote a connected-arm diagnostic based on write counts or span fit.
+Independent hands with native torso/legs are the accepted production composition;
+preserve its scoped lower-body/camera contract. A future connected-arm experiment
+needs its own anatomy, ownership and restoration evidence, without changing the
+current hidden-head/hidden-arms solution.

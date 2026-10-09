@@ -5,7 +5,9 @@
 Call of Juarez (2006), Windows x86, is the reference implementation for native
 stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
 tracked head and independent native hands with the game's torso and legs.
-Connected full-arm IK and full physical reloads remain development work.
+Connected-arm IK remains a rejected diagnostic presentation. Opt-in persistent
+manual revolver reload has scoped acceptance; complete chamber/ejection and
+convincing cartridge grip remain development work.
 D3D10, OpenXR and additional games are separate future/experimental tracks.
 
 Only game-neutral policy may be reused from Penumbra VR Framework. HPL layouts,
@@ -235,7 +237,8 @@ sustained waiting and sampled scoped presentation/restoration recover to ready.
 Square preparation/closure, continued hand tracking, repeated manual loading
 and weapon/menu recovery have scoped operator acceptance. Exact port clearance,
 prolonged comfort and other interruption contexts require further evidence.
-The ordinary candidate remains unchanged; see
+The default candidate retains the legacy native-animation route; the persistent
+flow requires `-ManualReload`. See
 [reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).
 
 Parent hand/socket applies before child weapon; restoration restores the parent
@@ -270,9 +273,11 @@ captured with the stereo pair and batched into one compositor draw per eye. Its
 centre now uses the midpoint of two skin-derived local offsets on the verified
 displayed distal thumb/index frames, converted from native centimetres into
 tracking metres. The exact-game Ray skin and authored .7/.7 thumb/index curls
-supplied the host-tested reference; a bounded pad separation and live bone-frame
-verification reject incompatible poses. This is an estimated contact reference,
-not headset-confirmed contact. Missing or unrestored hand/weapon
+supplied the reference; a bounded pad separation and live bone-frame
+verification reject incompatible poses. Delivery is host-tested and bounded
+live-tested, but the latest close-up does not establish convincing contact.
+Orientation remains controller-grip based and native scene depth is absent.
+Missing or unrestored hand/weapon
 presentation hides the manual cartridge. Native ammunition and the existing
 free-hand trigger pickup/release insertion gesture are unchanged. Scene-depth
 occlusion and physical visual fit
@@ -316,8 +321,11 @@ are passive, bounded and sampled before/after fresh F edges; they never trace or
 select. This replacement's physical gate is separate from the accepted older
 HMD-based drawer interaction.
 
-Motion reload is a hybrid request into native action 31, retaining Square and
-native ammo/reserve/state/animation authority. Exact passive admission supports
+The default motion-reload route is a hybrid request into native action 31,
+retaining conventional Square and native ammo/reserve/state/animation authority.
+The opt-in persistent route uses Square preparation and native unit insertion
+as described above; the following paced/probe contracts are legacy alternatives.
+Exact passive admission supports
 four audited single-pistol/empty-support classes; the paced single-round extension
 is limited to Peacemaker/Frontier. A waist pickup, held journey and release near
 the grip requests one native round. Following an observed reload interval, ordinary
@@ -337,8 +345,9 @@ IsCarrying, rather than mistaking HasSomethingInHand's animation fallback for a
 world object. Held support trigger is consumed through verified reload until an
 available release, preventing cross-hand attack. No VR ammo counter or retry queue
 exists. Precise cartridge-tip/chamber policy and displayed drum/gate observation
-are implemented separately but not enabled as physical loading. Full gate/ejection,
-persistent mechanical pose and engine save/load recovery remain unresolved.
+are implemented separately but not enabled as physical loading. Precise
+chamber/ejection, independently controlled mechanical pose and
+manual-session engine save/load recovery remain unresolved.
 The opt-in manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
 It consumes rejected Square admission until release, preserving native fallback
 only for positively identified unsupported contexts. Missing observation cannot

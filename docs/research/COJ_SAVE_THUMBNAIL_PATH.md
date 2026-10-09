@@ -29,5 +29,7 @@ archive byte-for-byte.
 Quick/automatic saves have no newly generated preview while this archive is
 staged, including flat presentation. The workaround is host-tested with call
 boundary/fail-closed tests, archive comparison and the shipped Java 1.4 verifier.
-Successful native save creation, loadability and pickup-through-autosave must
-still be physically checked under the acceptance gate in `VALIDATION.md`.
+Exercised save/load with the optional thumbnail workaround has operator
+acceptance; broader autosave-trigger and campaign coverage remain open. This
+does not accept saving/loading during an owned manual reload or arbitrary
+allocation pressure. [Validation](../VALIDATION.md) owns those limits.

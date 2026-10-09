@@ -1,448 +1,210 @@
 # Validation
 
-Validation states are intentionally distinct:
+Validation states are distinct:
 
 `planned` -> `implemented` -> `host-tested` -> `live-tested` -> `headset-validated` -> `supported`
 
-Builds, CTest, synthetic fixtures and static inspection do not promote physical gates. Acceptance below is limited to the exercised original Steam Call of Juarez (2006), PS VR2 and SteamVR contexts; it is not whole-campaign or public-release support.
+Builds, CTest, synthetic fixtures and static inspection do not promote physical
+gates. Acceptance here is limited to exercised original Steam Call of Juarez
+(2006), PS VR2 Sense and SteamVR contexts. It is not whole-campaign or public
+release support. This document owns acceptance; [Architecture](ARCHITECTURE.md)
+owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Current feature state
 
-| Boundary | Actual state and limits |
-| --- | --- |
-| Native D3D9 stereo and tracked head | Headset-validated in exercised scenes: native per-eye rendering, 6DOF, recenter and room-scale movement. Broader transitions and device recovery remain open. |
-| Locomotion | Native analog shaping, head-relative movement, jump parity, physical crouch and corrected 45-degree snap direction accepted in exercised contexts. |
-| Body and hands | Independent tracked native hands with original torso/legs are active. Connected arms/full-body IK are not the accepted presentation. Skeletal fingers have partial live evidence; authored rest/fist retargeting is host-tested. |
-| Weapons | Exercised right-hand pistol firing, visible muzzle/impact effects, water and destructible bottles accepted. Left-hand, dual and special weapons need separate coverage. |
-| Menus | Automatic controller pointer, same-hand trigger selection, Cross accept, Circle back and pause accepted in exercised menus, including confirmation and mouse coexistence. |
-| Sense controls | Direct controls, equipment wheel confirmation, snap rearm, haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted in exercised available contexts. Horse unavailable; kick inconclusive. |
-| Gameplay HUD | Encountered health/ammo, wrist compass and subtitles accepted. Full graphical native HUD capture remains planned. |
-| Death presentation | Corrected failure screen visibility accepted by operator. Retry/back and held-control recovery remain separate checks. |
-| Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. Permanent cyan ring rejected for comfort. Latest left-controller L1 route is host-tested, awaiting headset acceptance. |
-| Legacy cartridge-paced reload | Hybrid gesture starts native Peacemaker reload in exercised context. Corrected continuation is live-tested on a right-hand Peacemaker: repeated replenishment and HUD round/reserve changes observed. Its native animation still takes the hands; this legacy route is distinct from the opt-in persistent manual session below. |
-| Passive reload observation | Default-off legacy trace is host-tested for faults/filtering and live-tested on one right-hand Peacemaker. It observes native time, unit round/reserve changes, full-gun no-op and Square's repeated loading. The later active wait/manual candidates have separate callback-level evidence below. |
-| Native reload wait probe | Host-tested and bounded live-tested on a right-hand Peacemaker: 13 zero-transfer cycles, nine deadline exits and four early exits with attack desired; native reload/discharge recover. Gate/drum hold, tracked presentation during waiting and save/load remain unresolved; no persistent manual-load or headset acceptance. |
-| Persistent manual reload candidate | Scoped **headset-validated** by operator report: Square opens/closes without automatic loading, both hands remain tracked, sustained preparation allows successive manual rounds, insertion haptics occur only on loading, and removing the weapon or entering/returning from menus recovers correctly. Correlated right-hand Peacemaker telemetry confirms native unit transfers, waiting and recovery. Exact loading-port clearance, chamber insertion, explicit tracking/save/load/death/disable recovery, held-control edge cases and mirrored/Frontier contexts remain pending; this is not whole-feature support. |
-| Cartridge pinch presentation | The first implementation was **physically rejected** for native loading-pose takeover; its requested overlay was unavailable. The recovery exception has **bounded live delivery evidence** for the free-hand overlay and a held-trigger-only pinch. The latest thumb/index curl adjustment (.7/.7) and skin-offset anchor now have **bounded live delivery evidence**, alongside host-tested ownership checks and restoration. Review of the accompanying close-up does not establish convincing thumb/index contact; the round appears superimposed on the hand. Natural empty-hand recovery, mirrored presentation and physical grip acceptance remain open. |
-| Imported CC0 cartridge visual | Both the old proxy and full .44 OBJ with flat swatches were **physically rejected** for appearance. The textured .357 has **scoped headset acceptance for visibility** before the latest anchor adjustment; the operator explicitly rejected its former grip. One 83-position/92-triangle source node retains UVs/normals and cropped albedo with authored brass/metal shading. WARP stereo/material/malformed-data checks and source/bake identity checks are host-tested. The current skin-derived anchor and mesh have **bounded live delivery evidence**; the accompanying video shows the round but does not accept finger contact. Native ammunition and trigger/release insertion remain unchanged. Scene-depth finger occlusion and native environment lighting remain unavailable; contact, axis, scale and comfort are open. |
-| Protected-target warning | Original red warning visible on monitor, absent in visor. Red aiming-cross alternative implemented and host-tested; visor acceptance pending. |
-| Whip | Exercised controls and approximate reticle alignment accepted. Broader reach, attachment, climbing and release remain open. |
-| Loading/save | Exercised narrated transition after reversible LAA correction and save/load with optional thumbnail workaround accepted. Broad campaign loading and allocation pressure remain unresolved. |
-| Transport | Primary D3D9Ex GPU sharing and bounded normal shutdown accepted. Sustained pacing, reset and abnormal shutdown require broader coverage. Steam recording-associated microskips remain unresolved. |
-| Other platforms | OpenXR experimental. D3D10 and other games planned; neither is the active support target. |
+| Boundary | Confirmed state | Remaining limits |
+| --- | --- | --- |
+| Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. | Broad loading/device transitions and sustained pacing. |
+| Locomotion | Exercised native analog movement, head-relative direction, jump parity, physical crouch and corrected snap turning accepted. | Mounted contexts and campaign-specific movement. |
+| Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. | Left/dual/special weapons, broader finger and recovery coverage. Connected-arm IK is a diagnostic, not the accepted presentation. |
+| Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. | Broader weapons, ballistic birth vectors, whip reach/climbing and special optics. |
+| Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. | Dashboard/loading/held-input recovery, mounted routing and unavailable mechanics. Kick is inconclusive. |
+| HUD and subtitles | Encountered native health/ammo, compass, equipment wheel, essential text and subtitles accepted. Optional status rows accepted only where encountered. | Horse and special HUD contexts, newly translated prompts, complete graphical HUD capture. |
+| Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
+| Persistent manual reload | Opt-in `-ManualReload` is scoped headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers and restoration have correlated live evidence. | Exact port clearance/chamber insertion, tracking/save/load/death/disable recovery, held-control edges, mirrored/Frontier use and prolonged comfort. |
+| Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. | Latest close-up still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
+| Death and save/load | Corrected failure-screen visibility accepted. Exercised narrated loading after reversible LAA correction and save/load with the thumbnail workaround accepted. | Retry/back/held-input recovery, manual-session save roundtrip and broad allocation pressure. |
+| Transport and shutdown | Primary D3D9Ex GPU sharing and normal shutdown have bounded headset/live acceptance. | Sustained pacing, abnormal exit, arbitrary reset/device loss and Steam recording-associated microskips. |
+| Protected-target warning | Red aiming-cross alternative implemented and host-tested. | Visor visibility/target transitions; original warning was absent in visor. |
+| Other platforms | OpenXR experimental; D3D10 and additional games planned. | No physical support claim outside the active D3D9/OpenVR target. |
 
 ## Current physical gate
 
-Left-hand L1 selection still awaits operator acceptance. The opt-in persistent
-manual reload candidate now has scoped operator acceptance for its basic flow,
-independent hands, acceptance haptics and weapon/menu interruption recovery.
-Remaining mechanical and interruption gates are listed below; do not require
-repetition of accepted behavior unless a later change affects it. The earlier
-cartridge-paced path remains a separate fallback.
+Do not repeat an accepted baseline unless a change affects it. Batch related
+checks into one meaningful candidate, recording unavailable cases as pending.
 
-- Aim the left Sense at a drawer's usable part and press L1. Turning the head must not retarget interaction. The cyan reference appears only while L1 is held. Check opening, pickup, carry and put-down; losing hand tracking/publication must require an available release before another action.
-- With `-ManualReload`, finish the remaining [persistent manual reload gates](#persistent-manual-reload-candidate): exact loading-port clearance, tracking/save/load/death/disable recovery, held-control behavior and mirrored/Frontier contexts. Basic Square preparation/closure, repeated manual loading, tracked hands, acceptance haptics and weapon/menu recovery are accepted in the exercised context.
-- The .7/.7 pinch and skin-derived anchor have been exercised with the textured .357, but the close-up does not establish a convincing grip. Do not repeat this candidate solely to reconfirm visibility or live delivery. After a material contact/axis/occlusion correction, batch empty-hand waiting, trigger pickup, slow roll, release away, successive insertions, closing/firing and menu/weapon recovery in one trial; include both hand assignments when available. `manual_reload_pinch`, `manual_reload_cartridge` and the default-off `manual_reload_finger_reference` diagnostic have bounded live observations. No event alone proves finger-pad contact.
-- After death/failure, Back/retry must restore native gameplay cleanly. Held controls must remain suppressed until release; underfloor tracked presentation or continued dead-player interaction rejects recovery.
-- Check the red aiming cross on a native protected target. This is a low-priority visor check, independent of ordinary aiming acceptance.
+- **Interaction:** point the left Sense at a drawer's usable part and press L1.
+  Head turning must not retarget it. The cyan reference must exist only while
+  L1 is held. Check opening, pickup/carry/put-down and release after tracking loss.
+- **Cartridge grip:** the current anchor has already been observed in runtime;
+  repeating it solely to reconfirm visibility adds no evidence. After a material
+  contact/axis/occlusion correction, combine empty-hand waiting, trigger pickup,
+  slow wrist roll, release away, successive insertion, closing/firing and
+  menu/weapon recovery. Include both hand assignments when available.
+- **Manual mechanics:** compare the actual visible loading port in natural
+  `READY` and sustained `MANUAL_LOAD` at a comparable angle. Measured gate
+  rotation alone does not prove clearance or an insertable socket.
+- **Recovery:** qualify tracking loss/recovery, held controls across ownership
+  changes, death/retry, save/load and disable during loading when available.
+  Require no stale round, delayed action, extra transfer or permanent lock.
+- **Campaign coverage:** mounted controls, broader weapons/special optics, whip
+  climbing and optional HUD content need eligible scenes. The protected-target
+  red aiming cross remains a separate low-priority check.
 
 ## Persistent manual reload candidate
 
-This is one combined acceptance session, not a repetition of the observation-only
-or bounded wait probes. Prepare with `-BodyIkAtStart -LargeAddressAware
--ManualReload`, start SteamVR/game manually, close normally and run `finish`.
-The derivative is **host-tested, live-tested and scoped headset-validated**.
-The operator explicitly confirms opening/closing with Square, no automatic
-reload, both hands following the controllers, keeping the weapon open while
-collecting/inserting successive cartridges, haptics only on insertion, and
-correct recovery after removing the weapon while open and entering/returning
-from menus. This accepts the basic manual flow and those exercised interruptions.
-It does not establish an individual chamber socket, exact visible port clearance,
-independent mechanical control, prolonged comfort, or unreported recovery cases.
+Use one eligible single Peacemaker/Frontier with an empty support hand, missing
+rounds and reserve. Prepare with `-BodyIkAtStart -LargeAddressAware -ManualReload`.
+The support **trigger**, not Grip, carries/releases the cartridge.
 
-The corresponding complete inventoried right-hand Peacemaker capture adds four
-accepted insertions, all with coherent `loaded +1 / reserve -1` native readbacks,
-four sampled waiting entries and no offline-analyzer issues. Native full-gun
-closing returns to ready; input-conflict and native-gameplay-owner cancellations
-also recover. Three optional acceptance pulses have successful left-hand output
-submission records; qualification does not guarantee output for every capture.
-The physical haptic acceptance comes from the operator report, not those records.
-Raw identity, telemetry and the report correlation remain under ignored `work/`.
+The exercised flow is `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
+Fresh left Square prepares; native opening enters a supervised wait without
+automatic transfer. Weapon and independent hands retain controller ownership.
+Pick up at waist with the free trigger, carry to the existing weapon-grip zone
+and release. Each accepted insertion calls native `WeaponReload` once; native
+inventory/capacity/reserve remain authoritative. A fresh pickup/claim can repeat
+the process. Square again or the armed trigger closes early; that closing trigger
+press must not fire. Release and press again to shoot. Full/no reserve closes
+without another round. Unsupported positively identified contexts retain native
+reload; observation failures do not authorize that fallback.
 
-The latest skin-anchor capture adds five accepted insertions, each with coherent
-`loaded +1 / reserve -1` readbacks, two sampled waiting entries and no
-offline-analyzer issues. Seven visible/applied and seven hidden/idle events are
-paired, with seven observed native/displayed finger-reference snapshots. This
-establishes bounded delivery and native ammunition behavior, not correct visual
-contact or every recovery gate. The supplied close-up still appears superimposed
-rather than convincingly pinched. Finger-reference snapshots report
-`weapon_id=0`; that diagnostic field cannot independently prove weapon ownership.
+Operator acceptance covers Square preparation/closure, no automatic loading,
+tracked hands, successive loading, insertion-only haptics and the exercised
+weapon/menu interruptions. Complete inventoried right-hand Peacemaker captures
+correlate accepted insertions with `loaded +1 / reserve -1`, sustained waiting
+beyond the original bounded probe interval, coherent closing and scoped recovery.
+The offline analyzer found no unexplained transfer in the reviewed captures.
+These findings do not accept every weapon, interruption or comfort condition.
 
-Earlier bounded evidence remains useful for unexercised gates. A prior
-correlated capture contains 16 preparations returning to ready,
-13 observed waits, 11 Square closures and five loading sessions with 4/4/6/6/1
-accepted rounds. All 21 insertion readbacks are exactly loaded +1/reserve -1;
-waiting lasts up to 8.464 native-clock units under supervision. No unexplained
-loading during waiting/closing or failed sampled presentation/restoration guard
-is reported. The clip shows separate hands, cartridge pickup/travel and firing
-after loading, including HUD 0/36 followed by 4/32. This accepts observation of
-that bounded behavior, not the whole physical gate. No active-load pause,
-tracking loss, armed-trigger close, save/load, death/retry or replacement is
-established by this capture. The exit menu occurs after reload has closed.
+The active insertion zone is the existing approximately 14 cm grip-proximity
+zone. It is not an individual chamber or measured loading port. The read-only
+root/barrel/gate/drum observer has bounded live evidence of changed native gate
+pose and independent drum motion. The six-mouth pivot-ranking diagnostic has
+bounded live observations, but the gate element origin is an unverified pivot:
+`gate_open_confirmed=false` and `socket_admission=false` remain mandatory.
+No independent gate/drum writer, spent-case simulation or chamber occupancy is
+implemented. See [exact reload research](research/COJ_RELOAD_OWNERSHIP.md).
 
-A later complete, inventoried physical run adds **12/12 correlated native
-unit transfers** (`loaded +1 / reserve -1`), ten sampled native waiting entries,
-and no offline-analyzer issues. The session trace also records Square closure,
-armed-trigger `fire_close`, native full-gun closure and return to ready. There
-are four logged `manual_admission_rejected` transitions, which returned to ready;
-they are distinct from cartridge insertion rejection. The operator reports that
-the tested flow appears to work. This is bounded live evidence and general
-operator feedback; it does not establish each interruption, audible feedback,
-comfort or independent mechanical opening gate.
+Optional acceptance haptics require coherent native unit readbacks and fresh
+capture/tracking/gameplay ownership. Host tests cover duplicate/stale captures,
+replacement, release barriers and output faults; live submission records and
+operator feedback accept insertion-only delivery in the exercised context.
+Zone-entry feedback and insertion-specific sound remain pending.
 
-The preceding capture's 41 same-frame mechanical samples include waiting and
-closing, but predate source-qualified root/barrel observation. They compare gate
-against drum, whose own rotation changes relative axes; they cannot isolate
-gate opening or establish port clearance. A newer **host-tested and bounded
-live-tested** optional sampler captures root, native barrel element, gate and
-drum from the same weapon's `pre_native` frames before tracked overlay writes.
-Its `post_overlay` observations verify the mapped root/barrel and named element
-readbacks through JNI. The offline analyzer treats only coherent same-frame
-`pre_native` samples as eligible evidence of native mechanical motion and
-rejects non-rigid reference/part frames. Neither source alone confirms an
-open gate or a usable loading port. Its first live capture contains 26 coherent
-same-frame `pre_native` samples, including 19 in native waiting: the gate's
-orientation relative to the root stays effectively constant in those waiting
-samples (up cosine approximately 0.642787-0.642788), while the drum's relative
-orientation changes. The gate is **not demonstrated open**; opening may precede
-these sparse waiting samples, and the visual port remains unverified. A focused
-physical observation must establish actual clearance before enabling a
-mechanical writer or loading-port interaction. Use one eligible
-Peacemaker/Frontier, empty support hand and some missing rounds/reserve.
-
-A subsequent complete inventoried run validates the **natural `READY` reference
-observer in runtime**. Twelve eligible `READY` references and 24 later coherent
-same-owner, same-model `pre_native` comparisons were recorded; 13/13 accepted
-insertions have native unit readbacks (`loaded +1 / reserve -1`), seven waiting
-entries were sampled, and the offline analyzer reports no issues. For the
-sampled Peacemaker, gate-to-root up-axis cosine changes from approximately
-1.000 in natural `READY` to 0.642788 during manual waiting, while the gate's
-relative position shifts by roughly (-0.107, -0.145, -0.298) cm. This is
-evidence of a different native gate pose, with the drum also moving separately.
-An additional host-tested, full-frame offline calculation on those same 24
-comparisons measures approximately 50 degrees of gate rotation relative to
-root and barrel, 0.346–0.356 cm of local gate translation, and 30–150 degrees
-of independent drum rotation with under 0.007 cm of displacement. This is
-derived from the existing recorded runtime vectors, not another physical run.
-These measured rotations do not establish the hinge axis, visible
-clearance, an insertable socket or safe native pose control. The available
-video does not resolve the loading port well enough to accept those gates.
-The observer/analyzer are host-tested; the geometry difference is bounded
-**live-tested**, while mechanical clearance and full headset acceptance remain
-pending. Raw run metrics, trace and video remain in ignored local evidence.
-
-The optional displayed `post_overlay` chamber-mouth **ranking** is
-**implemented and host-tested only**. After native identity checks it compares
-six model-specific mouth centres to the gate/loader element origin in cm; that
-origin may be a pivot rather than the physical opening. The associated offline
-analyzer reports `port_probe` and `port_pivot_rank_samples` only for coherent
-optional diagnostics, rejects malformed data, and always retains
-`gate_open_confirmed=false` and `socket_admission=false`. No new headset run
-has validated this ranking, visible clearance, or an accurate insertion socket.
-The headset-accepted free-hand **trigger** gesture and the existing 14 cm
-weapon-grip proximity zone remain unchanged; this diagnostic cannot yet select
-an individual chamber or physical loading-port socket.
-
-- For any further focused mechanical test, show the actual loading port clearly
-  in natural `READY` and sustained `MANUAL_LOAD`, preferably at a similar viewing
-  angle. The reference observer and paired native geometry are already sampled
-  in runtime; inspect whether the visible port is accessible, since the recorded
-  gate orientation delta alone cannot prove clearance.
-- Press/release Square once. Preparation must not load automatically, and waiting
-  longer than the old 1.5-native-unit probe interval must not close while coherent
-  supervision continues. Observe whether the gate is actually open. Move both
-  controllers independently: weapon and hands must follow, connected arms hidden.
-- At waist level hold the **free-hand trigger**, carry the placeholder near the
-  gun's grip and release. Require exactly `loaded +1 / reserve -1` for each accepted
-  fresh release, no repeated native reload cycle and no delayed transfer. Repeat
-  twice and, when practical, to full. Accepted insertion replenishes the token;
-  a missed release adds nothing and can be retried. It uses the existing 14 cm
-  grip zone, not an accepted individual chamber or loading-gate socket.
-- Close early with fresh Square, reopen after release, and close once with the
-  armed trigger. That closing press must not fire; release and a new press must
-  recover shooting. Full/no reserve must close without an extra round.
-- In the same session exercise pause/resume and available weapon change, save/load
-  and death/retry. Briefly lose/recover controller tracking and, if practical,
-  disable while loading. No stale cartridge, held-button replay, extra transfer
-  or permanent reload/input lock may survive. Unavailable cases remain pending.
-
-The candidate now also implements **host-tested optional acceptance haptics**.
-A completed, accepted native call with coherent loaded +1/reserve -1 readbacks
-qualifies an 18 ms, amplitude 0.25, 120 Hz pulse in the free hand. Delivery requires
-a fresh accepted stereo capture and current tracking/gameplay/native ownership;
-repeated/stale captures, reacquisition and output faults cannot replay it. A
-separate game-owned epoch binds the latest observed player/weapon/armed hand, so
-native replacement invalidates queued feedback without a Sense intent. Sampling
-cannot establish that an unobserved transition never occurred. This change
-was absent in the earlier captures, but now has **live-tested delivery and scoped
-headset acceptance**: the operator reports a cue only when a cartridge loads.
-Explicit missed-insertion tests, prolonged comfort and haptic replay checks across
-tracking/resource recovery remain pending; successful API submission alone does
-not validate them. Capture loss may silently drop optional feedback. Zone-entry
-haptics and a new insertion sound remain unimplemented.
-
-`reloadTraceEnabled` controls event diagnostics: `manual_reload_session`,
-`manual_reload_insertion`, `manual_reload_presentation`, `reload_trace` and mapped
-`manual_reload_geometry`. Compare native ammunition/reserve only with the same
-player/weapon/hand/context and valid observations. Applied scoped mapping is
-separate from the per-eye draw guards and operator visual acceptance. The trace
-observes state/animation IDs and native time/advance, not every rendered ANM frame
-or actual sound playback. Geometry events distinguish `source=pre_native` from
-`source=post_overlay`; legacy events without source remain inconclusive for
-independent gate motion. `reloadTraceEnabled` also controls the optional
-`openvr_reload_haptic` submission/drop event. A submitted pulse records an API
-result, not a physically observed vibration. No new insertion sound is claimed.
-
-Host coverage includes opening/waiting/closing/ready, repeated inserts, full and
-empty reserve, drop/rejection, cancel/reopen, owner/context/input-generation loss,
-menu/save/load intents, death/network/carried/replaced native owners, unavailable
-or stale tracking/input, held controls and disable. Native helper tests execute
-emitted bytecode with native scheduling/ammunition stand-ins; JNI faults and
-reference cleanup are tested independently. Original save/load prefix order is
-checked, not an engine save roundtrip. Deployment/restoration fixture checks do
-not validate physical interactions.
+`manual_reload_pinch` and `manual_reload_cartridge` have bounded applied/visible
+and idle/hidden observations. The optional `manual_reload_finger_reference`
+reader has bounded live snapshots of native/displayed distal fingers; its
+`weapon_id=0` diagnostic field cannot independently prove weapon ownership.
+Joint observations do not measure skin contact. The current compositor lacks
+scene-depth occlusion; improved anchor position alone does not qualify the grip.
 
 ## Hybrid motion reload acceptance
 
-The hybrid gesture is **headset-validated for the exercised Peacemaker context**
-by operator report: the corrected gesture successfully starts the original
-reload. Mirrored hands, cancellation, reserve limits and the other exact pistol
-classes remain separate gates. This report does not validate cartridge-paced
-loading or physical cylinder manipulation.
-With a recognized Frontier 1878 Regular, Schofield A/B or Peacemaker pistol in one hand,
-the other genuinely empty, on foot and in ordinary firing mode:
-
-- Fire one round and wait for native shot recovery; retain ammunition in reserve.
-  An entirely empty gun may already auto-reload through the native game path.
-- Bring the empty hand to its side of the waist with its trigger released.
-  Press and hold that hand's trigger, bring it near the armed hand, then release.
-  The initial zone is approximately 55 cm below the HMD, 20 cm to the empty-hand
-  side and 10 cm forward, with 20 cm radius. Release within 14 cm of the armed
-  grip after at least 20 cm of hand travel and 100 ms; finish within five seconds.
-  These are gesture UX defaults, not native physics or a measured body fit.
-- Verify one native reload, actual ammunition/reserve changes, original reload
-  animation ownership and recovery of tracked hands. No trigger shot, duplicated
-  reload or virtual cartridge insertion is expected from the empty hand.
-- Release away from the weapon to cancel. Repeat interruption by pause (including
-  keyboard Escape), dashboard, wheel, recenter, tracking loss, switching/equipping
-  and Action. No interrupted gesture may replay after recovery or reload a newly
-  selected weapon. A trigger that acquires a weapon while still held must remain
-  suppressed until an actual available release.
-- Test mirrored hands where the native inventory permits, Square fallback,
-  full/empty reserve and native automatic reload. Unsupported weapons, dual guns,
-  alternate firing states, carried objects and mounted/unknown owners must retain
-  their original controls without starting the gesture.
-
-Assess zone reach/readability, accidental activation, control coexistence and
-frame pacing. The hybrid intentionally leaves transfer timing to the game;
-full manual per-round/cylinder interaction remains planned. See
-[reload ownership](research/COJ_RELOAD_OWNERSHIP.md).
+This is the retained legacy path, separate from `-ManualReload`. A deliberate
+free-trigger waist-to-gun journey requests ordinary native reload. Corrected
+initial admission has scoped operator acceptance on the exercised Peacemaker.
+Native animation still owns the original two-hand presentation.
 
 ## Cartridge-paced reload acceptance
 
-The earlier no-replenishment failure has bounded positive live evidence after the
-carrying/animation distinction: a right-hand Peacemaker capture shows repeated
-tokens and consecutive HUD changes from 3/43 through 4/42 and 5/41 to 6/40
-(gun/pistol reserve). Correlated gesture/recovery logs reach replenished-ready
-after repeated native cycles. The original animation still moves the hands;
-this is cartridge-paced native reload, not a persistent manual-load session.
-Comfort and the full interruption/mirrored/Frontier gate remain pending; video
-evidence is not a new operator acceptance of those boundaries.
-With a single Peacemaker or Frontier 1878 Regular, empty support hand, on foot,
-ordinary state and ammunition in reserve:
-
-- Fire at least two rounds, then perform one waist pickup and release near the
-  armed grip. A small brass/copper cartridge marker should follow the empty hand
-  during the held journey and disappear on release or cancellation.
-- Wait for the original reload begin/body/end cycle. Exactly one round should
-  enter the gun, with exactly one round removed from reserve. The gun must stop
-  reloading while still partially empty. If the same gun can still continue,
-  another cartridge marker should reappear in the same empty support hand only
-  after that native reload interval completes. A fresh trigger press claims it;
-  release near the gun requests one further round. A miss keeps that cartridge
-  available for another fresh press/release attempt. Holding the trigger through
-  replenishment or repeatedly releasing cannot queue additional rounds.
-- Release away from the gun, pause, dashboard, recenter or switch during pickup.
-  No cartridge or reload request may return after the interruption. If the native
-  reload was already accepted, its single-round completion remains native-owned;
-  cancellation must not turn it into a full reload loop.
-- Check full gun, zero reserve, weapon replacement, death, quicksave/load and
-  mirrored hands separately. Multiplayer is excluded from this route. Square,
-  native automatic reload and Schofield remain ordinary native reload paths.
-
-This candidate uses the established grip proximity gesture and original reload
-animation. The cartridge is a captured stereo solid with fourteen surfaces,
-controller orientation, brass/copper shading and per-eye self-occlusion. It has no
-scene depth occlusion; its visibility and comfort require headset testing. It does not
-provide a measured chamber/loading-port socket, gate opening, spent-case ejection
-or independent occupied chambers. Those model/pose boundaries and save/load
-recovery remain open before full physical cylinder loading can be accepted.
-
-The explicit insertion policy is host-tested separately: the captured cartridge
-tip must approach an adapter-authored socket from behind, stay aligned, enter
-while held and release inside. Discontinuous tip/socket motion cancels the claim.
-The active game adapter does not enable that mode yet. Named displayed drum/gate
-frame observation and six measured chamber-mouth transforms are host-tested
-observations only; they do not establish gate clearance or occupied chambers.
-`manual_reload_geometry` records sampled current mapped frames in centimetres
-with `interaction_enabled=false`. A persistent open/load/close native session
-remains unresolved. Repeating the earlier paced/trace capture cannot establish
-the new wait boundary; the optional probe below exercises different behavior.
-
-The optional `reloadTraceEnabled` observer adds transition events to the existing
-runtime log without changing reload behavior. Enable/disable with
-`tools/set_hmd_camera_control.ps1 -GameDirectory "C:\path\to\Call of Juarez" -Mode
-reload-trace-enable` / `reload-trace-disable` after canonical preparation. Trace
-toggles preserve presentation/gameplay fields. Use a fresh correlated run for any
-new observation; a previously installed candidate does not contain later source
-changes. The next diagnostic capture needs only:
-
-- Compare ordinary Square and gesture-paced reload on a partially empty
-  Peacemaker/Frontier. Correlate native HUD, pistol reserve and state/animation
-  events, especially 20/21/22 recovery. Raw `GetAmmoCount(0)` may expose a stub;
-  it must agree with observed native ammunition before interpreting count deltas.
-- Check a fresh second insertion, a missed release and full/no-reserve rejection;
-  intent/token disappearance must not be recorded as successful transfer.
-- Interrupt by pause, weapon change, tracking loss and save/load/death/retry when
-  available. Require clean recovery and no input/token replay. Record which
-  transitions the render sampler misses rather than assuming callback cadence.
-
-These checks validate observation and the existing paced path. Quiet waiting,
-zero unauthorized transfer on closing and tracked hands through an open session
-remain development gates; host state-sequence tests do not accept them physically.
-
-The bounded Peacemaker trace capture now observes three paced cycles with count
-3 -> 4 -> 5 -> 6 and reserve 50 -> 49 -> 48 -> 47, followed by a full-gun request
-without count/reserve change or a new reload interval. A fresh Square press later
-loads 2 -> 6 while reserve decreases 47 -> 43. Sampled begin/body/end states each
-report 0.3 native-clock duration; intermediate Square transfers can retain state
-21 while the animation start time resets. This validates the reader in that
-context, not an exact ANM frame, callback order, wait or cancellation. No new
-clip accompanies this capture, and interruption/tracking/other-weapon gates
-remain open.
+The legacy Peacemaker/Frontier extension limits each natural completion to one
+native round. Corrected recovery has bounded live evidence of replenishment and
+unit count/reserve changes. It still takes the hands during each native cycle;
+it is not the persistent manual flow and has no accepted physical chamber UX.
+Keep it as a fallback/compatibility contract, not the next physical development
+target. Schofield retains whole-clip native behavior.
 
 ## Bounded native wait/zero-transfer probe
 
-This explicitly selected probe is **host-tested and bounded live-tested on a
-right-hand Peacemaker**. It replaces
-the paced gesture's one-round completion with a bounded logical wait and a
-zero-transfer close. Hands still follow the original reload presentation;
-Square stays conventional. The normal prepared candidate does not include it.
-No repetition of the earlier observation-only capture is needed.
-
-The correlated capture records 13 admitted begin/body/end cycles with status
-armed -> waiting -> closing -> cleared. Nine deadline exits are observed
-1.501–1.524 native-clock units after entering waiting; four earlier exits have
-attack state 31 desired. Loaded count and reserve remain unchanged while each
-probe owns the reload, and reserve remains unchanged through cleanup. One
-cleared observation already includes a native shot (3 -> 2), so whole-frame
-count equality is not a valid reload-transfer assertion when firing resumes.
-Fresh Square loads 0 -> 6 with reserve 50 -> 44; a later native automatic reload
-also loads six. Subsequent probe requests and shots demonstrate bounded recovery.
-
-The 46.70-second clip shows native hand/arm takeover and later recovery. It does
-not resolve loading-gate clearance or a fixed drum/gate pose during the wait.
-The existing `manual_reload_geometry` sampler runs after successful tracked
-weapon application, which is suppressed during native reload; its ordinary-state
-samples cannot prove mechanics in the held state. Pause, tracking, weapon-change,
-death/retry and save/load cancellation during an owned wait remain unproven.
-This evidence promotes the bounded logical probe to live-tested, not the full
-manual session or headset acceptance. The finished staging is restored.
-
-For a new test of this distinct boundary, prepare a fresh candidate with
-`tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez"
--BodyIkAtStart -LargeAddressAware -ReloadWaitProbe`. The canonical process remains:
-start SteamVR/game manually, exercise the gate, close normally, then `finish`.
-Tracing starts enabled and the manifest identifies the experimental archive.
-
-- On a partially empty Peacemaker with reserve, perform one waist pickup using
-  the free hand's **trigger**, hold the cartridge near the gun and release. Require
-  native 20 -> 21, status 2 waiting for approximately 1.5 native-clock units after
-  the first attempted body exit, then 22 -> coherent ready. **Neither loaded
-  count nor reserve may change.** Repeat once to establish release/rearm; a
-  consumed marker is intent and must not be reported as a loaded round.
-- Compare one fresh Square press: it must retain conventional native loading.
-  Then interrupt a probe by pause, weapon switch or save/load when available.
-  No unintended transfer or permanent reload/input lock is allowed. Paused native
-  time may retain the bounded wait until resuming; immediate menu/tracking/mod
-  cancellation is not implemented by this probe.
-- Record whether the loading gate/drum visually remains prepared during logical
-  wait and whether native closing restores it. Hand takeover is expected here;
-  this capture cannot accept tracked hands throughout `MANUAL_LOAD`.
-
-The independent partial reload/comfort and broader recovery gates above remain
-separate. Unknown observations, skipped steps and absent video stay pending.
+The explicitly selected `-ReloadWaitProbe` derivative is host-tested and bounded
+live-tested on a right-hand Peacemaker. It uses a roughly 1.5-native-clock wait,
+grants zero rounds and closes through native callbacks; Square stays conventional
+and presentation remains native-owned. It cannot combine with `-ManualReload`.
+It established the logical veto/cancel seam used by the later manual candidate,
+not mechanical clearance or persistent tracked-hand acceptance. No repeat probe
+is needed merely to reconfirm that discovery.
 
 ## Revised Sense control acceptance
 
-The [default Sense table](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls) is the single binding reference. Exercised direct buttons, Triangle wheel release confirmation, haptic highlights, snap rearm, on-foot crouch and ordinary R3 Focus have operator acceptance. Create held for 800 ms recentres; a short press opens objectives, with operator acceptance.
-
-Remaining coverage: mounted transitions/gallop when a horse is available; kick once campaign permissions allow it; newly acquired weapons, bow/scoped contexts and alternate HUD rows. Unavailable or inconclusive actions are pending, not failed. Check that wheel/menu/dashboard ownership suppresses gameplay and recovery requires release without replay.
+The [default Sense table](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
+is the sole binding reference. Exercised direct controls, wheel confirmation,
+haptic highlights, snap rearm, on-foot crouch, ordinary R3 Focus and Create
+timing have scoped operator acceptance. Mounted contexts, kick eligibility,
+broader weapons and bow/scoped optics retain independent gates.
 
 ## Automatic menu-pointer acceptance
 
-The pointer appears automatically in native menus without L1/R1. Use the same hand's L2/R2 to select; verify Cross, Circle, Options, confirmation dialogs and mouse coexistence. These exercised cases are accepted. Loading, dashboard and resource replacement recovery require broader physical coverage with no stale click or haptic replay.
+The automatic pointer uses same-hand L2/R2 selection; Cross accepts, Circle backs
+out and Options pauses. Exercised ordinary menus, confirmation dialogs and mouse
+coexistence are accepted. Dashboard, loading, resource replacement and held-click
+recovery require broader coverage without stale clicks or haptic replay.
 
 ## Combined menu and gameplay regression
 
-After each change affecting ownership, exercise menu -> gameplay -> wheel -> pause -> dashboard -> gameplay, plus death/retry and save/load. Hold mapped controls across transitions: no delayed fire, interaction, reload, snap or utility action may escape on recovery. Native permission and exact-build admission remain authoritative.
+Changes to ownership need menu -> gameplay -> wheel -> pause -> dashboard ->
+gameplay coverage plus available death/retry and save/load. Hold mapped controls
+across transitions: no delayed fire, interaction, reload, snap or utility action
+may escape on recovery. Native permissions remain final.
 
 ## Production D3D9Ex startup/reset gate
 
-### Bounded transport acceptance — passed
-
-The exercised primary D3D9Ex GPU transport and normal shutdown passed their bounded physical gate. This does not accept arbitrary device resets, abnormal shutdown, sustained pacing or every campaign transition. The classic shared-texture environmental test can be skipped when the host cannot supply its device capability; that skip is not a pass for that boundary.
+Primary GPU transport and normal shutdown passed their bounded physical gate.
+Arbitrary reset, abnormal shutdown, sustained pacing and campaign transitions
+remain open. A skipped classic shared-texture environmental test is neither a
+pass nor physical validation. Transient host D3D9 CreateDevice failures have also
+been observed; their cause has not been established.
 
 ## Closed locomotion diagnosis
 
-Native per-axis analog shaping and actions 4–7 remain the accepted boundary. Measured vanilla movement/jump parity closed the earlier locomotion diagnosis; no speculative physics retuning is pending. Camera/body writes must retain scoped restoration.
+Native per-axis shaping and float actions 4–7 remain the accepted movement seam.
+Measured vanilla movement/jump parity closed the earlier diagnosis. Preserve
+camera/body restoration; no speculative physics retuning is pending.
 
 ## PC mechanics and gameplay HUD completeness
 
-Encountered HUD rows and ordinary controls are accepted only for observed content. Horse, broader weapons, climbing, duel/special modes and all campaign-specific indicators still require coverage. Full graphical HUD capture and full physical reload are future work, not hidden completed features.
+Accept only observed content. Horse, broader weapons, climbing, duel/special
+modes and campaign indicators need coverage. Full graphical HUD capture and
+complete physical cylinder reload are planned.
 
 ## Image-quality profile acceptance
 
-Use the repository's prepared profile for comparable headset checks. Record rendering/readability, aiming effects and motion stability separately. Steam recording off produced accepted head-turn stability; recording-associated microskips remain unresolved. Higher resolution or successful startup alone does not establish sustained performance.
+Canonical preparation preserves selected resolution and stages FSAA 0 unless
+requested otherwise. Judge readability, aiming and motion stability separately.
+Steam recording off produced accepted head-turn stability; recording-associated
+microskips and sustained performance remain unresolved.
 
 ## Evidence policy
 
 Use the canonical reversible workflow:
 
 ```powershell
-pwsh -File tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez" -BodyIkAtStart
-# Start SteamVR and Call of Juarez manually; exercise the relevant gates.
+pwsh -File tools/vr_test.ps1 prepare -GameDirectory "C:\path\to\Call of Juarez" -BodyIkAtStart -LargeAddressAware -ManualReload
+# Start SteamVR and Call of Juarez manually; exercise relevant gates.
 # Close the game normally.
 pwsh -File tools/vr_test.ps1 finish
 ```
 
-Every physical run needs a fresh local identity and source/build/deployment correlation. Never launch or terminate the game or SteamVR automatically. Keep active staging, original backups and deployment/video recovery journals until finish completes. Host recovery checks cover backup identity, interrupted journals and finish retries; they do not establish headset acceptance.
+Each physical run needs fresh source/build/deployment/run identity. Never launch
+or terminate the game or SteamVR automatically. Preserve staging/recovery
+journals and original backups until `finish` completes. A historical run manifest
+marked `staged` is not evidence of an active deployment; inspect canonical status
+and the current journal. Host recovery tests do not establish headset acceptance.
 
-After `finish`, collected reload evidence can be inspected without modifying it:
+After `finish`, inspect collected reload evidence without modifying it:
 
 ```powershell
 python tools/analyze_coj_manual_reload.py "<collected run directory>" --output "work/manual-reload-analysis.json"
 ```
 
-Use a new output path outside the evidence directory. The host-tested analyzer
-checks run/build identity, inventoried hashes, deployment coverage and ordered
-runtime markers. It distinguishes correlated unit readbacks, rejections,
-inconclusive insertions and unexplained transfers while waiting or closing.
-Insertion correlation requires observed manual waiting before the call and
-observed manual waiting or closing afterward; a cleared or unobserved follow-up
-does not confirm a unit transfer. Relative gate/drum
-metrics do not establish an open gate. Incomplete runtime and sparse observations
-remain explicit; this report never accepts a physical gate or replaces the
-canonical verifier. Hash consistency is not external authentication.
+Use an output outside the evidence directory. The analyzer verifies inventoried
+hashes, deployment coverage and ordered native markers; it separates correlated
+unit readbacks from rejection/inconclusive observations. It never accepts a
+physical gate or replaces the canonical verifier.
 
-Store run IDs, logs, videos, raw telemetry and handoffs under ignored `work/`. Once conclusions are durable in source/tests/research and validation, discard consumed clips, extracted frames, duplicate binaries, obsolete frozen packages and SDK extraction/download caches. Preserve necessary unresolved inputs and concise findings. Versioned documentation records contracts and acceptance, not debugging chronology.
+Version durable conclusions and acceptance limits, not run chronology. Keep only
+compact unresolved inputs and necessary local provenance under ignored `work/`.
+Once consumed, remove duplicate videos/frames/logs/dumps, frozen game archives,
+obsolete builds and SDK extraction/download caches. Keep configured dependency
+roots, the pinned offline bootstrap-test archive and useful current build output;
+these caches are not shipped. Never remove
+active recovery data or user assets as evidence cleanup.

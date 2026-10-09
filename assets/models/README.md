@@ -12,6 +12,9 @@ placements, boxes, cylinders and other models are excluded. The tool crops the
 loose-round albedo islands to 128x160 pixels; the shader adapts the source orange
 case palette to brass and adds authored metal preview shading. This is an adapted
 third-party visual, not a game asset, native environment lighting or a calibre match.
+Runtime visibility has scoped headset acceptance; convincing finger contact,
+orientation and scene-depth occlusion remain open in
+[Validation](../../docs/VALIDATION.md#current-physical-gate).
 
 Run `python tools/import_textured_cartridge.py --check` to verify the source and
 generated `src/runtime/textured_cartridge_mesh.hpp` and
