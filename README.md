@@ -28,7 +28,7 @@
 
 ## Still in development
 
-Manual reload is experimental. A gesture can request native pistol reload, but the cartridge-paced continuation is not yet accepted in-headset. Physical cylinder opening, chamber loading and ejection remain future work.
+Manual reload is experimental, with scoped headset acceptance of the opt-in `-ManualReload` flow: left Square opens/closes without automatic loading, hands remain tracked, the free-hand trigger carries/releases successive cartridges, insertion haptics work and weapon/menu interruptions recover. Native one-round transfers have correlated live evidence on a right-hand Peacemaker. Exact loading-port clearance, individual chamber loading, broader recovery, prolonged comfort and mirrored/Frontier contexts still need qualification; ejection remains future work. See [validation and remaining gates](docs/VALIDATION.md#persistent-manual-reload-candidate).
 
 Broader weapons, horses, duels, climbing and recovery across campaign transitions remain separate checks. Protected-target warning visibility and compatibility with Steam recording are unresolved. Full connected-arm/body IK is not the active presentation.
 

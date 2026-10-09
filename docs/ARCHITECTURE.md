@@ -209,12 +209,41 @@ only during independent-hand ownership and retains native torso/legs. Twenty
 named forearm/twist/hand/finger/holding-socket frames per hand receive one rigid
 map; armed hands share the measured weapon map, unarmed sockets map to absolute
 grip orientation. There is no upper-arm enlargement or span fit in this mode.
-Native animation owns reload. Both eye draws verify frames and arm visibility.
+Native animation owns conventional reload. An explicit manual candidate can
+retain the existing scoped weapon/independent-hand maps during an admitted native
+reload session; its independent-hand presentation has scoped operator acceptance
+in the exercised manual context. Both eye draws
+verify frames and arm visibility.
+
+Reload diagnostics are default-off, game-thread value snapshots of the exact
+owner, native states/animation advance, reserve and raw ammunition readback.
+They report controller/native ownership policy without changing that ownership.
+An opt-in archive derivative supplies a bounded native wait/zero-transfer probe:
+only an admitted paced ticket attaches its exact hand machine to a pre-Clear
+veto. It waits 1.5 native-clock units, then retains native closing callbacks while
+skipping ammunition transfer; explicit cancellation precedes save/load. This
+does not itself enable persistent loading or tracked hands during reload. A
+separate `-ManualReload` candidate extends this proven logical boundary with
+fresh Square preparation, native watchdog supervision and one immediate original
+`PawnArmed.WeaponReload` call per support-trigger insertion. The native game owns
+ammunition, reserve, capacity and mechanical animation. VR owns input barriers,
+cartridge gestures and the existing scoped weapon/hand presentation. Native end,
+save/load and cancellation retain zero-transfer closing. No ammunition replica,
+deferred credit or new body/IK solver exists. This candidate is host-tested and
+bounded live-tested on a right-hand Peacemaker: correlated unit transfers,
+sustained waiting and sampled scoped presentation/restoration recover to ready.
+Square preparation/closure, continued hand tracking, repeated manual loading
+and weapon/menu recovery have scoped operator acceptance. Exact port clearance,
+prolonged comfort and other interruption contexts require further evidence.
+The ordinary candidate remains unchanged; see
+[reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).
 
 Parent hand/socket applies before child weapon; restoration restores the parent
 before its captured child and then the outer pelvis. Captured positions rebase
 by actor translation. Failed restoration retains references for retry and blocks
-further mutation. An outer pelvis restore subtracts its removed offset from any
+further mutation. Manual closing restores hands then weapon before invoking
+native callbacks; a failed restore retains ownership and stops watchdog renewal.
+An outer pelvis restore subtracts its removed offset from any
 retained inner capture exactly once. The legacy connected-arm solver is diagnostic;
 its hierarchy/writer limits remain in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md).
 
@@ -261,6 +290,13 @@ the grip requests one native round. Following an observed reload interval, ordin
 eligible ownership must recover before the presentation-only solid token replenishes.
 Fresh trigger press/release can then request another round without returning to waist.
 
+An explicitly selected archive probe can veto the owned native body-state exit
+before `Clear`, wait for a bounded native-clock deadline and close through native
+callbacks while skipping the ammunition transfer. This logical boundary has
+bounded Peacemaker runtime evidence. It retains native reload presentation;
+held logical state does not establish a fixed mechanical pose or tracked hands.
+The default path continues to transfer one native round per admitted gesture.
+
 A separate passive recovery reader preserves an accepted continuation through
 verified native reload/two-hand animation. It proves no carried object via
 IsCarrying, rather than mistaking HasSomethingInHand's animation fallback for a
@@ -268,8 +304,35 @@ world object. Held support trigger is consumed through verified reload until an
 available release, preventing cross-hand attack. No VR ammo counter or retry queue
 exists. Precise cartridge-tip/chamber policy and displayed drum/gate observation
 are implemented separately but not enabled as physical loading. Full gate/ejection,
-persistent native session and save/load cancellation remain unresolved. See
+persistent mechanical pose and engine save/load recovery remain unresolved.
+The opt-in manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
+It consumes rejected Square admission until release, preserving native fallback
+only for positively identified unsupported contexts. Missing observation cannot
+start conventional reload. Invalid owner/context/poses/input availability,
+recenter, stale samples, incompatible actions or presentation failure close the
+session. Native-clock watchdog expiry is a recovery fallback, not a fixed mesh
+frame. JNI cleanup retains the player on failed cancellation for retry. See
 [reload ownership](research/COJ_RELOAD_OWNERSHIP.md).
+
+Optional insertion feedback is qualified on the game thread by a completed,
+accepted native call and coherent same-weapon/hand readbacks of loaded +1 and
+reserve -1. The adapter copies one value-only event into that capture's HUD
+snapshot; native references and ammunition state remain game-owned. The OpenVR
+presenter can pulse the free hand once (18 ms, amplitude 0.25, 120 Hz) only on a
+fresh accepted stereo upload with matching capture/input/native context epochs,
+valid tracking and current gameplay focus. Maximum capture age is 100 ms and
+minimum pulse cadence is 80 ms.
+An opaque game-owned epoch also binds the latest observed player/weapon/armed
+hand identity; replacement, cancellation or missing observation invalidates
+queued events even if gameplay availability remains unchanged. The presenter
+rechecks this atomic epoch immediately before optional output. No native
+reference or game layout crosses that boundary.
+Loss/reacquisition and resource replacement
+establish silent baselines. Dropped captures, rejected insertions and output
+faults never queue or retry feedback and cannot affect native loading. This
+policy is host-tested, with live submission records and operator acceptance of
+insertion-only delivery in the exercised manual context. Broader recovery and
+prolonged comfort remain pending; Validation owns those acceptance limits.
 
 Protected-target feedback can color the per-eye aiming cross red only from coherent
 native warning/trace-owner/ray observations. Invalid observations clear it. Source
