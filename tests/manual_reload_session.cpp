@@ -25,6 +25,38 @@ struct Fixture{
     CoJManualReloadOutput Insert(){s.left=s.right;(void)Poll();s.raw.fire_left=false;return Poll();}
 };
 int main(){
+    Fixture disabled;disabled.Open();disabled.s.raw.reload=true;
+    Check(disabled.Poll().cancel,"Square closes the owned session before disable");
+    disabled.s.enabled=false;disabled.s.native.probe_status=4;
+    (void)disabled.Poll();disabled.s.raw.reload=false;(void)disabled.Poll();
+    disabled.s.raw.reload=true;
+    Check(!disabled.Poll().start&&disabled.mapped.reload,
+        "disabling manual reload restores native Square after the physical release");
+    // Square must not borrow a release from another input owner or from before
+    // availability was lost. Otherwise a held button opens on menu/tracking return.
+    for(int boundary=0;boundary<10;++boundary){
+        Fixture x;(void)x.Poll();
+        if(boundary==0)x.s.raw.input_context_generation++;
+        if(boundary==1)x.s.player++;
+        if(boundary==2)x.s.context+=2;
+        if(boundary==8)x.s.native.weapon_id=x.s.admission.weapon_id=x.s.recovery.weapon_id=43;
+        if(boundary==9){x.s.now+=300;}
+        if(boundary>=3&&boundary<8){
+            if(boundary==3)x.s.raw.digital_available&=~8U;
+            if(boundary==4)x.s.allowed=false;
+            if(boundary==5)x.s.left.position_valid=false;
+            if(boundary==6)x.s.enabled=false;
+            if(boundary==7)x.s.raw.weapon_radial=true;
+            (void)x.Poll();
+            x.s.raw.digital_available|=8U;x.s.allowed=true;x.s.left.position_valid=true;
+            x.s.enabled=true;x.s.raw.weapon_radial=false;
+        }
+        x.s.raw.reload=true;
+        Check(!x.Poll().start,"held Square cannot open across owner/availability boundary");
+        Check(!x.Poll().start,"held Square stays disarmed on subsequent fresh samples");
+        x.s.raw.reload=false;(void)x.Poll();x.s.raw.reload=true;
+        Check(x.Poll().start,"a fresh available release rearms Square in the recovered owner");
+    }
     Fixture f;f.Open();f.Claim();auto inserted=f.Insert();Check(inserted.insert,"valid release inserts");
     Check(!f.mapped.reload,"insertion must not dispatch native action31");f.session.NoteInsertion(true);
     Check(f.Poll().gesture.cartridge_held,"accepted insertion replenishes visual token");

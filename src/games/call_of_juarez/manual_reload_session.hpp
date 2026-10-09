@@ -27,10 +27,6 @@ public:
         const bool gap=have_sample_&&s.now>=fresh_at_&&s.now-fresh_at_>250;
         if(!regression)observed_=s.now;
         if(fresh&&!regression){have_sample_=true;sequence_=s.sequence;fresh_at_=s.now;}
-        const bool available=s.raw.active&&(s.raw.digital_available&8U)!=0;
-        const bool edge=fresh&&!regression&&!gap&&available&&s.raw.reload&&reload_ready_;
-        if(fresh&&!regression&&!gap&&available&&!s.raw.reload){reload_ready_=true;reload_claim_=false;}
-        if(edge)reload_ready_=false;
         for(unsigned h=0;h<2;++h){
             const bool held=h==0?s.raw.fire_right:s.raw.fire_left;
             const auto binding=h==0?2U:1U;
@@ -44,6 +40,25 @@ public:
             std::any_of(input.equipment_select.begin(),input.equipment_select.end(),[](bool x){return x;});
         const bool allowed=s.enabled&&s.allowed&&input.active&&s.raw.active&&poses&&!s.recentered&&!conflict&&
             !regression&&!gap&&(s.context&1U)!=0&&(s.raw.digital_available&3U)==3U;
+        const bool available=allowed&&(s.raw.digital_available&8U)!=0&&s.player!=0;
+        const bool reload_owner_changed=s.player!=reload_player_||s.context!=reload_context_||
+            s.raw.input_context_generation!=reload_generation_||s.native.weapon_id!=reload_weapon_||
+            s.native.armed_hand!=reload_hand_;
+        // A release from before a menu/tracking/binding/owner loss cannot arm
+        // a recovered Square press. Keep physical trigger claims separately.
+        if(!available||!reload_available_||reload_owner_changed)reload_ready_=false;
+        // Discharging an existing physical claim is independent of admitting a
+        // new manual session, including after disabling the feature.
+        if(fresh&&!regression&&!gap&&s.raw.active&&(s.raw.digital_available&8U)!=0&&!s.raw.reload)
+            reload_claim_=false;
+        const bool edge=fresh&&!regression&&!gap&&available&&s.raw.reload&&reload_ready_;
+        if(fresh&&!regression){
+            reload_available_=available;reload_player_=s.player;reload_context_=s.context;
+            reload_generation_=s.raw.input_context_generation;reload_weapon_=s.native.weapon_id;
+            reload_hand_=s.native.armed_hand;
+            if(available&&!s.raw.reload){reload_ready_=true;reload_claim_=false;}
+        }
+        if(edge)reload_ready_=false;
         const bool bound=phase_!=CoJManualReloadPhase::ready;
         const bool same=bound&&s.player==player_&&s.context==context_&&
             s.raw.input_context_generation==generation_&&s.native.valid&&s.native.probe_valid&&
@@ -131,8 +146,10 @@ private:
     runtime::MotionReloadGesture gesture_;
     CoJManualReloadPhase phase_=CoJManualReloadPhase::ready;
     std::uint64_t player_=0,weapon_=0,context_=0,generation_=0,sequence_=0,fresh_at_=0,observed_=0;
+    std::uint64_t reload_player_=0,reload_context_=0,reload_generation_=0,reload_weapon_=0;
+    int reload_hand_=-1;
     int hand_=-1;
     std::uint8_t trigger_claims_=0;
-    bool have_sample_=false,reload_ready_=false,reload_claim_=false,replenish_=false,cancel_pending_=false;
+    bool have_sample_=false,reload_available_=false,reload_ready_=false,reload_claim_=false,replenish_=false,cancel_pending_=false;
 };
 }
