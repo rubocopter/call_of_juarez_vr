@@ -148,7 +148,12 @@ HookRegistryOutcome HookRegistry::Restore(void** vtable) noexcept {
             if (!slot->patch.owns_entry() && !slot->patch.protection_restore_pending()) continue;
             const VtablePatchOutcome restored = slot->patch.Restore();
             if (restored.modified) ++outcome.modified_slots;
-            if (restored.result != VtablePatchResult::Applied ||
+            // Another participant may already have restored our exact original.
+            // The compare-exchange did not write that slot; acknowledge cleanup
+            // without accepting a foreign target or overlooking page protection.
+            const bool already_original=restored.result==VtablePatchResult::Conflict&&
+                restored.observed_target==slot->original;
+            if ((restored.result != VtablePatchResult::Applied && !already_original) ||
                 !restored.protection_restored || slot->patch.owns_entry()) {
                 incomplete = true;
             }

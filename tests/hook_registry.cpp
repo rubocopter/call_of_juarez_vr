@@ -271,6 +271,36 @@ int TestPartialRollback() {
     return 0;
 }
 
+int TestExternallyRestoredCleanup(){
+    for(bool foreign:{false,true}){
+        FakeMemory memory{};HookRegistry registry(Operations(memory));
+        void* vtable[]{reinterpret_cast<void*>(&OriginalA),reinterpret_cast<void*>(&OriginalB)};
+        const HookSlotRequest requests[]{{0,reinterpret_cast<void*>(&ReplacementA)},
+            {1,reinterpret_cast<void*>(&ReplacementB)}};
+        if(registry.Install(vtable,requests).result!=HookRegistryResult::Installed)return Fail("cleanup setup failed");
+        vtable[0]=foreign?reinterpret_cast<void*>(&ReplacementC):reinterpret_cast<void*>(&OriginalA);
+        const auto restored=registry.Restore(vtable);
+        const auto expected=foreign?HookRegistryResult::RollbackIncomplete:HookRegistryResult::Installed;
+        if(restored.result!=expected||restored.modified_slots!=1||
+           vtable[0]!=(foreign?reinterpret_cast<void*>(&ReplacementC):reinterpret_cast<void*>(&OriginalA))||
+           vtable[1]!=reinterpret_cast<void*>(&OriginalB))
+            return Fail("cleanup must acknowledge an already native slot while preserving foreign conflicts");
+        if(registry.OriginalTarget(vtable,0)!=reinterpret_cast<void*>(&OriginalA))
+            return Fail("cleanup must retain the original for an in-flight callback");
+    }
+    FakeMemory memory{};HookRegistry registry(Operations(memory));
+    void* vtable[]{reinterpret_cast<void*>(&OriginalA)};
+    const HookSlotRequest request{0,reinterpret_cast<void*>(&ReplacementA)};
+    if(registry.Install(vtable,std::span<const HookSlotRequest>(&request,1)).result!=HookRegistryResult::Installed)
+        return Fail("protection cleanup setup failed");
+    vtable[0]=reinterpret_cast<void*>(&OriginalA);memory.failing_protect_calls.insert(4);
+    if(registry.Restore(vtable).result!=HookRegistryResult::RollbackIncomplete)
+        return Fail("already native target cannot hide incomplete page-protection restoration");
+    if(registry.Restore(vtable).result!=HookRegistryResult::Installed||
+       vtable[0]!=reinterpret_cast<void*>(&OriginalA))return Fail("protection cleanup retry must recover without a slot write");
+    return 0;
+}
+
 int TestCallbackDuringTransition() {
     FakeMemory memory{};
     HookRegistry registry(Operations(memory));
@@ -297,6 +327,7 @@ int main() {
     if (const int result = TestPatchFailures()) return result;
     if (const int result = TestRegistryOwnership()) return result;
     if (const int result = TestSafeReacquire()) return result;
+    if (const int result = TestExternallyRestoredCleanup()) return result;
     if (const int result = TestPartialRollback()) return result;
     if (const int result = TestCallbackDuringTransition()) return result;
     std::cout << "vtable patch and hook registry failure/ownership tests passed\n";
