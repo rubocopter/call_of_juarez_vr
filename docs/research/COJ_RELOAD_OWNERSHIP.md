@@ -701,8 +701,9 @@ The offsets were estimated offline from the exact-game Ray skin at authored
 thumb/index curl .7/.7 (roughly 1.1 cm between estimated pads for a 1.2 cm case).
 Native cm are projected through the current camera basis into XR metres.
 Invalid owner/bone frames, a pad gap outside 0.6–1.8 cm and failed restoration
-hide the round. This is a **host-tested** contact estimate; its fit requires a headset
-observation. The accepted free-hand trigger pickup/release insertion gesture and
+hide the round. This is a **host-tested** contact estimate with **bounded live
+delivery evidence**. The accompanying close-up does not establish convincing
+finger contact. The accepted free-hand trigger pickup/release insertion gesture and
 native ammo are unchanged.
 
 The source reference is Pichuliru's [CC0 Flat Ammunition](https://opengameart.org/content/cc0-flat-ammunition)
@@ -742,7 +743,8 @@ lead/brass colors and reject corrupted optional UVs/normals in both eyes. Option
 reference-image output uses the actual compositor; it is not a headset capture.
 The old proxy retains its separate raster/cache; the accepted trigger/release
 insertion and native ammunition are unchanged. The skin-derived anchor is a new
-host-tested candidate following operator rejection of the previous joint midpoint.
+host-tested and bounded live-tested candidate following operator rejection of
+the previous joint midpoint; visual grip remains unaccepted.
 Neither imported model
 is a demonstrated historical/calibre match. Scene-depth occlusion, native lighting,
 visual finger fit, orientation/scale, appearance quality and comfort remain open.
@@ -767,11 +769,17 @@ candidate source of finger motion, not proof of a stable runtime loading pose or
 successful cartridge contact. Temporary meshes, sampled poses and replay images
 stay local under ignored `work/`; no proprietary asset is distributed.
 
-The default-off `manual_reload_finger_reference` event is **host-tested** and
-awaits live evidence. At a newly visible physical pickup, it snapshots the
+The default-off `manual_reload_finger_reference` event is **host-tested and
+bounded live-tested**. The skin-anchor capture contains seven observed snapshots,
+paired with seven visible/applied and seven hidden/idle transitions; five accepted
+insertions have coherent native unit readbacks. Its supplied video still shows a
+superimposed-looking round rather than demonstrated finger-pad contact.
+At a newly visible physical pickup, it snapshots the
 pre-overlay native and verified displayed distal thumb/index frames, each
 expressed in its own Hand-local centimetre basis. It includes weapon/player,
-hand and frame identity, positions and up/forward axes. Capture precedes scoped
+hand and frame identity, positions and up/forward axes. The observed diagnostic
+`weapon_id` is zero and cannot independently establish weapon ownership.
+Capture precedes scoped
 restoration, emission uses value-only data after successful presentation recovery,
 and a mismatched capture sequence produces `unavailable`. It neither writes a
 pose nor measures pads. Tests cover a rotated/translated hand map, separate

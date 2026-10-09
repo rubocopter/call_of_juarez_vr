@@ -29,10 +29,12 @@ The current correction has **scoped headset acceptance for visibility**: the
 operator confirms the textured cartridge appears, but explicitly reports that it
 does not look held between the fingers. It uses one CC0 .357 glTF cartridge with
 source UVs/normals, cropped albedo, authored metal shading, bounded per-eye
-batching and a new **host-tested**
+batching and a new **host-tested and bounded live-tested**
 skin-derived midpoint on verified displayed distal thumb/index bones. The
 .7/.7 thumb/index pose and its guard use an offline exact-game Ray-skin reference;
-live and headset contact are unverified. Native scene depth remains absent.
+live delivery is observed, while headset contact remains unaccepted. The latest
+close-up still appears superimposed on the hand rather than convincingly held.
+Native scene depth remains absent.
 A scoped same-owner manual-recovery exception admits the support finger overlay; the
 pinch requires an actually held trigger claim. While waiting without a round,
 normal/rest fingers replace the native loading pose. Armed-hand and ammunition
@@ -40,10 +42,13 @@ ownership remain unchanged. Source/bake identity, ownership guards, release,
 bone-anchor restoration and WARP stereo rendering have host checks. The new contact
 anchor is a candidate correction; orientation/scale, appearance quality, comfort
 and broader recovery remain unaccepted. Qualify that anchor, axis and finger
-occlusion together in one physical trial. The compositor currently draws the
+occlusion together after a material correction in one physical trial. Do not
+repeat the current candidate merely to reconfirm its delivery. The compositor
+currently draws the
 round over the captured hand without native scene depth; anchor tuning alone
 cannot establish convincing contact. The read-only pickup finger-reference
-trace is host-tested only; batch its live check with this correction. No new
+trace now has bounded live observations; its zero weapon-ID field cannot
+independently establish weapon ownership. No new
 physical trial is required merely to reconfirm visibility.
 Original-game pickups remain unverified as loose revolver rounds; no proprietary
 asset is distributed. The existing free-hand trigger pickup/release insertion zone
