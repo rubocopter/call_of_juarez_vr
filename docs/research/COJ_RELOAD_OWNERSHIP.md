@@ -731,11 +731,45 @@ orange case palette to brass and adds authored head-space preview light/reflecti
 these are not native environment light or complete PBR. Source normal/roughness
 maps are not used. There is no runtime glTF parsing or asset-file dependency.
 
-This material correction is **implemented and host-tested**, without live/visor
-acceptance. WARP front/side/rear draws produce binocular pixels, distinguish
+This material correction has **scoped operator acceptance for visibility**;
+the operator explicitly reports that the round still does not look held between
+the fingers. Correlated live events identify the textured mesh and native unit
+readbacks. WARP front/side/rear draws produce binocular pixels, distinguish
 lead/brass colors and reject corrupted optional UVs/normals in both eyes. Optional
 reference-image output uses the actual compositor; it is not a headset capture.
 The old proxy retains its separate raster/cache; the accepted grip insertion,
 native ammunition and scoped joint anchor are unchanged. Neither imported model
 is a demonstrated historical/calibre match. Scene-depth occlusion, native lighting,
-visual finger fit and physical acceptance remain open.
+visual finger fit, orientation/scale, appearance quality and comfort remain open.
+
+### Finger-contact boundary — visibility accepted, grip unresolved
+
+The current estimated pinch interpolates the shared authored rest/fist endpoints;
+it is not the original loading finger pose. Its attachment averages distal joint
+origins and retains the controller grip orientation. Joint origins do not identify
+skin contact, and grip orientation does not establish a cartridge axis fitted to
+the fingers. The compositor draws the cartridge after the captured scene without
+scene depth: native fingers cannot correctly occlude it, even with a better
+geometric attachment. A complete grip correction therefore needs qualified finger
+pose/contact/axis and a demonstrated hand-occlusion or scene-depth boundary.
+The operator's visibility acceptance does not accept this grip.
+
+A read-only offline replay using the recognized Ray mesh, existing skin weights,
+authored rest/fist endpoints and the audited native ANM sampler shows that the
+native Peacemaker loading finger pose differs from this estimate. This is a
+candidate source of finger motion, not proof of a stable runtime loading pose or
+successful cartridge contact. Temporary meshes, sampled poses and replay images
+stay local under ignored `work/`; no proprietary asset is distributed.
+
+The default-off `manual_reload_finger_reference` event is **host-tested** and
+awaits live evidence. At a newly visible physical pickup, it snapshots the
+pre-overlay native and verified displayed distal thumb/index frames, each
+expressed in its own Hand-local centimetre basis. It includes weapon/player,
+hand and frame identity, positions and up/forward axes. Capture precedes scoped
+restoration, emission uses value-only data after successful presentation recovery,
+and a mismatched capture sequence produces `unavailable`. It neither writes a
+pose nor measures pads. Tests cover a rotated/translated hand map, separate
+native/displayed references, changed frame rejection and post-restore rejection.
+Keep the current accepted reload flow and visible mesh while qualifying native
+finger-pose reuse plus a measured contact/axis reference; there is no new IK,
+animation-time setter, ammunition state or independent mechanical writer.

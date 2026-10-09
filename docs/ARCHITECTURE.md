@@ -276,6 +276,14 @@ remain pending; asset provenance is in [assets/models](../assets/models/README.m
 Captured UVs/normals and asset/bake identities fail closed independently of the
 essential HUD. Legacy gestures keep their original proxy material/cache.
 
+Default-off reload diagnostics additionally compare captured native and verified
+displayed distal thumb/index frames in each Hand-local centimetre basis. A
+value-only snapshot precedes restoration; one event accompanies a newly visible
+pickup after successful hand/weapon recovery. Sequence mismatch reports
+unavailable. The observer never changes finger policy or animation time. Joint
+origins remain distinct from skin contact; Validation owns the accepted visibility
+and unresolved grip fit.
+
 ## Weapon ownership
 
 Tracked grip anchors the authored holding socket; tip -Z supplies direction.

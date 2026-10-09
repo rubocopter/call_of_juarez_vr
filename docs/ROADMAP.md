@@ -25,8 +25,10 @@ mesh remain pending. The first CC0-inspired 16-surface visual and pinch integrat
 were physically rejected for appearance/contact and native loading-pose takeover.
 The later full .44 OBJ also failed its physical appearance gate: capture events
 identify the imported geometry, but it still used the placeholder color swatches.
-The current correction is **implemented and host-tested**, awaiting a fresh
-headset run: one textured CC0 .357 glTF cartridge with source UVs/normals, a cropped
+The current correction has **scoped headset acceptance for visibility**: the
+operator confirms the textured cartridge appears, but explicitly reports that it
+does not look held between the fingers. It uses one CC0 .357 glTF cartridge with
+source UVs/normals, a cropped
 albedo and authored metal shading, bounded per-eye batching and attachment to
 verified displayed distal thumb/index joints. Native scene depth remains absent.
 A scoped
@@ -34,8 +36,16 @@ same-owner manual-recovery exception admits the support finger overlay; the
 pinch requires an actually held trigger claim. While waiting without a round,
 normal/rest fingers replace the native loading pose. Armed-hand and ammunition
 ownership remain unchanged. Source/bake identity, ownership guards, release,
-bone-anchor restoration and WARP stereo rendering have host checks. Actual finger
-contact, orientation/scale, comfort and recovery still need physical observation.
+bone-anchor restoration and WARP stereo rendering have host checks. Finger
+contact is a confirmed unresolved presentation issue; orientation/scale, appearance
+quality, comfort and broader recovery remain unaccepted. Prioritize a measured
+grip correction: compare the native loading finger pose with the displayed pose,
+then qualify a contact reference, orientation and finger occlusion. The compositor
+currently draws the round over the captured hand without native scene depth, so
+anchor tuning alone cannot establish convincing contact. The new read-only pickup
+finger-reference trace is host-tested only;
+batch its live check with that correction. No new physical trial is required
+merely to reconfirm visibility.
 Original-game pickups remain unverified as loose revolver rounds; no proprietary
 asset is distributed. The existing grip insertion zone remains the active route.
 
