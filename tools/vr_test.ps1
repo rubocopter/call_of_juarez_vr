@@ -10,7 +10,10 @@ param(
 
     [switch]$KeepVideoSettings,
 
-    [switch]$LargeAddressAware
+    [switch]$LargeAddressAware,
+
+    [switch]$ReloadWaitProbe,
+    [switch]$ManualReload
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,6 +99,12 @@ switch ($Action) {
         if ($BodyIkAtStart -and $StartupOnly) {
             throw "StartupOnly and BodyIkAtStart cannot be combined."
         }
+        if ($ReloadWaitProbe -and ($StartupOnly -or -not $BodyIkAtStart)) {
+            throw "ReloadWaitProbe requires the full BodyIkAtStart gameplay candidate."
+        }
+        if ($ManualReload -and ($ReloadWaitProbe -or $StartupOnly -or -not $BodyIkAtStart)) {
+            throw 'ManualReload requires full BodyIkAtStart and cannot combine with ReloadWaitProbe.'
+        }
         if (Test-Path -LiteralPath $StageStatePath -PathType Leaf) {
             $Existing = Get-Content -LiteralPath $StageStatePath -Raw | ConvertFrom-Json
             throw "A candidate is already staged (run '$($Existing.runId)'). Run 'tools\vr_test.ps1 finish' after closing the game before preparing another one."
@@ -134,7 +143,8 @@ switch ($Action) {
                 -BuildManifestPath $ManifestPath `
                 -ValidationProfile $ValidationProfile `
                 -IndependentHands:$BodyIkAtStart `
-                -LargeAddressAware:$LargeAddressAware
+                -LargeAddressAware:$LargeAddressAware `
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -191,11 +201,17 @@ switch ($Action) {
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"
+        Write-Host "Bounded reload wait/zero-transfer probe: $($ReloadWaitProbe.IsPresent.ToString().ToLowerInvariant()) (gesture route; Square remains native)"
+        Write-Host "Persistent manual reload candidate: $($ManualReload.IsPresent.ToString().ToLowerInvariant()) (Square opens/closes; free trigger inserts one native round)"
         Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { "$($VideoProfile.resolution), FSAA 0 (selected resolution preserved; restored by finish)" })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Cross jumps, Square reloads, Circle toggles alternate fire, L1 performs Action, R1 kicks on foot / holds gallop mounted, L3 toggles crouch and R3 toggles Focus. The sole default table is docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls."
-        Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental Peacemaker/Frontier cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Chained reload physical acceptance is pending; follow docs/VALIDATION.md#cartridge-paced-reload-acceptance."
+        if ($ManualReload) {
+            Write-Host "Manual reload: use a single Peacemaker/Frontier with empty support. Fresh Square prepares; wait for MANUAL_LOAD, pick up with the free trigger at waist, carry to the grip and release. Every accepted fresh release calls native WeaponReload once, without another action31/automatic cycle. Full/no reserve closes; fresh Square or armed trigger closes early. Release before reopening/firing. Integrated acceptance: docs/VALIDATION.md#persistent-manual-reload-candidate."
+        } else {
+            Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental Peacemaker/Frontier cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Chained reload physical acceptance is pending; follow docs/VALIDATION.md#cartridge-paced-reload-acceptance."
+        }
         Write-Host "Drawer/container Action: point the left Sense at the handle/usable part and press L1. A small cyan hand-directed reference appears only while L1 is held; head gaze no longer selects the object. Native reach/permissions remain. Lost left-hand tracking requires release before another Action. The reference is not proof that a target is usable."
         Write-Host "Death/mission failure: corrected visor visibility has operator acceptance. Circle requests native Back/Escape. Native retry/held-control recovery and repeated cartridge loading remain pending physical gates."
         Write-Host "Hold Triangle for the equipment wheel: highlight with right stick, release Triangle to confirm once, release in center to cancel. Center right stick after closing before snap resumes. Create tap opens Objectives on release; an 800 ms hold recenters once. Revised available controls and ordinary Focus have operator acceptance; mounted contexts and bow/scoped Winchester retain separate gates."
@@ -214,7 +230,12 @@ switch ($Action) {
             Write-Host "Keep the accepted locomotion baseline and Steam recording off; finish retains GPU transport, frame-age, cadence and producer/consumer wait telemetry."
             Write-Host "Physically crouch by lowering the HMD: first-person ownership should remain stable and the full avatar must not move in front of the camera. Test explicit controller crouch separately."
             Write-Host "Fire one direct shot first and confirm the process remains stable. Then try repeated/held fire where supported and judge origin/direction against the weapon/controller."
-            Write-Host "Independent native hands retain torso/legs at native proportions; no T-pose reach calibration is needed. Move hands close to the chest and through full wrist turns, walk/turn and reload. Confirm detached hands/weapon follow the controllers and original arms return only during native animation."
+            Write-Host "Independent native hands retain torso/legs at native proportions; no T-pose reach calibration is needed. Move hands close to the chest and through full wrist turns, walk/turn and reload."
+            if ($ManualReload) {
+                Write-Host "In an admitted manual session, verify both hands/weapon follow the controllers through preparation, waiting and coherent closing, with connected arms still hidden. Gate pose/sounds remain unproven. Unsupported native animations retain their existing presentation."
+            } else {
+                Write-Host "Confirm detached hands/weapon follow the controllers and original arms return only during native animation."
+            }
         } else {
             Write-Host "Transport-profile run: first exercise automatic menu hover, R2/L2 selection, Cross/Circle and physical mouse/drag coexistence. Report accuracy separately; the transport verifier does not accept menu usability."
             Write-Host "Body IK stays off. Slowly turn your head beyond both sides of the 35-degree comfort cone while watching the native revolver hand; report whether the previous body-yaw steps remain."

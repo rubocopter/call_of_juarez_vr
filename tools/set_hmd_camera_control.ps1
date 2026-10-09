@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$GameDirectory,
 
-    [ValidateSet("enable", "recenter", "disable", "body-enable", "body-disable")]
+    [ValidateSet("enable", "recenter", "disable", "body-enable", "body-disable",
+        "reload-trace-enable", "reload-trace-disable")]
     [string]$Mode = "enable"
 )
 
@@ -64,6 +65,16 @@ $Control = [ordered]@{
         $null -ne $ExistingControl.PSObject.Properties['movementTracePhase']) {
         [string]$ExistingControl.movementTracePhase
     } else { "off" }
+    reloadTraceEnabled = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['reloadTraceEnabled']) {
+        [bool]$ExistingControl.reloadTraceEnabled
+    } else { $false }
+    reloadWaitProbeInstalled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['reloadWaitProbeInstalled'] -and
+        [bool]$ExistingControl.reloadWaitProbeInstalled
+    manualReloadInstalled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['manualReloadInstalled'] -and
+        [bool]$ExistingControl.manualReloadInstalled
     vrGameplayInputEnabled = if ($null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['vrGameplayInputEnabled']) {
         [bool]$ExistingControl.vrGameplayInputEnabled
@@ -76,6 +87,14 @@ $Control = [ordered]@{
         $null -ne $ExistingControl.PSObject.Properties['secondEyeRenderEnabled']) {
         [bool]$ExistingControl.secondEyeRenderEnabled
     } else { $true }
+}
+
+if ($Mode -in @("reload-trace-enable", "reload-trace-disable")) {
+    if ($null -eq $ExistingControl) { throw "Reload tracing requires an existing camera control file." }
+    # Trace toggles preserve every presentation/gameplay field, including unknown
+    # future fields. They do not recenter, enable tracking or change body ownership.
+    $Control = $ExistingControl
+    $Control | Add-Member -NotePropertyName reloadTraceEnabled -NotePropertyValue ($Mode -eq "reload-trace-enable") -Force
 }
 
 try {

@@ -47,6 +47,15 @@ $Control = [ordered]@{
     yawDegrees = 0.0
     pitchDegrees = 0.0
     movementTraceEnabled = $TraceEnabled
+    reloadTraceEnabled = $null -ne $Existing -and
+        $null -ne $Existing.PSObject.Properties['reloadTraceEnabled'] -and
+        [bool]$Existing.reloadTraceEnabled
+    reloadWaitProbeInstalled = $null -ne $Existing -and
+        $null -ne $Existing.PSObject.Properties['reloadWaitProbeInstalled'] -and
+        [bool]$Existing.reloadWaitProbeInstalled
+    manualReloadInstalled = $null -ne $Existing -and
+        $null -ne $Existing.PSObject.Properties['manualReloadInstalled'] -and
+        [bool]$Existing.manualReloadInstalled
     movementTracePhase = if ($TraceEnabled) { $Mode } else { "off" }
     vrGameplayInputEnabled = $Mode -ne "vr-input-off"
     captureReadbackEnabled = $Mode -notin @("vr-readback-off", "vr-single-eye")

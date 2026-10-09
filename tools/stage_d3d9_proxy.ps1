@@ -9,7 +9,9 @@ param(
     [ValidateSet("full", "performance", "transport", "startup")]
     [string]$ValidationProfile = "full",
     [switch]$IndependentHands,
-    [switch]$LargeAddressAware
+    [switch]$LargeAddressAware,
+    [switch]$ReloadWaitProbe,
+    [switch]$ManualReload
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,6 +109,12 @@ $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
 if ($IndependentHands -and -not $IsNativeStereo) { throw "Independent hands require the native-stereo candidate." }
+if ($ReloadWaitProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
+    throw "ReloadWaitProbe requires native stereo with independent hands."
+}
+if ($ManualReload -and ($ReloadWaitProbe -or -not $IsNativeStereo -or -not $IndependentHands)) {
+    throw 'ManualReload requires native stereo with independent hands and cannot combine with ReloadWaitProbe.'
+}
 if ($LargeAddressAware -and (-not $IsNativeStereo -or -not [Environment]::Is64BitOperatingSystem -or
     [Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT)) {
     throw "LargeAddressAware requires the exact native-stereo candidate on 64-bit Windows."
@@ -297,6 +305,16 @@ if ($IndependentHands) {
     $CameraControlText = $CameraControlText.Replace('"bodyIkEnabled": false,', '"bodyIkEnabled": false, "independentHandsEnabled": true,')
     $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
 }
+if ($ReloadWaitProbe) {
+    $CameraControlText = $CameraControlText.Replace('"movementTraceEnabled": false,',
+        '"movementTraceEnabled": false, "reloadTraceEnabled": true, "reloadWaitProbeInstalled": true,')
+    $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+}
+if ($ManualReload) {
+    $CameraControlText = $CameraControlText.Replace('"movementTraceEnabled": false,',
+        '"movementTraceEnabled": false, "reloadTraceEnabled": true, "manualReloadInstalled": true,')
+    $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+}
 $CameraControlHashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($CameraControlBytes)
 $CameraControlStagedHash = -join ($CameraControlHashBytes | ForEach-Object { $_.ToString("X2") })
 $JournalAssets = @(
@@ -353,7 +371,10 @@ if ($IsNativeStereo) {
 if ($IsNativeStereo) {
     $PatchedCodeSource = Join-Path ([System.IO.Path]::GetTempPath()) ("cojvr-code-" + [Guid]::NewGuid().ToString("N") + ".pak")
     try {
-        & python (Join-Path $PSScriptRoot "patch_coj_weapon_consumers.py") $CodeArchive $PatchedCodeSource
+        $PatchArguments = @($CodeArchive, $PatchedCodeSource)
+        if ($ReloadWaitProbe) { $PatchArguments += '--reload-wait-probe' }
+        if ($ManualReload) { $PatchArguments += '--manual-reload' }
+        & python (Join-Path $PSScriptRoot "patch_coj_weapon_consumers.py") @PatchArguments
         if ($LASTEXITCODE -ne 0) { throw "Exact weapon consumer patch failed." }
         $PatchedCodeHash = Get-CojvrFileSha256 $PatchedCodeSource
     } catch {
@@ -510,6 +531,8 @@ if ($HadOriginal) {
         } else { $null }
         openVrInputManaged = $IsNativeStereo
         codeArchiveManaged = $IsNativeStereo
+        reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
+        manualReloadInstalled = $ManualReload.IsPresent
         playerArchiveManaged = $IndependentHands.IsPresent
         originalPlayerSha256 = if ($IndependentHands) { $OriginalPlayerHash } else { $null }
         stagedPlayerSha256 = if ($IndependentHands) { $PatchedPlayerHash } else { $null }
@@ -593,6 +616,8 @@ if ($HadOriginal) {
             }
         }
         validation = [ordered]@{
+            reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
+            manualReloadInstalled = $ManualReload.IsPresent
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
             requireExactChromeEngine = $IsCameraIntegration
             requireOpenVrRuntimeState = $IsNativeStereo -and $ValidationProfile -ne "startup"
