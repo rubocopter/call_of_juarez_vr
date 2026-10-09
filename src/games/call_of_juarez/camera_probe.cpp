@@ -131,6 +131,7 @@ std::array<runtime::Pose,2> g_reload_cartridge_anchors{};
 std::array<CoJReloadFingerObservation,2> g_reload_finger_observations{};
 std::uint64_t g_reload_finger_observation_sequence=0;
 bool g_reload_cartridge_last_visible=false;
+unsigned g_reload_depth_observation_budget=0;
 struct ReloadReadyGeometryReference {
     std::uint64_t player=0,context=0,weapon=0;
     int hand=-1;
@@ -3899,18 +3900,11 @@ bool ApplyTrackedWeapons(
             hand_applied=hand_target.valid && g_java_player_bridge.TryApplyIndependentHand(
                 hand,natural_hand,hand_target,&error,left?&left_fingers:&right_fingers);
             if(manual_presentation&&hand_applied){
-                runtime::Vec3 anchor{};
-                if(g_java_player_bridge.TryReadReloadPinchAnchor(hand,anchor)){
-                    const runtime::Vec3 delta{(anchor.x-grip_world.x)/kGameUnitsPerMeter,
-                        (anchor.y-grip_world.y)/kGameUnitsPerMeter,(anchor.z-grip_world.z)/kGameUnitsPerMeter};
-                    auto pose=grip;
-                    pose.position={grip.position.x+delta.x*basis.right.x+delta.y*basis.right.y+delta.z*basis.right.z,
-                        grip.position.y+delta.x*basis.up.x+delta.y*basis.up.y+delta.z*basis.up.z,
-                        grip.position.z+delta.x*basis.forward.x+delta.y*basis.forward.y+delta.z*basis.forward.z};
-                    const auto centre=runtime::RotateVector(grip.orientation,{0,0,
-                        runtime::textured_reload_mesh::centre_z});
-                    pose.position={pose.position.x-centre.x,pose.position.y-centre.y,pose.position.z-centre.z};
-                    g_reload_cartridge_anchors[hand]=pose;
+                ElementWorldBasisTarget anchor{};
+                if(g_java_player_bridge.TryReadReloadPinchFrame(hand,anchor)){
+                    g_reload_cartridge_anchors[hand]=BuildCoJReloadCartridgePose(anchor,grip,grip_world,
+                        {basis.right.x,basis.right.y,basis.right.z},
+                        {basis.up.x,basis.up.y,basis.up.z},{basis.forward.x,basis.forward.y,basis.forward.z});
                     // Snapshot before restoration, only for the next pickup
                     // event. No native pose/time setter or additional write.
                     if(g_manual_reload_geometry_logging_enabled&&!g_reload_cartridge_last_visible)
@@ -5155,6 +5149,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         manual_input.player, manual_input.context, manual_input.native);
     const auto manual_before=g_manual_reload.phase();
     auto manual_result=g_manual_reload.Update(gameplay_input,manual_input);
+    if(manual_result.start)g_reload_depth_observation_budget=6;
     runtime::ReloadInsertionFeedback manual_feedback{};
     manual_feedback.input_generation=raw_reload_input.input_context_generation;
     manual_feedback.diagnostics=snapshot.command.reload_trace_enabled;
@@ -5191,6 +5186,20 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
             ";feedback_qualified="+std::to_string(manual_feedback.accepted)+
             ";feedback_owner="+std::to_string(manual_feedback.owner_token)+
             ";transfer_owner=PawnArmed.WeaponReload;retry=false;detail="+manual_error);}catch(...){}
+    }
+    if(manual_result.tracked&&!manual_result.cancel&&manual_result.gesture.insertion_zone_entered){
+        manual_feedback.zone_entered=true;
+        manual_feedback.hand=manual_result.gesture.cartridge_hand;
+        manual_feedback.event_sequence=frame_sequence;
+    }
+    if(snapshot.command.reload_trace_enabled&&
+        (manual_result.gesture.insertion_zone_entered||manual_result.gesture.insertion_zone_exited)){
+        try{EmitEvent("manual_reload_zone",manual_result.gesture.insertion_zone_entered?"entered":"exited",
+            "frame_sequence="+std::to_string(frame_sequence)+
+            ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+            ";hand="+std::to_string(manual_result.gesture.cartridge_hand)+
+            ";release_qualified="+std::to_string(manual_result.gesture.insertion_ready)+
+            ";geometry=legacy_grip_zone;ammo_write=false");}catch(...){}
     }
     if (manual_result.cancel || !g_manual_reload_presentation)
         (void)PublishReloadFeedbackOwner(0, 0, {});
@@ -5785,7 +5794,18 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         render_eyes[0],
         frame_sequence,
         sample.hmd_pose.sequence);
+    const bool observe_reload_depth=snapshot.command.reload_trace_enabled&&
+        snapshot.command.manual_reload_installed&&g_reload_depth_observation_budget>0&&
+        g_stereo_callbacks.observe_reload_depth&&manual_result.tracked&&
+        manual_result.gesture.cartridge_held&&!g_reload_cartridge_last_visible&&
+        manual_result.gesture.claimed_hand==manual_result.gesture.cartridge_hand&&
+        (manual_result.gesture.cartridge_hand==0?raw_reload_input.fire_right:
+         manual_result.gesture.cartridge_hand==1?raw_reload_input.fire_left:false);
     original(owner, view);
+    if(observe_reload_depth){
+        g_stereo_callbacks.observe_reload_depth(g_stereo_callbacks.context,runtime::Eye::left,frame_sequence);
+        --g_reload_depth_observation_budget;
+    }
     observe_native_fx(CoJNativeFxPhase::left_eye, "left_eye_complete");
     g_diagnostic_left_eye_renders.fetch_add(1, std::memory_order_acq_rel);
     ObserveIndependentHandRenderState(frame_sequence,"left_eye_complete",
@@ -5844,6 +5864,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         right_applied_basis = g_stereo_eye_override.applied_basis;
         right_applied_frustum = g_stereo_eye_override.applied_frustum;
         if (right_rendered) {
+            if(observe_reload_depth&&g_reload_depth_observation_budget>0){
+                g_stereo_callbacks.observe_reload_depth(g_stereo_callbacks.context,runtime::Eye::right,frame_sequence);
+                --g_reload_depth_observation_budget;
+            }
             right_captured = g_stereo_callbacks.capture_eye(
                 g_stereo_callbacks.context, cojvr::runtime::Eye::right,
                 frame_sequence, &right_hash);
@@ -6003,6 +6027,7 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
         if(!gameplay_input.active||loading_ui_input.suppress_gameplay||
             !g_manual_reload_presentation||!hands_restored||!weapon_restored||g_arm_rotation_faulted) {
             hud_text.reload_feedback.accepted=false;
+            hud_text.reload_feedback.zone_entered=false;
             (void)PublishReloadFeedbackOwner(0, 0, {});
         }
         const bool manual_cartridge=snapshot.command.manual_reload_installed;
@@ -6029,7 +6054,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                 "frame_sequence="+std::to_string(frame_sequence)+
                 ";hand="+std::to_string(motion_reload.cartridge_hand)+
                 ";mesh=cc0_textured_357;triangles=92;source_uv=true;source_albedo=true;anchor="+
-                (manual_cartridge?std::string("verified_distal_thumb_index_midpoint"):std::string("support_grip"))+
+                (manual_cartridge?std::string("verified_skin_pad_frame"):std::string("support_grip"))+
+                ";anchor_valid="+std::to_string(anchored)+
+                ";axis=projected_distal_mean;position="+RuntimeVectorText(cartridge_pose.position)+
+                ";tip_axis="+RuntimeVectorText(runtime::RotateVector(cartridge_pose.orientation,{0,0,-1}))+
                 ";physical_claim="+std::to_string(physically_held)+
                 ";finger_contact=headset_unverified;scene_depth=false");
             if(drawn&&!g_arm_rotation_faulted&&motion_reload.cartridge_hand<2){
@@ -6037,7 +6065,10 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                     g_reload_finger_observations[motion_reload.cartridge_hand]:CoJReloadFingerObservation{};
                 std::string detail="frame_sequence="+std::to_string(frame_sequence)+
                     ";hand="+std::to_string(motion_reload.cartridge_hand)+
-                    ";weapon_id="+std::to_string(reload_owner.weapon_id)+
+                    ";weapon_id="+std::to_string(manual_input.native.weapon_id)+
+                    ";armed_hand="+std::to_string(manual_input.native.armed_hand)+
+                    ";native_context="+std::to_string(manual_input.context)+
+                    ";owner_snapshot_valid="+std::to_string(manual_input.native.valid&&manual_input.native.probe_valid)+
                     ";player_generation="+std::to_string(g_java_player_bridge.being_generation())+
                     ";units=cm;basis=each_hand_local;sampling=pre_restore_verified;mutation=false;finger_pad_contact=false";
                 if(fingers.valid)for(std::size_t digit=0;digit<2;++digit){

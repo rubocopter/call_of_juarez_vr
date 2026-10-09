@@ -508,6 +508,13 @@ struct CoJReloadFingerObservation {
     const CoJHandFrames& rigid, const cojvr::runtime::FingerTrackingState& fingers,
     CoJHandFrames& out) noexcept;
 
+// Presentation-only conversion: native centimetres and camera basis -> XR
+// metres. Local -Z is the projectile direction; mesh centre meets the pinch.
+[[nodiscard]] cojvr::runtime::Pose BuildCoJReloadCartridgePose(
+    const ElementWorldBasisTarget& pinch,const cojvr::runtime::Pose& grip,
+    cojvr::runtime::Vec3 native_grip,cojvr::runtime::Vec3 camera_right,
+    cojvr::runtime::Vec3 camera_up,cojvr::runtime::Vec3 camera_forward) noexcept;
+
 // Isolated hand geometry permits a rigid controller rotation without twisting
 // the connected arm mesh. All lower skin contributors and fingers share a map.
 class CoJHandOverlay final {
@@ -526,6 +533,8 @@ public:
     [[nodiscard]] bool faulted() const noexcept { return faulted_; }
     [[nodiscard]] bool fingers_active() const noexcept { return active_ && fingers_active_; }
     [[nodiscard]] bool ReadPinchAnchor(cojvr::runtime::Vec3& world,void* context,
+        CoJElementRead read) const noexcept;
+    [[nodiscard]] bool ReadPinchFrame(ElementWorldBasisTarget& world,void* context,
         CoJElementRead read) const noexcept;
     [[nodiscard]] bool ReadReloadFingerObservation(CoJReloadFingerObservation& out,
         void* context, CoJElementRead read) const noexcept;

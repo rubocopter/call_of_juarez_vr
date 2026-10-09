@@ -14,15 +14,29 @@ struct Fixture {
     std::uint64_t input=1,token=3,resource=1,device=1;
     Fixture(){policy.UpdateOwner(1);policy.UpdateContext(true,input,token,Time(1000));(void)Frame(false,1,1000);}
     std::optional<UiHapticPulse> Frame(bool accepted,std::uint64_t seq,std::int64_t ms,
-        std::uint8_t hand=1,std::int64_t captured=0){
+        std::uint8_t hand=1,std::int64_t captured=0,bool zone=false){
         policy.UpdateContext(true,input,token,Time(ms));
         ReloadInsertionFeedback event{accepted,hand,seq,input,false};event.owner_token=1;
+        event.zone_entered=zone;
         return policy.Observe(event,seq,resource,device,
             Time(captured?captured:ms),Time(ms),token);
     }
 };
 }
 int main(){
+    Fixture zone;
+    auto entry=zone.Frame(false,2,1010,1,0,true);
+    Require(entry&&UiHapticPulseValid(*entry),"qualified zone entry gives a discrete support-hand cue");
+    auto acceptance=zone.Frame(true,3,1020);
+    Require(acceptance&&acceptance->amplitude>entry->amplitude&&
+        acceptance->duration_seconds>entry->duration_seconds,
+        "entry cue must never suppress the immediate stronger native acceptance cue");
+    Require(!zone.Frame(false,4,1030,1,0,true),"rapid zone jitter stays silent");
+    (void)zone.Frame(false,5,1100);(void)zone.Frame(false,6,1170);
+    Require(!zone.Frame(false,4,1210,1,0,true),"duplicate zone event cannot replay after cadence expires");
+    Require(zone.Frame(false,7,1220,0,0,true).has_value(),"fresh mirrored zone entry can recover");
+    zone.policy.UpdateContext(false,1,3,Time(1230));
+    Require(!zone.Frame(false,8,1240,1,0,true),"zone event cannot cross loss/reacquisition baseline");
     Fixture owner_change;
     owner_change.policy.UpdateOwner(2);
     Require(!owner_change.Frame(true,2,1010),"native owner replacement invalidates queued event with unchanged availability/input/resource");

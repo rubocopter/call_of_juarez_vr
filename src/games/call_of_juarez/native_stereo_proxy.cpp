@@ -4,6 +4,7 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
+#include "backends/d3d9/depth_observation.hpp"
 #include "backends/d3d9/device_vtable_hook.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
 #include "backends/d3d9/swapchain_vtable_hook.hpp"
@@ -1538,6 +1539,44 @@ void PublishReloadFeedbackOwner(void* context, std::uint64_t token) noexcept {
     if (state) state->presenter.PublishReloadFeedbackOwner(token);
 }
 
+void ObserveReloadDepth(void* context,cojvr::runtime::Eye eye,std::uint64_t frame_sequence) noexcept {
+    auto* state=static_cast<NativeStereoState*>(context);
+    if(!state)return;
+    Microsoft::WRL::ComPtr<IDirect3DDevice9> device;
+    device.Attach(RetainCurrentDevice());
+    if(!device)return;
+    const auto depth=cojvr::backends::d3d9::ObserveD3D9Depth(device.Get());
+    try{
+        std::ostringstream line;
+        line<<"manual_reload_depth: frame_sequence="<<frame_sequence
+            <<";eye="<<(eye==cojvr::runtime::Eye::left?"left":"right")
+            <<";generation="<<state->device_generation.load(std::memory_order_acquire)
+            <<";device=0x"<<std::hex<<reinterpret_cast<std::uintptr_t>(device.Get())
+            <<";target=0x"<<depth.target_identity<<";depth=0x"<<depth.depth_identity<<std::dec
+            <<";target_valid="<<depth.target_valid<<";depth_valid="<<depth.depth_valid
+            <<";state_valid="<<depth.state_valid<<";layout_matches="<<depth.layout_matches
+            <<";target_width="<<depth.target.Width<<";target_height="<<depth.target.Height
+            <<";target_format="<<depth.target.Format<<";depth_width="<<depth.depth.Width
+            <<";target_msaa="<<depth.target.MultiSampleType<<";target_quality="<<depth.target.MultiSampleQuality
+            <<";depth_height="<<depth.depth.Height<<";depth_format="<<depth.depth.Format
+            <<";depth_msaa="<<depth.depth.MultiSampleType<<";depth_quality="<<depth.depth.MultiSampleQuality
+            <<";viewport="<<depth.viewport.X<<','<<depth.viewport.Y<<','<<depth.viewport.Width<<','<<depth.viewport.Height
+            <<";min_z="<<depth.viewport.MinZ<<";max_z="<<depth.viewport.MaxZ
+            <<";z_enable="<<depth.z_enable<<";z_write="<<depth.z_write<<";z_func="<<depth.z_function
+            <<";transforms_valid="<<depth.transforms_valid;
+        const auto matrix=[&](const char* name,const D3DMATRIX& value){
+            line<<';'<<name<<'=';
+            for(unsigned r=0;r<4;++r)for(unsigned c=0;c<4;++c){
+                if(r||c)line<<',';
+                line<<value.m[r][c];
+            }
+        };
+        matrix("view",depth.view);matrix("projection",depth.projection);
+        line<<";phase=full_eye_complete;read_only=true;depth_content=unverified;occlusion_admission=false";
+        LogLine(line.str());
+    }catch(...){}
+}
+
 bool SubmitStereoFrame(
     void* context,
     const std::uint64_t frame_sequence,
@@ -1839,6 +1878,7 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
                 stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
                 stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
+                stereo_callbacks.observe_reload_depth = &ObserveReloadDepth;
             }
 
             const auto control_path = GameDirectory() / L"cojvr-camera-control.json";

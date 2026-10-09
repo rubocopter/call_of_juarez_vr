@@ -63,6 +63,9 @@ struct MotionReloadGestureOutput {
     // Presentation hand is independent from physical trigger ownership so a
     // replenished cartridge can sit in the support hand before a fresh press.
     std::uint8_t cartridge_hand = 2;
+    bool insertion_ready = false; // A held cartridge's release would qualify now.
+    bool insertion_zone_entered = false; // Fresh event, hysteresis prevents jitter pulses.
+    bool insertion_zone_exited = false;
 };
 
 enum class MotionReloadGestureStage : std::uint8_t {
@@ -174,6 +177,7 @@ public:
             cartridge_position_ = support;
             const bool inserted = explicit_insertion_ && ObserveInsertion(input, held);
             auto output = CurrentOutput();
+            QualifyInsertion(output,input,support,armed,held);
             if (!held) {
                 output.reload = explicit_insertion_ ? inserted :
                     DistanceSquared(support, armed) <= 0.14 * 0.14;
@@ -218,6 +222,9 @@ public:
         cartridge_position_ = support;
         const bool inserted = explicit_insertion_ && ObserveInsertion(input, held);
         auto output = CurrentOutput();
+        const bool journey=left_source_&&DistanceSquared(support,start_support_)>=0.20*0.20&&
+            input.monotonic_ms-started_ms_>=100;
+        QualifyInsertion(output,input,support,armed,held&&journey);
         if (!held) {
             output.reload = left_source_ &&
                 DistanceSquared(support, start_support_) >= 0.20 * 0.20 &&
@@ -238,6 +245,20 @@ public:
     }
 
 private:
+    void QualifyInsertion(MotionReloadGestureOutput& output,const MotionReloadGestureInput& input,
+        Vec3 support,Vec3 armed,bool qualified) noexcept {
+        output.insertion_ready=qualified&&(explicit_insertion_?
+            insertion_inside_&&entered_&&!trajectory_fault_:DistanceSquared(support,armed)<=0.14*0.14);
+        // A deliberate withdrawal, not millimetre jitter at the acceptance
+        // radius, permits a second entry cue on this same physical press.
+        const bool outside=explicit_insertion_?
+            DistanceSquared(input.cartridge_tip->position,input.insertion_target->position)>0.08*0.08:
+            DistanceSquared(support,armed)>0.18*0.18;
+        output.insertion_zone_exited=outside&&zone_notified_;
+        if(outside)zone_notified_=false;
+        output.insertion_zone_entered=output.insertion_ready&&!zone_notified_;
+        if(output.insertion_zone_entered)zone_notified_=true;
+    }
     static Vec3 Axis(const Pose& pose) noexcept {
         const auto& q = pose.orientation;
         const double n = static_cast<double>(q.x)*q.x + static_cast<double>(q.y)*q.y +
@@ -256,6 +277,7 @@ private:
     }
 
     void BeginInsertion(const MotionReloadGestureInput& input) noexcept {
+        zone_notified_=false;
         explicit_insertion_ = input.insertion_target.has_value();
         approach_ = entered_ = trajectory_fault_ = false;
         inward_travel_ = 0.0;
@@ -278,6 +300,7 @@ private:
         const bool aligned = Dot(axis, Axis(tip)) >= 0.866025403784;
         const bool corridor = aligned && lateral_squared <= 0.02*0.02;
         const bool inside = corridor && depth >= 0.0 && depth <= 0.04;
+        insertion_inside_=inside;
         const auto elapsed = input.monotonic_ms - insertion_ms_;
         const double bound = std::min(0.12, 0.003*static_cast<double>(elapsed));
         const Vec3 travel = Difference(tip.position, previous_tip_);
@@ -380,6 +403,8 @@ private:
     bool approach_ = false;
     bool entered_ = false;
     bool trajectory_fault_ = false;
+    bool insertion_inside_ = false;
+    bool zone_notified_ = false;
     Vec3 previous_tip_{};
     Vec3 previous_target_{};
     Vec3 previous_target_axis_{};

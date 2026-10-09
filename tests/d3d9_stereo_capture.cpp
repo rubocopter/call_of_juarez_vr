@@ -1,6 +1,7 @@
 #include "backends/d3d9/content_hash.hpp"
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
+#include "backends/d3d9/depth_observation.hpp"
 
 #include <windows.h>
 
@@ -165,6 +166,39 @@ int main() {
     ComPtr<IDirect3DSurface9> back_buffer;
     hr = device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
     if (FAILED(hr)) return Fail("GetBackBuffer failed", hr);
+
+    using cojvr::backends::d3d9::ObserveD3D9Depth;
+    auto depth_observation=ObserveD3D9Depth(device.Get());
+    if(!depth_observation.target_valid||depth_observation.depth_valid||depth_observation.layout_matches||
+       depth_observation.target.Width!=65||depth_observation.target.Height!=37)
+        return Fail("Read-only depth observation must distinguish a target without depth");
+    ComPtr<IDirect3DSurface9> depth;
+    hr=device->CreateDepthStencilSurface(65,37,D3DFMT_D16,D3DMULTISAMPLE_NONE,0,TRUE,&depth,nullptr);
+    if(FAILED(hr))return Fail("Depth observation fixture allocation failed",hr);
+    DWORD old_enable=0,old_write=0,old_func=0;D3DVIEWPORT9 old_viewport{};
+    device->GetRenderState(D3DRS_ZENABLE,&old_enable);device->GetRenderState(D3DRS_ZWRITEENABLE,&old_write);
+    device->GetRenderState(D3DRS_ZFUNC,&old_func);device->GetViewport(&old_viewport);
+    const D3DVIEWPORT9 viewport{3,4,40,20,.1F,.9F};
+    if(FAILED(device->SetDepthStencilSurface(depth.Get()))||FAILED(device->SetViewport(&viewport))||
+       FAILED(device->SetRenderState(D3DRS_ZENABLE,D3DZB_TRUE))||
+       FAILED(device->SetRenderState(D3DRS_ZWRITEENABLE,FALSE))||
+       FAILED(device->SetRenderState(D3DRS_ZFUNC,D3DCMP_GREATER)))return Fail("Depth observation fixture setup failed");
+    depth_observation=ObserveD3D9Depth(device.Get());
+    if(!depth_observation.target_valid||!depth_observation.depth_valid||!depth_observation.state_valid||
+       !depth_observation.layout_matches||depth_observation.depth.Format!=D3DFMT_D16||
+       depth_observation.viewport.X!=3||depth_observation.viewport.MinZ!=.1F||
+       depth_observation.z_enable!=D3DZB_TRUE||depth_observation.z_write!=FALSE||
+       depth_observation.z_function!=D3DCMP_GREATER)return Fail("Depth observation lost the actual render boundary");
+    ComPtr<IDirect3DSurface9> after_depth;D3DVIEWPORT9 after_viewport{};DWORD after_func=0;
+    device->GetDepthStencilSurface(&after_depth);device->GetViewport(&after_viewport);
+    device->GetRenderState(D3DRS_ZFUNC,&after_func);
+    if(after_depth.Get()!=depth.Get()||after_viewport.X!=3||after_func!=D3DCMP_GREATER)
+        return Fail("Observing depth must never mutate native render state");
+    if(ObserveD3D9Depth(nullptr).target_valid)return Fail("Null depth observer must fail closed");
+    device->SetDepthStencilSurface(nullptr);device->SetViewport(&old_viewport);
+    device->SetRenderState(D3DRS_ZENABLE,old_enable);device->SetRenderState(D3DRS_ZWRITEENABLE,old_write);
+    device->SetRenderState(D3DRS_ZFUNC,old_func);
+    after_depth.Reset();depth.Reset(); // No new default-pool fixture may survive the later Reset.
 
     cojvr::backends::d3d9::D3D9StereoCapture capture;
     cojvr::backends::d3d9::StereoCpuFrame frame{};

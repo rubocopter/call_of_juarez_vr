@@ -2524,11 +2524,18 @@ bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
 
 bool JavaPlayerBridge::TryReadReloadPinchAnchor(int hand,runtime::Vec3& world) noexcept {
     world={};
+    ElementWorldBasisTarget frame{};
+    if(!TryReadReloadPinchFrame(hand,frame))return false;
+    world=frame.position;return true;
+}
+
+bool JavaPlayerBridge::TryReadReloadPinchFrame(int hand,ElementWorldBasisTarget& world) noexcept {
+    world={};
     if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
     auto& overlay=hand_overlays_[hand];
     if(!overlay.object||!TryCanAnimateEmptyHand(hand))return false;
     HandIoContext io{this,overlay.object,nullptr};
-    return overlay.frames.ReadPinchAnchor(world,&io,ReadHandFrame);
+    return overlay.frames.ReadPinchFrame(world,&io,ReadHandFrame);
 }
 
 bool JavaPlayerBridge::TryReadReloadFingerObservation(int hand,CoJReloadFingerObservation& out) noexcept {

@@ -1,5 +1,7 @@
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "finger_fixture.hpp"
+#include "runtime/vr_math.hpp"
+#include "runtime/textured_cartridge_mesh.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -85,6 +87,39 @@ bool FingerChecks(){
             std::cerr<<"Held-round anchor differs from measured native finger skin\n";
             return false;
         }
+        // A controller axis can run through both pads. The model axis must
+        // instead be tangent to their measured gap and rotate with the hand.
+        ElementWorldBasisTarget pinch{};
+        if(!overlay.ReadPinchFrame(pinch,&f,Fixture::Read))return false;
+        const auto pinch_local=TransformWeaponElementFrame(f.frames[3].frame,local_identity,pinch);
+        const cojvr::runtime::Vec3 measured_tip=hand==1?
+            cojvr::runtime::Vec3{-.0529222F,.9951689F,.0826924F}:
+            cojvr::runtime::Vec3{.0950826F,-.9580039F,.2705324F};
+        const auto tip=pinch_local.forward;
+        if(!within(tip.x,-measured_tip.x)||!within(tip.y,-measured_tip.y)||
+           !within(tip.z,-measured_tip.z)){
+            std::cerr<<"Cartridge axis is not tangent to the original displayed skin contacts\n";return false;
+        }
+        const auto dot=tip.x*pinch_local.up.x+tip.y*pinch_local.up.y+tip.z*pinch_local.up.z;
+        if(std::fabs(dot)>.0001F)return false;
+        cojvr::runtime::Pose grip{};grip.position={.2F,1.3F,-.5F};
+        grip.position_valid=grip.orientation_valid=true;
+        // Native camera basis is deliberately rotated; using world axes here
+        // would rotate the cartridge away from the visible hand.
+        const auto held=BuildCoJReloadCartridgePose(pinch,grip,{3,5,7},
+            {0,0,-1},{0,1,0},{1,0,0});
+        if(!held.position_valid||!held.orientation_valid)return false;
+        const auto axis=cojvr::runtime::RotateVector(held.orientation,{0,0,-1});
+        if(!Close(axis.x,pinch.forward.z)||!Close(axis.y,-pinch.forward.y)||
+           !Close(axis.z,-pinch.forward.x))return false;
+        const auto offset=cojvr::runtime::RotateVector(held.orientation,
+            {0,0,cojvr::runtime::textured_reload_mesh::centre_z});
+        if(!Close(held.position.x+offset.x,.2F-(anchor.z-7)/100)||
+           !Close(held.position.y+offset.y,1.3F+(anchor.y-5)/100)||
+           !Close(held.position.z+offset.z,-.5F+(anchor.x-3)/100))return false;
+        auto invalid_pinch=pinch;invalid_pinch.up=invalid_pinch.forward;
+        if(BuildCoJReloadCartridgePose(invalid_pinch,grip,{3,5,7},
+            {0,0,-1},{0,1,0},{1,0,0}).position_valid)return false;
         const int writes_before_observation=f.writes;
         CoJReloadFingerObservation contact{};
         if(!overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||!contact.valid||
@@ -105,11 +140,13 @@ bool FingerChecks(){
         const auto prior=f.frames[6].frame;
         f.frames[6].frame.position.x+=1;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read)||pinch.valid)return false;
         if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid||
            contact.native[0].valid||contact.displayed[0].valid)return false;
         f.frames[6].frame=prior;
         if(!overlay.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||overlay.fingers_active())return false;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read)||pinch.valid)return false;
         if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid)return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=5;if(!FrameClose(f.frames[i].frame,expected))return false;}
         for(int fail:{5,10,18,20}){f.frames=rest;f.writes=0;f.fail_at=fail;CoJHandOverlay partial;

@@ -14,9 +14,11 @@ import re
 EVENT = re.compile(r'camera_probe_event: event=(\w+) result=(\w+) detail=(.*)$')
 IDENTITY = re.compile(r'run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)')
 END = re.compile(r'run_end: run_id=(\S+)(?:\s|$)')
+RENDER_FEEDBACK = re.compile(r'(manual_reload_depth|openvr_reload_haptic): (.*)$')
 RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
-            'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore'}
+            'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
+            'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference'}
 
 
 def digest(path):
@@ -131,11 +133,12 @@ def read_events(log, evidence):
             ends.append(end[1])
             inside = False
         match = EVENT.search(line)
-        if inside and match and match[1] in RELEVANT:
+        feedback = RENDER_FEEDBACK.search(line) if not match else None
+        if inside and ((match and match[1] in RELEVANT) or feedback):
             # Error descriptions can contain semicolons/key-like text. Treat the
             # trailing opaque detail as data, never extra telemetry or instructions.
             fields = {}
-            for pair in match[3].split(';'):
+            for pair in (match[3] if match else feedback[2]).split(';'):
                 if '=' not in pair:
                     continue
                 key, value = pair.split('=', 1)
@@ -144,7 +147,8 @@ def read_events(log, evidence):
                 if key in fields:
                     raise ValueError(f'Duplicate telemetry field on line {number}')
                 fields[key] = value
-            events.append(dict(line=number, event=match[1], result=match[2], fields=fields))
+            events.append(dict(line=number, event=match[1] if match else feedback[1],
+                               result=match[2] if match else fields.get('status','observed'), fields=fields))
     if starts != [(evidence['runId'], evidence['buildManifestId'])]:
         raise ValueError('Missing, foreign or reused runtime run/build identity')
     if ends not in ([], [evidence['runId']]):
@@ -308,6 +312,10 @@ def analyze_evidence(directory):
     mechanical_baselines = {}
     ready_references = {}
     reported = Counter((e['event'], e['result']) for e in events)
+    depth_samples=[dict(line=e['line'],fields=e['fields'],occlusion_admitted=False,
+                        content_correspondence='unverified') for e in events if e['event']=='manual_reload_depth']
+    haptics=Counter(e['fields'].get('event') for e in events
+                    if e['event']=='openvr_reload_haptic' and e['result']=='submitted')
     insert_frames = Counter()
     previous = None
     waiting_entries = 0
@@ -464,6 +472,14 @@ def analyze_evidence(directory):
                     rejected_insertions=reported['manual_reload_insertion', 'rejected'],
                     unit_readbacks=sum(r['assessment'] == 'unit_readback_observed' for r in insertions),
                     native_wait_entries=waiting_entries, issue_count=len(issues),
+                    zone_entries=reported['manual_reload_zone','entered'],
+                    zone_exits=reported['manual_reload_zone','exited'],
+                    cartridge_visible_events=reported['manual_reload_cartridge','visible'],
+                    zone_haptics_submitted=haptics['zone_entered'],
+                    insertion_haptics_submitted=haptics['insert_accepted'],
+                    depth_observation_samples=len(depth_samples),
+                    depth_unavailable_samples=sum(not yes(r['fields'],'depth_valid') for r in depth_samples),
+                    depth_layout_samples=sum(yes(r['fields'],'layout_matches') for r in depth_samples),
                     correlated_mechanical_samples=sum(r['trace_correlation'] == 'same_frame_armed_hand'
                                                        for r in mechanics),
                     port_pivot_rank_samples=sum(r.get('port_probe', {}).get('status') == 'pivot_only'
@@ -473,6 +489,7 @@ def analyze_evidence(directory):
                     ready_reference_samples=sum(r['ready_reference_eligible'] for r in mechanics),
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
+                renderer_depth_observations=depth_samples,
                 timeline=events,
                 physical_gates_pending=['gate_clearance', 'tracked_hand_comfort', 'sounds', 'interruption_recovery'],
                 limits=['Readback observations are not physical acceptance or callback-complete history.',
@@ -483,6 +500,8 @@ def analyze_evidence(directory):
                         'Relative mechanical changes compare sparse samples of one owner/session, not continuous animation.',
                         'Full-frame relative rotation angles measure pose differences, not a hinge axis or usable loading-port clearance.',
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
+                        'Depth surface layout/state observations do not establish eye/hand content or admit occlusion.',
+                        'A zone cue grants no ammunition; submitted haptics and cartridge visibility do not validate physical grip.',
                         'Inventory hashes verify internal consistency, not external authentication.'])
 
 

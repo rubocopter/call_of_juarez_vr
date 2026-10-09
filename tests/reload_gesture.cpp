@@ -65,6 +65,34 @@ struct Fixture {
 };
 
 // Removing release completion or using the wrong hand must break these literal journeys.
+void InsertionReadiness(){
+    for(const auto hand:{std::uint8_t{0},std::uint8_t{1}}){
+        Fixture f(hand);f.Start();f.Contact();
+        auto out=f.Sample(true,1110);
+        Require(out.insertion_ready&&out.insertion_zone_entered&&!out.reload,
+            "completed held approach reports ready zone without transferring ammunition");
+        out=f.gesture.Update(f.input);
+        Require(!out.insertion_zone_entered&&!out.reload,"duplicate poses cannot repeat zone-entry event");
+        Require(!f.Sample(true,1120).insertion_zone_entered,"remaining in zone stays silent");
+        f.Free().position.x=f.Armed().position.x+.15F;
+        out=f.Sample(true,1130);
+        Require(!out.insertion_ready&&!out.insertion_zone_entered,"outside insertion radius is not ready");
+        f.Contact();
+        Require(!f.Sample(true,1140).insertion_zone_entered,"boundary jitter cannot repulse zone entry");
+        f.Free().position.x=f.Armed().position.x+.20F;
+        Require(f.Sample(true,1150).insertion_zone_exited,"deliberate withdrawal reports one zone exit");
+        f.Contact();
+        Require(f.Sample(true,1160).insertion_zone_entered,"deliberate withdrawal rearms zone feedback");
+        out=f.Sample(false,1170);
+        Require(out.reload&&!out.insertion_ready&&!out.insertion_zone_entered,
+            "release requests one round and never reports a held ready cartridge");
+    }
+    Fixture not_ready;not_ready.Start();not_ready.Contact();
+    Require(!not_ready.Sample(true,1050).insertion_ready,"too-fast pickup journey cannot advertise insertion");
+    not_ready.input.eligible=false;
+    Require(!not_ready.Sample(true,1110).insertion_ready,"cancelled cartridge cannot advertise insertion");
+}
+
 void Journeys() {
     for (const auto hand : {std::uint8_t{0}, std::uint8_t{1}}) {
         Fixture f(hand);
@@ -364,6 +392,8 @@ void InsertionTargets() {
             if (f.input.cartridge_tip && fault != 4) f.input.cartridge_tip->position.z = -.49F;
             const auto entry = f.Sample(fault != 11, 1510);
             Require(!entry.reload, "entry must be held and never generates reload intent");
+            Require(entry.insertion_ready==(fault==-1)&&entry.insertion_zone_entered==(fault==-1),
+                "explicit-zone feedback requires the same aligned admitted trajectory as insertion");
             const auto release = f.Sample(false, 1520);
             Require(release.reload == (fault == -1), "only coherent aligned held tip entry then release inserts");
             Require(!f.Sample(false, 1530).reload, "explicit insertion cannot auto-repeat");
@@ -559,6 +589,7 @@ void ReplenishedCartridgeSession() {
 } // namespace
 
 int main() {
+    InsertionReadiness();
     Journeys();
     CancellationFaults();
     RearmingAndOwnership();

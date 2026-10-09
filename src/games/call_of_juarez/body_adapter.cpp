@@ -1,6 +1,7 @@
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/finger_authored_poses.hpp"
 #include "runtime/vr_math.hpp"
+#include "runtime/textured_cartridge_mesh.hpp"
 
 #include <algorithm>
 #include <array>
@@ -915,6 +916,13 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
   bool CoJHandOverlay::ReadPinchAnchor(runtime::Vec3& world,void* context,
       CoJElementRead read) const noexcept {
       world={};
+      ElementWorldBasisTarget frame{};
+      if(!ReadPinchFrame(frame,context,read))return false;
+      world=frame.position;return true;
+  }
+  bool CoJHandOverlay::ReadPinchFrame(ElementWorldBasisTarget& world,void* context,
+      CoJElementRead read) const noexcept {
+      world={};
       if(faulted_||!fingers_active()||!Verify(context,read))return false;
       if(finger_hand_<0||finger_hand_>1)return false;
       // Finger2 and Finger12 are distal bone origins, not skin. These two
@@ -936,9 +944,44 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       // The case is 1.2 cm across. A lost/changed finger pose must fail
       // closed instead of placing a round inside an unrelated hand state.
       if(!Finite(thumb)||!Finite(index)||!std::isfinite(gap)||gap<.6F||gap>1.8F)return false;
-      world=Scale(Add(thumb,index),.5F);
-      return Finite(world);
+      const auto up=Scale(Subtract(index,thumb),1.F/gap);
+      // Native distal +X follows the digit toward its tip. Project their
+      // mean onto the contact plane: a cylinder axis through the pads would
+      // visibly pierce both fingers. Mirroring follows the native skin frame.
+      const auto distal=Add(Cross(targets_[6].frame.up,targets_[6].frame.forward),
+          Cross(targets_[9].frame.up,targets_[9].frame.forward));
+      const auto tangent=Subtract(distal,Scale(up,Dot(distal,up)));
+      if(!Finite(tangent)||Length(tangent)<.2F)return false;
+      const auto forward=Scale(Normalize(tangent),-1.F); // Mesh projectile is -Z.
+      world={Scale(Add(thumb,index),.5F),up,forward,true};
+      return Finite(world.position);
   }
+runtime::Pose BuildCoJReloadCartridgePose(const ElementWorldBasisTarget& pinch,
+    const runtime::Pose& grip,const runtime::Vec3 native_grip,runtime::Vec3 camera_right,
+    runtime::Vec3 camera_up,runtime::Vec3 camera_forward) noexcept {
+    runtime::Quaternion checked{};
+    if(!pinch.valid||!Finite(pinch.position)||!Finite(pinch.up)||!Finite(pinch.forward)||
+        !Finite(native_grip)||!grip.position_valid||!grip.orientation_valid||!Finite(grip.position)||
+        !NormalizeQuaternionChecked(grip.orientation,checked)||
+        !NormalizeCameraBasis(camera_right,camera_up,camera_forward)||
+        std::fabs(Dot(pinch.up,pinch.up)-1.F)>.002F||
+        std::fabs(Dot(pinch.forward,pinch.forward)-1.F)>.002F||
+        std::fabs(Dot(pinch.up,pinch.forward))>.002F)return {};
+    auto up=WorldToBasis(pinch.up,camera_right,camera_up,camera_forward);
+    auto forward=WorldToBasis(pinch.forward,camera_right,camera_up,camera_forward);
+    if(!NormalizeBasis(up,forward))return {};
+    const auto right=Cross(up,forward);
+    auto pose=runtime::PoseFromRigidTransform3x4({right.x,up.x,forward.x,0,
+        right.y,up.y,forward.y,0,right.z,up.z,forward.z,0});
+    if(!pose.orientation_valid)return {};
+    constexpr float units_per_metre=100.F; // Exact CoJ adapter contract.
+    const auto delta=Scale(WorldToBasis(Subtract(pinch.position,native_grip),
+        camera_right,camera_up,camera_forward),1.F/units_per_metre);
+    const auto centre=runtime::RotateVector(pose.orientation,{0,0,runtime::textured_reload_mesh::centre_z});
+    pose.position=Subtract(Add(grip.position,delta),centre);
+    pose.position_valid=Finite(pose.position);
+    return pose;
+}
 bool CoJHandOverlay::ReadReloadFingerObservation(CoJReloadFingerObservation& out,
     void* context, CoJElementRead read) const noexcept {
     out={};

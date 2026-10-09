@@ -44,6 +44,30 @@ def insertion(frame=3, result='accepted', **extra):
 
 
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_batched_grip_zone_haptics_and_depth_are_observations_not_acceptance(self):
+        report=self.evidence([
+            event('manual_reload_zone','entered',frame_sequence=2,hand=1,release_qualified=1),
+            event('manual_reload_cartridge','visible',frame_sequence=2,hand=1,axis='projected_distal_mean'),
+            'openvr_reload_haptic: event=zone_entered;status=submitted;frame_sequence=2;hand=left',
+            'openvr_reload_haptic: event=insert_accepted;status=submitted;frame_sequence=3;hand=left',
+            'manual_reload_depth: frame_sequence=2;eye=left;layout_matches=1;depth_valid=1;'
+            'phase=full_eye_complete;read_only=true;depth_content=unverified;occlusion_admission=false',
+        ])
+        self.assertEqual(report['summary']['zone_entries'],1)
+        self.assertEqual(report['summary']['cartridge_visible_events'],1)
+        self.assertEqual(report['summary']['zone_haptics_submitted'],1)
+        self.assertEqual(report['summary']['insertion_haptics_submitted'],1)
+        self.assertEqual(report['summary']['depth_layout_samples'],1)
+        self.assertFalse(report['renderer_depth_observations'][0]['occlusion_admitted'])
+        self.assertFalse(report['headset_validated'])
+        self.assertEqual(report['summary']['accepted_insertions'],0)
+
+    def test_diagnostic_text_in_unrelated_event_is_not_haptic_evidence(self):
+        report=self.evidence([event('unrelated_error',detail=
+            'openvr_reload_haptic: event=zone_entered;status=submitted;frame_sequence=2')])
+        self.assertEqual(report['summary']['zone_haptics_submitted'],0)
+        self.assertEqual(report['timeline'],[])
+
     def test_pre_native_gate_mechanics_require_root_frame_and_provenance(self):
         def observed(frame, source, root='0,0,0', gate='0,2,0',
                      gate_up='0,1,0', drum_up='0,1,0'):

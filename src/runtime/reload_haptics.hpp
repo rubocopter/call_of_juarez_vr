@@ -65,15 +65,26 @@ public:
         }
         last_capture_=captured;
         const bool had_baseline=baseline_;baseline_=true;
-        if(!had_baseline||!event.accepted||event.hand>=2||event.event_sequence!=sequence||
-            (have_pulse_&&(now<last_pulse_||now-last_pulse_<minimum_interval)))return {};
-        have_pulse_=true;last_pulse_=now;
-        return UiHapticPulse{event.hand==0?UiHapticHand::right:UiHapticHand::left,.018F,120.F,.25F};
+        if(!had_baseline||(!event.accepted&&!event.zone_entered)||event.hand>=2||event.event_sequence!=sequence)return {};
+        const auto hand=event.hand==0?UiHapticHand::right:UiHapticHand::left;
+        if(event.accepted){
+            if(have_pulse_&&(now<last_pulse_||now-last_pulse_<minimum_interval))return {};
+            have_pulse_=true;last_pulse_=now;
+            return UiHapticPulse{hand,.018F,120.F,.25F};
+        }
+        // Independent cadence: entering the zone must never suppress an
+        // immediately following native-confirmed acceptance on trigger release.
+        constexpr auto zone_interval=std::chrono::milliseconds(180);
+        if(have_zone_pulse_&&(now<last_zone_pulse_||now-last_zone_pulse_<zone_interval))return {};
+        have_zone_pulse_=true;last_zone_pulse_=now;
+        return UiHapticPulse{hand,.009F,90.F,.10F};
     }
 private:
     bool available_=false,baseline_=false,have_clock_=false,have_pulse_=false;
+    bool have_zone_pulse_=false;
     std::uint64_t input_generation_=0,native_token_=0,resource_generation_=0,resource_device_=0,last_sequence_=0;
     std::uint64_t owner_token_=0;
     UiHapticTime context_since_{},resource_since_{},last_clock_{},last_capture_{},last_pulse_{};
+    UiHapticTime last_zone_pulse_{};
 };
 }

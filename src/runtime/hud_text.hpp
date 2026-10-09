@@ -37,7 +37,8 @@ struct ReloadCartridgeSurface {
     std::array<Vec3,4> corner_normal{};
 };
 
-// One capture's native-confirmed insertion event. No ammunition or retry queue.
+// One capture's native-confirmed insertion or qualified zone-entry event.
+// Zone entry grants no ammunition. Neither event has a retry queue.
 struct ReloadInsertionFeedback {
     bool accepted = false;
     std::uint8_t hand = 2; // Native convention: 0 right, 1 left, 2 absent.
@@ -45,6 +46,7 @@ struct ReloadInsertionFeedback {
     std::uint64_t input_generation = 0;
     bool diagnostics = false;
     std::uint64_t owner_token = 0; // Opaque game-owned epoch; 0 is unobserved.
+    bool zone_entered = false;
 };
 
 struct StereoHudTextOverlay {
