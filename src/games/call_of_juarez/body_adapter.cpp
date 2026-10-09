@@ -895,8 +895,9 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
         if (!targets[i].frame.valid) return false;
     }
     fingers_active_=false;
+    finger_hand_=-1;
     if(fingers){CoJHandFrames curled{};if(BuildCoJFingerTargets(hand,natural,targets,*fingers,curled)){
-        targets=curled;fingers_active_=true;}}
+        targets=curled;fingers_active_=true;finger_hand_=hand;}}
     natural_=natural; targets_=targets; actor_=actor; active_=true;
     for (const auto& sample : targets) {
         if (!write(context,sample.element,sample.frame)) {
@@ -915,12 +916,28 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       CoJElementRead read) const noexcept {
       world={};
       if(faulted_||!fingers_active()||!Verify(context,read))return false;
-      // Distal thumb/index joints, in the verified displayed frame (cm).
-      // This is an attachment reference, not a measured finger-pad contact.
-      const auto thumb=targets_[6].frame.position,index=targets_[9].frame.position;
-      const float distance=Length(Subtract(thumb,index));
-      if(!std::isfinite(distance)||distance>8.F)return false;
-      world=Scale(Add(thumb,index),.5F);return Finite(world);
+      if(finger_hand_<0||finger_hand_>1)return false;
+      // Finger2 and Finger12 are distal bone origins, not skin. These two
+      // exact-game local-space contact offsets were derived from the original
+      // Ray skin (weighted vertices) at the .7/.7 authored-finger pose.
+      // Left and right are distinct; only derived points are embedded, not
+      // source geometry. Release/restore still owns all native bone writes.
+      constexpr std::array<std::array<runtime::Vec3,2>,2> kSkinPadOffsets{{
+          {{{1.97059F,-.02228F,-.85145F},{1.92237F,-.85959F,.46391F}}},
+          {{{1.96674F,-.87368F,-.54974F},{1.85949F,.51563F,.78398F}}}
+      }};
+      const auto skin_point=[](const ElementWorldBasisTarget& bone,const runtime::Vec3 local){
+          const auto right=Cross(bone.up,bone.forward);
+          return Add(bone.position,BasisToWorld(local,right,bone.up,bone.forward));
+      };
+      const auto thumb=skin_point(targets_[6].frame,kSkinPadOffsets[finger_hand_][0]);
+      const auto index=skin_point(targets_[9].frame,kSkinPadOffsets[finger_hand_][1]);
+      const float gap=Length(Subtract(thumb,index));
+      // The case is 1.2 cm across. A lost/changed finger pose must fail
+      // closed instead of placing a round inside an unrelated hand state.
+      if(!Finite(thumb)||!Finite(index)||!std::isfinite(gap)||gap<.6F||gap>1.8F)return false;
+      world=Scale(Add(thumb,index),.5F);
+      return Finite(world);
   }
 bool CoJHandOverlay::ReadReloadFingerObservation(CoJReloadFingerObservation& out,
     void* context, CoJElementRead read) const noexcept {
@@ -953,6 +970,7 @@ bool CoJHandOverlay::Restore(const cojvr::runtime::Vec3 actor, void* context,
     if (!ok) { faulted_=true;return false; }
     active_=false;
     fingers_active_=false;
+    finger_hand_=-1;
     return true;
 }
 

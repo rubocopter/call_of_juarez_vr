@@ -536,6 +536,7 @@ private:
     bool active_ = false;
     bool faulted_ = false;
     bool fingers_active_ = false;
+    int finger_hand_ = -1;
 };
 
 [[nodiscard]] ArmElementFramePlan BuildArmElementFramePlan(

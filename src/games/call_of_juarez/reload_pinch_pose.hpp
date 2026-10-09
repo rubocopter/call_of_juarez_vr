@@ -44,12 +44,13 @@ struct CoJReloadPinchInput {
         return false;
     }
 
-    // Interpolate the established exact-game authored rest/fist quaternions.
-    // These values are an approximate thumb/index pinch, pending visor tuning.
+    // Offline Ray skin measurements place the thumb/index pads about 1.1 cm
+    // apart at .7/.7, close to the imported .357 case's 1.2 cm diameter.
+    // The grip and contact still require physical headset validation.
     runtime::FingerTrackingState pinch{};
     pinch.available=true;
     pinch.quality=runtime::FingerTrackingQuality::estimated;
-    pinch.curls={.62F,.55F,.88F,.88F,.82F};
+    pinch.curls={.7F,.7F,.88F,.88F,.82F};
     (input.cartridge_hand==0?right:left)=pinch;
     return true;
 }

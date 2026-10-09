@@ -63,11 +63,28 @@ bool FingerChecks(){
         curls.available=false;if(!invalid())return false;curls.available=true;
         curls.quality=cojvr::runtime::FingerTrackingQuality::unavailable;if(!invalid())return false;curls.quality=cojvr::runtime::FingerTrackingQuality::partial;
         auto bad=rest;bad[15].frame.forward.x=std::numeric_limits<float>::quiet_NaN();if(BuildCoJFingerTargets(hand,bad,rigid,curls,out))return false;
+        // A carried .357 uses an offline-measured skin-pad contact reference,
+        // not the midpoint of the distal joint origins. These two hand-local
+        // measurements come from the exact native Ray mesh at the held pose.
+        curls.curls={.7F,.7F,.88F,.88F,.82F};
         Fixture f;f.frames=rest;CoJHandOverlay overlay;
         if(!overlay.Apply(rest,rest[3].frame,tracked,{10,0,0},&f,Fixture::Read,Fixture::Write,&curls,hand)||
             !overlay.fingers_active()||!overlay.Verify(&f,Fixture::Read))return false;
         cojvr::runtime::Vec3 anchor{};
         if(!overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
+        const ElementWorldBasisTarget local_identity{{},{0,1,0},{0,0,1},true};
+        const auto contact_local=TransformWeaponElementFrame(f.frames[3].frame,local_identity,
+            {anchor,{0,1,0},{0,0,1},true});
+        const cojvr::runtime::Vec3 measured=hand==1?
+            cojvr::runtime::Vec3{8.9962F,-2.1477F,-4.6588F}:
+            cojvr::runtime::Vec3{8.6320F,2.8312F,-3.6611F};
+        const auto within=[](float a,float b){return std::fabs(a-b)<.08F;};
+        if(!contact_local.valid || !within(contact_local.position.x,measured.x) ||
+           !within(contact_local.position.y,measured.y) ||
+           !within(contact_local.position.z,measured.z)){
+            std::cerr<<"Held-round anchor differs from measured native finger skin\n";
+            return false;
+        }
         const int writes_before_observation=f.writes;
         CoJReloadFingerObservation contact{};
         if(!overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||!contact.valid||
@@ -82,8 +99,9 @@ bool FingerChecks(){
                 std::cerr<<"Reload finger observation mixed native/displayed or world/hand-local frames\n";return false;}
         }
         const auto a=f.frames[6].frame.position,b=f.frames[9].frame.position;
-        if(!Close(anchor.x,(a.x+b.x)*.5F)||!Close(anchor.y,(a.y+b.y)*.5F)||
-           !Close(anchor.z,(a.z+b.z)*.5F))return false;
+        if(std::fabs(anchor.x-(a.x+b.x)*.5F)<.3F &&
+           std::fabs(anchor.y-(a.y+b.y)*.5F)<.3F &&
+           std::fabs(anchor.z-(a.z+b.z)*.5F)<.3F)return false;
         const auto prior=f.frames[6].frame;
         f.frames[6].frame.position.x+=1;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
@@ -103,11 +121,13 @@ bool FingerChecks(){
         f.fail_restore=true;
         if(retry.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||!retry.active()||!retry.faulted()||
             retry.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand))return false;
+        if(retry.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
         if(retry.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid)return false;
         f.fail_restore=false;if(!retry.Restore({20,0,0},&f,Fixture::Read,Fixture::Write))return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=10;if(!FrameClose(f.frames[i].frame,expected))return false;}
         curls.available=false;f.frames=rest;CoJHandOverlay unavailable;
         if(!unavailable.Apply(rest,rest[3].frame,tracked,{},&f,Fixture::Read,Fixture::Write,&curls,hand)||unavailable.fingers_active()||
+            unavailable.ReadPinchAnchor(anchor,&f,Fixture::Read)||
             unavailable.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid||
             !unavailable.Restore({},&f,Fixture::Read,Fixture::Write))return false;curls.available=true;
     }
