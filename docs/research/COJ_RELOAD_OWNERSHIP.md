@@ -684,8 +684,11 @@ The ordinary empty-hand gate rejects the reload's temporary two-hand animation
 occupancy, even though the existing reload-recovery reader already distinguishes
 it from an actual carried object.
 
-The correction is **implemented and host-tested**, with no fresh live/visor
-acceptance. A bridge-owned manual opening/wait admits support fingers only after
+The ownership correction has **host tests and bounded live delivery evidence**:
+subsequent capture events report the estimated pinch applied and the full .44
+geometry captured, while the operator still rejects the cartridge's appearance.
+These events establish neither pixel quality nor finger-pad contact. A
+bridge-owned manual opening/wait admits support fingers only after
 matching native recovery and probe observations for the same weapon/armed hand.
 Failed observation, foreign equipment, carrying, death and armed-hand requests
 remain rejected. The pinch requires a held physical trigger claim; waiting with
@@ -702,8 +705,10 @@ observation. The accepted grip insertion gesture and native ammo are unchanged.
 The source reference is Pichuliru's [CC0 Flat Ammunition](https://opengameart.org/content/cc0-flat-ammunition)
 (2022), `OBJ/Loose Ammo/44 Magnum.obj`: the inspected 122 vertices / 224
 triangles have bounds X,Z +/-0.00653 m and Y -0.010396 to +0.030494 m.
-The current manual visual retains all **122 source positions / 224 triangles**,
-with a right-handed OBJ-axis conversion and authored brass/copper/primer colors.
+The prior manual visual retained all **122 source positions / 224 triangles**,
+with a right-handed OBJ-axis conversion and the same brass/copper/primer swatches
+as the proxy. The source changed, but the material presentation remained flat;
+the full-mesh candidate was also physically rejected for appearance.
 The checked-in CC0 OBJ and generated runtime arrays are bound by source SHA-256
 and a deterministic bake check. Attribution/license and regeneration instructions
 are in [assets/models](../../assets/models/README.md). The old six-sided proxy
@@ -714,13 +719,23 @@ binocular front/side/rear pixels and suppress malformed optional geometry withou
 losing the rest of the HUD. It does not read game scene depth, create an engine
 ammunition object or establish visually correct contact. The source nose centre
 retains the exported local Z -0.0475 m offset; the manual attachment translates
-the complete visual around the displayed joint midpoint. No third-party texture
-or proprietary game asset is embedded.
+the complete visual around the displayed joint midpoint. No proprietary game
+asset is embedded.
 
-Also examined as a possible source: [Revolver Game Asset](https://opengameart.org/content/revolver-game-asset)
-by loafbrr_1 (CC0, 2021), whose downloaded archive includes `.357` FBX meshes
-and a textured `RevolverAmmo.gltf`. These alternatives are not loaded by the active
-renderer. The imported .44 geometry is not a verified historical/calibre match to
-the in-game revolver. No proprietary game asset may be committed or distributed.
-True scene-depth occlusion, visual finger fit and physical headset acceptance
-remain open.
+The current correction uses [Revolver Game Asset](https://opengameart.org/content/revolver-game-asset)
+by loafbrr_1 (CC0, 2021): only the loose `357Bullet` node from
+`RevolverAmmo.gltf`, 83 positions / 92 triangles. A SHA-256-pinned offline bake
+retains source normals and UVs with a cropped 128x160 albedo. Other scene nodes,
+rigs and original placements do not enter the runtime. The renderer adapts the
+orange case palette to brass and adds authored head-space preview light/reflection;
+these are not native environment light or complete PBR. Source normal/roughness
+maps are not used. There is no runtime glTF parsing or asset-file dependency.
+
+This material correction is **implemented and host-tested**, without live/visor
+acceptance. WARP front/side/rear draws produce binocular pixels, distinguish
+lead/brass colors and reject corrupted optional UVs/normals in both eyes. Optional
+reference-image output uses the actual compositor; it is not a headset capture.
+The old proxy retains its separate raster/cache; the accepted grip insertion,
+native ammunition and scoped joint anchor are unchanged. Neither imported model
+is a demonstrated historical/calibre match. Scene-depth occlusion, native lighting,
+visual finger fit and physical acceptance remain open.

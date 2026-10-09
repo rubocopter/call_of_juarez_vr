@@ -260,8 +260,12 @@ curl sample exists. The estimated cartridge pinch requires a physical trigger
 claim and held round, not merely an open weapon or a replenished available token.
 Curl zero means authored rest, not maximum opening.
 
-The manual cartridge uses the full third-party CC0 .44 Magnum OBJ (122 positions,
-224 triangles), baked into bounded runtime geometry with authored colors. It is
+The manual cartridge uses one loose .357 node from a third-party CC0 glTF (83
+positions, 92 triangles), baked with source normals/UVs and a cropped 128x160
+albedo. There is no runtime glTF parser or filesystem asset load. A renderer-owned
+material adapts the orange case palette to brass and uses authored head-space
+preview lights/reflection; it does not sample native environment lighting. The
+prior full .44 OBJ with placeholder swatches was physically rejected. Geometry is
 captured with the stereo pair and batched into one compositor draw per eye. Its
 centre follows the midpoint of verified displayed distal thumb/index joint frames,
 converted from native centimetres into tracking metres. This is an attachment
@@ -269,6 +273,8 @@ reference, not measured finger-pad contact. Missing or unrestored hand/weapon
 presentation hides the manual cartridge. Native ammunition and the existing grip
 insertion gesture are unchanged. Scene-depth occlusion and physical visual fit
 remain pending; asset provenance is in [assets/models](../assets/models/README.md).
+Captured UVs/normals and asset/bake identities fail closed independently of the
+essential HUD. Legacy gestures keep their original proxy material/cache.
 
 ## Weapon ownership
 

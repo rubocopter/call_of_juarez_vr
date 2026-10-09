@@ -23,9 +23,13 @@ host-tested, while broader physical recovery and prolonged comfort remain open.
 Zone-entry feedback, insertion sound and direct loading of a native-game cartridge
 mesh remain pending. The first CC0-inspired 16-surface visual and pinch integration
 were physically rejected for appearance/contact and native loading-pose takeover.
-The corrective candidate is **implemented and host-tested**, awaiting a fresh
-headset run: full CC0 .44 Magnum OBJ geometry, authored colors, bounded per-eye
-batching and attachment to verified displayed distal thumb/index joints. A scoped
+The later full .44 OBJ also failed its physical appearance gate: capture events
+identify the imported geometry, but it still used the placeholder color swatches.
+The current correction is **implemented and host-tested**, awaiting a fresh
+headset run: one textured CC0 .357 glTF cartridge with source UVs/normals, a cropped
+albedo and authored metal shading, bounded per-eye batching and attachment to
+verified displayed distal thumb/index joints. Native scene depth remains absent.
+A scoped
 same-owner manual-recovery exception admits the support finger overlay; the
 pinch requires an actually held trigger claim. While waiting without a round,
 normal/rest fingers replace the native loading pose. Armed-hand and ammunition
