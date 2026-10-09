@@ -1,6 +1,9 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
+#include "games/call_of_juarez/reload_trace.hpp"
 #include <array>
 #include <cstddef>
+#include <cmath>
+#include <cstring>
 #if defined(_WIN32)
 #define COJ_RELOAD_JNICALL __stdcall
 #else
@@ -311,5 +314,172 @@ bool ReadCoJMotionReloadOwner(void* env, void* player, CoJMotionReloadOwner& out
 bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player, CoJMotionReloadOwner& out,
     CoJMotionReloadDiagnostic* diagnostic) noexcept {
     return ReadCoJReloadOwner(env, player, out, diagnostic, true);
+}
+bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
+    const bool include_wait_probe) noexcept {
+    out = {};
+    if (!env || !player || !*static_cast<void***>(env)) return false;
+    constexpr int required[]{6,15,17,23,24,31,33,36,39,51,57,94,95,100,102};
+    for (int i : required) if (!(*static_cast<void***>(env))[i]) return false;
+    if (!Clean(env)) return false;
+    using CallFloat = float(COJ_RELOAD_JNICALL*)(void*,void*,void*,const Value*);
+    using GetField = void*(COJ_RELOAD_JNICALL*)(void*,void*,void*);
+    using GetInt = std::int32_t(COJ_RELOAD_JNICALL*)(void*,void*,void*);
+    using GetFloat = float(COJ_RELOAD_JNICALL*)(void*,void*,void*);
+    Locals locals{env};
+    bool ok = true;
+    const auto type = [&](void* object) {
+        void* result = locals.Keep(Fn<Class>(env,31)(env,object));
+        ok = Clean(env) && result; return result;
+    };
+    const auto method = [&](void* cls, const char* name, const char* descriptor) {
+        if (!ok) return static_cast<void*>(nullptr);
+        void* result = Fn<Method>(env,33)(env,cls,name,descriptor);
+        ok = Clean(env) && result; return result;
+    };
+    const auto same = [&](void* a, void* b) {
+        if (!ok) return false;
+        const bool equal = Fn<Same>(env,24)(env,a,b) != 0;
+        ok = Clean(env); return ok && equal;
+    };
+    const auto object = [&](void* owner, void* id, const Value* arg) {
+        if (!ok) return static_cast<void*>(nullptr);
+        void* result = locals.Keep(Fn<Object>(env,36)(env,owner,id,arg));
+        ok = Clean(env); return result;
+    };
+    const auto integer = [&](void* owner, void* id, const Value* arg) {
+        if (!ok) return 0;
+        const int result = Fn<Integer>(env,51)(env,owner,id,arg);
+        ok = Clean(env); return result;
+    };
+    const auto field = [&](void* cls, const char* name, const char* descriptor) {
+        if (!ok) return static_cast<void*>(nullptr);
+        void* result = Fn<Method>(env,94)(env,cls,name,descriptor);
+        ok = Clean(env) && result; return result;
+    };
+    const auto real_field = [&](void* owner, void* cls, const char* name) {
+        void* id = field(cls,name,"F");
+        if (!ok) return 0.F;
+        const float result = Fn<GetFloat>(env,102)(env,owner,id);
+        ok = Clean(env) && std::isfinite(result); return result;
+    };
+    void* player_type = type(player);
+    if (!ok) return false;
+    std::array<void*,3> weapon_methods{};
+    for (int i=0;i<3;++i) weapon_methods[i]=method(player_type,getters[i].name,getters[i].signature);
+    std::array<std::array<void*,3>,2> weapons{};
+    for (int h=0;h<2;++h) {
+        Value arg{.integer=h};
+        for (int i=0;i<3;++i) weapons[h][i]=object(player,weapon_methods[i],&arg);
+    }
+    if (!ok || (weapons[0][0]!=nullptr)==(weapons[1][0]!=nullptr)) return false;
+    const int armed = weapons[0][0] ? 0 : 1;
+    void* weapon = weapons[armed][0];
+    for (int i=0;i<3;++i)
+        if (weapons[1-armed][i] || !same(weapon,weapons[armed][i])) return false;
+    void* weapon_type = type(weapon);
+    if (!ok) return false;
+    bool recognized = false;
+    for (const char* name : {"WeaponPistolPeacemaker","WeaponPistolFrontier1878_Regular"}) {
+        void* cls = locals.Keep(Fn<Find>(env,6)(env,name));
+        if (!Clean(env) || !cls) return false;
+        const bool matches = same(weapon_type,cls);
+        if (!ok) return false;
+        recognized |= matches;
+    }
+    if (!recognized) return false;
+    void* owner_id = field(weapon_type,"cOwner","LPawnInventory;");
+    if (!ok) return false;
+    void* owner = locals.Keep(Fn<GetField>(env,95)(env,weapon,owner_id));
+    if (!Clean(env) || !same(owner,player)) return false;
+    void* id_method = method(weapon_type,"GetThisID","()I");
+    const int identity = integer(weapon,id_method,nullptr);
+    if (!ok || identity<=0) return false;
+    CoJReloadTraceSnapshot value{};
+    value.armed_hand=armed; value.weapon_id=static_cast<std::uint32_t>(identity);
+    std::array<void*,4> state_methods{};
+    for (int i=0;i<4;++i) state_methods[i]=method(player_type,getters[3+i].name,"(I)I");
+    void* machine_method = method(player_type,"GetHandStateMashine","(I)LPlayerStateMashine;");
+    for (int h=0;h<2;++h) {
+        Value arg{.integer=h};
+        for (int i=0;i<4;++i) value.states[h][i]=integer(player,state_methods[i],&arg);
+        void* machine = object(player,machine_method,&arg);
+        if (!ok || !machine) return false;
+        void* cls = type(machine);
+        void* animation = field(cls,"m_iAnimID0","I");
+        if (!ok) return false;
+        value.animation_id[h]=Fn<GetInt>(env,100)(env,machine,animation);
+        if (!Clean(env)) return false;
+        value.current_time[h]=real_field(machine,cls,"m_fCurrentTime");
+        value.start_time[h]=real_field(machine,cls,"m_fTime0");
+        value.play_time[h]=real_field(machine,cls,"m_fPlayTime");
+        value.duration[h]=real_field(machine,cls,"m_fDuration");
+        for (int i=0;i<2;++i) {
+            void* advance = method(cls,i==0?"GetMinAnimAdvance":"GetMaxAnimAdvance","()F");
+            if (!ok) return false;
+            const float result = Fn<CallFloat>(env,57)(env,machine,advance,nullptr);
+            if (!Clean(env) || !std::isfinite(result) || result<0.F || result>1.F) return false;
+            (i==0?value.min_advance[h]:value.max_advance[h])=result;
+        }
+    }
+    void* ammo_method = method(weapon_type,"GetAmmoCount","(I)I");
+    Value slot{.integer=0};
+    value.ammo_readback=integer(weapon,ammo_method,&slot);
+    void* reserve = field(player_type,"nAmmoPistol","I");
+    if (!ok) return false;
+    value.pistol_reserve=Fn<GetInt>(env,100)(env,player,reserve);
+    if (!Clean(env) || value.ammo_readback<0 || value.pistol_reserve<0) return false;
+    value.drum_phase=real_field(weapon,weapon_type,"m_fRotate");
+    void* reload = method(player_type,"IsWeaponReloading","()Z");
+    if (!ok) return false;
+    value.reloading=Fn<Boolean>(env,39)(env,player,reload,nullptr)!=0;
+    if (!Clean(env)) return false;
+    if (include_wait_probe) {
+        void* status = field(player_type,"cojvrReloadProbeStatus","I");
+        if (!ok) return false;
+        value.probe_status=Fn<GetInt>(env,100)(env,player,status);
+        if (!Clean(env) || value.probe_status<0 || value.probe_status>4) return false;
+        value.probe_until=real_field(player,player_type,"cojvrReloadProbeUntil");
+        if (!ok) return false;
+        value.probe_valid=true;
+    }
+    // Observation must never publish values against a replacement weapon.
+    Value hand{.integer=armed};
+    for (void* getter : weapon_methods)
+        if (!same(weapon,object(player,getter,&hand))) return false;
+    if (!ok || integer(weapon,id_method,nullptr)!=identity || !ok) return false;
+    value.valid=true; out=value; return true;
+}
+CoJReloadTraceEvent CoJReloadTraceEvents::Update(bool enabled, const CoJReloadTraceSample& sample) noexcept {
+    if (!enabled) { Reset(); return {}; }
+    if (have_ && sample.sequence<previous_.sequence) {
+        Reset();
+        return {};
+    }
+    // Native dispatch can acquire blocking UI within this same captured frame.
+    // Permit that terminal loss once; duplicate polls cannot replay requests.
+    if (have_ && sample.sequence==previous_.sequence &&
+        !(previous_.allowed && !sample.allowed)) return {};
+    const bool comparable = have_ && previous_.allowed && sample.allowed &&
+        previous_.native.valid && sample.native.valid && previous_.player==sample.player &&
+        previous_.context==sample.context && previous_.native.weapon_id==sample.native.weapon_id &&
+        previous_.native.armed_hand==sample.native.armed_hand;
+    const bool changed = !have_ || previous_.allowed!=sample.allowed ||
+        previous_.manual_session!=sample.manual_session ||
+        previous_.vr_presentation_requested!=sample.vr_presentation_requested ||
+        previous_.player!=sample.player || previous_.context!=sample.context ||
+        previous_.gesture!=sample.gesture || previous_.cartridge!=sample.cartridge ||
+        previous_.in_zone!=sample.in_zone || previous_.native.valid!=sample.native.valid ||
+        std::strcmp(previous_.reason?previous_.reason:"unknown",sample.reason?sample.reason:"unknown")!=0 ||
+        (sample.native.valid && (previous_.native.weapon_id!=sample.native.weapon_id ||
+        previous_.native.armed_hand!=sample.native.armed_hand || previous_.native.states!=sample.native.states ||
+        previous_.native.animation_id!=sample.native.animation_id || previous_.native.reloading!=sample.native.reloading ||
+        previous_.native.ammo_readback!=sample.native.ammo_readback ||
+        previous_.native.probe_valid!=sample.native.probe_valid ||
+        previous_.native.probe_status!=sample.native.probe_status ||
+        previous_.native.pistol_reserve!=sample.native.pistol_reserve));
+    const bool request_edge=sample.request && (!have_ || !previous_.request);
+    CoJReloadTraceEvent event{changed || request_edge,comparable,previous_,sample};
+    previous_=sample; have_=true; return event;
 }
 }

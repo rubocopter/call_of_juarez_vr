@@ -68,6 +68,9 @@ struct CameraProbeCommand {
     // Diagnostic controls are opt-in and preserve the production path when
     // omitted from the control file.
     bool movement_trace_enabled = false;
+    bool reload_trace_enabled = false;
+    bool reload_wait_probe_installed = false; // Archive identity marker; observation only.
+    bool manual_reload_installed = false; // Explicit exact archive variant; default off.
     std::string movement_trace_phase = "off";
     bool vr_gameplay_input_enabled = true;
     bool capture_readback_enabled = true;
@@ -330,6 +333,8 @@ struct CameraStereoRuntimeCallbacks {
         CameraStereoDiagnosticCounters& counters) noexcept = nullptr;
     void (*observe_hud_boundary)(void* context, const CoJHudBoundaryEvent& event,
         std::uint64_t frame_sequence) noexcept = nullptr;
+    // Latest observed reload-owner epoch; 0 invalidates queued optional feedback.
+    void (*publish_reload_feedback_owner)(void* context, std::uint64_t token) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

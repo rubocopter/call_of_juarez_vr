@@ -96,11 +96,29 @@ int main() {
             command, &error) ||
         !command.enabled || !command.override_fov || !Near(command.fov_degrees, 110.0F) ||
         !Near(command.yaw_degrees, 30.0F) || !Near(command.pitch_degrees, -10.0F) ||
-        command.movement_trace_enabled || command.movement_trace_phase != "off" ||
+        command.movement_trace_enabled || command.reload_trace_enabled || command.reload_wait_probe_installed || command.movement_trace_phase != "off" ||
         !command.vr_gameplay_input_enabled || !command.capture_readback_enabled ||
         !command.second_eye_render_enabled) {
         std::cerr << "valid control command was not parsed: " << error << '\n';
         return 1;
+    }
+
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"reloadTraceEnabled":true})", command, &error) ||
+        !command.reload_trace_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"reloadTraceEnabled":1})", command, &error)) {
+        std::cerr << "reload trace opt-in/type validation failed\n";
+        return 1;
+    }
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"reloadWaitProbeInstalled":true})", command, &error) ||
+        !command.reload_wait_probe_installed ||
+        ParseCameraProbeCommand(R"({"enabled":false,"reloadWaitProbeInstalled":1})", command, &error)) {
+        std::cerr << "reload wait probe marker/type validation failed\n";
+        return 1;
+    }
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"manualReloadInstalled":true})", command, &error) ||
+        !command.manual_reload_installed ||
+        ParseCameraProbeCommand(R"({"enabled":false,"manualReloadInstalled":1})", command, &error)) {
+        std::cerr << "manual reload marker invalid\n"; return 1;
     }
 
     if (ParseCameraProbeCommand(R"({"enabled":true,"fovDegrees":200})", command, &error) ||

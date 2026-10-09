@@ -7,6 +7,7 @@
 #include "games/call_of_juarez/focus_zoom.hpp"
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_geometry.hpp"
+#include "games/call_of_juarez/reload_trace.hpp"
 #include "games/call_of_juarez/interaction_selection.hpp"
 
 #include <array>
@@ -359,6 +360,13 @@ public:
     [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
+        bool include_wait_probe = false) noexcept;
+    // Only the explicitly staged manual derivative has these exact helpers.
+    void NoteManualReloadRequest() noexcept { manual_reload_owned_=true; }
+    [[nodiscard]] bool TryKeepManualReloadAlive(std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool CancelManualReload(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveNativeReloadRecoveryOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveInteractionSelection(CoJInteractionSelection& selection) noexcept;
@@ -373,10 +381,11 @@ public:
     // No owned pending publication is a successful no-op without JNI work.
     // Failed publication/cancellation remains owned until a null write succeeds.
     [[nodiscard]] bool ClearSingleRoundReload(std::string* error = nullptr) noexcept;
-    // Read-only displayed-frame observation for exact reload-model research.
+    // Read-only observed native frames (before any scoped weapon/hand writes) or
+    // displayed overlay frames. Source is mandatory; never mix baselines.
     // Never admits a physical socket, changes a gate or owns ammunition.
     [[nodiscard]] bool TryObserveReloadGeometry(int hand, CoJReloadGeometrySnapshot& geometry,
-        std::string* error = nullptr) noexcept;
+        CoJReloadGeometrySource source, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;
@@ -531,6 +540,8 @@ private:
     void ClearBeing(void* env) noexcept;
     [[nodiscard]] bool ClearSingleRoundReloadField(void* env, std::string* error) noexcept;
     bool single_round_reload_pending_ = false;
+    bool manual_reload_owned_ = false;
+    [[nodiscard]] bool CallManualReloadBoolean(const char* name,bool& result,std::string* error) noexcept;
 
     [[nodiscard]] bool ReadObjectElementFrame(
         void* object, int element, JavaPlayerPosition& position,

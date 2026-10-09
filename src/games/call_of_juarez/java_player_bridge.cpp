@@ -600,6 +600,7 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 }
 
 void JavaPlayerBridge::Reset() noexcept {
+    if (!CancelManualReload()) return;
     if (single_round_reload_pending_ && !ClearSingleRoundReload()) return;
     // A pending failed transaction still owns JNI references and restore data.
     // Do not erase its bindings even if the JVM cannot be reached right now.
@@ -1266,6 +1267,78 @@ bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         return false;
     }
     return ReadCoJMotionReloadOwner(Environment(nullptr),being_,owner,diagnostic);
+}
+
+bool JavaPlayerBridge::TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
+    const bool include_wait_probe) noexcept {
+    trace={};
+    if (!being_) return false;
+    const auto player=being_;
+    const auto generation=being_generation_;
+    const bool observed=ReadCoJReloadTrace(Environment(nullptr),player,trace,include_wait_probe);
+    if (player!=being_ || generation!=being_generation_) { trace={}; return false; }
+    return observed;
+}
+
+bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error) noexcept {
+    result=false;
+    if(!being_)return false;
+    void* env=Environment(error);
+    constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
+        kGetObjectClass,kGetMethodId,kCallBooleanMethodA};
+    for(auto slot:required)if(!EnvFunction<void*>(env,slot)){
+        SetError(error,"required manual reload JNI functions are unavailable");return false;
+    }
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto call=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual reload entry"))return false;
+    void* cls=cls_fn(env,being_);
+    if(ClearException(env,error,"manual reload class")||!cls){DeleteLocal(env,cls);return false;}
+    void* method=lookup(env,cls,name,"()Z");
+    const bool failed=ClearException(env,error,"manual reload helper unavailable")||!method;
+    DeleteLocal(env,cls);if(failed)return false;
+    result=call(env,being_,method,nullptr)!=0;
+    return !ClearException(env,error,"manual reload helper failed");
+}
+
+bool JavaPlayerBridge::TryKeepManualReloadAlive(std::string* error) noexcept {
+    bool valid=false;
+    const bool read=CallManualReloadBoolean("cojvrKeepManualReloadAlive",valid,error);
+    if(read&&valid)manual_reload_owned_=true;
+    return read&&valid;
+}
+
+bool JavaPlayerBridge::TryInsertManualRound(bool& accepted,std::string* error) noexcept {
+    accepted=false;
+    return manual_reload_owned_&&CallManualReloadBoolean("cojvrInsertManualRound",accepted,error);
+}
+
+bool JavaPlayerBridge::CancelManualReload(std::string* error) noexcept {
+    if(!manual_reload_owned_)return true;
+    if(!being_)return false;
+    // Closing runs native Set/Clear callbacks and may replace the skin/attachment.
+    // Never restore an old VR capture over that new native state. A failed
+    // restore retains its owner; stop supervision and leave the native watchdog.
+    if(!RestoreTrackedHands(error)||!RestoreTrackedWeapons(error))return false;
+    void* env=Environment(error);
+    constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
+        kGetObjectClass,kGetMethodId,kCallVoidMethodA};
+    for(auto slot:required)if(!EnvFunction<void*>(env,slot)){
+        SetError(error,"required manual cancel JNI functions are unavailable");return false;
+    }
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto call=EnvFunction<CallVoidMethodAFn>(env,kCallVoidMethodA);
+    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual cancel entry"))return false;
+    void* cls=cls_fn(env,being_);
+    if(ClearException(env,error,"manual cancel class")||!cls){DeleteLocal(env,cls);return false;}
+    void* method=lookup(env,cls,"cojvrCancelReloadProbe","()V");
+    const bool failed=ClearException(env,error,"manual cancel helper unavailable")||!method;
+    DeleteLocal(env,cls);if(failed)return false;
+    call(env,being_,method,nullptr);
+    if(ClearException(env,error,"manual cancel failed"))return false;
+    manual_reload_owned_=false;return true;
 }
 
 bool JavaPlayerBridge::TryObserveNativeReloadRecoveryOwner(CoJMotionReloadOwner& owner,
@@ -2081,11 +2154,18 @@ bool JavaPlayerBridge::TryPrepareTrackedWeapon(
 }
 
 bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
-    CoJReloadGeometrySnapshot& geometry, std::string* error) noexcept {
+    CoJReloadGeometrySnapshot& geometry, const CoJReloadGeometrySource source,
+    std::string* error) noexcept {
     geometry={};
     if(hand<0 || hand>1 || !being_)return false;
     const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
-    if(!overlay.applied || !overlay.weapon || !overlay.active)return false;
+    if(!overlay.weapon || !overlay.active ||
+        (source==CoJReloadGeometrySource::pre_native && overlay.applied) ||
+        (source==CoJReloadGeometrySource::post_overlay && !overlay.applied) ||
+        source==CoJReloadGeometrySource::unknown)return false;
+    const auto& frames=source==CoJReloadGeometrySource::pre_native?overlay.natural:overlay.targets;
+    if(frames.empty() || overlay.barrel_element<0 ||
+        static_cast<std::size_t>(overlay.barrel_element)>=frames.size())return false;
     void* env=Environment(error);
     if(!env)return false;
     const char* class_name=nullptr;
@@ -2117,6 +2197,19 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     void* id_method=method_fn(env,cls,"GetElementID","(Ljava/lang/String;)I");
     failed=ClearException(env,error,"reload geometry element lookup") || !id_method;
     DeleteLocal(env,cls);if(failed)return false;
+    const auto read_frame=[&](const int index,ElementWorldBasisTarget& frame) noexcept {
+        if(index<0 || static_cast<std::size_t>(index)>=frames.size())return false;
+        const auto& target=frames[static_cast<std::size_t>(index)];
+        if(!target.valid)return false;
+        if(source==CoJReloadGeometrySource::pre_native){frame=target;return true;}
+        JavaPlayerPosition p{},u{},f{};
+        if(!ReadObjectElementFrame(overlay.weapon,index,p,u,f,error))return false;
+        frame={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};
+        const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float epsilon){return
+            std::abs(a.x-b.x)<=epsilon && std::abs(a.y-b.y)<=epsilon && std::abs(a.z-b.z)<=epsilon;};
+        return close(frame.position,target.position,.1F) &&
+            close(frame.up,target.up,.001F) && close(frame.forward,target.forward,.001F);
+    };
     const auto read=[&](const char* element_name,ElementWorldBasisTarget& frame) noexcept {
         void* text=string_fn(env,element_name);
         if(ClearException(env,error,"reload geometry element name") || !text){DeleteLocal(env,text);return false;}
@@ -2124,20 +2217,18 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
         const int index=int_fn(env,overlay.weapon,id_method,args);
         const bool bad=ClearException(env,error,"reload geometry element id");
         DeleteLocal(env,text);
-        if(bad || index<0 || static_cast<std::size_t>(index)>=overlay.targets.size())return false;
-        JavaPlayerPosition p{},u{},f{};
-        if(!ReadObjectElementFrame(overlay.weapon,index,p,u,f,error))return false;
-        frame={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};
-        const auto& target=overlay.targets[static_cast<std::size_t>(index)];
-        const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float epsilon){return
-            std::abs(a.x-b.x)<=epsilon && std::abs(a.y-b.y)<=epsilon && std::abs(a.z-b.z)<=epsilon;};
-        return target.valid && close(frame.position,target.position,.1F) &&
-            close(frame.up,target.up,.001F) && close(frame.forward,target.forward,.001F);
+        return !bad && read_frame(index,frame);
     };
-    CoJReloadGeometrySnapshot observed{};observed.model=model;
-    if(!read(model==CoJReloadModel::peacemaker?"ColtDrum":"GunDrum",observed.drum) ||
+    CoJReloadGeometrySnapshot observed{};observed.model=model;observed.source=source;
+    if(!read_frame(0,observed.root) ||
+        !read_frame(overlay.barrel_element,observed.barrel) ||
+        !read(model==CoJReloadModel::peacemaker?"ColtDrum":"GunDrum",observed.drum) ||
         !read(model==CoJReloadModel::peacemaker?"ColtLock":"GunLoader",observed.gate) ||
-        !BuildCoJReloadMouthFrames(model,observed.drum,observed.mouths))return false;
+        !BuildCoJReloadMouthFrames(model,observed.drum,observed.mouths) ||
+        !BuildCoJReloadLocalFrame(observed.root,observed.gate,observed.gate_root) ||
+        !BuildCoJReloadLocalFrame(observed.root,observed.drum,observed.drum_root) ||
+        !BuildCoJReloadLocalFrame(observed.barrel,observed.gate,observed.gate_barrel) ||
+        !BuildCoJReloadLocalFrame(observed.barrel,observed.drum,observed.drum_barrel))return false;
     // Named-element reads must not publish a snapshot belonging to a weapon
     // replaced during JNI observation. This remains observation, not admission.
     actual=object_fn(env,being_,actual_method,hand_arg);
@@ -2601,6 +2692,7 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
     std::string* error, const CoJInputDispatchPhase phase) noexcept {
+    if (!state.active && !CancelManualReload(error)) return false;
     if (!state.active && single_round_reload_pending_ && !ClearSingleRoundReload(error)) return false;
     float snap_turn_degrees=0.0F;
     if (phase!=CoJInputDispatchPhase::fire && phase!=CoJInputDispatchPhase::shoulder) {
@@ -4244,7 +4336,7 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     hud_text_sample_tick_ = 0;
     hud_text_sample_valid_ = false;
     // Keep the captured actor and its method bindings until restoration succeeds.
-    if (!RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
+    if (!CancelManualReload() || !RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
     if (being_) {
         (void)TryPublishInteractionRay({}, {}, false);
         (void)TryPublishWeaponRay(0, {}, {}, false);
@@ -4398,7 +4490,7 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* global_being = new_global(env, local_being);
     if (!global_being || ClearException(env, error, "NewGlobalRef(player being) failed")) return false;
 
-    if ((single_round_reload_pending_ && !ClearSingleRoundReloadField(env,error)) ||
+    if (!CancelManualReload(error) || (single_round_reload_pending_ && !ClearSingleRoundReloadField(env,error)) ||
         !RestoreTrackedHands(error) || !RestoreTrackedWeapons(error) || !ClearTrackedWhip(true,error)) {
         if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,global_being);
         return false;

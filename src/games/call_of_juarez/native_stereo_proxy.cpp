@@ -1533,6 +1533,11 @@ bool CaptureStereoEye(
     return captured;
 }
 
+void PublishReloadFeedbackOwner(void* context, std::uint64_t token) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (state) state->presenter.PublishReloadFeedbackOwner(token);
+}
+
 bool SubmitStereoFrame(
     void* context,
     const std::uint64_t frame_sequence,
@@ -1833,6 +1838,7 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.set_capture_readback_enabled = &SetCaptureReadbackEnabled;
                 stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
                 stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
+                stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
             }
 
             const auto control_path = GameDirectory() / L"cojvr-camera-control.json";

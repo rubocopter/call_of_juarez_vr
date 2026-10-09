@@ -234,6 +234,85 @@ int ArmCheck(JavaPlayerBridge& bridge, bool expected, int hand = 0) {
 }
 }
 namespace {
+bool manual_result=true;
+int manual_calls=0, manual_cancels=0;
+JavaPlayerBridge* manual_scoped_owner=nullptr;
+void* JNI_CALL ManualLookup(void* env,void* cls,const char* name,const char* signature){
+    if(std::string_view(name).starts_with("cojvr")){
+        if(Fail()||(fail_lookup&&!std::strcmp(name,fail_lookup))){pending=!null_failure;return nullptr;}
+        Require(!std::strcmp(signature,!std::strcmp(name,"cojvrCancelReloadProbe")?"()V":"()Z"),"wrong manual descriptor");
+        return const_cast<char*>(name);
+    }
+    return TicketLookup(env,cls,name,signature);
+}
+std::uint8_t JNI_CALL ManualBoolean(void* env,void* object,void* method,const Value* args){
+    if(!std::string_view(static_cast<char*>(method)).starts_with("cojvr"))return Boolean(env,object,method,args);
+    Require(object==&player&&!args,"manual helper has wrong owner/arguments");
+    if(Fail())return 0;
+    ++manual_calls;return manual_result;
+}
+void JNI_CALL ManualVoid(void*,void* object,void* method,const Value* args){
+    Require(object==&player&&!args&&!std::strcmp(static_cast<char*>(method),"cojvrCancelReloadProbe"),"wrong manual cancel call");
+    if(!Fail()){
+        if(manual_scoped_owner)Require(!manual_scoped_owner->hand_overlays_[0].object&&
+            !manual_scoped_owner->weapon_overlays_[0].weapon,"native close preceded scoped restoration");
+        ++manual_cancels;
+    }
+}
+void ManualReset(JavaPlayerBridge& bridge){TicketReset(bridge);bridge.manual_reload_owned_=false;
+    manual_result=true;manual_calls=manual_cancels=0;Set(33,ManualLookup);Set(39,ManualBoolean);Set(63,ManualVoid);}
+void ManualReloadJniTests(JavaPlayerBridge& bridge){
+    ManualReset(bridge);std::string error;
+    Require(bridge.CancelManualReload()&&environment_calls==0,"unowned manual cancellation touched VM");
+    bool accepted=true;
+    Require(!bridge.TryInsertManualRound(accepted)&&!accepted&&environment_calls==0,"unowned insertion touched VM");
+    Require(bridge.TryKeepManualReloadAlive()&&bridge.manual_reload_owned_&&refs==0&&!pending,"heartbeat lost ownership or refs");
+    const int operations=step;
+    Require(bridge.TryInsertManualRound(accepted)&&accepted&&bridge.manual_reload_owned_,"manual native result not propagated");
+    manual_result=false;Require(bridge.TryInsertManualRound(accepted)&&!accepted,"native rejection reported as accepted");
+    Require(bridge.TryApplyGameplayInput({})&&!bridge.manual_reload_owned_&&manual_cancels==1,"inactive input did not cancel manual owner");
+    for(int operation=1;operation<=operations;++operation){
+        ManualReset(bridge);fail_step=operation;
+        Require(!bridge.TryKeepManualReloadAlive()&&!bridge.manual_reload_owned_&&refs==0&&!pending,"manual heartbeat fault leaked/published ownership");
+    }
+    for(int slot:{15,17,23,31,33,39}){
+        ManualReset(bridge);auto saved=table[slot];table[slot]=nullptr;
+        Require(!bridge.TryKeepManualReloadAlive()&&!bridge.manual_reload_owned_&&refs==0,"missing JNI slot admitted manual ownership");
+        table[slot]=saved;
+    }
+    for(int slot:{15,17,23,31,33,63}){
+        ManualReset(bridge);bridge.NoteManualReloadRequest();auto saved=table[slot];table[slot]=nullptr;
+        Require(!bridge.CancelManualReload()&&bridge.manual_reload_owned_&&bridge.being_==&player&&refs==0,
+            "missing cancel JNI slot discarded manual owner");
+        table[slot]=saved;Require(bridge.CancelManualReload()&&!bridge.manual_reload_owned_,"cancel slot recovery failed");
+    }
+    for(int operation=1;operation<=operations;++operation){
+        ManualReset(bridge);bridge.NoteManualReloadRequest();fail_step=operation;
+        Require(!bridge.CancelManualReload()&&bridge.manual_reload_owned_&&refs==0&&!pending,"cancel exception discarded owner or leaked");
+        fail_step=0;Require(bridge.CancelManualReload()&&!bridge.manual_reload_owned_,"cancel exception retry failed");
+    }
+    ManualReset(bridge);bridge.NoteManualReloadRequest();fail_lookup="cojvrCancelReloadProbe";
+    bridge.Reset();Require(bridge.being_==&player&&bridge.manual_reload_owned_&&refs==0&&!pending,"failed manual cancellation discarded actor");
+    fail_lookup=nullptr;Require(bridge.CancelManualReload()&&!bridge.manual_reload_owned_,"manual cancel retry failed");
+    ManualReset(bridge);bridge.NoteManualReloadRequest();bridge.ClearBeing(&ticket_env_holder);
+    Require(!bridge.being_&&!bridge.manual_reload_owned_&&manual_cancels==1,"actor release did not cancel manual first");
+    ManualReset(bridge);bridge.NoteManualReloadRequest();
+    manual_scoped_owner=&bridge;
+    bridge.hand_overlays_[0].object=&player;bridge.get_position_vector_method_=nullptr;
+    bridge.weapon_overlays_[0].weapon=&weapon;bridge.weapon_overlays_[0].active=true;
+    Require(!bridge.CancelManualReload()&&bridge.manual_reload_owned_&&manual_cancels==0&&
+        bridge.hand_overlays_[0].object==&player,"native closing ran inside retained hand transaction");
+    bridge.hand_overlays_[0].object=nullptr;
+    Require(!bridge.CancelManualReload()&&bridge.manual_reload_owned_&&manual_cancels==0&&
+        bridge.weapon_overlays_[0].weapon==&weapon,"native closing ran inside retained weapon transaction");
+    bridge.weapon_overlays_[0].active=false;
+    Require(bridge.CancelManualReload()&&!bridge.manual_reload_owned_&&manual_cancels==1,
+        "restoration recovery did not permit closing");
+    manual_scoped_owner=nullptr;
+    ManualReset(bridge);bridge.being_=nullptr;bridge.vm_=nullptr;Set(33,TicketLookup);Set(39,Boolean);
+}
+}
+namespace {
 // Independent Java-side storage: indices are deliberately sparse and not inferred
 // from bridge targets. World X/up vectors are literal, with forward reconstructed
 // by the production reader. No geometry helper computes our expected result.
@@ -315,9 +394,13 @@ void GeometryReset(JavaPlayerBridge& bridge,int hand,bool peacemaker) {
     auto& overlay = bridge.weapon_overlays_[hand];
     overlay.weapon = &weapon; overlay.active = overlay.applied = true;
     geometry_frames = {};
+    geometry_frames[0] = {{90,190,290},{0,1,0},{0,0,1},true};
+    geometry_frames[2] = {{95,195,295},{0,1,0},{0,0,1},true};
     // Rotated drum: local X -> -Z, local +Z -> +X; translation is centimetres.
     geometry_frames[3] = {{100,200,300},{0,1,0},{1,0,0},true};
     geometry_frames[1] = {{110,210,310},{1,0,0},{0,0,1},true};
+    overlay.barrel_element = 2;
+    overlay.natural.assign(geometry_frames.begin(),geometry_frames.end());
     overlay.targets.assign(geometry_frames.begin(),geometry_frames.end());
     bridge.element_world_read_lookup_attempted_ = true;
     bridge.get_element_position_method_ = const_cast<char*>("GetElementPos");
@@ -330,12 +413,18 @@ void GeometryReset(JavaPlayerBridge& bridge,int hand,bool peacemaker) {
     Set(30,GeometryNew); Set(33,GeometryLookup); Set(39,GeometryBoolean);
     Set(51,GeometryInteger); Set(102,GeometryFloat); Set(167,GeometryString);
 }
-int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemaker) {
+int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemaker,
+    CoJReloadGeometrySource source=CoJReloadGeometrySource::post_overlay) {
     CoJReloadGeometrySnapshot result{};
     result.valid=true; result.model=CoJReloadModel::frontier;
     result.drum.valid=result.gate.valid=true;
     for(auto& mouth:result.mouths) mouth.valid=true;
-    const bool observed=bridge.TryObserveReloadGeometry(hand,result);
+    const bool observed=bridge.TryObserveReloadGeometry(hand,result,source);
+    if(observed!=expected)
+        std::cerr << "geometry mismatch: observed=" << observed << " expected=" << expected
+            << " hand=" << hand << " peacemaker=" << peacemaker
+            << " source=" << static_cast<int>(source) << " step=" << step
+            << " fail_step=" << fail_step << " names=" << geometry_names.size() << '\n';
     Require(observed==expected,"reload geometry acceptance mismatch");
     Require(refs==0 && !pending,"reload geometry leaked references/exception");
     Require(writes==0 && global_creates==0 && global_deletes==0 &&
@@ -348,6 +437,10 @@ int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemake
     } else {
         Require(result.valid && result.model==(peacemaker?CoJReloadModel::peacemaker:CoJReloadModel::frontier),
             "geometry returned wrong exact model");
+        Require(result.source==source && result.root.valid && result.barrel.valid &&
+            result.gate_root.valid && result.drum_root.valid &&
+            result.gate_barrel.valid && result.drum_barrel.valid,
+            "geometry missing provenance or stable reference frames");
         Require(geometry_names==std::vector<std::string>{peacemaker?"ColtDrum":"GunDrum",
             peacemaker?"ColtLock":"GunLoader"},"geometry did not read exact named elements");
         Require(result.drum.position.x==100 && result.gate.position.x==110 &&
@@ -383,7 +476,7 @@ void ReloadGeometryTests(JavaPlayerBridge& bridge) {
             const bool benign=std::find(optional.begin(),optional.end(),operation)!=optional.end();
             GeometryCheck(bridge,benign,hand,peacemaker);
         }
-        for(int fault=0;fault<23;++fault) {
+        for(int fault=0;fault<29;++fault) {
             GeometryReset(bridge,hand,peacemaker);
             auto& overlay=bridge.weapon_overlays_[hand];
             switch(fault) {
@@ -407,12 +500,36 @@ void ReloadGeometryTests(JavaPlayerBridge& bridge) {
             case 17: unavailable_element=1; break;
             case 18: geometry_frames[3].position.y=std::numeric_limits<float>::quiet_NaN(); break;
             case 19: overlay.targets.clear(); break;
-            case 20: drum_index=2; break; // unmapped/invalid native element frame
+            case 20: drum_index=4; break; // mapped index, invalid native element frame
             case 21: bridge.being_=nullptr; break;
             case 22: bridge.vm_=nullptr; break;
+            case 23: overlay.targets[0].valid=false; break;
+            case 24: overlay.targets[2].valid=false; break;
+            case 25: geometry_frames[0].position.x+=.101F; break;
+            case 26: geometry_frames[2].position.x+=.101F; break;
+            case 27: geometry_frames[0].up={0,0,1}; break;
+            case 28: geometry_frames[2].position.y=std::numeric_limits<float>::quiet_NaN(); break;
             }
             GeometryCheck(bridge,false,hand,peacemaker);
         }
+        GeometryReset(bridge,hand,peacemaker);
+        auto& natural_only=bridge.weapon_overlays_[hand];
+        natural_only.applied=false;
+        for(int index:{0,1,2,3}) {
+            natural_only.targets[index].position.x+=50;
+            geometry_frames[index].position.x+=50;
+        }
+        GeometryCheck(bridge,true,hand,peacemaker,CoJReloadGeometrySource::pre_native);
+        GeometryReset(bridge,hand,peacemaker);
+        GeometryCheck(bridge,false,hand,peacemaker,CoJReloadGeometrySource::pre_native);
+        Require(step==0,"pre-native geometry sampled an applied overlay");
+        GeometryReset(bridge,hand,peacemaker);
+        bridge.weapon_overlays_[hand].applied=false;
+        GeometryCheck(bridge,false,hand,peacemaker,CoJReloadGeometrySource::post_overlay);
+        Require(step==0,"post-overlay geometry sampled an uncommitted overlay");
+        GeometryReset(bridge,hand,peacemaker);
+        GeometryCheck(bridge,false,hand,peacemaker,CoJReloadGeometrySource::unknown);
+        Require(step==0,"unknown geometry provenance reached JNI");
         GeometryReset(bridge,hand,peacemaker);
         replace_during_last_frame=true;
         GeometryCheck(bridge,false,hand,peacemaker);
@@ -556,5 +673,6 @@ int main() {
         "invalid owner accepted");
     Require(!bridge.TryArmSingleRoundReload({0, 123, true}) && writes == 0,
         "owner without per-round support accepted");
+    ManualReloadJniTests(bridge);
     ReloadGeometryTests(bridge);
 }

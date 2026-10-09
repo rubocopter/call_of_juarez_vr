@@ -748,7 +748,17 @@ def patch_whip_class(data: bytes) -> bytes:
     return (data[:8]+u2(next_index)+data[10:cp_end]+extra+data[cp_end:fields_at]+
         u2(field_count+len(WHIP_FIELDS))+data[fields_at+2:fields_end]+fields+methods+data[r.stream.tell():])
 
-def patch_archive(source: Path, output: Path):
+def patch_reload_probe_classes(player: bytes, machine: bytes):
+    from coj_reload_wait_probe import patch_probe_classes
+    return patch_probe_classes(player, machine)
+
+def patch_manual_reload_classes(player: bytes, machine: bytes):
+    from coj_manual_reload import patch_manual_classes
+    return patch_manual_classes(player, machine)
+
+def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_reload=False):
+    if reload_wait_probe and manual_reload:
+        raise ValueError('Select only one reload archive variant')
     if source.resolve() == output.resolve() or output.exists():
         raise ValueError("Patch output must be a new separate file")
     if hashlib.sha256(source.read_bytes()).hexdigest() != PAK_SHA256:
@@ -761,6 +771,12 @@ def patch_archive(source: Path, output: Path):
                    "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class")),
                    "LawmanModuleSingle.class":patch_save_module_class(original.read("LawmanModuleSingle.class")),
                    "WeaponWhip.class":patch_whip_class(original.read("WeaponWhip.class"))}
+        if reload_wait_probe or manual_reload:
+            factory=patch_manual_reload_classes if manual_reload else patch_reload_probe_classes
+            player, machine = factory(
+                original.read('ArmedPlayerBeing.class'), original.read('StateMashine.class'))
+            patched['ArmedPlayerBeing.class'] = player
+            patched['StateMashine.class'] = machine
         with zipfile.ZipFile(output, "x") as result:
             result.comment = original.comment
             for info in original.infolist():
@@ -774,5 +790,9 @@ def patch_archive(source: Path, output: Path):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(); p.add_argument("source", type=Path); p.add_argument("output", type=Path)
-    a = p.parse_args(); patch_archive(a.source, a.output)
+    p.add_argument('--reload-wait-probe', action='store_true',
+        help='Experimental bounded wait, then close with zero ammo transfer; gesture route only')
+    p.add_argument('--manual-reload', action='store_true',
+        help='Experimental Square preparation, native supervised wait and immediate per-round insertion')
+    a = p.parse_args(); patch_archive(a.source, a.output, a.reload_wait_probe, a.manual_reload)
     print("Exact shot, interaction and procedural-whip consumers patched; other payloads verified unchanged")
