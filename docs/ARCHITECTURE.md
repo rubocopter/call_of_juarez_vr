@@ -246,6 +246,13 @@ generation and the observed weapon. Loss invalidates a prior released baseline;
 held Square cannot open a recovered session until a fresh available release.
 Discharging the existing physical claim remains possible after disabling manual
 reload, so the conventional path can recover. This strengthening is host-tested.
+Continuation cartridges belong to one manual session. Direct native completion
+to status 0/4, failed start and fresh preparation clear any pending continuation;
+a new session cannot inherit the previous session's token. A synchronous native
+insertion rejection/fault resolves closing and yields requested presentation and
+supervision before publishing the frame, retaining insertion intent only for
+diagnostics. Cancellation preserves the failure cause and distinguishes recenter,
+publication gaps and regressions. These recovery paths are host-tested only.
 The default candidate retains the legacy native-animation route; the persistent
 flow requires `-ManualReload`. See
 [reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).

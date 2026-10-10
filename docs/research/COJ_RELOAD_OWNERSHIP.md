@@ -432,6 +432,19 @@ insertion. Full/no reserve invokes zero-transfer native closing; failed invocati
 or rejection cancels without retry. The visual token disappears on intent;
 acceptance permits a fresh token/trigger release. A missed release transfers
 nothing and leaves the token available for a new deliberate attempt.
+Continuation is scoped to that manual session: direct native completion to
+status 0/4 without an observed closing frame, failed preparation and fresh
+preparation clear a pending token. Host regression fixtures demonstrate that
+the former direct-completion path could leak a continuation into a later
+opening; the corrected later session requires a waist pickup of its own.
+This is presentation/admission state, not a native ammunition refund or grant.
+The synchronous native result now resolves policy/output together before frame
+publication. A rejected call reports `native_insertion_rejected`; invocation
+failure reports `native_insertion_failed`. Both stop requested VR presentation
+and supervision, close without retry and retain only the original intent in
+diagnostics. Pending-operation cancellation also preserves its reason after
+clearing the flag; recenter, sample gap and regression have distinct reasons.
+These corrections have host coverage, with live/physical recovery still pending.
 
 Policy phases are `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`, owned
 by the exact adapter. Native states, ammunition and mechanical animation remain

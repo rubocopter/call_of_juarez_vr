@@ -113,6 +113,13 @@ tracking loss and native Square recovery after disabling manual reload. Native
 ammunition, the 14 cm insertion zone and body presentation remain unchanged.
 Both-hand geometry and rotated-camera tests, fresh/duplicate/invalid gestures,
 haptic priority/freshness and context/disable barriers have host coverage.
+Direct native completion without an observed closing sample now discards pending
+continuation tokens. Failed start/fresh preparation also clear them; a new
+session requires its own initial waist pickup. Host regressions reproduce and
+cover the former cross-session continuation and the former stale synchronous
+ownership result on native insertion failure. Rejection versus invocation fault,
+recenter, sample gap and regression have explicit cancellation reasons. No live
+or visor acceptance is added by these regressions.
 The read-only D3D9 depth observer is host-tested against a real host device,
 including absent depth, attached D16 state and subsequent reset. It has no
 exact-game observations yet and cannot authorize occlusion.
@@ -133,6 +140,9 @@ request to repeat separate micro-tests or unavailable campaign contexts.
 3. **Drop and closure:** release away from the gun, close with Square, reopen,
    close with the armed trigger, then release/press to fire. No extra insertion,
    retained pinch or firing on the closing press.
+   After filling the gun, fire one round with a fresh press and reopen: the first
+   cartridge of the new session must require pickup at waist. This extends the
+   same batch, not a separate physical test.
 4. **Held-control recovery:** carry a round, pause/change weapon/recenter or
    temporarily lose tracking, then recover with Square/triggers still held.
    No stale round, queued insertion or automatic reopening. Release and press

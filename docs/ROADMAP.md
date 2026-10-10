@@ -37,6 +37,9 @@ Immediate work, in order:
    ownership/availability loss and conventional recovery after disable are
    strengthened and host-tested. Qualified zone-entry feedback is host-tested;
    native insertion retains its stronger independently gated pulse.
+   Direct native completion/fresh opening clear old continuation tokens, and
+   synchronous failed insertions yield presentation/supervision with accurate
+   cancellation reasons; these corrections are implemented/host-tested.
    Batch manual tracking,
    held-control, save/load, death/retry and disable checks; broaden mirrored and
    Frontier coverage when available. The replacement left-Sense L1 ray and
