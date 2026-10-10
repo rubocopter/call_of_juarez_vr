@@ -99,12 +99,12 @@ struct Reader {
         if(!v){ok=false;return {};}
         return {Float(v,"fX"),Float(v,"fY"),Float(v,"fZ")};
     }
-    void Copy(void* string,runtime::UiLabel& out) noexcept {
+    template<class T> void Copy(void* string,T& out) noexcept {
         if(!string||!ok)return;
         int length=Fn<int(__stdcall*)(void*,void*)>(env,164)(env,string);Check();if(!ok||length<=0)return;
         auto data=Fn<const char16_t*(__stdcall*)(void*,void*,std::uint8_t*)>(env,165)(env,string,nullptr);Check();
         if(!data)ok=false;
-        if(ok){auto n=std::min(static_cast<std::size_t>(length),runtime::UiLabel::capacity-1);
+        if(ok){auto n=std::min(static_cast<std::size_t>(length),T::capacity-1);
             bool trunc=n<static_cast<std::size_t>(length);
             if(trunc){--n;if(n&&data[n-1]>=0xD800&&data[n-1]<=0xDBFF)--n;}
             std::copy_n(data,n,out.characters.begin());if(trunc)out.characters[n++]=u'\u2026';out.length=static_cast<std::uint32_t>(n);}
@@ -194,6 +194,98 @@ void CountdownStatus(void* env,void* components,void* hud,void* player,runtime::
     Label(out,u"Cuenta atrás  ");
     std::copy(number.begin(),number.end(),out.characters.begin()+out.length);
     out.length+=static_cast<std::uint32_t>(number.size());
+}
+template<class T> bool CachedText(Reader& r,void* sprite,T& out) noexcept {
+    out={};if(!sprite||!r.Instance(sprite,"UIStatic")||!r.Visible(sprite))return false;
+    const float alpha=r.Float(sprite,"m_fCurTextAlpha");
+    if(!r.ok||alpha<=0||alpha>1)return false;
+    auto text=r.Get(sprite,"m_sLocalizedText","Ljava/lang/String;");r.Copy(text,out);
+    return r.ok;
+}
+void AppendText(runtime::HudText& out,std::u16string_view text) noexcept {
+    if(text.empty()||out.length>=out.capacity-1)return;
+    if(out.length>=out.capacity-2)return; // No space for separator plus content.
+    if(out.length)out.characters[out.length++]=u'\n';
+    const auto room=out.capacity-1-out.length;
+    const bool truncated=room<text.size();
+    auto n=std::min(truncated&&room?room-1:room,text.size());
+    if(n<text.size()&&n&&text[n-1]>=0xD800&&text[n-1]<=0xDBFF)--n;
+    std::copy_n(text.begin(),n,out.characters.begin()+out.length);
+    out.length+=static_cast<std::uint32_t>(n);
+    if(n<text.size()&&out.length<out.capacity-1)out.characters[out.length++]=u'\u2026';
+}
+void MissionTimer(void* env,void* components,void* hud,void* player,runtime::HudText& out) noexcept {
+    out={};Reader r{env};auto component=r.At(components,17,true);
+    if(!OwnedHudComponent(r,component,"HUDCountdownTimer",hud,player))return;
+    auto timer=r.Get(component,"m_cCountdownTimer","LCountdownTimer;");
+    auto window=r.Get(component,"m_cWindow","LUIWindow;");
+    if(!r.Instance(timer,"CountdownTimer")||!r.Instance(window,"UIWindow")||!r.Visible(window))return;
+    auto bottom=r.Get(component,"m_cBottomText","LUIStatic;");auto center=r.Get(component,"m_cCenterText","LUIStatic;");
+    runtime::UiLabel a{},b{};
+    if(!CachedNumber(r,bottom,a)||!CachedNumber(r,center,b)||a.view().empty()==b.view().empty()||!r.ok)return;
+    // Native blink/visibility and exclusive number owner are authoritative.
+    // This panel does not depend on health/ammo row capacity or a wrist pose.
+    auto title=r.Get(component,"m_cTitle","LUIStatic;");runtime::HudText text{};
+    (void)CachedText(r,title,text);if(!r.ok)return;
+    const auto number=a.view().empty()?b.view():a.view();
+    const auto title_room=out.capacity-2-number.size();
+    if(text.length>title_room){
+        auto n=title_room-1;
+        if(n&&text.characters[n-1]>=0xD800&&text.characters[n-1]<=0xDBFF)--n;
+        text.characters[n++]=u'\u2026';text.length=static_cast<std::uint32_t>(n);
+    }
+    AppendText(out,text.view());AppendText(out,number);
+}
+void MissionNotice(void* env,void* components,void* hud,void* player,int slot,
+    const char* type,runtime::HudText& out) noexcept {
+    Reader r{env};auto component=r.At(components,slot,true);
+    if(!OwnedHudComponent(r,component,type,hud,player))return;
+    if(slot==12){
+        auto window=r.Get(component,"m_cMainWindow","LUIWindowInfo;");
+        if(!r.Instance(window,"UIWindowInfo")||!r.Visible(window))return;
+    }
+    auto sprite=r.Get(component,slot==12?"m_cInfo":"m_cText","LUIStatic;");runtime::HudText text{};
+    if(CachedText(r,sprite,text))AppendText(out,text.view());
+}
+void Threats(void* env,void* components,void* hud,void* player,int slot,
+    const char* type,CoJGameplayUiSnapshot& out) noexcept {
+    Reader r{env};auto component=r.At(components,slot,true);
+    if(!OwnedHudComponent(r,component,type,hud,player))return;
+    // IsInstanceOf the base alone admits its direction-only subclass. A
+    // misplaced/aliased owner must never manufacture red damage feedback.
+    if(slot==16&&r.Instance(component,"HUDDirectionIndicator",false))return;
+    auto indicators=r.Get(component,"m_aIndicators","[LDamageIndicator;");
+    if(!indicators.value)return;
+    const int count=r.Size(indicators,true);
+    // The shipped HUD has six icons per owner. Unknown layouts fail closed.
+    if(!r.ok||count>6)return;
+    std::array<CoJGameplayUiSnapshot::Threat,6> values{};std::uint32_t used=0;
+    for(int i=0;i<count&&r.ok;++i){
+        auto indicator=r.At(indicators,i,true);
+        if(!r.Instance(indicator,"DamageIndicator"))return;
+        if(!r.Bool(indicator,"m_bActive"))continue;
+        auto position=r.Get(indicator,"m_cPositioner","LUIWindow;");
+        auto icon=r.Get(indicator,"m_cIcon","LUIWindow;");
+        if(!r.Instance(position,"UIWindow")||!r.Visible(position)||!VisibleTexture(r,icon,"UIWindow"))continue;
+        const float angle=r.Float(indicator,"m_fDamageAngle"),alpha=r.Float(icon,"m_fTextureAlpha");
+        if(!r.ok)return;
+        values[used++]={angle,alpha,slot==16};
+    }
+    if(!r.ok||out.threat_count+used>out.threats.size())return;
+    std::copy_n(values.begin(),used,out.threats.begin()+out.threat_count);out.threat_count+=used;
+}
+void CriticalAlerts(void* env,void* player,CoJGameplayUiSnapshot& out) noexcept {
+    Reader r{env};auto cls=r.Class("HUDManager");auto hud=r.Static(cls,"sm_cMainHUDManager","LHUDManager;");
+    if(!hud.value)return;auto owner=r.Get(hud,"m_Being","LBeing;");
+    if(!r.Same(owner,player)||!r.Visible(hud))return;
+    auto components=r.Get(hud,"m_aHudComponents","[LHUDComponent;");
+    if(!components.value||r.Size(components,true)!=23||!r.ok)return;
+    MissionTimer(env,components,hud,player,out.mission_timer);
+    MissionNotice(env,components,hud,player,12,"HUDObjective",out.mission_notices);
+    MissionNotice(env,components,hud,player,13,"HUDTipObjectives",out.mission_notices);
+    MissionNotice(env,components,hud,player,14,"HUDTipLogs",out.mission_notices);
+    Threats(env,components,hud,player,15,"HUDDirectionIndicator",out);
+    Threats(env,components,hud,player,16,"HUDDamageIndicator",out);
 }
 void AppendPercent(runtime::UiLabel& out,int percent) noexcept {
     // Only callers' checked native 0-100 values reach this bounded formatter.
@@ -390,6 +482,7 @@ bool ReadCoJGameplayUi(void* env, void* player, CoJGameplayUiSnapshot& out) noex
     Reader entry{env};if(!entry.Check())return false;
     const bool inventory=Inventory(env,player,out.inventory);const bool compass=Compass(env,player,out);
     const bool status=Status(env,player,out.status);
+    CriticalAlerts(env,player,out);
     if(!compass){out.compass_valid=false;out.compass_visible=false;out.waypoint_count=0;out.waypoints={};out.map_angle_degrees=0;out.player_position_cm={};out.player_forward={};out.player_left={};}
     return inventory&&compass&&status;
 }

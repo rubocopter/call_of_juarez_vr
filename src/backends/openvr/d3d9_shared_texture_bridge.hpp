@@ -27,6 +27,14 @@ struct D3D9SharedTextureBridgeStats {
     std::uint64_t open_failures = 0;
     std::uint64_t copy_failures = 0;
     std::uint64_t abandoned_on_shutdown = 0;
+    std::uint64_t recovery_queries_started = 0;
+    std::uint64_t recoveries_completed = 0;
+    std::uint64_t recovery_failures = 0;
+    std::uint64_t recovery_poll_pending = 0;
+    std::uint64_t recovery_first_copy = 0;
+    std::uint64_t recovery_last_copy = 0;
+    std::uint64_t identity_rejections = 0;
+    std::uint64_t transition_deferrals = 0;
     std::size_t pending_copy_fences = 0;
     std::size_t pending_copy_fences_peak = 0;
     double last_copy_completion_ms = 0.0;
@@ -37,6 +45,10 @@ struct D3D9SharedTextureBridgeStats {
 // opened once and copied GPU-to-GPU into the presenter's normal D3D11 eye
 // textures. A D3D11 event query holds each producer lease until the copy has
 // actually retired; no wait is performed on the game thread or presenter.
+// After a failed per-copy query, Poll queues one independent ordered event and
+// retains every lease until that event proves retirement. Failed recovery stays
+// quarantined; neither cache reset nor a new device/generation grants reuse.
+// Destruction abandons unproven leases without signaling producer completion.
 class D3D9SharedTextureBridge final {
 public:
     D3D9SharedTextureBridge();
@@ -57,6 +69,9 @@ public:
 #if defined(COJVR_GPU_COPY_FAULT_TESTING)
     // Only compiled into the standalone host GPU-transport regression target.
     void ForceNextFencePollFailureForTest() noexcept;
+    void ForceFencePendingForTest(bool pending) noexcept;
+    void ForceNextRecoveryFencePollFailureForTest() noexcept;
+    void ForceRecoveryFencePendingForTest(bool pending) noexcept;
 #endif
 
     [[nodiscard]] D3D9SharedTextureBridgeStats stats() const noexcept;

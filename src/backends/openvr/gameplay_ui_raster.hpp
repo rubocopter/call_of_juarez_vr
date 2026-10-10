@@ -7,6 +7,7 @@ namespace cojvr::backends::openvr {
 class GameplayUiRaster final {
 public:
     [[nodiscard]] const HudTextPanel& InteractionGaze() noexcept;
+    [[nodiscard]] const HudTextPanel& Threat(bool damage) noexcept;
     [[nodiscard]] const HudTextPanel& Cartridge() noexcept;
     [[nodiscard]] const HudTextPanel& TexturedCartridge() noexcept;
     [[nodiscard]] const HudTextPanel& Wheel(const runtime::EquipmentWheelSnapshot&) noexcept;
@@ -18,6 +19,7 @@ public:
     [[nodiscard]] std::uint64_t status_revision() const noexcept { return status_revision_; }
 private:
     HudTextPanel interaction_gaze_pixels_{};
+    std::array<HudTextPanel,2> threat_pixels_{};
     HudTextPanel cartridge_pixels_{};
     HudTextPanel textured_cartridge_pixels_{};
     runtime::EquipmentWheelSnapshot wheel_{};

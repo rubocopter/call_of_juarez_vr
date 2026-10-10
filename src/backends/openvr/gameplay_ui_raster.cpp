@@ -76,6 +76,19 @@ bool Direction(const runtime::Vec2 p) {
     return std::isfinite(norm)&&norm>.9F&&norm<1.1F;
 }
 }
+const HudTextPanel& GameplayUiRaster::Threat(bool damage) noexcept {
+    auto& panel=threat_pixels_[damage?1:0];
+    if(!panel.pixels.empty())return panel;
+    try {
+        panel.width=panel.height=64;panel.pixels.assign(64*64,0);
+        // Immutable presentation glyph, separate from the native source's
+        // texture. Colour identifies the two qualified native owners.
+        const std::uint32_t colour=damage?0xFFFF4848U:0xFF40EA70U;
+        for(int y=8;y<=40;++y)for(int x=0;x<64;++x)
+            if(std::fabs(std::abs(x-32)-.9F*(y-8))<3.5F)panel.pixels[y*64+x]=colour;
+    } catch (...) {panel={};}
+    return panel;
+}
 const HudTextPanel& GameplayUiRaster::InteractionGaze() noexcept {
     if (!interaction_gaze_pixels_.pixels.empty()) return interaction_gaze_pixels_;
     try {

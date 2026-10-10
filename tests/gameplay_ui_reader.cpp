@@ -31,6 +31,8 @@ O health,health_text,ammo,totals,big,small,weapons,counters,infos,info,loaded,re
 O big_icon,small_icon;
 O concentration,concentration_icon,countdown,countdown_window,countdown_timer,countdown_bottom,countdown_center;
 O horse,horse_icon,horse_fatigue;
+O countdown_title,damage,direction,damage_array,direction_array,hit,miss,hit_icon,miss_icon,hit_position,miss_position;
+O objective,objective_window,objective_info,tip_objectives,tip_logs,tip_text,logs_text;
 O cross,warning,starts,ends,start,end,can_fire,reasons,ages,collisions,collision;
 std::vector<O*> all{&hud_class,&exception,&player,&other,&hud,&components,&slots,&objects,&pistol,&hands,
     &slot0,&slot1,&compass,&waypoints_manager,&waypoints,&wp,&wp2,&rotor,&rotors,&rotor0,&rotor1,
@@ -43,7 +45,7 @@ void Require(bool b,const char* m){if(!b){std::cerr<<m<<'\n';std::exit(1);}}
 void* Local(O* o){if(o)++o->refs;return o;}
 void Clean(){Require(!pending&&pins==0&&critical==0,"exception/string/primitive leak");for(auto o:all)Require(o->refs==0,"JNI reference leak");for(auto& [n,o]:classes)Require(o.refs==0,"class reference leak");}
 void* __stdcall Find(void*,const char* n){if(std::strcmp(n,"HUDManager")==0)return Local(&hud_class);auto& c=classes[n];c.type=n;return Local(&c);}
-unsigned char __stdcall Instance(void*,void* o,void* c){auto& type=static_cast<O*>(o)->type;auto& wanted=static_cast<O*>(c)->type;return type==wanted||(wanted=="Weapon"&&type.starts_with("Weapon"))||(wanted=="WeaponFire"&&type=="WeaponPistolPeacemaker");}
+unsigned char __stdcall Instance(void*,void* o,void* c){auto& type=static_cast<O*>(o)->type;auto& wanted=static_cast<O*>(c)->type;return type==wanted||(wanted=="Weapon"&&type.starts_with("Weapon"))||(wanted=="WeaponFire"&&type=="WeaponPistolPeacemaker")||(wanted=="HUDDamageIndicator"&&type=="HUDDirectionIndicator");}
 void* __stdcall Exception(void*){Require(critical==0,"JNI while primitive pinned");return pending?Local(&exception):nullptr;}
 void __stdcall Clear(void*){pending=false;}
 void __stdcall Delete(void*,void* v){auto o=static_cast<O*>(v);Require(o&&o->refs>0,"invalid delete");--o->refs;}
@@ -52,6 +54,20 @@ void* __stdcall Class(void*,void* o){return Local(static_cast<O*>(o));}
 void* __stdcall Lookup(void*,void* owner,const char* n,const char* sig){
     Require(!pending,"JNI after exception");
     const auto& type=static_cast<O*>(owner)->type;
+    if(type=="DamageIndicator"||type=="HUDDirectionIndicator"||type=="HUDDamageIndicator"||
+        type=="HUDObjective"||type=="HUDTipObjectives"||type=="HUDTipLogs"){
+        std::string expected;
+        if(std::strcmp(n,"m_Being")==0)expected="LBeing;";
+        else if(std::strcmp(n,"m_cHUDManager")==0)expected="LHUDManager;";
+        else if(std::strcmp(n,"IsActuallyVisible")==0)expected="()Z";
+        else if(std::strcmp(n,"m_aIndicators")==0)expected="[LDamageIndicator;";
+        else if(std::strcmp(n,"m_bActive")==0)expected="Z";
+        else if(std::strcmp(n,"m_fDamageAngle")==0)expected="F";
+        else if(std::strcmp(n,"m_cIcon")==0||std::strcmp(n,"m_cPositioner")==0)expected="LUIWindow;";
+        else if(std::strcmp(n,"m_cMainWindow")==0)expected="LUIWindowInfo;";
+        else if(std::strcmp(n,"m_cInfo")==0||std::strcmp(n,"m_cText")==0)expected="LUIStatic;";
+        Require(!expected.empty()&&expected==sig,"unproven critical HUD signature requested");
+    }
     if(type=="HUDBulletTime"||type=="HUDCountdownTimer"||type=="HUDHorse"){
         std::string expected;
         if(std::strcmp(n,"m_Being")==0)expected="LBeing;";
@@ -64,7 +80,7 @@ void* __stdcall Lookup(void*,void* owner,const char* n,const char* sig){
         }else if(type=="HUDCountdownTimer"){
             if(std::strcmp(n,"m_cWindow")==0)expected="LUIWindow;";
             if(std::strcmp(n,"m_cCountdownTimer")==0)expected="LCountdownTimer;";
-            if(std::strcmp(n,"m_cBottomText")==0||std::strcmp(n,"m_cCenterText")==0)expected="LUIStatic;";
+            if(std::strcmp(n,"m_cBottomText")==0||std::strcmp(n,"m_cCenterText")==0||std::strcmp(n,"m_cTitle")==0)expected="LUIStatic;";
         }else{
             if(std::strcmp(n,"m_cHorseIcon")==0||std::strcmp(n,"m_cTirednessIconFill")==0)expected="LUIWindow;";
             if(std::strcmp(n,"m_fLastTiredness")==0)expected="F";
@@ -97,6 +113,31 @@ template<class T>void Set(int i,T f){table[i]=reinterpret_cast<void*>(f);}
 void Init(){
     for(auto o:{&concentration,&concentration_icon,&countdown,&countdown_window,&countdown_timer,
         &countdown_bottom,&countdown_center,&horse,&horse_icon,&horse_fatigue})all.push_back(o);
+    for(auto o:{&countdown_title,&damage,&direction,&damage_array,&direction_array,&hit,&miss,&hit_icon,&miss_icon,
+        &hit_position,&miss_position,&objective,&objective_window,&objective_info,&tip_objectives,&tip_logs,&tip_text,&logs_text})all.push_back(o);
+    countdown.objects["m_cTitle"]=&countdown_title;countdown_title.type="UIStatic";
+    countdown_title.objects["m_sLocalizedText"]=&countdown_title;countdown_title.text=u"Time left";
+    countdown_title.floats["m_fCurTextAlpha"]=1;
+    damage.type="HUDDamageIndicator";direction.type="HUDDirectionIndicator";
+    objective.type="HUDObjective";tip_objectives.type="HUDTipObjectives";tip_logs.type="HUDTipLogs";
+    for(auto o:{&damage,&direction,&objective,&tip_objectives,&tip_logs}){
+        o->objects["m_Being"]=&player;o->objects["m_cHUDManager"]=&hud;
+    }
+    damage.objects["m_aIndicators"]=&damage_array;direction.objects["m_aIndicators"]=&direction_array;
+    damage_array.items={&hit};direction_array.items={&miss};hit.type=miss.type="DamageIndicator";
+    hit.objects["m_cIcon"]=&hit_icon;hit.objects["m_cPositioner"]=&hit_position;
+    miss.objects["m_cIcon"]=&miss_icon;miss.objects["m_cPositioner"]=&miss_position;
+    for(auto o:{&hit_icon,&miss_icon,&hit_position,&miss_position}){o->type="UIWindow";o->floats["m_fTextureAlpha"]=1;}
+    hit.ints["m_bActive"]=miss.ints["m_bActive"]=1;
+    hit.floats["m_fDamageAngle"]=90;miss.floats["m_fDamageAngle"]=0;
+    hit_icon.floats["m_fTextureAlpha"]=.5F;
+    objective.objects["m_cMainWindow"]=&objective_window;objective_window.type="UIWindowInfo";
+    objective.objects["m_cInfo"]=&objective_info;
+    tip_objectives.objects["m_cText"]=&tip_text;tip_logs.objects["m_cText"]=&logs_text;
+    for(auto o:{&objective_info,&tip_text,&logs_text}){
+        o->type="UIStatic";o->objects["m_sLocalizedText"]=o;o->floats["m_fCurTextAlpha"]=1;
+    }
+    objective_info.text=u"Escape before time runs out";tip_text.text=u"Objectives updated";logs_text.text=u"New journal entry";
     concentration.type="HUDBulletTime";countdown.type="HUDCountdownTimer";horse.type="HUDHorse";
     for(auto o:{&concentration,&countdown,&horse}){o->objects["m_Being"]=&player;o->objects["m_cHUDManager"]=&hud;}
     concentration.objects["m_cPlayer"]=&player;concentration.objects["m_cIcon"]=&concentration_icon;
@@ -190,6 +231,41 @@ void SpecialStatusChecks(){
     fail_owner=&concentration;
     for(const char* field:{"m_cIcon","m_cPlayer","m_nMode"}){fail=field;absent();}fail.clear();fail_owner=nullptr;
     components.items[10]=nullptr;components.items[17]=&countdown;
+    read();Require(out.mission_timer.view()==u"Time left\n5","mission timer must copy native title and number outside wrist status");
+    components.items[15]=&direction;components.items[16]=&damage;
+    components.items[12]=&objective;components.items[13]=&tip_objectives;components.items[14]=&tip_logs;
+    read();Require(out.threat_count==2&&!out.threats[0].damage&&out.threats[1].damage&&out.threats[1].alpha==.5F,
+        "native direction and damage must retain separate colours and natural fade alpha");
+    Require(out.mission_notices.view()==u"Escape before time runs out\nObjectives updated\nNew journal entry",
+        "naturally displayed objective/journal notices were lost");
+    hit.ints["m_bActive"]=0;miss_icon.visible=false;objective_info.visible=false;tip_text.visible=false;logs_text.visible=false;
+    read();Require(out.threat_count==0&&out.mission_notices.view().empty(),"hidden or inactive native notices survived a fresh sample");
+    hit.ints["m_bActive"]=1;miss_icon.visible=true;objective_info.visible=tip_text.visible=logs_text.visible=true;
+    damage.objects["m_Being"]=&other;read();Require(out.threat_count==1&&!out.threats[0].damage,"foreign damage owner exposed a signal");
+    damage.objects["m_Being"]=&player;
+    for(float a:{-1.F,0.F,1.1F,std::numeric_limits<float>::quiet_NaN()}){
+        hit_icon.floats["m_fTextureAlpha"]=a;read();Require(out.threat_count==1,"invalid alpha survived or suppressed another native domain");
+    }hit_icon.floats["m_fTextureAlpha"]=.5F;
+    fail="m_cInfo";fail_owner=&objective;read();Require(out.mission_notices.view()==u"Objectives updated\nNew journal entry",
+        "one notice lookup error discarded independent notices");fail.clear();fail_owner=nullptr;
+    objective.objects["m_cHUDManager"]=&other;read();Require(out.mission_notices.view()==u"Objectives updated\nNew journal entry",
+        "foreign objective manager exposed a mission notice");objective.objects["m_cHUDManager"]=&hud;
+    hud.visible=false;Require(ReadCoJGameplayUi(&holder,&player,out),"hidden native HUD read failed");Clean();
+    Require(out.mission_timer.view().empty()&&out.mission_notices.view().empty()&&out.threat_count==0,
+        "hidden HUD retained critical alerts");hud.visible=true;
+    damage_array.items.assign(7,&hit);read();Require(out.threat_count==1&&!out.threats[0].damage,
+        "unknown native indicator layout exposed threats or suppressed independent direction");damage_array.items={&hit};
+    hit.floats["m_fDamageAngle"]=std::numeric_limits<float>::quiet_NaN();read();
+    Require(out.threat_count==1&&!out.threats[0].damage,"nonfinite native angle exposed an invalid damage marker");hit.floats["m_fDamageAngle"]=90;
+    objective_info.text=std::u16string(1400,u'x');objective_info.text[1021]=0xD83D;objective_info.text[1022]=0xDE00;
+    read();Require(out.mission_notices.length<out.mission_notices.capacity&&out.mission_notices.view().back()==u'\u2026',
+        "bounded native notification text did not preserve truncation/surrogate boundary");objective_info.text=u"Escape before time runs out";
+    countdown_title.text=std::u16string(1400,u'x');countdown_bottom.text=u"51";
+    read();Require(out.mission_timer.view().ends_with(u"\n51"),"long title consumed authoritative native countdown digits");
+    countdown_title.text=u"Time left";countdown_bottom.text=u"5";
+    damage.type="HUDDirectionIndicator";read();Require(out.threat_count==1&&!out.threats[0].damage,
+        "direction subclass in damage slot was misclassified as a red hit");damage.type="HUDDamageIndicator";
+    for(int index:{12,13,14,15,16})components.items[index]=nullptr;
     read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Cuenta atrás  5",
         "native countdown number must be copied without recalculating time or claiming draw permission");
     read();Require(out.status.lines[3].view()==u"Cuenta atrás  5","reader advanced the native countdown");

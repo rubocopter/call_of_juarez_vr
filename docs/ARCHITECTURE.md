@@ -110,6 +110,10 @@ retains a valid hand owner and lets a fresh L2/R2 select that hand. No shoulder
 activation is required. A valid tip missing the screen does not switch rays.
 A hand/claim/click mailbox carries value-only coordinates to the game thread.
 
+The presenter reuses bounded CPU scratch storage for flat-menu pointer uploads;
+this changes allocation ownership only. It does not add native input authority
+or establish a measured frame-pacing improvement.
+
 The exact native sprite-tree dispatcher `0xC8F00` receives previous/new source
 positions before the visual cursor is moved. `GetMousePos` observes native input
 in X/Z, normalized to source X/Y; visual cursor echo is not proof of hover.
@@ -208,6 +212,22 @@ Copied prompts translate only explicitly delimited default campaign keys and
 observed aliases into Sense gestures. Native strings/dialogue/bare letters and
 digits remain unchanged; custom bindings and unobserved locale names are outside
 the mapping. Text/status recovery is separate from graphical native HUD capture.
+
+Critical alerts have independent captured head-space presentation: the visible
+owned countdown title/exclusive number and objective/journal notices do not
+depend on wrist tracking, orientation or ten-row status capacity. Read-only
+HUDManager slots 12–17 supply naturally localized text and active threat caches;
+each domain clears independently on hidden/foreign/invalid owners. The native
+timer and fade clocks remain authoritative. Native absolute threat bearings are
+resolved against CoJ's camera-back convention into viewer-to-source directions,
+converted through the captured tracking basis and HMD orientation, then composed
+as green direction/red damage chevrons with observed native alpha. Immutable
+glyph textures are reused across bearing/fade changes. Full per-eye projection
+and capture identity apply; invalid second-eye projection suppresses both eyes.
+This semantic recovery is host-tested and has scoped operator headset acceptance
+for the recovered countdown, encountered notices and corrected attack directions.
+Broader campaign/owner-loss coverage remains separate; it does not establish
+native sprite capture or complete HUD coverage.
 
 ## Tracking, locomotion and body ownership
 
@@ -393,8 +413,9 @@ verified native reload/two-hand animation. It proves no carried object via
 IsCarrying, rather than mistaking HasSomethingInHand's animation fallback for a
 world object. Held support trigger is consumed through verified reload until an
 available release, preventing cross-hand attack. No VR ammo counter or retry queue
-exists. Precise cartridge-tip/chamber policy and displayed drum/gate observation
-are implemented separately but not enabled as physical loading. Precise
+exists. Generic cartridge-tip/socket policy is implemented and synthetic-tested,
+but CoJ supplies no qualified socket or cartridge-tip input to enable it.
+Displayed drum/gate observation is a separate read-only game diagnostic. Precise
 chamber/ejection, independently controlled mechanical pose and
 manual-session engine save/load recovery remain unresolved.
 The opt-in manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
@@ -452,8 +473,22 @@ publish atomically. A D3D11 completion query retains the producer lease until
 both consumer copies complete. Ring exhaustion skips production; replacement or
 failure releases leases only when safe. A failed D3D11 completion-query poll
 quarantines all pending GPU leases and rejects further copies; those leases remain
-held until the D3D11 session shuts down. Rebuild/invalidation defers while a
-consumer owns a slot. OpenSharedResource itself does not copy.
+held until a separate completion proof; terminal abandonment never grants reuse.
+On the same immediate D3D11 context, the bridge queues one fresh EVENT query
+after every old copy. Its first GetData allows one submission check; later polls
+use DONOTFLUSH without waiting. Only S_OK with completed=true retires the entire
+quarantined batch and clears the opened-resource cache for subsequent copies.
+A failed recovery query stays quarantined without repeated recreation or lease
+release. Bridge destruction abandons unproven leases without setting
+consumer_done: the producer still rejects invalidation/reuse of those slots.
+Dropping session/COM references alone is not retirement evidence. Safe resource
+teardown/recreation after device removal needs its own qualified boundary.
+Original failure counters remain nonzero after successful recovery.
+Context/device mismatches and stale/unknown producer epochs reject; source or
+consumer replacement defers while old copies remain pending. Rebinding and cache
+reopening require retirement first. Rebuild/invalidation defers while a consumer
+owns a slot. OpenSharedResource itself does not copy. These are renderer-owned
+contracts; they do not establish exact-game device-loss or reset recovery.
 If a D3D9 producer event-query poll fails, its pending slot is quarantined from
 collection and reuse; other slots can still publish completed frames. A
 quarantined producer frame is counted as invalidated once, including when its
@@ -467,6 +502,10 @@ repeats, drops, frame age and query retirement from compositor refresh.
 Per-frame producer/consumer lease event logs sample the first eight frames and
 each 90th frame; copy ordinals preserve sampled lease-to-fence association,
 including retirement during shutdown drain. Aggregate counters remain unsampled.
+Independent recovery emits begun/completed/failed events with the affected copy
+ordinal range and retained failure counts. The final GPU summary and local
+performance summary include recovery, identity rejection and transition deferral
+counters. A recovered error does not satisfy the normal zero-failure verifier.
 
 The game producer cap follows the HMD display-frequency property. One bounded
 cancellation-aware CPU schedule covers stereo and flat modes, rebases at rate/reset/
@@ -485,7 +524,8 @@ incomplete shutdown without COM/GPU/thread work. [Shutdown contracts](research/C
 retain exact hashes/RVAs, ownership and final-counter requirements.
 
 Steady-state GPU queries do not wait. Shutdown alone permits a bounded completion
-barrier; failed drains retain leases until D3D11 session destruction. Final GPU/
+barrier; failed drains retain quarantine without signaling completion, including
+after bridge/session destruction. Final GPU/
 proxy summaries must be unique and agree on copied/completed totals, zero pending
 copies/abandoned leases and full published-lease reclamation.
 
@@ -493,6 +533,23 @@ Raw videos/logs/dumps and run metadata belong under ignored local evidence and m
 be removed once their durable conclusions are captured in source, tests and focused
 research. Active staging/recovery journals and their original backups must remain
 intact. Cleanup cannot substitute for finish or promote a physical gate.
+
+The diagnostics-owned `analysis/validation-result.json` persists the canonical
+native-stereo verifier outcome (`pass`, `fail`, `inconclusive`), rejection reason,
+source/build/run identity, validation profile and requirements. Input hashes bind
+the exact log, run/staging/build manifests, deployed files and verifier tools.
+The verifier writes its result on success, early startup return and rejection;
+collection rejects an executed result if its inputs changed. Collection without
+verification records `inconclusive`, never a telemetry pass.
+
+The evidence manifest inventories the result and build manifest and exposes the
+telemetry outcome separately from runtime completion. Optional run-local
+`operator-observations.json` is independently inventoried and cannot alter that
+outcome. Successful collection/restoration preserves canonical rejection;
+`headsetAcceptance=not_evaluated` prevents automatic promotion of a physical gate.
+A retained unstage journal routes `finish` directly to restoration recovery,
+even if stage state remains; retries preserve the original verdict and package
+instead of revalidating partially restored inputs.
 
 ## Primary validation hardware
 

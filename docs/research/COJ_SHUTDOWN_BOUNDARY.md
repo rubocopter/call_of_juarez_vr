@@ -43,8 +43,8 @@ conflicting targets fail closed; restoration preserves a foreign replacement.
 The presenter is started only after this shutdown boundary is installed.
 
 The callback stops producers, restores camera/device hooks, joins the OpenVR
-owner, drains pending D3D11 copies and releases capture resources, restores its
-own import, and emits final summaries. It forwards the original destroy call
+owner, drains healthy pending D3D11 copies and releases retired capture resources,
+restores its own import, and emits final summaries. It forwards the original destroy call
 once per game call. Finalization itself runs once, including cached/reentrant
 hook calls. Runtime state has explicit process lifetime so static DLL teardown
 does not repeat thread or GPU cleanup. The retained factory/device roots remain
@@ -60,6 +60,13 @@ Final GPU and proxy summaries must each be unique, contain every required
 counter, agree on copied-frame totals and report copied = completed, zero
 pending copies and zero abandoned leases. Missing or inconsistent counters
 fail acceptance even when OpenVR shutdown itself completed.
+Failed consumer queries use the renderer's independent ordered recovery proof.
+If that proof also fails, shutdown retains quarantine and bridge destruction
+abandons its leases without advertising producer completion; capture invalidation
+remains deferred. Dropping D3D11 session/COM references is not completion proof.
+Successful query recovery preserves original errors, so matching final drain
+totals alone still cannot pass the normal zero-failure verifier. These failure
+paths are host-tested only; the accepted normal-quit boundary is unchanged.
 
 Tests cover hash/bitness/call-site rejection, import conflicts, protected-slot
 restoration, owner cleanup before original forwarding, repeat callbacks,

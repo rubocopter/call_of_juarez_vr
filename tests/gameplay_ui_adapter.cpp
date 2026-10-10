@@ -75,6 +75,53 @@ int main(){
     native.compass_valid=native.compass_visible=true;native.player_forward={0,0,-1};native.player_left={-1,0,0};
     native.waypoint_count=1;native.waypoints[0].visible=true;native.waypoints[0].angle_degrees=90;
     StereoHudTextOverlay overlay{};
+    native.mission_timer.characters[0]=u'5';native.mission_timer.length=1;
+    native.threat_count=2;native.threats[0]={0,1,false};native.threats[1]={90,.5F,true};
+    BuildCoJGameplayUiOverlay(native,input,head,{}, {1,0,0},{0,0,1},overlay);
+    Require(overlay.mission_timer.view()==u"5"&&!overlay.status_surface_valid&&overlay.threats.count==2,
+        "critical timer/threats must survive unavailable wrist tracking");
+    // Exact native HUD: camera GetForwardVector is the view's backward axis.
+    // With camera back +Z, CalculateBeingAngle returns 180 degrees. Native
+    // SetDamageAngle places angle 0 below, 180 above, 90 left and 270 right.
+    // These screen positions are independent expectations, not the adapter's
+    // world-vector formula. Both green near shots and red damage use this seam.
+    struct BearingFixture { float angle; Vec2 expected; };
+    constexpr BearingFixture bearings[]{
+        {0,{0,-1}}, {180,{0,1}}, {90,{-1,0}}, {270,{1,0}},
+        {-90,{1,0}}, {450,{-1,0}}, {225,{.70710678F,.70710678F}}
+    };
+    auto bearing_native=native;bearing_native.threat_count=1;
+    for(const auto& fixture:bearings)for(const bool damage:{false,true}){
+        bearing_native.threats[0]={fixture.angle,.5F,damage};
+        BuildCoJGameplayUiOverlay(bearing_native,input,head,{}, {1,0,0},{0,0,1},overlay);
+        Require(overlay.threats.count==1,"valid native threat was dropped");
+        const auto& marker=overlay.threats.markers[0];
+        Require(std::abs(marker.direction.x-fixture.expected.x)<.001F &&
+            std::abs(marker.direction.y-fixture.expected.y)<.001F,
+            "attack source must match native HUD front/back/left/right placement");
+        Require(marker.damage==damage && marker.alpha==.5F,"bearing conversion changed native threat type/fade");
+    }
+    auto turned=head;turned.orientation={0,-.70710678F,0,.70710678F};
+    BuildCoJGameplayUiOverlay(native,input,turned,{}, {1,0,0},{0,0,1},overlay);
+    Require(std::abs(overlay.threats.markers[0].direction.x-1)<.001F,
+        "turning right must move a rear attack to the right");
+    turned.orientation={0,1,0,0};
+    BuildCoJGameplayUiOverlay(native,input,turned,{}, {1,0,0},{0,0,1},overlay);
+    Require(std::abs(overlay.threats.markers[0].direction.y-1)<.001F,
+        "looking back toward the rear attacker must move its mark above");
+    // Same native world angle after a 90-degree reference/snap turn: view back
+    // +X means CalculateBeingAngle is 90; source angle 0 now lies on the left.
+    BuildCoJGameplayUiOverlay(native,input,head,{}, {0,0,-1},{1,0,0},overlay);
+    Require(std::abs(overlay.threats.markers[0].direction.x+1)<.001F,
+        "reference yaw must preserve native attack source, without an extra head turn");
+    auto inactive=input;inactive.active=false;
+    BuildCoJGameplayUiOverlay(native,inactive,head,hand,{1,0,0},{0,0,1},overlay);
+    Require(overlay.mission_timer.view().empty()&&overlay.threats.count==0,"blocking UI retained critical alerts");
+    native.threats[0].world_angle_degrees=std::numeric_limits<float>::quiet_NaN();
+    BuildCoJGameplayUiOverlay(native,input,head,hand,{1,0,0},{0,0,1},overlay);
+    Require(overlay.threats.count==1&&overlay.threats.markers[0].damage&&overlay.mission_timer.view()==u"5",
+        "invalid bearing must not starve other threats or timer");
+    native.mission_timer={};native.threat_count=0;
     native.status.active=true;native.status.line_count=1;native.status.lines[0].length=1;native.status.lines[0].characters[0]=u'7';
     BuildCoJGameplayUiOverlay(native,input,head,hand,{1,0,0},{0,0,1},overlay);
     Require(overlay.ui.wheel.active&&overlay.ui.wheel.selected==2&&overlay.ui.compass.active&&overlay.compass_surface_valid,

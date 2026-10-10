@@ -41,6 +41,7 @@ struct D3D9SharedTextureBridge::Impl {
         std::array<ComPtr<ID3D11Texture2D>, 2> sources{};
         d3d9::ProducerFrameLease lease{};
         std::chrono::steady_clock::time_point queued_at{};
+        std::uint64_t copy_ordinal = 0;
     };
 
     std::unordered_map<std::uintptr_t, ComPtr<ID3D11Texture2D>> opened{};
@@ -48,8 +49,18 @@ struct D3D9SharedTextureBridge::Impl {
     D3D9SharedTextureBridgeStats stats{};
     std::string last_error{};
     bool fence_poll_failed = false;
+    bool recovery_failed = false;
+    bool recovery_flush_issued = false;
+    ComPtr<ID3D11Query> recovery_fence;
+    ComPtr<ID3D11Device> consumer_device;
+    ComPtr<ID3D11DeviceContext> consumer_context;
+    std::uintptr_t producer_device = 0;
+    std::uint64_t producer_generation = 0;
 #if defined(COJVR_GPU_COPY_FAULT_TESTING)
     bool force_next_poll_failure = false;
+    bool force_fence_pending = false;
+    bool force_next_recovery_poll_failure = false;
+    bool force_recovery_pending = false;
 #endif
 
     void RefreshDepth() noexcept {
@@ -57,11 +68,82 @@ struct D3D9SharedTextureBridge::Impl {
         stats.pending_copy_fences_peak =
             std::max(stats.pending_copy_fences_peak, pending.size());
     }
+
+    void RetireFront() noexcept {
+        const double completion_ms = MillisecondsBetween(
+            pending.front().queued_at, std::chrono::steady_clock::now());
+        stats.last_copy_completion_ms = completion_ms;
+        stats.max_copy_completion_ms = std::max(stats.max_copy_completion_ms, completion_ms);
+        ++stats.copy_fences_completed;
+        pending.pop_front();
+    }
+
+    void PollRecovery(ID3D11DeviceContext* context) {
+        if (recovery_failed || pending.empty()) return;
+        if (!recovery_fence) {
+            stats.recovery_first_copy = pending.front().copy_ordinal;
+            stats.recovery_last_copy = pending.back().copy_ordinal;
+            D3D11_QUERY_DESC desc{};
+            desc.Query = D3D11_QUERY_EVENT;
+            const HRESULT result = consumer_device->CreateQuery(&desc, &recovery_fence);
+            if (FAILED(result) || !recovery_fence) {
+                recovery_failed = true;
+                ++stats.recovery_failures;
+                last_error = "D3D11 independent recovery-query creation failed; leases retained";
+                return;
+            }
+            // The same immediate context orders this fresh event after ALL old
+            // CopyResource calls. The first GetData below allows one submission
+            // check; subsequent polls never flush or wait.
+            context->End(recovery_fence.Get());
+            recovery_flush_issued = false;
+            ++stats.recovery_queries_started;
+            return;
+        }
+        BOOL complete = FALSE;
+        HRESULT result = S_OK;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+        if (force_next_recovery_poll_failure) {
+            force_next_recovery_poll_failure = false;
+            result = E_FAIL;
+        } else if (force_recovery_pending) {
+            result = S_FALSE;
+        } else
+#endif
+        {
+            const UINT flags = recovery_flush_issued ? D3D11_ASYNC_GETDATA_DONOTFLUSH : 0;
+            recovery_flush_issued = true;
+            result = context->GetData(recovery_fence.Get(), &complete,
+                static_cast<UINT>(sizeof(complete)), flags);
+        }
+        if (result == S_FALSE || (result == S_OK && complete == FALSE)) {
+            ++stats.recovery_poll_pending;
+            return;
+        }
+        if (result != S_OK) {
+            recovery_failed = true;
+            ++stats.recovery_failures;
+            last_error = "D3D11 independent recovery-query polling failed; leases retained";
+            return;
+        }
+        // This independent completion proves even copies whose individual
+        // queries failed. Only now may the old cache and producer leases retire.
+        while (!pending.empty()) RetireFront();
+        recovery_fence.Reset();
+        opened.clear();
+        fence_poll_failed = false;
+        ++stats.recoveries_completed;
+        RefreshDepth();
+    }
 };
 
 D3D9SharedTextureBridge::D3D9SharedTextureBridge()
     : impl_(std::make_unique<Impl>()) {}
-D3D9SharedTextureBridge::~D3D9SharedTextureBridge() = default;
+D3D9SharedTextureBridge::~D3D9SharedTextureBridge() {
+    // Releasing COM references does not prove queued copies completed. An
+    // uncertain lease must never advertise consumer_done, even at teardown.
+    for (auto& copy : impl_->pending) copy.lease.Abandon();
+}
 
 bool D3D9SharedTextureBridge::CopyFrame(
     ID3D11Device* device,
@@ -72,18 +154,56 @@ bool D3D9SharedTextureBridge::CopyFrame(
     timing = {};
     if (!device || !context || !destination[0] || !destination[1] ||
         frame.transport != d3d9::StereoFrameTransport::d3d9ex_shared_texture ||
-        !frame.producer_lease.valid()) {
+        !frame.producer_lease.valid() || frame.device_id == 0 || frame.generation == 0) {
         impl_->last_error = "shared-texture copy requires D3D11 endpoints and a leased GPU frame";
         ++impl_->stats.copy_failures;
         return false;
     }
 
     try {
+        ComPtr<ID3D11Device> context_device;
+        context->GetDevice(&context_device);
+        if (context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE || context_device.Get() != device ||
+            (impl_->producer_generation != 0 && (frame.generation < impl_->producer_generation ||
+                (frame.generation == impl_->producer_generation && frame.device_id != impl_->producer_device)))) {
+            impl_->last_error = "shared-texture copy rejected an unknown/stale producer or mismatched immediate consumer";
+            ++impl_->stats.identity_rejections;
+            return false;
+        }
+        for (auto* texture : destination) {
+            ComPtr<ID3D11Device> texture_device;
+            texture->GetDevice(&texture_device);
+            if (texture_device.Get() != device) {
+                impl_->last_error = "shared-texture destination belongs to another consumer device";
+                ++impl_->stats.identity_rejections;
+                return false;
+            }
+        }
+        const bool consumer_changed = impl_->consumer_device.Get() != device ||
+            impl_->consumer_context.Get() != context;
+        if (consumer_changed && !impl_->pending.empty()) {
+            impl_->last_error = "consumer replacement deferred until old GPU copies retire";
+            ++impl_->stats.transition_deferrals;
+            return false;
+        }
+        if (consumer_changed) {
+            impl_->opened.clear();
+            impl_->consumer_device = device;
+            impl_->consumer_context = context;
+        }
         Poll(context);
         if (impl_->fence_poll_failed) {
             // A failed query does not prove that its GPU copy has retired.
             // Keep all pending producer leases and stop queueing new copies.
             return false;
+        }
+        if (frame.device_id != impl_->producer_device || frame.generation != impl_->producer_generation) {
+            if (!impl_->pending.empty()) {
+                impl_->last_error = "producer replacement deferred until old GPU copies retire";
+                ++impl_->stats.transition_deferrals;
+                return false;
+            }
+            impl_->opened.clear();
         }
         const auto open_begin = std::chrono::steady_clock::now();
         std::array<ComPtr<ID3D11Texture2D>, 2> sources{};
@@ -142,6 +262,7 @@ bool D3D9SharedTextureBridge::CopyFrame(
         pending.sources = std::move(sources);
         pending.lease = std::move(frame.producer_lease);
         pending.queued_at = copy_begin;
+        pending.copy_ordinal = impl_->stats.frames_copied + 1;
         impl_->pending.push_back(std::move(pending));
         for (std::size_t eye = 0; eye < destination.size(); ++eye) {
             context->CopyResource(destination[eye], impl_->pending.back().sources[eye].Get());
@@ -153,6 +274,8 @@ bool D3D9SharedTextureBridge::CopyFrame(
         timing.copy_queue_ms = MillisecondsBetween(copy_begin, copy_end);
         timing.consumer_wait_ms = 0.0;
         ++impl_->stats.frames_copied;
+        impl_->producer_device = frame.device_id;
+        impl_->producer_generation = frame.generation;
         impl_->RefreshDepth();
         timing.pending_copy_fences = impl_->pending.size();
         return true;
@@ -164,8 +287,12 @@ bool D3D9SharedTextureBridge::CopyFrame(
 }
 
 void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
-    if (!context || impl_->fence_poll_failed) return;
+    if (!context || context != impl_->consumer_context.Get()) return;
     try {
+        if (impl_->fence_poll_failed) {
+            impl_->PollRecovery(context);
+            return;
+        }
         while (!impl_->pending.empty()) {
             BOOL complete = FALSE;
             HRESULT result = S_OK;
@@ -173,6 +300,8 @@ void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
             if (impl_->force_next_poll_failure) {
                 impl_->force_next_poll_failure = false;
                 result = E_FAIL;
+            } else if (impl_->force_fence_pending) {
+                result = S_FALSE;
             } else
 #endif
             {
@@ -192,18 +321,15 @@ void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
                 impl_->fence_poll_failed = true;
                 break;
             } else {
-                const double completion_ms = MillisecondsBetween(
-                    impl_->pending.front().queued_at,
-                    std::chrono::steady_clock::now());
-                impl_->stats.last_copy_completion_ms = completion_ms;
-                impl_->stats.max_copy_completion_ms =
-                    std::max(impl_->stats.max_copy_completion_ms, completion_ms);
-                ++impl_->stats.copy_fences_completed;
+                impl_->RetireFront();
             }
-            impl_->pending.pop_front();
         }
         impl_->RefreshDepth();
     } catch (...) {
+        if (impl_->fence_poll_failed && !impl_->recovery_failed) {
+            impl_->recovery_failed = true;
+            ++impl_->stats.recovery_failures;
+        }
         impl_->fence_poll_failed = true;
         impl_->last_error = "D3D11 shared-copy polling raised an exception";
     }
@@ -212,6 +338,15 @@ void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
 #if defined(COJVR_GPU_COPY_FAULT_TESTING)
 void D3D9SharedTextureBridge::ForceNextFencePollFailureForTest() noexcept {
     impl_->force_next_poll_failure = true;
+}
+void D3D9SharedTextureBridge::ForceFencePendingForTest(const bool pending) noexcept {
+    impl_->force_fence_pending = pending;
+}
+void D3D9SharedTextureBridge::ForceNextRecoveryFencePollFailureForTest() noexcept {
+    impl_->force_next_recovery_poll_failure = true;
+}
+void D3D9SharedTextureBridge::ForceRecoveryFencePendingForTest(const bool pending) noexcept {
+    impl_->force_recovery_pending = pending;
 }
 #endif
 
@@ -225,7 +360,8 @@ void D3D9SharedTextureBridge::ResetOpenedResources() noexcept {
 void D3D9SharedTextureBridge::Shutdown(ID3D11DeviceContext* context) noexcept {
     try {
         Poll(context);
-        if (context && !impl_->fence_poll_failed && !impl_->pending.empty()) {
+        if (context && context == impl_->consumer_context.Get() &&
+            !impl_->fence_poll_failed && !impl_->pending.empty()) {
             ComPtr<ID3D11Device> device;
             context->GetDevice(&device);
             D3D11SyncResult sync{};
@@ -245,10 +381,9 @@ void D3D9SharedTextureBridge::Shutdown(ID3D11DeviceContext* context) noexcept {
             }
         }
         if (!impl_->pending.empty()) {
-            // Fail closed: keep producer leases alive until this bridge is
-            // destroyed after the D3D11 session has shut down. Releasing them
-            // here could let D3D9 recycle/free shared textures still referenced
-            // by in-flight GPU work.
+            // Fail closed: retain the pending leases here. Destruction abandons
+            // their consumer state without granting producer reuse; dropping
+            // session references alone is not GPU retirement evidence.
             impl_->stats.abandoned_on_shutdown += impl_->pending.size();
         }
         impl_->opened.clear();

@@ -18,15 +18,40 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 | Locomotion | Exercised native analog movement, head-relative direction, jump parity, physical crouch and corrected snap turning accepted. | Mounted contexts and campaign-specific movement. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. | Left/dual/special weapons, broader finger and recovery coverage. Connected-arm IK is a diagnostic, not the accepted presentation. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. | Broader weapons, ballistic birth vectors, whip reach/climbing and special optics. |
-| Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. | Dashboard/loading/held-input recovery, mounted routing and unavailable mechanics. Kick is inconclusive. |
-| HUD and subtitles | Encountered native health/ammo, compass, equipment wheel, essential text and subtitles accepted. Optional status rows accepted only where encountered. | Horse and special HUD contexts, newly translated prompts, complete graphical HUD capture. |
+| Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
+| HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped headset acceptance. Optional status rows accepted only where encountered. | Wrist health meter/low-health styling are host-tested only. Horse and special HUD contexts, newly translated prompts and complete graphical HUD capture remain open. |
 | Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
 | Persistent manual reload | Opt-in `-ManualReload` is scoped headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers and restoration have correlated live evidence. | Exact port clearance/chamber insertion, tracking/save/load/death/disable recovery, held-control edges, mirrored/Frontier use and prolonged comfort. |
-| Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. | Latest close-up still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
+| Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. The later displayed-finger tangent is host-tested only. | The reviewed close-up predates that tangent and still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
+| Native loading port | Read-only gate/drum motion and six-mouth pivot rankings have bounded live evidence; generic tip/socket policy has synthetic host tests. | No qualified CoJ socket is connected to that policy. Active loading uses the 14 cm grip zone. Clearance, precise insertion, independent mechanics and ejection remain planned. |
 | Death and save/load | Corrected failure-screen visibility accepted. Exercised narrated loading after reversible LAA correction and save/load with the thumbnail workaround accepted. | Retry/back/held-input recovery, manual-session save roundtrip and broad allocation pressure. |
-| Transport and shutdown | Primary D3D9Ex GPU sharing and normal shutdown have bounded headset/live acceptance. | Sustained pacing, abnormal exit, arbitrary reset/device loss and Steam recording-associated microskips. |
+| Transport and shutdown | Primary D3D9Ex GPU sharing and normal shutdown have bounded headset/live acceptance. Independent consumer-query recovery, retained quarantine on failed recovery proof, ResetEx/replacement admission and cleanup hardening are host-tested only. | Sustained pacing, abnormal exit, arbitrary reset/device loss and Steam recording-associated microskips. Automatic continuation after a native failure is not live/headset-validated. |
+| Ownership recovery | Global input release barriers/failed-poll rollback, partial stereo invalidation, pointer resize cancellation and latest manual-session recovery have host tests. | Physical focus/dashboard/tracking/held-control and eligible resize recovery are still open; earlier menu/reload acceptance does not qualify these changes. |
+| Persisted validation verdicts | Host-tested reporting and rejection policy; live-tested canonical rejection remains inventoried through collection and original restoration. | A failed telemetry profile remains failed alongside scoped operator acceptance. No automatic headset acceptance; successful full-profile workflow coverage remains separate. |
 | Protected-target warning | Red aiming-cross alternative implemented and host-tested. | Visor visibility/target transitions; original warning was absent in visor. |
 | Other platforms | OpenXR experimental; D3D10 and additional games planned. | No physical support claim outside the active D3D9/OpenVR target. |
+
+## Host verification boundary
+
+The configured Win32 Release build succeeds. The full CTest suite registers 78
+tests: 77 pass, zero fail and one environmental skip. Classic shared render
+targets remain unavailable (`d3d9_classic_d3d11_shared_texture`); the pool probe
+passes. Transient classic-device creation unavailability has also been observed.
+The skip is neither an accepted fallback nor a failure of the active D3D9Ex
+transport. The suite
+covers production policy, real host GPU interop, synthetic JNI/native fixtures,
+deployment/restoration and evidence rejection; it does not exercise a campaign
+or initialize SteamVR for the OpenVR input fixture.
+
+Binding checks now reject unexpected or duplicate Sense source routes. Flat-menu
+pointer uploads reuse presenter-owned scratch storage. These changes have host
+coverage, without new headset binding acceptance or measured pacing improvement.
+Building the optional OpenXR targets does not qualify an OpenXR game integration.
+No feature is promoted to `supported`; the project remains pre-alpha.
+
+The implementation gates and their dependencies are in
+[Roadmap](ROADMAP.md#next-implementation-gates). Changes already host-tested need
+the consolidated acceptance below, rather than being listed as missing code.
 
 ## Current physical gate
 
@@ -154,6 +179,11 @@ request to repeat separate micro-tests or unavailable campaign contexts.
 6. **Interaction and coverage:** left-Sense L1 drawer/pickup/carry/put-down while
    looking elsewhere; cyan reference only while held. Repeat reload with a
    left-hand assignment or Frontier if available in the same session.
+7. **Menu/gameplay and HUD:** include the combined ownership regression below,
+   holding mapped controls across pause/dashboard/tracking loss. If damage or
+   healing is available, check the wrist meter against native health text,
+   ammunition readability and hiding on blocking UI. Include source-size recovery
+   only if a resolution transition occurs.
 
 The default-off trace records zone entry/withdrawal, visual position/tip axis,
 native insertions and submitted haptic type. Up to six `manual_reload_depth`
@@ -192,7 +222,9 @@ is needed merely to reconfirm that discovery.
 The [default Sense table](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
 is the sole binding reference. Exercised direct controls, wheel confirmation,
 haptic highlights, snap rearm, on-foot crouch, ordinary R3 Focus and Create
-timing have scoped operator acceptance. Mounted contexts, kick eligibility,
+timing have scoped operator acceptance. Ray's Bible selection/use and on-foot
+kick are also operator-accepted in exercised gameplay. This does not qualify
+concentration, duels or campaign permission transitions. Mounted contexts,
 broader weapons and bow/scoped optics retain independent gates.
 
 ## Automatic menu-pointer acceptance
@@ -234,18 +266,28 @@ been observed; their cause has not been established.
 Implemented hardening retains producer leases on a failed D3D11 copy-fence poll
 and moves lease bookkeeping ahead of copy submission. Sampled lease telemetry
 tracks copy ordinals and accounts for shutdown-drain retirements. The Release
-build and GPU transport host test pass. A test-only injected GetData failure on a
-queued D3D9Ex/D3D11 copy verifies that the producer lease stays retained,
-subsequent copies are rejected, and shutdown does not release the uncertain copy.
-The fixture explicitly drains the GPU before destroying its bridge. This is
-host-tested fault recovery, not exact-game or headset validation; runtime/headset
-performance impact remains unverified.
+build and GPU transport host test pass. Test-only injected GetData failures on
+real queued D3D9Ex/D3D11 copies verify retention through pending proof, ResetEx
+and device replacement. A separate event query on the original immediate context
+proves retirement of all quarantined copies before cache reopening and fresh
+generation admission. The fixture covers multiple retained leases, repeated
+recovery, D3D9Ex/D3D11 replacement, mismatched endpoints and stale generations.
+If that independent query also fails, cache reset, later polls and shutdown keep
+the uncertain lease; the fixture explicitly drains physical GPU work before
+destruction. Destroying a failed bridge does not mark consumer_done: a real
+producer fixture retains its occupied slot, rejects generation replacement and
+defers invalidation/shutdown after the consumer disappears. Original errors
+remain counted, and the canonical verifier persists a failure even when recovery
+succeeds with matching copy/completion totals and
+zero pending/abandoned leases. This is host-tested consumer-query recovery;
+native device removal, resource teardown/session recreation and runtime/headset
+performance remain unverified. No timeout or skipped frame grants lease reuse.
 A separate test-only D3D9 producer GetData failure while a real GPU copy is
 pending now verifies quarantine of the affected ring slot, successful collection
 through a healthy successor, and a single invalidation count across shutdown.
 The fixture drains its GPU queue before teardown. Both failure injections run
-only in the dedicated host test target. Full Release build and CTest: 76 passed,
-one classic D3D9 shared-texture environmental test skipped. Production
+only in the dedicated host test target. Full Release build and CTest have zero
+failures; the host verification section records environmental skips. Production
 device-loss/reset behavior after an actual failed query remains unobserved.
 The host startup contract additionally exposed partially restored factory slots
 already pointing to retained originals. Cleanup now acknowledges those exact
@@ -260,6 +302,22 @@ Measured vanilla movement/jump parity closed the earlier diagnosis. Preserve
 camera/body restoration; no speculative physics retuning is pending.
 
 ## PC mechanics and gameplay HUD completeness
+
+Critical countdown presentation, encountered objective/journal notifications and
+corrected directional attack feedback have scoped operator headset acceptance.
+They are implemented and host-tested independently of wrist visibility.
+The countdown copies native localized title and exclusive numerical cache; green
+direction/red damage chevrons preserve active native indicators, absolute bearing
+and fade alpha. Reader faults/foreign owners, bearing conversion matching the
+native camera-back convention (four cardinal directions, head and reference yaw),
+real binocular GPU pixels, invalid second eye and stale/empty snapshots are tested.
+The operator confirms the recovered countdown/notices and the corrected attack
+marks in the exercised scenes, including the requested direction checks. The
+camera-back conversion preserves native front/back/left/right placement under
+head and reference yaw. Broader simultaneous-content readability, unencountered
+notices and pause/loading/death or owner-loss transitions retain independent
+gates. No timer/damage authority is recreated. This does not accept complete
+graphical HUD coverage or require another run solely to reconfirm these visuals.
 
 Accept only observed content. Horse, broader weapons, climbing, duel/special
 modes and campaign indicators need coverage. Full graphical HUD capture and
@@ -298,6 +356,34 @@ or terminate the game or SteamVR automatically. Preserve staging/recovery
 journals and original backups until `finish` completes. A historical run manifest
 marked `staged` is not evidence of an active deployment; inspect canonical status
 and the current journal. Host recovery tests do not establish headset acceptance.
+
+Evidence collection, verifier success and operator acceptance are separate facts.
+`analysis/validation-result.json` now persists the canonical verifier's telemetry
+outcome and rejection reason, source/build/run identity, profile, requirements and
+input hashes. `evidence-manifest.json` inventories that result and the build
+manifest; `incomplete` continues to describe only runtime termination. Changed
+log/profile/build/deployment/verifier inputs reject a stale executed verdict.
+Collection without verification explicitly records `inconclusive` and
+`verifier.executed=false`; recollection cannot invent a verifier execution.
+
+This boundary is implemented/host-tested for startup's early return, full and
+transport checks, canonical rejection, partial runs, absent verification, stale
+inputs and ZIP/hash integrity. An isolated real `finish` fixture verifies that a
+complete collected run and successful original restoration still retain/report
+the failed verifier. A fault after proxy removal retains the journal; a
+restoration-only `finish` retry preserves the original verdict and ZIP hashes.
+Result-publication failure also cannot prevent original restoration. Missing
+required gestures remain canonical rejection, even
+if the operator separately records them as unavailable. Optional run-local
+`operator-observations.json` is separately inventoried and cannot change telemetry
+outcome. `headsetAcceptance=not_evaluated` is mandatory: neither `incomplete=false`,
+matching hashes nor a dashboard-cycle summary accepts recovery or a visual gate.
+The canonical rejection path is now live-tested: an inventoried, complete
+native run retains its rejected full-profile verdict through collection and
+original restoration. The missing loading-screen Sense continuation observation
+remains a telemetry rejection; separately accepted HUD and Ray controls do not
+rewrite it. Successful full-profile workflow coverage remains separate. This
+diagnostic boundary does not evaluate headset acceptance.
 
 After `finish`, inspect collected reload evidence without modifying it:
 

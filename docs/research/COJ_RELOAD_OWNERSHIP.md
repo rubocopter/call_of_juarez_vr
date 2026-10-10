@@ -420,7 +420,9 @@ coherent waiting extends the demonstrated 1.5-native-clock watchdog. Missing
 updates do not create an indefinite hold; paused native time resumes on unpause.
 
 The free-hand **trigger** picks up the existing compositor token at waist. Its
-pose follows the controller, valid approach uses the existing 14 cm grip-distance
+current visual frame follows the verified displayed skin-pad midpoint and distal
+finger tangent described below; gesture admission still follows tracked input.
+A valid approach uses the existing 14 cm grip-distance
 zone, and a fresh release inside it produces one immediate insertion intent.
 `cojvrInsertManualRound()Z` repeats the native validity checks, requires status 2
 and calls the shipped `PawnArmed.WeaponReload(LWeapon;)Z` **exactly once**. The
@@ -685,12 +687,13 @@ visual finger fit, orientation/scale, appearance quality and comfort remain open
 ### Finger-contact boundary — visibility accepted, grip unresolved
 
 The current estimated pinch interpolates the shared authored rest/fist endpoints
-at thumb/index .7/.7; it is not the original loading finger pose. Its attachment
-used bone-local skin-derived reference points and retained the controller grip
-orientation. Offline vertex measurements are not runtime proof of skin contact,
-and grip orientation does not establish a cartridge axis fitted to
-the fingers. The compositor draws the cartridge after the captured scene without
-scene depth: native fingers cannot correctly occlude it, even with a better
+at thumb/index .7/.7; it is not the original loading finger pose. The last
+live-observed attachment used bone-local skin-derived reference points and
+retained controller grip orientation. The current host-tested candidate replaces
+that orientation with the displayed contact tangent in the next section; its
+visual fit has no fresh live evidence. Offline vertex measurements are not
+runtime proof of skin contact. The compositor draws the cartridge after the
+captured scene without scene depth: native fingers cannot correctly occlude it, even with a better
 geometric attachment. A complete grip correction therefore needs qualified finger
 pose/contact/axis and a demonstrated hand-occlusion or scene-depth boundary.
 The operator's visibility acceptance does not accept this grip.

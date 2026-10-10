@@ -295,15 +295,21 @@ switch ($Action) {
 
     "finish" {
         Assert-GameClosed
-        if (-not (Test-Path -LiteralPath $StageStatePath -PathType Leaf)) {
-            $DeploymentJournal = Join-Path $ResolvedGameDirectory ".cojvr-deployment-transaction.json"
-            $PendingDeployment = Test-Path -LiteralPath $DeploymentJournal -PathType Leaf
+        $DeploymentJournal = Join-Path $ResolvedGameDirectory ".cojvr-deployment-transaction.json"
+        $PendingDeployment = Test-Path -LiteralPath $DeploymentJournal -PathType Leaf
+        $RestorationPending = $false
+        if ($PendingDeployment) {
+            $PendingJournal = Get-Content -LiteralPath $DeploymentJournal -Raw | ConvertFrom-Json
+            $RestorationPending = [string]$PendingJournal.operation -eq 'unstage'
+        }
+        if ($RestorationPending -or -not (Test-Path -LiteralPath $StageStatePath -PathType Leaf)) {
             $PendingVideo = Test-Path -LiteralPath $VideoProfileStatePath -PathType Leaf
             if (-not $PendingDeployment -and -not $PendingVideo) {
                 throw "No staged VR test candidate or pending recovery was found."
             }
-            # Unstage may have committed its restoration before video/cleanup
-            # failed. Retry only retained journals; do not infer a new live pass.
+            # Unstage can fail before removing stage state, after retiring live
+            # inputs. Retry only restoration; preserve the original verdict/ZIP
+            # instead of verifying or collecting partially restored files.
             $RecoveryErrors = @()
             if ($PendingDeployment) {
                 try {

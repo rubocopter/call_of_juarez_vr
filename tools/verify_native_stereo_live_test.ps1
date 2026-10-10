@@ -4,6 +4,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "coj_validation_result.ps1")
+$ValidationContext = Get-CoJValidationContext $GameDirectory
+# A new invocation must not leave an earlier PASS if result serialization fails.
+if (Test-Path -LiteralPath $ValidationContext.ResultPath) {
+    Remove-Item -LiteralPath $ValidationContext.ResultPath -Force
+}
+$ValidationSucceeded = $false
+$ValidationReasons = @()
+try {
 . (Join-Path $PSScriptRoot "coj_executable_identity.ps1")
 $ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
 
@@ -94,8 +103,12 @@ if ([string]$Run.validation.profile -eq "startup") {
     if ($ResetEntered -ne $ResetExited) {
         throw "A startup Reset did not have a matching enter/exit result."
     }
+    if (-not $ValidationContext.RuntimeStarted -or -not $ValidationContext.RuntimeEnded) {
+        throw 'The verifier requires a complete correlated runtime start/end, not a substring in another record.'
+    }
     Write-Host "PASS - D3D9Ex factory identity, sustained Present, flat content and normal proxy finalization observed."
     Write-Host "Confirm startup videos/menu visually; this profile does not validate native stereo or GPU transport."
+    $ValidationSucceeded = $true
     return
 }
 
@@ -969,6 +982,9 @@ if ($Lines -match "d3d9_hook_event:.*(Present|BeginScene|EndScene|Reset)") {
 $EscapedRunId = [Regex]::Escape([string]$Provenance.RunId)
 Assert-LogMatch "run_end: run_id=$EscapedRunId(?:\s|$)" "The run did not end normally."
 
+if (-not $ValidationContext.RuntimeStarted -or -not $ValidationContext.RuntimeEnded) {
+    throw 'The verifier requires a complete correlated runtime start/end, not a substring in another record.'
+}
 Write-Host "PASS - exact CoJ/ChromeEngine/OpenVR deployment identities verified."
 if ($RequireRecenter) {
     Write-Host "PASS - PS VR2 Sense Create recenter action reached the camera pose boundary."
@@ -993,4 +1009,15 @@ if ($RequireOpenVrRuntimeState) {
 }
 if ($RequireOpenVrDashboardCycle) {
     Write-Host "PASS - SteamVR dashboard open/close and resumed presentation verified in the same physical run."
+}
+$ValidationSucceeded = $true
+} catch {
+    $ValidationReasons = @([ordered]@{
+        code = 'canonical_verifier_rejected'
+        message = $_.Exception.Message
+        errorId = $_.FullyQualifiedErrorId
+    })
+    throw
+} finally {
+    Write-CoJValidationResult $ValidationContext $true $ValidationSucceeded $ValidationReasons
 }

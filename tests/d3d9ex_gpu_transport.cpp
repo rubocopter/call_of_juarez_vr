@@ -48,15 +48,16 @@ bool CaptureGpuFrame(
     IDirect3DDevice9* device,
     IDirect3DSurface9* source,
     const std::uint64_t sequence,
-    cojvr::backends::d3d9::StereoCpuFrame& frame) {
+    cojvr::backends::d3d9::StereoCpuFrame& frame,
+    const std::uint64_t generation = 1) {
     HRESULT hr = device->ColorFill(source, nullptr, D3DCOLOR_ARGB(0xFF, 0x12, 0x34, 0x56));
     if (FAILED(hr) || !capture.CaptureEyeSurface(
-            device, source, cojvr::runtime::Eye::left, sequence, 1)) {
+            device, source, cojvr::runtime::Eye::left, sequence, generation)) {
         return false;
     }
     hr = device->ColorFill(source, nullptr, D3DCOLOR_ARGB(0xFF, 0xA2, 0xB4, 0xC6));
     if (FAILED(hr) || !capture.CaptureEyeSurface(
-            device, source, cojvr::runtime::Eye::right, sequence, 1) ||
+            device, source, cojvr::runtime::Eye::right, sequence, generation) ||
         !capture.EndFrame(sequence, TestPose(), sequence + 100)) {
         return false;
     }
@@ -245,6 +246,185 @@ int main() {
         return Fail("shared-texture shutdown did not retire every queued GPU copy before releasing producer leases");
     }
 
+    // A failed per-copy query is not proof of retirement. An independent GPU
+    // boundary must eventually make the capture ring usable again, without a
+    // wait on the producer/presenter or unsafe release during Reset generation.
+    {
+        cojvr::backends::d3d9::D3D9StereoCapture recovering_capture;
+        cojvr::backends::openvr::D3D9SharedTextureBridge recovering_bridge;
+        cojvr::backends::d3d9::StereoCpuFrame recovering_frame;
+        if (!CaptureGpuFrame(recovering_capture, device9ex.Get(), source.Get(), 101, recovering_frame) ||
+            !recovering_bridge.CopyFrame(device11.Get(), context11.Get(), recovering_frame,
+                raw_destinations, timing)) {
+            return Fail("recovery fixture did not queue its real leased GPU copy");
+        }
+        recovering_bridge.ForceFencePendingForTest(true);
+        if (!CaptureGpuFrame(recovering_capture, device9ex.Get(), source.Get(), 104, recovering_frame) ||
+            !recovering_bridge.CopyFrame(device11.Get(), context11.Get(), recovering_frame,
+                raw_destinations, timing) || recovering_bridge.stats().pending_copy_fences != 2) {
+            return Fail("recovery fixture did not retain multiple pending GPU copies");
+        }
+        recovering_bridge.ForceNextFencePollFailureForTest();
+        recovering_bridge.ForceRecoveryFencePendingForTest(true);
+        recovering_bridge.Poll(context11.Get());
+        recovering_bridge.Poll(context11.Get());
+        recovering_bridge.Poll(context11.Get());
+        if (recovering_bridge.stats().recovery_queries_started != 1 ||
+            recovering_bridge.stats().recoveries_completed != 0 ||
+            recovering_bridge.stats().pending_copy_fences != 2) {
+            return Fail("pending recovery proof released a producer lease");
+        }
+        hr = device9ex->ResetEx(&present, nullptr);
+        if (FAILED(hr)) return Fail("recovery fixture ResetEx failed", hr);
+        recovering_capture.InvalidateResources();
+        if (!recovering_capture.gpu_resident_active() || recovering_capture.stats().consumer_releases != 0 ||
+            recovering_capture.CaptureEyeSurface(device9ex.Get(), source.Get(),
+                cojvr::runtime::Eye::left, 102, 2)) {
+            return Fail("Reset generation reused an uncertain producer lease");
+        }
+        recovering_bridge.ForceRecoveryFencePendingForTest(false);
+        recovering_bridge.ForceFencePendingForTest(false);
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            recovering_bridge.Poll(context11.Get());
+            if (recovering_bridge.stats().pending_copy_fences == 0) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        const auto recovered = recovering_bridge.stats();
+        // Drain physical work even on RED, before the artificial fixture dies.
+        cojvr::backends::openvr::D3D11SyncResult drain;
+        std::string drain_error;
+        if (!cojvr::backends::openvr::SynchronizeD3D11(device11.Get(), context11.Get(),
+                cojvr::backends::openvr::D3D11SyncStrategy::event_query, 1000, drain, drain_error)) {
+            return Fail("recovery fixture could not safely retire its physical GPU work");
+        }
+        if (recovered.pending_copy_fences != 0 || recovered.copy_fences_completed != 2 ||
+            recovered.copy_failures != 1 || recovered.recovery_first_copy != 1 ||
+            recovered.recovery_last_copy != 2) {
+            std::cerr << "recovery stats: pending=" << recovered.pending_copy_fences
+                      << " completed=" << recovered.copy_fences_completed
+                      << " copy_failures=" << recovered.copy_failures
+                      << " queries=" << recovered.recovery_queries_started
+                      << " recoveries=" << recovered.recoveries_completed
+                      << " recovery_failures=" << recovered.recovery_failures
+                      << " pending_polls=" << recovered.recovery_poll_pending
+                      << " error=" << recovering_bridge.last_error() << '\n';
+            return Fail("independent completion boundary did not recover the quarantined GPU lease");
+        }
+        if (!CaptureGpuFrame(recovering_capture, device9ex.Get(), source.Get(), 102, recovering_frame, 2) ||
+            !recovering_bridge.CopyFrame(device11.Get(), context11.Get(), recovering_frame,
+                raw_destinations, timing)) {
+            return Fail("retired copies did not permit a fresh producer generation");
+        }
+        // A second fault keeps both source and consumer replacements deferred.
+        recovering_bridge.ForceNextFencePollFailureForTest();
+        recovering_bridge.ForceRecoveryFencePendingForTest(true);
+        recovering_bridge.Poll(context11.Get());
+        ComPtr<IDirect3DDevice9Ex> replacement9;
+        hr = d3d9->CreateDeviceEx(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, present.hDeviceWindow,
+            D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_MULTITHREADED,
+            &present, nullptr, &replacement9);
+        if (FAILED(hr)) return Fail("replacement producer device creation failed", hr);
+        ComPtr<IDirect3DTexture9> replacement_texture;
+        hr = replacement9->CreateTexture(64, 32, 1, D3DUSAGE_RENDERTARGET,
+            D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &replacement_texture, nullptr);
+        if (FAILED(hr)) return Fail("replacement producer texture creation failed", hr);
+        ComPtr<IDirect3DSurface9> replacement_surface;
+        hr = replacement_texture->GetSurfaceLevel(0, &replacement_surface);
+        if (FAILED(hr)) return Fail("replacement producer surface retrieval failed", hr);
+        if (recovering_capture.CaptureEyeSurface(replacement9.Get(), replacement_surface.Get(),
+                cojvr::runtime::Eye::left, 103, 3)) {
+            return Fail("producer replacement reused a pending GPU lease");
+        }
+        ComPtr<ID3D11Device> replacement11;
+        ComPtr<ID3D11DeviceContext> replacement_context;
+        hr = D3D11CreateDevice(adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, static_cast<UINT>(std::size(levels)),
+            D3D11_SDK_VERSION, &replacement11, &level, &replacement_context);
+        if (FAILED(hr)) return Fail("replacement consumer creation failed", hr);
+        std::array<ComPtr<ID3D11Texture2D>, 2> replacement_destinations;
+        D3D11_TEXTURE2D_DESC destination_desc{};
+        destinations[0]->GetDesc(&destination_desc);
+        for (auto& destination : replacement_destinations) {
+            hr = replacement11->CreateTexture2D(&destination_desc, nullptr, &destination);
+            if (FAILED(hr)) return Fail("replacement consumer texture creation failed", hr);
+        }
+        const std::array<ID3D11Texture2D*, 2> replacement_raw{
+            replacement_destinations[0].Get(), replacement_destinations[1].Get()};
+        // Synthetic leases let these negative admissions observe ownership
+        // without publishing additional producer frames.
+        auto make_probe = [&recovering_frame](const std::uint64_t generation,
+            const std::shared_ptr<cojvr::backends::d3d9::ProducerFrameReleaseState>& state) {
+            cojvr::backends::d3d9::StereoCpuFrame probe;
+            probe.transport = recovering_frame.transport;
+            probe.device_id = recovering_frame.device_id;
+            probe.generation = generation;
+            probe.shared_eyes = recovering_frame.shared_eyes;
+            probe.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(state);
+            return probe;
+        };
+        auto deferred_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+        auto deferred = make_probe(2, deferred_state);
+        recovering_bridge.Poll(replacement_context.Get());
+        if (recovering_bridge.CopyFrame(replacement11.Get(), replacement_context.Get(), deferred,
+                replacement_raw, timing) || !deferred.producer_lease.valid() ||
+            recovering_bridge.stats().pending_copy_fences != 1 ||
+            recovering_bridge.stats().copy_fences_completed != 2 ||
+            recovering_bridge.stats().transition_deferrals != 1) {
+            return Fail("consumer replacement polled or released an old-context GPU lease");
+        }
+        deferred.producer_lease.Release();
+        auto wrong_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+        auto wrong = make_probe(2, wrong_state);
+        if (recovering_bridge.CopyFrame(replacement11.Get(), context11.Get(), wrong,
+                replacement_raw, timing) ||
+            recovering_bridge.CopyFrame(device11.Get(), context11.Get(), wrong,
+                replacement_raw, timing) || !wrong.producer_lease.valid() ||
+            recovering_bridge.stats().identity_rejections != 2) {
+            return Fail("mismatched consumer context or destination was admitted");
+        }
+        wrong.producer_lease.Release();
+        recovering_bridge.ForceRecoveryFencePendingForTest(false);
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            recovering_bridge.Poll(context11.Get());
+            if (recovering_bridge.stats().pending_copy_fences == 0) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (recovering_bridge.stats().pending_copy_fences != 0 ||
+            !CaptureGpuFrame(recovering_capture, replacement9.Get(), replacement_surface.Get(),
+                103, recovering_frame, 3) ||
+            !recovering_bridge.CopyFrame(device11.Get(), context11.Get(), recovering_frame,
+                raw_destinations, timing)) {
+            return Fail("retirement did not permit producer replacement with a fresh generation");
+        }
+        auto stale_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+        auto stale = make_probe(2, stale_state);
+        if (recovering_bridge.CopyFrame(device11.Get(), context11.Get(), stale, raw_destinations, timing) ||
+            !stale.producer_lease.valid() || recovering_bridge.stats().identity_rejections != 3) {
+            return Fail("stale producer generation was admitted after replacement");
+        }
+        stale.producer_lease.Release();
+        recovering_bridge.Shutdown(context11.Get());
+        auto replaced_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+        auto replaced = make_probe(3, replaced_state);
+        if (!recovering_bridge.CopyFrame(replacement11.Get(), replacement_context.Get(), replaced,
+                replacement_raw, timing)) {
+            return Fail("retired consumer could not safely rebind its shared resources");
+        }
+        recovering_bridge.Shutdown(replacement_context.Get());
+        recovering_capture.Shutdown();
+        if (recovering_bridge.stats().copy_fences_completed != 5 ||
+            recovering_bridge.stats().recoveries_completed != 2 ||
+            recovering_bridge.stats().recovery_queries_started != 2 ||
+            recovering_bridge.stats().recovery_first_copy != 3 ||
+            recovering_bridge.stats().recovery_last_copy != 3 ||
+            recovering_bridge.stats().copy_failures != 2 ||
+            recovering_bridge.stats().abandoned_on_shutdown != 0 ||
+            recovering_capture.stats().consumer_releases != 4 || recovering_capture.stats().ring_depth != 0 ||
+            !replaced_state->consumer_done.load(std::memory_order_acquire)) {
+            return Fail("recovered transport did not retain healthy shutdown accounting");
+        }
+    }
+
     // Inject the exact GetData failure branch against a real queued GPU copy.
     // Use independent synthetic lease states on still-live shared eye textures
     // to observe retirement without interfering with the capture ring owner.
@@ -254,6 +434,8 @@ int main() {
         cojvr::backends::openvr::D3D9SharedTextureBridge failed_bridge;
         cojvr::backends::d3d9::StereoCpuFrame failed_frame{};
         failed_frame.transport = cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+        failed_frame.device_id = frame.device_id;
+        failed_frame.generation = frame.generation;
         failed_frame.shared_eyes = second.shared_eyes;
         failed_frame.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(retained_state);
         if (!failed_bridge.CopyFrame(
@@ -261,6 +443,7 @@ int main() {
             return Fail("failed-query fixture did not queue its GPU copy");
         }
         failed_bridge.ForceNextFencePollFailureForTest();
+        failed_bridge.ForceNextRecoveryFencePollFailureForTest();
         failed_bridge.Poll(context11.Get());
         const auto failed_stats = failed_bridge.stats();
         if (failed_stats.frames_copied != 1 || failed_stats.copy_fences_completed != 0 ||
@@ -271,6 +454,8 @@ int main() {
 
         cojvr::backends::d3d9::StereoCpuFrame rejected_frame{};
         rejected_frame.transport = cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+        rejected_frame.device_id = frame.device_id;
+        rejected_frame.generation = frame.generation;
         rejected_frame.shared_eyes = second.shared_eyes;
         rejected_frame.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(rejected_state);
         if (failed_bridge.CopyFrame(
@@ -285,9 +470,18 @@ int main() {
         failed_bridge.Shutdown(context11.Get());
         const auto quarantined_stats = failed_bridge.stats();
         if (quarantined_stats.abandoned_on_shutdown != 1 ||
+            quarantined_stats.recovery_queries_started != 1 ||
+            quarantined_stats.recovery_failures != 1 ||
             quarantined_stats.pending_copy_fences != 1 ||
             retained_state->consumer_done.load(std::memory_order_acquire)) {
             return Fail("failed fence query released its lease during shutdown");
+        }
+        failed_bridge.ResetOpenedResources();
+        failed_bridge.Poll(context11.Get());
+        if (failed_bridge.stats().recovery_queries_started != 1 ||
+            failed_bridge.stats().pending_copy_fences != 1 ||
+            retained_state->consumer_done.load(std::memory_order_acquire)) {
+            return Fail("failed recovery proof retried or released an uncertain lease");
         }
         // Drain the physical GPU before ending this artificial failure test;
         // the production fail-closed path instead destroys its D3D11 session.
@@ -300,8 +494,42 @@ int main() {
             return Fail("failed-query fixture could not retire the physical GPU copy");
         }
     }
-    if (!retained_state->consumer_done.load(std::memory_order_acquire)) {
-        return Fail("quarantined GPU lease was not released after safe teardown");
+    if (retained_state->consumer_done.load(std::memory_order_acquire)) {
+        return Fail("bridge destruction advertised an unproven quarantined lease as reusable");
+    }
+    {
+        cojvr::backends::d3d9::D3D9StereoCapture abandoned_capture;
+        {
+            cojvr::backends::openvr::D3D9SharedTextureBridge abandoned_bridge;
+            cojvr::backends::d3d9::StereoCpuFrame abandoned_frame;
+            if (!CaptureGpuFrame(abandoned_capture, device9ex.Get(), source.Get(), 201, abandoned_frame) ||
+                !abandoned_bridge.CopyFrame(device11.Get(), context11.Get(), abandoned_frame,
+                    raw_destinations, timing)) {
+                return Fail("abandonment fixture could not queue a real leased copy");
+            }
+            abandoned_bridge.ForceNextFencePollFailureForTest();
+            abandoned_bridge.ForceNextRecoveryFencePollFailureForTest();
+            abandoned_bridge.Poll(context11.Get());
+            abandoned_bridge.Poll(context11.Get());
+            abandoned_bridge.Poll(context11.Get());
+            abandoned_bridge.Shutdown(context11.Get());
+            // Test cleanup retires physical work, but deliberately supplies no
+            // proof to the bridge. Its producer state must stay quarantined.
+            cojvr::backends::openvr::D3D11SyncResult drained;
+            std::string drain_error;
+            if (!cojvr::backends::openvr::SynchronizeD3D11(device11.Get(), context11.Get(),
+                    cojvr::backends::openvr::D3D11SyncStrategy::event_query, 1000, drained, drain_error)) {
+                return Fail("abandonment fixture could not drain its physical GPU work");
+            }
+        }
+        abandoned_capture.InvalidateResources();
+        abandoned_capture.Shutdown();
+        if (abandoned_capture.stats().consumer_releases != 0 ||
+            abandoned_capture.stats().ring_depth != 1 ||
+            abandoned_capture.CaptureEyeSurface(device9ex.Get(), source.Get(),
+                cojvr::runtime::Eye::left, 202, 2)) {
+            return Fail("destroyed consumer let the producer invalidate or reuse its uncertain slot");
+        }
     }
     // A final game frame can be fenced but never published when quit stops
     // the producer. Shutdown must cancel it and report an empty ring after

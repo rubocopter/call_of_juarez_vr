@@ -6112,6 +6112,13 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
                     ";native_active=" + std::to_string(native_gameplay_ui.status.active) +
                     ";lines=" + std::to_string(native_gameplay_ui.status.line_count) +
                     ";surface_valid=" + std::to_string(hud_text.status_surface_valid));
+                EmitEvent("native_critical_hud", "observed",
+                    "frame_sequence=" + std::to_string(frame_sequence) +
+                    ";timer_chars=" + std::to_string(hud_text.mission_timer.length) +
+                    ";notice_chars=" + std::to_string(hud_text.mission_notices.length) +
+                    ";native_threats=" + std::to_string(native_gameplay_ui.threat_count) +
+                    ";projected_threats=" + std::to_string(hud_text.threats.count) +
+                    ";mutation=false;clock=native;fade=native");
                 EmitEvent("native_gameplay_ui", "observed",
                     "frame_sequence=" + std::to_string(frame_sequence) +
                     ";inventory_valid=" + std::to_string(native_gameplay_ui.inventory.valid) +

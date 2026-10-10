@@ -248,7 +248,8 @@ and unbound on Sense. Duel/special-camera lean still needs eligible live evidenc
 The revised layout is operator-accepted for exercised available contexts:
 release-confirmed wheel selection, snap rearm, wheel haptics, on-foot crouch,
 ordinary R3 Focus, Create hold recenter/tap Objectives and encountered HUD rows.
-Kick remains inconclusive under campaign eligibility; no horse was available.
+Ray's Bible selection/use and on-foot kick have scoped operator acceptance;
+campaign eligibility transitions and mounted contexts remain unqualified.
 Other weapons, mounted routing and special mechanics remain pending rather than
 failed. The replacement left-hand L1 route and held-only ring are host-tested,
 not physically accepted. [VALIDATION.md](../VALIDATION.md#revised-sense-control-acceptance)
@@ -385,7 +386,8 @@ does not establish magnification acceptance.
 Exercised pause, pickup/carry/put-down, gun firing, hybrid reload, jump,
 on-foot crouch, ordinary Focus and available wheel switching retain their scoped
 operator acceptance. Former-layout logs remain a baseline observation, with no
-default Sense binding now. Mounting, kick eligibility and broader equipment
+default Sense binding now. Ray's Bible selection/use and on-foot kick are also
+operator-accepted in exercised gameplay. Mounting, campaign permission changes and broader equipment
 contexts remain separate gates; dispatch alone does not validate them.
 
 - **Contextual F:** the manual assigns pickup, put-down, devices and mounting to
@@ -752,6 +754,45 @@ concentration/duel/horse input mechanics retain distinct gates.
 
 ## Current acceptance and remaining work
 
+### Critical countdown, mission notices and attack feedback
+
+The countdown also supplies an independent head panel from `m_cTitle` and the
+exclusive bottom/center digits. It follows native title/text visibility and alpha
+and does not depend on the wrist facing the viewer or available health/ammo rows.
+No `CountdownTimer` time query or HUD update is replayed.
+
+Owned `HUDObjective` slot 12 exposes visible `m_cMainWindow:LUIWindowInfo;` and
+`m_cInfo:LUIStatic;`. Slots 13/14 are `HUDTipObjectives`/`HUDTipLogs`, inheriting
+`HUDTip.m_cText:LUIStatic;`. Copy their existing `m_sLocalizedText` only with
+positive bounded `m_fCurTextAlpha` and actual visibility. Independently failing
+domains cannot suppress the others. These are objective/journal notifications,
+not an assertion that every campaign graphic has been recovered.
+
+`GetHudDirectionIndicator`/`GetHudDamageIndicator` select slots 15/16. The first
+inherits `HUDDamageIndicator`; each shipped layout contains six
+`m_aIndicators:[LDamageIndicator;`. Read only active indicators whose owned
+positioner and icon windows are visible. `StartIndicating`/`StartFading` update
+the icon's cached `m_fTextureAlpha`; use that alpha without another fade clock.
+`PlayerBeing.AddIndicatedDamage`/`AddIndicatedDirection` normalize the supplied
+vector and encode `degrees(acos(dot2D(vector,Vector.Backward)))`, negating when
+its X is negative. `Vector.Backward` is `(0,0,-1)`. The native absolute
+`m_fDamageAngle` is compared against
+`atan2(camera_forward.z,camera_forward.x)+90` by `UpdateIndicators`/`SetDamageAngle`.
+The camera axis named forward is the view's backward axis. Native screen placement
+is `(sin(relative),-cos(relative))`; its matching viewer-to-source world vector
+is `(-sin(angle),0,cos(angle))`, mapped into the captured tracking basis and head
+orientation. Using the supplied-vector direction instead inverts both screen
+axes. Host fixtures preserve native front/back/left/right placement for both
+indicator types, wrapped angles, reference yaw and physical head turns.
+The semantic VR glyphs are green
+for direction and red for damage; they do not capture the native
+`DirectionIndicator`/`HitIndicator` textures or replay sprite traversal.
+
+Class/layout inspection, bounded reader faults and real stereo GPU composition
+are host evidence. Recovered countdown, encountered notices and corrected attack
+directions now have scoped operator headset acceptance. Broader concurrent-content
+readability, campaign transitions and owner loss remain gates in VALIDATION.md.
+
 Essential hints/interactions/subtitles use read-only native owners and finite-depth
 stereo presentation; encountered HUD elements and floating dialogue are
 operator-accepted. Health/ammo, equipment wheel and objective wrist compass are
@@ -766,9 +807,10 @@ manual-cartridge grip, exact loading-port clearance and broader manual recovery;
 protected-target red weapon cross visibility;
 retry/held-input recovery after the accepted death-screen visibility; broader
 inventory permissions, other weapons and campaign mechanics. Full cylinder
-loading, bow, scoped optics, dynamite, Bible, concentration, duels, climbing and
-horses require their own native ownership and physical evidence. Kick is
-inconclusive, not a demonstrated binding failure.
+loading, bow, scoped optics, dynamite, concentration, duels, climbing and horses
+require their own native ownership and physical evidence. Ray's Bible use and
+on-foot kick are accepted where exercised; this does not qualify concentration
+or remove campaign-specific kick restrictions.
 
 [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
 owns acceptance; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-interactions)

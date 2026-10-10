@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "coj_validation_result.ps1")
 
 function Get-UpperSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -52,6 +53,31 @@ if (-not (Test-Path -LiteralPath $RunDirectory -PathType Container)) {
 }
 
 $Inventory = [System.Collections.Generic.List[object]]::new()
+$ValidationContext = Get-CoJValidationContext $GameDirectory
+$ValidationResult = $null
+if (Test-Path -LiteralPath $ValidationContext.ResultPath -PathType Leaf) {
+    $ValidationResult = Get-Content -LiteralPath $ValidationContext.ResultPath -Raw | ConvertFrom-Json
+}
+# Recollection can refresh an explicit absence of verification, never an
+# executed verdict. Late logs still cannot turn collection into acceptance.
+if ($null -eq $ValidationResult -or ($ValidationResult.schemaVersion -eq 1 -and
+    $ValidationResult.manifestType -eq 'cojvr-validation-result' -and
+    $ValidationResult.outcome -eq 'inconclusive' -and
+    $ValidationResult.verifier.executed -eq $false -and $ValidationResult.verifier.succeeded -eq $false -and
+    @($ValidationResult.reasons).Count -eq 1 -and $ValidationResult.reasons[0].code -eq 'verifier_not_executed')) {
+    Write-CoJValidationResult $ValidationContext $false $false @([ordered]@{
+        code = 'verifier_not_executed'; message = 'No canonical verifier result was recorded for these run inputs.'
+    })
+}
+$ValidationResult = Get-Content -LiteralPath $ValidationContext.ResultPath -Raw | ConvertFrom-Json
+Assert-CoJValidationResult $ValidationContext $ValidationResult
+# Files already under the run directory still require inventory hashes.
+foreach ($Relative in @('analysis/validation-result.json', 'build-manifest.json', 'operator-observations.json')) {
+    $Path = Join-Path $RunDirectory $Relative
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        $Inventory.Add([ordered]@{path=$Relative; sha256=Get-UpperSha256 $Path; size=(Get-Item -LiteralPath $Path).Length})
+    }
+}
 Copy-EvidenceFile $CurrentRunPath (Join-Path $RunDirectory "run-manifest.json") $Inventory
 
 $StageStatePaths = @(
@@ -126,6 +152,9 @@ foreach ($Deployment in @($CurrentRun.deployment)) {
 }
 
 $EvidenceManifestPath = Join-Path $RunDirectory "evidence-manifest.json"
+# The package must describe the same inputs as the verdict, including the
+# bytes copied above. Fail closed if they changed during collection.
+Assert-CoJValidationResult (Get-CoJValidationContext $GameDirectory) $ValidationResult
 $EvidenceManifest = [ordered]@{
     schemaVersion = 1
     manifestType = "cojvr-run-evidence"
@@ -135,6 +164,17 @@ $EvidenceManifest = [ordered]@{
     runtimeStarted = $RuntimeStarted
     runtimeEnded = $RuntimeEnded
     incomplete = -not $RuntimeEnded
+    validation = [ordered]@{
+        resultPath = 'analysis/validation-result.json'
+        outcome = $ValidationResult.outcome
+        validationProfile = $ValidationResult.validationProfile
+        scope = 'canonical_telemetry_checks_only'
+        headsetAcceptance = 'not_evaluated'
+    }
+    operatorObservations = [ordered]@{
+        path = if (Test-Path -LiteralPath (Join-Path $RunDirectory 'operator-observations.json')) { 'operator-observations.json' } else { $null }
+        affectsVerifierOutcome = $false
+    }
     analysis = [ordered]@{
         nativeStereoSummaryRequired = $RequirePerformanceSummary
         nativeStereoSummaryCollected = Test-Path -LiteralPath $NativeStereoSummary -PathType Leaf

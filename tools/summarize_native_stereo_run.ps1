@@ -201,6 +201,12 @@ $Report = [ordered]@{
         submitFailures = Get-IntegerField $TransportText "submit_failures"
         copyFencePollPending = Get-IntegerField $GpuTransportText "copy_fence_poll_pending"
         abandonedOnShutdown = Get-IntegerField $GpuTransportText "abandoned_on_shutdown"
+        recoveryQueriesStarted = Get-IntegerField $GpuTransportText "recovery_queries_started"
+        recoveriesCompleted = Get-IntegerField $GpuTransportText "recoveries_completed"
+        recoveryFailures = Get-IntegerField $GpuTransportText "recovery_failures"
+        recoveryPollPending = Get-IntegerField $GpuTransportText "recovery_poll_pending"
+        identityRejections = Get-IntegerField $GpuTransportText "identity_rejections"
+        transitionDeferrals = Get-IntegerField $GpuTransportText "transition_deferrals"
     }
     runtime = [ordered]@{
         stateSamples = $RuntimeStateLines.Count

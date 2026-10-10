@@ -1,5 +1,6 @@
 #pragma once
 #include "runtime/gameplay_ui.hpp"
+#include "runtime/hud_text.hpp"
 
 namespace cojvr::games::call_of_juarez {
 struct CoJCompassWaypoint {
@@ -13,6 +14,17 @@ struct CoJCompassWaypoint {
 struct CoJGameplayUiSnapshot {
     runtime::EquipmentWheelSnapshot inventory{};
     runtime::WristStatusSnapshot status{};
+    runtime::HudText mission_timer{};
+    runtime::HudText mission_notices{};
+    struct Threat {
+        // Native m_fDamageAngle; signed acos against Vector.Backward (-Z).
+        // This is not a viewer-to-attacker bearing; the CoJ adapter resolves
+        // its sense using the native HUD's camera-back convention.
+        float world_angle_degrees=0,alpha=0;
+        bool damage=false;
+    };
+    std::array<Threat,12> threats{};
+    std::uint32_t threat_count=0;
     bool compass_valid = false;
     bool compass_visible = false;
     float map_angle_degrees = 0;

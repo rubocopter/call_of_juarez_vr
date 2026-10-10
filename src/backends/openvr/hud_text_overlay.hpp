@@ -15,12 +15,13 @@ struct HudTextPanel {
 // Cache owns GDI output only; rebuilding occurs when visible text changes.
 class HudTextRaster {
 public:
-    [[nodiscard]] const HudTextPanel& Render(const runtime::HudText& text) noexcept;
+    [[nodiscard]] const HudTextPanel& Render(const runtime::HudText& text, bool compact=false) noexcept;
     [[nodiscard]] std::uint64_t rebuilds() const noexcept { return rebuilds_; }
 private:
     runtime::HudText text_{};
     HudTextPanel panel_{};
     std::uint64_t rebuilds_ = 0;
+    bool compact_ = false;
 };
 
 struct HudPanelPlacement {
@@ -38,11 +39,18 @@ struct ProjectedHudPanel {
     std::array<std::array<float, 4>, 4> clip_positions{};
 };
 
+[[nodiscard]] bool BuildThreatPanelPlacement(const runtime::ThreatMarker& marker,
+    HudPanelPlacement& result) noexcept;
+
 // Homogeneous corners preserve perspective under cant and asymmetric FOV.
 [[nodiscard]] bool ProjectHudPanel(const HudTextPanel& source,
     const runtime::EyeView& eye, std::uint32_t target_width,
     std::uint32_t target_height, HudPanelPlacement placement,
     ProjectedHudPanel& result) noexcept;
+
+// Timer, hint, notices; fit the complete measured stack to BOTH captured eyes.
+[[nodiscard]] bool FitCriticalHudPanels(const std::array<const HudTextPanel*,3>& panels,
+    const std::array<runtime::EyeView,2>& eyes,std::array<HudPanelPlacement,3>& result) noexcept;
 
 // Operates exclusively on presenter-owned D3D11 resources/context.
 class HudTextCompositor {

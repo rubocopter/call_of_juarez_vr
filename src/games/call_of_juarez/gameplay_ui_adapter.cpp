@@ -89,7 +89,30 @@ void BuildCoJGameplayUiOverlay(const CoJGameplayUiSnapshot& native,const runtime
     runtime::StereoHudTextOverlay& out) noexcept {
     out.ui={};out.compass_surface_valid=false;out.compass_head_corners={};
     out.status_surface_valid=false;out.status_head_corners={};
+    out.mission_timer={};out.mission_notices={};out.threats={};
     if(!input.active)return;
+    if(PoseValid(head)){
+        out.mission_timer=native.mission_timer;out.mission_notices=native.mission_notices;
+        if(native.threat_count<=native.threats.size()&&Finite(right)&&Finite(back)&&
+            std::fabs(Dot(right,right)-1)<.02F&&std::fabs(Dot(back,back)-1)<.02F&&std::fabs(Dot(right,back))<.02F){
+            for(std::size_t i=0;i<native.threat_count;++i){
+                const auto& source=native.threats[i];
+                if(!std::isfinite(source.world_angle_degrees)||!std::isfinite(source.alpha)||source.alpha<=0||source.alpha>1)continue;
+                // PlayerBeing.AddIndicatedDamage/Direction encode the native
+                // vector against Vector.Backward (-Z), signed by its X. Native
+                // HUD subtracts atan2(camera_back.z,camera_back.x)+90 before
+                // placing the icon at (sin(relative), -cos(relative)). Camera
+                // "forward" is the view's BACK axis: the matching source vector
+                // is the opposite of (sin(a),0,-cos(a)), not that vector itself.
+                const float a=source.world_angle_degrees*.017453292519943295F;
+                const runtime::Vec3 world{-std::sin(a),0,std::cos(a)};
+                const auto local=runtime::RotateVector(Inverse(head.orientation),{Dot(world,right),0,Dot(world,back)});
+                const float n=std::hypot(local.x,local.z);if(!std::isfinite(n)||n<.01F)continue;
+                auto& marker=out.threats.markers[out.threats.count++];
+                marker.direction={local.x/n,-local.z/n};marker.alpha=source.alpha;marker.damage=source.damage;
+            }
+        }
+    }
     // Inventory is stored in semantic channel order; presentation is clockwise
     // spatial order. Keep both labels and permissions on the same action map.
     constexpr std::u16string_view fallback[]{u"Left pistol",u"Right pistol",u"Long weapon",

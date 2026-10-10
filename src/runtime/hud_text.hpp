@@ -26,6 +26,22 @@ struct HudTextSnapshot {
     HudText subtitle{};
 };
 
+// Native presentation observations only; no damage, deadline or fade clock.
+struct ThreatMarker {
+    Vec2 direction{}; // +X right, +Y up on the view's bearing ring.
+    float alpha = 0;
+    bool damage = false;
+    bool operator==(const ThreatMarker& other) const noexcept {
+        return direction.x==other.direction.x && direction.y==other.direction.y &&
+            alpha==other.alpha && damage==other.damage;
+    }
+};
+struct ThreatMarkers {
+    std::array<ThreatMarker,12> markers{};
+    std::uint32_t count = 0;
+    bool operator==(const ThreatMarkers&) const = default;
+};
+
 // Bounded, value-only captured geometry; no scene depth is transported.
 struct ReloadCartridgeSurface {
     std::array<Vec3,4> head_corners{};
@@ -57,6 +73,9 @@ struct StereoHudTextOverlay {
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};
     GameplayUiSnapshot ui{};
+    HudText mission_timer{};
+    HudText mission_notices{};
+    ThreatMarkers threats{};
     bool compass_surface_valid = false;
     std::array<Vec3,4> compass_head_corners{};
     bool status_surface_valid = false;

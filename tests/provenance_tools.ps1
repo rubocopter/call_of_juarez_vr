@@ -46,6 +46,7 @@ try {
         "set_hmd_camera_control.ps1",
         "verify_hmd_camera_live_test.ps1",
         "verify_native_stereo_live_test.ps1",
+        "coj_validation_result.ps1",
         "coj_executable_identity.ps1",
         "summarize_native_stereo_run.ps1",
         "vr_test.ps1"
@@ -978,7 +979,7 @@ try {
         "native_stereo_shutdown: stage=capture_end",
         "native_stereo_pre_exit_hook: status=restored",
         "native_stereo_pre_exit: stage=end boundary=CoJ.exe!DestroyGame",
-        "native_stereo_gpu_transport_summary: frames_copied=2;resources_opened=4;copy_fences_completed=2;copy_fence_poll_pending=1;pending_fences_peak=2;open_failures=0;copy_failures=0;abandoned_on_shutdown=0;last_copy_completion_ms=0.500;max_copy_completion_ms=0.700",
+        "native_stereo_gpu_transport_summary: frames_copied=2;resources_opened=4;copy_fences_completed=2;copy_fence_poll_pending=1;pending_fences_peak=2;open_failures=0;copy_failures=0;abandoned_on_shutdown=0;recovery_queries_started=0;recoveries_completed=0;recovery_failures=0;recovery_poll_pending=0;identity_rejections=0;transition_deferrals=0;last_copy_completion_ms=0.500;max_copy_completion_ms=0.700",
         "native_stereo_transport_summary: frames_fenced=3;frames_collected=2;capture_ring_drops=0;capture_query_not_ready=1;capture_query_flushes=1;shared_frames_published=2;cpu_fallback_frames=0;fallback_activations=0;consumer_releases=2;capture_ring_depth=0;capture_ring_depth_peak=2;mailbox_published=2;mailbox_replaced=0;frames_uploaded=2;new_submissions=2;repeat_submissions=4;shared_frames_copied=2;shared_resources_opened=4;shared_copy_fences_completed=2;shared_pending_copy_fences=0;shared_pending_copy_fences_peak=2;shared_open_failures=0;shared_copy_failures=0;submit_failures=0",
         "native_stereo_runtime: status=stopped",
         "run_end: run_id=$StereoVerifierRunId"
@@ -986,6 +987,10 @@ try {
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
         -GameDirectory $StereoVerifierGame | Out-Null
+
+    $PersistedFull = Get-Content (Join-Path $StereoVerifierRunDirectory 'analysis/validation-result.json') -Raw | ConvertFrom-Json
+    Assert-True ($PersistedFull.outcome -eq 'pass' -and $PersistedFull.validationProfile -eq 'full') `
+        'Full-profile canonical result was not persisted (including legacy profile inference).'
 
     $TransportRun = Get-Content -LiteralPath (Join-Path $StereoVerifierGame ".cojvr-run.json") -Raw | ConvertFrom-Json
     $TransportRun.validation | Add-Member -NotePropertyName profile -NotePropertyValue "transport" -Force
@@ -1020,6 +1025,9 @@ try {
         -GameDirectory $StereoVerifierGame | Out-Null
 
     $MissingPreExitFailure = $null
+    $PersistedTransport = Get-Content (Join-Path $StereoVerifierRunDirectory 'analysis/validation-result.json') -Raw | ConvertFrom-Json
+    Assert-True ($PersistedTransport.outcome -eq 'pass' -and $PersistedTransport.validationProfile -eq 'transport') `
+        'Transport-profile canonical result was not persisted.'
     $MissingPreExitLog = @($TransportOnlyLog | Where-Object { $_ -notmatch 'native_stereo_pre_exit' })
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $MissingPreExitLog
     try {
@@ -1028,6 +1036,33 @@ try {
     } catch { $MissingPreExitFailure = $_.Exception.Message }
     Assert-True ($MissingPreExitFailure -eq 'The runtime did not complete its exact-build pre-exit shutdown boundary.') `
         'Native-stereo verifier accepted a run without pre-exit completion or failed for an unrelated reason.'
+
+    # Completed independent recovery preserves the original failure. A drained
+    # run still fails normal acceptance, and its persisted verdict records why.
+    $RecoveredFailureLog = @($TransportOnlyLog | ForEach-Object {
+        if ($_ -match 'native_stereo_gpu_transport_summary:') {
+            $_ -replace 'copy_failures=0;', 'copy_failures=1;' `
+               -replace 'recovery_queries_started=0;', 'recovery_queries_started=1;' `
+               -replace 'recoveries_completed=0;', 'recoveries_completed=1;'
+        } else { $_ }
+    })
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $RecoveredFailureLog
+    $RecoveredFailure = $null
+    try {
+        & (Join-Path $SourceDirectory 'tools\verify_native_stereo_live_test.ps1') `
+            -GameDirectory $StereoVerifierGame | Out-Null
+    } catch { $RecoveredFailure = $_.Exception.Message }
+    Assert-True ($RecoveredFailure -eq 'The presenter did not retire shared-copy fences without transport failures.') `
+        "Canonical verifier accepted a recovered failure or rejected unrelated evidence: $RecoveredFailure"
+    $RecoveredVerdict = Get-Content (Join-Path $StereoVerifierRunDirectory 'analysis/validation-result.json') -Raw | ConvertFrom-Json
+    Assert-True ($RecoveredVerdict.outcome -eq 'fail') 'Completed recovery erased the persisted failure verdict.'
+    $RecoverySummaryPath = Join-Path $StereoVerifierRunDirectory 'analysis/recovery-summary.json'
+    & (Join-Path $SourceDirectory 'tools\summarize_native_stereo_run.ps1') `
+        -GameDirectory $StereoVerifierGame -OutputPath $RecoverySummaryPath | Out-Null
+    $RecoverySummary = Get-Content $RecoverySummaryPath -Raw | ConvertFrom-Json
+    Assert-True ($RecoverySummary.transport.recoveryQueriesStarted -eq 1 -and
+        $RecoverySummary.transport.recoveriesCompleted -eq 1 -and
+        $RecoverySummary.transport.recoveryFailures -eq 0) 'Recovery counters disappeared from the evidence summary.'
 
     foreach ($IncompleteDrain in @('abandoned', 'pending', 'not_completed', 'inconsistent_totals', 'cross_summary', 'missing_abandoned', 'missing_pending')) {
         $IncompleteDrainLog = @($TransportOnlyLog | ForEach-Object {
@@ -1586,6 +1621,10 @@ try {
         "Native-stereo summary did not preserve GPU-resident transport counters."
 
     $StereoPackagePath = Join-Path $TestRoot "$StereoVerifierRunId.zip"
+    # Negative fixtures above intentionally leave a failed verdict. The restored
+    # and extended log needs its own fresh canonical check before collection.
+    & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
+        -GameDirectory $StereoVerifierGame | Out-Null
     & (Join-Path $SourceDirectory "tools\collect_run_evidence.ps1") `
         -GameDirectory $StereoVerifierGame `
         -OutputPath $StereoPackagePath | Out-Null

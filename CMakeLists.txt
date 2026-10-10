@@ -439,6 +439,15 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME openvr_action_assets COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/openvr_action_assets.py")
     add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(
+        NAME validation_result_tools
+        COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tests/validation_result_tools.ps1"
+            -SourceDirectory "${CMAKE_SOURCE_DIR}"
+            -BinaryDirectory "${CMAKE_BINARY_DIR}"
+    )
+
+    add_test(
         NAME provenance_tools
         COMMAND "${COJVR_POWERSHELL_EXECUTABLE}"
             -NoProfile

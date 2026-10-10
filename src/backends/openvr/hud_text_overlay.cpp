@@ -27,9 +27,10 @@ struct GdiSelection {
 };
 }
 
-const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text) noexcept {
-    if (text == text_ && (!panel_.pixels.empty() || text.view().empty())) return panel_;
+const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text,bool compact) noexcept {
+    if (text == text_ && compact==compact_ && (!panel_.pixels.empty() || text.view().empty())) return panel_;
     text_ = text;
+    compact_ = compact;
     panel_ = {};
     ++rebuilds_;
     const auto value = text.view();
@@ -42,8 +43,10 @@ const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text) noexcept
         GdiObject font_owner;
         GdiSelection selected_font{dc, nullptr};
         RECT measured{};
-        constexpr LONG width = 1024, padding = 24, max_height = 350;
-        for (int size = 36; size >= 16; size -= 2) {
+        const LONG width = compact?384:1024;
+        constexpr LONG padding = 24, max_height = 350;
+        const UINT alignment=compact?DT_CENTER:DT_LEFT;
+        for (int size = compact?48:36; size >= 16; size -= 2) {
             HFONT font = CreateFontW(-size, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe UI");
@@ -52,7 +55,7 @@ const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text) noexcept
             selected_font.previous = SelectObject(dc, font);
             measured = {padding, padding, width - padding, padding};
             DrawTextW(dc, wide.data(), static_cast<int>(wide.size()), &measured,
-                DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+                DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT | alignment);
             if (measured.bottom - measured.top <= max_height - padding * 2 || size == 16) break;
             SelectObject(dc, selected_font.previous);
             selected_font.previous = nullptr;
@@ -79,8 +82,25 @@ const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text) noexcept
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, RGB(245, 245, 245));
             RECT rect{padding, padding, width - padding, height - padding};
-            DrawTextW(dc, wide.data(), static_cast<int>(wide.size()), &rect,
-                DT_WORDBREAK | DT_NOPREFIX | DT_LEFT);
+            const auto split=compact?wide.find_last_of(L'\n'):std::wstring::npos;
+            if(split==std::wstring::npos){
+                DrawTextW(dc, wide.data(), static_cast<int>(wide.size()), &rect,
+                    DT_WORDBREAK | DT_NOPREFIX | alignment);
+            }else{
+                // Reserve the native numeric suffix even when a localized
+                // title exceeds the bounded panel's visible height.
+                rect.bottom=height-72;
+                DrawTextW(dc,wide.data(),static_cast<int>(split),&rect,
+                    DT_WORDBREAK|DT_NOPREFIX|DT_CENTER|DT_END_ELLIPSIS);
+                GdiObject number_font{CreateFontW(-48,0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,
+                    DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Segoe UI")};
+                if(number_font.value){
+                    GdiSelection select{dc,SelectObject(dc,number_font.value)};
+                    RECT number_rect{padding,height-72,width-padding,height-padding};
+                    DrawTextW(dc,wide.data()+split+1,static_cast<int>(wide.size()-split-1),&number_rect,
+                        DT_CENTER|DT_NOPREFIX|DT_SINGLELINE|DT_VCENTER);
+                }
+            }
             GdiFlush();
             panel_.width = width;
             panel_.height = static_cast<std::uint32_t>(height);
@@ -91,6 +111,16 @@ const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text) noexcept
     return panel_;
 }
 
+bool BuildThreatPanelPlacement(const runtime::ThreatMarker& marker,HudPanelPlacement& out) noexcept {
+    out={};const auto d=marker.direction;const float n=d.x*d.x+d.y*d.y;
+    if(!std::isfinite(n)||std::abs(n-1)>.01F||!std::isfinite(marker.alpha)||marker.alpha<=0||marker.alpha>1)return false;
+    out.captured_quad=true;
+    for(unsigned i=0;i<4;++i){
+        const float x=(i&1)?.065F:-.065F,y=(i&2)?-.065F:.065F;
+        out.head_corners[i]={.4F*d.x+x*d.y+y*d.x,.4F*d.y-x*d.x+y*d.y,-1.5F};
+    }
+    return true;
+}
 bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
     const std::uint32_t target_width, const std::uint32_t target_height,
     const HudPanelPlacement placement, ProjectedHudPanel& result) noexcept {
@@ -140,6 +170,26 @@ bool ProjectHudPanel(const HudTextPanel& source, const runtime::EyeView& eye,
     return result.width && result.height;
 }
 
+bool FitCriticalHudPanels(const std::array<const HudTextPanel*,3>& panels,
+    const std::array<runtime::EyeView,2>& eyes,std::array<HudPanelPlacement,3>& result) noexcept {
+    result={};float scale=1;
+    for(unsigned attempt=0;attempt<36;++attempt,scale*=.9F){
+        float bottom=.5F;bool fits=true;
+        for(unsigned i=0;i<3;++i){
+            const auto* p=panels[i];if(!p||!p->width||!p->height)continue;
+            const float width=(i==0?.5F:1.15F)*scale,half=.5F*width*p->height/p->width;
+            result[i]={width,bottom+half,1.5F};bottom+=2*half+.03F;
+            for(const auto& eye:eyes){
+                ProjectedHudPanel projected{};
+                if(!ProjectHudPanel(*p,eye,1024,1024,result[i],projected)){fits=false;break;}
+                for(const auto& c:projected.clip_positions)
+                    if(std::abs(c[0]/c[3])>.96F||std::abs(c[1]/c[3])>.96F)fits=false;
+            }
+        }
+        if(fits)return true;
+    }
+    result={};return false;
+}
 struct HudTextCompositor::Impl {
     ComPtr<ID3D11Device> owner;
     ComPtr<ID3D11VertexShader> vs;
@@ -151,10 +201,10 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11SamplerState> sampler;
     ComPtr<ID3D11RasterizerState> rasterizer;
     ComPtr<ID3D11DepthStencilState> depth;
-    std::array<HudTextRaster, 3> raster;
+    std::array<HudTextRaster, 5> raster;
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 8> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 8> images;
+    std::array<std::uint64_t, 12> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 12> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -165,10 +215,10 @@ struct HudTextCompositor::Impl {
         images = {}; uploaded = {}; targets = {}; target_views = {};
         constexpr char shader[] =
             "cbuffer Corners:register(b0){float4 corners[4];float4 material[4];};"
-            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;};"
-            "V VS(uint i:SV_VertexID){V o;o.p=corners[i];o.uv=material[i].xy;o.shade=material[0].z;return o;}"
+            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;float alpha:TEXCOORD4;};"
+            "V VS(uint i:SV_VertexID){V o;o.p=corners[i];o.uv=material[i].xy;o.shade=material[0].z;o.alpha=material[0].w;return o;}"
             "Texture2D img:register(t0);SamplerState smp:register(s0);"
-            "float4 PS(V v):SV_TARGET{float4 c=img.Sample(smp,v.uv);c.rgb*=v.shade;return c;}";
+            "float4 PS(V v):SV_TARGET{float4 c=img.Sample(smp,v.uv);c.rgb*=v.shade;c.a*=v.alpha;return c;}";
         ComPtr<ID3DBlob> vcode, pcode;
         if (FAILED(D3DCompile(shader, sizeof(shader)-1, nullptr, nullptr, nullptr, "VS", "vs_4_0", 0, 0, &vcode, nullptr)) ||
             FAILED(D3DCompile(shader, sizeof(shader)-1, nullptr, nullptr, nullptr, "PS", "ps_4_0", 0, 0, &pcode, nullptr)) ||
@@ -178,10 +228,10 @@ struct HudTextCompositor::Impl {
         const std::string mesh_shader="cbuffer Mesh:register(b0){float4 corners["+
             std::to_string(mesh_corners)+"];float4 material["+std::to_string(mesh_corners)+
             "];float4 normal["+std::to_string(mesh_corners)+"];float4 head["+std::to_string(mesh_corners)+"];};"
-            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;float3 n:TEXCOORD2;float3 view:TEXCOORD3;};"
+            "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;float3 n:TEXCOORD2;float3 view:TEXCOORD3;float alpha:TEXCOORD4;};"
             "V VS(uint i:SV_VertexID){uint j=i%6;uint k=(i/6)*4+"
             "(j==0?0:j==1?1:j==2?2:j==3?2:j==4?1:3);"
-            "V o;o.p=corners[k];o.uv=material[k].xy;o.shade=material[k].z;o.n=normal[k].xyz;o.view=-head[k].xyz;return o;}"
+            "V o;o.p=corners[k];o.uv=material[k].xy;o.shade=material[k].z;o.n=normal[k].xyz;o.view=-head[k].xyz;o.alpha=1;return o;}"
             "Texture2D img:register(t0);SamplerState smp:register(s0);"
             "float4 PS(V v):SV_TARGET{float3 c=img.Sample(smp,v.uv).rgb;"
             // Adapt the source's orange case palette to brass; retain the lead nose.
@@ -300,13 +350,16 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         overlay.text.subtitle.view().empty() && !overlay.ui.wheel.active &&
         !(overlay.ui.compass.active && overlay.compass_surface_valid) &&
         !(overlay.ui.status.active && overlay.status_surface_valid) &&
-        !cartridge_visible && !interaction_gaze_visible) return true;
+        !cartridge_visible && !interaction_gaze_visible && overlay.mission_timer.view().empty() &&
+        overlay.mission_notices.view().empty() && !overlay.threats.count) return true;
     try {
         if (!Prepare(device)) return false;
-        const std::array<const runtime::HudText*, 3> texts{
-            &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle};
-        std::array<HudPanelPlacement, 8> placement{{{1.15F, .48F, 1.5F},
-            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {}}};
+        const std::array<const runtime::HudText*, 5> texts{
+            &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle,
+            &overlay.mission_timer,&overlay.mission_notices};
+        std::array<HudPanelPlacement, 12> placement{{{1.15F, .48F, 1.5F},
+            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {},
+            {.5F,.58F,1.5F},{1.15F,.68F,1.5F},{},{}}};
         placement[4].captured_quad=true;
         placement[4].head_corners=overlay.compass_head_corners;
         placement[5].captured_quad=true;
@@ -322,6 +375,14 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         placement[7].head_corners = overlay.interaction_gaze_head_corners;
         const auto& subtitle = impl_->raster[2].Render(*texts[2]);
         const auto& interaction = impl_->raster[1].Render(*texts[1]);
+        const auto& timer=impl_->raster[3].Render(*texts[3],true);
+        const auto& notices=impl_->raster[4].Render(*texts[4]);
+        bool critical_fits=true;
+        if(timer.width||notices.width){
+            const auto& hint=impl_->raster[0].Render(*texts[0]);std::array<HudPanelPlacement,3> fit{};
+            critical_fits=FitCriticalHudPanels({&timer,&hint,&notices},overlay.eyes,fit);
+            if(critical_fits){placement[8]=fit[0];if(hint.width)placement[0]=fit[1];placement[9]=fit[2];}
+        }
         if (subtitle.width && interaction.width) {
             const float subtitle_top = placement[2].center_y_m +
                 .5F * placement[2].width_m * subtitle.height / subtitle.width;
@@ -343,15 +404,20 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const auto& gaze_panel = interaction_gaze_visible ?
             impl_->ui_raster.InteractionGaze() : empty_gaze;
         for (std::size_t part = 0; part < placement.size(); ++part) {
-            const auto& panel = part<3 ? impl_->raster[part].Render(*texts[part]) :
+            const bool critical_text=part==8||part==9,threat=part>=10;
+            if(critical_text&&!critical_fits)continue;
+            const auto text_index=critical_text?part-5:part;
+            const auto& panel = (part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
+                threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
-            const auto revision=part<3 ? impl_->raster[part].rebuilds() :
+            const auto revision=(part<3||critical_text) ? impl_->raster[text_index].rebuilds() : threat?1:
                 (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : (part==5 ? impl_->ui_raster.status_revision() : part==6&&overlay.reload_cartridge_textured?2:1)));
             // Retain the immutable cartridge GPU cache across gesture hiding.
             if(part==6&&!cartridge_visible)continue;
             // Immutable marker pixels/GPU cache survive hidden captures.
             if(part==7&&!interaction_gaze_visible)continue;
+            if(threat&&(!overlay.threats.count||overlay.threats.count>overlay.threats.markers.size()))continue;
             if (panel.pixels.empty()) { impl_->images[part].Reset(); continue; }
             if (!impl_->images[part] || impl_->uploaded[part] != revision) {
                 D3D11_TEXTURE2D_DESC td{}; td.Width = panel.width; td.Height = panel.height;
@@ -422,9 +488,13 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 }
                 continue;
             }
-            const std::size_t surface_count=cartridge_surfaces?overlay.reload_cartridge_surface_count:1;
+            const std::size_t surface_count=threat?overlay.threats.count:cartridge_surfaces?overlay.reload_cartridge_surface_count:1;
             for(std::size_t surface=0;surface<surface_count;++surface){
                 auto surface_placement=placement[part];
+                if(threat){
+                    const auto& marker=overlay.threats.markers[surface];
+                    if(marker.damage!=(part==11)||!BuildThreatPanelPlacement(marker,surface_placement))continue;
+                }
                 if(cartridge_surfaces)surface_placement.head_corners=
                     overlay.reload_cartridge_surfaces[surface].head_corners;
                 std::array<ProjectedHudPanel, 2> quads{};
@@ -464,10 +534,11 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                         std::array<std::array<float,4>,4> material;
                     } constants{quad.clip_positions,{}};
                     for(std::size_t i=0;i<4;++i){
-                        constants.material[i]={static_cast<float>(i&1),static_cast<float>((i>>1)&1),1.F,0.F};
+                        constants.material[i]={static_cast<float>(i&1),static_cast<float>((i>>1)&1),1.F,
+                            threat?overlay.threats.markers[surface].alpha:1.F};
                         if(cartridge_surfaces){
                             const auto& face=overlay.reload_cartridge_surfaces[surface];
-                            constants.material[i]={face.material_uv.x,face.material_uv.y,face.shade,0.F};
+                            constants.material[i]={face.material_uv.x,face.material_uv.y,face.shade,1.F};
                         }
                     }
                     context->UpdateSubresource(impl_->constants.Get(), 0, nullptr, &constants, 0, 0);

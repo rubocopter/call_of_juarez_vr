@@ -778,6 +778,29 @@ struct OpenVrStereoPresenter::Impl {
             std::uint64_t copy_ordinal = 0;
         };
         std::deque<LeaseTelemetry> pending_lease_telemetry;
+        D3D9SharedTextureBridgeStats logged_recovery{};
+
+        const auto log_recovery = [&](const D3D9SharedTextureBridgeStats& stats) noexcept {
+            try {
+                const auto event = [&](const char* status) {
+                    std::ostringstream line;
+                    line << "native_stereo_gpu_recovery: status=" << status
+                         << ";first_copy=" << stats.recovery_first_copy
+                         << ";last_copy=" << stats.recovery_last_copy
+                         << ";pending=" << stats.pending_copy_fences
+                         << ";queries_started=" << stats.recovery_queries_started
+                         << ";recoveries_completed=" << stats.recoveries_completed
+                         << ";recovery_failures=" << stats.recovery_failures
+                         << ";copy_failures=" << stats.copy_failures;
+                    Log(line.str());
+                };
+                if (stats.recovery_queries_started > logged_recovery.recovery_queries_started) event("begun");
+                if (stats.recoveries_completed > logged_recovery.recoveries_completed) event("completed");
+                if (stats.recovery_failures > logged_recovery.recovery_failures) event("failed");
+                logged_recovery = stats;
+            } catch (...) {
+            }
+        };
 
         const auto log_retired_leases = [&](const std::uint64_t completed) noexcept {
             try {
@@ -869,6 +892,7 @@ struct OpenVrStereoPresenter::Impl {
                 shared_bridge.Poll(d3d11.context());
                 {
                     const auto shared_stats = shared_bridge.stats();
+                    log_recovery(shared_stats);
                     log_retired_leases(shared_stats.copy_fences_completed);
                     shared_frames_copied.store(
                         shared_stats.frames_copied, std::memory_order_release);
@@ -1788,6 +1812,7 @@ struct OpenVrStereoPresenter::Impl {
         log_retired_leases(shared_bridge.stats().copy_fences_completed);
         {
             const auto shared_stats = shared_bridge.stats();
+            log_recovery(shared_stats);
             shared_frames_copied.store(shared_stats.frames_copied, std::memory_order_release);
             shared_resources_opened.store(
                 shared_stats.resources_opened, std::memory_order_release);
@@ -1814,6 +1839,12 @@ struct OpenVrStereoPresenter::Impl {
                     << ";copy_failures=" << shared_stats.copy_failures
                     << ";abandoned_on_shutdown="
                     << shared_stats.abandoned_on_shutdown
+                    << ";recovery_queries_started=" << shared_stats.recovery_queries_started
+                    << ";recoveries_completed=" << shared_stats.recoveries_completed
+                    << ";recovery_failures=" << shared_stats.recovery_failures
+                    << ";recovery_poll_pending=" << shared_stats.recovery_poll_pending
+                    << ";identity_rejections=" << shared_stats.identity_rejections
+                    << ";transition_deferrals=" << shared_stats.transition_deferrals
                     << std::fixed << std::setprecision(3)
                     << ";last_copy_completion_ms="
                     << shared_stats.last_copy_completion_ms

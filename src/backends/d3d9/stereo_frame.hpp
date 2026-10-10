@@ -64,8 +64,9 @@ struct ProducerFrameReleaseState {
     std::atomic_bool consumer_done{false};
 };
 
-// A producer ring slot remains inaccessible until the consumer destroys this
-// lease. The lease contains no graphics API object, so it can cross the
+// A producer ring slot remains inaccessible until the consumer releases this
+// lease. Abandonment leaves its producer state quarantined instead. The lease
+// contains no graphics API object, so it can cross the
 // game/presenter thread boundary safely. The producer performs any required
 // D3D9 unlock on its owner thread after observing consumer_done.
 class ProducerFrameLease final {
@@ -95,6 +96,10 @@ public:
             state_.reset();
         }
     }
+    // Used only when queued GPU work has no proven retirement. Destruction of
+    // a consumer/session is not itself completion evidence. The producer keeps
+    // its slot inaccessible; resource teardown remains its owner's concern.
+    void Abandon() noexcept { state_.reset(); }
 
 private:
     std::shared_ptr<ProducerFrameReleaseState> state_{};

@@ -207,5 +207,61 @@ int main(int argc, char** argv) {
     Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
         "UI owner loss must remove all graphics from a fresh world frame");
+    overlay.mission_timer=Text(u"Time left\n51");
+    HudTextRaster timer_raster,hint_raster,notice_raster;
+    const auto& long_timer=timer_raster.Render(Text(u"Time remaining to escape the mine\n51"),true);
+    const auto& long_hint=hint_raster.Render(Text(std::u16string(800,u'h')));
+    const auto& long_notice=notice_raster.Render(Text(std::u16string(800,u'n')));
+    const std::array<const HudTextPanel*,3> long_panels{&long_timer,&long_hint,&long_notice};
+    std::array<HudPanelPlacement,3> fitted{};
+    Require(FitCriticalHudPanels(long_panels,overlay.eyes,fitted),"concurrent critical text stack did not fit captured optics");
+    float lower_edge=.465F;
+    for(unsigned i=0;i<3;++i){
+        const auto& p=*long_panels[i];const auto& f=fitted[i];const float half=f.width_m*p.height/p.width*.5F;
+        Require(f.center_y_m-half>=lower_edge,"long timer/hint/notices overlapped threat ring or another panel");
+        lower_edge=f.center_y_m+half;
+        for(const auto& e:overlay.eyes){ProjectedHudPanel projected{};
+            Require(ProjectHudPanel(p,e,512,512,f,projected),"fitted critical panel projection failed");
+            for(const auto& c:projected.clip_positions)Require(std::abs(c[0]/c[3])<=.96F&&std::abs(c[1]/c[3])<=.96F,
+                "critical text clipped outside one eye after fit");
+        }
+    }
+    overlay.mission_notices=Text(u"Objectives updated\nEscape before time runs out");
+    overlay.threats.count=2;overlay.threats.markers[0]={{-1,0},1,false};
+    overlay.threats.markers[1]={{1,0},.5F,true};
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),"critical HUD composition failed");
+    const auto alerts_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(alerts_left!=resized_world&&alerts_left!=ReadEye(device.Get(),context.Get(),targets[1].Get())&&alerts_left[0]==resized_world[0],
+        "critical alerts must have binocular pixels without obscuring outside world");
+    Require(std::any_of(alerts_left.begin(),alerts_left.end(),[](auto p){return ((p>>8)&255)>((p>>16)&255)+80;})&&
+        std::any_of(alerts_left.begin(),alerts_left.end(),[](auto p){return ((p>>16)&255)>((p>>8)&255)+60;}),
+        "direction green and damage red must both reach real GPU output");
+    overlay.threats.markers[1].alpha=1;
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),"full-alpha threat draw failed");
+    const auto opaque_alerts=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    bool native_fade=false;
+    for(std::size_t i=0;i<opaque_alerts.size();++i)
+        if(((opaque_alerts[i]>>16)&255)>230&&((opaque_alerts[i]>>8)&255)<100&&
+            ((alerts_left[i]>>16)&255)>130&&((alerts_left[i]>>16)&255)<190)native_fade=true;
+    Require(native_fade,"observed native half-alpha must blend without a new renderer fade clock");
+    if(argc>2){
+        BITMAPFILEHEADER file{};file.bfType=0x4D42;file.bfOffBits=sizeof(file)+sizeof(BITMAPINFOHEADER);
+        file.bfSize=file.bfOffBits+static_cast<DWORD>(alerts_left.size()*4);
+        BITMAPINFOHEADER header{};header.biSize=sizeof(header);header.biWidth=512;header.biHeight=-512;
+        header.biPlanes=1;header.biBitCount=32;
+        std::ofstream out(argv[2],std::ios::binary);out.write(reinterpret_cast<const char*>(&file),sizeof(file));
+        out.write(reinterpret_cast<const char*>(&header),sizeof(header));
+        out.write(reinterpret_cast<const char*>(alerts_left.data()),alerts_left.size()*4);
+    }
+    overlay.mission_timer={};overlay.mission_notices={};overlay.threats={};
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"critical owner loss resurrected cached alerts");
+    overlay.threats.count=1;overlay.threats.markers[0]={{1,0},1,true};
+    overlay.eyes[1].eye_to_head.position.x=std::numeric_limits<float>::quiet_NaN();
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"invalid second eye must suppress both threat eyes");
+    HudPanelPlacement threat_place{};
+    Require(!BuildThreatPanelPlacement({{1,0},1.1F,true},threat_place)&&
+        !BuildThreatPanelPlacement({{0,0},1,true},threat_place),"invalid threat alpha/direction accepted");
     std::cout << "HUD Unicode raster, cache and stereo projection passed\n";
 }
