@@ -89,6 +89,16 @@ target for further automatic pointing. Hand/claim/click ownership still guards
 stale completion. The full-UI verifier requires native-consumer telemetry and
 rejects sprite-only echo even when its coordinates match.
 
+The pointer mailbox now records source-image dimensions as part of its geometry
+ownership. A changed width or height cancels pending selection and old hover
+without changing native UI indices or mouse-priority policy. New coordinates
+remain available for automatic pointing, but the first resized packet cannot
+queue a click. A local generation also rejects an unlocked native cursor delivery
+that returns after resize or neutralization; hand/claim/click alone cannot detect
+this when both idle click IDs are zero. Direct proxy fixtures cover both size axes,
+held/edge packets, stale selection, new hover/selection and the idle interleaving.
+This correction is implemented/host-tested; physical resize recovery is pending.
+
 ## Evidence limits
 
 **Host-tested:** an independent local x86 probe maps the identified DLL without

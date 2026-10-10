@@ -130,6 +130,20 @@ only the matching click. Held gameplay shoulders cannot cross into gameplay
 until an available released sample. [Exact UI seams](research/COJ_UI_MOUSE_PATH.md)
 record binary contracts and rejected sprite-only/Windows-input alternatives.
 
+Source-image width/height changes also cancel the pointer's click and hover
+confirmation, while retaining automatic aim. A local geometry generation rejects
+an in-flight old cursor result, including idle deliveries whose click ID is zero.
+The first resized packet cannot enqueue a select edge; a subsequent deliberate
+press needs fresh native hover confirmation. Mouse-priority policy is preserved.
+
+Global OpenVR button edges require an available release after startup, action
+loss or explicit invalidation. A failed/partial input poll clears all global
+edges and partial output, even when earlier reads succeeded. Presenter focus,
+dashboard and HMD tracking loss invalidate these edges and pending UI actions.
+Stereo presentation state likewise discards partial eye confirmation across
+tracking, connection and lifecycle loss; this is state policy, not a claim about
+rendered image alignment or frame-pacing improvement.
+
 ## Expanded campaign input
 
 The runtime exposes semantic actions; only the CoJ adapter maps native IDs.

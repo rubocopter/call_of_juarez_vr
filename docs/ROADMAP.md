@@ -54,6 +54,11 @@ No new test is required merely to reconfirm cartridge visibility, native unit
 loading or already accepted Square/menu/weapon behavior. Unavailable horse or
 kick actions are pending/inconclusive, not demonstrated binding failures.
 
+A pending visual/physical gate blocks promotion of that specific behavior only.
+Continue independent offline work on controls, UI, recovery and other qualified
+boundaries while waiting; accumulate relevant checks into one substantial
+candidate rather than requesting repeated small physical sessions.
+
 ## Stabilization baseline
 
 Preserve exact-build SHA-256 admission, native inventory/permissions and scoped
@@ -101,6 +106,10 @@ health meter and low-health text colors, derived from the owned native HUD cache
 Both are implemented/host-tested with bounded invalid-data fallback; readability
 and live percentage updates join the next consolidated gameplay acceptance batch.
 The existing text card's headset acceptance does not qualify this new styling.
+Global-button release barriers and failed-input rollback, partial stereo-submit
+state recovery and pointer source-size/in-flight cancellation are also
+implemented/host-tested. Physical focus/dashboard/tracking and eligible resize
+recovery remain in the combined menu/gameplay gate.
 
 ## Milestone 5 — additional renderers and games
 

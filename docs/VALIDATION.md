@@ -209,6 +209,21 @@ gameplay coverage plus available death/retry and save/load. Hold mapped controls
 across transitions: no delayed fire, interaction, reload, snap or utility action
 may escape on recovery. Native permissions remain final.
 
+Global OpenVR button rearming, failed-poll rollback and partial stereo-submit
+invalidation are implemented/host-tested. Host regressions reproduce an
+unavailable button fabricating a press on held reacquisition and an old left-eye
+confirmation completing across a tracking/lifecycle gap. The real input-poll
+transaction is exercised with partial outputs and exception unwinding without
+initializing the runtime. These checks do not qualify physical recovery.
+
+Pointer source-size cancellation is implemented/host-tested for width and height
+changes with unchanged hand/menu identity, stale dispatched snapshots, held/edge
+packets, renewed hover and deliberate selection. A deterministic interleaving
+also reproduces and covers an idle native cursor result returning after resize.
+Include held L2/R2/Cross/Circle/Options recovery after available focus/dashboard/
+tracking loss in the next combined session; check source-size recovery only if a
+resolution transition occurs. No extra visual micro-test is requested.
+
 ## Production D3D9Ex startup/reset gate
 
 Primary GPU transport and normal shutdown passed their bounded physical gate.
