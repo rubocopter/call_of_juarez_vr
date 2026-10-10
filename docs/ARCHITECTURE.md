@@ -169,6 +169,10 @@ and native guidance; invalid pose, back-facing geometry and blocking UI hide it.
 The presenter caches transparent wheel/compass rasters and a separate wrist
 status card. Native health/ammunition have priority within ten copied rows;
 optional countdown, horse, concentration and posture/shadow rows fail independently.
+The visible owned health row optionally supplies a bounded 0–100 percentage
+parsed from its native numeric cache. Its wrist meter and low-health text colors
+are presentation only; missing/out-of-range metadata preserves ordinary text.
+Only that row changes, with no new health reads, gameplay calls or authority.
 Fatigue is not remaining stamina; shadow does not guarantee enemy invisibility.
 Pixel rebuilds and bounded game-owner observation run at up to 10 Hz while each
 captured frame retains its own geometry, optics and resource identity.

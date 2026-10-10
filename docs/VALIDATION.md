@@ -234,6 +234,16 @@ Accept only observed content. Horse, broader weapons, climbing, duel/special
 modes and campaign indicators need coverage. Full graphical HUD capture and
 complete physical cylinder reload are planned.
 
+The new wrist health meter and low-health text colors are implemented and
+host-tested, including 0/25/50/100 coverage, hidden/out-of-range cache fallback,
+cache reuse and preservation of the ammunition row. Offline rendered images
+have been inspected; this is not runtime or headset evidence. Existing accepted
+health/ammunition text remains distinct from this new presentation gate.
+Add one check to the next consolidated gameplay session: after available damage
+or healing, confirm that the bar follows the displayed native percentage, remains
+readable beside ammunition, and disappears with its health row or blocking UI.
+No separate short headset run is required for this addition.
+
 ## Image-quality profile acceptance
 
 Canonical preparation preserves selected resolution and stages FSAA 0 unless

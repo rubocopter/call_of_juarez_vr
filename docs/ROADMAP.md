@@ -96,6 +96,12 @@ feedback is implemented/host-tested, awaiting physical acceptance.
 Insertion-specific sound and direct native loose-round loading remain pending;
 none blocks the existing functional prototype.
 
+Offline work outside the Peacemaker reload now includes a proportional wrist
+health meter and low-health text colors, derived from the owned native HUD cache.
+Both are implemented/host-tested with bounded invalid-data fallback; readability
+and live percentage updates join the next consolidated gameplay acceptance batch.
+The existing text card's headset acceptance does not qualify this new styling.
+
 ## Milestone 5 — additional renderers and games
 
 OpenXR is experimental; D3D10 is a separate future renderer. Bound in Blood and

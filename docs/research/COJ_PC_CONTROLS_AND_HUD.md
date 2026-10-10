@@ -487,6 +487,17 @@ HUDPlayer's `m_cHealth.m_sLocalizedText` already holds the game's normalized,
 padded health percentage (including the original nonzero minimum and invalid
 game-state blanking); no health calculation or UpdateHealth call is needed.
 
+The optional wrist meter parses only this already validated visible numeric
+cache, accepting up to three digits in 0–100. Shipped `HUDPlayer.UpdateHealth(FF)V`
+calls `Tools.NormalizeValue`, multiplies by 100 and truncates, preserves one for
+a positive fractional value that would truncate to zero, then pads the native
+text. The meter adds no native health access or mutation. Percentages outside
+the supported range retain numeric text without a meter; absent/hidden health
+cannot borrow an ammunition or optional row. Green above 50, amber at 26–50
+and red at 0–25 are VR presentation thresholds, not claims about native
+`SetHealthState`, damage events or death. Reader/raster behavior is host-tested;
+the added meter and text colors have no live/headset validation yet.
+
 HUDWeapons has six `m_tAmmoCounters` and matching `m_tSlotsWeaponInfo` caches.
 The shipped slot hierarchy is 2,1,0,4,3,5: left pistol, right pistol, long weapon,
 dynamite, Bible/whip, bow. `m_bShowAmmo` controls whether a counter is relevant;
