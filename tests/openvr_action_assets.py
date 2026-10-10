@@ -1,4 +1,5 @@
 """Validate the deployed manifest/binding and runtime lookup boundary."""
+from collections import Counter
 import json
 import re
 from pathlib import Path
@@ -43,10 +44,12 @@ def output_paths(value):
 
 assert set(output_paths(binding)) <= set(actions), "binding points to undeclared action"
 routes = {}
+route_counts = Counter()
 for action_set in binding["bindings"].values():
     for source in action_set["sources"]:
         for output in output_paths(source["inputs"]):
             routes.setdefault(source["path"], set()).add(output)
+            route_counts[(source["path"], output)] += 1
 
 expected = {
     "/user/hand/right/input/options": {"/actions/global/in/pause"},
@@ -64,6 +67,9 @@ expected = {
 }
 for path, outputs in expected.items():
     assert routes.get(path) == outputs, f"conflicting default route at {path}: {routes.get(path)}"
+assert set(routes) == set(expected), f"unexpected Sense input paths: {set(routes) - set(expected)}"
+assert all(count == 1 for count in route_counts.values()), \
+    f"duplicated Sense action routes: {[route for route, count in route_counts.items() if count != 1]}"
 assert not {f"/actions/gameplay/in/{name}" for name in (
     "quick_load", "quick_save", "logs", "weapon_next", "weapon_previous", "lean_left", "lean_right", "walk", "run"
 )} & set(output_paths(binding)), "auxiliary native controls must have no default Sense binding"

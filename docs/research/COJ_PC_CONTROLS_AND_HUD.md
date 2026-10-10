@@ -118,6 +118,9 @@ This is the sole user-facing default control table. The OpenVR binding supplies
 physical state; GameplayControlMapper resolves wheel ownership and direct
 toggles on the game owner. Only the CoJ adapter translates logical intents to
 native IDs. No keyboard settings or OS-global key/mouse injection is introduced.
+The host-side action-asset test requires these shipped Sense input paths to be
+exact, with no duplicate routes or unlisted default inputs. It does not verify
+user-customized SteamVR bindings or physical controller behavior.
 
 | Sense | Gameplay |
 | --- | --- |
