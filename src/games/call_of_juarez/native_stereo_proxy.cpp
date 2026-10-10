@@ -79,6 +79,8 @@ struct NativeStereoState {
     cojvr::runtime::UiPointerSelection flat_ui_pointer_selection;
     std::uint32_t flat_ui_pointer_x = 0;
     std::uint32_t flat_ui_pointer_y = 0;
+    std::uint32_t flat_ui_source_width = 0, flat_ui_source_height = 0;
+    std::uint64_t flat_ui_source_generation = 0;
     bool flat_ui_pointer_game_route_logged = false;
     bool flat_ui_pointer_game_error_logged = false;
     std::uint64_t flat_ui_pointer_delivery_sequence = 0;
@@ -367,6 +369,8 @@ void NeutralizeFlatUiPointer(const char* reason) noexcept {
         g_stereo.flat_ui_target_applied = false;
         g_stereo.flat_ui_pointer_x = 0;
         g_stereo.flat_ui_pointer_y = 0;
+        g_stereo.flat_ui_source_width = g_stereo.flat_ui_source_height = 0;
+        ++g_stereo.flat_ui_source_generation;
         g_stereo.flat_ui_pointer_game_route_logged = false;
         g_stereo.flat_ui_pointer_game_error_logged = false;
     } catch (...) {
@@ -405,6 +409,20 @@ bool FlatUiPointer(
         // reinterpreted by Chrome's mouse stream and feeds back into its cursor.
         // The game thread applies the target through UICursor.SetPos instead.
         std::lock_guard lock(g_stereo.flat_ui_mutex);
+        const bool source_changed = g_stereo.flat_ui_pointer_active &&
+            (g_stereo.flat_ui_source_width != sample.source_width ||
+             g_stereo.flat_ui_source_height != sample.source_height);
+        if (g_stereo.flat_ui_source_width != sample.source_width ||
+            g_stereo.flat_ui_source_height != sample.source_height) ++g_stereo.flat_ui_source_generation;
+        if (source_changed) {
+            // Invalidate click identity, not just pending: an old mouse-motion
+            // transaction may still be returning from native dispatch unlocked.
+            g_stereo.flat_ui_pointer_selection.Observe(cojvr::runtime::UiPointerHand::none,0,false,false);
+            g_stereo.flat_ui_target_applied = false;
+            CameraEvent("flat_ui_pointer", "source_changed", "pending_click_cancelled=true;hover_reset=true");
+        }
+        g_stereo.flat_ui_source_width = sample.source_width;
+        g_stereo.flat_ui_source_height = sample.source_height;
         if (!g_stereo.flat_ui_pointer_active) {
             std::ostringstream detail;
             detail << "active=true;hand=" << (sample.using_left_hand ? "left" : "right")
@@ -416,7 +434,7 @@ bool FlatUiPointer(
         const auto previous = g_stereo.flat_ui_pointer_selection.snapshot();
         g_stereo.flat_ui_pointer_selection.Observe(sample.using_left_hand
             ? cojvr::runtime::UiPointerHand::left : cojvr::runtime::UiPointerHand::right,
-            sample.claim, sample.select_down, sample.select_pressed);
+            sample.claim, sample.select_down, sample.select_pressed && !source_changed);
         const auto current = g_stereo.flat_ui_pointer_selection.snapshot();
         // Retain the click's target until the engine has processed its hover.
         // A later pose cannot move that queued click to another menu option.
@@ -497,12 +515,14 @@ cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
         }
         cojvr::runtime::UiPointerSelectionSnapshot selection{};
         std::uint32_t pixel_x = 0, pixel_y = 0;
+        std::uint64_t source_generation = 0;
         {
             std::lock_guard lock(g_stereo.flat_ui_mutex);
             if (!g_stereo.flat_ui_pointer_active) return {};
             selection = g_stereo.flat_ui_pointer_selection.snapshot();
             pixel_x = g_stereo.flat_ui_pointer_x;
             pixel_y = g_stereo.flat_ui_pointer_y;
+            source_generation = g_stereo.flat_ui_source_generation;
         }
         std::string error;
         bool input_consumed = false;
@@ -521,7 +541,8 @@ cojvr::runtime::UiPointerSelectionSnapshot ApplyFlatUiPointerMotion() noexcept {
         {
             std::lock_guard lock(g_stereo.flat_ui_mutex);
             const auto current = g_stereo.flat_ui_pointer_selection.snapshot();
-            if (!g_stereo.flat_ui_pointer_active || current.hand != selection.hand ||
+            if (!g_stereo.flat_ui_pointer_active || source_generation != g_stereo.flat_ui_source_generation ||
+                current.hand != selection.hand ||
                 current.claim != selection.claim || current.click != selection.click ||
                 current.held != selection.held) return {};
             // A failed mouse delivery must not keep its trigger target latched

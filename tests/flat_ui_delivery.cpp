@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <cstdint>
 #include <iostream>
+#include <functional>
+#include <utility>
 #include "games/call_of_juarez/camera_probe.hpp"
 
 namespace fixture {
@@ -14,6 +16,7 @@ unsigned posted_moves = 0;
 unsigned native_moves = 0;
 unsigned keyboard_selects = 0;
 unsigned pointer_selects = 0;
+std::function<void()> during_motion;
 float cursor_x = 0, cursor_y = 0;
 bool native_available = true;
 bool select_available = true;
@@ -52,6 +55,8 @@ bool FixturePointerMotion(float x, float y, std::string*, bool* input_consumed =
     ++fixture::native_moves;
     fixture::cursor_x = x;
     fixture::cursor_y = y;
+    auto interleaving=std::move(fixture::during_motion);
+    if(interleaving)interleaving();
     return true;
 }
 bool FixturePointerPosition(CameraProbeVector& position, std::string*, std::int32_t* ui_index = nullptr) noexcept {
@@ -303,5 +308,53 @@ int main() {
         !rejection_reason.empty()) return 35;
     CompleteFlatUiSelection(delivered, true);
     if (FlatUiSelection().pending) return 36;
+    // The menu index and hand can stay identical across a source-image resize.
+    // An already confirmed old click must not cross that geometry boundary.
+    for(const bool width_changed:{true,false}){
+        delivered=queue_pause_click();
+        sample.select_pressed=!width_changed; // A resize packet's edge cannot bridge geometry.
+        if(width_changed)sample.source_width-=100;
+        else sample.source_height-=100;
+        sample.pixel_x+=10;
+        const auto before=fixture::pointer_selects;
+        if(!FlatUiPointer(nullptr,sample)||FlatUiSelection().pending||g_stereo.flat_ui_target_applied){
+            std::cerr<<"source resize retained old click/hover ownership\n";return 37;
+        }
+        if(DispatchFlatUiPointerSelection(delivered,nullptr,nullptr,nullptr,nullptr)||
+            fixture::pointer_selects!=before){
+            std::cerr<<"old-source click dispatched after resize\n";return 38;
+        }
+        ApplyFlatUiPointerMotion();ApplyFlatUiPointerMotion();
+        if(FlatUiSelection().pending||fixture::cursor_x!=sample.pixel_x){
+            std::cerr<<"resize must retain automatic aim without requeuing held trigger\n";return 39;
+        }
+        sample.select_down=false;FlatUiPointer(nullptr,sample);
+        sample.select_pressed=sample.select_down=true;FlatUiPointer(nullptr,sample);
+        if(ApplyFlatUiPointerMotion().pending){
+            std::cerr<<"fresh source click skipped native hover confirmation\n";return 40;
+        }
+        delivered=ApplyFlatUiPointerMotion();
+        if(!delivered.pending||!DispatchFlatUiPointerSelection(delivered,nullptr,nullptr,nullptr,nullptr)||
+            fixture::pointer_selects!=before+1){
+            std::cerr<<"fresh click did not recover in resized source\n";return 41;
+        }
+        CompleteFlatUiSelection(delivered,true);
+    }
+    // Resize while an idle mouse-motion call is outside the mailbox lock.
+    // Both selections have click=0, so hand/claim/click alone cannot detect it.
+    NeutralizeFlatUiPointer("idle_resize_fixture");
+    sample.select_pressed=sample.select_down=false;
+    FlatUiPointer(nullptr,sample);
+    fixture::during_motion=[&]{
+        sample.source_width-=100;sample.pixel_x+=20;
+        FlatUiPointer(nullptr,sample);
+    };
+    if(ApplyFlatUiPointerMotion().hand!=cojvr::runtime::UiPointerHand::none||g_stereo.flat_ui_target_applied){
+        std::cerr<<"in-flight cursor delivery crossed source geometry while idle\n";return 42;
+    }
+    ApplyFlatUiPointerMotion();
+    if(fixture::cursor_x!=sample.pixel_x||!g_stereo.flat_ui_target_applied||FlatUiSelection().pending){
+        std::cerr<<"automatic aim did not recover after in-flight source resize\n";return 43;
+    }
     std::cout << "PASS - logical delivery, applied selection and physical mouse priority\n";
 }
