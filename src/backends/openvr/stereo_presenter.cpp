@@ -350,6 +350,7 @@ struct OpenVrStereoPresenter::Impl {
         D3D9SharedTextureBridge& shared_bridge,
         d3d9::StereoCpuFrame& frame,
         const FlatUiPointerSample& flat_ui_pointer,
+        std::vector<std::uint8_t>& flat_pointer_scratch,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         std::uint32_t& texture_width,
         std::uint32_t& texture_height,
@@ -578,14 +579,24 @@ struct OpenVrStereoPresenter::Impl {
                                  content_bottom + kBeamPadding + 1U));
                     const std::uint32_t patch_width = patch_right - patch_left;
                     const std::uint32_t patch_height = patch_bottom - patch_top;
-                    std::vector<std::uint8_t> patch(
-                        static_cast<std::size_t>(patch_width) * patch_height * 4U);
+                    // This patch can cover a large part of a menu. Reuse its
+                    // storage across both eyes and subsequent captures instead
+                    // of allocating twice per presented frame. OOM must not
+                    // escape this noexcept presenter path.
+                    try {
+                        flat_pointer_scratch.resize(
+                            static_cast<std::size_t>(patch_width) * patch_height * 4U);
+                    } catch (...) {
+                        SetError("presenter could not allocate flat UI pointer patch");
+                        return false;
+                    }
                     for (std::uint32_t row = 0; row < patch_height; ++row) {
                         const auto* source_row = CpuEyeData(source) +
                             static_cast<std::size_t>(patch_top + row) * source.stride +
                             static_cast<std::size_t>(patch_left) * 4U;
                         std::memcpy(
-                            patch.data() + static_cast<std::size_t>(row) * patch_width * 4U,
+                            flat_pointer_scratch.data() +
+                                static_cast<std::size_t>(row) * patch_width * 4U,
                             source_row,
                             static_cast<std::size_t>(patch_width) * 4U);
                     }
@@ -595,7 +606,7 @@ struct OpenVrStereoPresenter::Impl {
                                                const std::uint8_t green,
                                                const std::uint8_t red) noexcept {
                         if (x >= patch_width || y >= patch_height) return;
-                        auto* pixel = patch.data() +
+                        auto* pixel = flat_pointer_scratch.data() +
                             (static_cast<std::size_t>(y) * patch_width + x) * 4U;
                         pixel[0] = blue;
                         pixel[1] = green;
@@ -660,7 +671,8 @@ struct OpenVrStereoPresenter::Impl {
                     cursor_box.bottom = top_offset + patch_bottom;
                     cursor_box.back = 1;
                     d3d11.context()->UpdateSubresource(
-                        textures[eye].Get(), 0, &cursor_box, patch.data(), patch_width * 4U, 0);
+                        textures[eye].Get(), 0, &cursor_box,
+                        flat_pointer_scratch.data(), patch_width * 4U, 0);
                 }
             } else {
                 d3d11.context()->UpdateSubresource(
@@ -734,6 +746,7 @@ struct OpenVrStereoPresenter::Impl {
         runtime::Pose flat_theater_anchor_pose{};
         bool flat_theater_anchor_valid = false;
         FlatUiPointerSample flat_ui_pointer{};
+        std::vector<std::uint8_t> flat_pointer_scratch;
         runtime::UiPointerOwnership pointer_ownership;
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
         runtime::EquipmentWheelHaptics wheel_haptics;
@@ -1420,6 +1433,7 @@ struct OpenVrStereoPresenter::Impl {
                         const auto shared_stats_before = shared_bridge.stats();
                         const bool uploaded = UploadFrame(
                                 d3d11, shared_bridge, frame, flat_ui_pointer,
+                                flat_pointer_scratch,
                                 textures, texture_width, texture_height, texture_format,
                                 left_hash, right_hash, hash_ms, upload_ms, shared_timing);
                         const auto shared_stats_after = shared_bridge.stats();
