@@ -1088,6 +1088,10 @@ struct OpenVrStereoPresenter::Impl {
                     // Keep pose/render fallback independent from gameplay ownership.
                     if (!tracked_poses.hmd.orientation_valid || !tracked_poses.hmd.position_valid)
                         gameplay = {};
+                    const bool ui_actions_allowed = input_polled && runtime_state.focused &&
+                        !dashboard_visible && tracked_poses.hmd.position_valid &&
+                        tracked_poses.hmd.orientation_valid;
+                    if (!ui_actions_allowed) runtime.InvalidateActionEdges();
                     if (gameplay.active != gameplay_context_active) {
                         ++gameplay_context_generation;
                         gameplay_context_active = gameplay.active;
@@ -1147,8 +1151,7 @@ struct OpenVrStereoPresenter::Impl {
                         active_presentation_mode ==
                             d3d9::FramePresentationMode::flat_theater;
                     const bool pointer_allowed =
-                        flat_mode_active && flat_theater_anchor_valid && input_polled &&
-                        runtime_state.focused && !dashboard_visible &&
+                        flat_mode_active && flat_theater_anchor_valid && ui_actions_allowed &&
                         active_source_width > 0 && active_source_height > 0 &&
                         texture_width >= active_source_width &&
                         texture_height >= active_source_height;
@@ -1306,7 +1309,7 @@ struct OpenVrStereoPresenter::Impl {
                             ? hand_poses.left_fingers : runtime::FingerTrackingState{};
                         latest_right_fingers = gameplay.active && right_handgrip_valid
                             ? hand_poses.right_fingers : runtime::FingerTrackingState{};
-                        latest_ui_actions_allowed = input_polled && runtime_state.focused && !dashboard_visible;
+                        latest_ui_actions_allowed = ui_actions_allowed;
                         latest_ui_select_left = actions.ui_select_left;
                         latest_ui_select_right = actions.ui_select_right;
                         latest_ui_accept = latest_ui_actions_allowed && actions.ui_accept;
@@ -1338,6 +1341,7 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     ++pose_updates;
                 } else {
+                    runtime.InvalidateActionEdges();
                     (void)create_gesture.Update(false,false,GetTickCount64());
                     pointer_ownership.Suspend();
                     flat_ui_pointer = {};

@@ -80,6 +80,28 @@ struct OpenVrRuntime::Impl {
     std::string last_error;
     std::int32_t last_result_code = 0;
     mutable std::mutex events_mutex; // Serializes ProcessEvents calls
+
+    void ResetActionEdges() noexcept {
+        for (auto& edge : ui_pointer_edges) edge.Reset();
+        recenter_edge.Reset();
+        ui_select_left_edge.Reset(); ui_select_right_edge.Reset();
+        ui_accept_edge.Reset(); ui_back_edge.Reset(); pause_edge.Reset();
+    }
+    // Failed/partial polls invalidate all global edges, including those read
+    // before the failing API call. No output or fresh press survives the gap.
+    struct InputPollTransaction {
+        Impl& owner;
+        OpenVrGlobalActions& globals;
+        GameplayInputState* gameplay = nullptr;
+        OpenVrHandPoses* poses = nullptr;
+        bool committed = false;
+        ~InputPollTransaction() noexcept {
+            if (committed) return;
+            owner.ResetActionEdges(); globals = {};
+            if (gameplay) *gameplay = {};
+            if (poses) *poses = {};
+        }
+    };
 };
 
 template <typename ImplT>
@@ -131,13 +153,18 @@ void PopulateControllerRolePoses(
 }
 
 bool OpenVrDigitalActionEdge::Update(const bool active, const bool pressed) noexcept {
-    const bool current = active && pressed;
-    const bool rising = current && !pressed_;
-    pressed_ = current;
+    if (!active) { Reset(); return false; }
+    if (!pressed) { armed_ = true; pressed_ = false; return false; }
+    const bool rising = armed_ && !pressed_;
+    pressed_ = true;
     return rising;
 }
 
-void OpenVrDigitalActionEdge::Reset() noexcept { pressed_ = false; }
+void OpenVrDigitalActionEdge::Reset() noexcept { armed_ = pressed_ = false; }
+
+void OpenVrRuntime::InvalidateActionEdges() noexcept {
+    if (impl_) impl_->ResetActionEdges();
+}
 
 OpenVrRuntime::OpenVrRuntime() : impl_(std::make_unique<Impl>()) {}
 OpenVrRuntime::~OpenVrRuntime() { Shutdown(); }
@@ -778,6 +805,7 @@ bool OpenVrRuntime::SubmitUiHapticPulse(const UiHapticPulse& pulse) noexcept {
 bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
     actions = {};
     if (!impl_) return false;
+    Impl::InputPollTransaction poll{*impl_, actions};
     try {
         impl_->last_error.clear();
         impl_->last_result_code = 0;
@@ -851,6 +879,7 @@ bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
             actions = {};
             return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
         }
+        poll.committed = true;
         return true;
     } catch (...) {
         actions = {};
@@ -866,6 +895,7 @@ bool OpenVrRuntime::PollActions(
     gameplay_actions = {};
     hand_poses = {};
     if (!impl_) return false;
+    Impl::InputPollTransaction poll{*impl_, global_actions, &gameplay_actions, &hand_poses};
     try {
         impl_->last_error.clear();
         impl_->last_result_code = 0;
@@ -1071,6 +1101,7 @@ bool OpenVrRuntime::PollActions(
             return FailNoThrow(impl_.get(), "OpenVR gameplay action read failed");
         }
         gameplay_actions.active = true;
+        poll.committed = true;
         return true;
     } catch (...) {
         global_actions = {};

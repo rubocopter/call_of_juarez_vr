@@ -70,14 +70,16 @@ struct OpenVrPresentationState {
     bool should_reduce_rendering_work = false;
 };
 
-// Deterministic press-edge semantics, kept independent from IVRInput so this
-// part can be host-tested without a running VR runtime or controller.
+// Deterministic press-edge semantics. Startup, reset and unavailable actions
+// require an available release before a new press; unavailable false is not
+// physical release. Kept independent from IVRInput for host tests.
 class OpenVrDigitalActionEdge final {
 public:
     [[nodiscard]] bool Update(bool active, bool pressed) noexcept;
     void Reset() noexcept;
 
 private:
+    bool armed_ = false;
     bool pressed_ = false;
 };
 
@@ -131,6 +133,9 @@ public:
         OpenVrGlobalActions& global_actions,
         GameplayInputState& gameplay_actions,
         OpenVrHandPoses& hand_poses) noexcept;
+    // Input/presenter owner only. Loss of focus/tracking invalidates every
+    // global edge without fabricating a physical release or changing bindings.
+    void InvalidateActionEdges() noexcept;
     [[nodiscard]] bool global_actions_initialized() const noexcept;
     // Presenter-owner only. Missing/failed optional output never disables input.
     // Starts immediately; failed delivery is consumed, never queued or retried.

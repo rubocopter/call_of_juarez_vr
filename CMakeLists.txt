@@ -925,7 +925,7 @@ if(COJVR_BUILD_TESTS)
 
     if(COJVR_ENABLE_OPENVR)
         add_executable(cojvr_openvr_runtime_test tests/openvr_runtime.cpp)
-        target_link_libraries(cojvr_openvr_runtime_test PRIVATE cojvr_openvr_runtime)
+        target_link_libraries(cojvr_openvr_runtime_test PRIVATE cojvr_openvr_runtime openvr_api)
         target_compile_features(cojvr_openvr_runtime_test PRIVATE cxx_std_20)
         if(MSVC)
             target_compile_options(cojvr_openvr_runtime_test PRIVATE /W4 /permissive- /EHsc)
