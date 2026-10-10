@@ -5166,8 +5166,8 @@ void __fastcall HookRenderView(void* owner, void*, void* view) {
     if(manual_result.insert){
         bool accepted=false;
         const bool completed=g_java_player_bridge.TryInsertManualRound(accepted,&manual_error);
-        g_manual_reload.NoteInsertion(completed&&accepted);
-        if(!completed||!accepted){(void)g_manual_reload.Cancel();(void)g_java_player_bridge.CancelManualReload();
+        g_manual_reload.CompleteInsertion(completed,accepted,manual_result);
+        if(manual_result.cancel){(void)g_java_player_bridge.CancelManualReload();
             g_manual_reload_presentation=false;}
         CoJReloadTraceSnapshot after{};
         (void)g_java_player_bridge.TryObserveReloadTrace(after,true);

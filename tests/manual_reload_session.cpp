@@ -1,5 +1,6 @@
 #include "games/call_of_juarez/manual_reload_session.hpp"
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 using namespace cojvr::games::call_of_juarez;
 using namespace cojvr::runtime;
@@ -25,6 +26,42 @@ struct Fixture{
     CoJManualReloadOutput Insert(){s.left=s.right;(void)Poll();s.raw.fire_left=false;return Poll();}
 };
 int main(){
+    // Native completion may skip the observed closing sample (e.g. the last
+    // unit fills the gun). A continuation token belongs only to that session.
+    for(const auto finished:{0,4}){
+        Fixture completed;completed.Open();completed.Claim();
+        Check(completed.Insert().insert,"last insertion requested before native completion");
+        completed.session.NoteInsertion(true);
+        completed.s.native.probe_status=finished;
+        (void)completed.Poll();
+        Check(completed.session.phase()==CoJManualReloadPhase::ready,"native direct completion reaches ready");
+        completed.s.admission={0,42,true,true};
+        completed.Open(); // Support remains at the gun, well outside the waist.
+        completed.s.raw.fire_left=true;
+        Check(!completed.Poll().gesture.cartridge_held,
+            "new manual session cannot borrow a replenishment token from native direct completion");
+        completed.s.raw.fire_left=false;
+        Check(!completed.Poll().insert,"old continuation cannot load a round in a new session");
+    }
+    for(int result=0;result<3;++result){
+        Fixture x;x.Open();x.Claim();auto intent=x.Insert();
+        Check(intent.insert&&intent.tracked,"insertion begins with an owned intent");
+        const bool completed=result!=0,accepted=result==2;
+        x.session.CompleteInsertion(completed,accepted,intent);
+        Check(intent.insert,"native outcome must retain the already-consumed insertion intent for diagnostics");
+        if(accepted){
+            Check(!intent.cancel&&intent.tracked&&intent.supervise&&
+                x.session.phase()==CoJManualReloadPhase::manual_load,
+                "successful native insertion preserves the tracked wait");
+            Check(x.Poll().gesture.cartridge_held,"success grants one fresh continuation token");
+        }else{
+            const char* why=completed?"native_insertion_rejected":"native_insertion_failed";
+            Check(intent.cancel&&!intent.tracked&&!intent.supervise&&std::strcmp(intent.reason,why)==0&&
+                x.session.phase()==CoJManualReloadPhase::closing,
+                "synchronous native failure yields tracked ownership and identifies rejection versus invocation fault");
+            Check(!x.Poll().insert&&!x.Poll().supervise,"failed insertion cannot queue a retry or renew the watchdog");
+        }
+    }
     Fixture disabled;disabled.Open();disabled.s.raw.reload=true;
     Check(disabled.Poll().cancel,"Square closes the owned session before disable");
     disabled.s.enabled=false;disabled.s.native.probe_status=4;
@@ -100,7 +137,10 @@ int main(){
     Fixture full;full.Open();full.s.native.probe_status=3;full.s.native.states[0]={22,1,1,1};
     Check(full.Poll().tracked&&full.session.phase()==CoJManualReloadPhase::closing,"coherent native close keeps VR presentation");
     Fixture failed;failed.Open();failed.Claim();Check(failed.Insert().insert,"request before reject");
-    failed.session.NoteInsertion(false);Check(failed.Poll().cancel,"native insertion failure closes, never retries");
+    failed.session.NoteInsertion(false);const auto failure=failed.Poll();
+    Check(failure.cancel,"native insertion failure closes, never retries");
+    Check(std::strcmp(failure.reason,"native_operation_failed")==0,
+        "cancellation must retain the native rejection reason after clearing pending failure");
     Check(!failed.Poll().supervise,"failed closing must not renew a still-waiting native watchdog");
     Fixture retry;retry.Open();retry.session.NoteInsertion(false);retry.session.Cancel();
     retry.s.native.probe_status=3;(void)retry.Poll();retry.s.native.probe_status=4;(void)retry.Poll();
@@ -115,6 +155,16 @@ int main(){
     Fixture unsupported;(void)unsupported.Poll();unsupported.s.admission.single_round_supported=false;unsupported.s.native_fallback_allowed=true;unsupported.s.raw.reload=true;
     Check(!unsupported.Poll().start&&unsupported.mapped.reload,"unsupported keeps native Square");
     Fixture stale;stale.Open();stale.s.now+=300;Check(stale.Poll().cancel,"tracking publication gap closes");
+    for(int fault=0;fault<3;++fault){
+        Fixture x;x.Open();
+        if(fault==0)x.s.recentered=true;
+        if(fault==1)x.s.now+=300;
+        if(fault==2)x.s.sequence=0;
+        const auto cancelled=x.Poll();
+        const char* reason=fault==0?"recentered":fault==1?"sample_gap":"sample_regression";
+        Check(cancelled.cancel&&std::strcmp(cancelled.reason,reason)==0,
+            "pose discontinuity cancellation must distinguish recenter, gap and regression");
+    }
     for(int fault=0;fault<7;++fault){Fixture x;(void)x.Poll();x.s.raw.reload=true;
         if(fault==0)x.s.native.valid=false;
         if(fault==1)x.s.native.probe_valid=false;

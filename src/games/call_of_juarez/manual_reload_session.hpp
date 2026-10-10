@@ -72,15 +72,17 @@ public:
         }else if(bound&&phase_!=CoJManualReloadPhase::closing){
             const bool fire=hand_==0?input.fire_right:input.fire_left;
             if(!allowed||!same||(!recovery&&!ordinary)||edge||fire||cancel_pending_){
+                const bool operation_failed=cancel_pending_; // Cancel consumes this pending flag.
                 out.cancel=Cancel();out.reason=edge?"reload_button":fire?"fire_close":
-                    cancel_pending_?"native_operation_failed":!poses?"tracking_lost":
+                    operation_failed?"native_operation_failed":!poses?"tracking_lost":
                     (s.raw.digital_available&3U)!=3U?"trigger_unavailable":
-                    !same?"owner_changed":!s.enabled?"disabled":conflict?"input_conflict":"context_lost";
+                    !same?"owner_changed":!s.enabled?"disabled":s.recentered?"recentered":
+                    regression?"sample_regression":gap?"sample_gap":conflict?"input_conflict":"context_lost";
                 if(edge)reload_claim_=true;
                 cancel_pending_=false;
             }else if(s.native.probe_status==3){phase_=CoJManualReloadPhase::closing;out.reason="native_closing";
             }else if(s.native.probe_status==4||s.native.probe_status==0){
-                phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;out.reason="native_finished";
+                phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;out.reason="native_finished";
             }else if(s.native.probe_status==2){phase_=CoJManualReloadPhase::manual_load;
             }
         }
@@ -90,6 +92,7 @@ public:
             s.native.armed_hand==s.admission.armed_hand&&s.native.weapon_id==s.admission.weapon_id){
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
+            replenish_=false;
             phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;out.reason="reload_button";
         }
         const bool owned=phase_!=CoJManualReloadPhase::ready;
@@ -127,8 +130,19 @@ public:
             (s.enabled&&s.native.probe_valid&&s.native.probe_status>0&&s.native.probe_status<4)))input.reload=false;
         return out;
     }
-    void NoteStart(bool accepted) noexcept {if(!accepted){phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;}}
+    void NoteStart(bool accepted) noexcept {if(!accepted){phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;}}
     void NoteInsertion(bool accepted) noexcept {replenish_=accepted;cancel_pending_=!accepted;}
+    // Resolve the synchronous native call before publishing this frame's
+    // ownership/feedback. The insertion flag records intent, never ammo credit.
+    void CompleteInsertion(bool completed,bool accepted,CoJManualReloadOutput& out) noexcept {
+        NoteInsertion(completed&&accepted);
+        if(!completed||!accepted){
+            (void)Cancel();out.cancel=true;out.tracked=false;out.supervise=false;
+            out.reason=completed?"native_insertion_rejected":"native_insertion_failed";
+            out.gesture.insertion_ready=false;out.gesture.insertion_zone_entered=false;
+            out.gesture.insertion_zone_exited=false;
+        }
+    }
     bool Cancel() noexcept {
         cancel_pending_=false;
         if(phase_==CoJManualReloadPhase::ready||phase_==CoJManualReloadPhase::closing)return false;
