@@ -326,6 +326,15 @@ int main(){
             coverage(0)>0&&coverage(1)>0&&fingerprint[0]!=fingerprint[1],
             "imported mesh must have actual WARP pixels and binocular disparity at front/side/rear");
         const auto imported=out;
+        const auto ordered_hash=fingerprint;
+        // A rendered opaque mesh must resolve overlap by distance per pixel,
+        // not the order of submitted faces or their average depth.
+        std::reverse(out.reload_cartridge_surfaces.begin(),out.reload_cartridge_surfaces.begin()+92);
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&
+            coverage(0)>0&&coverage(1)>0&&fingerprint==ordered_hash,
+            "textured cartridge overlap must be independent of face submission order in both eyes");
+        out=imported;
         for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
         out.reload_cartridge_surfaces[50].head_corners[0].x=std::numeric_limits<float>::quiet_NaN();
         Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
