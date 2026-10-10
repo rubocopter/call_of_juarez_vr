@@ -275,6 +275,19 @@ int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;
     Require(ReadCoJGameplayUi(&holder,&player,out),"native inventory and objective owners must be readable");
     Require(out.inventory.valid&&out.inventory.owned_mask==0xC2&&out.inventory.available_mask==0xC2,"only owned right pistol/hands/discard permitted");
     Require(out.compass_valid&&out.compass_visible&&out.map_angle_degrees==123&&out.waypoint_count==2&&out.waypoints[0].label.view()==label.text,"native multiple waypoint guidance/heading lost");Clean();
+    Require(out.status.health_percent==87&&out.status.health_row==0,
+        "owned displayed health must supply optional percentage and its actual row");
+    for(const auto number:{u"000",u"025",u"100",u"101",u"9999999999"}){
+        health_text.text=number;Require(ReadCoJGameplayUi(&holder,&player,out),"numeric native health text must remain readable");Clean();
+        const int want=health_text.text==u"000"?0:health_text.text==u"025"?25:health_text.text==u"100"?100:-1;
+        Require(out.status.health_percent==want&&out.status.health_row==(want<0?-1:0),
+            "health gauge must reject out-of-range values without discarding native numeric text");
+    }
+    health_text.text=u"087";health_text.visible=false;
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.active&&out.status.health_percent==-1&&
+        out.status.health_row==-1&&out.status.lines[0].view()==u"Derecha  3",
+        "hidden native health must clear gauge without treating an ammo row as health");Clean();
+    health_text.visible=true;Require(ReadCoJGameplayUi(&holder,&player,out),"health recovery read failed");Clean();
     Require(out.status.active&&out.status.line_count==3&&out.status.lines[0].view()==u"Salud  087"&&
         out.status.lines[1].view()==u"Derecha  3"&&out.status.lines[2].view()==u"Reserva pistola  12",
         "native health, loaded slot and inventory reserve must be copied without recalculation");

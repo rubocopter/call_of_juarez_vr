@@ -265,7 +265,7 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
     // weapon parameter factories. Each component retains its own permission.
     constexpr int indices[]{0,7,1};
     constexpr const char* classes[]{"HUDPlayer","HUDWeapons","HUDAmmoCounters"};
-    auto append=[&](void* sprite,std::u16string_view prefix) noexcept {
+    auto append=[&](void* sprite,std::u16string_view prefix,bool health=false) noexcept {
         if(!sprite||!r.Visible(sprite))return;
         if(!r.Instance(sprite,"UIStatic"))return;
         if(!(r.Float(sprite,"m_fCurTextAlpha")>0))return;
@@ -273,6 +273,12 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
         const auto digits=number.view();if(digits.empty())return;
         if(digits.size()>10||std::any_of(digits.begin(),digits.end(),[](char16_t c){return c<u'0'||c>u'9';})||
             value.line_count>=value.lines.size()||prefix.size()+digits.size()>=runtime::UiLabel::capacity){r.ok=false;return;}
+        // Parse only the already admitted native HUDPlayer health digits,
+        // never an ammo row, localized label or a new game health query.
+        if(health&&digits.size()<=3){
+            int percent=0;for(const auto digit:digits)percent=percent*10+(digit-u'0');
+            if(percent<=100){value.health_row=static_cast<int>(value.line_count);value.health_percent=percent;}
+        }
         auto& line=value.lines[value.line_count++];Label(line,prefix);
         std::copy(digits.begin(),digits.end(),line.characters.begin()+line.length);
         line.length+=static_cast<std::uint32_t>(digits.size());
@@ -284,7 +290,7 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
         if(!r.Same(being,player)||!r.Same(manager,hud)||!r.Visible(component))continue;
         if(domain==0){
             auto health_player=r.Get(component,"m_cPlayer","LPlayerBeing;");if(!r.Same(health_player,player))continue;
-            auto health=r.Get(component,"m_cHealth","LUIStatic;");append(health,u"Salud  ");
+            auto health=r.Get(component,"m_cHealth","LUIStatic;");append(health,u"Salud  ",true);
             if(r.ok)PoseStatus(env,component,pose);
         }else if(domain==1){
             auto counters=r.Get(component,"m_tAmmoCounters","[LUIStatic;");

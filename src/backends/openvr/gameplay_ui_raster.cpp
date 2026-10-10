@@ -216,14 +216,30 @@ const HudTextPanel& GameplayUiRaster::Status(const runtime::WristStatusSnapshot&
         const auto font=CreateFontW(-30,0,0,0,FW_MEDIUM,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,L"Georgia");
         const auto old_font=font?SelectObject(c.dc,font):nullptr;
-        SetTextColor(c.dc,RGB(245,235,205));
+        const bool health_meter=state.health_row>=0&&state.health_row<static_cast<int>(state.line_count)&&
+            state.health_percent>=0&&state.health_percent<=100;
         for(std::uint32_t i=0;i<state.line_count;++i){
+            // Display thresholds only; never infer damage/death or trigger input.
+            const bool health=health_meter&&static_cast<int>(i)==state.health_row;
+            const COLORREF color=health&&state.health_percent<=25?RGB(255,151,132):
+                health&&state.health_percent<=50?RGB(255,215,140):RGB(245,235,205);
+            SetTextColor(c.dc,color);
             const auto text=state.lines[i].view();const std::wstring value(text.begin(),text.end());
             RECT box{24,static_cast<LONG>(16+i*state.row_height),kExtent-24,static_cast<LONG>(16+(i+1)*state.row_height)};
             DrawTextW(c.dc,value.data(),static_cast<int>(value.size()),&box,DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);
         }
         if(old_font)SelectObject(c.dc,old_font);if(font)DeleteObject(font);
-        GdiFlush();status_pixels_.width=kExtent;status_pixels_.height=height;
+        GdiFlush();
+        if(health_meter){
+            constexpr int left=24,width=kExtent-48;
+            const int bottom=16+(state.health_row+1)*static_cast<int>(state.row_height)-4;
+            const int fill=width*state.health_percent/100;
+            const std::uint32_t color=state.health_percent<=25?0x00E87760U:
+                state.health_percent<=50?0x00E8BA62U:0x008FB883U;
+            for(int y=bottom-4;y<bottom;++y)for(int x=0;x<width;++x)
+                c.pixels[y*kExtent+left+x]=x<fill?color:0x00443E36U;
+        }
+        status_pixels_.width=kExtent;status_pixels_.height=height;
         status_pixels_.pixels.assign(c.pixels,c.pixels+kExtent*height);
         for(int y=0;y<height;++y)for(int x=0;x<kExtent;++x){
             auto& pixel=status_pixels_.pixels[y*kExtent+x];

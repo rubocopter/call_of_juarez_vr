@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <fstream>
+#include <string>
 using namespace cojvr::runtime;
 using namespace cojvr::backends::openvr;
 void Require(bool ok,const char* why) { if(!ok){std::cerr<<why<<'\n';std::exit(1);} }
@@ -86,6 +87,57 @@ int main(int argc,char** argv) {
         (status_pixels.pixels[64*512+256]>>24)==255,"status card must have defined interior and transparent outside");
     const auto status_rev=raster.status_revision();(void)raster.Status(status);
     Require(status_rev==raster.status_revision(),"unchanged health/ammo must reuse pixels");
+    // Literal native percentages must produce a bounded visible meter while
+    // retaining other rows, dimensions and hidden/invalid optional fallbacks.
+    status.health_row=0;status.health_percent=50;
+    const auto half_health=raster.Status(status);
+    Require(half_health.pixels!=status_pixels.pixels&&half_health.height==status_pixels.height,
+        "health meter must be visible without increasing wrist card extent");
+    status.health_percent=100;const auto full_health=raster.Status(status);
+    status.health_percent=0;const auto empty_health=raster.Status(status);
+    Require(full_health.pixels!=half_health.pixels&&empty_health.pixels!=half_health.pixels,
+        "full, half and empty health must have distinct meter coverage");
+    const auto coverage=[](const HudTextPanel& panel){
+        std::size_t lit=0;
+        for(std::size_t x=24;x<488;++x){const auto pixel=panel.pixels[58*512+x];
+            lit+=std::max({(pixel>>16)&255,(pixel>>8)&255,pixel&255})>100;}
+        return lit;
+    };
+    Require(coverage(full_health)==464&&coverage(half_health)==232&&coverage(empty_health)==0,
+        "meter fill must represent the native percentage, including zero");
+    status.health_percent=25;const auto low_health=raster.Status(status);
+    Require(coverage(low_health)==116,"quarter health meter must retain proportional coverage");
+    const auto low_pixel=low_health.pixels[58*512+24];
+    const auto full_pixel=full_health.pixels[58*512+24];
+    Require(((low_pixel>>16)&255)>((low_pixel>>8)&255)&&
+        ((full_pixel>>8)&255)>((full_pixel>>16)&255),"low health warning must differ from the normal green meter");
+    for(std::size_t y=64;y<128;++y)for(std::size_t x=0;x<512;++x)
+        Require(full_health.pixels[y*512+x]==status_pixels.pixels[y*512+x]&&
+            empty_health.pixels[y*512+x]==status_pixels.pixels[y*512+x],"health meter changed the ammo row");
+    if(argc>5){
+        for(const int percent:{0,25,50,87,100}){
+            status.health_percent=percent;
+            const std::u16string value=std::u16string(u"Salud  ")+
+                std::u16string(1,static_cast<char16_t>(u'0'+percent/100))+
+                std::u16string(1,static_cast<char16_t>(u'0'+percent/10%10))+
+                std::u16string(1,static_cast<char16_t>(u'0'+percent%10));
+            status.lines[0]={};status.lines[0].length=static_cast<std::uint32_t>(value.size());
+            std::copy(value.begin(),value.end(),status.lines[0].characters.begin());
+            Save(raster.Status(status),(std::string(argv[5])+std::to_string(percent)+".ppm").c_str());
+        }
+        status.lines[0]={};status.lines[0].length=static_cast<std::uint32_t>(lines[0].size());
+        std::copy(lines[0].begin(),lines[0].end(),status.lines[0].characters.begin());
+    }
+    (void)raster.Status(status);
+    const auto meter_revision=raster.status_revision();(void)raster.Status(status);
+    Require(meter_revision==raster.status_revision(),"unchanged gauge rebuilt pixels");
+    for(int invalid:{-1,101,std::numeric_limits<int>::max()}){
+        status.health_percent=invalid;
+        Require(raster.Status(status).pixels==status_pixels.pixels,"invalid optional health meter must preserve ordinary text exactly");
+    }
+    status.health_percent=50;status.health_row=2;
+    Require(raster.Status(status).pixels==status_pixels.pixels,"meter outside active rows must not resurrect health");
+    status.health_row=status.health_percent=-1;
     const std::u16string_view stance=u"Agachado · En sombra";
     status.line_count=3;status.lines[2].length=static_cast<std::uint32_t>(stance.size());
     std::copy(stance.begin(),stance.end(),status.lines[2].characters.begin());

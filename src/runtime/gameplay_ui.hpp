@@ -44,6 +44,9 @@ struct WristStatusSnapshot {
     bool active=false;
     std::array<UiLabel,10> lines{};
     std::uint32_t line_count=0;
+    // Optional visual meter derived from an owned HUD health row. No native
+    // health/inventory authority; absent or invalid metadata keeps plain text.
+    int health_row=-1,health_percent=-1;
     [[nodiscard]] std::uint32_t pixel_height() const noexcept { return line_count<=lines.size()?padding+row_height*line_count:0; }
     bool operator==(const WristStatusSnapshot&) const = default;
 };
