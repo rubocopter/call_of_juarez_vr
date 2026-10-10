@@ -104,6 +104,25 @@ int main() {
         return Fail("initialization failure retained initialized state");
     }
 
+    // A successful left submit cannot confirm a right eye from another
+    // tracking/connection/lifecycle epoch, even if no submit occurs in the gap.
+    for(int boundary=0;boundary<4;++boundary){
+        OpenVrStateTracker recovered;
+        recovered.BeginInitialize();recovered.InitializationSucceeded(true);
+        recovered.TrackingChanged(true);recovered.EyeSubmitResult(Eye::left,true);
+        if(boundary==0)recovered.TrackingChanged(false);
+        else if(boundary==1)recovered.ConnectionChanged(false);
+        else if(boundary==2)recovered.BeginInitialize();
+        else recovered.InitializationFailed();
+        if(boundary>=2)recovered.InitializationSucceeded(true);
+        else if(boundary==1)recovered.ConnectionChanged(true);
+        recovered.TrackingChanged(true);
+        recovered.EyeSubmitResult(Eye::right,true);
+        if(recovered.state().presenting)return Fail("stereo completion crossed a lost tracking/session boundary");
+        recovered.EyeSubmitResult(Eye::left,true);recovered.EyeSubmitResult(Eye::right,true);
+        if(!recovered.state().presenting)return Fail("fresh stereo pair did not recover after invalidation");
+    }
+
     std::cout << "OpenVR lifecycle/failure state policy passed\n";
     return 0;
 }

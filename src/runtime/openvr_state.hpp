@@ -70,6 +70,7 @@ class OpenVrStateTracker final {
 public:
     void BeginInitialize() noexcept {
         state_ = {};
+        InvalidatePresentation();
         state_.lifecycle = OpenVrLifecycleState::initializing;
     }
 
@@ -81,6 +82,7 @@ public:
 
     void InitializationFailed() noexcept {
         state_ = {};
+        InvalidatePresentation();
         state_.lifecycle = OpenVrLifecycleState::failed;
     }
 
@@ -90,9 +92,7 @@ public:
         if (!connected) {
             state_.focused = false;
             state_.tracking_valid = false;
-            state_.presenting = false;
-            left_submit_seen_ = false;
-            left_submit_ok_ = false;
+            InvalidatePresentation();
         }
     }
 
@@ -102,15 +102,13 @@ public:
 
     void TrackingChanged(const bool valid) noexcept {
         state_.tracking_valid = state_.initialized && state_.connected && valid;
-        if (!state_.tracking_valid) state_.presenting = false;
+        if (!state_.tracking_valid) InvalidatePresentation();
     }
 
     void EyeSubmitResult(const Eye eye, const bool succeeded) noexcept {
         if (!state_.initialized || !state_.connected || !state_.tracking_valid ||
             state_.shutdown_requested) {
-            state_.presenting = false;
-            left_submit_seen_ = false;
-            left_submit_ok_ = false;
+            InvalidatePresentation();
             return;
         }
 
@@ -130,19 +128,22 @@ public:
         if (!state_.initialized) return;
         state_.lifecycle = OpenVrLifecycleState::shutdown_requested;
         state_.shutdown_requested = true;
-        state_.presenting = false;
+        InvalidatePresentation();
     }
 
     void ShutdownComplete() noexcept {
         state_ = {};
         state_.lifecycle = OpenVrLifecycleState::shutdown_complete;
-        left_submit_seen_ = false;
-        left_submit_ok_ = false;
+        InvalidatePresentation();
     }
 
     [[nodiscard]] const OpenVrRuntimeState& state() const noexcept { return state_; }
 
 private:
+    void InvalidatePresentation() noexcept {
+        state_.presenting = false;
+        left_submit_seen_ = left_submit_ok_ = false;
+    }
     OpenVrRuntimeState state_{};
     bool left_submit_seen_ = false;
     bool left_submit_ok_ = false;
