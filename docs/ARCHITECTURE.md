@@ -450,13 +450,23 @@ Three slots hold separate non-MSAA eye textures and a D3D9 event query. One
 bounded FLUSH poll can submit commands, but the producer never waits. Ready pairs
 publish atomically. A D3D11 completion query retains the producer lease until
 both consumer copies complete. Ring exhaustion skips production; replacement or
-failure releases leases safely. Rebuild/invalidation defers while a consumer owns
-a slot. OpenSharedResource itself does not copy.
+failure releases leases only when safe. A failed D3D11 completion-query poll
+quarantines all pending GPU leases and rejects further copies; those leases remain
+held until the D3D11 session shuts down. Rebuild/invalidation defers while a
+consumer owns a slot. OpenSharedResource itself does not copy.
+If a D3D9 producer event-query poll fails, its pending slot is quarantined from
+collection and reuse; other slots can still publish completed frames. A
+quarantined producer frame is counted as invalidated once, including when its
+resources are later torn down. Producer resource-generation transitions remain
+subject to the D3D9 device/reset boundary and need exact-game loss/reset coverage.
 
 This removes native-stereo CPU readback/LockRect/UpdateSubresource; immediate flat
 capture remains separate. The classic CPU stereo path is diagnostic compatibility,
 not the active performance path. Telemetry separates production, new submissions,
 repeats, drops, frame age and query retirement from compositor refresh.
+Per-frame producer/consumer lease event logs sample the first eight frames and
+each 90th frame; copy ordinals preserve sampled lease-to-fence association,
+including retirement during shutdown drain. Aggregate counters remain unsampled.
 
 The game producer cap follows the HMD display-frequency property. One bounded
 cancellation-aware CPU schedule covers stereo and flat modes, rebases at rate/reset/

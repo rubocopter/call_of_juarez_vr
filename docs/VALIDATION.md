@@ -231,6 +231,22 @@ Arbitrary reset, abnormal shutdown, sustained pacing and campaign transitions
 remain open. A skipped classic shared-texture environmental test is neither a
 pass nor physical validation. Transient host D3D9 CreateDevice failures have also
 been observed; their cause has not been established.
+Implemented hardening retains producer leases on a failed D3D11 copy-fence poll
+and moves lease bookkeeping ahead of copy submission. Sampled lease telemetry
+tracks copy ordinals and accounts for shutdown-drain retirements. The Release
+build and GPU transport host test pass. A test-only injected GetData failure on a
+queued D3D9Ex/D3D11 copy verifies that the producer lease stays retained,
+subsequent copies are rejected, and shutdown does not release the uncertain copy.
+The fixture explicitly drains the GPU before destroying its bridge. This is
+host-tested fault recovery, not exact-game or headset validation; runtime/headset
+performance impact remains unverified.
+A separate test-only D3D9 producer GetData failure while a real GPU copy is
+pending now verifies quarantine of the affected ring slot, successful collection
+through a healthy successor, and a single invalidation count across shutdown.
+The fixture drains its GPU queue before teardown. Both failure injections run
+only in the dedicated host test target. Full Release build and CTest: 76 passed,
+one classic D3D9 shared-texture environmental test skipped. Production
+device-loss/reset behavior after an actual failed query remains unobserved.
 The host startup contract additionally exposed partially restored factory slots
 already pointing to retained originals. Cleanup now acknowledges those exact
 targets without a write, preserving foreign conflicts and protection-failure
