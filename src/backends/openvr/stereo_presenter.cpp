@@ -762,15 +762,14 @@ struct OpenVrStereoPresenter::Impl {
             std::uint64_t generation = 0;
             std::uint64_t frame_sequence = 0;
             std::uint32_t slot = 0;
+            std::uint64_t copy_ordinal = 0;
         };
         std::deque<LeaseTelemetry> pending_lease_telemetry;
-        std::uint64_t logged_copy_fences_completed = 0;
 
         const auto log_retired_leases = [&](const std::uint64_t completed) noexcept {
             try {
-                while (logged_copy_fences_completed < completed) {
-                    ++logged_copy_fences_completed;
-                    if (pending_lease_telemetry.empty()) continue;
+                while (!pending_lease_telemetry.empty() &&
+                       pending_lease_telemetry.front().copy_ordinal <= completed) {
                     const LeaseTelemetry retired = pending_lease_telemetry.front();
                     pending_lease_telemetry.pop_front();
                     std::ostringstream line;
@@ -1499,21 +1498,26 @@ struct OpenVrStereoPresenter::Impl {
                                     feedback_context.Snapshot(),std::chrono::steady_clock::now());
                             }
                             if (shared_frame) {
-                                const LeaseTelemetry lease{
-                                    .device_id = frame.device_id,
-                                    .generation = frame.generation,
-                                    .frame_sequence = frame.capture_sequence,
-                                    .slot = frame.producer_slot,
-                                };
-                                pending_lease_telemetry.push_back(lease);
-                                std::ostringstream acquired;
-                                acquired << "native_stereo_startup_event: event=lease_acquired"
-                                         << ";thread_id=" << GetCurrentThreadId()
-                                         << ";device=0x" << std::hex << frame.device_id << std::dec
-                                         << ";generation=" << frame.generation
-                                         << ";frame_sequence=" << frame.capture_sequence
-                                         << ";slot=" << frame.producer_slot;
-                                Log(acquired.str());
+                                // Frame-copy ordinals retain the exact retirement
+                                // association without allocating a telemetry
+                                // record for every unsampled GPU frame.
+                                if (ShouldLogSequence(frame.capture_sequence)) {
+                                    pending_lease_telemetry.push_back(LeaseTelemetry{
+                                        .device_id = frame.device_id,
+                                        .generation = frame.generation,
+                                        .frame_sequence = frame.capture_sequence,
+                                        .slot = frame.producer_slot,
+                                        .copy_ordinal = shared_stats_after.frames_copied,
+                                    });
+                                    std::ostringstream acquired;
+                                    acquired << "native_stereo_startup_event: event=lease_acquired"
+                                             << ";thread_id=" << GetCurrentThreadId()
+                                             << ";device=0x" << std::hex << frame.device_id << std::dec
+                                             << ";generation=" << frame.generation
+                                             << ";frame_sequence=" << frame.capture_sequence
+                                             << ";slot=" << frame.producer_slot;
+                                    Log(acquired.str());
+                                }
 
                                 if (shared_stats_after.resources_opened >
                                     shared_stats_before.resources_opened) {
@@ -1530,16 +1534,18 @@ struct OpenVrStereoPresenter::Impl {
                                            << ";hr=0x0";
                                     Log(opened.str());
                                 }
-                                std::ostringstream queued;
-                                queued << "native_stereo_startup_event: event=copy_resource_queued"
-                                       << ";thread_id=" << GetCurrentThreadId()
-                                       << ";device=0x" << std::hex << frame.device_id << std::dec
-                                       << ";generation=" << frame.generation
-                                       << ";frame_sequence=" << frame.capture_sequence
-                                       << ";slot=" << frame.producer_slot
-                                       << ";pending_fences="
-                                       << shared_timing.pending_copy_fences;
-                                Log(queued.str());
+                                if (ShouldLogSequence(frame.capture_sequence)) {
+                                    std::ostringstream queued;
+                                    queued << "native_stereo_startup_event: event=copy_resource_queued"
+                                           << ";thread_id=" << GetCurrentThreadId()
+                                           << ";device=0x" << std::hex << frame.device_id << std::dec
+                                           << ";generation=" << frame.generation
+                                           << ";frame_sequence=" << frame.capture_sequence
+                                           << ";slot=" << frame.producer_slot
+                                           << ";pending_fences="
+                                           << shared_timing.pending_copy_fences;
+                                    Log(queued.str());
+                                }
                             }
                             const bool first_presentable_frame = !cadence.presentable();
                             const bool mode_changed = !have_active_presentation_mode ||
@@ -1763,6 +1769,9 @@ struct OpenVrStereoPresenter::Impl {
         PublishFlatUiPointer({});
         running.store(false, std::memory_order_release);
         shared_bridge.Shutdown(d3d11.context());
+        // A final shutdown drain can retire copies after the last frame poll.
+        // Record those retirements before emitting the transport summary.
+        log_retired_leases(shared_bridge.stats().copy_fences_completed);
         {
             const auto shared_stats = shared_bridge.stats();
             shared_frames_copied.store(shared_stats.frames_copied, std::memory_order_release);

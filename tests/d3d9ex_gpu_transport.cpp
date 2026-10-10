@@ -1,6 +1,7 @@
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
+#include "backends/openvr/d3d11_sync.hpp"
 
 #include <windows.h>
 
@@ -13,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <thread>
 
 using Microsoft::WRL::ComPtr;
@@ -242,6 +244,65 @@ int main() {
         shutdown_stats.copy_fences_completed != shutdown_stats.frames_copied) {
         return Fail("shared-texture shutdown did not retire every queued GPU copy before releasing producer leases");
     }
+
+    // Inject the exact GetData failure branch against a real queued GPU copy.
+    // Use independent synthetic lease states on still-live shared eye textures
+    // to observe retirement without interfering with the capture ring owner.
+    auto retained_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+    auto rejected_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
+    {
+        cojvr::backends::openvr::D3D9SharedTextureBridge failed_bridge;
+        cojvr::backends::d3d9::StereoCpuFrame failed_frame{};
+        failed_frame.transport = cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+        failed_frame.shared_eyes = second.shared_eyes;
+        failed_frame.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(retained_state);
+        if (!failed_bridge.CopyFrame(
+                device11.Get(), context11.Get(), failed_frame, raw_destinations, timing)) {
+            return Fail("failed-query fixture did not queue its GPU copy");
+        }
+        failed_bridge.ForceNextFencePollFailureForTest();
+        failed_bridge.Poll(context11.Get());
+        const auto failed_stats = failed_bridge.stats();
+        if (failed_stats.frames_copied != 1 || failed_stats.copy_fences_completed != 0 ||
+            failed_stats.pending_copy_fences != 1 || failed_stats.copy_failures != 1 ||
+            retained_state->consumer_done.load(std::memory_order_acquire)) {
+            return Fail("failed GetData prematurely retired a producer GPU lease");
+        }
+
+        cojvr::backends::d3d9::StereoCpuFrame rejected_frame{};
+        rejected_frame.transport = cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+        rejected_frame.shared_eyes = second.shared_eyes;
+        rejected_frame.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(rejected_state);
+        if (failed_bridge.CopyFrame(
+                device11.Get(), context11.Get(), rejected_frame, raw_destinations, timing) ||
+            !rejected_frame.producer_lease.valid() ||
+            failed_bridge.stats().frames_copied != 1 ||
+            retained_state->consumer_done.load(std::memory_order_acquire) ||
+            rejected_state->consumer_done.load(std::memory_order_acquire)) {
+            return Fail("failed fence query did not quarantine subsequent GPU copies");
+        }
+
+        failed_bridge.Shutdown(context11.Get());
+        const auto quarantined_stats = failed_bridge.stats();
+        if (quarantined_stats.abandoned_on_shutdown != 1 ||
+            quarantined_stats.pending_copy_fences != 1 ||
+            retained_state->consumer_done.load(std::memory_order_acquire)) {
+            return Fail("failed fence query released its lease during shutdown");
+        }
+        // Drain the physical GPU before ending this artificial failure test;
+        // the production fail-closed path instead destroys its D3D11 session.
+        cojvr::backends::openvr::D3D11SyncResult drained{};
+        std::string drain_error;
+        if (!cojvr::backends::openvr::SynchronizeD3D11(
+                device11.Get(), context11.Get(),
+                cojvr::backends::openvr::D3D11SyncStrategy::event_query,
+                1000, drained, drain_error)) {
+            return Fail("failed-query fixture could not retire the physical GPU copy");
+        }
+    }
+    if (!retained_state->consumer_done.load(std::memory_order_acquire)) {
+        return Fail("quarantined GPU lease was not released after safe teardown");
+    }
     // A final game frame can be fenced but never published when quit stops
     // the producer. Shutdown must cancel it and report an empty ring after
     // reclaiming the consumer leases, rather than retain pre-release depth.
@@ -263,6 +324,52 @@ int main() {
         capture.stats().frames_invalidated != before_shutdown.frames_invalidated + 1 ||
         capture.stats().ring_depth_peak != before_shutdown.ring_depth_peak) {
         return Fail("producer shutdown did not reclaim drained GPU leases and release capture resources");
+    }
+
+    // A failed producer event query does not prove that StretchRect has retired.
+    // Keep its slot quarantined and permit later healthy slots to progress.
+    {
+        cojvr::backends::d3d9::D3D9StereoCapture failed_capture;
+        if (!failed_capture.CaptureEyeSurface(
+                device9ex.Get(), source.Get(), cojvr::runtime::Eye::left, 20, 1) ||
+            !failed_capture.CaptureEyeSurface(
+                device9ex.Get(), source.Get(), cojvr::runtime::Eye::right, 20, 1) ||
+            !failed_capture.EndFrame(20, TestPose(), 120)) {
+            return Fail("producer failed-query fixture could not fence a frame");
+        }
+        failed_capture.ForceNextFencePollFailureForTest();
+        cojvr::backends::d3d9::StereoCpuFrame quarantined{};
+        if (failed_capture.TryCollectReady(quarantined) ||
+            failed_capture.stats().ring_depth != 1 ||
+            failed_capture.stats().frames_invalidated != 1) {
+            return Fail("failed producer query did not quarantine its GPU slot");
+        }
+        cojvr::backends::d3d9::StereoCpuFrame following{};
+        if (!CaptureGpuFrame(failed_capture, device9ex.Get(), source.Get(), 21, following) ||
+            following.producer_slot == 0 ||
+            failed_capture.stats().ring_depth != 2 ||
+            failed_capture.stats().frames_collected != 1) {
+            return Fail("quarantined producer slot blocked or contaminated a healthy successor");
+        }
+        following.producer_lease.Release();
+        // Retire real GPU commands before teardown of the artificial failure.
+        ComPtr<IDirect3DQuery9> drain;
+        hr = device9ex->CreateQuery(D3DQUERYTYPE_EVENT, &drain);
+        if (FAILED(hr) || !drain || FAILED(drain->Issue(D3DISSUE_END))) {
+            return Fail("producer failure fixture could not create its drain query");
+        }
+        BOOL complete = FALSE;
+        for (int attempt = 0; attempt < 200 && !complete; ++attempt) {
+            const HRESULT poll = drain->GetData(&complete, sizeof(complete), D3DGETDATA_FLUSH);
+            if (FAILED(poll)) return Fail("producer failure fixture drain failed", poll);
+            if (!complete) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (!complete) return Fail("producer failure fixture GPU drain timed out");
+        failed_capture.Shutdown();
+        if (failed_capture.stats().ring_depth != 0 ||
+            failed_capture.stats().frames_invalidated != 1) {
+            return Fail("producer failure fixture double-counted an already invalidated slot at teardown");
+        }
     }
 
     std::cout << "D3D9Ex shared ring -> D3D11 GPU copy passed: "

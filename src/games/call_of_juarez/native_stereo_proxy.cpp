@@ -751,7 +751,10 @@ bool PublishCapturedFrame(
                 "presenter mailbox rejected completed CPU frame");
             return false;
         }
-        if (shared_frame) {
+        // Producer and consumer diagnostics sample the same frame sequences.
+        // Writing a line for every published frame stalls the render hook on I/O.
+        if (shared_frame && capture_sequence > 0 &&
+            (capture_sequence <= 8 || (capture_sequence % 90) == 0)) {
             std::ostringstream line;
             line << "native_stereo_startup_event: event=shared_frame_published"
                  << ";thread_id=" << GetCurrentThreadId()

@@ -965,7 +965,8 @@ if(COJVR_BUILD_TESTS)
     target_include_directories(cojvr_d3d9ex_gpu_transport_test PRIVATE src)
     target_compile_features(cojvr_d3d9ex_gpu_transport_test PRIVATE cxx_std_20)
     target_compile_definitions(
-        cojvr_d3d9ex_gpu_transport_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        cojvr_d3d9ex_gpu_transport_test PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN COJVR_GPU_COPY_FAULT_TESTING)
     target_link_libraries(cojvr_d3d9ex_gpu_transport_test PRIVATE d3d11 dxgi)
     if(MSVC)
         target_compile_options(

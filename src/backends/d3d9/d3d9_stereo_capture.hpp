@@ -75,6 +75,10 @@ public:
     // Reset hook.
     void InvalidateResources() noexcept;
     void Shutdown() noexcept;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+    // Standalone GPU-transport test only; never enabled in the game DLL.
+    void ForceNextFencePollFailureForTest() noexcept;
+#endif
 
     [[nodiscard]] D3D9StereoCaptureStats stats() const noexcept;
     [[nodiscard]] bool gpu_resident_active() const noexcept;

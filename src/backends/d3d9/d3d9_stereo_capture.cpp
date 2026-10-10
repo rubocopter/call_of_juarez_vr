@@ -71,6 +71,7 @@ struct D3D9StereoCapture::Impl {
         std::chrono::steady_clock::time_point capture_time{};
         bool pending = false;
         bool fence_flush_issued = false;
+        bool producer_fence_failed = false;
 
         void ResetState() noexcept {
             eye_captured = {};
@@ -82,6 +83,7 @@ struct D3D9StereoCapture::Impl {
             capture_time = {};
             pending = false;
             fence_flush_issued = false;
+            producer_fence_failed = false;
             release_state.reset();
         }
     };
@@ -101,6 +103,9 @@ struct D3D9StereoCapture::Impl {
     TransportMode transport_mode = TransportMode::classic_cpu_fallback;
     bool resources_initialized = false;
     bool flat_resources_initialized = false;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+    bool force_next_fence_poll_failure = false;
+#endif
 
     [[nodiscard]] std::uint32_t RingDepth() const noexcept {
         std::uint32_t depth = 0;
@@ -150,7 +155,11 @@ struct D3D9StereoCapture::Impl {
             for (auto& surface : slot.gpu_eyes) surface.Reset();
             slot.shared_handles = {};
             slot.fence.Reset();
-            if (slot.pending || slot.release_state) ++stats.frames_invalidated;
+            // The failed producer fence already invalidated this frame when
+            // quarantined. Resource teardown must not count it a second time.
+            if ((slot.pending && !slot.producer_fence_failed) || slot.release_state) {
+                ++stats.frames_invalidated;
+            }
             slot.ResetState();
         }
         UpdateRingDepth();
@@ -366,7 +375,8 @@ struct D3D9StereoCapture::Impl {
         Slot* oldest = nullptr;
         std::uint64_t sequence = std::numeric_limits<std::uint64_t>::max();
         for (auto& slot : slots) {
-            if (slot.pending && slot.frame_sequence < sequence) {
+            if (slot.pending && !slot.producer_fence_failed &&
+                slot.frame_sequence < sequence) {
                 oldest = &slot;
                 sequence = slot.frame_sequence;
             }
@@ -700,10 +710,19 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         if (!slot) return false;
         const auto poll_begin = std::chrono::steady_clock::now();
         BOOL event_complete = FALSE;
-        HRESULT ready = slot->fence->GetData(
-            &event_complete,
-            static_cast<DWORD>(sizeof(event_complete)),
-            0);
+        HRESULT ready = S_OK;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+        if (impl_->force_next_fence_poll_failure) {
+            impl_->force_next_fence_poll_failure = false;
+            ready = E_FAIL;
+        } else
+#endif
+        {
+            ready = slot->fence->GetData(
+                &event_complete,
+                static_cast<DWORD>(sizeof(event_complete)),
+                0);
+        }
         bool flushed = false;
         if (ready == S_FALSE && !slot->fence_flush_issued) {
             ready = slot->fence->GetData(
@@ -717,7 +736,10 @@ bool D3D9StereoCapture::TryCollectReady(StereoCpuFrame& frame) noexcept {
         const auto poll_end = std::chrono::steady_clock::now();
         if (FAILED(ready)) {
             impl_->last_error = Failure("capture ring fence GetData", ready);
-            slot->ResetState();
+            // A failed query cannot establish that the D3D9 GPU copies have
+            // retired. Keep this pending slot unavailable for reuse until a
+            // resource-generation teardown, while healthy slots still progress.
+            slot->producer_fence_failed = true;
             ++impl_->stats.frames_invalidated;
             impl_->UpdateRingDepth();
             return false;
@@ -908,6 +930,12 @@ void D3D9StereoCapture::InvalidateResources() noexcept {
 }
 
 void D3D9StereoCapture::Shutdown() noexcept { InvalidateResources(); }
+
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+void D3D9StereoCapture::ForceNextFencePollFailureForTest() noexcept {
+    impl_->force_next_fence_poll_failure = true;
+}
+#endif
 
 D3D9StereoCaptureStats D3D9StereoCapture::stats() const noexcept { return impl_->stats; }
 bool D3D9StereoCapture::gpu_resident_active() const noexcept {

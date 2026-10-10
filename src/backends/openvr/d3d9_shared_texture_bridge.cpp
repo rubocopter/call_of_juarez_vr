@@ -47,6 +47,10 @@ struct D3D9SharedTextureBridge::Impl {
     std::deque<PendingCopy> pending{};
     D3D9SharedTextureBridgeStats stats{};
     std::string last_error{};
+    bool fence_poll_failed = false;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+    bool force_next_poll_failure = false;
+#endif
 
     void RefreshDepth() noexcept {
         stats.pending_copy_fences = pending.size();
@@ -76,6 +80,11 @@ bool D3D9SharedTextureBridge::CopyFrame(
 
     try {
         Poll(context);
+        if (impl_->fence_poll_failed) {
+            // A failed query does not prove that its GPU copy has retired.
+            // Keep all pending producer leases and stop queueing new copies.
+            return false;
+        }
         const auto open_begin = std::chrono::steady_clock::now();
         std::array<ComPtr<ID3D11Texture2D>, 2> sources{};
         for (std::size_t eye = 0; eye < sources.size(); ++eye) {
@@ -125,24 +134,24 @@ bool D3D9SharedTextureBridge::CopyFrame(
             return false;
         }
 
+        // Acquire deque storage and transfer the producer lease before issuing
+        // GPU commands. A failed allocation must not release an in-flight lease.
         const auto copy_begin = std::chrono::steady_clock::now();
-        for (std::size_t eye = 0; eye < sources.size(); ++eye) {
-            context->CopyResource(destination[eye], sources[eye].Get());
-        }
-        context->End(fence.Get());
-        // Flush submits the GPU work but does not wait for it. The event query
-        // below is polled with DONOTFLUSH on later presenter iterations.
-        context->Flush();
-        const auto copy_end = std::chrono::steady_clock::now();
-        timing.copy_queue_ms = MillisecondsBetween(copy_begin, copy_end);
-        timing.consumer_wait_ms = 0.0;
-
         Impl::PendingCopy pending{};
         pending.fence = std::move(fence);
         pending.sources = std::move(sources);
         pending.lease = std::move(frame.producer_lease);
         pending.queued_at = copy_begin;
         impl_->pending.push_back(std::move(pending));
+        for (std::size_t eye = 0; eye < destination.size(); ++eye) {
+            context->CopyResource(destination[eye], impl_->pending.back().sources[eye].Get());
+        }
+        context->End(impl_->pending.back().fence.Get());
+        // Flush submits GPU work but does not wait; Poll checks completion later.
+        context->Flush();
+        const auto copy_end = std::chrono::steady_clock::now();
+        timing.copy_queue_ms = MillisecondsBetween(copy_begin, copy_end);
+        timing.consumer_wait_ms = 0.0;
         ++impl_->stats.frames_copied;
         impl_->RefreshDepth();
         timing.pending_copy_fences = impl_->pending.size();
@@ -155,22 +164,33 @@ bool D3D9SharedTextureBridge::CopyFrame(
 }
 
 void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
-    if (!context) return;
+    if (!context || impl_->fence_poll_failed) return;
     try {
         while (!impl_->pending.empty()) {
             BOOL complete = FALSE;
-            const HRESULT result = context->GetData(
-                impl_->pending.front().fence.Get(),
-                &complete,
-                static_cast<UINT>(sizeof(complete)),
-                D3D11_ASYNC_GETDATA_DONOTFLUSH);
+            HRESULT result = S_OK;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+            if (impl_->force_next_poll_failure) {
+                impl_->force_next_poll_failure = false;
+                result = E_FAIL;
+            } else
+#endif
+            {
+                result = context->GetData(
+                    impl_->pending.front().fence.Get(),
+                    &complete,
+                    static_cast<UINT>(sizeof(complete)),
+                    D3D11_ASYNC_GETDATA_DONOTFLUSH);
+            }
             if (result == S_FALSE || (result == S_OK && complete == FALSE)) {
                 ++impl_->stats.copy_fence_poll_pending;
                 break;
             }
-            if (FAILED(result)) {
+            if (result != S_OK) {
                 impl_->last_error = "D3D11 shared-copy event-query polling failed";
                 ++impl_->stats.copy_failures;
+                impl_->fence_poll_failed = true;
+                break;
             } else {
                 const double completion_ms = MillisecondsBetween(
                     impl_->pending.front().queued_at,
@@ -184,9 +204,16 @@ void D3D9SharedTextureBridge::Poll(ID3D11DeviceContext* context) noexcept {
         }
         impl_->RefreshDepth();
     } catch (...) {
+        impl_->fence_poll_failed = true;
         impl_->last_error = "D3D11 shared-copy polling raised an exception";
     }
 }
+
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+void D3D9SharedTextureBridge::ForceNextFencePollFailureForTest() noexcept {
+    impl_->force_next_poll_failure = true;
+}
+#endif
 
 void D3D9SharedTextureBridge::ResetOpenedResources() noexcept {
     try {
@@ -198,7 +225,7 @@ void D3D9SharedTextureBridge::ResetOpenedResources() noexcept {
 void D3D9SharedTextureBridge::Shutdown(ID3D11DeviceContext* context) noexcept {
     try {
         Poll(context);
-        if (context && !impl_->pending.empty()) {
+        if (context && !impl_->fence_poll_failed && !impl_->pending.empty()) {
             ComPtr<ID3D11Device> device;
             context->GetDevice(&device);
             D3D11SyncResult sync{};

@@ -54,6 +54,10 @@ public:
     void Poll(ID3D11DeviceContext* context) noexcept;
     void ResetOpenedResources() noexcept;
     void Shutdown(ID3D11DeviceContext* context) noexcept;
+#if defined(COJVR_GPU_COPY_FAULT_TESTING)
+    // Only compiled into the standalone host GPU-transport regression target.
+    void ForceNextFencePollFailureForTest() noexcept;
+#endif
 
     [[nodiscard]] D3D9SharedTextureBridgeStats stats() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
