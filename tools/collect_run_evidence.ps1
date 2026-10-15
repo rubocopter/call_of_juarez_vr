@@ -103,11 +103,67 @@ $CameraControl = Join-Path $GameDirectory "cojvr-camera-control.json"
 $NativeStereoSummary = Join-Path $GameDirectory "cojvr-native-stereo-summary.json"
 $MovementSummary = Join-Path $GameDirectory "cojvr-movement-summary.json"
 $RequirePerformanceSummary = [bool]$CurrentRun.validation.requirePerformanceSummary
-if ($RequirePerformanceSummary -and
+$InvalidNativeInterval = [string]$CurrentRun.diagnosticMode -eq 'd3d9_native_stereo' -and
+    -not $ValidationContext.RuntimeMarkersValid
+# A rejected process interval may prevent summary generation. Preserve its raw
+# log and verdict anyway; the verdict remains non-passing and incomplete.
+if ($RequirePerformanceSummary -and -not $InvalidNativeInterval -and
     -not (Test-Path -LiteralPath $NativeStereoSummary -PathType Leaf)) {
     throw "This run requires a native-stereo performance/state summary before evidence collection."
 }
 Copy-EvidenceFile $RuntimeLog (Join-Path $RunDirectory "runtime\cojvr.log") $Inventory
+# Recollection must not pack a former report after its current identity was
+# rejected. Preserve previous bytes outside this package's directory; copying
+# an admitted current report below creates a fresh, inventoried destination.
+$RuntimeDirectory = Join-Path $RunDirectory 'runtime'
+$PreviousFaults = @()
+if (Test-Path -LiteralPath $RuntimeDirectory -PathType Container) {
+    $PreviousFaults = @(Get-ChildItem -LiteralPath $RuntimeDirectory -File -Filter 'cojvr-render-fault-*.txt')
+}
+foreach ($PreviousFault in $PreviousFaults) {
+    if ($PreviousFault.Name -cnotmatch '^cojvr-render-fault-[0-9]+\.txt$') { continue }
+    $PreviousHash = Get-UpperSha256 $PreviousFault.FullName
+    $RetiredDirectory = Join-Path (Join-Path $EvidenceRoot 'retired-diagnostics') $RunId
+    if (-not (Test-Path -LiteralPath $RetiredDirectory -PathType Container)) {
+        New-Item -ItemType Directory -Path $RetiredDirectory -Force | Out-Null
+    }
+    $RetiredPath = Join-Path $RetiredDirectory ($PreviousFault.BaseName + '-' + $PreviousHash + '.txt')
+    if (Test-Path -LiteralPath $RetiredPath -PathType Leaf) {
+        if ((Get-UpperSha256 $RetiredPath) -cne $PreviousHash) { throw 'Retired diagnostic preservation hash mismatch.' }
+        Remove-Item -LiteralPath $PreviousFault.FullName
+    } else {
+        Move-Item -LiteralPath $PreviousFault.FullName -Destination $RetiredPath
+    }
+}
+# Render-fault reports are diagnostic only. Bind the optional file to the one
+# native process and exact run/build; a stale or malformed report cannot become
+# evidence for this candidate or prevent ordinary collection/restoration.
+if ([string]$CurrentRun.diagnosticMode -eq 'd3d9_native_stereo' -and $ValidationContext.RuntimeMarkersValid) {
+    $ProcessMarkers = @($ValidationContext.RuntimeLines | Where-Object {
+        $_ -cmatch '^run_start: .* pid=([0-9]+)$'
+    })
+    if ($ProcessMarkers.Count -eq 1 -and $ProcessMarkers[0] -cmatch ' pid=([0-9]+)$') {
+        $NativeProcessId = $Matches[1]
+        $FaultName = "cojvr-render-fault-$NativeProcessId.txt"
+        $FaultPath = Join-Path $GameDirectory $FaultName
+        if (Test-Path -LiteralPath $FaultPath -PathType Leaf) {
+            try {
+                $Fault = Get-Item -LiteralPath $FaultPath
+                if ($Fault.Length -gt 16384) { throw 'Oversized render-fault report.' }
+                $FaultText = Get-Content -LiteralPath $FaultPath -Raw
+                $Expected = [ordered]@{schema_version='1'; scope='coj_render_hook_escape'; run_id=$RunId;
+                    build_manifest_id=[string]$CurrentRun.buildManifestId; pid=$NativeProcessId}
+                foreach ($Key in $Expected.Keys) {
+                    $Values = [regex]::Matches($FaultText, '(?m)^' + [regex]::Escape($Key) + '=([^\r\n]*)\r?$')
+                    if ($Values.Count -ne 1 -or $Values[0].Groups[1].Value -cne $Expected[$Key]) {
+                        throw "Render-fault identity mismatch: $Key."
+                    }
+                }
+                Copy-EvidenceFile $FaultPath (Join-Path $RunDirectory "runtime\$FaultName") $Inventory
+            } catch { Write-Warning "Optional render-fault report excluded: $($_.Exception.Message)" }
+        }
+    }
+}
 Copy-EvidenceFile $Callstack (Join-Path $RunDirectory "runtime\callstack.txt") $Inventory
 Copy-EvidenceFile $CameraControl (Join-Path $RunDirectory "runtime\cojvr-camera-control.json") $Inventory
 Copy-EvidenceFile $NativeStereoSummary (Join-Path $RunDirectory "analysis\native-stereo-summary.json") $Inventory
@@ -135,6 +191,13 @@ if (Test-Path -LiteralPath $RuntimeLog -PathType Leaf) {
             # preserves the raw log and marks the run incomplete if run_end is lost.
         }
     }
+}
+
+if ([string]$CurrentRun.diagnosticMode -eq 'd3d9_native_stereo') {
+    # Use the same ordered, exact run/build interval as the canonical verdict.
+    # Structured summaries cannot repair a foreign, duplicated or reversed end.
+    $RuntimeStarted = $ValidationContext.RuntimeStarted
+    $RuntimeEnded = $ValidationContext.RuntimeEnded
 }
 
 $DeploymentChecks = [System.Collections.Generic.List[object]]::new()

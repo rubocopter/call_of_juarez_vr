@@ -1,4 +1,6 @@
 #pragma once
+#include "games/call_of_juarez/fist_contact_geometry.hpp"
+#include <span>
 
 #include "runtime/vr_types.hpp"
 #include "runtime/hud_text.hpp"
@@ -9,6 +11,7 @@
 #include "games/call_of_juarez/reload_geometry.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
 #include "games/call_of_juarez/interaction_selection.hpp"
+#include "games/call_of_juarez/presentation_owner.hpp"
 
 #include <array>
 #include <cstdint>
@@ -35,6 +38,22 @@ struct CoJWeaponShotDiagnostics {
     std::array<int, 2> fx_handles{}; // last committed comb/smoke; not retained emitter pointers
     std::uint32_t owner_id = 0; // fresh active Weapon.GetThisID, game-thread observation only
     bool valid = false;
+};
+
+// Value-only, game-thread snapshot for exact WeaponHands. valid describes both
+// counters; a failed optional counter read may retain independently resolved
+// owner/hand/generation. Entry/Hit-call counts are not health-damage evidence.
+struct CoJPhysicalPunchDiagnostics {
+    bool valid = false;
+    std::uint32_t owner_id = 0;
+    int native_hand = -1;
+    int melee_entries = 0;
+    int hit_calls = 0;
+    std::uint64_t being_generation = 0;
+};
+
+enum class CoJPunchContactResult : int {
+    unavailable = -1, clear = 0, contact = 1, attacked = 2
 };
 
 // Exact-build native sprite-tree mouse delivery. The Java object ID is the
@@ -246,6 +265,13 @@ enum class CoJInputDispatchPhase { all, non_fire, pre_shoulder, shoulder, fire }
 // LawmanGame.sm_cActiveGameModule -> LawmanModuleSingle.GetMainPlayer().
 class JavaPlayerBridge final {
 public:
+    void SetUiLanguage(CoJUiLanguage language) noexcept {
+        ui_language_=language;
+        hud_text_sample_tick_=gameplay_ui_sample_tick_=0;
+        hud_text_player_generation_=gameplay_ui_player_generation_=0;
+        hud_text_cache_={};gameplay_ui_cache_={};
+        hud_text_sample_valid_=gameplay_ui_sample_valid_=false;
+    }
     [[nodiscard]] bool TryGetActiveWhip(int hand, bool& active, std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryPublishTrackedWhip(int hand, const ElementWorldBasisTarget& socket,
         std::string* error=nullptr) noexcept;
@@ -266,6 +292,8 @@ public:
     }
     [[nodiscard]] bool TryReadHandAttachment(int hand, ElementWorldBasisTarget& frame,
         std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryReadFistContactGeometry(int hand,CoJFistContactGeometry& geometry,
+        std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryReadReloadPinchAnchor(int hand,runtime::Vec3& world) noexcept;
     [[nodiscard]] bool TryReadReloadPinchFrame(int hand,ElementWorldBasisTarget& world) noexcept;
     [[nodiscard]] bool TryReadReloadFingerObservation(int hand,CoJReloadFingerObservation& out) noexcept;
@@ -339,6 +367,9 @@ public:
         bool& frozen, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetActiveGamePresentationBlocked(
         bool& blocked, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryGetActiveGamePresentationOwner(
+        CoJPresentationOwner& owner, std::string* error = nullptr) noexcept;
+    [[nodiscard]] CoJUiLanguage GetUiLanguage() const noexcept { return ui_language_; }
     [[nodiscard]] bool TryObserveSubtitleState(
         CoJSubtitleRuntimeState& state, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryGetWeaponReloading(
@@ -374,7 +405,7 @@ public:
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveInteractionSelection(CoJInteractionSelection& selection) noexcept;
     // Exact-build/local game-owner call only, immediately before action 31.
-    // Only Frontier Regular/Peacemaker support this native per-round ticket.
+    // Only the exact single-round profiles support this native per-round ticket.
     // Java consumes pending into its native-owned active ticket on admission.
     // Arm, immediately dispatch action31, then clear pending on either outcome.
     // Also clear on Square, failed gesture, context loss or local-owner release.
@@ -461,6 +492,28 @@ public:
         int hand,
         const JavaPlayerPosition& direction,
         std::string* error = nullptr) noexcept;
+    // Hash-qualified WeaponHands only. Owner is an opaque native GetThisID;
+    // endpoints are centimetres in the game world and live only during Attack.
+    [[nodiscard]] bool TryObservePhysicalBoxing(bool& selected, std::uint32_t& owner,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryResolvePhysicalPunchNativeHand(std::uint32_t owner, int& native_hand,
+        std::string* error = nullptr) noexcept;
+    // False clears counters/valid but retains a successfully resolved identity
+    // when only counters are unavailable. Owner/generation loss clears all.
+    // Deltas require valid snapshots with matching owner, hand and generation.
+    [[nodiscard]] bool TryObservePhysicalPunchDiagnostics(CoJPhysicalPunchDiagnostics& state,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryPhysicalPunch(int hand, std::uint32_t owner,
+        const JavaPlayerPosition& start, const JavaPlayerPosition& end,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryPhysicalPunchPath(int hand,std::uint32_t owner,
+        std::span<const JavaPlayerPosition> points,std::string* error=nullptr) noexcept;
+    // Independent current world-space centimetre pairs, including static
+    // contact-patch rays. No completed-stroke distance or continuity requirement.
+    // Only attacked confirms native melee entry; it does not confirm damage.
+    [[nodiscard]] CoJPunchContactResult TryPhysicalPunchContact(int hand,std::uint32_t owner,
+        bool allow_attack,std::span<const std::array<JavaPlayerPosition,2>> segments,
+        std::string* error=nullptr) noexcept;
     // Update the exact per-hand visualization origin consumed by
     // GetFireOriginVisualizationForWeapon -> GetFireOriginVisualizationForHand.
     // Verified weapon rays use the separate nullable shot-consumer cache.
@@ -535,6 +588,8 @@ private:
         std::string* error) noexcept;
     [[nodiscard]] bool TryDismissPausedHint(
         void* env, bool& dismissed, std::string* error) noexcept;
+    [[nodiscard]] bool TryDispatchMissionEndKey(
+        void* env, bool back, bool& handled, std::string* error) noexcept;
     [[nodiscard]] bool ReadVector(
         void* env, void* vector, JavaPlayerPosition& value, std::string* error) noexcept;
     [[nodiscard]] bool WriteVector(
@@ -585,6 +640,8 @@ private:
     std::array<HandOverlay, 2> hand_overlays_{};
     std::array<std::array<int,20>,2> independent_hand_elements_{};
     std::uint64_t independent_hand_generation_ = 0;
+    std::uint64_t fist_skin_generation_ = 0;
+    int fist_skin_model_ = -1;
     void* independent_arms_object_ = nullptr;
     int independent_arms_element_ = -1;
     bool independent_arms_were_hidden_ = false;
@@ -684,6 +741,7 @@ private:
     bool jni_environment_observed_ = false;
     bool detailed_exception_diagnostics_ = false;
     std::uint64_t being_generation_ = 0;
+    CoJUiLanguage ui_language_=CoJUiLanguage::english;
     runtime::HudTextSnapshot hud_text_cache_{};
     std::uint64_t hud_text_player_generation_ = 0;
     std::uint64_t hud_text_sample_tick_ = 0;

@@ -1,4 +1,5 @@
 #pragma once
+#include "games/call_of_juarez/revolver_profile.hpp"
 #include "runtime/reload_gesture.hpp"
 #include <array>
 #include <cstdint>
@@ -14,7 +15,8 @@ struct CoJReloadTraceSnapshot {
     std::array<float, 2> current_time{}, start_time{}, play_time{}, duration{};
     std::array<float, 2> min_advance{}, max_advance{};
     int ammo_readback = 0; // GetAmmoCount(0), NOT proof of a transfer or storage.
-    int pistol_reserve = 0; // PawnInventory.nAmmoPistol, pure counter backing field.
+    int reserve_readback = 0; // Exact profile's PawnInventory backing counter.
+    CoJReloadReserveKind reserve_kind=CoJReloadReserveKind::pistol;
     float drum_phase = 0;
     bool reloading = false;
     bool probe_valid = false;
@@ -59,9 +61,10 @@ inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
         before.weapon_id!=0&&before.weapon_id==after.weapon_id&&before.armed_hand>=0&&before.armed_hand<2&&
         before.armed_hand==after.armed_hand&&before.probe_status==2&&
         (after.probe_status==2||after.probe_status==3)&&before.ammo_readback>=0&&after.ammo_readback>=0&&
-        before.pistol_reserve>0&&after.pistol_reserve>=0&&
+        before.reserve_readback>0&&after.reserve_readback>=0&&before.reserve_kind==after.reserve_kind&&
+        (before.reserve_kind==CoJReloadReserveKind::pistol||before.reserve_kind==CoJReloadReserveKind::rifle)&&
         static_cast<std::int64_t>(after.ammo_readback)-before.ammo_readback==1&&
-        static_cast<std::int64_t>(after.pistol_reserve)-before.pistol_reserve==-1;
+        static_cast<std::int64_t>(after.reserve_readback)-before.reserve_readback==-1;
 }
 
 struct CoJReloadTraceSample {

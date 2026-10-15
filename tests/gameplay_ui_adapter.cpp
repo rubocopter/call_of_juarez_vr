@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/gameplay_ui_adapter.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -133,9 +134,14 @@ int main(){
         native.inventory.labels[channel].length=1;
         native.inventory.labels[channel].characters[0]=channel_labels[channel];
     }
+    native.inventory.cancel_label.length=8;std::copy_n(u"Cancelar",8,native.inventory.cancel_label.characters.begin());
+    native.inventory.confirm_label.length=9;std::copy_n(u"Confirmar",9,native.inventory.confirm_label.characters.begin());
     for(int channel=0;channel<8;++channel){
         native.inventory.owned_mask=native.inventory.available_mask=static_cast<std::uint8_t>(1U<<channel);
         BuildCoJGameplayUiOverlay(native,input,head,hand,{1,0,0},{0,0,1},overlay);
+        Require(overlay.ui.wheel.cancel_label==native.inventory.cancel_label&&
+            overlay.ui.wheel.confirm_label==native.inventory.confirm_label,
+            "game adapter dropped localized wheel confirmation labels");
         for(int sector=0;sector<8;++sector){
             Require(overlay.ui.wheel.labels[sector].view()==std::u16string_view(&sector_labels[sector],1),
                 "radial UI label order disagrees with confirmed action order");
@@ -185,5 +191,11 @@ int main(){
     hand.position={-.2F,-.3F,-.5F};hand.orientation={1,0,0,0};
     BuildCoJGameplayUiOverlay(native,input,head,hand,{1,0,0},{0,0,1},overlay);
     Require(!overlay.ui.status.active,"back-facing wrist status must hide");
+    native.inventory={};native.language=CoJUiLanguage::spanish;input.weapon_radial=true;
+    BuildCoJGameplayUiOverlay(native,input,head,hand,{1,0,0},{0,0,1},overlay);
+    Require(overlay.ui.wheel.active&&overlay.ui.wheel.available_mask==0&&
+        overlay.ui.wheel.cancel_label.view()==u"Cancelar"&&overlay.ui.wheel.confirm_label.view()==u"Confirmar"&&
+        overlay.ui.wheel.labels[2].view()==u"Pistola derecha",
+        "unavailable inventory must retain selected language without granting permissions");
     std::cout<<"Native wheel filtering and tracked objective geometry passed\n";
 }

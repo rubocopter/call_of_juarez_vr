@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/revolver_profile.hpp"
 #include "games/call_of_juarez/hud_text_reader.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
@@ -112,6 +113,8 @@ using DeleteGlobalRefFn = void(COJVR_JNICALL*)(void*, void*);
 using DeleteLocalRefFn = void(COJVR_JNICALL*)(void*, void*);
 using IsSameObjectFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*);
 using NewObjectAFn = void*(COJVR_JNICALL*)(void*, void*, void*, const JValue*);
+using NewObjectArrayFn = void*(COJVR_JNICALL*)(void*,std::int32_t,void*,void*);
+using SetObjectArrayElementFn = void(COJVR_JNICALL*)(void*,void*,std::int32_t,void*);
 using GetObjectClassFn = void*(COJVR_JNICALL*)(void*, void*);
 using IsInstanceOfFn = std::uint8_t(COJVR_JNICALL*)(void*, void*, void*);
 using GetMethodIdFn = void*(COJVR_JNICALL*)(void*, void*, const char*, const char*);
@@ -557,6 +560,228 @@ CoJLoadingUiInputResult CoJLoadingUiInputGate::Update(
 
 void CoJLoadingUiInputGate::Reset() noexcept { fire_release_required_ = false; }
 
+bool JavaPlayerBridge::TryObservePhysicalBoxing(bool& selected,std::uint32_t& owner,std::string* error) noexcept {
+    selected=false;owner=0;
+    if(!being_)return false;
+    void* env=Environment(error);
+    if(!env||ClearException(env,error,"boxing observation entry exception"))return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto boolean=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    if(!cls_fn||!method||!boolean||!integer)return false;
+    void* cls=cls_fn(env,being_);
+    if(ClearException(env,error,"boxing class unavailable")||!cls){DeleteLocal(env,cls);return false;}
+    void* selected_method=method(env,cls,"IsBoxing","()Z");
+    bool ok=!ClearException(env,error,"boxing selection method unavailable")&&selected_method;
+    if(ok){selected=boolean(env,being_,selected_method,nullptr)!=0;
+        ok=!ClearException(env,error,"boxing selection read failed");}
+    // Unselected firearms keep their existing input route and need no helper.
+    if(ok&&selected){
+        void* ready=method(env,cls,"cojvrBoxingOwner","()I");
+        ok=!ClearException(env,error,"physical boxing helper unavailable")&&ready;
+        if(ok){const auto id=integer(env,being_,ready,nullptr);
+            ok=!ClearException(env,error,"physical boxing owner read failed");
+            if(ok&&id>0)owner=static_cast<std::uint32_t>(id);}
+    }
+    DeleteLocal(env,cls);return ok;
+}
+bool JavaPlayerBridge::TryResolvePhysicalPunchNativeHand(const std::uint32_t owner,
+    int& native_hand,std::string* error) noexcept {
+    native_hand=-1;
+    if(!being_||!owner||owner>0x7FFFFFFFU)return false;
+    void* const player=being_;
+    const auto generation=being_generation_;
+    void* env=Environment(error);
+    if(!env||ClearException(env,error,"punch identity entry exception"))return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    if(!cls_fn||!method||!integer)return false;
+    void* cls=cls_fn(env,player);
+    if(ClearException(env,error,"punch identity class unavailable")||!cls){DeleteLocal(env,cls);return false;}
+    void* resolve=method(env,cls,"cojvrPhysicalPunchNativeHand","(I)I");
+    bool ok=!ClearException(env,error,"punch identity helper unavailable")&&resolve;
+    int observed=-1;
+    if(ok){const JValue args[]{{.i=static_cast<std::int32_t>(owner)}};
+        observed=integer(env,player,resolve,args);
+        ok=!ClearException(env,error,"punch identity read failed")&&observed>=0&&observed<=1;}
+    DeleteLocal(env,cls);
+    ok=ok&&being_==player&&being_generation_==generation;
+    if(ok)native_hand=observed;
+    return ok;
+}
+
+bool JavaPlayerBridge::TryObservePhysicalPunchDiagnostics(CoJPhysicalPunchDiagnostics& state,
+    std::string* error) noexcept {
+    state={};
+    void* const player=being_;
+    const auto generation=being_generation_;
+    bool selected=false;std::uint32_t owner=0;int hand=-1;
+    if(!player||!TryObservePhysicalBoxing(selected,owner,error)||!selected||!owner||
+        !TryResolvePhysicalPunchNativeHand(owner,hand,error)||being_!=player||being_generation_!=generation)return false;
+    state.owner_id=owner;state.native_hand=hand;state.being_generation=generation;
+    void* env=Environment(error);
+    if(!env||ClearException(env,error,"punch diagnostic entry exception")){state={};return false;}
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto object=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto read=EnvFunction<GetIntFieldFn>(env,kGetIntField);
+    if(!cls_fn||!method||!object||!integer){state={};return false;}
+    void* cls=cls_fn(env,player);
+    bool ok=!ClearException(env,error,"punch diagnostic player class unavailable")&&cls;
+    void* actual=nullptr;
+    if(ok){actual=method(env,cls,"GetActualWeapon","(I)LWeapon;");
+        ok=!ClearException(env,error,"punch diagnostic actual weapon lookup failed")&&actual;}
+    DeleteLocal(env,cls);cls=nullptr;
+    void* weapon=nullptr;
+    if(ok){const JValue args[]{{.i=hand}};weapon=object(env,player,actual,args);
+        ok=!ClearException(env,error,"punch diagnostic actual weapon read failed")&&weapon;}
+    if(ok){cls=cls_fn(env,weapon);ok=!ClearException(env,error,"punch diagnostic weapon class failed")&&cls;}
+    if(ok){void* id=method(env,cls,"GetThisID","()I");
+        ok=!ClearException(env,error,"punch diagnostic weapon identity lookup failed")&&id;
+        if(ok){const int observed=integer(env,weapon,id,nullptr);
+            ok=!ClearException(env,error,"punch diagnostic weapon identity read failed")&&
+                observed>0&&static_cast<std::uint32_t>(observed)==owner;}}
+    const bool identity_verified=ok;
+    int values[2]{};
+    constexpr const char* names[]{"cojvrPhysicalMeleeEntries","cojvrPhysicalNativeHitCalls"};
+    ok=ok&&field&&read;
+    for(int i=0;ok&&i<2;++i){
+        void* counter=field(env,cls,names[i],"I");
+        ok=!ClearException(env,error,"punch diagnostic counter unavailable")&&counter;
+        if(ok){values[i]=read(env,weapon,counter);
+            ok=!ClearException(env,error,"punch diagnostic counter read failed");}
+    }
+    DeleteLocal(env,cls);DeleteLocal(env,weapon);
+    int confirmed=-1;
+    if(!identity_verified||!TryResolvePhysicalPunchNativeHand(owner,confirmed,error)||confirmed!=hand||
+        being_!=player||being_generation_!=generation){state={};return false;}
+    if(ok){state.melee_entries=values[0];state.hit_calls=values[1];state.valid=true;}
+    return ok;
+}
+
+bool JavaPlayerBridge::TryPhysicalPunch(const int hand,const std::uint32_t owner,
+    const JavaPlayerPosition& start,const JavaPlayerPosition& end,std::string* error) noexcept {
+    const std::array<JavaPlayerPosition,2> points{start,end};
+    return TryPhysicalPunchPath(hand,owner,points,error);
+}
+bool JavaPlayerBridge::TryPhysicalPunchPath(const int hand,const std::uint32_t owner,
+    const std::span<const JavaPlayerPosition> points,std::string* error) noexcept {
+    if(!being_||hand<0||hand>1||!owner||owner>0x7FFFFFFFU||points.size()<2||points.size()>64)return false;
+    float length=0;
+    for(std::size_t i=0;i<points.size();++i){
+        const auto p=points[i];
+        if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z))return false;
+        if(i){const auto prev=points[i-1];const float dx=p.x-prev.x,dy=p.y-prev.y,dz=p.z-prev.z;
+            const float d2=dx*dx+dy*dy+dz*dz;
+            if(!std::isfinite(d2)||d2<.0001F||d2>625.F)return false;
+            length+=std::sqrt(d2);if(length>80.F)return false;}
+    }
+    if(length<8.F)return false;
+    void* env=Environment(error);
+    if(!env||ClearException(env,error,"physical punch entry exception")||!EnsureVectorAccess(env,error))return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto boolean=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    const auto construct=EnvFunction<NewObjectAFn>(env,kNewObjectA);
+    const auto array=EnvFunction<NewObjectArrayFn>(env,172);
+    const auto element=EnvFunction<SetObjectArrayElementFn>(env,174);
+    if(!cls_fn||!method||!boolean||!construct||!array||!element)return false;
+    void* cls=cls_fn(env,being_);
+    if(ClearException(env,error,"physical punch class unavailable")||!cls){DeleteLocal(env,cls);return false;}
+    void* punch=method(env,cls,"cojvrPhysicalPunch","(II[[LVector;)Z");
+    bool ok=!ClearException(env,error,"physical punch helper unavailable")&&punch;
+    void* prototype=nullptr;void* row_class=nullptr;void* traces=nullptr;
+    // Derive the component class from an array of the actual admitted Vector
+    // class. FindClass("[LVector;") could resolve through another class loader.
+    if(ok){prototype=array(env,2,vector_class_,nullptr);
+        ok=!ClearException(env,error,"punch row prototype unavailable")&&prototype;}
+    if(ok){row_class=cls_fn(env,prototype);
+        ok=!ClearException(env,error,"punch row type unavailable")&&row_class;}
+    if(ok){traces=array(env,static_cast<std::int32_t>(points.size()-1),row_class,nullptr);
+        ok=!ClearException(env,error,"punch segment array unavailable")&&traces;}
+    for(std::size_t i=1;ok&&i<points.size();++i){
+        void* row=nullptr;
+        if(i==1){row=prototype;prototype=nullptr;}else row=array(env,2,vector_class_,nullptr);
+        ok=!ClearException(env,error,"punch row allocation failed")&&row;
+        for(int slot=0;ok&&slot<2;++slot){
+            void* v=construct(env,vector_class_,vector_constructor_,nullptr);
+            ok=!ClearException(env,error,"punch point allocation failed")&&v;
+            if(ok)ok=WriteVector(env,v,points[i-1+static_cast<std::size_t>(slot)],error);
+            if(ok){element(env,row,slot,v);ok=!ClearException(env,error,"punch row publication failed");}
+            DeleteLocal(env,v);
+        }
+        if(ok){element(env,traces,static_cast<std::int32_t>(i-1),row);
+            ok=!ClearException(env,error,"punch segment publication failed");}
+        DeleteLocal(env,row);
+    }
+    if(ok){const JValue args[]{{.i=hand},{.i=static_cast<std::int32_t>(owner)},{.l=traces}};
+        const bool attempted=boolean(env,being_,punch,args)!=0;
+        ok=!ClearException(env,error,"native physical punch failed")&&attempted;}
+    DeleteLocal(env,traces);DeleteLocal(env,row_class);DeleteLocal(env,prototype);DeleteLocal(env,cls);
+    return ok;
+}
+
+CoJPunchContactResult JavaPlayerBridge::TryPhysicalPunchContact(const int hand,
+    const std::uint32_t owner,const bool allow_attack,
+    const std::span<const std::array<JavaPlayerPosition,2>> segments,std::string* error) noexcept {
+    constexpr auto unavailable=CoJPunchContactResult::unavailable;
+    if(!being_||hand<0||hand>1||!owner||owner>0x7FFFFFFFU||segments.empty()||segments.size()>63)return unavailable;
+    for(const auto& pair:segments){
+        for(const auto& point:pair)if(!std::isfinite(point.x)||!std::isfinite(point.y)||!std::isfinite(point.z))return unavailable;
+        const float dx=pair[1].x-pair[0].x,dy=pair[1].y-pair[0].y,dz=pair[1].z-pair[0].z;
+        const float d2=dx*dx+dy*dy+dz*dz;
+        if(!std::isfinite(d2)||d2>625.F)return unavailable;
+    }
+    void* const player=being_;const auto generation=being_generation_;
+    void* env=Environment(error);
+    if(!env||ClearException(env,error,"punch contact entry exception")||!EnsureVectorAccess(env,error))return unavailable;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto construct=EnvFunction<NewObjectAFn>(env,kNewObjectA);
+    const auto array=EnvFunction<NewObjectArrayFn>(env,172);
+    const auto element=EnvFunction<SetObjectArrayElementFn>(env,174);
+    if(!cls_fn||!method||!integer||!construct||!array||!element)return unavailable;
+    void* cls=cls_fn(env,player);
+    if(ClearException(env,error,"punch contact class unavailable")||!cls){DeleteLocal(env,cls);return unavailable;}
+    void* contact=method(env,cls,"cojvrPhysicalPunchContact","(IIZ[[LVector;)I");
+    bool ok=!ClearException(env,error,"punch contact helper unavailable")&&contact;
+    void* prototype=nullptr;void* row_class=nullptr;void* traces=nullptr;
+    if(ok){prototype=array(env,2,vector_class_,nullptr);
+        ok=!ClearException(env,error,"contact row prototype unavailable")&&prototype;}
+    if(ok){row_class=cls_fn(env,prototype);
+        ok=!ClearException(env,error,"contact row type unavailable")&&row_class;}
+    if(ok){traces=array(env,static_cast<std::int32_t>(segments.size()),row_class,nullptr);
+        ok=!ClearException(env,error,"contact segment array unavailable")&&traces;}
+    for(std::size_t i=0;ok&&i<segments.size();++i){
+        void* row=nullptr;
+        if(i==0){row=prototype;prototype=nullptr;}else row=array(env,2,vector_class_,nullptr);
+        ok=!ClearException(env,error,"contact row allocation failed")&&row;
+        for(int slot=0;ok&&slot<2;++slot){
+            void* vector=construct(env,vector_class_,vector_constructor_,nullptr);
+            ok=!ClearException(env,error,"contact point allocation failed")&&vector;
+            if(ok)ok=WriteVector(env,vector,segments[i][static_cast<std::size_t>(slot)],error);
+            if(ok){element(env,row,slot,vector);ok=!ClearException(env,error,"contact row publication failed");}
+            DeleteLocal(env,vector);
+        }
+        if(ok){element(env,traces,static_cast<std::int32_t>(i),row);
+            ok=!ClearException(env,error,"contact segment publication failed");}
+        DeleteLocal(env,row);
+    }
+    int result=-1;
+    if(ok){const JValue args[]{{.i=hand},{.i=static_cast<std::int32_t>(owner)},
+            {.z=static_cast<std::uint8_t>(allow_attack)},{.l=traces}};
+        result=integer(env,player,contact,args);
+        ok=!ClearException(env,error,"native punch contact failed")&&result>=-1&&result<=2;}
+    DeleteLocal(env,traces);DeleteLocal(env,row_class);DeleteLocal(env,prototype);DeleteLocal(env,cls);
+    if(!ok||being_!=player||being_generation_!=generation)return unavailable;
+    return static_cast<CoJPunchContactResult>(result);
+}
+
 void CoJUiSelectRetryState::Observe(
     const bool pressed_edge,
     const bool select_held) noexcept {
@@ -601,6 +826,7 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 }
 
 void JavaPlayerBridge::Reset() noexcept {
+    fist_skin_generation_=0;fist_skin_model_=-1;
     if (!CancelManualReload()) return;
     if (single_round_reload_pending_ && !ClearSingleRoundReload()) return;
     // A pending failed transaction still owns JNI references and restore data.
@@ -1215,6 +1441,14 @@ bool JavaPlayerBridge::TryGetActiveGameTimerFrozen(
 bool JavaPlayerBridge::TryGetActiveGamePresentationBlocked(
     bool& blocked,std::string* error) noexcept {
     blocked=true;
+    CoJPresentationOwner owner{};
+    if(!TryGetActiveGamePresentationOwner(owner,error))return false;
+    blocked=owner.blocked();return true;
+}
+
+bool JavaPlayerBridge::TryGetActiveGamePresentationOwner(
+    CoJPresentationOwner& state,std::string* error) noexcept {
+    state={};
     void* env=Environment(error);
     if(!env || !EnsureCampaignAccess(env,error))return false;
     const auto get_static=EnvFunction<GetStaticObjectFieldFn>(env,kGetStaticObjectField);
@@ -1224,11 +1458,10 @@ bool JavaPlayerBridge::TryGetActiveGamePresentationBlocked(
     if(ClearException(env,error,"blocking presentation module read failed") || !module){DeleteLocal(env,module);return false;}
     const bool owned=is_instance(env,module,lawman_module_single_class_)!=0;
     if(ClearException(env,error,"blocking presentation module type failed") || !owned){DeleteLocal(env,module);return false;}
-    CoJPresentationOwner state{};
     const bool observed=ReadCoJPresentationOwner(env,module,state);
     DeleteLocal(env,module);
     if(!observed){SetError(error,"native blocking presentation observation unavailable");return false;}
-    blocked=state.blocked();return true;
+    return true;
 }
 
 bool JavaPlayerBridge::TryObserveHudText(runtime::HudTextSnapshot& text) noexcept {
@@ -1245,7 +1478,7 @@ bool JavaPlayerBridge::TryObserveHudText(runtime::HudTextSnapshot& text) noexcep
         hud_text_cache_ = {};
         hud_text_player_generation_ = being_generation_;
         hud_text_sample_tick_ = tick;
-        hud_text_sample_valid_ = ReadCoJHudText(Environment(nullptr), being_, hud_text_cache_);
+        hud_text_sample_valid_ = ReadCoJHudText(Environment(nullptr), being_, hud_text_cache_,ui_language_);
     }
     text = hud_text_cache_;
     return hud_text_sample_valid_;
@@ -1476,10 +1709,14 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     void* weapon_class = locals.Keep(get_class(env, weapons[0]));
     if (!clean() || !weapon_class) return false;
     bool allowed = false;
-    for (const char* name : {"WeaponPistolFrontier1878_Regular", "WeaponPistolPeacemaker"}) {
-        void* candidate = locals.Keep(EnvFunction<FindClassFn>(env, kFindClass)(env, name));
-        if (!clean() || !candidate) return false;
+    for (const auto& profile : kCoJRevolvers) {
+        if(!profile.single_round)continue;
+        void* candidate = EnvFunction<FindClassFn>(env, kFindClass)(env, profile.class_name);
+        if (!clean() || !candidate) { DeleteLocal(env,candidate);return false; }
         const bool equal = same(env, weapon_class, candidate) != 0;
+        // Each candidate is needed only for this comparison. Retaining the
+        // growing profile list would exhaust the bounded eight-reference scope.
+        DeleteLocal(env,candidate);
         if (!clean()) return false;
         allowed = allowed || equal;
     }
@@ -1573,7 +1810,7 @@ bool JavaPlayerBridge::TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept 
         gameplay_ui_cache_ = {};
         gameplay_ui_player_generation_ = being_generation_;
         gameplay_ui_sample_tick_ = tick;
-        gameplay_ui_sample_valid_ = ReadCoJGameplayUi(Environment(nullptr), being_, gameplay_ui_cache_);
+        gameplay_ui_sample_valid_ = ReadCoJGameplayUi(Environment(nullptr), being_, gameplay_ui_cache_,ui_language_);
     }
     ui = gameplay_ui_cache_;
     return gameplay_ui_sample_valid_;
@@ -2407,6 +2644,42 @@ bool JavaPlayerBridge::TryReadHandAttachment(const int hand,
     if (element<0 && !TryGetMeshElementByName(hand==1 ? "left_hand" : "right_hand",element,error)) return false;
     HandIoContext io{this,being_,error};
     return ReadHandFrame(&io,element,frame);
+}
+
+bool JavaPlayerBridge::TryReadFistContactGeometry(const int hand,
+    CoJFistContactGeometry& geometry,std::string* error) noexcept {
+    geometry={};
+    if(hand<0||hand>1||!being_||independent_hand_faulted_||
+        independent_hand_generation_!=being_generation_)return false;
+    const auto generation=being_generation_;
+    void* const player=being_;
+    const auto& overlay=hand_overlays_[static_cast<std::size_t>(hand)];
+    if(!overlay.object||!overlay.frames.active()||overlay.frames.faulted())return false;
+    void* env=Environment(error);
+    const auto same=env?EnvFunction<IsSameObjectFn>(env,kIsSameObject):nullptr;
+    if(!same)return false;
+    const bool same_owner=same(env,overlay.object,player)!=0;
+    if(ClearException(env,error,"fist owner identity read failed")||!same_owner)return false;
+    bool active=false;
+    if(!VerifyTrackedHand(hand,active,error)||!active)return false;
+    if(fist_skin_generation_!=generation){fist_skin_generation_=generation;fist_skin_model_=-1;}
+    if(fist_skin_model_<0){
+        int ray=-1,billy=-1;
+        const bool has_ray=TryGetMeshElementByName("RayBody",ray)&&ray>=0;
+        const bool has_billy=TryGetMeshElementByName("BillyBody",billy)&&billy>=0;
+        if(has_ray==has_billy){SetError(error,"fist skin model unavailable or ambiguous");return false;}
+        fist_skin_model_=has_ray?0:1;
+    }
+    CoJHandFrames frames{};
+    HandIoContext io{this,player,error};
+    const auto& ids=independent_hand_elements_[static_cast<std::size_t>(hand)];
+    for(std::size_t i=0;i<frames.size();++i){
+        frames[i].element=ids[i];
+        if(ids[i]<0||!ReadHandFrame(&io,ids[i],frames[i].frame))return false;
+    }
+    if(being_!=player||being_generation_!=generation)return false;
+    geometry=BuildCoJFistContactGeometry(static_cast<CoJFistSkinModel>(fist_skin_model_),hand,frames);
+    return geometry.valid;
 }
 
 bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
@@ -3910,12 +4183,73 @@ bool JavaPlayerBridge::TryProcessUiPointer(
     return true;
 }
 
+bool JavaPlayerBridge::TryDispatchMissionEndKey(
+    void* env, const bool back, bool& handled, std::string* error) noexcept {
+    handled = false;
+    if (!EnsureCampaignAccess(env, error)) return false;
+    const auto get_object = EnvFunction<GetStaticObjectFieldFn>(env, kGetStaticObjectField);
+    const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_bool = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    const auto call_void = EnvFunction<CallVoidMethodAFn>(env, kCallVoidMethodA);
+    if (!get_object || !is_instance || !get_method || !call_bool || !call_void) {
+        SetError(error, "required JNI mission-end input functions are unavailable");
+        return false;
+    }
+    void* module = get_object(env, lawman_game_class_, active_game_module_field_);
+    if (ClearException(env, error, "mission-end module read failed")) {
+        DeleteLocal(env, module); return false;
+    }
+    if (!module) return true; // Startup menus have no campaign owner.
+    const bool single = is_instance(env, module, lawman_module_single_class_) != 0;
+    if (ClearException(env, error, "mission-end module type check failed")) {
+        DeleteLocal(env, module); return false;
+    }
+    if (!single) { DeleteLocal(env, module); return true; }
+    void* visible = get_method(env, lawman_module_single_class_, "IsMenuMissionEndVisible", "()Z");
+    if (ClearException(env, error, "mission-end visibility lookup failed") || !visible) {
+        DeleteLocal(env, module); return false;
+    }
+    const bool shown = call_bool(env, module, visible, nullptr) != 0;
+    if (ClearException(env, error, "mission-end visibility read failed")) {
+        DeleteLocal(env, module); return false;
+    }
+    if (!shown) { DeleteLocal(env, module); return true; }
+    handled = true;
+    // Hash-qualified shipped LawmanModuleSingle.OnInputKey, PC48/PC81:
+    // Escape exits; Space continues. MenuMissionEnd itself has no Enter or
+    // mouse consumer. Invoke the module, preserving its own save/load policy.
+    void* input = get_method(env, lawman_module_single_class_, "OnInputKey", "(IZC)V");
+    if (ClearException(env, error, "mission-end OnInputKey lookup failed") || !input) {
+        DeleteLocal(env, module); return false;
+    }
+    JValue args[3]{};
+    args[0].i = back ? 1 : 57;
+    args[1].z = 1;
+    call_void(env, module, input, args);
+    if (ClearException(env, error, "mission-end key press failed")) {
+        DeleteLocal(env, module); return false;
+    }
+    args[1].z = 0;
+    call_void(env, module, input, args);
+    DeleteLocal(env, module);
+    if (ClearException(env, error, "mission-end key release failed")) return false;
+    SetError(error, "");
+    return true;
+}
+
 bool JavaPlayerBridge::TryDispatchUiBackPress(
     std::string* error,
     CoJUiDispatchRoute* route) noexcept {
     if (route) *route = CoJUiDispatchRoute::none;
     void* env = Environment(error);
     if (!env) return false;
+    bool mission_end = false;
+    if (!TryDispatchMissionEndKey(env, true, mission_end, error)) return false;
+    if (mission_end) {
+        if (route) *route = CoJUiDispatchRoute::active_game_module;
+        return true;
+    }
     void* ui = nullptr;
     CoJUiDispatchRoute ui_route = CoJUiDispatchRoute::none;
     std::string ui_error;
@@ -4025,6 +4359,13 @@ bool JavaPlayerBridge::TryDispatchUiSelectPress(
     if (route) *route = CoJUiDispatchRoute::none;
     void* env = Environment(error);
     if (!env) return false;
+
+    bool mission_end = false;
+    if (!require_loading_ui && !TryDispatchMissionEndKey(env, false, mission_end, error)) return false;
+    if (mission_end) {
+        if (route) *route = CoJUiDispatchRoute::active_game_module;
+        return true;
+    }
 
     bool dismissed_hint = false;
     std::string hint_error;
@@ -4146,6 +4487,13 @@ bool JavaPlayerBridge::TryDispatchUiPointerSelectPress(
     if (route) *route = CoJUiDispatchRoute::none;
     void* env = Environment(error);
     if (!env) return false;
+
+    bool mission_end = false;
+    if (!require_loading_ui && !TryDispatchMissionEndKey(env, false, mission_end, error)) return false;
+    if (mission_end) {
+        if (route) *route = CoJUiDispatchRoute::active_game_module;
+        return true;
+    }
 
     bool dismissed_hint = false;
     std::string hint_error;

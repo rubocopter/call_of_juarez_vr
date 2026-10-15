@@ -8,32 +8,32 @@ namespace {
 // expanded UIStatic copies have no action identity: custom PC rebinding remains
 // ambiguous. Never change native strings or subtitle dialogue. New key labels
 // require explicit notation; bare letters/numbers are ordinary localized text.
-void ControllerHint(runtime::HudText& text) noexcept {
+void ControllerHint(runtime::HudText& text,CoJUiLanguage language) noexcept {
     const auto source=text.view();
     runtime::HudText translated{};
     struct Label { std::u16string_view key, sense; bool explicit_only=true; };
     // Original InputSettings/Manual defaults and current default Sense routes.
     // Spanish names were independently observed through DIPROP_KEYNAME on this
     // host. Other locale names and custom-only/unmapped keys stay unchanged.
-    constexpr Label labels[]{
+    const Label labels[]{
         {u"SPACE BAR",u"Cross",false}, {u"SPACEBAR",u"Cross",false},
         {u"LMB",u"L2",false}, {u"RMB",u"R2",false},
         {u"Space Bar",u"Cross"}, {u"BARRA ESPACIADORA",u"Cross"},
         {u"CTRL",u"L3"}, {u"Ctrl Left",u"L3"}, {u"CTRL LEFT",u"L3"},
-        {u"Caps Lock",u"R1 (hold)"}, {u"CAPS LOCK",u"R1 (hold)"},
-        {u"BLOQ MAYUS",u"R1 (hold)"},
-        {u"Backspace",u"Triangle hold / right stick Down-left / release"},
-        {u"BACKSPACE",u"Triangle hold / right stick Down-left / release"},
-        {u"RETROCESO",u"Triangle hold / right stick Down-left / release"},
+        {u"Caps Lock",CoJUiText(language,CoJUiPhrase::hold_r1)}, {u"CAPS LOCK",CoJUiText(language,CoJUiPhrase::hold_r1)},
+        {u"BLOQ MAYUS",CoJUiText(language,CoJUiPhrase::hold_r1)},
+        {u"Backspace",CoJUiText(language,CoJUiPhrase::radial_down_left)},
+        {u"BACKSPACE",CoJUiText(language,CoJUiPhrase::radial_down_left)},
+        {u"RETROCESO",CoJUiText(language,CoJUiPhrase::radial_down_left)},
         {u"R",u"Square"}, {u"F",u"L1"}, {u"X",u"R3"},
-        {u"O",u"Create tap"}, {u"Z",u"Circle"}, {u"C",u"R1"},
-        {u"0",u"Triangle hold / right stick Down / release"},
-        {u"1",u"Triangle hold / right stick Left / release"},
-        {u"2",u"Triangle hold / right stick Right / release"},
-        {u"3",u"Triangle hold / right stick Up / release"},
-        {u"4",u"Triangle hold / right stick Down-right / release"},
-        {u"5",u"Triangle hold / right stick Up-left / release"},
-        {u"6",u"Triangle hold / right stick Up-right / release"},
+        {u"O",CoJUiText(language,CoJUiPhrase::create_tap)}, {u"Z",u"Circle"}, {u"C",u"R1"},
+        {u"0",CoJUiText(language,CoJUiPhrase::radial_down)},
+        {u"1",CoJUiText(language,CoJUiPhrase::radial_left)},
+        {u"2",CoJUiText(language,CoJUiPhrase::radial_right)},
+        {u"3",CoJUiText(language,CoJUiPhrase::radial_up)},
+        {u"4",CoJUiText(language,CoJUiPhrase::radial_down_right)},
+        {u"5",CoJUiText(language,CoJUiPhrase::radial_up_left)},
+        {u"6",CoJUiText(language,CoJUiPhrase::radial_up_right)},
     };
     const auto word=[](char16_t c) {
         return (c>=u'A' && c<=u'Z') || (c>=u'a' && c<=u'z') ||
@@ -276,7 +276,7 @@ bool ReadSubtitle(void* env, runtime::HudText& out) noexcept {
 }
 }
 
-bool ReadCoJHudText(void* env, void* player, runtime::HudTextSnapshot& out) noexcept {
+bool ReadCoJHudText(void* env, void* player, runtime::HudTextSnapshot& out,CoJUiLanguage language) noexcept {
     out = {};
     if (!env || !player || !*static_cast<void***>(env)) return false;
     constexpr std::size_t required[]{6,15,17,23,24,31,32,33,39,94,95,96,100,113,116,144,145,164,165,166,171,173};
@@ -284,8 +284,8 @@ bool ReadCoJHudText(void* env, void* player, runtime::HudTextSnapshot& out) noex
     Reader entry{env}; if (!entry.Check()) return false;
     const bool hud = ReadComponents(env,player,out);
     const bool subtitle = ReadSubtitle(env,out.subtitle);
-    ControllerHint(out.hint);
-    ControllerHint(out.interaction);
+    ControllerHint(out.hint,language);
+    ControllerHint(out.interaction,language);
     return hud && subtitle;
 }
 }

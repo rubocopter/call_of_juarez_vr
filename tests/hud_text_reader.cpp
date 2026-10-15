@@ -173,6 +173,10 @@ int main() {
     Require(ReadCoJHudText(&holder,&player,text) &&
         text.hint.view()==std::u16string(979,u'a')+u" '\u2026",
         "ellipsis reservation must not erase the last character of a fitting radial label"); Clean();
+    hint_text.string=u"Pulsa '1', mantén 'Caps Lock'; 'O'. Niño y acción.";
+    Require(ReadCoJHudText(&holder,&player,text,CoJUiLanguage::spanish)&&
+        text.hint.view()==u"Pulsa 'Mantener Triangle / stick derecho Izquierda / soltar', mantén 'R1 (mantener)'; 'Create (pulsar)'. Niño y acción.",
+        "Spanish gesture wording must preserve native Unicode and key boundaries");Clean();
     icon.visible=false; info.visible=false; settings.boolean=false;
     Require(ReadCoJHudText(&holder,&player,text) && text.interaction.view().empty() &&
         text.hint.view().empty() && text.subtitle.view().empty(),"hidden owners/settings must clear all text"); Clean();

@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.25)
 
 project(CallOfJuarezVR VERSION 0.1.0 LANGUAGES CXX)
 
+# Source files are UTF-8. Apply identically to production and host fixtures;
+# a test-only setting hid corrupted authored UTF-16 labels in the shipped DLL.
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 if(NOT WIN32)
     message(FATAL_ERROR "Call of Juarez VR currently targets Windows only")
 endif()
@@ -73,6 +79,7 @@ if(COJVR_ENABLE_OPENXR)
 endif()
 
 add_library(cojvr_runtime STATIC
+    src/runtime/vr_settings.cpp
     src/runtime/gameplay_utility.cpp
     src/runtime/body_ik.cpp
     src/runtime/body_tracking.cpp
@@ -90,6 +97,7 @@ add_library(cojvr_build_identity STATIC
 add_library(cojvr_diagnostics STATIC
     src/runtime/log.cpp
     src/runtime/structured_telemetry.cpp
+    src/runtime/native_render_fault.cpp
 )
 
 add_library(cojvr_d3d9_hooks STATIC
@@ -105,6 +113,7 @@ add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/hud_boundary_probe.cpp
     src/games/call_of_juarez/hud_text_reader.cpp
     src/games/call_of_juarez/gameplay_ui_reader.cpp
+    src/games/call_of_juarez/ui_language.cpp
     src/games/call_of_juarez/gameplay_ui_adapter.cpp
     src/games/call_of_juarez/focus_zoom.cpp
     src/games/call_of_juarez/motion_reload_owner.cpp
@@ -132,7 +141,7 @@ target_link_libraries(cojvr_d3d9_hooks PUBLIC dxguid)
 target_include_directories(cojvr_coj_camera_probe PUBLIC src)
 target_compile_features(cojvr_coj_camera_probe PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_coj_camera_probe PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-target_link_libraries(cojvr_coj_camera_probe PUBLIC cojvr_build_identity cojvr_d3d9_hooks cojvr_runtime)
+target_link_libraries(cojvr_coj_camera_probe PUBLIC cojvr_build_identity cojvr_d3d9_hooks cojvr_runtime cojvr_diagnostics)
 
 if(COJVR_ENABLE_OPENVR)
     add_library(cojvr_openvr_runtime STATIC
@@ -396,6 +405,9 @@ endif()
 
 if(COJVR_BUILD_TESTS)
     enable_testing()
+    add_executable(cojvr_native_render_fault_test tests/native_render_fault.cpp)
+    target_link_libraries(cojvr_native_render_fault_test PRIVATE cojvr_diagnostics)
+    add_test(NAME native_render_fault COMMAND cojvr_native_render_fault_test)
     add_executable(cojvr_d3d9_pool_probe_smoke tests/d3d9_pool_probe_smoke.cpp
         src/backends/d3d9/system_d3d9.cpp)
     target_include_directories(cojvr_d3d9_pool_probe_smoke PRIVATE src)
@@ -431,6 +443,7 @@ if(COJVR_BUILD_TESTS)
             -BinaryDirectory "${CMAKE_BINARY_DIR}"
     )
     add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
+    add_test(NAME physical_punch_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/physical_punch_native.py")
     add_test(NAME reload_wait_probe COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_wait_probe.py")
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
     add_test(NAME manual_reload_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_analysis.py")
@@ -581,6 +594,10 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_camera_probe_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME camera_probe COMMAND cojvr_camera_probe_test)
+    add_executable(cojvr_camera_natural_replay_test tests/camera_natural_replay.cpp)
+    target_link_libraries(cojvr_camera_natural_replay_test PRIVATE cojvr_coj_camera_probe)
+    target_compile_features(cojvr_camera_natural_replay_test PRIVATE cxx_std_20)
+    add_test(NAME camera_natural_replay COMMAND cojvr_camera_natural_replay_test)
 
     add_executable(cojvr_body_adapter_test tests/body_adapter.cpp)
     add_executable(cojvr_hud_boundary_probe_test tests/hud_boundary_probe.cpp)
@@ -605,6 +622,9 @@ if(COJVR_BUILD_TESTS)
     add_executable(cojvr_gameplay_ui_adapter_test tests/gameplay_ui_adapter.cpp src/games/call_of_juarez/gameplay_ui_adapter.cpp)
     target_link_libraries(cojvr_gameplay_ui_adapter_test PRIVATE cojvr_runtime)
     add_test(NAME gameplay_ui_adapter COMMAND cojvr_gameplay_ui_adapter_test)
+    add_executable(cojvr_ui_language_test tests/ui_language.cpp src/games/call_of_juarez/ui_language.cpp)
+    target_link_libraries(cojvr_ui_language_test PRIVATE cojvr_runtime)
+    add_test(NAME ui_language COMMAND cojvr_ui_language_test)
     add_executable(cojvr_gameplay_ui_reader_test tests/gameplay_ui_reader.cpp src/games/call_of_juarez/gameplay_ui_reader.cpp)
     target_link_libraries(cojvr_gameplay_ui_reader_test PRIVATE cojvr_runtime)
     if(MSVC)
@@ -642,6 +662,22 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_reload_gesture_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME reload_gesture COMMAND cojvr_reload_gesture_test)
+    add_executable(cojvr_punch_gesture_test tests/punch_gesture.cpp)
+    target_link_libraries(cojvr_punch_gesture_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_punch_gesture_test PRIVATE cxx_std_20)
+    add_test(NAME punch_gesture COMMAND cojvr_punch_gesture_test)
+    add_executable(cojvr_punch_contact_test tests/punch_contact.cpp)
+    target_link_libraries(cojvr_punch_contact_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_punch_contact_test PRIVATE cxx_std_20)
+    add_test(NAME punch_contact COMMAND cojvr_punch_contact_test)
+    add_executable(cojvr_fist_contact_geometry_test tests/fist_contact_geometry.cpp)
+    target_link_libraries(cojvr_fist_contact_geometry_test PRIVATE cojvr_coj_camera_probe)
+    target_compile_features(cojvr_fist_contact_geometry_test PRIVATE cxx_std_20)
+    add_test(NAME fist_contact_geometry COMMAND cojvr_fist_contact_geometry_test)
+    add_executable(cojvr_fist_contact_sweep_test tests/fist_contact_sweep.cpp)
+    target_include_directories(cojvr_fist_contact_sweep_test PRIVATE src)
+    target_compile_features(cojvr_fist_contact_sweep_test PRIVATE cxx_std_20)
+    add_test(NAME fist_contact_sweep COMMAND cojvr_fist_contact_sweep_test)
     add_executable(cojvr_reload_visual_test tests/reload_visual.cpp
         src/backends/openvr/hud_text_overlay.cpp src/backends/openvr/gameplay_ui_raster.cpp)
     target_link_libraries(cojvr_reload_visual_test PRIVATE cojvr_runtime d3d11 d3dcompiler gdi32)
@@ -694,6 +730,12 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_presentation_owner_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME presentation_owner COMMAND cojvr_presentation_owner_test)
+
+    add_executable(cojvr_vr_settings_test tests/vr_settings.cpp
+        src/backends/openvr/hud_text_overlay.cpp src/backends/openvr/gameplay_ui_raster.cpp)
+    target_link_libraries(cojvr_vr_settings_test PRIVATE cojvr_runtime gdi32 d3d11 d3dcompiler)
+    target_compile_features(cojvr_vr_settings_test PRIVATE cxx_std_20)
+    add_test(NAME vr_settings COMMAND cojvr_vr_settings_test)
     add_executable(cojvr_interaction_selection_test tests/interaction_selection.cpp)
     target_include_directories(cojvr_interaction_selection_test PRIVATE src)
     target_compile_features(cojvr_interaction_selection_test PRIVATE cxx_std_20)
@@ -866,6 +908,15 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_single_round_reload_jni_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME single_round_reload_jni COMMAND cojvr_single_round_reload_jni_test)
+    add_executable(cojvr_physical_punch_jni_test tests/physical_punch_jni.cpp
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp
+        src/games/call_of_juarez/gameplay_ui_reader.cpp src/games/call_of_juarez/focus_zoom.cpp
+        src/games/call_of_juarez/motion_reload_owner.cpp)
+    target_link_libraries(cojvr_physical_punch_jni_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_physical_punch_jni_test PRIVATE src)
+    target_compile_features(cojvr_physical_punch_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_physical_punch_jni_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME physical_punch_jni COMMAND cojvr_physical_punch_jni_test)
 
     add_executable(cojvr_native_fx_probe_test tests/native_fx_probe.cpp
         src/games/call_of_juarez/native_fx_probe.cpp)

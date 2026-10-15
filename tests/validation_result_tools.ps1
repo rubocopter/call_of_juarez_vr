@@ -96,8 +96,110 @@ try {
     Set-Content -LiteralPath $LogPath -Value $Log -Encoding utf8
     & $Verify -GameDirectory $Game
 
+    # A matching end must occur once, after the one matching start. Separate
+    # regex hits must not combine foreign/reused process logs into a PASS.
+    $InvalidMarkerLogs = @(
+        @{name='end before start'; lines=@($Log[-1]) + @($Log[0..($Log.Count-2)])},
+        @{name='duplicate end'; lines=@($Log) + @($Log[-1])},
+        @{name='foreign end'; lines=@($Log) + @('run_end: run_id=another-run')},
+        @{name='foreign start'; lines=@("run_start: run_id=another-run build_manifest_id=$($Build.manifestId)") + @($Log)},
+        @{name='duplicate start'; lines=@($Log[0]) + @($Log)},
+        @{name='foreign build'; lines=@($Log -replace ('build_manifest_id=' + $Build.manifestId), ('build_manifest_id=' + ('F' * 64)))},
+        @{name='malformed end'; lines=@($Log) + @('run_end: missing_identity')},
+        @{name='case changed end'; lines=@($Log -replace ('run_id=' + $RunId + '$'), ('run_id=' + $RunId.ToUpperInvariant()))}
+    )
+    $StructuredMarkers = @(
+        ('COJVR_EVENT ' + (@{event='run_start'; run_id=$RunId} | ConvertTo-Json -Compress)),
+        ('COJVR_EVENT ' + (@{event='run_end'; run_id=$RunId} | ConvertTo-Json -Compress))
+    )
+    Assert-True ($StructuredMarkers.Count -eq 2) 'Fixture requires two valid structured markers.'
+    foreach ($Marker in $StructuredMarkers) {
+        $ParsedMarker = $Marker.Substring(12) | ConvertFrom-Json
+        Assert-True ($ParsedMarker.run_id -eq $RunId) 'Structured fixture lost its run identity.'
+    }
+    foreach ($Case in $InvalidMarkerLogs) {
+        Set-Content -LiteralPath $LogPath -Value (@($Case.lines) + $StructuredMarkers) -Encoding utf8
+        Assert-Rejected { & $Verify -GameDirectory $Game } 'runtime markers'
+        $Result = Get-Content $ResultPath -Raw | ConvertFrom-Json
+        Assert-True ($Result.outcome -eq 'fail') "Invalid markers produced a PASS: $($Case.name)."
+        & $Collect -GameDirectory $Game -OutputPath (Join-Path $Root 'invalid-markers.zip')
+        $Evidence = Get-Content (Join-Path $RunDirectory 'evidence-manifest.json') -Raw | ConvertFrom-Json
+        Assert-True ($Evidence.incomplete -and -not $Evidence.runtimeEnded -and
+            $Evidence.validation.outcome -eq 'fail') "Collection accepted invalid markers: $($Case.name)."
+    }
+    Remove-Item -LiteralPath $ResultPath
+    & $Collect -GameDirectory $Game -OutputPath (Join-Path $Root 'invalid-markers.zip')
+    $Evidence = Get-Content (Join-Path $RunDirectory 'evidence-manifest.json') -Raw | ConvertFrom-Json
+    Assert-True ($Evidence.incomplete -and $Evidence.validation.outcome -eq 'inconclusive') 'Collection without a verifier accepted invalid markers.'
+
+    # Real gameplay profiles require a summary. Invalid markers can prevent its
+    # creation; raw evidence and the failed verdict must still be collectible.
+    $Run.validation.profile = 'full'
+    $Run.validation.requirePerformanceSummary = $true
+    Write-Json $RunPath $Run
+    Set-Content -LiteralPath $LogPath -Value (@($Log[0]) + $Log) -Encoding utf8
+    Assert-Rejected { & $Verify -GameDirectory $Game } 'runtime markers'
+    & $Collect -GameDirectory $Game -OutputPath (Join-Path $Root 'invalid-full.zip')
+    $Evidence = Get-Content (Join-Path $RunDirectory 'evidence-manifest.json') -Raw | ConvertFrom-Json
+    Assert-True ($Evidence.incomplete -and $Evidence.validation.outcome -eq 'fail' -and
+        @($Evidence.files | Where-Object path -eq 'runtime/cojvr.log').Count -eq 1) 'A missing summary lost rejected full-profile evidence.'
+    $Run.validation.profile = 'startup'
+    Write-Json $RunPath $Run
+    Set-Content -LiteralPath $LogPath -Value $Log -Encoding utf8
+    & $Verify -GameDirectory $Game
+    Assert-Rejected { & $Collect -GameDirectory $Game -OutputPath (Join-Path $Root 'missing-summary.zip') } 'requires a native-stereo performance'
+    $Run.validation.requirePerformanceSummary = $false
+    Write-Json $RunPath $Run
+    Set-Content -LiteralPath $LogPath -Value $Log -Encoding utf8
+    & $Verify -GameDirectory $Game
+
+    # Telemetry outside the owned process interval cannot satisfy its profile.
+    $PresentExit = @($Log | Where-Object {$_ -match 'event=present_exit'})
+    $WithoutPresentExit = @($Log | Where-Object {$_ -notmatch 'event=present_exit'})
+    foreach ($OutsideLog in @(
+        @{lines=$PresentExit + $WithoutPresentExit},
+        @{lines=$WithoutPresentExit + $PresentExit}
+    )) {
+        Set-Content -LiteralPath $LogPath -Value $OutsideLog.lines -Encoding utf8
+        Assert-Rejected { & $Verify -GameDirectory $Game } 'at least 90'
+    }
+    Set-Content -LiteralPath $LogPath -Value $Log -Encoding utf8
+    & $Verify -GameDirectory $Game
+
+    # A fresh candidate can end before producing any runtime log/folder.
+    $UnstartedGame = Join-Path $Root 'unstarted-game'
+    $UnstartedRun = Join-Path $UnstartedGame ".cojvr-evidence/runs/$RunId"
+    New-Item -ItemType Directory -Path $UnstartedRun -Force | Out-Null
+    Copy-Item -LiteralPath $BuildPath -Destination (Join-Path $UnstartedRun 'build-manifest.json')
+    Copy-Item -LiteralPath $RunPath -Destination (Join-Path $UnstartedGame '.cojvr-run.json')
+    Copy-Item -LiteralPath (Join-Path $Game '.cojvr-d3d9-stage.json') -Destination (Join-Path $UnstartedGame '.cojvr-d3d9-stage.json')
+    foreach ($Artifact in $Deployment) {
+        $UnstartedDestination = Join-Path $UnstartedGame $Artifact.destination
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($UnstartedDestination)) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $Game $Artifact.destination) -Destination $UnstartedDestination
+    }
+    & $Collect -GameDirectory $UnstartedGame -OutputPath (Join-Path $Root 'unstarted.zip')
+    $UnstartedEvidence = Get-Content (Join-Path $UnstartedRun 'evidence-manifest.json') -Raw | ConvertFrom-Json
+    Assert-True ($UnstartedEvidence.incomplete -and $UnstartedEvidence.validation.outcome -eq 'inconclusive') 'Unstarted candidate must collect incomplete/inconclusive without runtime directory.'
+
     $OperatorPath = Join-Path $RunDirectory 'operator-observations.json'
     Write-Json $OperatorPath @{runId=$RunId; observations=@(@{gate='G1'; outcome='unavailable'; note='host fixture only'})}
+    $FaultPath = Join-Path $Game 'cojvr-render-fault-123.txt'
+    $FaultText = "schema_version=1`nscope=coj_render_hook_escape`nrun_id=$RunId`nbuild_manifest_id=$($Build.manifestId)`npid=123`nexception_code=0xc0000005`n"
+    foreach ($BadFault in @(
+        $FaultText.Replace("run_id=$RunId", 'run_id=foreign-run'),
+        $FaultText.Replace("build_manifest_id=$($Build.manifestId)", ('build_manifest_id=' + ('F' * 64))),
+        $FaultText.Replace('pid=123', 'pid=456'),
+        ($FaultText + "run_id=$RunId`n"),
+        ('x' * 16385)
+    )) {
+        Set-Content -LiteralPath $FaultPath -Value $BadFault -Encoding utf8
+        & $Collect -GameDirectory $Game -OutputPath (Join-Path $Root 'excluded-fault.zip')
+        $RejectedFaultEvidence = Get-Content (Join-Path $RunDirectory 'evidence-manifest.json') -Raw | ConvertFrom-Json
+        Assert-True (@($RejectedFaultEvidence.files | Where-Object path -eq 'runtime/cojvr-render-fault-123.txt').Count -eq 0) 'Foreign/malformed fault entered inventory.'
+        Assert-True ($RejectedFaultEvidence.validation.outcome -eq 'pass') 'Optional diagnostic exclusion changed the canonical verifier result.'
+    }
+    Set-Content -LiteralPath $FaultPath -Value $FaultText -Encoding utf8
     $Package = Join-Path $Root 'evidence.zip'
     & $Collect -GameDirectory $Game -OutputPath $Package
     $Evidence = Get-Content (Join-Path $RunDirectory 'evidence-manifest.json') -Raw | ConvertFrom-Json
@@ -106,10 +208,34 @@ try {
         $Entry = @($Evidence.files | Where-Object path -eq $Name)
         Assert-True ($Entry.Count -eq 1 -and $Entry[0].sha256 -eq (Get-FileHash (Join-Path $RunDirectory $Name)).Hash) "Missing hash inventory for $Name."
     }
+    $FaultEntry = @($Evidence.files | Where-Object path -eq 'runtime/cojvr-render-fault-123.txt')
+    Assert-True ($FaultEntry.Count -eq 1 -and $FaultEntry[0].sha256 -eq (Get-FileHash $FaultPath).Hash) 'Bound native render fault was not inventoried.'
     $Extracted = Join-Path $Root 'extracted'
     Expand-Archive -LiteralPath $Package -DestinationPath $Extracted
+    Assert-True ((Get-FileHash (Join-Path $Extracted 'runtime/cojvr-render-fault-123.txt')).Hash -eq
+        (Get-FileHash $FaultPath).Hash) 'ZIP changed the native render-fault report.'
     Assert-True ((Get-FileHash (Join-Path $Extracted 'analysis/validation-result.json')).Hash -eq
         (Get-FileHash $ResultPath).Hash) 'ZIP changed the verifier result.'
+
+    # Rejected/absent reports after a positive collection must not remain as
+    # uninventoried ZIP entries. Preserve previous bytes outside the package.
+    $BoundFaultHash = (Get-FileHash $FaultPath).Hash
+    Set-Content -LiteralPath $FaultPath -Value $FaultText.Replace("run_id=$RunId", 'run_id=foreign-run') -Encoding utf8
+    $RejectedFaultPackage = Join-Path $Root 'recollected-fault.zip'
+    & $Collect -GameDirectory $Game -OutputPath $RejectedFaultPackage
+    $Recollected = Get-Content (Join-Path $RunDirectory 'evidence-manifest.json') -Raw | ConvertFrom-Json
+    Assert-True (@($Recollected.files | Where-Object path -eq 'runtime/cojvr-render-fault-123.txt').Count -eq 0) 'Rejected former report remained inventoried.'
+    $RecollectedFolder = Join-Path $Root 'recollected-fault'
+    Expand-Archive -LiteralPath $RejectedFaultPackage -DestinationPath $RecollectedFolder
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $RecollectedFolder 'runtime/cojvr-render-fault-123.txt'))) 'Rejected former report remained in ZIP.'
+    $PreservedFault = Join-Path $Game ".cojvr-evidence/retired-diagnostics/$RunId/cojvr-render-fault-123-$BoundFaultHash.txt"
+    Assert-True ((Get-FileHash $PreservedFault).Hash -eq $BoundFaultHash) 'Recollection lost previously collected diagnostic bytes.'
+    Set-Content -LiteralPath $FaultPath -Value $FaultText -Encoding utf8
+    & $Collect -GameDirectory $Game -OutputPath $RejectedFaultPackage
+    Remove-Item -LiteralPath $FaultPath
+    & $Collect -GameDirectory $Game -OutputPath $RejectedFaultPackage
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $RunDirectory 'runtime/cojvr-render-fault-123.txt'))) 'Absent source left a former report in the package directory.'
+    Set-Content -LiteralPath $FaultPath -Value $FaultText -Encoding utf8
 
     # A complete package and positive operator note cannot erase canonical rejection.
     Set-Content -LiteralPath $LogPath -Value @($Log | Where-Object {$_ -notmatch 'event=present_exit'}) -Encoding utf8

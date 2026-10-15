@@ -211,14 +211,21 @@ void SpecialStatusChecks(){
     using namespace cojvr::games::call_of_juarez;CoJGameplayUiSnapshot out{};
     auto read=[&](){Require(ReadCoJGameplayUi(&holder,&player,out)&&out.inventory.valid&&out.compass_valid,
         "optional native HUD failure escaped its presentation domain");Clean();};
-    auto absent=[&](){read();Require(out.status.line_count==3&&out.status.lines[0].view()==u"Salud  087",
-        "hidden/invalid optional HUD must preserve health/ammo only");};
+    auto absent=[&](){read();Require(out.status.line_count==3&&out.status.lines[0].view()==u"Health  087",
+        "hidden/invalid optional HUD must preserve health/ammo only");
+        Require(out.status.meters[0].row==-1&&out.status.meters[1].row==-1&&
+            out.status.badge.row==-1,"hidden or faulted optional owner left stale graphical feedback");};
     components.items[10]=&concentration;
     struct Mode{int mode;std::u16string_view text;};
-    for(auto sample:{Mode{1,u"Concentración · En uso"},Mode{2,u"Concentración · Recargando"},
-        Mode{3,u"Concentración · Lista"},Mode{4,u"Concentración · Lista"},Mode{5,u"Concentración · No preparada"}}){
+    for(auto sample:{Mode{1,u"Concentration · Active"},Mode{2,u"Concentration · Recharging"},
+        Mode{3,u"Concentration · Ready"},Mode{4,u"Concentration · Ready"},Mode{5,u"Concentration · Unavailable"}}){
         concentration.ints["m_nMode"]=sample.mode;read();
         Require(out.status.line_count==4&&out.status.lines[3].view()==sample.text,"native concentration mode cache lost or conflated");
+        using Kind=cojvr::runtime::WristStatusBadgeKind;
+        const auto kind=sample.mode==1?Kind::active:sample.mode==2?Kind::cooldown:
+            sample.mode==5?Kind::unavailable:Kind::ready;
+        Require(out.status.badge.row==3&&out.status.badge.kind==kind,
+            "concentration graphic must follow the committed native mode, without a cooldown clock");
     }
     for(int mode:{-1,0,6}){concentration.ints["m_nMode"]=mode;absent();}concentration.ints["m_nMode"]=4;
     concentration.objects["m_cPlayer"]=&other;absent();concentration.objects["m_cPlayer"]=&player;
@@ -266,11 +273,11 @@ void SpecialStatusChecks(){
     damage.type="HUDDirectionIndicator";read();Require(out.threat_count==1&&!out.threats[0].damage,
         "direction subclass in damage slot was misclassified as a red hit");damage.type="HUDDamageIndicator";
     for(int index:{12,13,14,15,16})components.items[index]=nullptr;
-    read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Cuenta atrás  5",
+    read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Countdown  5",
         "native countdown number must be copied without recalculating time or claiming draw permission");
-    read();Require(out.status.lines[3].view()==u"Cuenta atrás  5","reader advanced the native countdown");
+    read();Require(out.status.lines[3].view()==u"Countdown  5","reader advanced the native countdown");
     countdown_bottom.text.clear();countdown_center.text=u"1";read();
-    Require(out.status.lines[3].view()==u"Cuenta atrás  1","duel center countdown did not retain native cached integer");
+    Require(out.status.lines[3].view()==u"Countdown  1","duel center countdown did not retain native cached integer");
     countdown_bottom.text=u"5";absent();countdown_center.text.clear();
     for(auto text:{u"",u"-1",u"3s",u"12345678901"}){countdown_bottom.text=text;absent();}countdown_bottom.text=u"5";
     countdown.objects["m_cCountdownTimer"]=nullptr;absent();countdown.objects["m_cCountdownTimer"]=&countdown_timer;
@@ -281,13 +288,18 @@ void SpecialStatusChecks(){
     for(const char* field:{"m_cWindow","m_cCountdownTimer","m_cBottomText","m_cCenterText"}){fail=field;absent();}fail.clear();
     fail="m_sLocalizedText";fail_owner=&countdown_bottom;absent();fail.clear();fail_owner=nullptr;
     components.items[17]=nullptr;components.items[18]=&horse;
-    read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Caballo · Salud 75% · Fatiga 40%",
+    read();Require(out.status.line_count==4&&out.status.lines[3].view()==u"Horse · Health 75% · Fatigue 40%",
         "native horse condition caches must retain health and tiredness meanings");
     for(auto sample:{std::pair{0,0.F},std::pair{100,100.F}}){
         horse.ints["m_nHealthLevel"]=sample.first;horse.floats["m_fLastTiredness"]=sample.second;read();
-        Require(out.status.lines[3].view()==(sample.first==0?u"Caballo · Salud 0% · Fatiga 0%":u"Caballo · Salud 100% · Fatiga 100%"),
+        Require(out.status.lines[3].view()==(sample.first==0?u"Horse · Health 0% · Fatigue 0%":u"Horse · Health 100% · Fatigue 100%"),
             "horse cache percentage endpoints lost");
     }horse.ints["m_nHealthLevel"]=75;horse.floats["m_fLastTiredness"]=40;
+    read();
+    Require(out.status.meters[0].row==3&&out.status.meters[0].percent==75&&
+        out.status.meters[1].row==3&&out.status.meters[1].percent==40&&
+        out.status.meters[1].warning_high&&!out.status.meters[0].warning_high,
+        "horse meters must distinguish native health from fatigue, never invert into stamina");
     for(float fatigue:{-1.F,100.1F,std::numeric_limits<float>::quiet_NaN()}){horse.floats["m_fLastTiredness"]=fatigue;absent();}
     horse.floats["m_fLastTiredness"]=40;
     for(int health_level:{-1,101}){horse.ints["m_nHealthLevel"]=health_level;absent();}horse.ints["m_nHealthLevel"]=75;
@@ -308,25 +320,39 @@ void SpecialStatusChecks(){
         components.items[index]=nullptr;
     }
     components.items[10]=&concentration;components.items[17]=&countdown;components.items[18]=&horse;
-    read();Require(out.status.line_count==6&&out.status.lines[3].view()==u"Cuenta atrás  5"&&
-        out.status.lines[4].view()==u"Caballo · Salud 75% · Fatiga 40%"&&out.status.lines[5].view()==u"Concentración · Lista",
+    read();Require(out.status.line_count==6&&out.status.lines[3].view()==u"Countdown  5"&&
+        out.status.lines[4].view()==u"Horse · Health 75% · Fatigue 40%"&&out.status.lines[5].view()==u"Concentration · Ready",
         "optional HUD priorities must retain native countdown, horse condition and concentration");
-    fail="m_nMode";read();Require(out.status.line_count==5&&out.status.lines[3].view()==u"Cuenta atrás  5",
+    Require(out.status.meters[0].row==4&&out.status.badge.row==5,
+        "optional graphics must follow actual appended rows after countdown");
+    fail="m_nMode";read();Require(out.status.line_count==5&&out.status.lines[3].view()==u"Countdown  5",
         "one optional HUD exception discarded another optional domain");fail.clear();
     hud.objects["m_Being"]=&other;Require(ReadCoJGameplayUi(&holder,&player,out)&&!out.status.active,
         "foreign HUD exposed optional status");Clean();hud.objects["m_Being"]=&player;
     const auto saved_counters=counters.items,saved_infos=infos.items,saved_totals=totals.items,saved_big=big.items;
     counters.items.assign(6,&loaded);infos.items.assign(6,&info);totals.items.assign(2,&reserve);totals.items.push_back(nullptr);
     big.items.assign(3,&big_icon);read();
-    Require(out.status.line_count==10&&out.status.lines[8].view()==u"Reserva escopeta  12"&&out.status.lines[9].view()==u"Cuenta atrás  5",
+    Require(out.status.line_count==10&&out.status.lines[8].view()==u"Shotgun reserve  12"&&out.status.lines[9].view()==u"Countdown  5",
         "optional status exceeded ten rows, displaced health/ammo or failed countdown priority");
-    totals.items[2]=&reserve;read();Require(out.status.line_count==10&&out.status.lines[9].view()==u"Reserva pistola  12",
+    totals.items[2]=&reserve;read();Require(out.status.line_count==10&&out.status.lines[9].view()==u"Pistol reserve  12",
         "full native health/ammo card displaced by optional status");
+    Require(out.status.meters[0].row==-1&&out.status.meters[1].row==-1&&out.status.badge.row==-1,
+        "full essential rows must not admit clipped optional graphics");
     counters.items=saved_counters;infos.items=saved_infos;totals.items=saved_totals;big.items=saved_big;
     components.items[10]=components.items[17]=components.items[18]=nullptr;
 }
 }
 int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;Init();CoJGameplayUiSnapshot out{};
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[0].view()==u"Health  087"&&
+        out.inventory.labels[1].view()==u"Right pistol"&&out.inventory.cancel_label.view()==u"Cancel"&&
+        out.inventory.confirm_label.view()==u"Confirm","English locale must cover status and whole equipment wheel");Clean();
+    components.items[10]=&concentration;components.items[17]=&countdown;
+    Require(ReadCoJGameplayUi(&holder,&player,out,CoJUiLanguage::spanish)&&out.status.lines[0].view()==u"Salud  087"&&
+        out.status.lines[3].view()==u"Cuenta atr\u00e1s  5"&&out.status.lines[4].view()==u"Concentraci\u00f3n \u00b7 Lista"&&
+        out.inventory.labels[1].view()==u"Pistola derecha"&&out.inventory.cancel_label.view()==u"Cancelar"&&
+        out.waypoints[0].label.view()==label.text,"Spanish authored Unicode labels must preserve copied native Unicode");Clean();
+    components.items[10]=components.items[17]=nullptr;
+
     CoJNoShootSnapshot no{};
     Require(ReadCoJNoShoot(&holder,&player,0,no)&&no.valid&&no.warning_visible&&no.hand==0&&no.reason==1&&no.trace_end_cm.z==1000,"owned native protected-target warning missing");Clean();
     warning.visible=false;Require(ReadCoJNoShoot(&holder,&player,0,no)&&!no.warning_visible,"hidden native warning resurrected");Clean();warning.visible=true;
@@ -361,23 +387,23 @@ int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;
     }
     health_text.text=u"087";health_text.visible=false;
     Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.active&&out.status.health_percent==-1&&
-        out.status.health_row==-1&&out.status.lines[0].view()==u"Derecha  3",
+        out.status.health_row==-1&&out.status.lines[0].view()==u"Right  3",
         "hidden native health must clear gauge without treating an ammo row as health");Clean();
     health_text.visible=true;Require(ReadCoJGameplayUi(&holder,&player,out),"health recovery read failed");Clean();
-    Require(out.status.active&&out.status.line_count==3&&out.status.lines[0].view()==u"Salud  087"&&
-        out.status.lines[1].view()==u"Derecha  3"&&out.status.lines[2].view()==u"Reserva pistola  12",
+    Require(out.status.active&&out.status.line_count==3&&out.status.lines[0].view()==u"Health  087"&&
+        out.status.lines[1].view()==u"Right  3"&&out.status.lines[2].view()==u"Pistol reserve  12",
         "native health, loaded slot and inventory reserve must be copied without recalculation");
     health.objects["m_aPoses"]=&poses;poses.items={&standing,&crouched};
     standing.type=crouched.type="UIWindow";crouched.visible=false;
     health.ints["m_bLastStanding"]=1;health.floats["m_fAlpha"]=.9F;
     Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.line_count==4&&
-        out.status.lines[3].view()==u"De pie","visible native standing pose missing from wrist card");Clean();
+        out.status.lines[3].view()==u"Standing","visible native standing pose missing from wrist card");Clean();
     standing.visible=false;crouched.visible=true;health.ints["m_bLastStanding"]=0;
     health.ints["m_bLastHidden"]=1;health.floats["m_fAlpha"]=.125F;
-    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[3].view()==u"Agachado · En sombra",
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[3].view()==u"Crouched · In shadow",
         "native crouch/shadow feedback must follow HUD presentation caches");Clean();
     health.ints["m_bLastHidden"]=0;health.floats["m_fAlpha"]=.9F;
-    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[3].view()==u"Agachado",
+    Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.lines[3].view()==u"Crouched",
         "leaving native shadow retained hidden feedback");Clean();
     // Ambiguous visibility/cache transitions must not affect accepted health/ammo.
     standing.visible=true;ReadCoJGameplayUi(&holder,&player,out);
@@ -407,7 +433,7 @@ int main(){using namespace fixture;using namespace cojvr::games::call_of_juarez;
     counters.items.assign(6,&loaded);infos.items.assign(6,&info);
     totals.items.assign(3,&reserve);big.items.assign(3,&big_icon);
     Require(ReadCoJGameplayUi(&holder,&player,out)&&out.status.line_count==10&&
-        out.status.lines[9].view()==u"Reserva pistola  12",
+        out.status.lines[9].view()==u"Pistol reserve  12",
         "optional pose must not exceed raster bounds or displace native health/ammo");Clean();
     counters.items=original_counters;infos.items=original_infos;totals.items=original_totals;big.items=original_big;
     health.objects["m_aPoses"]=nullptr;

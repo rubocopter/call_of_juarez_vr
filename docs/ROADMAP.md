@@ -20,12 +20,38 @@ directions now have scoped headset acceptance. Ray's Bible use and on-foot kick
 are accepted in exercised gameplay; concentration and special mechanics remain
 separate gates.
 
+A reported chest/possible-scroll interaction crash is a current campaign stability
+issue. Evidence is preserved but the symbol-only native stack lacks the actual
+instruction; do not claim a root cause from its export names. A bound, non-handling
+render-fault reporter is implemented/host-tested for the next ordinary candidate.
+Scripted in-game movies now yield stereo/body ownership to native flat theater,
+including the module subtitle pass, even with a running timer. Movie detection,
+end/loss and exception cleanup are host-tested; comfort and subtitle/held-input
+entry/exit acceptance join the combined session. These corrections take precedence
+when exercising the affected campaign scenes.
+
+The current knuckle-contact combat route now has scoped headset validation: the
+operator reports defeating three enemies with Hands and says it felt substantially
+better. Earlier intermittent-hit and rejected completed-curve reports remain
+useful history; the current route resolves that gate for the exercised fight.
+Broader hand parity, campaign contexts and recovery remain open. The VR settings
+panel and exercised boxing death/recovery are also accepted. Immersive movies
+previously showed intermittent wrong-image flashes; that correction has not been
+retested and remains pending. Future comfort options should extend the functional
+panel.
+
 Immediate work, in order:
 
 1. **Make the held cartridge convincing.** Preserve the accepted reload and
    textured CC0 .357. Its revised skin-derived anchor is host-tested and has
    bounded live delivery evidence, but the latest close-up does not establish
-   finger contact. Qualify a safe hand/scene-occlusion boundary and a measured
+   finger contact; the operator still reports a floating cartridge. Offline skin
+   replay finds slight pad/case overlap, so another position offset is unjustified.
+   The requested short support-thumb gesture is implemented and host-tested:
+   native-confirmed insertion starts a small flex and recovery while the cartridge
+   stays hidden, retaining one native transfer and scoped finger recovery.
+   Judge its appearance alongside the revised axis in the consolidated candidate.
+   Qualify a safe hand/scene-occlusion boundary and a measured
    cartridge axis relative to displayed fingers; avoid further arbitrary offset
    tuning. A measured tangent axis is now implemented and host-tested for both
    hands; its visual fit is still unobserved. A bounded read-only D3D9 depth
@@ -35,7 +61,8 @@ Immediate work, in order:
 2. **Qualify the native loading port.** Existing read-only root/barrel/gate/drum
    observations show changed gate pose and independent drum motion. Displayed
    six-mouth pivot rankings have bounded live evidence, but a pivot is not a
-   socket. Establish visible opening/clearance before enabling precise insertion
+   socket. The operator accepts the port's visible presentation; next establish
+   a measured phase-bound mouth frame/clearance before enabling precise insertion
    or any independent mechanical writer. The current grip zone stays active.
 3. **Close relevant recovery and interaction gates.** Square rearming across
    ownership/availability loss and conventional recovery after disable are
@@ -51,8 +78,11 @@ Immediate work, in order:
    successful HMD-directed drawer interaction.
 4. **Broaden campaign and performance coverage.** Mounted controls, other weapons,
    special optics/duels/climbing and optional HUD rows need eligible scenes.
-   Investigate Steam recording-associated microskips and sustained transport
-   recovery from evidence. Protected-target red-cross visibility is low priority.
+   Current gameplay performance has positive operator feedback; defer tuning
+   until evidence identifies a problem. The cause of recording-associated
+   microskips is unresolved, including possible equipment/configuration limits.
+   Measure recording and sustained transport recovery from evidence. Protected-target
+   red-cross visibility is low priority.
 
 No new test is required merely to reconfirm cartridge visibility, native unit
 loading or already accepted Square/menu/weapon behavior. Unavailable campaign
@@ -73,14 +103,16 @@ acceptance still require [Validation](VALIDATION.md).
 
 | Gate | Actual starting state | Next implementation and prerequisite | Exit criteria |
 | --- | --- | --- | --- |
-| **G1 — cartridge occlusion and contact** | Skin-derived centre has bounded live evidence; displayed-finger tangent and read-only depth observer are host-tested. Hand/scene depth capture and occlusion are planned. | Qualify exact per-eye depth contents, hand coverage, projection, format and lifetime before adding renderer-owned capture/draw/transport. If scene depth is unsuitable, independently qualify a native-hand depth source. Keep hand-only and wall occlusion separate. | Both-eye ordering, exact capture/pose/generation correlation, scoped state restoration and reset/invalid-data rejection must have host coverage before a candidate. Then qualify measured pad contact, axis/scale and wrist roll in the consolidated batch; surface-layout metadata or offline skin replay cannot close it. |
-| **G2 — native port and precise tip insertion** | Gate/drum and pivot ranking are live-observed diagnostics. Neutral socket policy is synthetic-tested but unwired in CoJ; active insertion remains the 14 cm grip zone. | Demonstrate visible READY/open clearance and a loading-mouth frame through actual drum phase. Only then supply a qualified game-adapter socket and cartridge tip/trajectory to the existing policy. Preserve false socket admission until qualified. | Stale/ambiguous owners, closed gate, wrong approach and misses reject. A deliberate aligned release calls native loading once, with loaded +1/reserve -1 and restored hand/weapon state. Do not infer chamber occupancy or enable mechanical writers/ejection from this gate. |
+| **G1 — cartridge contact and occlusion** | Skin-derived centre has bounded live evidence; displayed-finger tangent, native-confirmed support-thumb gesture and read-only depth observer are host-tested. Operator still reports floating contact. Offline pad/case overlap does not justify a position offset. Hand/scene occlusion is planned. | Physically judge the revised axis and scoped insertion gesture together. For occlusion, qualify exact per-eye depth contents, hand coverage, projection, format and lifetime before renderer-owned capture/draw/transport. If scene depth is unsuitable, qualify native-hand depth separately. | Contact/gesture host coverage preserves both hands, native unit transfer, rejection, owner/tracking loss and scoped restoration. Closing status retains native priority. Occlusion additionally requires both-eye ordering, exact capture/pose/generation correlation and reset/invalid-data rejection before a candidate. Physical pad contact, axis/scale, wrist roll and thumb feedback join the consolidated batch; metadata or offline skin replay cannot accept them. |
+| **G2 — native port and precise tip insertion** | Visible port presentation has scoped operator acceptance. Gate/drum and pivot ranking are live-observed diagnostics. Neutral socket policy is synthetic-tested but unwired in CoJ; active insertion remains the 14 cm grip zone. | Establish a measured loading-mouth frame and clearance through actual drum phase. Only then supply a qualified game-adapter socket and cartridge tip/trajectory to the existing policy. Preserve false socket admission until qualified. | Stale/ambiguous owners, closed gate, wrong approach and misses reject. A deliberate aligned release calls native loading once, with loaded +1/reserve -1 and restored hand/weapon state. Do not infer chamber occupancy or enable mechanical writers/ejection from this gate. |
 | **G3 — complete native graphical HUD** | Native sprite/flush observer is host-tested; text, compass and wrist cards are implemented. Independent countdown, encountered objective/journal notices and corrected green direction/red damage chevrons have scoped headset acceptance. Native graphical capture/composition is planned. | Qualify the naturally scheduled sprite pass, batch-flush lifetime, target ownership and usable alpha/coverage before renderer capture. Observe once; never replay traversal for the second eye. | Capture follows native visibility/settings, preserves callbacks/state, clears on owner/generation loss and composes coherently for both eyes. Synthetic raster tests precede live scheduling and visor readability acceptance. |
-| **G4 — transport recovery and sustained pacing** | Normal transport/quit has scoped acceptance. Independent ordered consumer-query recovery is implemented/host-tested, including multiple pending leases, ResetEx and source/consumer replacement; failed recovery proof retains quarantine. Original errors remain visible to the canonical verifier. | Qualify exact-game reset/device-loss and session teardown/recreation when the independent proof is unavailable. Reacquire transport only after old GPU work is proven retired or its owning session safely destroyed. Measure recording and sustained frame-age tails before choosing a performance fix. | Host faults retain uncertain leases, reject stale generations and mismatched contexts, and defer replacement until retirement. Healthy shutdown retains matching copy/completion totals and zero abandoned leases. Native hook restoration, transition/recovery and sustained recorded/unrecorded pacing remain separate physical gates. |
-| **G5 — persisted validation verdicts** | Implemented/host-tested; canonical rejection persistence is live-tested through collection and original restoration. Inventoried results bind source/build/run/profile, requirements and exact input hashes; operator observations remain separate. | Preserve rejection and stale-input fences. Exercise successful full-profile workflow coverage during the next relevant candidate; no dedicated headset session is required. Collection without verification remains inconclusive. | Host fixtures cover pass/fail/inconclusive, partial runs, stale identity, ZIP/hash integrity and real `finish` restoration. Live collection retains a failed verifier despite a complete run and scoped operator acceptance. Missing required gestures cannot become a pass through collection or notes. The report always leaves headset acceptance unevaluated. |
+| **G4 — transport recovery and sustained pacing** | Normal transport/quit has scoped acceptance; operator reports good current gameplay performance without a new recording test. Independent ordered consumer-query recovery is implemented/host-tested, including multiple pending leases, ResetEx and source/consumer replacement; failed recovery proof retains quarantine. Original errors remain visible to the canonical verifier. | Qualify exact-game reset/device-loss and session teardown/recreation when the independent proof is unavailable. Reacquire transport only after old GPU work is proven retired or its owning session safely destroyed. Measure recording and sustained frame-age tails before choosing a performance fix. | Host faults retain uncertain leases, reject stale generations and mismatched contexts, and defer replacement until retirement. Healthy shutdown retains matching copy/completion totals and zero abandoned leases. Native hook restoration, transition/recovery and sustained recorded/unrecorded pacing remain separate physical gates. |
+| **G5 — persisted validation verdicts** | Implemented/host-tested; canonical rejection persistence is live-tested through collection and original restoration. Inventoried results bind source/build/run/profile, requirements and exact input hashes; operator observations remain separate. Ordered exact run/build intervals and rejection of outside telemetry are host-tested only. | Preserve rejection and stale-input fences. Exercise successful full-profile workflow coverage during the next relevant candidate; no dedicated headset session is required. Collection without verification remains inconclusive. | Host fixtures cover pass/fail/inconclusive, partial runs, duplicate/foreign/reversed markers, outside telemetry, stale identity, ZIP/hash integrity and real `finish` restoration. Live collection retains a failed verifier despite a complete run and scoped operator acceptance. Missing required gestures cannot become a pass through collection or notes. The report always leaves headset acceptance unevaluated. |
 
-G1 depth metadata collection and G2 visible-clearance comparison join the existing
-candidate; no separate probe session is required. Native loading-pose reuse is a
+G1 depth metadata collection and any needed G2 socket qualification join the next
+candidate. Offline ordered eye-pair correlation is host-tested, but capture/depth
+contents and hand coverage remain unqualified; no repeat port-visibility probe is required.
+Native loading-pose reuse is a
 measured research option, not an authorized animation-time writer. Loading sound,
 spent-case ejection, independent cylinder/gate control and chamber occupancy need
 their own exact-game contracts after port qualification. Bow/scoped optics and
@@ -100,10 +132,21 @@ headset sessions:
   permanent lock. Broaden left-hand/Frontier use when available.
 - **Interaction and HUD:** left-Sense L1 ray independent of gaze, held-only cyan
   reference, pickup/carry/put-down, and wrist-meter changes after available damage
-  or healing. Prior HMD interaction/text-card acceptance does not qualify them.
+  or healing. Concentration state glyphs and paired horse health/fatigue meters
+  are implemented/host-tested; include them only when those contexts are available
+  in the combined session. Prior interaction/text-card acceptance does not qualify them.
 - **Global ownership:** menu -> gameplay -> wheel -> pause -> dashboard ->
   gameplay with held mapped controls, tracking loss and eligible source resize.
   Require fresh release/press, no delayed action/haptic replay and coherent eyes.
+
+The expanded Frontier/Walker/Cogswell manual profiles are implemented/host-tested,
+including exact class admission and Cogswell's rifle-reserve readback. Add their
+native unit transfer, closing and recovery to the same campaign batch when found.
+Schofield base/A/B retain native whole-clip handling; LeMat's separate ammo types
+remain outside manual loading. No new profile receives socket/geometry acceptance.
+English/Spanish authored HUD/wheel/gesture text now follows the game's startup
+locale, with consistent production UTF-8 and bounded English fallback. Wording,
+accent glyphs and surface fit join that batch; native copied text is preserved.
 
 Mounted routing, campaign permission transitions, special weapons/duels/climbing and optional
 HUD rows need eligible campaign scenes; missing observations are pending or
@@ -149,7 +192,7 @@ Exercised menus, wheel/haptics, Focus, Create timing, compass and HUD/subtitles
 are achieved. Recovered countdown/notices, corrected attack directions and Ray's
 Bible/on-foot kick have scoped headset acceptance. Persistent manual reload has
 scoped acceptance; convincing grip,
-precise chamber loading, mechanical clearance and broader recovery remain open.
+precise chamber loading, measured mouth clearance and broader recovery remain open.
 Spent-case ejection and complete graphical HUD capture are planned. Zone-entry
 feedback is implemented/host-tested, awaiting physical acceptance.
 Direct native unit loading is already implemented and scoped headset-validated
@@ -161,10 +204,26 @@ health meter and low-health text colors, derived from the owned native HUD cache
 Both are implemented/host-tested with bounded invalid-data fallback; readability
 and live percentage updates join the next consolidated gameplay acceptance batch.
 The existing text card's headset acceptance does not qualify this new styling.
+Discrete concentration glyphs and paired horse health/fatigue meters now extend
+the same admitted native-cache route, preserving row priority and text fallback.
+They are implemented/host-tested only; no native graphical pass is captured and
+no horse or concentration mechanic receives additional acceptance.
 Global-button release barriers and failed-input rollback, partial stereo-submit
 state recovery and pointer source-size/in-flight cancellation are also
 implemented/host-tested. Physical focus/dashboard/tracking and eligible resize
 recovery remain in the combined menu/gameplay gate.
+
+Physical jabs, curved hooks and ascending strokes are implemented/host-tested for exact `WeaponHands`.
+The motion policy distinguishes physical hands from the shared native weapon's
+owning hand and emits one closed-fist stroke at extension/retreat. A synchronous
+native attack retains permissions, mode, cooldown, collision/hit/damage and effects;
+scoped sampled world segments replace only that attempt's native melee trace.
+One native loop retains hit de-duplication across the entire curve; no shortcut
+chord, repeated native attacks or shared parameter writes approximate the stroke. Tracking,
+owner/context/menu/cinematic/recenter loss cancels and requires a fresh release.
+Both-hand effectiveness/contact and recovery join consolidated physical testing.
+Knuckle volume, guard/blocking and AI anticipation of the physical
+wind-up remain planned. Dual pistol reload retains its existing behavior.
 
 ## Milestone 5 — additional renderers and games
 

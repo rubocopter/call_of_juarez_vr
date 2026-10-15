@@ -21,6 +21,11 @@ function Write-Utf8Json([string]$Path, [object]$Value) {
         [System.Text.UTF8Encoding]::new($false))
 }
 
+function Add-NativeRunEvents([object[]]$Lines, [object[]]$Events) {
+    Assert-True ($Lines[-1] -cmatch '^run_end:') 'Native fixture must end with its run marker.'
+    @($Lines[0..($Lines.Count-2)]) + $Events + @($Lines[-1])
+}
+
 $SourceDirectory = [System.IO.Path]::GetFullPath($SourceDirectory)
 $BinaryDirectory = [System.IO.Path]::GetFullPath($BinaryDirectory)
 $TestRoot = Join-Path $BinaryDirectory ("provenance-test-" + [Guid]::NewGuid().ToString("N"))
@@ -1134,13 +1139,11 @@ try {
         "native_stereo_device_hook: status=restored",
         "native_stereo_swapchain_hook: status=restored",
         "native_stereo_runtime: status=stopped",
-        "run_end: run_id=$StereoVerifierRunId"
-    )
-    $StartupLog += @(
         "native_stereo_pre_exit_hook: status=installed",
         "native_stereo_pre_exit: stage=begin boundary=CoJ.exe!DestroyGame",
         "native_stereo_pre_exit_hook: status=restored",
-        "native_stereo_pre_exit: stage=end boundary=CoJ.exe!DestroyGame"
+        "native_stereo_pre_exit: stage=end boundary=CoJ.exe!DestroyGame",
+        "run_end: run_id=$StereoVerifierRunId"
     )
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StartupLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") `
@@ -1178,7 +1181,7 @@ try {
     $TransportRun.validation | Add-Member -NotePropertyName requireWeaponPoseAfterHand -NotePropertyValue $true -Force
     $TransportRun.validation | Add-Member -NotePropertyName requireFireAfterMuzzle -NotePropertyValue $true -Force
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
-    $IndependentLog = @($StereoVerifierLog | Where-Object { $_ -notmatch "event=body_arm_(?:tracking|write_probe|render_probe|restore) " } | ForEach-Object {
+    $IndependentLog = @($StereoVerifierLog | Where-Object { $_ -notmatch "^run_end:|event=body_arm_(?:tracking|write_probe|render_probe|restore) " } | ForEach-Object {
         $_.Replace("body_ik_enabled=true;", "body_ik_enabled=true;independent_hands_enabled=true;")
     })
     foreach ($Side in @("left", "right")) {
@@ -1191,6 +1194,7 @@ try {
     }
     $IndependentLog += "camera_probe_event: event=body_hand_restore result=ok detail=frame_sequence=64;transaction=post_stereo_capture;elements_restored=true;visibility_restored=true;detail="
     $IndependentLog += "camera_probe_event: event=controller_fire_dispatch result=applied detail=frame_sequence=64;phase=after_weapon_pose_attempt;verified_left_muzzle=false;verified_right_muzzle=true;non_fire_actions=false;detail="
+    $IndependentLog += "run_end: run_id=$StereoVerifierRunId"
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $IndependentLog
     & (Join-Path $SourceDirectory "tools\verify_native_stereo_live_test.ps1") -GameDirectory $StereoVerifierGame | Out-Null
     foreach ($BadLog in @(
@@ -1198,15 +1202,15 @@ try {
         @{ name="missing second-eye weapon probe"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_weapon_render_probe .*phase=right_eye_complete" }) },
         @{ name="missing deferred fire delivery"; lines=@($IndependentLog | Where-Object { $_ -notmatch "event=controller_fire_dispatch " }) },
         @{ name="unverified muzzle attempt only"; lines=@($IndependentLog | ForEach-Object { $_.Replace("verified_right_muzzle=true;", "verified_right_muzzle=false;") }) },
-        @{ name="failed deferred fire delivery"; lines=@($IndependentLog) + "camera_probe_event: event=controller_fire_dispatch result=unavailable detail=frame_sequence=65;phase=after_verified_muzzle;non_fire_actions=false;detail=input unavailable" },
-        @{ name="transient first-eye weapon failure followed by recovery"; lines=@($IndependentLog) + @(
+        @{ name="failed deferred fire delivery"; lines=(Add-NativeRunEvents $IndependentLog @("camera_probe_event: event=controller_fire_dispatch result=unavailable detail=frame_sequence=65;phase=after_verified_muzzle;non_fire_actions=false;detail=input unavailable")) },
+        @{ name="transient first-eye weapon failure followed by recovery"; lines=(Add-NativeRunEvents $IndependentLog @(
             "camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=left_eye_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose",
             "camera_probe_event: event=controller_weapon_render_probe result=matched detail=frame_sequence=65;side=left;phase=right_eye_complete;parent_pose=final_hand_socket;detail="
-        ) },
-        @{ name="changed weapon after hand pose"; lines=@($IndependentLog) + "camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=stereo_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose" },
+        )) },
+        @{ name="changed weapon after hand pose"; lines=(Add-NativeRunEvents $IndependentLog @("camera_probe_event: event=controller_weapon_render_probe result=failed detail=frame_sequence=65;side=left;phase=stereo_complete;parent_pose=final_hand_socket;detail=weapon barrel changed after parent/socket pose")) },
         @{ name="missing authored holding socket"; lines=@($IndependentLog | ForEach-Object { $_.Replace("rigid_elements=20;", "rigid_elements=19;") }) },
-        @{ name="failed hand restore"; lines=@($IndependentLog) + "camera_probe_event: event=body_hand_restore result=failed detail=write failed" },
-        @{ name="overlapping arm writer"; lines=@($IndependentLog) + "camera_probe_event: event=body_arm_tracking result=applied detail=unexpected" }
+        @{ name="failed hand restore"; lines=(Add-NativeRunEvents $IndependentLog @("camera_probe_event: event=body_hand_restore result=failed detail=write failed")) },
+        @{ name="overlapping arm writer"; lines=(Add-NativeRunEvents $IndependentLog @("camera_probe_event: event=body_arm_tracking result=applied detail=unexpected")) }
     )) {
         Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $BadLog.lines
         $Rejected=$false
@@ -1225,8 +1229,8 @@ try {
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") $TransportRun
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
-    $StereoVerifierDualPointerOwner = @($StereoVerifierLog) +
-        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE"
+    $StereoVerifierDualPointerOwner = Add-NativeRunEvents $StereoVerifierLog @(
+        "camera_probe_event: event=flat_ui_pointer result=active detail=active=true;hand=right;source=1920x1080;route=win32_cursor_position+SendInput_absolute+WM_MOUSEMOVE")
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierDualPointerOwner
     $DualPointerOwnerRejected = $false
     try {
@@ -1267,8 +1271,8 @@ try {
     }
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierLog
 
-    $StereoVerifierFailedBodyRestore = @($StereoVerifierLog) +
-        "camera_probe_event: event=body_visual_roomscale_restore result=failed detail=frame_sequence=3;being_generation=1;pelvis_element=10;world_offset=(6.000000,0.000000,0.000000);reason=stereo_complete;detail=synthetic_failure"
+    $StereoVerifierFailedBodyRestore = Add-NativeRunEvents $StereoVerifierLog @(
+        "camera_probe_event: event=body_visual_roomscale_restore result=failed detail=frame_sequence=3;being_generation=1;pelvis_element=10;world_offset=(6.000000,0.000000,0.000000);reason=stereo_complete;detail=synthetic_failure")
     Set-Content -LiteralPath (Join-Path $StereoVerifierGame "cojvr.log") -Encoding UTF8 -Value $StereoVerifierFailedBodyRestore
     $FailedBodyRestoreRejected = $false
     try {

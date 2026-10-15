@@ -1,4 +1,5 @@
 #pragma once
+#include "games/call_of_juarez/ui_language.hpp"
 #include "runtime/gameplay_ui.hpp"
 #include "runtime/hud_text.hpp"
 
@@ -12,6 +13,7 @@ struct CoJCompassWaypoint {
     bool visible = false;
 };
 struct CoJGameplayUiSnapshot {
+    CoJUiLanguage language=CoJUiLanguage::english;
     runtime::EquipmentWheelSnapshot inventory{};
     runtime::WristStatusSnapshot status{};
     runtime::HudText mission_timer{};
@@ -40,7 +42,8 @@ struct CoJGameplayUiSnapshot {
 // never invokes gameplay updates/selection or exports JNI references.
 // Inventory availability is ownership plus observed native permission gates;
 // the native selection consumer retains transient/ammunition eligibility.
-bool ReadCoJGameplayUi(void* env, void* player, CoJGameplayUiSnapshot& out) noexcept;
+bool ReadCoJGameplayUi(void* env, void* player, CoJGameplayUiSnapshot& out,
+    CoJUiLanguage language=CoJUiLanguage::english) noexcept;
 struct CoJNoShootSnapshot {
     runtime::Vec3 trace_start_cm{}, trace_end_cm{};
     float age_seconds = 0;

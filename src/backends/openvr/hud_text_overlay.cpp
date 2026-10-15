@@ -11,6 +11,60 @@
 namespace cojvr::backends::openvr {
 using Microsoft::WRL::ComPtr;
 
+struct SettingsTextTexture::Impl {
+    HudTextRaster raster;
+    ComPtr<ID3D11Device> owner;
+    ComPtr<ID3D11Texture2D> image;
+    std::uint64_t uploaded=0;
+};
+SettingsTextTexture::SettingsTextTexture() = default;
+SettingsTextTexture::~SettingsTextTexture() = default;
+bool SettingsTextTexture::Update(ID3D11Device* device,const runtime::HudText& text) noexcept {
+    status_={};
+    const auto fail=[&](const char* stage,HRESULT hr) noexcept {
+        Reset();status_.stage=stage;status_.hr=hr;return false;
+    };
+    if(!device)return fail("device",E_POINTER);
+    try {
+        if(impl_&&impl_->owner.Get()!=device)Reset();
+        if(!impl_){impl_=std::make_unique<Impl>();impl_->owner=device;}
+        const auto& panel=impl_->raster.Render(text);
+        if(text.view().empty()){impl_->image.Reset();impl_->uploaded=0;return true;}
+        if(panel.pixels.empty())return fail("raster",E_FAIL);
+        if(impl_->image&&impl_->uploaded==impl_->raster.rebuilds()){
+            impl_->image->GetDesc(&status_.description);return true;
+        }
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width=panel.width;desc.Height=panel.height;desc.MipLevels=desc.ArraySize=1;
+        desc.Format=DXGI_FORMAT_B8G8R8A8_UNORM;desc.SampleDesc.Count=1;
+        // OpenVR consumes this on another device. Keep each published image
+        // unchanged; replace it for new text and retain the last submitted image
+        // until the overlay accepts its successor (or clears its texture).
+        desc.Usage=D3D11_USAGE_DEFAULT;
+        desc.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
+        desc.MiscFlags=D3D11_RESOURCE_MISC_SHARED;
+        status_.description=desc;
+        D3D11_SUBRESOURCE_DATA data{panel.pixels.data(),panel.width*4,0};
+        ComPtr<ID3D11Texture2D> next;
+        HRESULT hr=device->CreateTexture2D(&desc,&data,&next);
+        if(FAILED(hr))return fail("CreateTexture2D",hr);
+        ComPtr<IDXGIResource> resource;
+        hr=next.As(&resource);
+        if(FAILED(hr))return fail("QueryInterface_IDXGIResource",hr);
+        HANDLE shared=nullptr;
+        hr=resource->GetSharedHandle(&shared);
+        if(FAILED(hr))return fail("GetSharedHandle",hr);
+        if(!shared)return fail("GetSharedHandle_null",hr);
+        // DXGI owns this legacy handle; it must not be CloseHandle'd.
+        ComPtr<ID3D11DeviceContext> context;device->GetImmediateContext(&context);
+        context->Flush();
+        impl_->image=std::move(next);impl_->uploaded=impl_->raster.rebuilds();
+        return true;
+    }catch(...){return fail("allocation",E_OUTOFMEMORY);}
+}
+ID3D11Texture2D* SettingsTextTexture::texture() const noexcept { return impl_?impl_->image.Get():nullptr; }
+void SettingsTextTexture::Reset() noexcept { impl_.reset(); }
+
 namespace {
 struct GdiDc {
     HDC value = CreateCompatibleDC(nullptr);

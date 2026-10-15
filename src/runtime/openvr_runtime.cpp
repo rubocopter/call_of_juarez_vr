@@ -858,24 +858,24 @@ bool OpenVrRuntime::PollGlobalActions(OpenVrGlobalActions& actions) noexcept {
                 impl_->ui_select_left_action,
                 actions.ui_select_left,
                 actions.ui_select_left_pressed,
-                impl_->ui_select_left_edge) ||
+                impl_->ui_select_left_edge, &actions.ui_select_left_active) ||
             !read_ui_select(
                 impl_->ui_select_right_action,
                 actions.ui_select_right,
                 actions.ui_select_right_pressed,
-                impl_->ui_select_right_edge) ||
+                impl_->ui_select_right_edge, &actions.ui_select_right_active) ||
             !read_ui_select(
                 impl_->ui_accept_action,
                 actions.ui_accept,
                 actions.ui_accept_pressed,
-                impl_->ui_accept_edge) ||
+                impl_->ui_accept_edge, &actions.ui_accept_active) ||
             !read_ui_select(
                 impl_->ui_back_action,
                 actions.ui_back,
                 actions.ui_back_pressed,
-                impl_->ui_back_edge) ||
+                impl_->ui_back_edge, &actions.ui_back_active) ||
             !read_ui_select(impl_->pause_action, actions.pause,
-                actions.pause_pressed, impl_->pause_edge)) {
+                actions.pause_pressed, impl_->pause_edge, &actions.pause_active)) {
             actions = {};
             return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
         }
@@ -954,24 +954,24 @@ bool OpenVrRuntime::PollActions(
                 impl_->ui_select_left_action,
                 global_actions.ui_select_left,
                 global_actions.ui_select_left_pressed,
-                impl_->ui_select_left_edge) ||
+                impl_->ui_select_left_edge, &global_actions.ui_select_left_active) ||
             !read_global_digital(
                 impl_->ui_select_right_action,
                 global_actions.ui_select_right,
                 global_actions.ui_select_right_pressed,
-                impl_->ui_select_right_edge) ||
+                impl_->ui_select_right_edge, &global_actions.ui_select_right_active) ||
             !read_global_digital(
                 impl_->ui_accept_action,
                 global_actions.ui_accept,
                 global_actions.ui_accept_pressed,
-                impl_->ui_accept_edge) ||
+                impl_->ui_accept_edge, &global_actions.ui_accept_active) ||
             !read_global_digital(
                 impl_->ui_back_action,
                 global_actions.ui_back,
                 global_actions.ui_back_pressed,
-                impl_->ui_back_edge) ||
+                impl_->ui_back_edge, &global_actions.ui_back_active) ||
             !read_global_digital(impl_->pause_action, global_actions.pause,
-                global_actions.pause_pressed, impl_->pause_edge)) {
+                global_actions.pause_pressed, impl_->pause_edge, &global_actions.pause_active)) {
             return FailNoThrow(impl_.get(), "OpenVR UI-select action read failed");
         }
 

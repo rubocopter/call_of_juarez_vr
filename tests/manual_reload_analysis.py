@@ -43,7 +43,64 @@ def insertion(frame=3, result='accepted', **extra):
     return event('manual_reload_insertion', result, **fields)
 
 
+def depth_sample(frame=2, eye='left', **extra):
+    matrix = ','.join('1' if index in (0, 5, 10, 15) else '0' for index in range(16))
+    fields = dict(frame_sequence=frame, eye=eye, generation=3, device='0x1234',
+                  target='0x1000', depth='0x2000', target_valid=1, depth_valid=1,
+                  state_valid=1, layout_matches=1, transforms_valid=1,
+                  target_width=100, target_height=80, depth_width=100, depth_height=80,
+                  target_msaa=0, depth_msaa=0, target_quality=0, depth_quality=0,
+                  viewport='0,0,100,80', min_z=0, max_z=1,
+                  z_enable=1, z_write=1, z_func=4,
+                  view=matrix, projection=matrix,
+                  phase='full_eye_complete', read_only='true',
+                  depth_content='unverified', occlusion_admission='false')
+    fields.update(extra)
+    return 'manual_reload_depth: ' + ';'.join(f'{key}={value}' for key, value in fields.items())
+
+
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_depth_pair_requires_ordered_same_frame_device_and_generation(self):
+        report = self.evidence([depth_sample(), depth_sample(eye='right')])
+        pair = report['depth_eye_pairs'][0]
+        self.assertEqual(pair['status'], 'metadata_correlated')
+        self.assertTrue(pair['layout_both'])
+        self.assertEqual(report['summary']['depth_correlated_pairs'], 1)
+        self.assertEqual(report['summary']['depth_incomplete_pairs'], 0)
+        self.assertEqual(report['summary']['depth_rejected_pairs'], 0)
+        self.assertFalse(pair['occlusion_admitted'])
+        self.assertFalse(report['headset_validated'])
+
+    def test_depth_pair_incomplete_and_invalid_samples_fail_closed(self):
+        variants = (
+            ([depth_sample()], 'incomplete'),
+            ([depth_sample(eye='right'), depth_sample()], 'rejected'),
+            ([depth_sample(), depth_sample(eye='left'), depth_sample(eye='right')], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', generation=4)], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', device='0x9999')], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', phase='wrong')], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', projection='nan')], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', depth_content='verified')], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', occlusion_admission='true')], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', depth_valid=0)], 'rejected'),
+            ([depth_sample(), depth_sample(eye='right', layout_matches=0)], 'rejected'),
+        )
+        for lines, status in variants:
+            with self.subTest(status=status, lines=lines):
+                report = self.evidence(lines)
+                self.assertEqual(report['depth_eye_pairs'][0]['status'], status)
+                self.assertEqual(report['summary']['depth_correlated_pairs'], 0)
+                self.assertEqual(report['summary']['depth_incomplete_pairs'], int(status == 'incomplete'))
+                self.assertEqual(report['summary']['depth_rejected_pairs'], int(status == 'rejected'))
+                self.assertFalse(report['depth_eye_pairs'][0]['occlusion_admitted'])
+
+    def test_depth_pair_cannot_join_samples_from_different_frames(self):
+        report = self.evidence([depth_sample(frame=2), depth_sample(frame=3, eye='right')])
+        self.assertEqual(report['summary']['depth_correlated_pairs'], 0)
+        self.assertEqual(report['summary']['depth_incomplete_pairs'], 2)
+        self.assertEqual([p['status'] for p in report['depth_eye_pairs']],
+                         ['incomplete', 'incomplete'])
+
     def test_batched_grip_zone_haptics_and_depth_are_observations_not_acceptance(self):
         report=self.evidence([
             event('manual_reload_zone','entered',frame_sequence=2,hand=1,release_qualified=1),
@@ -236,6 +293,20 @@ class ReloadAnalysisTests(unittest.TestCase):
     def test_invalid_after_snapshot_cannot_confirm_any_transfer(self):
         report = self.evidence([trace(2), insertion(after_valid=0), trace(3)])
         self.assertEqual(report['insertions'][0]['assessment'], 'inconclusive')
+
+    def test_typed_rifle_reserve_is_correlated_and_unknown_or_mixed_pools_reject(self):
+        before=dict(reserve_kind_before='rifle',reserve_kind_after='rifle',reserve_count_before=10,reserve_count_after=10,
+                    pistol_reserve_before='n/a',pistol_reserve_after='n/a')
+        after=dict(before,ammo_readback_after=3,reserve_count_after=9)
+        report=self.evidence([trace(2,**before),insertion(reserve_kind='rifle'),trace(3,**after)])
+        self.assertEqual(report['insertions'][0]['assessment'],'unit_readback_observed')
+        for change in (dict(reserve_kind_after='pistol'),dict(reserve_kind_after='unknown'),dict(reserve_count_after='n/a')):
+            report=self.evidence([trace(2,**before),insertion(reserve_kind='rifle'),trace(3,**dict(after,**change))])
+            self.assertEqual(report['insertions'][0]['assessment'],'inconclusive')
+        report=self.evidence([trace(2,**before),insertion(reserve_kind='unknown'),trace(3,**after)])
+        self.assertEqual(report['insertions'][0]['assessment'],'inconclusive')
+        report=self.evidence([trace(2,**before),trace(3,**after)])
+        self.assertIn('reload_readback_change_without_insertion',[issue['kind'] for issue in report['issues']])
 
     def test_after_trace_must_still_observe_the_manual_wait_or_close(self):
         for changed in (dict(manual_session_enabled=0), dict(wait_probe_observed=0),

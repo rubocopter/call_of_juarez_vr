@@ -36,14 +36,14 @@ struct CoJMotionReloadOwner {
     int armed_hand = -1;
     std::uint64_t weapon_id = 0;
     bool valid = false;
-    bool single_round_supported = false; // Exact Frontier/Peacemaker; Schofield stays hybrid.
+    bool single_round_supported = false; // Exact profile; Schofield stays native/hybrid.
 };
 // Exact-build, local-player game-owner caller only. Observation never requests
 // reload or reads weapon parameters; action 31 retains ammunition authority.
 bool ReadCoJMotionReloadOwner(void* env, void* player,
     CoJMotionReloadOwner& out, CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
 // Passive ongoing animation observation, not eligibility for a new request.
-// Exact Frontier/Peacemaker, coherent actual/active/desired identity, empty
+// Exact single-round profile, coherent actual/active/desired identity, empty
 // support and armed states drawn only from 1/20/21/22 with a reload state still
 // present. Native two-hand animation flags may be ignored only in that boundary.
 // A positive support HasSomethingInHand requires the armed state-machine

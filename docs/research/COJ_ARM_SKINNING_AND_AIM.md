@@ -450,3 +450,94 @@ Independent hands with native torso/legs are the accepted production composition
 preserve its scoped lower-body/camera contract. A future connected-arm experiment
 needs its own anatomy, ownership and restoration evidence, without changing the
 current hidden-head/hidden-arms solution.
+
+## Native boxing boundary
+
+The exact shipped `WeaponHands` selects `WpnAttackHandsMelee0/1/2`; it is not a
+firearm with a qualified barrel socket. `WeaponMelee.AttackMelee` obtains
+`Weapon.GetOwnerAttackMeleeOrigin` and `GetOwnerAttackDir`, then executes the native
+`WpnAttackMelee.m_avTraces` route. The origin reads the owning Being's look-from
+point and PawnArmed look target, rather than the displayed tracked fist. Native
+permissions, collision/hit response and damage remain in that route. Independent
+hand rendering cannot establish physical fist contact or a measured swing hit.
+`WpnLogicHands.GetAttackMode` distinguishes the physical input hand from the
+shared weapon's owning hand: right selects mode 1; left selects mode 0, with the
+native state-dependent left variant preserved. A synchronous `Weapon.Attack`
+retains native `CanAttack`/delay and `AttackInside`/module/sound/hit behavior while
+avoiding animation scheduling for a physical stroke. Exact class/owner, settled
+current/destination/desired states, campaign movie/timer, death/carry/network and
+per-hand attack permissions are rechecked. Other-hand replacement rejects it.
+
+The earlier completed-curve adapter used tracking grip centres and waited for
+stopping/reversal before native collision. Its physical effectiveness was
+rejected despite synthetic gesture passes. The active contact adapter instead
+reconstructs four original skin witnesses per hand from current displayed bone
+frames. Ray uses its original single-bone influences; Billy retains two-bone
+weights where present. The original asset identities are pinned by the player
+mesh partitioner. These are sampled skin points, not an invented fist radius or
+a complete collision volume. The closed-pose witnesses lie about 5.0–5.5 cm
+ahead of the socket, explaining why a grip-centre ray does not establish visible
+knuckle contact. The three-enemy visor trial establishes useful contact in one
+exercised fight; broader surface coverage remains unqualified.
+
+The hash-qualified `WeaponMelee` patch uses transient instance world segments
+only during that bridge-owned attempt. Its two-argument consumer supplies physical
+origin/first tangent; its four-argument consumer selects the owned segment count
+at original offset 134, then copies each world pair at original 150 and jumps
+to original 204, bypassing the authored local-coordinate transform. Its default
+count/transform path remains for unowned melee. One native attack processes the
+current independent segment bundle, retaining the existing object hit list across
+its rows. Native
+collision flags, hit de-duplication, damage, noise and effects remain intact; the
+authored parameter arrays are not mutated. Java exception cleanup clears all
+owned endpoints/type metadata and rethrows. `GetBoxingPunchType` can expose the
+same native damage type during the attempt; its original switch stays aligned
+and its ordinary behavior remains outside the scope. Host fixtures cover both
+hands, admission/rejection, native cooldown, reentry and exception cleanup.
+The full original collision/hit loop is also exercised with independent collision
+stubs to verify per-segment order, world coordinates, no chord shortcut, one hit
+per object, original fallback and no shared parameter write. JNI checks finite
+bounded paths, uses the actual Vector-array component class and releases all
+temporary payload references on allocation/publication/attempt failures.
+The operator's earlier trials observed intermittent damage with the completed
+curve route. The current contact route has since received scoped visor validation:
+the operator reports defeating three enemies with Hands and substantially
+improved feel. Sampled skin witnesses do not qualify complete fist volume,
+guard/blocking or native AI anticipation of a controller wind-up. Firearm
+ray/limiter contracts are not reused for fists.
+The native hit list is local to synchronous `AttackMelee`; calling that loop
+across frames would create another list and repeat native side effects. The
+active contact-bout route therefore probes current independent skin segments and
+invokes the original attack synchronously only on eligible contact.
+
+The current contact-bout helper avoids persistent cross-frame native hit lists:
+it probes independent current endpoint pairs and invokes the original attack
+once on eligible contact. Clear/query-only samples do not call attack, hit,
+noise or cooldown. The native terrain/tree/object wrapper is reused with the
+original flags and weapon exclusion. Native `TraceObjectsWithFaceFlags` at
+RVA `0xB3E50` calls the query adapter `0xB3A80`; its successful path writes the
+clipped endpoint back through `0xAA810`. Private copies isolate this mutation.
+The saved owner flag is restored on every result and exception, including when
+the original melee loop throws; the original throwable propagates. Per-hand
+contact latches prevent repeated attacks while touching, with real source/owner
+loss retaining an available-release barrier. Motion is evaluated in tracking
+and head-relative spaces, while collision stays in native world centimetres.
+
+The shipped Java caller scan finds `GetBoxingPunchType` only in
+`NewAIHuman.CheckEnemyPunchType`, which supports AI wind-up/evade observation.
+No examined Java health gate requires the attacking player's native punch
+animation state. `Weapon.Hit` can be effect-only for terrain or zero damage;
+boxing body-part multipliers distinguish full/double torso/head slots from
+tenth-damage limb slots. Friend/protection, native damage thresholds and health
+gates remain intact. This does not qualify unknown native/subclass callbacks
+or establish damage in an individual logged contact.
+
+`WeaponHands` inherits through `WeaponMelee`/`WeaponThrow`/`Weapon`, not
+`WeaponFire`. The firearm shot/FX fields cannot diagnose this owner. Missing
+firearm counters do not establish missing native ownership or absent melee
+callbacks; a melee entry and a native `Hit` call are separate observations, and
+neither alone proves enemy health damage. The operator's scoped visor validation
+reports defeating three enemies with Hands using the current contact route. The
+Java collision wrapper supplies segment endpoints and flags, with no radius
+argument; native trace tolerance and complete fist-volume coverage remain
+unmeasured.

@@ -114,7 +114,7 @@ struct Reader {
 void Label(runtime::UiLabel& out,std::u16string_view text) noexcept {
     auto n=std::min(text.size(),out.capacity-1);std::copy_n(text.data(),n,out.characters.data());out.length=static_cast<std::uint32_t>(n);
 }
-void PoseStatus(void* env,void* component,runtime::UiLabel& out) noexcept {
+void PoseStatus(void* env,void* component,runtime::UiLabel& out,CoJUiLanguage language) noexcept {
     out={};Reader r{env};
     // Optional presentation only. The caller has verified the HUDPlayer's
     // manager/player ownership. Use a separate reader so pose lookup failures
@@ -131,8 +131,8 @@ void PoseStatus(void* env,void* component,runtime::UiLabel& out) noexcept {
     if(!r.ok||stand_visible==crouch_visible||last_standing!=stand_visible||alpha<=0||alpha>1)return;
     // Native hidden means shadow + enabled recognition feedback; it does not
     // prove invisibility to enemies. No negative/"spotted" state is inferred.
-    Label(out,stand_visible?(in_shadow?u"De pie · En sombra":u"De pie"):
-        (in_shadow?u"Agachado · En sombra":u"Agachado"));
+    Label(out,CoJUiText(language,stand_visible?(in_shadow?CoJUiPhrase::standing_shadow:CoJUiPhrase::standing):
+        (in_shadow?CoJUiPhrase::crouched_shadow:CoJUiPhrase::crouched)));
 }
 bool OwnedHudComponent(Reader& r,void* component,const char* type,void* hud,void* player) noexcept {
     if(!component||!r.Instance(component,type))return false;
@@ -145,8 +145,13 @@ bool VisibleTexture(Reader& r,void* sprite,const char* type) noexcept {
     const float alpha=r.Float(sprite,"m_fTextureAlpha");
     return r.ok&&alpha>0&&alpha<=1;
 }
-void ConcentrationStatus(void* env,void* components,void* hud,void* player,runtime::UiLabel& out) noexcept {
-    out={};Reader r{env};auto component=r.At(components,10,true);
+struct OptionalStatusRow {
+    runtime::UiLabel label{};
+    int health=-1,fatigue=-1;
+    runtime::WristStatusBadgeKind badge=runtime::WristStatusBadgeKind::none;
+};
+void ConcentrationStatus(void* env,void* components,void* hud,void* player,OptionalStatusRow& row,CoJUiLanguage language) noexcept {
+    row={};auto& out=row.label;Reader r{env};auto component=r.At(components,10,true);
     if(!OwnedHudComponent(r,component,"HUDBulletTime",hud,player))return;
     auto owner=r.Get(component,"m_cPlayer","LArmedPlayerBeing;");
     if(!r.Same(owner,player))return;
@@ -156,10 +161,10 @@ void ConcentrationStatus(void* env,void* components,void* hud,void* player,runti
     // UpdateData commits the naturally selected icon mode. No eligibility
     // query, cooldown clock or gameplay update is executed by observation.
     switch(mode){
-    case 1:Label(out,u"Concentración · En uso");break;
-    case 2:Label(out,u"Concentración · Recargando");break;
-    case 3:case 4:Label(out,u"Concentración · Lista");break;
-    case 5:Label(out,u"Concentración · No preparada");break;
+    case 1:Label(out,CoJUiText(language,CoJUiPhrase::concentration_active));row.badge=runtime::WristStatusBadgeKind::active;break;
+    case 2:Label(out,CoJUiText(language,CoJUiPhrase::concentration_cooldown));row.badge=runtime::WristStatusBadgeKind::cooldown;break;
+    case 3:case 4:Label(out,CoJUiText(language,CoJUiPhrase::concentration_ready));row.badge=runtime::WristStatusBadgeKind::ready;break;
+    case 5:Label(out,CoJUiText(language,CoJUiPhrase::concentration_unavailable));row.badge=runtime::WristStatusBadgeKind::unavailable;break;
     default:break;
     }
 }
@@ -174,8 +179,8 @@ bool CachedNumber(Reader& r,void* sprite,runtime::UiLabel& out) noexcept {
     return r.ok&&digits.size()<=10&&
         std::all_of(digits.begin(),digits.end(),[](char16_t c){return c>=u'0'&&c<=u'9';});
 }
-void CountdownStatus(void* env,void* components,void* hud,void* player,runtime::UiLabel& out) noexcept {
-    out={};Reader r{env};auto component=r.At(components,17,true);
+void CountdownStatus(void* env,void* components,void* hud,void* player,OptionalStatusRow& row,CoJUiLanguage language) noexcept {
+    row={};auto& out=row.label;Reader r{env};auto component=r.At(components,17,true);
     if(!OwnedHudComponent(r,component,"HUDCountdownTimer",hud,player))return;
     auto timer=r.Get(component,"m_cCountdownTimer","LCountdownTimer;");
     if(!r.Instance(timer,"CountdownTimer"))return;
@@ -191,7 +196,7 @@ void CountdownStatus(void* env,void* components,void* hud,void* player,runtime::
     // Duels use center text, ordinary titled timers use bottom text. Copy it
     // unchanged: a countdown is not native permission to draw or fire.
     const auto number=has_bottom?bottom_number.view():center_number.view();
-    Label(out,u"Cuenta atrás  ");
+    Label(out,CoJUiText(language,CoJUiPhrase::countdown));
     std::copy(number.begin(),number.end(),out.characters.begin()+out.length);
     out.length+=static_cast<std::uint32_t>(number.size());
 }
@@ -294,8 +299,8 @@ void AppendPercent(runtime::UiLabel& out,int percent) noexcept {
     out.characters[out.length++]=static_cast<char16_t>(u'0'+percent%10);
     out.characters[out.length++]=u'%';
 }
-void HorseStatus(void* env,void* components,void* hud,void* player,runtime::UiLabel& out) noexcept {
-    out={};Reader r{env};auto component=r.At(components,18,true);
+void HorseStatus(void* env,void* components,void* hud,void* player,OptionalStatusRow& row,CoJUiLanguage language) noexcept {
+    row={};auto& out=row.label;Reader r{env};auto component=r.At(components,18,true);
     if(!OwnedHudComponent(r,component,"HUDHorse",hud,player))return;
     auto icon=r.Get(component,"m_cHorseIcon","LUIWindow;");
     auto fill=r.Get(component,"m_cTirednessIconFill","LUIWindow;");
@@ -306,19 +311,21 @@ void HorseStatus(void* env,void* components,void* hud,void* player,runtime::UiLa
     if(!r.ok||health<0||health>100||fatigue<0||fatigue>100)return;
     // Show/Reset invalidate these caches. Keep the native health percentage
     // and fatigue meaning; do not infer remaining stamina or refresh the horse.
-    Label(out,u"Caballo · Salud ");AppendPercent(out,health);
-    constexpr std::u16string_view suffix=u" · Fatiga ";
+    Label(out,CoJUiText(language,CoJUiPhrase::horse_health));AppendPercent(out,health);
+    const auto suffix=CoJUiText(language,CoJUiPhrase::fatigue);
     std::copy(suffix.begin(),suffix.end(),out.characters.begin()+out.length);
     out.length+=static_cast<std::uint32_t>(suffix.size());AppendPercent(out,static_cast<int>(fatigue));
+    row.health=health;row.fatigue=static_cast<int>(fatigue);
 }
-bool Inventory(void* env,void* player,runtime::EquipmentWheelSnapshot& out) noexcept {
+bool Inventory(void* env,void* player,runtime::EquipmentWheelSnapshot& out,CoJUiLanguage language) noexcept {
     Reader r{env};auto slots=r.Get(player,"m_aInvSlots","Ljava/util/ArrayList;");
     auto items=r.Get(player,"m_aInvSlotsObjects","[LInvObject;");
     if(!slots.value||!items.value)return r.ok;
     const int count=r.Size(slots),item_count=r.Size(items,true);
     constexpr int types[]{2,1,0,4,3,5,7};
-    constexpr std::u16string_view names[]{u"Left pistol",u"Right pistol",u"Long weapon",u"Dynamite",u"Bible / whip",u"Bow",u"Hands",u"Discard"};
-    for(int i=0;i<8;++i)Label(out.labels[i],names[i]);
+    constexpr CoJUiPhrase names[]{CoJUiPhrase::left_pistol,CoJUiPhrase::right_pistol,CoJUiPhrase::wheel_long,CoJUiPhrase::wheel_dynamite,CoJUiPhrase::bible_whip,CoJUiPhrase::wheel_bow,CoJUiPhrase::hands,CoJUiPhrase::discard};
+    for(int i=0;i<8;++i)Label(out.labels[i],CoJUiText(language,names[i]));
+    Label(out.cancel_label,CoJUiText(language,CoJUiPhrase::cancel));Label(out.confirm_label,CoJUiText(language,CoJUiPhrase::confirm));
     const bool changes=r.Bool(player,"m_bWeaponChangeEnabled"),punch=r.Bool(player,"m_bPunchingEnabled"),throws=r.Bool(player,"m_bWeaponThrowEnabled");
     auto carried=r.Get(player,"m_cCarriedObject","LControlObject;");
     // The active reference is single-player. This is the shipped SP carry gate;
@@ -333,7 +340,7 @@ bool Inventory(void* env,void* player,runtime::EquipmentWheelSnapshot& out) noex
         if(!r.Instance(item,"Weapon",false))continue;
         for(int k=0;k<7;++k)if(types[k]==type){
             out.owned_mask|=static_cast<std::uint8_t>(1U<<k);
-            if(k==4)Label(out.labels[k],r.Instance(item,"WeaponWhip",false)?u"Whip":u"Bible");
+            if(k==4)Label(out.labels[k],CoJUiText(language,r.Instance(item,"WeaponWhip",false)?CoJUiPhrase::whip:CoJUiPhrase::bible));
         }
         if(type!=7)out.owned_mask|=0x80;
     }
@@ -344,7 +351,7 @@ bool Inventory(void* env,void* player,runtime::EquipmentWheelSnapshot& out) noex
         if(changes&&throws)out.available_mask|=out.owned_mask&0x80;}
     else out={};return r.ok;
 }
-bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
+bool Status(void* env,void* player,runtime::WristStatusSnapshot& out,CoJUiLanguage language) noexcept {
     Reader r{env};runtime::WristStatusSnapshot value{};
     runtime::UiLabel pose{};
     auto cls=r.Class("HUDManager");auto hud=r.Static(cls,"sm_cMainHUDManager","LHUDManager;");
@@ -382,21 +389,21 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
         if(!r.Same(being,player)||!r.Same(manager,hud)||!r.Visible(component))continue;
         if(domain==0){
             auto health_player=r.Get(component,"m_cPlayer","LPlayerBeing;");if(!r.Same(health_player,player))continue;
-            auto health=r.Get(component,"m_cHealth","LUIStatic;");append(health,u"Salud  ",true);
-            if(r.ok)PoseStatus(env,component,pose);
+            auto health=r.Get(component,"m_cHealth","LUIStatic;");append(health,CoJUiText(language,CoJUiPhrase::health),true);
+            if(r.ok)PoseStatus(env,component,pose,language);
         }else if(domain==1){
             auto counters=r.Get(component,"m_tAmmoCounters","[LUIStatic;");
             auto infos=r.Get(component,"m_tSlotsWeaponInfo","[LHUDWeapons$WeaponInfo;");
             if(!counters.value||!infos.value)continue;
             if(r.Size(counters,true)!=6||r.Size(infos,true)!=6){r.ok=false;break;}
-            constexpr std::u16string_view names[]{u"Izquierda  ",u"Derecha  ",u"Arma larga  ",u"Dinamita  ",u"Equipo  ",u"Arco  "};
+            constexpr CoJUiPhrase names[]{CoJUiPhrase::left,CoJUiPhrase::right,CoJUiPhrase::long_weapon,CoJUiPhrase::dynamite,CoJUiPhrase::equipment,CoJUiPhrase::bow};
             for(int i=0;i<6&&r.ok;++i){
                 auto info=r.At(infos,i,true);if(!info.value)continue;
                 if(!r.Instance(info,"HUDWeapons$WeaponInfo"))break;
                 const bool show=r.Bool(info,"m_bShowAmmo"),active=r.Bool(info,"m_bActiveAmmo");
                 if(!show||!active)continue;
                 auto counter=r.At(counters,i,true);if(!counter.value)continue;
-                if(r.Float(counter,"m_fCurTextAlpha")>0)append(counter,names[i]);
+                if(r.Float(counter,"m_fCurTextAlpha")>0)append(counter,CoJUiText(language,names[i]));
             }
         }else{
             auto totals=r.Get(component,"m_cAmmoCountersTotal","[LUIStatic;");
@@ -404,11 +411,11 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
             auto small=r.Get(component,"m_cBulletIconsSmall","[LUIWindow;");
             if(!totals.value||!big.value||!small.value)continue;
             if(r.Size(totals,true)!=3||r.Size(big,true)!=3||r.Size(small,true)!=3){r.ok=false;break;}
-            constexpr std::u16string_view names[]{u"Reserva rifle  ",u"Reserva escopeta  ",u"Reserva pistola  "};
+            constexpr CoJUiPhrase names[]{CoJUiPhrase::rifle_reserve,CoJUiPhrase::shotgun_reserve,CoJUiPhrase::pistol_reserve};
             for(int i=0;i<3&&r.ok;++i){
                 auto counter=r.At(totals,i,true);auto large=r.At(big,i,true);auto little=r.At(small,i,true);
                 const bool visible=r.Visible(large)|r.Visible(little);
-                if(counter.value&&visible&&r.Float(counter,"m_fCurTextAlpha")>0)append(counter,names[i]);
+                if(counter.value&&visible&&r.Float(counter,"m_fCurTextAlpha")>0)append(counter,CoJUiText(language,names[i]));
             }
         }
     }
@@ -418,8 +425,16 @@ bool Status(void* env,void* player,runtime::WristStatusSnapshot& out) noexcept {
         // the transient countdown gets the first remaining row.
         for(auto read:{CountdownStatus,HorseStatus,ConcentrationStatus}){
             if(value.line_count==value.lines.size())break;
-            runtime::UiLabel optional{};read(env,components,hud,player,optional);
-            if(!optional.view().empty())value.lines[value.line_count++]=optional;
+            OptionalStatusRow optional{};read(env,components,hud,player,optional,language);
+            if(!optional.label.view().empty()){
+                const auto row=static_cast<int>(value.line_count);
+                value.lines[value.line_count++]=optional.label;
+                if(optional.health>=0&&optional.fatigue>=0){
+                    value.meters[0]={row,optional.health,runtime::WristStatusMeterSpan::left,false};
+                    value.meters[1]={row,optional.fatigue,runtime::WristStatusMeterSpan::right,true};
+                }
+                if(optional.badge!=runtime::WristStatusBadgeKind::none)value.badge={row,optional.badge};
+            }
         }
         if(!pose.view().empty()&&value.line_count<value.lines.size())value.lines[value.line_count++]=pose;
         value.active=value.line_count!=0;out=value;
@@ -475,13 +490,13 @@ bool Compass(void* env,void* player,CoJGameplayUiSnapshot& out) noexcept {
     if(r.ok){out.compass_valid=true;out.compass_visible=true;}return r.ok;
 }
 }
-bool ReadCoJGameplayUi(void* env, void* player, CoJGameplayUiSnapshot& out) noexcept {
-    out={};if(!env||!player||!*static_cast<void***>(env))return false;
+bool ReadCoJGameplayUi(void* env, void* player, CoJGameplayUiSnapshot& out,CoJUiLanguage language) noexcept {
+    out={};out.language=language;if(!env||!player||!*static_cast<void***>(env))return false;
     constexpr std::size_t required[]{6,15,17,23,24,31,32,33,36,39,51,94,95,96,97,100,102,144,145,164,165,166,171,173};
     for(auto i:required)if(!(*static_cast<void***>(env))[i])return false;
     Reader entry{env};if(!entry.Check())return false;
-    const bool inventory=Inventory(env,player,out.inventory);const bool compass=Compass(env,player,out);
-    const bool status=Status(env,player,out.status);
+    const bool inventory=Inventory(env,player,out.inventory,language);const bool compass=Compass(env,player,out);
+    const bool status=Status(env,player,out.status,language);
     CriticalAlerts(env,player,out);
     if(!compass){out.compass_valid=false;out.compass_visible=false;out.waypoint_count=0;out.waypoints={};out.map_angle_degrees=0;out.player_position_cm={};out.player_forward={};out.player_left={};}
     return inventory&&compass&&status;

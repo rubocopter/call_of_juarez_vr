@@ -1,5 +1,7 @@
 #pragma once
 #include "games/call_of_juarez/hud_boundary_probe.hpp"
+#include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/ui_language.hpp"
 
 #include "runtime/pose_source.hpp"
 #include "runtime/hud_text.hpp"
@@ -260,6 +262,9 @@ struct CameraStereoFrameSample {
     bool ui_accept_pressed = false;
     bool ui_back_pressed = false;
     bool pause_pressed = false;
+    // Runtime settings opt in only; the owner thread rechecks native eligibility.
+    bool cinematic_immersive = false;
+    bool settings_input_captured = false;
 };
 
 struct CameraStereoDiagnosticCounters {
@@ -304,6 +309,12 @@ struct CameraStereoDiagnosticCounters {
 [[nodiscard]] bool ObserveCameraGamePresentationBlocked(
     bool& blocked,
     std::string* error = nullptr) noexcept;
+[[nodiscard]] bool ObserveCameraGamePresentationOwner(
+    CoJPresentationOwner& owner,
+    std::string* error = nullptr) noexcept;
+// Owner-thread cached observations; these never refresh native objects.
+[[nodiscard]] CoJUiLanguage ObserveCameraUiLanguage() noexcept;
+[[nodiscard]] std::uint64_t ObserveCameraPlayerGeneration() noexcept;
 
 [[nodiscard]] const char* CoJSubtitleDiagnosticStateName(
     bool observation_available,
@@ -315,6 +326,9 @@ struct CameraStereoDiagnosticCounters {
 // EyeView::eye_to_head is static optics; the game adapter never depends on an XR API.
 struct CameraStereoRuntimeCallbacks {
     void* context = nullptr;
+    // Failed native restoration invalidates a retained pair immediately;
+    // transient capture backpressure alone may retain ordinary fresh output.
+    void (*invalidate_frame)(void* context) noexcept = nullptr;
     bool (*begin_frame)(void* context, CameraStereoFrameSample& sample) noexcept = nullptr;
     bool (*capture_eye)(
         void* context,

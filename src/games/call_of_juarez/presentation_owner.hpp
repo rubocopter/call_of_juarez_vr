@@ -8,14 +8,24 @@ struct CoJPresentationOwner {
     bool timer_frozen=false;
     bool player_alive=false;
     bool mission_end_visible=false;
+    bool movie_playing=false;
     [[nodiscard]] bool blocked() const noexcept {
-        return !valid || timer_frozen || !player_alive || mission_end_visible;
+        return !valid || timer_frozen || !player_alive || mission_end_visible || movie_playing;
+    }
+    // Camera-only permission; gameplay/body remain blocked throughout a movie.
+    // A frozen movie cannot be distinguished from pause with these observations.
+    [[nodiscard]] bool immersive_movie_allowed() const noexcept {
+        return valid && !timer_frozen && player_alive && !mission_end_visible && movie_playing;
+    }
+    [[nodiscard]] bool settings_hands_allowed(bool captured) const noexcept {
+        return captured && !blocked();
     }
 };
 
 // Caller supplies the verified active LawmanModuleSingle. These exact script
 // getters are read-only. MenuMissionEnd (38) does not require TimerStop, so the
-// timer alone cannot authorize tracked camera/body/gameplay ownership.
+// timer alone cannot authorize tracked camera/body/gameplay ownership. Scripted
+// movies can keep the timer running and own a separate subtitle sprite pass.
 inline bool ReadCoJPresentationOwner(void* env,void* module,
     CoJPresentationOwner& out) noexcept {
     out={};
@@ -59,7 +69,8 @@ inline bool ReadCoJPresentationOwner(void* env,void* module,
     };
     const bool ok=read("IsTimerFreezed",observed.timer_frozen) &&
         read("IsMainPlayerAlive",observed.player_alive) &&
-        read("IsMenuMissionEndVisible",observed.mission_end_visible);
+        read("IsMenuMissionEndVisible",observed.mission_end_visible) &&
+        read("IsAnyMoviePlaying",observed.movie_playing);
     delete_fn(env,cls);
     if(!ok)return false;
     observed.valid=true;out=observed;return true;

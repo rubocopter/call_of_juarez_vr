@@ -27,14 +27,19 @@ SHOT_DIAGNOSTIC_FIELDS = ("cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
 TARGET_OWNER_FIELDS = ("cojvrRightTargetWeapon", "cojvrLeftTargetWeapon")
 MANUAL_RELOAD_FIELDS = ("cojvrManualReloadWeapon", "cojvrSingleRoundWeapon",
                         "cojvrSingleRoundHand", "cojvrSingleRoundCompleted")
+# Mirrors the exact game-adapter profile. Native parameter and network checks
+# remain authoritative after this concrete-class admission.
+SINGLE_ROUND_REVOLVERS = ("WeaponPistolFrontier1878_Regular", "WeaponPistolPeacemaker",
+                         "WeaponPistolFrontier", "WeaponPistolWalker", "WeaponPistolCogswell")
 
 def reload_class_guard(c, local, get_class, get_name, equals, class_names, whole_clip):
     c.emit(0x19,local);c.ref(0xb6,whole_clip);c.branch(0x9a,'done')
     # Java 1.4 has no ldc Class literal; compare exact runtime class names.
-    for i,name in enumerate(class_names):
+    for name in class_names:
         c.emit(0x19,local);c.ref(0xb6,get_class);c.ref(0xb6,get_name)
         c.ref(0x13,name);c.ref(0xb6,equals)
-        c.branch(0x9a,'consume') if i==0 else c.branch(0x99,'done')
+        c.branch(0x9a,'consume')
+    c.branch(0xa7,'done')
     c.label('consume')
 
 def manual_reload_admission(pending, net, get_class, get_name, equals,
@@ -394,8 +399,7 @@ def patch_class(data: bytes) -> bytes:
         cls=append(b'\x07'+u2(utf8(owner)))
         nt=append(b'\x0c'+u2(utf8(name))+u2(utf8(desc)))
         return append(b'\x0a'+u2(cls)+u2(nt))
-    names=tuple(append(b'\x08'+u2(utf8(name))) for name in
-                ('WeaponPistolFrontier1878_Regular','WeaponPistolPeacemaker'))
+    names=tuple(append(b'\x08'+u2(utf8(name))) for name in SINGLE_ROUND_REVOLVERS)
     class_methods=(
         method_ref('java/lang/Object','getClass','()Ljava/lang/Class;'),
         method_ref('java/lang/Class','getName','()Ljava/lang/String;'),
@@ -777,6 +781,10 @@ def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_re
                 original.read('ArmedPlayerBeing.class'), original.read('StateMashine.class'))
             patched['ArmedPlayerBeing.class'] = player
             patched['StateMashine.class'] = machine
+        from coj_physical_punch import patch_punch_classes
+        player,melee=patch_punch_classes(patched['ArmedPlayerBeing.class'],original.read('WeaponMelee.class'))
+        patched['ArmedPlayerBeing.class']=player
+        patched['WeaponMelee.class']=melee
         with zipfile.ZipFile(output, "x") as result:
             result.comment = original.comment
             for info in original.infolist():

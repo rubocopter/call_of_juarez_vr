@@ -34,7 +34,8 @@ using namespace cojvr::games::call_of_juarez;
 union Value { std::int64_t alignment; void* object; std::int32_t integer; };
 int player, weapon, replacement, player_class, pistol_class, other_class, exception;
 int schofield_a_class, schofield_b_class;
-int peacemaker_class, cogswell_class;
+int peacemaker_class, derringer_class;
+int frontier_class,walker_class,cogswell_class,schofield_class;
 int weapon_alias;
 void* table[174]{};
 void** ticket_env_holder = table;
@@ -77,7 +78,12 @@ void* JNI_CALL Find(void*, const char* name) {
         if (std::strcmp(name, exact)) optional_geometry_steps.push_back(step);
     }
     if (!std::strcmp(name, "WeaponPistolPeacemaker")) return Ref(&peacemaker_class);
-    if (!std::strcmp(name, "WeaponPistolCogswell")) return Ref(&cogswell_class);
+    if (!std::strcmp(name,"WeaponPistolFrontier"))return Ref(&frontier_class);
+    if (!std::strcmp(name,"WeaponPistolWalker"))return Ref(&walker_class);
+    if (!std::strcmp(name,"WeaponPistolCogswell"))return Ref(&cogswell_class);
+    if (!std::strcmp(name,"WeaponPistolSchofield"))return Ref(&schofield_class);
+
+    if (!std::strcmp(name, "WeaponPistolDerringer")) return Ref(&derringer_class);
     const bool whitelisted = !std::strcmp(name, "WeaponPistolFrontier1878_Regular") ||
         !std::strcmp(name, "WeaponPistolSchofield_A") ||
         !std::strcmp(name, "WeaponPistolSchofield_B");
@@ -587,6 +593,11 @@ int main() {
             TicketReset(bridge, hand); fail_step = operation; ArmCheck(bridge, false, hand);
         }
         TicketReset(bridge, hand); weapon_class = &peacemaker_class; ArmCheck(bridge, true, hand);
+        for(void* cls:{static_cast<void*>(&frontier_class),static_cast<void*>(&walker_class),static_cast<void*>(&cogswell_class)}){
+            TicketReset(bridge,hand);weapon_class=cls;ArmCheck(bridge,true,hand);
+            active[hand]=&replacement;ArmCheck(bridge,false,hand);
+        }
+
         for (void* cls : {static_cast<void*>(&schofield_a_class),
             static_cast<void*>(&schofield_b_class), static_cast<void*>(&other_class)}) {
             TicketReset(bridge, hand); weapon_class = cls; ArmCheck(bridge, false, hand);

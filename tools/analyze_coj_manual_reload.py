@@ -39,6 +39,21 @@ def yes(fields, key):
     return fields.get(key) in ('1', 'true')
 
 
+def trace_reserve_kind(fields, phase):
+    # Old inventoried traces observed pistol ammunition only. New traces bind
+    # each copied reserve to a named exact-game pool; incomplete tags reject.
+    if any('reserve_'+part+'_'+phase in fields for part in ('kind', 'count')):
+        kind = fields.get('reserve_kind_'+phase)
+        return kind if kind in ('pistol', 'rifle') else None
+    return 'pistol'
+
+
+def trace_reserve(fields, phase):
+    if any('reserve_'+part+'_'+phase in fields for part in ('kind', 'count')):
+        return integer(fields, 'reserve_count_'+phase) if trace_reserve_kind(fields, phase) else None
+    return integer(fields, 'pistol_reserve_'+phase)
+
+
 def owner(fields):
     return tuple(integer(fields, k) for k in
                  ('player_generation', 'native_context', 'weapon_id', 'armed_hand'))
@@ -302,6 +317,83 @@ def relative_orientation_angle_degrees(reference, current, part, anchor):
     return math.degrees(math.acos(max(-1.0,min(1.0,cosine))))
 
 
+def depth_sample_metadata_valid(fields):
+    """Check trace integrity only; even valid metadata cannot establish depth content."""
+    if (fields.get('eye') not in ('left', 'right') or
+            integer(fields, 'frame_sequence') is None or integer(fields, 'frame_sequence') <= 0 or
+            integer(fields, 'generation') is None or integer(fields, 'generation') <= 0 or
+            fields.get('phase') != 'full_eye_complete' or
+            fields.get('read_only') != 'true' or
+            fields.get('depth_content') != 'unverified' or
+            fields.get('occlusion_admission') != 'false' or
+            any(fields.get(key) != '1' for key in
+                ('target_valid', 'depth_valid', 'state_valid', 'layout_matches', 'transforms_valid'))):
+        return False
+    if not re.fullmatch(r'0x[0-9a-fA-F]+', fields.get('device', '')) or int(fields['device'], 16) == 0:
+        return False
+    for key in ('target', 'depth'):
+        if not re.fullmatch(r'0x[0-9a-fA-F]+', fields.get(key, '')) or int(fields[key], 16) == 0:
+            return False
+    dimensions = [integer(fields, key) for key in
+                  ('target_width', 'target_height', 'depth_width', 'depth_height')]
+    msaa = [integer(fields, key) for key in
+            ('target_msaa', 'depth_msaa', 'target_quality', 'depth_quality')]
+    states = [integer(fields, key) for key in ('z_enable', 'z_write', 'z_func')]
+    if (any(value is None or value <= 0 for value in dimensions) or
+            any(value is None or value < 0 for value in msaa) or
+            any(value is None or value < 0 for value in states) or
+            dimensions[2] < dimensions[0] or dimensions[3] < dimensions[1] or
+            msaa[0] != msaa[1] or msaa[2] != msaa[3]):
+        return False
+    try:
+        viewport = [int(v) for v in fields.get('viewport', '').split(',')]
+        minimum, maximum = float(fields['min_z']), float(fields['max_z'])
+        matrices = [[float(v) for v in fields.get(key, '').split(',')]
+                    for key in ('view', 'projection')]
+    except (ValueError, KeyError):
+        return False
+    return (len(viewport) == 4 and viewport[0] >= 0 and viewport[1] >= 0 and
+            viewport[2] > 0 and viewport[3] > 0 and
+            viewport[0] + viewport[2] <= dimensions[0] and
+            viewport[1] + viewport[3] <= dimensions[1] and
+            0 <= minimum <= maximum <= 1 and
+            all(len(matrix) == 16 and all(math.isfinite(v) for v in matrix)
+                for matrix in matrices))
+
+
+def correlate_depth_eye_pairs(samples):
+    """Pair ordered eye diagnostics within one frame, never across a reset/device."""
+    groups = {}
+    for sample in samples:
+        frame = integer(sample['fields'], 'frame_sequence')
+        # Unframed records are isolated rather than being accidentally paired.
+        key = frame if frame is not None and frame > 0 else ('unframed', sample['line'])
+        groups.setdefault(key, []).append(sample)
+    pairs = []
+    for group in groups.values():
+        eyes = [sample['fields'].get('eye') for sample in group]
+        valid = all(depth_sample_metadata_valid(sample['fields']) for sample in group)
+        ordered = len(group) == 2 and eyes == ['left', 'right']
+        same_owner = ordered and (group[0]['fields']['generation'], group[0]['fields']['device']) == (
+            group[1]['fields']['generation'], group[1]['fields']['device'])
+        if len(group) == 1 and valid:
+            status, reason = 'incomplete', 'missing_eye'
+        elif not valid:
+            status, reason = 'rejected', 'invalid_sample_metadata'
+        elif not ordered:
+            status, reason = 'rejected', 'missing_order_or_duplicate_eye'
+        elif not same_owner:
+            status, reason = 'rejected', 'device_or_generation_mismatch'
+        else:
+            status, reason = 'metadata_correlated', 'ordered_same_frame_device_generation'
+        pairs.append(dict(frame=integer(group[0]['fields'], 'frame_sequence'),
+                          lines=[s['line'] for s in group], eyes=eyes,
+                          status=status, reason=reason,
+                          layout_both=ordered and valid,
+                          content_correspondence='unverified', occlusion_admitted=False))
+    return pairs
+
+
 def analyze_evidence(directory):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
@@ -314,6 +406,7 @@ def analyze_evidence(directory):
     reported = Counter((e['event'], e['result']) for e in events)
     depth_samples=[dict(line=e['line'],fields=e['fields'],occlusion_admitted=False,
                         content_correspondence='unverified') for e in events if e['event']=='manual_reload_depth']
+    depth_eye_pairs=correlate_depth_eye_pairs(depth_samples)
     haptics=Counter(e['fields'].get('event') for e in events
                     if e['event']=='openvr_reload_haptic' and e['result']=='submitted')
     insert_frames = Counter()
@@ -357,8 +450,11 @@ def analyze_evidence(directory):
                               # The final round may synchronously start native closing.
                               integer(after['fields'], 'wait_probe_status_after') in (2, 3) and
                               readable and
-                              [integer(before['fields'], k) for k in ('ammo_readback_after', 'pistol_reserve_after')] == [numbers[0], numbers[2]] and
-                              [integer(after['fields'], k) for k in ('ammo_readback_after', 'pistol_reserve_after')] == [numbers[1], numbers[3]])
+                              f.get('reserve_kind', 'pistol') in ('pistol', 'rifle') and
+                              trace_reserve_kind(before['fields'], 'after') == f.get('reserve_kind', 'pistol') ==
+                              trace_reserve_kind(after['fields'], 'after') and
+                              [integer(before['fields'], 'ammo_readback_after'), trace_reserve(before['fields'], 'after')] == [numbers[0], numbers[2]] and
+                              [integer(after['fields'], 'ammo_readback_after'), trace_reserve(after['fields'], 'after')] == [numbers[1], numbers[3]])
             delta = [numbers[1]-numbers[0], numbers[3]-numbers[2]] if readable else None
             assessment = 'inconclusive'
             if readable and correlated:
@@ -461,8 +557,8 @@ def analyze_evidence(directory):
         if manual and coherent_trace(f) and yes(f, 'manual_session_enabled') and yes(f, 'same_owner_delta') and (
                 yes(f, 'wait_probe_observed') and integer(f, 'wait_probe_status_after') in (2, 3) and
                 integer(f, 'frame_sequence') not in accepted_frames):
-            values = [integer(f, k) for k in ('ammo_readback_before', 'ammo_readback_after', 'pistol_reserve_before', 'pistol_reserve_after')]
-            if all(v is not None and v >= 0 for v in values) and (values[1] > values[0] or values[3] < values[2]):
+            values = [integer(f, 'ammo_readback_before'), integer(f, 'ammo_readback_after'), trace_reserve(f, 'before'), trace_reserve(f, 'after')]
+            if trace_reserve_kind(f, 'before') == trace_reserve_kind(f, 'after') and all(v is not None and v >= 0 for v in values) and (values[1] > values[0] or values[3] < values[2]):
                 issues.append(dict(line=e['line'], kind='reload_readback_change_without_insertion'))
     return dict(schemaVersion=1, analysis_type='cojvr-offline-manual-reload', manual_candidate=manual,
                 headset_validated=False, provenance=dict(verified=True, runId=evidence['runId'],
@@ -480,6 +576,9 @@ def analyze_evidence(directory):
                     depth_observation_samples=len(depth_samples),
                     depth_unavailable_samples=sum(not yes(r['fields'],'depth_valid') for r in depth_samples),
                     depth_layout_samples=sum(yes(r['fields'],'layout_matches') for r in depth_samples),
+                    depth_correlated_pairs=sum(r['status']=='metadata_correlated' for r in depth_eye_pairs),
+                    depth_incomplete_pairs=sum(r['status']=='incomplete' for r in depth_eye_pairs),
+                    depth_rejected_pairs=sum(r['status']=='rejected' for r in depth_eye_pairs),
                     correlated_mechanical_samples=sum(r['trace_correlation'] == 'same_frame_armed_hand'
                                                        for r in mechanics),
                     port_pivot_rank_samples=sum(r.get('port_probe', {}).get('status') == 'pivot_only'
@@ -490,6 +589,7 @@ def analyze_evidence(directory):
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
                 renderer_depth_observations=depth_samples,
+                depth_eye_pairs=depth_eye_pairs,
                 timeline=events,
                 physical_gates_pending=['gate_clearance', 'tracked_hand_comfort', 'sounds', 'interruption_recovery'],
                 limits=['Readback observations are not physical acceptance or callback-complete history.',
@@ -500,7 +600,7 @@ def analyze_evidence(directory):
                         'Relative mechanical changes compare sparse samples of one owner/session, not continuous animation.',
                         'Full-frame relative rotation angles measure pose differences, not a hinge axis or usable loading-port clearance.',
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
-                        'Depth surface layout/state observations do not establish eye/hand content or admit occlusion.',
+                        'Ordered same-frame/device/generation depth metadata does not prove capture, eye/hand content or occlusion.',
                         'A zone cue grants no ammunition; submitted haptics and cartridge visibility do not validate physical grip.',
                         'Inventory hashes verify internal consistency, not external authentication.'])
 

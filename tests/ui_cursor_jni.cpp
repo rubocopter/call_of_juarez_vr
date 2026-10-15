@@ -33,7 +33,7 @@ Object* const objects[] = {&game, &lawman, &single, &menu_class, &module_class,
 enum class Id { menu = 1, active, cmenu, cursor, current_ui, ctor, getpos,
     setpos, move, process, x, y, z, ui_index, mousepos, object_id, find_ui,
     yes_no_visible, yes_no_dialog, game_mode, hint_manager, enter_press, enter_release,
-    active_hint, disable_hint, pause_hint, actually_visible };
+    active_hint, disable_hint, pause_hint, actually_visible, mission_visible, module_key, ui_key };
 enum class Fault { none, owner_lookup, lookup, allocation, getpos_false, getpos_throw, float_throw,
     cursor_throw, cursor_null };
 Fault fault = Fault::none;
@@ -44,6 +44,9 @@ bool modal_exists = true;
 bool game_mode_available = true;
 bool game_mode_lookup_throw = false;
 bool hint_available = false, hint_pauses = false;
+bool mission_visible = false, mission_throw = false, module_key_throw = false;
+bool single_module = true;
+int continue_presses = 0, continue_releases = 0, back_presses = 0;
 int enter_presses = 0, enter_releases = 0;
 int modal_enter_presses = 0;
 int hint_dismissals = 0;
@@ -113,6 +116,12 @@ void* COJVR_JNICALL Class(void*, void* obj) {
 }
 void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) {
     Require(!pending);
+    if (cls == &single && Is(name, "IsMenuMissionEndVisible") && Is(sig, "()Z"))
+        return Token(Id::mission_visible);
+    if (cls == &single && Is(name, "OnInputKey") && Is(sig, "(IZC)V"))
+        return Token(Id::module_key);
+    if (cls == &ui_class && Is(name, "CallOnInputKeyGlobal") && Is(sig, "(IZI)V"))
+        return Token(Id::ui_key);
     if (Is(name, "GetHintManager") && Is(sig, "()LHintManager;")) {
         // Shipped LawmanModule extends Module, not GameMode. The getter is
         // only available on m_GameMode; the old lookup must fail here.
@@ -248,6 +257,11 @@ void* COJVR_JNICALL New(void*, void* cls, void* ctor, const JValue* args) {
     return Local(vector);
 }
 std::uint8_t COJVR_JNICALL Boolean(void*, void* obj, void* method, const JValue* args) {
+    if (obj == &module && method == Token(Id::mission_visible)) {
+        Require(!pending && !args);
+        if (mission_throw) pending = true;
+        return mission_visible ? 1 : 0;
+    }
     if (obj == &modal_ui && method == Token(Id::actually_visible)) {
         Require(!pending && !args);
         return modal_visible ? 1 : 0;
@@ -287,12 +301,24 @@ void COJVR_JNICALL SetFloat(void*, void* obj, void* field, float value) {
     else { Require(field == Token(Id::z)); vector.z = value; }
 }
 void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
+    if (obj == &module && method == Token(Id::module_key)) {
+        Require(!pending && args && args[2].c == 0);
+        if (module_key_throw) { pending = true; return; }
+        // Shipped LawmanModuleSingle.OnInputKey branches at PC81 (Space)
+        // and PC48 (Escape); UI Enter and mouse callbacks do not continue.
+        if (args[0].i == 57) {
+            if (args[1].z) { ++continue_presses; mission_visible = false; }
+            else ++continue_releases;
+        } else { Require(args[0].i == 1); if (args[1].z) { ++back_presses; mission_visible = false; } }
+        return;
+    }
     if (obj == &manager) {
         Require(!pending && method == Token(Id::disable_hint) && !args);
         ++hint_dismissals;
         return;
     }
     if (obj == &ui || obj == &modal_ui) {
+        if (method == Token(Id::ui_key)) { Require(!pending && args); return; }
         if (method == Token(Id::enter_press) || method == Token(Id::enter_release)) {
             Require(!pending && !args);
             if (method == Token(Id::enter_press)) ++enter_presses;
@@ -314,6 +340,7 @@ void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
     }
 }
 std::uint8_t COJVR_JNICALL Instance(void*, void* obj, void* cls) {
+    if (obj == &module && cls == &single) { Require(!pending); return single_module ? 1 : 0; }
     Require(!pending && (obj == &ui || obj == &modal_ui) && cls == &loading_class);
     return 0;
 }
@@ -631,6 +658,44 @@ int Run() {
             "only a pausing GameMode hint may consume selection instead of the current UI");
         bridge.Reset(); CheckClean();
     }
+    hint_available = hint_pauses = false;
+    global_available = active_available = current_ui_available = mission_visible = true;
+    for (const bool pointer : {false, true}) {
+        mission_visible = true;
+        JavaPlayerBridge bridge; std::string error;
+        CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+        const auto before = continue_presses, before_release = continue_releases;
+        const auto before_enter = enter_presses, before_click = native_clicks;
+        const bool sent = pointer ? bridge.TryDispatchUiPointerSelectPress(
+            false, &DispatchMouseButton, nullptr, &error, nullptr, &route) :
+            bridge.TryDispatchUiSelectPress(false, nullptr, &error, nullptr, &route);
+        ok &= Check(sent && !mission_visible && continue_presses == before + 1 &&
+            continue_releases == before_release + 1 && enter_presses == before_enter &&
+            native_clicks == before_click && route == CoJUiDispatchRoute::active_game_module,
+            "mission end must deliver Space to module, never Enter/mouse to UI38");
+        bridge.Reset(); CheckClean();
+    }
+    {
+        mission_visible = true;
+        JavaPlayerBridge bridge; std::string error;
+        const int before = back_presses;
+        ok &= Check(bridge.TryDispatchUiBackPress(&error) && !mission_visible && back_presses == before + 1,
+            "mission end back must reach module Escape even with a current UI");
+        bridge.Reset(); CheckClean();
+    }
+    for (const bool observation_fault : {false, true}) {
+        mission_visible = true;
+        JavaPlayerBridge bridge; std::string error;
+        mission_throw = observation_fault; module_key_throw = !observation_fault;
+        const int before_enter = enter_presses, before_continue = continue_presses;
+        ok &= Check(!bridge.TryDispatchUiSelectPress(false, nullptr, &error) &&
+            !pending && !error.empty() && enter_presses == before_enter &&
+            continue_presses == before_continue,
+            "mission observation/dispatch fault must fail closed without generic UI fallback");
+        mission_throw = module_key_throw = false;
+        bridge.Reset(); CheckClean();
+    }
+    mission_visible = false;
     hint_available = hint_pauses = current_ui_available = global_available = false;
     for (const std::size_t missing : {15U, 17U, 30U, 39U, 102U}) {
         void* saved = env_table[missing]; env_table[missing] = nullptr;

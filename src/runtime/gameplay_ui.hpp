@@ -16,6 +16,7 @@ struct UiLabel {
 };
 struct EquipmentWheelSnapshot {
     std::array<UiLabel, 8> labels{};
+    UiLabel cancel_label{},confirm_label{};
     std::uint8_t owned_mask = 0;
     std::uint8_t available_mask = 0;
     int selected = -1;
@@ -39,6 +40,21 @@ struct WristCompassSnapshot {
             north_direction.y == other.north_direction.y && markers == other.markers && marker_count == other.marker_count;
     }
 };
+// Optional value-only decorations. Game adapters own meaning/admission;
+// renderer owns glyphs, colours and bounded coverage within an existing row.
+enum class WristStatusMeterSpan { left,right };
+struct WristStatusMeter {
+    int row=-1,percent=-1;
+    WristStatusMeterSpan span=WristStatusMeterSpan::left;
+    bool warning_high=false;
+    bool operator==(const WristStatusMeter&) const = default;
+};
+enum class WristStatusBadgeKind { none,ready,active,cooldown,unavailable };
+struct WristStatusBadge {
+    int row=-1;
+    WristStatusBadgeKind kind=WristStatusBadgeKind::none;
+    bool operator==(const WristStatusBadge&) const = default;
+};
 struct WristStatusSnapshot {
     static constexpr std::uint32_t pixel_width=512, row_height=48, padding=32;
     bool active=false;
@@ -47,6 +63,8 @@ struct WristStatusSnapshot {
     // Optional visual meter derived from an owned HUD health row. No native
     // health/inventory authority; absent or invalid metadata keeps plain text.
     int health_row=-1,health_percent=-1;
+    std::array<WristStatusMeter,2> meters{};
+    WristStatusBadge badge{};
     [[nodiscard]] std::uint32_t pixel_height() const noexcept { return line_count<=lines.size()?padding+row_height*line_count:0; }
     bool operator==(const WristStatusSnapshot&) const = default;
 };

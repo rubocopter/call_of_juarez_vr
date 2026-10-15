@@ -39,6 +39,9 @@ callbacks after retirement. This cleanup case has deterministic host coverage.
 Each physical candidate binds source state, build manifest, deployed hashes and
 one fresh run ID to one game process. `tools/vr_test.ps1 prepare` builds, checks
 and stages; `finish` collects evidence and restores original assets transactionally.
+Canonical native telemetry checks use only the interval from one exact run/build
+start to its matching later end; duplicate, foreign or reversed markers reject.
+Collection preserves that rejection and cannot mark an invalid interval complete.
 The operator starts and closes the game and SteamVR. Retained inventory and
 backup identities are checked before any recovery mutation; missing or damaged
 backups preserve the journal instead of permitting partial restoration.
@@ -81,11 +84,23 @@ reads each currently bound color RT0, not a swap-chain backbuffer that may echo
 both eyes. Frame identity includes the exact HMD render pose/sequence submitted
 through OpenVR explicit-pose submission. See [camera contracts](research/COJ_CAMERA_PATH.md).
 
+## Physical hand contact
+
+Physical Hands contact uses game-neutral per-hand input/motion admission with
+game-owned collision geometry. The CoJ adapter reconstructs original knuckle
+skin witnesses from current displayed bones/weights and supplies independent
+current-pose movement segments. A scoped native contact query precedes one
+eligible original attack; no completed historical curve or animation deadline
+delays collision. Native permissions, cooldown, reactions and damage remain
+authoritative. Query endpoints are private copies because the native trace
+writes the collision endpoint. A contact latch prevents held/static repetition;
+ownership/tracking loss retains available-release barriers.
+
 ## Presentation modes
 
 `native_stereo` contains two game eye renders. `flat_theater` projects native
 Present content onto a finite-depth head-anchored plane for startup, menus,
-loading and blocking native UI. Per-eye geometry and asymmetric optics determine
+loading, scripted in-game movies by default and blocking native UI. Per-eye geometry and asymmetric optics determine
 texture extents; identical centered images or fixed padding are insufficient.
 
 Game callbacks produce captured frames; the presenter owns compositor cadence,
@@ -99,11 +114,68 @@ is retained for this path.
 ## Flat UI ownership
 
 The active exact `LawmanModuleSingle` supplies `IsTimerFreezed`,
-`IsMainPlayerAlive` and `IsMenuMissionEndVisible` (menu 38). A stopped timer,
-dead player, visible mission-end UI or unavailable observation yields native
+`IsMainPlayerAlive`, `IsMenuMissionEndVisible` (menu 38) and
+`IsAnyMoviePlaying`. The last getter reads the playing movie or visible owned
+black belts; it never starts/updates a movie. A stopped timer, dead player,
+visible mission-end UI, scripted movie or unavailable observation yields native
 stereo/body/gameplay ownership and captures native Present in flat theater.
 A post-input check aborts the frame before body/eye writes if dispatch acquired
-blocking UI. Death UI cannot be inferred from timer state alone.
+blocking UI. Death and movie ownership cannot be inferred from timer state alone.
+Movies can run with a live timer, scripted camera and module subtitle sprite.
+Yielding before stereo/body writes keeps the complete naturally rendered native
+Present, including those subtitles, on the existing flat screen. The script moves
+its image inside that screen; it does not drive the tracked viewpoint. End-of-movie
+recovery retains the existing available-release barriers and scoped restoration.
+
+The persisted VR cinematic preference can opt a verified live scripted movie
+into camera-only native stereo. This route uses the natural scripted camera,
+tracked head and the full wrapper for each eye, restoring camera state after
+each pass. It cancels gameplay/reload/punch ownership and performs no tracked
+body, hand or weapon writes. Invalid/dead/mission-end/frozen owners retain flat
+theater; a frozen movie cannot safely be distinguished from pause by these
+observations. Transient capture pressure retains the last valid stereo image
+within the existing 250 ms freshness window; admission alone does not extend
+that window in passive movie/settings routes. A presentation owner or mode
+change retires outstanding captures, and a newly queued fence cannot declare
+the previous mode's displayed image current. Flat recovery waits for a newly
+published complete pair. Sustained staleness falls back to native Present;
+death, pause, ownership loss and failed native restoration invalidate immediately.
+Immersive
+movie subtitle sprites are not yet transported by this camera-only route. The
+verified module/movie objects retain no subtitle string and `Sprite` exposes no
+text getter; ordinary actor-dialogue text is a different ownership path. The
+panel identifies this limitation when immersive is selected. Theater preserves
+the naturally rendered native subtitle pass; no script/sprite pass is replayed.
+
+VR settings run on the OpenVR presenter. A released short Options tap requests
+native pause; a one-second hold opens the panel. Right-stick left/right selects
+the cinematic preference, Cross toggles it and Circle closes. Input capture
+includes the opening hold and the entry/exit release barriers. Focus, tracking,
+button availability and native owner changes cancel the panel. Available neutral
+buttons and sticks are required before gameplay or native menu input resumes.
+Capturing controls preserves the admitted independent hand/weapon render
+transaction and current finger presentation. Those visual transforms restore
+hand before child weapon after eye capture; they publish no ballistic/whip aim
+and execute no native gameplay action or actor/body update. Movies retain their
+separate natural-body camera-only route. Settings capture backpressure may repeat
+the last successfully queued pair within the ordinary freshness window; repeated
+admission cannot renew that window. Failed native restoration invalidates it
+immediately.
+The natural-camera fallback has a renderer-only scope: its camera updater
+forwards directly to the retained native updater without enabling/disabling the
+relative pose tracker. A transient capture failure must not discard the VR base
+or recenter hands on the next pose.
+The game adapter supplies value-only owner identity and startup language; the
+renderer owns the dedicated head-space panel. A bounded versioned user-local
+configuration defaults to theater, replaces atomically on changes and reports
+save failure in the panel. Comfort settings remain future additions.
+Its dedicated BGRA texture uses DEFAULT storage with shader/render-target and
+shared-resource flags; the presenter verifies a non-null legacy shared handle
+and flushes initial data before publication. Host tests open the resource on a
+second device and compare pixels. This establishes direct sharing, not a claim
+that every OpenVR DirectX texture requires those flags. Overlay failures record
+bounded API stage/error/HRESULT/resource/adapter detail. An invisible failed
+panel cannot publish or persist a changed preference.
 
 The presenter intersects tracked `/pose/tip` with the flat screen automatically,
 retains a valid hand owner and lets a fresh L2/R2 select that hand. No shoulder
@@ -127,6 +199,13 @@ Escape routing, not `ShowPrevUI`. Intro/loading and pausing hints use their own
 shipped consumers; HintManager belongs to GameMode through `LawmanModule.m_GameMode`.
 Native input readback must agree within one pixel. Physical mouse activity has
 priority for 1.5 seconds; observation continues while the VR beam is hidden.
+
+Visible exact `MenuMissionEnd` (38) is a separate native input owner. Its static
+text advertises Space to continue and Escape to quit; it has no Enter/mouse
+consumer. A verified visible `LawmanModuleSingle` receives those press/release
+events through its original `OnInputKey`, preserving its save/load/exit decisions.
+Ordinary menus retain their existing UI consumers. Delivery alone does not prove
+a retry or menu transition.
 
 Queued clicks retain matching hand/claim/index identity through a confirming
 Present. Failed delivery, owner/focus loss, navigation or UI-index change cancels
@@ -191,6 +270,16 @@ The visible owned health row optionally supplies a bounded 0–100 percentage
 parsed from its native numeric cache. Its wrist meter and low-health text colors
 are presentation only; missing/out-of-range metadata preserves ordinary text.
 Only that row changes, with no new health reads, gameplay calls or authority.
+Optional rows also carry bounded renderer-neutral decorations from the same
+admitted caches: paired percentages with warning direction and a discrete state
+badge. The CoJ adapter maps horse health/fatigue to separate half-row meters and
+committed concentration mode to ready/active/cooldown/unavailable. Fatigue fills
+up as native tiredness increases; no remaining-stamina conversion or cooldown
+progress clock is introduced. Decorations follow actual appended rows and cannot
+displace essential rows. Missing/invalid/overlapping meter metadata retains text;
+the existing health meter has priority. Context/tracking loss clears the whole
+captured status, and unchanged content reuses pixels. These semantic graphics
+are host-tested; they do not capture native HUD sprites or establish visor fit.
 Fatigue is not remaining stamina; shadow does not guarantee enemy invisibility.
 Pixel rebuilds and bounded game-owner observation run at up to 10 Hz while each
 captured frame retains its own geometry, optics and resource identity.
@@ -207,6 +296,15 @@ Bounded readers preserve owned native visibility/alpha, localized hint/interacti
 text and subtitle settings/dialogue ownership. UTF-16 snapshots travel with exact
 capture identity and eye optics. The D3D11 presenter caches finite-depth Unicode
 panels after copying fresh world content; empty snapshots remove old panels.
+
+Authored VR wrist labels, equipment sectors/confirmation and controller-gesture
+wording follow the startup `Game.ini` `Locale("En")`/`Locale("Es")` setting.
+The game adapter reads the bounded configuration once on exact-build installation;
+missing, unknown or ambiguous settings use English. Native copied dialogue,
+notices and waypoint text remain unchanged UTF-16. Renderers receive copied
+labels, including wheel confirmation text, without game-language parsing.
+Production and host targets compile UTF-8 sources consistently; test-only UTF-8
+previously masked corrupted authored accents in the production DLL.
 
 Copied prompts translate only explicitly delimited default campaign keys and
 observed aliases into Sense gestures. Native strings/dialogue/bare letters and
@@ -277,7 +375,8 @@ deferred credit or new body/IK solver exists. This candidate is host-tested and
 bounded live-tested on a right-hand Peacemaker: correlated unit transfers,
 sustained waiting and sampled scoped presentation/restoration recover to ready.
 Square preparation/closure, continued hand tracking, repeated manual loading
-and weapon/menu recovery have scoped operator acceptance. Exact port clearance,
+and weapon/menu recovery have scoped operator acceptance. The loading port's
+visual presentation is also operator-accepted. Measured mouth geometry/insertion,
 prolonged comfort and other interruption contexts require further evidence.
 Manual Square rearming is scoped to available gameplay, player/context/input
 generation and the observed weapon. Loss invalidates a prior released baseline;
@@ -315,7 +414,16 @@ replacement, death and failed reads still reject it; the armed hand remains nati
 During manual waiting the support uses current curls, or authored rest when no
 curl sample exists. The estimated cartridge pinch requires a physical trigger
 claim and held round, not merely an open weapon or a replenished available token.
-Curl zero means authored rest, not maximum opening.
+Curl zero means authored rest, not maximum opening. A host-tested support-thumb
+gesture starts only after the existing same-owner native unit transfer is observed.
+It preserves the insertion sample's pinch, moves thumb curl from .7 to .75 over
+50 ms and returns to current ordinary fingers by 180 ms. Both-hand offline skin
+measurements bound this motion to roughly 1.45/2.71 mm; it is feedback rather than
+a measured axial insertion. Context/weapon/input-generation changes, tracking
+loss, recentering, sample regression/gap or renewed pickup cancel it without replay.
+The existing native empty-support-hand gate and scoped finger restoration still
+apply; closing status rejects the pose, including an immediate final-round close.
+The cartridge remains hidden after insertion. No delayed transfer or retry is added.
 
 The manual cartridge uses one loose .357 node from a third-party CC0 glTF (83
 positions, 92 triangles), baked with source normals/UVs and a cropped 128x160
@@ -361,6 +469,12 @@ no texture copy, readback, depth sampling or render-state mutation. Matching
 dimensions/MSAA are layout evidence only, never eye/hand content or occlusion
 admission. The backend owns these renderer-specific observations. The reader is
 host-tested; exact-game depth content remains unobserved.
+The offline evidence analyzer groups these samples by frame and requires one
+ordered left/right pair with identical device/generation, intact read-only
+metadata, finite matrices and compatible surface/viewport layout. Missing,
+repeated, reversed or reset-crossing observations are reported separately.
+Even correlated metadata does not establish that the sampled depth matches the
+captured eye, contains rendered fingers or can be transported to the compositor.
 
 ## Weapon ownership
 
@@ -394,9 +508,10 @@ The default motion-reload route is a hybrid request into native action 31,
 retaining conventional Square and native ammo/reserve/state/animation authority.
 The opt-in persistent route uses Square preparation and native unit insertion
 as described above; the following paced/probe contracts are legacy alternatives.
-Exact passive admission supports
-four audited single-pistol/empty-support classes; the paced single-round extension
-is limited to Peacemaker/Frontier. A waist pickup, held journey and release near
+Exact passive admission supports eight concrete single-pistol/empty-support
+classes; the paced single-round extension uses the five qualified profiles in
+[reload ownership](research/COJ_RELOAD_OWNERSHIP.md#exact-revolver-profiles).
+A waist pickup, held journey and release near
 the grip requests one native round. Following an observed reload interval, ordinary
 eligible ownership must recover before the presentation-only solid token replenishes.
 Fresh trigger press/release can then request another round without returning to waist.
@@ -529,6 +644,18 @@ after bridge/session destruction. Final GPU/
 proxy summaries must be unique and agree on copied/completed totals, zero pending
 copies/abandoned leases and full published-lease reclamation.
 
+A thin exact-game render-hook SEH filter optionally records the first escaping
+access/in-page fault: run/build/process/frame identity, actual exception and
+access addresses, module/RVA, registers and a bounded stack. Fixed storage and
+direct file writes avoid telemetry locks and renderer/JNI mutations. It always
+continues native exception search; no process-wide handler, suppression or
+recovery is installed. This diagnostic boundary is host-tested, not a crash fix.
+Collection admits only a bounded report matching the owned native start/run/build
+and process. Recollection preserves previous reports outside the current package
+before rebuilding its hash inventory; rejected/absent reports cannot leave an
+uninventoried ZIP member. An unstarted run needs no runtime folder. Ordinary
+collection, native failure and operator/visor acceptance remain separate facts.
+
 Raw videos/logs/dumps and run metadata belong under ignored local evidence and may
 be removed once their durable conclusions are captured in source, tests and focused
 research. Active staging/recovery journals and their original backups must remain
@@ -556,6 +683,41 @@ instead of revalidating partially restored inputs.
 PS VR2 with Sense controllers through SteamVR is the development reference.
 Bindings belong to runtime assets; game logic consumes logical actions/poses.
 Compatibility with other devices requires independent acceptance.
+
+## Physical boxing
+
+The shared `MotionPunchContact` policy admits current closed-fist poses per hand
+in tracking and head-relative spaces. A fresh moving pose queries measured skin
+contact immediately; no completed historical curve, minimum travel, timed guard
+or long-stroke rearm delays the attack. Real grip and head-relative translation
+must meet the existing motion threshold, so a stationary or rotation-only fist
+cannot attack. Contact latches until a later clear query, preventing repeated
+attempts against the same surface. Owner, player/input/context generation,
+tracking, time and recenter changes cancel pending contact and retain available
+release barriers. Duplicate delivery does not advance the geometric baseline.
+
+The CoJ adapter admits only the exact `WeaponHands` with stable native ownership
+and hand states. It maps every point through the same current camera/body
+frame in centimetres, after verifying the scoped tracked-hand transaction.
+`cojvrPhysicalPunch` rechecks the native owner, campaign/presentation/carry/death
+and attack permissions, then calls native `Weapon.Attack` synchronously. Native
+logic selects the physical hand's attack mode and retains cooldown, collision,
+damage and effects. Temporarily owned world segments replace the exact melee
+loop's trace count and bypass its authored local-coordinate transformation.
+The original collision/hit loop consumes the current independent segment bundle,
+with one native attack and native hit de-duplication across those rows. The first
+tangent supplies only the auxiliary origin/basis. JNI derives the row type from an actual array of the
+admitted Vector class, without a separate class-loader lookup, and releases all
+payload references after the attempt. No shared attack parameters or health are
+written. Scope cleanup also rethrows Java failures unchanged. Synchronous boxing
+reaction reads the native attack's damage type through the same transient scope.
+Tracked fist rendering uses the authored hand socket, without a firearm barrel.
+Attempt telemetry is not hit confirmation. The operator has headset-validated
+the current route in an exercised fight, reporting three defeated enemies and
+substantially improved feel. This is scoped acceptance, not broad campaign
+support. Four sampled skin witnesses do not qualify complete fist volume,
+guard/blocking or native AI anticipation of a controller wind-up. Firearm input
+and dual reload retain their existing routes.
 
 ## Physical-candidate image quality
 

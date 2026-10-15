@@ -115,16 +115,27 @@ void BuildCoJGameplayUiOverlay(const CoJGameplayUiSnapshot& native,const runtime
     }
     // Inventory is stored in semantic channel order; presentation is clockwise
     // spatial order. Keep both labels and permissions on the same action map.
-    constexpr std::u16string_view fallback[]{u"Left pistol",u"Right pistol",u"Long weapon",
-        u"Dynamite",u"Bible / whip",u"Bow",u"Hands",u"Throw weapon"};
+    constexpr CoJUiPhrase fallback[]{CoJUiPhrase::left_pistol,CoJUiPhrase::right_pistol,CoJUiPhrase::wheel_long,
+        CoJUiPhrase::wheel_dynamite,CoJUiPhrase::bible_whip,CoJUiPhrase::wheel_bow,CoJUiPhrase::hands,CoJUiPhrase::discard};
     out.ui.wheel.valid=true;out.ui.wheel.active=input.weapon_radial;
     out.ui.wheel.selected=input.radial_highlight;
+    if(native.inventory.valid){
+        out.ui.wheel.cancel_label=native.inventory.cancel_label;
+        out.ui.wheel.confirm_label=native.inventory.confirm_label;
+    }else{
+        const auto copy=[](runtime::UiLabel& label,std::u16string_view text){
+            label.length=static_cast<std::uint32_t>(text.size());
+            std::copy(text.begin(),text.end(),label.characters.begin());
+        };
+        copy(out.ui.wheel.cancel_label,CoJUiText(native.language,CoJUiPhrase::cancel));
+        copy(out.ui.wheel.confirm_label,CoJUiText(native.language,CoJUiPhrase::confirm));
+    }
     for(std::size_t sector=0;sector<runtime::kWeaponRadialActions.size();++sector){
         const auto channel=static_cast<std::size_t>(runtime::kWeaponRadialActions[sector]);
         auto& label=out.ui.wheel.labels[sector];
         if(native.inventory.valid)label=native.inventory.labels[channel];
         else{
-            const auto text=fallback[channel];label.length=static_cast<std::uint32_t>(text.size());
+            const auto text=CoJUiText(native.language,fallback[channel]);label.length=static_cast<std::uint32_t>(text.size());
             std::copy(text.begin(),text.end(),label.characters.begin());
         }
         if(native.inventory.valid && (native.inventory.owned_mask&(1U<<channel)))

@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
+#include "games/call_of_juarez/reload_insertion_pose.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -83,6 +84,83 @@ bool TestGuards() {
         right.available&&right.quality==cojvr::runtime::FingerTrackingQuality::estimated&&
         right.curls==std::array<float,5>{};
 }
+
+bool TestInsertionPose() {
+    for(int hand=0;hand<2;++hand){
+        CoJReloadInsertionPose pulse;
+        CoJReloadInsertionPoseInput input{};
+        input.allowed=true;input.player=1;input.context=2;input.weapon=42;
+        input.input_generation=3;input.sequence=9;input.now=1000;
+        input.armed_hand=1-hand;input.left=input.right=TrackedPose();
+        cojvr::runtime::FingerTrackingState left{},right{};
+        left.available=right.available=true;left.curls.fill(.1F);right.curls.fill(.2F);
+        const auto raw_left=left,raw_right=right;
+        if(pulse.Apply(input,left,right)!=-1)return false; // Intent alone cannot animate.
+        input.sequence=10;input.insertion_event=10;
+        if(pulse.Apply(input,left,right)!=hand)return false;
+        if((hand==0?right:left).curls[0]!=.7F)return false;
+        input.insertion_event=0;input.sequence++;input.now+=50;
+        left=raw_left;right=raw_right;
+        if(pulse.Apply(input,left,right)!=hand||
+           std::fabs((hand==0?right:left).curls[0]-.75F)>.0001F||
+           !Same(hand==0?left:right,hand==0?raw_left:raw_right))return false;
+        input.sequence++;input.now+=80;left=raw_left;right=raw_right;
+        if(pulse.Apply(input,left,right)!=hand||
+           (hand==0?right:left).curls[0]>=.7F)return false;
+        input.sequence++;input.now=1180;left=raw_left;right=raw_right;
+        if(pulse.Apply(input,left,right)!=-1||!Same(left,raw_left)||!Same(right,raw_right))return false;
+        input.insertion_event=10;input.sequence++;input.now++;
+        if(pulse.Apply(input,left,right)!=-1)return false; // Duplicate never restarts.
+    }
+    for(int fault=0;fault<15;++fault){
+        CoJReloadInsertionPose pulse;
+        CoJReloadInsertionPoseInput input{};
+        input.allowed=true;input.player=1;input.context=2;input.weapon=42;
+        input.input_generation=3;input.sequence=10;input.insertion_event=10;input.now=1000;
+        input.armed_hand=0;input.left=input.right=TrackedPose();
+        cojvr::runtime::FingerTrackingState left{},right{};
+        if(pulse.Apply(input,left,right)!=1)return false;
+        input.insertion_event=0;input.sequence++;input.now+=20;
+        if(fault==0)input.allowed=false;
+        if(fault==1)input.recentered=true;
+        if(fault==2)input.player++;
+        if(fault==3)input.context++;
+        if(fault==4)input.weapon++;
+        if(fault==5)input.input_generation++;
+        if(fault==6)input.armed_hand=1;
+        if(fault==7)input.left.position_valid=false;
+        if(fault==8)input.right.orientation={0,0,0,0};
+        if(fault==9)input.cartridge_held=true;
+        if(fault==10)input.support_trigger_held=true;
+        if(fault==11)input.sequence=9;
+        if(fault==12)input.now=999;
+        if(fault==13)input.now=1251;
+        if(fault==14)input.left.position.x=std::numeric_limits<float>::quiet_NaN();
+        left={};right={};
+        if(pulse.Apply(input,left,right)!=-1||left.available||right.available)return false;
+        input.allowed=true;input.recentered=false;input.player=1;input.context=2;input.weapon=42;
+        input.input_generation=3;input.armed_hand=0;input.left=input.right=TrackedPose();
+        input.cartridge_held=input.support_trigger_held=false;input.now=1300;input.sequence=12;
+        if(pulse.Apply(input,left,right)!=-1)return false; // Recovery cannot replay.
+    }
+    // A successful rigid-hand map can still reject scoped finger application.
+    // Losing that native eligibility cancels the old pulse permanently.
+    CoJReloadInsertionPose pulse;
+    CoJReloadInsertionPoseInput input{};
+    input.allowed=true;input.player=1;input.context=2;input.weapon=42;
+    input.input_generation=3;input.sequence=10;input.insertion_event=10;input.now=1000;
+    input.armed_hand=0;input.left=input.right=TrackedPose();
+    cojvr::runtime::FingerTrackingState left{},right{};
+    if(pulse.Apply(input,left,right)!=1)return false;
+    pulse.Cancel();
+    input.insertion_event=0;input.sequence++;input.now+=20;left={};right={};
+    if(pulse.Apply(input,left,right)!=-1||left.available||right.available)return false;
+    input.insertion_event=10;input.sequence++;input.now+=20;
+    if(pulse.Apply(input,left,right)!=-1)return false;
+    input.insertion_event=12;input.sequence++;input.now+=20;
+    if(pulse.Apply(input,left,right)!=1)return false;
+    return true;
+}
 }
 
 int main() {
@@ -108,7 +186,7 @@ int main() {
         std::cerr<<"Empty manual support must restore resting fingers instead of retaining native reload pinch\n";
         return 1;
     }
-    if(!TestPinch(0)||!TestPinch(1)||!TestGuards()){
+    if(!TestPinch(0)||!TestPinch(1)||!TestGuards()||!TestInsertionPose()){
         std::cerr<<"Reload pinch selection or tracking guard failed\n";
         return 1;
     }

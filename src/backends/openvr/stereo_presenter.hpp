@@ -2,6 +2,7 @@
 
 #include "backends/d3d9/frame_mailbox.hpp"
 #include "runtime/vr_types.hpp"
+#include "runtime/vr_settings.hpp"
 
 #include <array>
 #include <cstdint>
@@ -58,6 +59,8 @@ struct OpenVrTrackingSample {
     bool ui_back_pressed = false;
     bool pause_pressed = false;
     bool ui_actions_allowed = false;
+    bool vr_settings_active = false;
+    bool vr_settings_input_captured = false;
 };
 
 struct OpenVrPresenterStats {
@@ -99,6 +102,9 @@ public:
     void PublishGameplayFeedbackContext(bool available) noexcept;
     [[nodiscard]] std::uint64_t GameplayFeedbackContextToken() const noexcept;
     void PublishReloadFeedbackOwner(std::uint64_t token) noexcept;
+    // Game-owner values only; independent from gameplay feedback and JNI.
+    void PublishSettingsContext(std::uint64_t token, bool available = true) noexcept;
+    void PublishSettingsLanguage(runtime::SettingsLanguage language) noexcept;
 
     [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame) noexcept;
     [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;

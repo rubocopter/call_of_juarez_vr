@@ -13,6 +13,9 @@ if (Test-Path -LiteralPath $ValidationContext.ResultPath) {
 $ValidationSucceeded = $false
 $ValidationReasons = @()
 try {
+if (-not $ValidationContext.RuntimeMarkersValid) {
+    throw 'The runtime markers must identify one matching process interval, with at most one end after its start.'
+}
 . (Join-Path $PSScriptRoot "coj_executable_identity.ps1")
 $ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
 
@@ -20,7 +23,7 @@ $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
     -GameDirectory $GameDirectory `
     -ExpectedDiagnosticMode "d3d9_native_stereo"
 $Run = $Provenance.Run
-$Lines = @($Provenance.Lines)
+$Lines = @($ValidationContext.RuntimeLines)
 
 Assert-CoJExecutableProvenance $Run $Provenance.StageState
 if (([string]$Run.game.engine.sha256).ToUpperInvariant() -ne $ExpectedChromeEngineHash -or

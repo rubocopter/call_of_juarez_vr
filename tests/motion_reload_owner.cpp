@@ -16,7 +16,8 @@ using namespace cojvr::games::call_of_juarez;
 union Value { std::int64_t alignment; void* object; std::int32_t integer; };
 int player, weapon, replacement, player_class, pistol_class, other_class, exception;
 int schofield_a_class, schofield_b_class;
-int peacemaker_class, cogswell_class;
+int peacemaker_class, derringer_class;
+int frontier_class,walker_class,cogswell_class,schofield_class;
 int weapon_alias;
 void* table[174]{};
 void** holder = table;
@@ -56,7 +57,12 @@ void* JNI_CALL Find(void*, const char* name) {
         return nullptr;
     }
     if (!std::strcmp(name, "WeaponPistolPeacemaker")) return Ref(&peacemaker_class);
-    if (!std::strcmp(name, "WeaponPistolCogswell")) return Ref(&cogswell_class);
+    if (!std::strcmp(name,"WeaponPistolFrontier"))return Ref(&frontier_class);
+    if (!std::strcmp(name,"WeaponPistolWalker"))return Ref(&walker_class);
+    if (!std::strcmp(name,"WeaponPistolCogswell"))return Ref(&cogswell_class);
+    if (!std::strcmp(name,"WeaponPistolSchofield"))return Ref(&schofield_class);
+
+    if (!std::strcmp(name, "WeaponPistolDerringer")) return Ref(&derringer_class);
     const bool whitelisted = !std::strcmp(name, "WeaponPistolFrontier1878_Regular") ||
         !std::strcmp(name, "WeaponPistolSchofield_A") ||
         !std::strcmp(name, "WeaponPistolSchofield_B");
@@ -277,7 +283,7 @@ void NativeReloadRecovery() {
             ReloadRecovery(hand); (*weapons)[1-hand]=&weapon; CheckRecovery(false);
         }
         for (void* cls : {static_cast<void*>(&schofield_a_class),static_cast<void*>(&schofield_b_class),
-                static_cast<void*>(&other_class),static_cast<void*>(&cogswell_class)}) {
+                static_cast<void*>(&other_class),static_cast<void*>(&derringer_class)}) {
             ReloadRecovery(hand); weapon_class=cls; CheckRecovery(false);
         }
         ReloadRecovery(hand); dead=true; CheckRecovery(false);
@@ -387,6 +393,17 @@ int main() {
             Reset(hand); (*weapons)[1-hand] = &weapon; Check(false);
         }
         Reset(hand); active[hand] = desired[hand] = &weapon_alias; Check(true, hand);
+
+        for(void* cls:{static_cast<void*>(&frontier_class),static_cast<void*>(&walker_class),static_cast<void*>(&cogswell_class)}){
+            Reset(hand);weapon_class=cls;CoJMotionReloadOwner owner{};
+            Require(ReadCoJMotionReloadOwner(&holder,&player,owner)&&owner.single_round_supported,
+                "qualified other revolver did not admit native unit loading");
+            Require(refs==0&&!pending,"expanded revolver leaked JNI references");
+            current[hand]=destiny[hand]=wanted[hand]=actual_state[hand]=21;reload=true;
+            Require(ReadCoJNativeReloadRecoveryOwner(&holder,&player,owner)&&owner.single_round_supported,
+                "expanded revolver lost native recovery ownership");
+            Require(refs==0&&!pending,"expanded revolver recovery leaked JNI references");
+        }
         Reset(hand); weapon_class = &other_class; Check(false);
         Reset(hand); weapon_class = &peacemaker_class; Check(true, hand);
         {
@@ -402,7 +419,7 @@ int main() {
                 "diagnostic class lookup did not identify exact peacemaker class");
             Require(refs == 0 && !pending, "diagnostic class lookup leaked JNI state");
         }
-        Reset(hand); weapon_class = &cogswell_class;
+        Reset(hand); weapon_class = &derringer_class;
         {
             CoJMotionReloadOwner out{};
             CoJMotionReloadDiagnostic diagnostic{};
@@ -412,7 +429,7 @@ int main() {
                 "known unsupported pistol lost strict rejection");
             const char* class_name = nullptr;
             Require(ReadCoJMotionReloadWeaponClassName(&holder, &player, hand, class_name) &&
-                class_name && !std::strcmp(class_name, "WeaponPistolCogswell"),
+                class_name && !std::strcmp(class_name, "WeaponPistolDerringer"),
                 "diagnostic class lookup did not identify exact unsupported pistol class");
             Require(refs == 0 && !pending, "diagnostic class lookup leaked JNI state");
         }

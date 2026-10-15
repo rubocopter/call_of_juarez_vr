@@ -1,5 +1,6 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
+#include "games/call_of_juarez/revolver_profile.hpp"
 #include <array>
 #include <cstddef>
 #include <cmath>
@@ -176,13 +177,10 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
             return reject(CoJMotionReloadRejectReason::jni_failure);
     }
     // Exact concrete classes: no unknown subclasses or parameter getters.
-    std::array<void*, 4> classes{};
-    constexpr const char* names[]{"WeaponPistolFrontier1878_Regular",
-        "WeaponPistolSchofield_A", "WeaponPistolSchofield_B",
-        "WeaponPistolPeacemaker"};
+    std::array<void*, kCoJRevolvers.size()> classes{};
     for (std::size_t i = 0; i < classes.size(); ++i) {
-        if (native_recovery && (i == 1 || i == 2)) continue;
-        classes[i] = locals.Keep(Fn<Find>(env, 6)(env, names[i]));
+        if (native_recovery && !kCoJRevolvers[i].single_round) continue;
+        classes[i] = locals.Keep(Fn<Find>(env, 6)(env, kCoJRevolvers[i].class_name));
         if (!Clean(env) || !classes[i]) return reject(CoJMotionReloadRejectReason::jni_failure);
     }
     auto same = [&](void* a, void* b) noexcept {
@@ -285,7 +283,7 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
         const bool equal = Fn<Same>(env, 24)(env, weapon_class, cls) != 0;
         if (!Clean(env)) return reject(CoJMotionReloadRejectReason::jni_failure);
         whitelisted = whitelisted || equal;
-        single_round_supported = single_round_supported || (equal && (class_index == 0 || class_index == 3));
+        single_round_supported = single_round_supported || (equal && kCoJRevolvers[class_index].single_round);
     }
     if (!whitelisted) return reject(CoJMotionReloadRejectReason::unsupported_weapon);
     void* id_method = Fn<Method>(env, 33)(env, weapon_class, "GetThisID", "()I");
@@ -379,13 +377,14 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
         if (weapons[1-armed][i] || !same(weapon,weapons[armed][i])) return false;
     void* weapon_type = type(weapon);
     if (!ok) return false;
-    bool recognized = false;
-    for (const char* name : {"WeaponPistolPeacemaker","WeaponPistolFrontier1878_Regular"}) {
-        void* cls = locals.Keep(Fn<Find>(env,6)(env,name));
+    const CoJRevolverProfile* recognized=nullptr;
+    for (const auto& profile : kCoJRevolvers) {
+        if(!profile.single_round)continue;
+        void* cls = locals.Keep(Fn<Find>(env,6)(env,profile.class_name));
         if (!Clean(env) || !cls) return false;
         const bool matches = same(weapon_type,cls);
         if (!ok) return false;
-        recognized |= matches;
+        if(matches)recognized=&profile;
     }
     if (!recognized) return false;
     void* owner_id = field(weapon_type,"cOwner","LPawnInventory;");
@@ -425,10 +424,11 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     void* ammo_method = method(weapon_type,"GetAmmoCount","(I)I");
     Value slot{.integer=0};
     value.ammo_readback=integer(weapon,ammo_method,&slot);
-    void* reserve = field(player_type,"nAmmoPistol","I");
+    value.reserve_kind=recognized->reserve;
+    void* reserve = field(player_type,recognized->reserve==CoJReloadReserveKind::rifle?"nAmmoRifle":"nAmmoPistol","I");
     if (!ok) return false;
-    value.pistol_reserve=Fn<GetInt>(env,100)(env,player,reserve);
-    if (!Clean(env) || value.ammo_readback<0 || value.pistol_reserve<0) return false;
+    value.reserve_readback=Fn<GetInt>(env,100)(env,player,reserve);
+    if (!Clean(env) || value.ammo_readback<0 || value.reserve_readback<0) return false;
     value.drum_phase=real_field(weapon,weapon_type,"m_fRotate");
     void* reload = method(player_type,"IsWeaponReloading","()Z");
     if (!ok) return false;
@@ -463,7 +463,7 @@ CoJReloadTraceEvent CoJReloadTraceEvents::Update(bool enabled, const CoJReloadTr
     const bool comparable = have_ && previous_.allowed && sample.allowed &&
         previous_.native.valid && sample.native.valid && previous_.player==sample.player &&
         previous_.context==sample.context && previous_.native.weapon_id==sample.native.weapon_id &&
-        previous_.native.armed_hand==sample.native.armed_hand;
+        previous_.native.armed_hand==sample.native.armed_hand&&previous_.native.reserve_kind==sample.native.reserve_kind;
     const bool changed = !have_ || previous_.allowed!=sample.allowed ||
         previous_.manual_session!=sample.manual_session ||
         previous_.vr_presentation_requested!=sample.vr_presentation_requested ||
@@ -477,7 +477,8 @@ CoJReloadTraceEvent CoJReloadTraceEvents::Update(bool enabled, const CoJReloadTr
         previous_.native.ammo_readback!=sample.native.ammo_readback ||
         previous_.native.probe_valid!=sample.native.probe_valid ||
         previous_.native.probe_status!=sample.native.probe_status ||
-        previous_.native.pistol_reserve!=sample.native.pistol_reserve));
+        previous_.native.reserve_kind!=sample.native.reserve_kind ||
+        previous_.native.reserve_readback!=sample.native.reserve_readback));
     const bool request_edge=sample.request && (!have_ || !previous_.request);
     CoJReloadTraceEvent event{changed || request_edge,comparable,previous_,sample};
     previous_=sample; have_=true; return event;

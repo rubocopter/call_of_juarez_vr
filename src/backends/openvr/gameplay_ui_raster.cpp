@@ -157,7 +157,7 @@ const HudTextPanel& GameplayUiRaster::Wheel(const runtime::EquipmentWheelSnapsho
             c.Text(state.labels[i].view(),x,y,allowed?RGB(245,235,205):RGB(100,105,110));
         }
         c.Circle(kCenter,kCenter,72,RGB(38,45,53));
-        c.Text(state.selected<0?u"Cancelar":u"Confirmar",kCenter,kCenter,RGB(245,235,205));
+        c.Text(state.selected<0?state.cancel_label.view():state.confirm_label.view(),kCenter,kCenter,RGB(245,235,205));
         wheel_pixels_=c.Finish();
     }catch(...){wheel_pixels_={};}
     return wheel_pixels_;
@@ -231,6 +231,19 @@ const HudTextPanel& GameplayUiRaster::Status(const runtime::WristStatusSnapshot&
         const auto old_font=font?SelectObject(c.dc,font):nullptr;
         const bool health_meter=state.health_row>=0&&state.health_row<static_cast<int>(state.line_count)&&
             state.health_percent>=0&&state.health_percent<=100;
+        std::array<bool,2> meters{};
+        for(unsigned i=0;i<meters.size();++i){
+            const auto& m=state.meters[i];
+            meters[i]=m.row>=0&&m.row<static_cast<int>(state.line_count)&&m.percent>=0&&m.percent<=100&&
+                (m.span==runtime::WristStatusMeterSpan::left||m.span==runtime::WristStatusMeterSpan::right)&&
+                !(health_meter&&m.row==state.health_row);
+        }
+        if(meters[0]&&meters[1]&&state.meters[0].row==state.meters[1].row&&
+           state.meters[0].span==state.meters[1].span)meters={}; // ambiguous coverage: keep text
+        const auto& badge=state.badge;
+        const bool badge_valid=badge.row>=0&&badge.row<static_cast<int>(state.line_count)&&
+            (badge.kind==runtime::WristStatusBadgeKind::ready||badge.kind==runtime::WristStatusBadgeKind::active||
+             badge.kind==runtime::WristStatusBadgeKind::cooldown||badge.kind==runtime::WristStatusBadgeKind::unavailable);
         for(std::uint32_t i=0;i<state.line_count;++i){
             // Display thresholds only; never infer damage/death or trigger input.
             const bool health=health_meter&&static_cast<int>(i)==state.health_row;
@@ -238,11 +251,39 @@ const HudTextPanel& GameplayUiRaster::Status(const runtime::WristStatusSnapshot&
                 health&&state.health_percent<=50?RGB(255,215,140):RGB(245,235,205);
             SetTextColor(c.dc,color);
             const auto text=state.lines[i].view();const std::wstring value(text.begin(),text.end());
-            RECT box{24,static_cast<LONG>(16+i*state.row_height),kExtent-24,static_cast<LONG>(16+(i+1)*state.row_height)};
+            const bool row_badge=badge_valid&&badge.row==static_cast<int>(i);
+            RECT box{24,static_cast<LONG>(16+i*state.row_height),row_badge?444:kExtent-24,static_cast<LONG>(16+(i+1)*state.row_height)};
             DrawTextW(c.dc,value.data(),static_cast<int>(value.size()),&box,DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);
         }
         if(old_font)SelectObject(c.dc,old_font);if(font)DeleteObject(font);
+        if(badge_valid){
+            constexpr int x=466;const int y=40+badge.row*static_cast<int>(state.row_height);
+            const auto kind=badge.kind;
+            const COLORREF color=kind==runtime::WristStatusBadgeKind::ready?RGB(143,184,131):
+                kind==runtime::WristStatusBadgeKind::active?RGB(90,200,239):
+                kind==runtime::WristStatusBadgeKind::cooldown?RGB(232,186,98):RGB(125,118,106);
+            c.Circle(x,y,13,color);c.Circle(x,y,10,RGB(31,26,21));
+            if(kind==runtime::WristStatusBadgeKind::ready){
+                c.Segment(x-6,y,x-2,y+4,3,color);c.Segment(x-2,y+4,x+6,y-4,3,color);
+            }else if(kind==runtime::WristStatusBadgeKind::active){
+                c.Segment(x+2,y-7,x-4,y+1,3,color);c.Segment(x-4,y+1,x+4,y-1,3,color);
+                c.Segment(x+4,y-1,x-2,y+7,3,color);
+            }else if(kind==runtime::WristStatusBadgeKind::cooldown){
+                c.Segment(x,y-7,x,y,2,color);c.Segment(x,y,x+5,y+3,2,color);
+            }else c.Segment(x-6,y+6,x+6,y-6,2,color);
+        }
         GdiFlush();
+        for(unsigned i=0;i<meters.size();++i)if(meters[i]){
+            const auto& m=state.meters[i];
+            constexpr int width=224;
+            const int left=m.span==runtime::WristStatusMeterSpan::left?24:264;
+            const int bottom=16+(m.row+1)*static_cast<int>(state.row_height)-4;
+            const int fill=width*m.percent/100;
+            const int reserve=m.warning_high?100-m.percent:m.percent;
+            const std::uint32_t color=reserve<=25?0x00E87760U:reserve<=50?0x00E8BA62U:0x008FB883U;
+            for(int y=bottom-4;y<bottom;++y)for(int x=0;x<width;++x)
+                c.pixels[y*kExtent+left+x]=x<fill?color:0x00443E36U;
+        }
         if(health_meter){
             constexpr int left=24,width=kExtent-48;
             const int bottom=16+(state.health_row+1)*static_cast<int>(state.row_height)-4;

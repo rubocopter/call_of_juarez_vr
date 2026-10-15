@@ -138,7 +138,8 @@ user-customized SteamVR bindings or physical controller behavior.
 | Triangle | hold weapon/equipment radial; release to confirm or cancel |
 | Create tap | Objectives, decided on release before 800 ms |
 | Create hold | Recenter VR once at 800 ms; release cannot also send Objectives |
-| Options | Pause / native Escape |
+| Options tap, on release | Pause / native Escape |
+| Options hold, 1 second | Open VR settings; right stick left/right chooses cinematic mode, Cross toggles, Circle closes |
 
 Triangle has no modifier or tap action. Hands and Throw are wheel sectors only
 by default. With `-ManualReload`, fresh Square prepares an admitted single
@@ -752,6 +753,16 @@ concentration and posture/shadow. JNI exceptions clear independently. Reader
 faults and combined raster are host-tested; live transitions/readability and
 concentration/duel/horse input mechanics retain distinct gates.
 
+The same admitted caches now supply host-tested semantic wrist graphics:
+concentration modes 1/2/3–4/5 map to active/cooldown/ready/unavailable glyphs;
+horse health and fatigue supply separate proportional meters on their admitted
+row. The game adapter owns that interpretation; neutral snapshots contain only
+percentages, warning direction and discrete state. Row-capacity exhaustion,
+hidden/foreign owners or faulty caches admit no decoration. No source strings
+are parsed for these additions, no cooldown percentage is invented, and fatigue
+is never converted into remaining stamina. These glyphs/meters are renderer-owned
+presentation, not captured original sprite textures or accepted horse mechanics.
+
 ## Current acceptance and remaining work
 
 ### Critical countdown, mission notices and attack feedback
@@ -817,3 +828,33 @@ owns acceptance; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-inter
 owns priority. Source/manual findings and host tests do not promote physical
 gates. Local settings, extracted classes/manuals and run evidence belong under
 ignored `work/`.
+
+Authored VR status/wheel labels and inserted Sense gesture wording now select
+English or Spanish from the exact game's startup `Game.ini` Locale assignment.
+Native script declarations/comments do not select a language; missing, malformed,
+ambiguous, oversized or unknown configuration falls back to English. This read
+is bounded and read-only, with no native HUD update or gameplay eligibility query.
+JNI strings remain UTF-16 copies; original dialogue/waypoints are never translated.
+The renderer receives localized wheel cancel/confirm labels as neutral values.
+Production and tests both compile UTF-8 source, preserving Spanish diacritics
+rather than converting UTF-8 bytes through the Windows source code page.
+Selection, Unicode preservation and cache invalidation are host-tested; locale
+wording, accented glyphs and visor fit remain in the combined acceptance batch.
+
+Scripted in-game movies have a separate native presentation owner: the shipped
+`LawmanModuleSingle.IsAnyMoviePlaying` reads `m_cMoviePlaying`, otherwise both
+owned `cBlack1/cBlack2` visibility flags. It has no update/factory side effects.
+`LawmanModule.ShowMovieView` sets `bMovieView`; its subtitle route uses
+`cSubtitleText` and movie create/destroy methods rather than the ordinary actor
+`DialogSubtitle` reader. Movies may leave the timer running. The active adapter
+now yields tracked stereo/body/gameplay ownership for this observation and
+captures the whole naturally rendered native Present once for flat theater.
+Its subtitle visibility/settings/fades remain native; no movie traversal or timer
+is replayed for the second eye. Runtime/visor comfort and text fit remain pending.
+
+The optional immersive cinematic route admits only a verified alive movie owner
+with no frozen timer or mission-end UI and renders camera-only stereo. Native
+movie `Sprite` exposes no text getter; the verified module/movie objects retain
+no subtitle string for the ordinary actor text reader. Immersive movie subtitle
+transport is therefore unresolved and disclosed by the settings panel. Theater
+remains the default route preserving the complete native subtitle pass.

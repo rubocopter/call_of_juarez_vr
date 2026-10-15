@@ -18,19 +18,20 @@ struct CoJReloadPinchInput {
     runtime::Pose left{},right{};
 };
 
+[[nodiscard]] inline bool CoJReloadPoseTracked(const runtime::Pose& pose) noexcept {
+    const auto& p=pose.position;
+    const auto& q=pose.orientation;
+    const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+    return pose.position_valid&&pose.orientation_valid&&
+        std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&
+        std::isfinite(norm)&&std::fabs(norm-1.F)<.02F;
+}
+
 [[nodiscard]] inline bool ApplyCoJReloadPinch(const CoJReloadPinchInput& input,
     runtime::FingerTrackingState& left, runtime::FingerTrackingState& right) noexcept {
-    const auto tracked=[](const runtime::Pose& pose) noexcept {
-        const auto& p=pose.position;
-        const auto& q=pose.orientation;
-        const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
-        return pose.position_valid&&pose.orientation_valid&&
-            std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&
-            std::isfinite(norm)&&std::fabs(norm-1.F)<.02F;
-    };
     if(!input.manual_load||
        (input.armed_hand!=0&&input.armed_hand!=1)||
-       !tracked(input.left)||!tracked(input.right))return false;
+       !CoJReloadPoseTracked(input.left)||!CoJReloadPoseTracked(input.right))return false;
 
     const int support=1-input.armed_hand;
     const bool carrying=input.cartridge_held&&input.cartridge_hand==support&&

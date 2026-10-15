@@ -12,8 +12,43 @@ opening/closing, tracked hands, successive trigger-carried native rounds,
 insertion-only haptics and exercised weapon/menu recovery. The legacy hybrid,
 paced and bounded-wait routes below remain compatibility/research contracts;
 they are not the current persistent manual UX. [Validation](../VALIDATION.md)
-owns acceptance. Finger contact, loading-port clearance and broader recovery
+owns acceptance. The operator confirms the loading port's visible presentation.
+Finger contact, measured phase-bound mouth geometry/clearance and broader recovery
 remain unresolved; do not infer them from callback or geometry observations.
+
+## Exact revolver profiles
+
+Current passive admission uses an exact concrete-class table, not a pistol base
+class or model-name prefix. Native single-round manual sessions now include
+`WeaponPistolPeacemaker`, `WeaponPistolFrontier1878_Regular`,
+`WeaponPistolFrontier`, `WeaponPistolWalker` and `WeaponPistolCogswell`.
+The latter three are implemented/host-tested extensions; scoped Peacemaker
+acceptance does not qualify their appearance or campaign recovery.
+
+The shipped Frontier/Walker/Cogswell logic constructors select non-whole-clip
+reload and the ordinary pistol state machine. Their primary ammunition parameter
+classes are respectively `WpnAmmoPistolFrontier`, `WpnAmmoPistolWalker` and
+`WpnAmmoRifleCogswell`. Observation copies `PawnInventory.nAmmoPistol` for the
+pistol-ammunition profiles and `nAmmoRifle` for Cogswell. Native parameters,
+capacity and reserve remain authoritative at request/insertion: whole-clip,
+multiple ammo types and network contexts reject the manual path.
+
+`WeaponPistolSchofield`, `_A` and `_B` use the existing native/hybrid whole-clip
+route. LeMat, Derringer, legacy `_Old` classes and unknown subclasses have no
+manual admission. LeMat's two-ammunition logic needs a separate contract.
+Square retains its native fallback in positively identified unsupported contexts.
+New profiles do not acquire measured loading-mouth geometry, a port writer,
+ejection, chamber occupancy or an exact-calibre cartridge model. The existing
+grip-zone presentation/gesture and scoped thumb feedback are reused only after
+native-confirmed unit loading.
+
+Readback telemetry now names `reserve_kind` and `reserve_count` before/after.
+Legacy `pistol_reserve` fields retain pistol meaning and emit `n/a` for rifle
+profiles. Offline analysis correlates typed pools, rejects mixed/unknown pools
+and continues to read old inventoried pistol traces. One same-owner native call
+must produce loaded +1 and the matching reserve -1 before insertion feedback.
+Host fixtures cover both armed hands, owner/recovery rejection, JNI cleanup,
+expanded emitted-bytecode admission and typed reserve correlation/restoration.
 
 ## Native request and completion
 
@@ -47,9 +82,8 @@ reload, animation, sounds and events intact, and retains Square. The baseline ro
 experimental paced route below adds a visual token, not physical cylinder/ejection
 ownership.
 
-The passive reader admits only the exact concrete classes
-`WeaponPistolFrontier1878_Regular`, `WeaponPistolSchofield_A`,
-`WeaponPistolSchofield_B` and `WeaponPistolPeacemaker`. The shipped Home01 opening `ColtPeacemaker` is the Peacemaker class;
+The passive reader admits the concrete classes in the current profile table above.
+The initial hybrid boundary covered Frontier Regular, Schofield A/B and Peacemaker. The shipped Home01 opening `ColtPeacemaker` is the Peacemaker class;
 omitting it would reject the tutorial pistol before gesture policy. Current, destination, desired and actual states must
 all be 1 for the armed hand and 0 for the empty support hand. Actual, active and
 desired weapon objects must match by JNI identity; the support hand has none.
@@ -71,14 +105,15 @@ recenter, unavailable input/pose and stale samples cancel the journey. Completio
 is a one-sample intent without a retry queue. Native reload continues to own
 hand/weapon animation and the existing restoration path.
 
-Policy, passive JNI and adapter checks are host-tested for the four exact classes;
+Initial policy, passive JNI and adapter checks covered the four original classes;
+the current expanded eight-class profile is also host-tested. In both scopes,
 the corrected hybrid gesture has operator headset acceptance for the exercised
 Peacemaker context. Other contexts and interruption/recovery gates remain open.
 
 ## Cartridge-paced native completion
 
-The experimental extension is limited to exact Frontier 1878 Regular and
-Peacemaker classes. A fresh pickup/insertion arms a bridge-owned pending weapon
+The experimental extension began with Frontier 1878 Regular and Peacemaker;
+the current exact single-round profile table also admits Frontier, Walker and Cogswell. A fresh pickup/insertion arms a bridge-owned pending weapon
 reference immediately before public action 31. The protected native request,
 after public eligibility, validates the selected weapon, ordinary reload state,
 single-round parameter, network ownership and non-multiplayer context before
@@ -557,7 +592,18 @@ rotates roughly 30–150 degrees with under 0.007 cm relative displacement.
 These are offline calculations from bounded live telemetry, not proof of a hinge
 axis, visible clearance or a safe writer. Per-sample data stays local.
 
-Unresolved: port clearance, convincing cartridge contact/axis/occlusion,
+The later operator report accepts the port's visible presentation; it does not
+qualify the pivot as a phase-bound socket or change diagnostic admission flags.
+The short support-thumb insertion gesture is implemented and host-tested. Only
+the existing qualified same-owner native unit transfer starts it: thumb curl
+.7 to .75 over 50 ms, followed by return to ordinary fingers by 180 ms. This
+moves the measured Ray thumb pad about 1.45 mm left / 2.71 mm right, mostly across
+the pad gap rather than along the cartridge tip. It grants no round, changes no
+animation clock and preserves scoped restoration and the native support-hand
+eligibility gate. Closing status suppresses the gesture. Owner/input/tracking
+loss or another pickup cancels it without replay. Runtime appearance is pending.
+
+Unresolved: measured mouth clearance, convincing cartridge contact/axis/occlusion,
 tracking/save/load/death/disable and held-input recovery, mirrored/Frontier use,
 prolonged comfort and insertion sound. Mesh elements and offline ANM sampling
 are useful observations; no `PauseAnim`/frame setter, new IK, connected-arm

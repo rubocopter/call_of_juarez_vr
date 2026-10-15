@@ -13,6 +13,8 @@ using namespace cojvr::games::call_of_juarez;
 union Value { std::int64_t alignment; void* object; std::int32_t integer; };
 int player, gun, foreign, player_class, gun_class, peacemaker_class, frontier_class;
 int machine[2], machine_class, exception;
+int modern_frontier_class,walker_class,cogswell_class;
+bool cogswell=false;
 void* table[174]{}, **holder = table;
 int refs = 0, steps = 0, fail_at = -1;
 bool pending = false, without_exception = false, replace = false, bad_float = false;
@@ -33,10 +35,13 @@ void JCALL Delete(void*, void* p) { if (p) --refs; }
 void* JCALL Class(void*, void* p) {
     if (Fail()) return nullptr;
     return Ref(p == &player ? &player_class : p == &gun ?
-        (known ? &peacemaker_class : &gun_class) : &machine_class);
+        (known ? (cogswell?&cogswell_class:&peacemaker_class) : &gun_class) : &machine_class);
 }
 void* JCALL Find(void*, const char* name) {
     if (Fail()) return nullptr;
+    if(!std::strcmp(name,"WeaponPistolFrontier"))return Ref(&modern_frontier_class);
+    if(!std::strcmp(name,"WeaponPistolWalker"))return Ref(&walker_class);
+    if(!std::strcmp(name,"WeaponPistolCogswell"))return Ref(&cogswell_class);
     Require(!std::strcmp(name,"WeaponPistolPeacemaker") ||
         !std::strcmp(name,"WeaponPistolFrontier1878_Regular"), "unapproved class lookup");
     return Ref(!std::strcmp(name,"WeaponPistolPeacemaker") ? &peacemaker_class : &frontier_class);
@@ -80,7 +85,7 @@ float JCALL Float(void*, void*, void* id, const Value*) {
 void* JCALL Field(void*, void*, const char* name, const char* desc) {
     if (Fail()) return nullptr;
     const bool object = !std::strcmp(name,"cOwner");
-    const bool integer = !std::strcmp(name,"m_iAnimID0") || !std::strcmp(name,"nAmmoPistol") ||
+    const bool integer = !std::strcmp(name,"m_iAnimID0") || !std::strcmp(name,"nAmmoPistol") || !std::strcmp(name,"nAmmoRifle") ||
         !std::strcmp(name,"cojvrReloadProbeStatus");
     const bool real = !std::strcmp(name,"m_fCurrentTime") || !std::strcmp(name,"m_fTime0") ||
         !std::strcmp(name,"m_fPlayTime") || !std::strcmp(name,"m_fDuration") || !std::strcmp(name,"m_fRotate") ||
@@ -93,7 +98,7 @@ void* JCALL GetObject(void*, void*, void*) { if (Fail()) return nullptr; return 
 int JCALL GetInt(void*, void*, void* id) {
     if (Fail()) return 0;
     const char* name=static_cast<char*>(id);
-    return !std::strcmp(name,"nAmmoPistol") ? 12 : !std::strcmp(name,"cojvrReloadProbeStatus") ? 2 : 77;
+    return !std::strcmp(name,"nAmmoRifle") ? 27 : !std::strcmp(name,"nAmmoPistol") ? 12 : !std::strcmp(name,"cojvrReloadProbeStatus") ? 2 : 77;
 }
 float JCALL GetFloat(void*, void*, void* id) {
     if (Fail()) return 0;
@@ -112,7 +117,7 @@ int Check(bool expected, bool probe=false) {
     Require(ReadCoJReloadTrace(&holder,&player,out,probe) == expected, "trace observation admission mismatch");
     Require(!pending && refs == 0, "trace exception/local reference leak");
     Require(expected ? out.valid && out.armed_hand == armed && out.weapon_id == 123 &&
-        out.ammo_readback == 3 && out.pistol_reserve == 12 && out.animation_id[0] == 77 &&
+        out.ammo_readback == 3 && out.reserve_readback == 12 && out.animation_id[0] == 77 &&
         out.states[armed][0] == 21 && out.min_advance[armed] == .25F && out.max_advance[armed] == .5F &&
         out.current_time[armed] == 4.F && out.start_time[armed] == 3.F && out.drum_phase == 60.F :
         !out.valid && out.weapon_id == 0 && out.armed_hand == -1, "partial or wrong trace published");
@@ -120,10 +125,21 @@ int Check(bool expected, bool probe=false) {
     return steps;
 }
 void EventTests() {
+
+    cogswell=true;CoJReloadTraceSnapshot rifle{};
+    Require(ReadCoJReloadTrace(&holder,&player,rifle,true)&&rifle.reserve_readback==27&&
+        rifle.reserve_kind==CoJReloadReserveKind::rifle,"Cogswell must observe rifle reserve, not the unrelated pistol pool");
+    Require(refs==0&&!pending,"rifle reserve observer leaked JNI state");cogswell=false;
     CoJReloadTraceSnapshot before{},after{};
     before.valid=before.probe_valid=true;before.armed_hand=0;before.weapon_id=123;
-    before.probe_status=2;before.ammo_readback=2;before.pistol_reserve=10;
-    after=before;after.ammo_readback=3;after.pistol_reserve=9;
+    before.probe_status=2;before.ammo_readback=2;before.reserve_readback=10;
+    after=before;after.ammo_readback=3;after.reserve_readback=9;
+    after.reserve_kind=CoJReloadReserveKind::rifle;
+    Require(!CoJUnitManualInsertionObserved(true,true,before,after),"cross-reserve readbacks manufactured unit feedback");
+    before.reserve_kind=after.reserve_kind=CoJReloadReserveKind::rifle;
+    Require(CoJUnitManualInsertionObserved(true,true,before,after),"matching rifle unit transaction lost feedback");
+    before.reserve_kind=after.reserve_kind=CoJReloadReserveKind::pistol;
+
     CoJReloadFeedbackOwnerEpoch owners;
     const auto first_owner=owners.Update(1,3,before);
     Require(first_owner!=0&&owners.Update(1,3,after)==first_owner,"ammunition changes do not change reload feedback ownership");
@@ -150,7 +166,7 @@ void EventTests() {
         if(fault==4)a.probe_status=4;
         if(fault==5)b.probe_status=1;
         if(fault==6)a.ammo_readback=4;
-        if(fault==7)a.pistol_reserve=10;
+        if(fault==7)a.reserve_readback=10;
         if(fault==8)b.ammo_readback=-1;
         if(fault==9)b.weapon_id=0;
         Require(!CoJUnitManualInsertionObserved(true,true,b,a),"uncorrelated or non-unit insertion cannot buzz");

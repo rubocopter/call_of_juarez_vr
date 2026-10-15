@@ -21,7 +21,8 @@ class ManualVM(VM):
                 self.classes[name] = pool, {(m.name, m.descriptor): m for m in methods}
 
     def native(self, owner, name, args):
-        if name == 'GetAmmoTypeCount': return 1
+        if name == 'GetAmmoTypeCount': return self.weapon.get('ammo_types',1)
+        if name == 'IsReloadWholeClipAtOnce': return self.weapon.get('whole_clip',False)
         if name == 'IsCarrying': return self.player.get('carrying', False)
         return super().native(owner, name, args)
 
@@ -33,6 +34,33 @@ class ManualVM(VM):
 
 
 class ManualReloadNativeTests(unittest.TestCase):
+    def test_other_qualified_revolvers_use_same_native_unit_transaction(self):
+        for kind in ('WeaponPistolFrontier','WeaponPistolWalker','WeaponPistolCogswell'):
+            with self.subTest(kind=kind):
+                vm=ManualVM();vm.weapon['class']=kind;vm.wait()
+                self.assertTrue(vm.call('cojvrInsertManualRound'))
+                self.assertEqual((vm.ammo,vm.reserve,vm.events),(3,9,1))
+                vm.run('ArmedPlayerBeing','cojvrCancelReloadProbe','()V',vm.player)
+                vm.update(1.)
+                self.assertEqual((vm.ammo,vm.reserve,vm.events),(3,9,1))
+                self.assertIsNone(vm.machine['cojvrReloadProbeOwner'])
+
+    def test_unqualified_variants_never_arm_or_transfer(self):
+        for kind in ('WeaponPistolSchofield','WeaponPistolSchofield_A','WeaponPistolSchofield_B',
+                     'WeaponPistolLemant','WeaponPistolDerringer','DerivedWalker','WeaponPistolFrontier1878_Regular_Old'):
+            with self.subTest(kind=kind):
+                vm=ManualVM();vm.weapon['class']=kind;vm.wait()
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+                self.assertEqual((vm.ammo,vm.reserve,vm.events),(2,10,0))
+                self.assertIsNone(vm.player.get('cojvrReloadProbeWeapon'))
+        vm=ManualVM();vm.weapon['class']='WeaponPistolWalker';vm.weapon['whole_clip']=True;vm.wait()
+        self.assertFalse(vm.call('cojvrInsertManualRound'))
+        self.assertEqual((vm.ammo,vm.reserve),(2,10))
+        for count in (0,2,3):
+            vm=ManualVM();vm.weapon['class']='WeaponPistolWalker';vm.wait();vm.weapon['ammo_types']=count
+            self.assertFalse(vm.call('cojvrInsertManualRound'))
+            self.assertEqual((vm.ammo,vm.reserve),(2,10))
+
     def test_manual_helpers_exist_on_opt_in_derivative(self):
         vm = ManualVM()
         self.assertTrue(('cojvrKeepManualReloadAlive', '()Z') in vm.classes['ArmedPlayerBeing'][1])
@@ -129,7 +157,7 @@ class ManualReloadNativeTests(unittest.TestCase):
                 self.assertEqual(before.namelist(),after.namelist())
                 changed={n for n in before.namelist() if before.read(n)!=after.read(n)}
                 self.assertEqual(changed,{'ArmedPlayerBeing.class','StateMashine.class','WeaponFire.class',
-                    'BeingTriggered.class','LawmanModuleSingle.class','WeaponWhip.class'})
+            'BeingTriggered.class','LawmanModuleSingle.class','WeaponWhip.class','WeaponMelee.class'})
             with self.assertRaises(ValueError):
                 patch.patch_archive(source,Path(temp)/'both.pak',reload_wait_probe=True,manual_reload=True)
             self.assertFalse((Path(temp)/'both.pak').exists())

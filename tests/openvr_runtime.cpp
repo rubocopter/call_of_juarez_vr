@@ -81,12 +81,16 @@ int main() {
             cojvr::runtime::OpenVrRuntime::Impl::InputPollTransaction poll{
                 input_owner,partial,&partial_gameplay,&partial_poses};
             partial.ui_select_left=partial.ui_select_left_pressed=partial.ui_accept=true;
+            partial.pause_active=partial.ui_accept_active=partial.ui_back_active=true;
+            partial.ui_select_left_active=partial.ui_select_right_active=true;
             partial_gameplay.active=partial_gameplay.fire_right=true;
             partial_poses.left_grip_active=partial_poses.left_grip.position_valid=true;
             (void)edges[1]->Update(true,true);
             if(exception_failure)throw 1; // Exercise guard unwinding directly, without an SDK call.
         }catch(int){}
         if(partial.ui_select_left||partial.ui_select_left_pressed||partial.ui_accept||
+            partial.pause_active||partial.ui_accept_active||partial.ui_back_active||
+            partial.ui_select_left_active||partial.ui_select_right_active||
             partial_gameplay.active||partial_gameplay.fire_right||partial_poses.left_grip_active||
             partial_poses.left_grip.position_valid){
             std::cerr<<"failed input transaction retained partial output\n";return 1;

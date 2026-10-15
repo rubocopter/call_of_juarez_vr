@@ -41,16 +41,47 @@ function Get-CoJValidationContext([string]$GameDirectory) {
     if (Test-Path -LiteralPath (Join-Path $GameDirectory 'cojvr.log') -PathType Leaf) {
         $Lines = @(Get-Content -LiteralPath (Join-Path $GameDirectory 'cojvr.log'))
     }
-    $EscapedRun = [regex]::Escape($RunId)
-    $EscapedBuild = [regex]::Escape([string]$Run.buildManifestId)
+    # Bind one process interval, not independent substring hits. Keep invalid
+    # markers as context so the verifier can persist rejection and finish can
+    # still collect evidence and restore the staged originals.
+    $Starts = @()
+    $Ends = @()
+    $RuntimeMarkersValid = $true
+    for ($Index = 0; $Index -lt $Lines.Count; ++$Index) {
+        $Line = $Lines[$Index]
+        if ($Line -cmatch '^run_start:') {
+            $Starts += $Index
+            if ($Line -cnotmatch '^run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)' -or
+                $Matches[1] -cne $RunId -or $Matches[2] -cne [string]$Run.buildManifestId) {
+                $RuntimeMarkersValid = $false
+            }
+        }
+        if ($Line -cmatch '^run_end:') {
+            $Ends += $Index
+            if ($Line -cnotmatch '^run_end: run_id=(\S+)(?:\s|$)' -or $Matches[1] -cne $RunId) {
+                $RuntimeMarkersValid = $false
+            }
+        }
+    }
+    if ($Starts.Count -gt 1 -or $Ends.Count -gt 1 -or
+        ($Ends.Count -eq 1 -and ($Starts.Count -ne 1 -or $Ends[0] -le $Starts[0]))) {
+        $RuntimeMarkersValid = $false
+    }
+    $RuntimeLines = @()
+    if ($RuntimeMarkersValid -and $Starts.Count -eq 1) {
+        $Last = if ($Ends.Count -eq 1) { $Ends[0] } else { $Lines.Count - 1 }
+        $RuntimeLines = @($Lines[$Starts[0]..$Last])
+    }
     [pscustomobject]@{
         Run = $Run; Build = $Build; Inputs = @($Inputs)
         RunDirectory = $RunDirectory; ResultPath = Join-Path $RunDirectory 'analysis/validation-result.json'
         Profile = if ([string]::IsNullOrWhiteSpace([string]$Run.validation.profile)) {
             if ($Run.diagnosticMode -eq 'd3d9_native_stereo') { 'full' } else { 'default' }
         } else { [string]$Run.validation.profile }
-        RuntimeStarted = [bool]($Lines -match "^run_start: run_id=$EscapedRun build_manifest_id=$EscapedBuild(?:\s|$)")
-        RuntimeEnded = [bool]($Lines -match "^run_end: run_id=$EscapedRun(?:\s|$)")
+        RuntimeMarkersValid = $RuntimeMarkersValid
+        RuntimeLines = $RuntimeLines
+        RuntimeStarted = $RuntimeMarkersValid -and $Starts.Count -eq 1
+        RuntimeEnded = $RuntimeMarkersValid -and $Ends.Count -eq 1
     }
 }
 

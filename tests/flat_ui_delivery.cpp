@@ -24,6 +24,7 @@ float native_readback_offset = 0;
 std::int32_t ui_index = 0;
 bool mouse_button = false;
 ULONGLONG now = 100;
+std::uint64_t player_generation = 1;
 HWND Ancestor(HWND value, UINT) { return value; }
 HWND Foreground() { return foreground ? window : nullptr; }
 BOOL ClientRect(HWND, RECT* rect) { *rect = {0, 0, 1920, 1080}; return TRUE; }
@@ -39,6 +40,7 @@ ULONGLONG Ticks() { return now; }
 }
 
 namespace cojvr::games::call_of_juarez {
+std::uint64_t FixturePlayerGeneration() noexcept { return fixture::player_generation; }
 bool FixtureUiSelect(bool, bool*, std::string* error, bool*, CoJUiDispatchRoute*) noexcept {
     ++fixture::keyboard_selects;
     if (!fixture::select_available && error) *error = "fixture native dispatch failed";
@@ -79,7 +81,9 @@ bool FixturePointerPosition(CameraProbeVector& position, std::string*, std::int3
 #define ObserveCameraUiPointerPosition FixturePointerPosition
 #define DispatchCameraUiSelectPress FixtureUiSelect
 #define DispatchCameraUiPointerSelectPress FixtureUiPointerSelect
+#define ObserveCameraPlayerGeneration FixturePlayerGeneration
 #include "../src/games/call_of_juarez/native_stereo_proxy.cpp"
+#undef ObserveCameraPlayerGeneration
 #undef GetAncestor
 #undef GetForegroundWindow
 #undef GetClientRect
@@ -355,6 +359,74 @@ int main() {
     ApplyFlatUiPointerMotion();
     if(fixture::cursor_x!=sample.pixel_x||!g_stereo.flat_ui_target_applied||FlatUiSelection().pending){
         std::cerr<<"automatic aim did not recover after in-flight source resize\n";return 43;
+    }
+    // A restoration fault must invalidate a retained passive pair immediately,
+    // independent of its remaining freshness and without starting a VR runtime.
+    using cojvr::games::call_of_juarez::CoJPresentationOwner;
+    CoJPresentationOwner owner{.valid=true, .player_alive=true};
+    auto epoch = ObserveStereoOwner(g_stereo, owner, true, false, false);
+    if (!g_stereo.stereo_queue.Queued(epoch, 1, 1234)) return 44;
+    InvalidateStereoFrame(nullptr);
+    InvalidateStereoFrame(&g_stereo);
+    if (g_stereo.stereo_queue.Fresh(1235) || g_stereo.stereo_queue.Accept(1)) {
+        std::cerr << "restoration failure retained stereo freshness\n"; return 44;
+    }
+    epoch = ObserveStereoOwner(g_stereo, owner, true, false, false);
+    if (!g_stereo.stereo_queue.Queued(epoch, 2, 1300)) return 45;
+    owner.movie_playing = true;
+    epoch = ObserveStereoOwner(g_stereo, owner, true, false, true);
+    if (g_stereo.stereo_queue.Accept(2) || g_stereo.stereo_queue.Fresh(1301) ||
+        !g_stereo.stereo_queue.Queued(epoch, 3, 1302)) {
+        std::cerr << "actual proxy owner allowed ordinary pair into movie\n"; return 45;
+    }
+    // Repeated observation is stable, including settings while movie owns visuals.
+    for (const auto now : {1303ULL, 1400ULL, 1551ULL, 1552ULL}) {
+        if (now == 1303 && (!g_stereo.stereo_queue.Accept(3) || !g_stereo.stereo_queue.Published(epoch))) return 46;
+        const auto current = ObserveStereoOwner(g_stereo, owner, true, true, true);
+        g_stereo.stereo_queue.Admit(current, now, true, true);
+        if (current != epoch || g_stereo.stereo_queue.Fresh(now) != (now < 1552)) return 46;
+    }
+    // Every mandatory blocker invalidates immediately, even inside freshness.
+    std::uint64_t sequence = 4;
+    for (unsigned blocker = 0; blocker < 6; ++blocker) {
+        owner = {.valid=true, .player_alive=true, .movie_playing=true};
+        epoch = ObserveStereoOwner(g_stereo, owner, true, false, true);
+        const auto old_epoch = epoch;
+        if (!g_stereo.stereo_queue.Queued(epoch, sequence, 1600)) return 47;
+        if (!g_stereo.stereo_queue.Published(epoch) || !g_stereo.stereo_queue.Fresh(1600)) return 47;
+        bool observed = true;
+        bool immersive = true;
+        if (blocker == 0) owner.player_alive = false;
+        if (blocker == 1) owner.timer_frozen = true;
+        if (blocker == 2) owner.mission_end_visible = true;
+        if (blocker == 3) observed = false;
+        if (blocker == 4) immersive = false;
+        if (blocker == 5) ++fixture::player_generation;
+        const bool movie_allowed = observed && owner.immersive_movie_allowed() && immersive;
+        epoch = ObserveStereoOwner(g_stereo, owner, observed, false, movie_allowed);
+        if (g_stereo.stereo_queue.Fresh(1601) || g_stereo.stereo_queue.Accept(sequence) ||
+            g_stereo.stereo_queue.Queued(old_epoch, sequence + 1, 1601)) {
+            std::cerr << "proxy retained movie across mandatory owner/mode loss\n"; return 47;
+        }
+        sequence += 2;
+    }
+    owner = {.valid=true, .player_alive=true};
+    epoch = ObserveStereoOwner(g_stereo, owner, true, false, false);
+    if (!g_stereo.stereo_queue.Queued(epoch, sequence++, 1700)) return 48;
+    epoch = ObserveStereoOwner(g_stereo, owner, true, true, false);
+    if (g_stereo.stereo_queue.Fresh(1701) || !g_stereo.stereo_queue.Queued(epoch, sequence, 1702) ||
+        !g_stereo.stereo_queue.Accept(sequence)) return 48;
+    // A frame-local settings snapshot must not latch after death/pause stops
+    // BeginStereoFrame before its next tracking sample can refresh the cache.
+    for (bool dead : {false, true}) {
+        g_stereo.frame_settings_captured.store(true);
+        g_stereo.frame_owner_epoch.store(epoch);
+        owner = {.valid=true};
+        owner.player_alive=!dead;owner.timer_frozen=!dead;
+        ObserveStereoOwner(g_stereo, owner, true, false, false);
+        if (g_stereo.frame_settings_captured.load() || g_stereo.frame_owner_epoch.load()) {
+            std::cerr << "blocked owner retained frame-local settings input capture\n"; return 49;
+        }
     }
     std::cout << "PASS - logical delivery, applied selection and physical mouse priority\n";
 }

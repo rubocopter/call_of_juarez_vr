@@ -9,6 +9,10 @@
 using namespace cojvr::runtime;
 using namespace cojvr::backends::openvr;
 void Require(bool ok,const char* why) { if(!ok){std::cerr<<why<<'\n';std::exit(1);} }
+void SetLabel(UiLabel& label,std::u16string_view text){
+    label={};label.length=static_cast<std::uint32_t>(text.size());
+    std::copy(text.begin(),text.end(),label.characters.begin());
+}
 void Save(const HudTextPanel& panel,const char* path){
     std::ofstream out(path,std::ios::binary);
     out<<"P6\n"<<panel.width<<' '<<panel.height<<"\n255\n";
@@ -39,6 +43,7 @@ int main(int argc,char** argv) {
     const std::u16string_view name=u"Arma larga";
     wheel.labels[0].length=static_cast<std::uint32_t>(name.size());
     std::copy(name.begin(),name.end(),wheel.labels[0].characters.begin());
+    SetLabel(wheel.cancel_label,u"Cancel");SetLabel(wheel.confirm_label,u"Confirm");
     const auto first=raster.Wheel(wheel);
     if(argc>1)Save(first,argv[1]);
     Require(first.width==512 && first.height==512 && first.pixels.size()==512*512,
@@ -48,6 +53,13 @@ int main(int argc,char** argv) {
     const auto rev=raster.wheel_revision();
     (void)raster.Wheel(wheel);
     Require(rev==raster.wheel_revision(),"unchanged wheel must reuse cached pixels");
+    wheel.selected=-1;const auto english_cancel=raster.Wheel(wheel);
+    const auto english_revision=raster.wheel_revision();
+    SetLabel(wheel.cancel_label,u"Cancelar");const auto spanish_cancel=raster.Wheel(wheel);
+    Require(spanish_cancel.pixels!=english_cancel.pixels&&raster.wheel_revision()==english_revision+1,
+        "wheel locale must invalidate the raster cache and show copied action text");
+    wheel.selected=0;SetLabel(wheel.confirm_label,u"Confirmar");
+    Require(raster.Wheel(wheel).pixels!=first.pixels,"translated confirm text did not reach the wheel");
     wheel.selected=2; const auto unavailable=raster.Wheel(wheel);
     Require(unavailable.pixels!=first.pixels,"native eligibility must affect selected sector pixels");
     wheel.active=false;
@@ -147,7 +159,7 @@ int main(int argc,char** argv) {
     if(argc>3)Save(stance_pixels,argv[3]);
     status.line_count=2;status.lines[2]={};
     Require(raster.Status(status).pixels==status_pixels.pixels,"removed stance left stale wrist pixels");
-    const std::u16string_view optional[]{u"Cuenta atrás  10",u"Caballo · Salud 100% · Fatiga 100%",
+    const std::u16string_view optional[]{u"Cuenta atrás  10",u"Caballo · Salud 75% · Fatiga 40%",
         u"Concentración · No preparada",u"Agachado · En sombra"};
     status.line_count=6;
     for(int i=0;i<4;++i){status.lines[i+2].length=static_cast<std::uint32_t>(optional[i].size());
@@ -156,6 +168,66 @@ int main(int argc,char** argv) {
     Require(expanded.height==320&&expanded.pixels.size()==512*320,
         "combined native optional feedback exceeded raster extent");
     if(argc>4)Save(expanded,argv[4]);
+    using Span=WristStatusMeterSpan;
+    status.meters[0]={3,75,Span::left,false};
+    status.meters[1]={3,40,Span::right,true};
+    status.badge={4,WristStatusBadgeKind::unavailable};
+    const auto decorated=raster.Status(status);
+    if(argc>6)Save(decorated,(std::string(argv[6])+"horse-75-40.ppm").c_str());
+    Require(decorated.pixels!=expanded.pixels&&decorated.height==expanded.height,
+        "optional native meters and state badge must be visible within existing card extent");
+    const auto meter_coverage=[](const HudTextPanel& panel,int start){
+        int lit=0;for(int x=start;x<start+224;++x){const auto pixel=panel.pixels[202*512+x];
+            lit+=std::max({(pixel>>16)&255,(pixel>>8)&255,pixel&255})>100;}return lit;
+    };
+    Require(meter_coverage(decorated,24)==168&&meter_coverage(decorated,264)==89,
+        "paired meters must display health75 and fatigue40 without a full-width overlap");
+    status.meters[1].percent=100;SetLabel(status.lines[3],u"Caballo · Salud 75% · Fatiga 100%");
+    const auto exhausted=raster.Status(status);
+    if(argc>6)Save(exhausted,(std::string(argv[6])+"horse-75-100.ppm").c_str());
+    Require(meter_coverage(exhausted,264)==224&&
+        ((exhausted.pixels[202*512+264]>>16)&255)>((exhausted.pixels[202*512+264]>>8)&255),
+        "full fatigue must fill its own meter with warning colour, never mean full stamina");
+    status.meters[1].percent=0;SetLabel(status.lines[3],u"Caballo · Salud 75% · Fatiga 0%");
+    const auto rested=raster.Status(status);
+    Require(meter_coverage(rested,264)==0,"zero fatigue must leave an empty meter");
+    status.meters={};SetLabel(status.lines[3],optional[1]);
+    const auto unavailable_badge=raster.Status(status);
+    for(auto kind:{WristStatusBadgeKind::ready,WristStatusBadgeKind::active,WristStatusBadgeKind::cooldown}){
+        status.badge.kind=kind;
+        SetLabel(status.lines[4],kind==WristStatusBadgeKind::ready?u"Concentración · Lista":
+            kind==WristStatusBadgeKind::active?u"Concentración · En uso":u"Concentración · Recargando");
+        const auto badge=raster.Status(status);
+        Require(badge.pixels!=unavailable_badge.pixels,"distinct committed status modes must have distinct glyphs");
+        if(argc>6)Save(badge,(std::string(argv[6])+"badge-"+
+            std::to_string(static_cast<int>(kind))+".ppm").c_str());
+        const auto color=kind==WristStatusBadgeKind::ready?0xFF8FB883U:
+            kind==WristStatusBadgeKind::active?0xFF5AC8EFU:0xFFE8BA62U;
+        int glyph_pixels=0;
+        for(int y=218;y<246;++y)for(int x=452;x<480;++x)glyph_pixels+=badge.pixels[y*512+x]==color;
+        Require(glyph_pixels>30,"state feedback must draw a visible bounded glyph, not only clip text");
+        for(int y=0;y<320;++y)if(y<208||y>=256)
+            for(int x=0;x<512;++x)Require(badge.pixels[y*512+x]==expanded.pixels[y*512+x],
+                "state badge changed unrelated health/ammo/countdown/horse/posture rows");
+    }
+    status.badge={};SetLabel(status.lines[4],optional[2]);
+    for(auto bad: {WristStatusMeter{3,101,Span::left,false},WristStatusMeter{-1,50,Span::left,false},
+        WristStatusMeter{6,50,Span::right,false},WristStatusMeter{3,50,static_cast<Span>(99),false}}){
+        status.meters[0]=bad;
+        Require(raster.Status(status).pixels==expanded.pixels,"invalid optional meter must retain ordinary text exactly");
+    }
+    status.meters={};status.badge={6,WristStatusBadgeKind::ready};
+    Require(raster.Status(status).pixels==expanded.pixels,"badge outside native visible rows resurrected output");
+    status.badge={4,static_cast<WristStatusBadgeKind>(99)};
+    Require(raster.Status(status).pixels==expanded.pixels,"unknown badge must retain text fallback");
+    status.badge={};
+    status.meters[0]={3,40,Span::left,false};status.meters[1]={3,60,Span::left,false};
+    Require(raster.Status(status).pixels==expanded.pixels,"ambiguous overlapping optional meters must preserve text");
+    status.meters={};status.health_row=0;status.health_percent=50;
+    const auto essential_health=raster.Status(status);
+    status.meters[0]={0,100,Span::left,false};
+    Require(raster.Status(status).pixels==essential_health.pixels,"optional meter overwrote the essential health gauge");
+    status.meters={};status.health_row=status.health_percent=-1;
     status.line_count=2;for(int i=2;i<6;++i)status.lines[i]={};
     Require(raster.Status(status).pixels==status_pixels.pixels,"optional feedback left stale pixels");
     status.lines[1].characters[9]=u'2';
