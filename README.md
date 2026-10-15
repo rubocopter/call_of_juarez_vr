@@ -23,12 +23,13 @@
 - Controller locomotion, physical crouching and snap turning.
 - Independent tracked hands and weapons, with the original torso and legs visible. Exercised pistol effects and whip use work in-headset.
 - Controller menus, equipment wheel and haptics, wrist compass, encountered HUD and subtitles.
+- Physical Hands combat with immediate knuckle contact; headset-tested in a fight against three enemies. Broader hand, campaign and recovery coverage remains open.
 - Experimental manual revolver reload: Square opens/closes, the free-hand trigger carries and inserts rounds, hands remain tracked and accepted insertions give haptic feedback. The game owns ammunition.
 - Exercised pickup/carry, drawers, Focus and corrected failure-screen presentation.
 
 ## In progress
 
-Manual reload works in the exercised context; convincing cartridge grip, precise chamber loading and broader recovery still need work. Other weapons, mounted/special mechanics, campaign coverage and sustained performance remain open. The latest hand-directed interaction also awaits a headset check.
+Manual reload works in the exercised context; convincing cartridge grip, precise chamber loading and broader recovery still need work. Immersive movie continuity has not yet been retested after its correction. Other weapons, mounted/special mechanics, campaign coverage and sustained performance remain open. The latest hand-directed interaction also awaits a headset check.
 
 Call of Juarez (2006), D3D9 and OpenVR are the active target. OpenXR is experimental; D3D10, Bound in Blood and Gunslinger are future tracks.
 
