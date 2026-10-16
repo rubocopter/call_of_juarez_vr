@@ -233,7 +233,27 @@ requires a second independent game demonstration before generalization.
 
 ## Release direction
 
-Remain pre-alpha without a public release until campaign coverage, recovery,
-comfort and reproducible deployment meet their gates. Keep the landing concise
-and describe only exercised achievements at a broad level; detailed limits belong
-in Validation. Compatibility applies only to verified builds/devices/contexts.
+Prepare `v0.1.0-prealpha.1` as an experimental community-testing prerelease.
+Public testing may begin before full campaign coverage; it does not promote any
+validation state or promise campaign completion, recovery, comfort or support.
+The chest/possible-scroll crash remains unresolved, and the immersive-movie
+flicker correction still needs headset retesting. Publish those limitations and
+recommend save backups alongside the package.
+
+The distribution target remains the exact original Steam 2006 D3D9/OpenVR build.
+Only PS VR2 Sense has scoped physical validation. Additional packaged controller
+bindings are experimental; other PCs/headsets require independent evidence.
+Preserve exact-build rejection, reversible installation and local-only diagnostics
+that users inspect before manually sharing. Manual reload is optional and its
+installation preference persists across explicit ZIP updates; no auto updater
+is planned for this prerelease.
+
+Prepare an offline ZIP for Windows 10/11 x64 hosts and the x86 game, with a
+double-click Windows PowerShell 5.1 menu, bundled Python and VC++ x86 runtime,
+package inventory, dependency licenses/source notices, install/update, uninstall,
+status and diagnostics. Users supply the game, SteamVR and GPU/headset drivers
+and start/close the game and SteamVR manually. Packaging and draft-prerelease
+automation remain separate from publication and physical acceptance. No
+project-code license has been selected; third-party notices remain separate.
+Detailed acceptance limits remain in
+[Validation](VALIDATION.md#public-prerelease-policy).

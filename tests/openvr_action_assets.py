@@ -75,3 +75,68 @@ assert not {f"/actions/gameplay/in/{name}" for name in (
 )} & set(output_paths(binding)), "auxiliary native controls must have no default Sense binding"
 assert all(not action_set["chords"] for action_set in binding["bindings"].values()), "no default chords"
 print("OpenVR action assets and runtime lookup boundary passed")
+
+# Additional layouts are explicit experimental assets; Sense routes above stay strict.
+expected_controllers = {"playstation_vr2_sense", "oculus_touch", "knuckles",
+                        "vive_controller", "holographic_controller"}
+defaults = manifest["default_bindings"]
+assert {d["controller_type"] for d in defaults} == expected_controllers
+assert len(defaults) == len(expected_controllers)
+assert len({d["binding_url"].casefold() for d in defaults}) == len(defaults)
+core = {f"/actions/gameplay/in/{n}" for n in (
+    "move", "turn", "fire_left", "fire_right", "jump", "reload", "weapon_radial",
+    "interact", "crouch", "focus", "kick", "alternate_fire")}
+core |= {f"/actions/global/in/{n}" for n in (
+    "recenter", "pause", "ui_accept", "ui_back", "ui_select_left", "ui_select_right",
+    "ui_pointer_left", "ui_pointer_right")}
+# Paths/capabilities from Valve-distributed SteamVR drivers (touch_profile,
+# index_controller_profile, vive_controller_profile) and Valve's tutorial WMR
+# binding + resources/config/vrcompositor_bindings_holographic.json. Dpad format:
+# ValveSoftware/steamvr_unity_plugin Assets/SteamVR/Input/ExampleJSON/
+# bindings_holographic_controller.json. No reserved system buttons.
+controls = {
+    "oculus_touch": {"joystick", "trigger", "grip", "x", "y", "a", "b"},
+    "knuckles": {"thumbstick", "trigger", "grip", "a", "b"},
+    "vive_controller": {"trackpad", "trigger", "grip", "application_menu"},
+    "holographic_controller": {"joystick", "trackpad", "trigger", "grip", "application_menu"},
+}
+for default in defaults:
+    url = default["binding_url"]
+    assert re.fullmatch(r"bindings/[a-z0-9_]+\.json", url), url
+    config = json.loads((root / "assets/openvr" / url).read_text(encoding="utf-8"))
+    kind = default["controller_type"]
+    assert config["controller_type"] == kind
+    if kind == "playstation_vr2_sense":
+        continue
+    assert "experimental" in config["description"].lower()
+    assert core <= set(output_paths(config)), (kind, core - set(output_paths(config)))
+    assert set(output_paths(config)) <= set(actions)
+    for side in ("left", "right"):
+        global_set = config["bindings"]["/actions/global"]
+        assert {"output": f"/actions/global/out/haptic_{side}",
+                "path": f"/user/hand/{side}/output/haptic"} in global_set["haptics"]
+        for semantic in ("grip", "aim"):
+            poses = [x for x in global_set["poses"] if x["output"] ==
+                     f"/actions/global/in/{side}_hand_{semantic}_pose"]
+            assert len(poses) == 1
+            assert poses[0]["path"] == f"/user/hand/{side}/pose/" + (
+                "raw" if kind == "holographic_controller" and semantic == "grip" else
+                "handgrip" if semantic == "grip" else "tip")
+    for set_name, action_set in config["bindings"].items():
+        assert not action_set["chords"], "defaults avoid chord/action overlap"
+        seen = Counter()
+        for source in action_set["sources"]:
+            match = re.fullmatch(r"/user/hand/(left|right)/input/(\w+)", source["path"])
+            assert match and match[2] in controls[kind], (kind, source["path"])
+            if kind == "oculus_touch" and match[2] in {"a", "b", "x", "y"}:
+                assert match[1] == ("left" if match[2] in {"x", "y"} else "right")
+            if source["mode"] == "dpad":
+                assert source["parameters"]["sub_mode"] == "click"
+                assert match[2] in {"joystick", "thumbstick", "trackpad"}
+            for component, target in source["inputs"].items():
+                assert target["output"].startswith(set_name + "/")
+                seen[(source["path"], source["mode"], component, target["output"])] += 1
+        assert all(n == 1 for n in seen.values()), (kind, seen)
+for locale in manifest["localization"]:
+    assert "Create" not in locale["/actions/global/in/recenter"]
+print("Experimental controller profiles passed (physical validation remains pending)")

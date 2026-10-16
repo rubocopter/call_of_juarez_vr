@@ -1,0 +1,218 @@
+{
+  "action_manifest_version": 0,
+  "alias_info": {},
+  "bindings": {
+    "/actions/global": {
+      "chords": [],
+      "haptics": [
+        {
+          "output": "/actions/global/out/haptic_left",
+          "path": "/user/hand/left/output/haptic"
+        },
+        {
+          "output": "/actions/global/out/haptic_right",
+          "path": "/user/hand/right/output/haptic"
+        }
+      ],
+      "poses": [
+        {
+          "output": "/actions/global/in/left_hand_grip_pose",
+          "path": "/user/hand/left/pose/raw"
+        },
+        {
+          "output": "/actions/global/in/right_hand_grip_pose",
+          "path": "/user/hand/right/pose/raw"
+        },
+        {
+          "output": "/actions/global/in/left_hand_aim_pose",
+          "path": "/user/hand/left/pose/tip"
+        },
+        {
+          "output": "/actions/global/in/right_hand_aim_pose",
+          "path": "/user/hand/right/pose/tip"
+        }
+      ],
+      "skeleton": [],
+      "sources": [
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/ui_select_left"
+            }
+          },
+          "mode": "trigger",
+          "path": "/user/hand/left/input/trigger"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/ui_pointer_left"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/left/input/grip"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/ui_select_right"
+            }
+          },
+          "mode": "trigger",
+          "path": "/user/hand/right/input/trigger"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/ui_pointer_right"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/right/input/grip"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/recenter"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/left/input/application_menu"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/global/in/pause"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/right/input/application_menu"
+        },
+        {
+          "inputs": {
+            "north": {
+              "output": "/actions/global/in/ui_accept"
+            },
+            "south": {
+              "output": "/actions/global/in/ui_back"
+            }
+          },
+          "mode": "dpad",
+          "path": "/user/hand/right/input/trackpad",
+          "parameters": {
+            "sub_mode": "click",
+            "deadzone_pct": "50",
+            "overlap_pct": "0"
+          }
+        }
+      ]
+    },
+    "/actions/gameplay": {
+      "chords": [],
+      "haptics": [],
+      "poses": [],
+      "skeleton": [],
+      "sources": [
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/fire_left"
+            }
+          },
+          "mode": "trigger",
+          "path": "/user/hand/left/input/trigger"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/interact"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/left/input/grip"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/fire_right"
+            }
+          },
+          "mode": "trigger",
+          "path": "/user/hand/right/input/trigger"
+        },
+        {
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/kick"
+            }
+          },
+          "mode": "button",
+          "path": "/user/hand/right/input/grip"
+        },
+        {
+          "inputs": {
+            "position": {
+              "output": "/actions/gameplay/in/move"
+            },
+            "click": {
+              "output": "/actions/gameplay/in/crouch"
+            }
+          },
+          "mode": "joystick",
+          "path": "/user/hand/left/input/joystick"
+        },
+        {
+          "inputs": {
+            "position": {
+              "output": "/actions/gameplay/in/turn"
+            },
+            "click": {
+              "output": "/actions/gameplay/in/focus"
+            }
+          },
+          "mode": "joystick",
+          "path": "/user/hand/right/input/joystick"
+        },
+        {
+          "inputs": {
+            "north": {
+              "output": "/actions/gameplay/in/weapon_radial"
+            },
+            "south": {
+              "output": "/actions/gameplay/in/reload"
+            }
+          },
+          "mode": "dpad",
+          "path": "/user/hand/left/input/trackpad",
+          "parameters": {
+            "sub_mode": "click",
+            "deadzone_pct": "50",
+            "overlap_pct": "0"
+          }
+        },
+        {
+          "inputs": {
+            "north": {
+              "output": "/actions/gameplay/in/jump"
+            },
+            "south": {
+              "output": "/actions/gameplay/in/alternate_fire"
+            }
+          },
+          "mode": "dpad",
+          "path": "/user/hand/right/input/trackpad",
+          "parameters": {
+            "sub_mode": "click",
+            "deadzone_pct": "50",
+            "overlap_pct": "0"
+          }
+        }
+      ]
+    }
+  },
+  "controller_type": "holographic_controller",
+  "description": "Experimental, unvalidated on hardware. Sticks move/turn, clicks crouch/focus. Left pad click up/down wheel/reload; right pad click up/down jump/alternate (accept/back in UI). Left menu objectives/recenter, right menu pause/hold VR settings. Grips interact/kick, triggers fire/select. Grip uses verified raw pose: hand alignment needs hardware testing. Rebind in SteamVR. Authored in-game prompts still use Sense names.",
+  "name": "Call of Juarez VR - holographic_controller (experimental)",
+  "options": {},
+  "simulated_actions": []
+}

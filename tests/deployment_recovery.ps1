@@ -85,6 +85,111 @@ try {
                 Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) 'Recovery mutated earlier assets before rejecting later executable.'
             }
         }
+        # Exercise the real native-input preflight/publication/deployment blocks
+        # with synthetic files; never bypass the executable SHA-256 game gate.
+        $Tokens = $null; $Errors = $null
+        $StageAst = [Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $SourceDirectory 'tools/stage_d3d9_proxy.ps1'), [ref]$Tokens, [ref]$Errors)
+        $Preflight = $StageAst.Find({ param($Node)
+            $Node -is [Management.Automation.Language.IfStatementAst] -and
+            $Node.Extent.Text.StartsWith('if ($IsNativeStereo)') -and
+            $Node.Extent.Text.Contains('$OpenVrInputSource =')
+        }, $true)
+        $Publish = $StageAst.Find({ param($Node)
+            $Node -is [Management.Automation.Language.IfStatementAst] -and
+            $Node.Extent.Text.StartsWith('if ($IsNativeStereo)') -and
+            $Node.Extent.Text.Contains('stage_openvr_input_published')
+        }, $true)
+        $DeploymentBlock = $StageAst.Find({ param($Node)
+            $Node -is [Management.Automation.Language.IfStatementAst] -and
+            $Node.Extent.Text.StartsWith('if ($IsNativeStereo)') -and
+            $Node.Extent.Text.Contains("destination = 'cojvr_openvr_input/'")
+        }, $true)
+        Assert-True ($Preflight -and $Publish -and $DeploymentBlock) 'Could not isolate real input deployment blocks.'
+        $StageText = $StageAst.Extent.Text
+        Assert-True (([regex]::Matches($StageText, '& \$PythonExecutable -B \(Join-Path')).Count -eq 3 -and
+            -not $StageText.Contains('& python ')) 'Patchers must use the selected Python with -B.'
+        foreach ($Mode in @('valid', 'missing', 'hash', 'unknown-artifact', 'duplicate-artifact', 'duplicate-binding', 'unsafe-relative', 'absolute', 'case-alias', 'unknown-schema', 'controller-mismatch')) {
+            Invoke-Case "input preflight and publish $Mode" {
+                $ArtifactRoot = Join-Path $TestRoot ('input-source-' + $Mode)
+                $OpenVrInputSource = Join-Path $ArtifactRoot 'cojvr_openvr_input'
+                New-Item -ItemType Directory -Path $ArtifactRoot | Out-Null
+                Copy-Item -LiteralPath (Join-Path $SourceDirectory 'assets/openvr') -Destination $OpenVrInputSource -Recurse
+                $ProxyPath = Join-Path $ArtifactRoot 'd3d9_native_stereo.dll'
+                # Dot-source import must preserve the caller's selected artifact.
+                . (Join-Path $SourceDirectory 'tools/openvr_input_manifest.ps1')
+                Assert-True ($ProxyPath -eq (Join-Path $ArtifactRoot 'd3d9_native_stereo.dll')) 'Input helper import replaced selected proxy path.'
+                $Inventory = Get-CojvrOpenVrInputManifest $OpenVrInputSource
+                $BuildManifest = [pscustomobject]@{openVrInputManifest=$Inventory; artifacts=@(
+                    foreach ($File in $Inventory.files) {
+                        $Role = if ($File.path -eq 'actions.json') {'openvr_action_manifest'} elseif ($File.path -eq 'bindings/psvr2_sense.json') {'openvr_binding_psvr2_sense'} else {'openvr_binding'}
+                        [pscustomobject]@{role=$Role; fileName=('cojvr_openvr_input/' + $File.path); sha256=$File.sha256}
+                    }
+                )}
+                $Game = Join-Path $TestRoot ('input-destination-' + $Mode)
+                New-Item -ItemType Directory -Path $Game | Out-Null
+                $OpenVrInputDestination = Join-Path $Game 'cojvr_openvr_input'
+                $OpenVrInputBackup = Join-Path $Game 'cojvr_openvr_input.cojvr-backup'
+                $OpenVrInputTemporary = Join-Path $Game 'cojvr_openvr_input.cojvr-installing'
+                $IsNativeStereo = $true; $HadOriginalOpenVrInput = $false
+                if ($Mode -eq 'missing') { Remove-Item -LiteralPath (Join-Path $OpenVrInputSource 'bindings/knuckles.json') }
+                if ($Mode -eq 'hash') { [IO.File]::AppendAllText((Join-Path $OpenVrInputSource 'bindings/knuckles.json'), ' ') }
+                if ($Mode -eq 'unknown-artifact') { $BuildManifest.artifacts[-1].fileName = 'cojvr_openvr_input/bindings/unknown.json' }
+                if ($Mode -eq 'duplicate-artifact') { $BuildManifest.artifacts += $BuildManifest.artifacts[-1] }
+                if ($Mode -eq 'unknown-schema') { $BuildManifest.openVrInputManifest.schemaVersion = 2 }
+                if ($Mode -eq 'controller-mismatch') { Write-Json (Join-Path $OpenVrInputSource 'bindings/knuckles.json') @{controller_type='other'} }
+                if ($Mode -in @('duplicate-binding', 'unsafe-relative', 'absolute', 'case-alias')) {
+                    $ActionPath = Join-Path $OpenVrInputSource 'actions.json'
+                    $Actions = Get-Content $ActionPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($Mode -eq 'duplicate-binding') { $Actions.default_bindings += $Actions.default_bindings[-1] }
+                    if ($Mode -eq 'unsafe-relative') { $Actions.default_bindings[-1].binding_url = '../outside.json' }
+                    if ($Mode -eq 'absolute') { $Actions.default_bindings[-1].binding_url = 'C:/outside.json' }
+                    if ($Mode -eq 'case-alias') { $Actions.default_bindings[-1].binding_url = 'bindings/PSVR2_SENSE.json' }
+                    Write-Json $ActionPath $Actions
+                }
+                if ($Mode -ne 'valid') {
+                    $Before = @(Get-CojvrDirectoryManifest $Game)
+                    $Rejected = $false
+                    try { Invoke-Expression $Preflight.Extent.Text } catch { $Rejected = $true }
+                    Assert-True $Rejected "Input preflight accepted $Mode."
+                    Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) 'Input rejection mutated destination.'
+                    return
+                }
+                Invoke-Expression $Preflight.Extent.Text
+                $JournalAssets = @(@{role='openvr_input'; stagedManifest=$StagedOpenVrInputManifest.files})
+                Invoke-Expression $Publish.Extent.Text
+                Assert-True (Test-CojvrDirectoryMatchesManifest $OpenVrInputDestination @($Inventory.files)) 'Stage failed to deploy all declared bindings.'
+                $Deployment = @(); $IndependentHands = $false
+                Invoke-Expression $DeploymentBlock.Extent.Text
+                $InputDeployment = @($Deployment | Where-Object { $_.destination -like 'cojvr_openvr_input/*' })
+                Assert-True ($InputDeployment.Count -eq $Inventory.files.Count) 'Run provenance omitted input artifacts.'
+                foreach ($File in $Inventory.files) {
+                    $Matches = @($InputDeployment | Where-Object { $_.destination -ceq ('cojvr_openvr_input/' + $File.path) -and $_.sha256 -ceq $File.sha256 })
+                    Assert-True ($Matches.Count -eq 1) 'Run provenance has wrong/duplicate input identity.'
+                }
+            }
+        }
+        foreach ($Mode in @('valid', 'tampered-binding', 'tampered-backup', 'extra-file', 'unsafe-path', 'duplicate-path', 'bad-schema')) {
+            Invoke-Case "generic input inventory $Mode" {
+                $Game = New-StagedFixture ('generic-' + $Mode)
+                $Input = Join-Path $Game 'cojvr_openvr_input'
+                [IO.File]::WriteAllText((Join-Path $Input 'bindings/extra_controller.json'), 'experimental-binding')
+                $State = Join-Path $Game '.cojvr-d3d9-stage.json'
+                $Stage = Get-Content $State -Raw | ConvertFrom-Json
+                $Inventory = [pscustomobject]@{schemaVersion=1; files=@(Get-CojvrDirectoryManifest $Input)}
+                $Stage | Add-Member stagedOpenVrInputManifest $Inventory
+                if ($Mode -eq 'unsafe-path') { $Inventory.files[0].path = '../outside.json' }
+                if ($Mode -eq 'duplicate-path') { $Inventory.files += $Inventory.files[0] }
+                if ($Mode -eq 'bad-schema') { $Inventory.schemaVersion = 999 }
+                Write-Json $State $Stage
+                if ($Mode -eq 'tampered-binding') { [IO.File]::AppendAllText((Join-Path $Input 'bindings/extra_controller.json'), 'tamper') }
+                if ($Mode -eq 'tampered-backup') { [IO.File]::AppendAllText((Join-Path $Game 'cojvr_openvr_input.cojvr-backup/custom.json'), 'tamper') }
+                if ($Mode -eq 'extra-file') { [IO.File]::WriteAllText((Join-Path $Input 'unowned.txt'), 'foreign') }
+                if ($Mode -ne 'valid') { Assert-RejectedWithoutMutation $Game; return }
+                & (Join-Path $SourceDirectory 'tools/unstage_d3d9_proxy.ps1') -GameDirectory $Game | Out-Null
+                Assert-True (Test-CojvrDirectoryMatchesManifest $Input @($Stage.originalOpenVrInputManifest)) 'Generic inventory failed full restoration.'
+            }
+        }
         Invoke-Case 'stage preserves empty input identity through JSON' {
             $Game = New-StagedFixture 'empty-input-serialization'
             $OpenVrInputDestination = Join-Path $Game 'cojvr_openvr_input'

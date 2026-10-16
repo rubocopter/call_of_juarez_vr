@@ -88,7 +88,7 @@ function Restore-CoJVrVideoProfile {
     )
 
     if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { return $false }
-    $State = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    $State = Get-Content -LiteralPath $StatePath -Encoding UTF8 -Raw | ConvertFrom-Json
     $VideoPath = [string]$State.videoPath
     if ([string]::IsNullOrWhiteSpace($VideoPath) -or
         [string]$State.originalSha256 -notmatch '^[0-9a-fA-F]{64}$') {

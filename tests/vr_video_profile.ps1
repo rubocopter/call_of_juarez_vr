@@ -44,6 +44,10 @@ function New-Fixture([string]$Name, [string]$Text, [bool]$Bom = $false) {
 }
 
 try {
+    $UnicodeHash = New-Fixture ('user-' + [char]0x00E9) "Resolution(1280,720)`nFSAA(4)`n"
+    [void](Apply-VrVideoProfile)
+    Assert-True (Restore-VrVideoProfile) 'Unicode video-path recovery failed.'
+    Assert-True ((Get-FileHash -LiteralPath $VideoPath).Hash -eq $UnicodeHash) 'Unicode video settings changed after restore.'
     $Original = "!Resolution(i,i)`r`n!FSAA(i) // declaration`r`nResolution(2560,1440)`r`nFSAA(4)`r`nTextureQuality(`"Normal`")`r`nFiltering(`"AnisotropicTrilinear`")`r`nPostprocess(`"Normal`")`r`n"
     $OriginalHash = New-Fixture 'selected-1440p' $Original $true
     $Profile = Apply-VrVideoProfile

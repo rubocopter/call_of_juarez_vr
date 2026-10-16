@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "deployment_transaction.ps1")
+. (Join-Path $PSScriptRoot "openvr_input_manifest.ps1")
 
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $Destination = Join-Path $GameDirectory "d3d9.dll"
@@ -97,17 +98,19 @@ if ($OpenVrRuntimeManaged) {
     }
 }
 if ($OpenVrInputManaged) {
-    $ActionManifest = Join-Path $OpenVrInputDestination "actions.json"
-    $SenseBinding = Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json"
-    if (-not (Test-Path -LiteralPath $ActionManifest -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $SenseBinding -PathType Leaf)) {
-        throw "The staged OpenVR input assets are incomplete. Refusing to unstage incompletely."
+    if ($null -ne $StageState.PSObject.Properties['stagedOpenVrInputManifest']) {
+        Assert-CojvrOpenVrInputManifest $StageState.stagedOpenVrInputManifest
+        $StagedInputFiles = @($StageState.stagedOpenVrInputManifest.files | Sort-Object { [string]$_.path })
+    } else {
+        # Legacy state contains only the original two input identities.
+        $StagedInputFiles = @(
+            [ordered]@{path='actions.json'; sha256=([string]$StageState.stagedOpenVrActionManifestSha256).ToUpperInvariant()},
+            [ordered]@{path='bindings/psvr2_sense.json'; sha256=([string]$StageState.stagedOpenVrSenseBindingSha256).ToUpperInvariant()}
+        )
+        Assert-CojvrOpenVrInputManifest @{schemaVersion=1; files=$StagedInputFiles}
     }
-    if ((Get-FileHash -LiteralPath $ActionManifest -Algorithm SHA256).Hash.ToUpperInvariant() -ne
-            ([string]$StageState.stagedOpenVrActionManifestSha256).ToUpperInvariant() -or
-        (Get-FileHash -LiteralPath $SenseBinding -Algorithm SHA256).Hash.ToUpperInvariant() -ne
-            ([string]$StageState.stagedOpenVrSenseBindingSha256).ToUpperInvariant()) {
-        throw "OpenVR input assets changed after staging. Refusing to remove unrecognized files."
+    if (-not (Test-CojvrDirectoryMatchesManifest $OpenVrInputDestination $StagedInputFiles)) {
+        throw 'OpenVR input assets changed after staging. Refusing to remove unrecognized files.'
     }
     if ([bool]$StageState.hadOriginalOpenVrInput -and
         -not (Test-Path -LiteralPath $OpenVrInputBackup -PathType Container)) {
@@ -152,10 +155,7 @@ if ($OpenVrInputManaged) {
         role = "openvr_input"; kind = "directory"; destination = "cojvr_openvr_input"; backup = "cojvr_openvr_input.cojvr-backup"
         hadOriginal = [bool]$StageState.hadOriginalOpenVrInput
         originalManifest = @($OriginalInputManifest)
-        stagedManifest = @(
-            [ordered]@{ path = "actions.json"; sha256 = ([string]$StageState.stagedOpenVrActionManifestSha256).ToUpperInvariant() },
-            [ordered]@{ path = "bindings/psvr2_sense.json"; sha256 = ([string]$StageState.stagedOpenVrSenseBindingSha256).ToUpperInvariant() }
-        )
+        stagedManifest = @($StagedInputFiles)
     }
 }
 if ($CodeArchiveManaged) {

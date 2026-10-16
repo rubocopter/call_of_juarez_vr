@@ -55,6 +55,22 @@
     {
       "controller_type": "playstation_vr2_sense",
       "binding_url": "bindings/psvr2_sense.json"
+    },
+    {
+      "controller_type": "oculus_touch",
+      "binding_url": "bindings/oculus_touch.json"
+    },
+    {
+      "controller_type": "knuckles",
+      "binding_url": "bindings/knuckles.json"
+    },
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "bindings/vive_controller.json"
+    },
+    {
+      "controller_type": "holographic_controller",
+      "binding_url": "bindings/holographic_controller.json"
     }
   ],
   "localization": [
@@ -63,7 +79,7 @@
       "/actions/global/out/haptic_left": "Left controller UI feedback",
       "/actions/global/out/haptic_right": "Right controller UI feedback",
       "/actions/global": "Global VR controls",
-      "/actions/global/in/recenter": "Create: tap objectives / hold recenter",
+      "/actions/global/in/recenter": "Tap objectives / hold recenter",
       "/actions/global/in/ui_select_left": "Select menu with left trigger",
       "/actions/global/in/ui_select_right": "Select menu with right trigger",
       "/actions/global/in/ui_pointer_left": "Hold to point at menu with left hand",
@@ -89,7 +105,7 @@
       "/actions/gameplay/in/weapon_next": "Next weapon",
       "/actions/gameplay/in/weapon_previous": "Previous weapon",
       "/actions/gameplay/in/kick": "Kick",
-      "/actions/global/in/pause": "Pause / menu",
+      "/actions/global/in/pause": "Tap pause / hold VR settings",
       "/actions/gameplay/in/walk": "Walk",
       "/actions/gameplay/in/focus": "Focus",
       "/actions/gameplay/in/alternate_fire": "Alternate Fire",
@@ -114,7 +130,7 @@
       "/actions/global/out/haptic_left": "Respuesta háptica de interfaz izquierda",
       "/actions/global/out/haptic_right": "Respuesta háptica de interfaz derecha",
       "/actions/global": "Controles VR globales",
-      "/actions/global/in/recenter": "Create: toque objetivos / mantener recentrar",
+      "/actions/global/in/recenter": "Toque objetivos / mantener recentrar",
       "/actions/global/in/ui_select_left": "Seleccionar menú con gatillo izquierdo",
       "/actions/global/in/ui_select_right": "Seleccionar menú con gatillo derecho",
       "/actions/global/in/ui_pointer_left": "Mantener para apuntar al menú con mano izquierda",
@@ -140,7 +156,7 @@
       "/actions/gameplay/in/weapon_next": "Arma siguiente",
       "/actions/gameplay/in/weapon_previous": "Arma anterior",
       "/actions/gameplay/in/kick": "Patada",
-      "/actions/global/in/pause": "Pausa / menú",
+      "/actions/global/in/pause": "Toque pausa / mantener ajustes VR",
       "/actions/gameplay/in/walk": "Caminar despacio",
       "/actions/gameplay/in/focus": "Enfocar mirada",
       "/actions/gameplay/in/alternate_fire": "Modo de disparo alternativo",

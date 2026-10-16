@@ -10,6 +10,22 @@ gates. Acceptance here is limited to exercised original Steam Call of Juarez
 release support. This document owns acceptance; [Architecture](ARCHITECTURE.md)
 owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
+## Public prerelease policy
+
+`v0.1.0-prealpha.1` is being prepared for experimental community testing before
+whole-campaign acceptance. Distribution, package verification and additional
+controller bindings do not promote any validation state. Physical acceptance
+remains limited to the exercised Steam 2006 D3D9/OpenVR scenes and PS VR2 Sense.
+Other packaged bindings are experimental, with no support claim for other PCs
+or headsets.
+
+Disclose the unresolved chest/possible-scroll crash, immersive-movie flicker
+correction awaiting retest, incomplete campaign coverage and open recovery gates.
+Recommend save backups because crashes or blocked progression can lose progress.
+Users start/close the game and SteamVR manually. Community diagnostics are
+generated locally, inspected for private data and attached manually to issues;
+they do not replace canonical evidence or operator acceptance below.
+
 ## Current feature state
 
 | Boundary | Confirmed state | Remaining limits |
@@ -34,8 +50,8 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Host verification boundary
 
-The configured Win32 Release build succeeds. The verified candidate registered 88
-CTest tests: 87 passed, none failed and one classic shared-texture test was skipped
+The configured Win32 Release build succeeds. The public OpenVR Release tree registers 89
+CTest tests: 88 passed, none failed and one classic shared-texture test was skipped
 because the environment does not provide that capability. Classic shared render
 targets remain unavailable (`d3d9_classic_d3d11_shared_texture`); the pool probe
 passes. Transient classic-device creation unavailability has also been observed.
@@ -44,6 +60,15 @@ transport. The suite
 covers production policy, real host GPU interop, synthetic JNI/native fixtures,
 deployment/restoration and evidence rejection; it does not exercise a campaign
 or initialize SteamVR for the OpenVR input fixture.
+
+Public distribution has host coverage for inventory/tamper rejection, unknown
+builds, foreign staging, owned recovery with truncated stage JSON, Unicode video
+paths and bounded local reports. An opt-in isolated copy of the exact game also
+exercises install, tracked-head/body enablement, all five controller files,
+fresh session identities/log rotation, conventional/manual updates, retained
+reload preference, byte-identical uninstall and injected deployment failure.
+The extracted package uses Windows PowerShell 5.1 and bundled isolated Python.
+These checks do not establish another PC, controller, campaign or headset gate.
 
 Binding checks now reject unexpected or duplicate Sense source routes. Flat-menu
 pointer uploads reuse presenter-owned scratch storage. These changes have host

@@ -5,6 +5,7 @@ param(
     [string]$ProxyPath = "",
     [string]$BuildManifestPath = "",
     [string]$RunId = "",
+    [string]$PythonExecutable = 'python',
 
     [ValidateSet("full", "performance", "transport", "startup")]
     [string]$ValidationProfile = "full",
@@ -16,6 +17,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "deployment_transaction.ps1")
+. (Join-Path $PSScriptRoot "openvr_input_manifest.ps1")
 
 function Get-PeMachine([string]$Path) {
     $Stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -183,10 +185,6 @@ if ($ProxyHash -ne ([string]$ProxyArtifact[0].sha256).ToUpperInvariant()) {
 }
 $OpenVrArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_runtime" })
 $OpenVrSource = $null
-$OpenVrActionManifestArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_action_manifest" })
-$OpenVrSenseBindingArtifact = @($BuildManifest.artifacts | Where-Object { [string]$_.role -eq "openvr_binding_psvr2_sense" })
-$OpenVrActionManifestSource = $null
-$OpenVrSenseBindingSource = $null
 if ($IsOpenVrIntegration) {
     if ($OpenVrArtifact.Count -ne 1) {
         throw "OpenVR camera/stereo manifest must contain exactly one OpenVR runtime artifact."
@@ -200,23 +198,36 @@ if ($IsOpenVrIntegration) {
         throw "OpenVR runtime SHA-256 does not match the selected build manifest."
     }
 }
+$StagedOpenVrInputManifest = $null
 if ($IsNativeStereo) {
-    if ($OpenVrActionManifestArtifact.Count -ne 1 -or $OpenVrSenseBindingArtifact.Count -ne 1) {
-        throw "Native-stereo manifest must contain one OpenVR action manifest and one PS VR2 Sense binding artifact."
-    }
-    $ProxyDirectory = [System.IO.Path]::GetDirectoryName($ProxyPath)
-    $OpenVrActionManifestSource = Join-Path $ProxyDirectory ([string]$OpenVrActionManifestArtifact[0].fileName)
-    $OpenVrSenseBindingSource = Join-Path $ProxyDirectory ([string]$OpenVrSenseBindingArtifact[0].fileName)
-    foreach ($Pair in @(
-        @($OpenVrActionManifestSource, [string]$OpenVrActionManifestArtifact[0].sha256, "action manifest"),
-        @($OpenVrSenseBindingSource, [string]$OpenVrSenseBindingArtifact[0].sha256, "PS VR2 Sense binding")
-    )) {
-        if (-not (Test-Path -LiteralPath $Pair[0] -PathType Leaf)) {
-            throw "OpenVR $($Pair[2]) artifact was not found at '$($Pair[0])'."
+    $ProxyDirectory = [IO.Path]::GetDirectoryName($ProxyPath)
+    $OpenVrInputSource = Join-Path $ProxyDirectory 'cojvr_openvr_input'
+    $StagedOpenVrInputManifest = Get-CojvrOpenVrInputManifest $OpenVrInputSource
+    if ($null -ne $BuildManifest.PSObject.Properties['openVrInputManifest']) {
+        Assert-CojvrOpenVrInputManifest $BuildManifest.openVrInputManifest
+        $Recorded = @($BuildManifest.openVrInputManifest.files | Sort-Object { [string]$_.path })
+        $Discovered = @($StagedOpenVrInputManifest.files)
+        if ($Recorded.Count -ne $Discovered.Count) { throw 'OpenVR input inventory count does not match the selected build manifest.' }
+        for ($Index = 0; $Index -lt $Recorded.Count; ++$Index) {
+            if ([string]$Recorded[$Index].path -cne [string]$Discovered[$Index].path -or
+                ([string]$Recorded[$Index].sha256).ToUpperInvariant() -cne [string]$Discovered[$Index].sha256) {
+                throw 'OpenVR input inventory does not match the selected build manifest.'
+            }
         }
-        $InputHash = (Get-FileHash -LiteralPath $Pair[0] -Algorithm SHA256).Hash.ToUpperInvariant()
-        if ($InputHash -ne $Pair[1].ToUpperInvariant()) {
-            throw "OpenVR $($Pair[2]) SHA-256 does not match the selected build manifest."
+    }
+    $InputArtifacts = @($BuildManifest.artifacts | Where-Object {
+        [string]$_.role -eq 'openvr_action_manifest' -or [string]$_.role -like 'openvr_binding*' -or
+        [string]$_.fileName -like 'cojvr_openvr_input*'
+    })
+    if ($InputArtifacts.Count -ne $StagedOpenVrInputManifest.files.Count) { throw 'OpenVR input artifact inventory is incomplete or duplicated.' }
+    foreach ($File in $StagedOpenVrInputManifest.files) {
+        $ExpectedRole = if ($File.path -eq 'actions.json') { 'openvr_action_manifest' }
+            elseif ($File.path -eq 'bindings/psvr2_sense.json') { 'openvr_binding_psvr2_sense' } else { 'openvr_binding' }
+        $InputMatches = @($InputArtifacts | Where-Object { [string]$_.fileName -ceq ('cojvr_openvr_input/' + $File.path) })
+        if ($InputMatches.Count -ne 1 -or [string]$InputMatches[0].role -cne $ExpectedRole -or
+            [string]$InputMatches[0].sha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+            ([string]$InputMatches[0].sha256).ToUpperInvariant() -cne $File.sha256) {
+            throw "OpenVR input artifact path/role/SHA-256 mismatch for '$($File.path)'."
         }
     }
 }
@@ -362,10 +373,7 @@ if ($IsNativeStereo) {
         temporary = "cojvr_openvr_input.cojvr-installing"
         hadOriginal = $HadOriginalOpenVrInput
         originalManifest = @($OriginalInputManifest)
-        stagedManifest = @(
-            [ordered]@{ path = "actions.json"; sha256 = ([string]$OpenVrActionManifestArtifact[0].sha256).ToUpperInvariant() },
-            [ordered]@{ path = "bindings/psvr2_sense.json"; sha256 = ([string]$OpenVrSenseBindingArtifact[0].sha256).ToUpperInvariant() }
-        )
+        stagedManifest = @($StagedOpenVrInputManifest.files)
     }
 }
 if ($IsNativeStereo) {
@@ -374,7 +382,7 @@ if ($IsNativeStereo) {
         $PatchArguments = @($CodeArchive, $PatchedCodeSource)
         if ($ReloadWaitProbe) { $PatchArguments += '--reload-wait-probe' }
         if ($ManualReload) { $PatchArguments += '--manual-reload' }
-        & python (Join-Path $PSScriptRoot "patch_coj_weapon_consumers.py") @PatchArguments
+        & $PythonExecutable -B (Join-Path $PSScriptRoot "patch_coj_weapon_consumers.py") @PatchArguments
         if ($LASTEXITCODE -ne 0) { throw "Exact weapon consumer patch failed." }
         $PatchedCodeHash = Get-CojvrFileSha256 $PatchedCodeSource
     } catch {
@@ -391,7 +399,7 @@ if ($IsNativeStereo) {
 if ($IndependentHands) {
     $PatchedPlayerSource = Join-Path ([System.IO.Path]::GetTempPath()) ("cojvr-player-" + [Guid]::NewGuid().ToString("N") + ".pak")
     try {
-        & python (Join-Path $PSScriptRoot "split_coj_player_mesh.py") $PlayerArchive $PatchedPlayerSource
+        & $PythonExecutable -B (Join-Path $PSScriptRoot "split_coj_player_mesh.py") $PlayerArchive $PatchedPlayerSource
         if ($LASTEXITCODE -ne 0) { throw "Exact player geometry split failed." }
         $PatchedPlayerHash = Get-CojvrFileSha256 $PatchedPlayerSource
     } catch {
@@ -410,7 +418,7 @@ try {
     [void](Write-CojvrDeploymentJournal $GameDirectory "stage" $RunId $DiagnosticMode $JournalAssets)
     if ($LargeAddressAware) {
         $PatchedExecutableSource = Join-Path ([IO.Path]::GetTempPath()) ("cojvr-executable-" + [Guid]::NewGuid().ToString("N") + ".exe")
-        & python (Join-Path $PSScriptRoot "patch_coj_large_address.py") $Executable $PatchedExecutableSource
+        & $PythonExecutable -B (Join-Path $PSScriptRoot "patch_coj_large_address.py") $Executable $PatchedExecutableSource
         if ($LASTEXITCODE -ne 0 -or (Get-CojvrFileSha256 $PatchedExecutableSource) -ne $StagedExecutableHash) {
             throw "Exact CoJ LargeAddressAware patch failed verification."
         }
@@ -476,10 +484,13 @@ if ($HadOriginal) {
         }
         New-Item -ItemType Directory -Path (Join-Path $OpenVrInputTemporary "bindings") -Force | Out-Null
         Invoke-CojvrDeploymentCheckpoint "stage_openvr_input_temporary_created"
-        Copy-Item -LiteralPath $OpenVrActionManifestSource -Destination (Join-Path $OpenVrInputTemporary "actions.json")
-        Invoke-CojvrDeploymentCheckpoint "stage_openvr_action_copied"
-        Copy-Item -LiteralPath $OpenVrSenseBindingSource -Destination (Join-Path $OpenVrInputTemporary "bindings\psvr2_sense.json")
-        Invoke-CojvrDeploymentCheckpoint "stage_openvr_binding_copied"
+        foreach ($File in $StagedOpenVrInputManifest.files) {
+            $Target = Join-Path $OpenVrInputTemporary $File.path
+            New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($Target)) -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $OpenVrInputSource $File.path) -Destination $Target
+            if ($File.path -eq 'actions.json') { Invoke-CojvrDeploymentCheckpoint "stage_openvr_action_copied" }
+            else { Invoke-CojvrDeploymentCheckpoint "stage_openvr_binding_copied" }
+        }
         $OpenVrInputAssets = @(
             $JournalAssets | Where-Object { [string]$_.role -eq "openvr_input" }
         )
@@ -540,6 +551,7 @@ if ($HadOriginal) {
         stagedCodeSha256 = if ($IsNativeStereo) { $PatchedCodeHash } else { $null }
         hadOriginalOpenVrInput = $HadOriginalOpenVrInput
         originalOpenVrInputManifest = @($OriginalInputManifest)
+        stagedOpenVrInputManifest = $StagedOpenVrInputManifest
         stagedOpenVrActionManifestSha256 = if ($IsNativeStereo) {
             (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "actions.json") -Algorithm SHA256).Hash.ToUpperInvariant()
         } else { $null }
@@ -578,15 +590,13 @@ if ($HadOriginal) {
                 role = "game_player_geometry"; destination = "Data0.pak"; sha256 = $PatchedPlayerHash
             }
         }
-        $Deployment += [ordered]@{
-            role = "openvr_action_manifest"
-            destination = "cojvr_openvr_input/actions.json"
-            sha256 = (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "actions.json") -Algorithm SHA256).Hash.ToUpperInvariant()
-        }
-        $Deployment += [ordered]@{
-            role = "openvr_binding_psvr2_sense"
-            destination = "cojvr_openvr_input/bindings/psvr2_sense.json"
-            sha256 = (Get-FileHash -LiteralPath (Join-Path $OpenVrInputDestination "bindings\psvr2_sense.json") -Algorithm SHA256).Hash.ToUpperInvariant()
+        foreach ($File in $StagedOpenVrInputManifest.files) {
+            $Role = if ($File.path -eq 'actions.json') { 'openvr_action_manifest' }
+                elseif ($File.path -eq 'bindings/psvr2_sense.json') { 'openvr_binding_psvr2_sense' } else { 'openvr_binding' }
+            $Deployment += [ordered]@{
+                role = $Role; destination = 'cojvr_openvr_input/' + $File.path
+                sha256 = Get-CojvrFileSha256 (Join-Path $OpenVrInputDestination $File.path)
+            }
         }
     }
 

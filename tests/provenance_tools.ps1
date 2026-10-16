@@ -39,6 +39,7 @@ try {
     New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
     $Scripts = @(
         "new_build_manifest.ps1",
+        "openvr_input_manifest.ps1",
         "collect_run_evidence.ps1",
         "get_run_provenance.ps1",
         "deployment_transaction.ps1",
@@ -453,8 +454,8 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $StereoInputDirectory "bindings") -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $SourceDirectory "assets\openvr\actions.json") `
         -Destination (Join-Path $StereoInputDirectory "actions.json")
-    Copy-Item -LiteralPath (Join-Path $SourceDirectory "assets\openvr\bindings\psvr2_sense.json") `
-        -Destination (Join-Path $StereoInputDirectory "bindings\psvr2_sense.json")
+    Copy-Item -Path (Join-Path $SourceDirectory "assets/openvr/bindings/*.json") `
+        -Destination (Join-Path $StereoInputDirectory "bindings")
     $OpenVrActions = Get-Content -LiteralPath (Join-Path $StereoInputDirectory "actions.json") -Raw | ConvertFrom-Json
     $OpenVrSenseBinding = Get-Content -LiteralPath (Join-Path $StereoInputDirectory "bindings\psvr2_sense.json") -Raw | ConvertFrom-Json
     $ActionNames = @($OpenVrActions.actions | ForEach-Object { [string]$_.name })
@@ -535,12 +536,16 @@ try {
     $StereoBuildManifest = Get-Content -LiteralPath $StereoBuildManifestPath -Raw | ConvertFrom-Json
     Assert-True ($StereoBuildManifest.build.diagnosticMode -eq "d3d9_native_stereo") `
         "Native-stereo build mode was not recorded."
-    Assert-True (@($StereoBuildManifest.artifacts).Count -eq 4) `
+    Assert-True (@($StereoBuildManifest.artifacts).Count -eq (3 + $OpenVrActions.default_bindings.Count)) `
         "Native-stereo manifest did not bind proxy, OpenVR runtime and controller input assets."
     Assert-True (@($StereoBuildManifest.artifacts | Where-Object { $_.role -eq "openvr_action_manifest" }).Count -eq 1) `
         "Native-stereo manifest did not bind the OpenVR action manifest."
     Assert-True (@($StereoBuildManifest.artifacts | Where-Object { $_.role -eq "openvr_binding_psvr2_sense" }).Count -eq 1) `
         "Native-stereo manifest did not bind the PS VR2 Sense profile."
+
+    Assert-True ($StereoBuildManifest.openVrInputManifest.schemaVersion -eq 1 -and
+        @($StereoBuildManifest.openVrInputManifest.files).Count -eq (1 + $OpenVrActions.default_bindings.Count)) `
+        'Build manifest lost the versioned full OpenVR input inventory.'
 
     $GameDirectory = Join-Path $TestRoot "game"
     $RunId = "host-test-run"
@@ -807,8 +812,8 @@ try {
     New-Item -ItemType Directory -Path (Join-Path $StereoVerifierGame "cojvr_openvr_input\bindings") -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $StereoInputDirectory "actions.json") `
         -Destination (Join-Path $StereoVerifierGame "cojvr_openvr_input\actions.json")
-    Copy-Item -LiteralPath (Join-Path $StereoInputDirectory "bindings\psvr2_sense.json") `
-        -Destination (Join-Path $StereoVerifierGame "cojvr_openvr_input\bindings\psvr2_sense.json")
+    Copy-Item -Path (Join-Path $StereoInputDirectory 'bindings/*.json') `
+        -Destination (Join-Path $StereoVerifierGame 'cojvr_openvr_input/bindings')
     Copy-Item -LiteralPath $StereoBuildManifestPath -Destination (Join-Path $StereoVerifierRunDirectory "build-manifest.json")
 
     $StereoVerifierProxyHash = (Get-FileHash -LiteralPath (Join-Path $StereoVerifierGame "d3d9.dll") -Algorithm SHA256).Hash
@@ -816,6 +821,9 @@ try {
     $StereoVerifierActionManifestHash = (Get-FileHash -LiteralPath (Join-Path $StereoVerifierGame "cojvr_openvr_input\actions.json") -Algorithm SHA256).Hash
     $StereoVerifierSenseBindingHash = (Get-FileHash -LiteralPath (Join-Path $StereoVerifierGame "cojvr_openvr_input\bindings\psvr2_sense.json") -Algorithm SHA256).Hash
     $StereoVerifierBuildManifestHash = (Get-FileHash -LiteralPath $StereoBuildManifestPath -Algorithm SHA256).Hash
+    $ExperimentalDeployment = @($StereoBuildManifest.artifacts | Where-Object role -eq 'openvr_binding' | ForEach-Object {
+        [ordered]@{role=$_.role; destination=$_.fileName; sha256=$_.sha256}
+    })
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-run.json") ([ordered]@{
         schemaVersion = 1
         manifestType = "cojvr-run"
@@ -851,7 +859,7 @@ try {
             [ordered]@{ role = "openvr_runtime"; destination = "openvr_api.dll"; sha256 = $StereoVerifierOpenVrHash },
             [ordered]@{ role = "openvr_action_manifest"; destination = "cojvr_openvr_input/actions.json"; sha256 = $StereoVerifierActionManifestHash },
             [ordered]@{ role = "openvr_binding_psvr2_sense"; destination = "cojvr_openvr_input/bindings/psvr2_sense.json"; sha256 = $StereoVerifierSenseBindingHash }
-        )
+        ) + $ExperimentalDeployment
     })
     Write-Utf8Json (Join-Path $StereoVerifierGame ".cojvr-d3d9-stage.json") ([ordered]@{
         runId = $StereoVerifierRunId
@@ -1634,6 +1642,12 @@ try {
         -OutputPath $StereoPackagePath | Out-Null
     $StereoEvidenceManifest = Get-Content -LiteralPath `
         (Join-Path $StereoVerifierRunDirectory "evidence-manifest.json") -Raw | ConvertFrom-Json
+    foreach ($Artifact in $ExperimentalDeployment) {
+        $Checks = @($StereoEvidenceManifest.deploymentChecks | Where-Object {
+            $_.destination -ceq $Artifact.destination -and $_.expectedSha256 -ceq $Artifact.sha256 -and $_.matches
+        })
+        Assert-True ($Checks.Count -eq 1) 'Collection omitted an experimental binding identity.'
+    }
     Assert-True ([bool]$StereoEvidenceManifest.analysis.nativeStereoSummaryRequired -and
         [bool]$StereoEvidenceManifest.analysis.nativeStereoSummaryCollected) `
         "Required native-stereo summary was not bound into the run evidence manifest."

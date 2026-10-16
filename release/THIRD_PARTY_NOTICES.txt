@@ -1,0 +1,54 @@
+Call of Juarez VR prerelease - third-party notices
+
+Project code
+No project code license has been granted by this notice. The repository has no
+project LICENSE at the time this packaging workflow was added. Do not interpret
+the third-party licenses below as a license for Call of Juarez VR code.
+No game executables, game archives, saves or extracted game data are included.
+
+Valve OpenVR SDK 2.15.6
+The unmodified x86 openvr_api.dll is distributed with the full Valve license at
+licenses/OpenVR-LICENSE.txt. Source: https://github.com/ValveSoftware/openvr
+License: https://github.com/ValveSoftware/openvr/blob/v2.15.6/LICENSE
+SteamVR and its installation are separate from this package.
+
+Adapted reload cartridge artwork (embedded in the VR DLL)
+The active loose .357 cartridge mesh and albedo are adapted from the 357Bullet
+node in "Revolver Game Asset" by loafbrr_1 (December 4, 2021), under CC0 1.0.
+The package embeds the selected geometry, normals/UVs and a cropped albedo bake;
+the runtime adapts the original orange case palette to brass with preview shading.
+Source: https://opengameart.org/content/revolver-game-asset
+License: https://creativecommons.org/publicdomain/zero/1.0/
+The earlier loose .44 Magnum geometry from Pichuliru's "CC0 Flat Ammunition"
+(April 4, 2022), also CC0 1.0, is retained for the legacy cartridge visual.
+Source: https://opengameart.org/content/cc0-flat-ammunition
+These third-party visuals are not extracted Call of Juarez artwork.
+
+Python 3.13.16 embeddable distribution, Windows x64
+The official embeddable ZIP is redistributed with its LICENSE.txt, standard
+library and bundled third-party runtime libraries. See
+dependencies/python/LICENSE.txt for the complete PSF and third-party notices.
+The only distribution change is python313._pth: the isolated import path adds
+../../tools to support the packaged patchers; site loading remains disabled.
+No pip packages or system Python installation are required.
+Source: https://www.python.org/downloads/release/python-31316/
+License: https://docs.python.org/3.13/license.html
+
+Microsoft Visual C++ Redistributable (x86) 14.44.35211.0
+dependencies/vc_redist.x86.exe is the unmodified, Microsoft-signed official
+installer. Microsoft's software license terms apply; this is not open-source
+software. Installation is subject to the terms supplied with the installer.
+License: https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/
+Distribution guidance:
+https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+Download guidance:
+https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+Python's bundled x64 vcruntime libraries are part of the official Python
+distribution and are separate from this x86 game runtime installer.
+
+Dependency versions, immutable download URLs and SHA-256 identities are recorded
+in dependencies.lock.json. Dependency updates require an explicit reviewed lock
+change. Player installation performs no dependency downloads.
+
+Development assistance
+Development of this prerelease was assisted by OpenAI Codex.

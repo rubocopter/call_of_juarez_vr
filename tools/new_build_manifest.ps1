@@ -15,6 +15,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "openvr_input_manifest.ps1")
+
 function Get-UpperSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
 }
@@ -69,17 +71,10 @@ if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera", "d3d9_native_st
     }
 }
 
-$OpenVrActionManifestPath = $null
-$OpenVrSenseBindingPath = $null
+$OpenVrInputManifest = $null
 if ($DiagnosticMode -eq "d3d9_native_stereo") {
-    $ProxyDirectory = [System.IO.Path]::GetDirectoryName($ProxyPath)
-    $OpenVrActionManifestPath = Join-Path $ProxyDirectory "cojvr_openvr_input\actions.json"
-    $OpenVrSenseBindingPath = Join-Path $ProxyDirectory "cojvr_openvr_input\bindings\psvr2_sense.json"
-    foreach ($RequiredInputAsset in @($OpenVrActionManifestPath, $OpenVrSenseBindingPath)) {
-        if (-not (Test-Path -LiteralPath $RequiredInputAsset -PathType Leaf)) {
-            throw "Native-stereo OpenVR input artifact was not found at '$RequiredInputAsset'. Build $Configuration first."
-        }
-    }
+    $OpenVrInputDirectory = Join-Path ([IO.Path]::GetDirectoryName($ProxyPath)) 'cojvr_openvr_input'
+    $OpenVrInputManifest = Get-CojvrOpenVrInputManifest $OpenVrInputDirectory
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
@@ -138,19 +133,15 @@ if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera", "d3d9_native_st
     }
 }
 if ($DiagnosticMode -eq "d3d9_native_stereo") {
-    $Artifacts += [ordered]@{
-        role = "openvr_action_manifest"
-        fileName = "cojvr_openvr_input/actions.json"
-        sourcePath = $OpenVrActionManifestPath
-        sha256 = Get-UpperSha256 $OpenVrActionManifestPath
-        size = (Get-Item -LiteralPath $OpenVrActionManifestPath).Length
-    }
-    $Artifacts += [ordered]@{
-        role = "openvr_binding_psvr2_sense"
-        fileName = "cojvr_openvr_input/bindings/psvr2_sense.json"
-        sourcePath = $OpenVrSenseBindingPath
-        sha256 = Get-UpperSha256 $OpenVrSenseBindingPath
-        size = (Get-Item -LiteralPath $OpenVrSenseBindingPath).Length
+    foreach ($File in $OpenVrInputManifest.files) {
+        $Role = if ($File.path -eq 'actions.json') { 'openvr_action_manifest' }
+            elseif ($File.path -eq 'bindings/psvr2_sense.json') { 'openvr_binding_psvr2_sense' }
+            else { 'openvr_binding' }
+        $Path = Join-Path $OpenVrInputDirectory $File.path
+        $Artifacts += [ordered]@{
+            role = $Role; fileName = 'cojvr_openvr_input/' + $File.path
+            sourcePath = $Path; sha256 = $File.sha256; size = (Get-Item -LiteralPath $Path).Length
+        }
     }
 }
 
@@ -182,6 +173,7 @@ $Identity = [ordered]@{
         configurePreset = "win32-debug"
         diagnosticMode = $DiagnosticMode
     }
+    openVrInputManifest = $OpenVrInputManifest
     artifacts = @($ArtifactIdentity)
     rebuild = [ordered]@{
         commands = @(
@@ -203,6 +195,7 @@ $Manifest = [ordered]@{
     repositoryRoot = $RepositoryRoot
     source = $Identity.source
     build = $Identity.build
+    openVrInputManifest = $Identity.openVrInputManifest
     artifacts = $Identity.artifacts
     rebuild = $Identity.rebuild
 }

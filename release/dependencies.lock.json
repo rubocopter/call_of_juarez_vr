@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "python": {
+    "version": "3.13.16",
+    "architecture": "amd64",
+    "fileName": "python-3.13.16-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-embed-amd64.zip",
+    "sha256": "97DAE5274CC54867065E8D5A3226E48C35017ED332A0FDB0E27D5B5821961297",
+    "digestSource": "https://www.python.org/ftp/python/3.13.16/python-3.13.16-embed-amd64.zip.sigstore",
+    "documentation": "https://docs.python.org/3.13/using/windows.html#the-embeddable-package"
+  },
+  "vcRuntime": {
+    "version": "14.44.35211.0",
+    "architecture": "x86",
+    "fileName": "vc_redist.x86.exe",
+    "url": "https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64/VC_redist.x86.exe",
+    "sha256": "0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64",
+    "authenticodeSubject": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+    "documentation": "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist",
+    "license": "https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/"
+  },
+  "openvr": {
+    "version": "2.15.6",
+    "url": "https://github.com/ValveSoftware/openvr/archive/refs/tags/v2.15.6.zip",
+    "sha256": "7629E6586338DBC0F877571870F04534E24EE752126606C5D8FFDD7C3E7D31D4",
+    "win32DllSha256": "AB696E4F218A95B3E396BC310F9FE6485DF48C99C0969762083212B1E1F025A6",
+    "licenseSha256": "F56FF606104D4EF18E617921A75C73AD73B5A1A1D70C69590C29DE16919E04AD",
+    "license": "https://github.com/ValveSoftware/openvr/blob/v2.15.6/LICENSE"
+  }
+}

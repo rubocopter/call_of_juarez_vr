@@ -333,15 +333,14 @@ if(COJVR_ENABLE_OPENVR)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${COJVR_OPENVR_DLL}"
             "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/openvr_api.dll"
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input/bindings"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/assets/openvr/actions.json"
-            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input/actions.json"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/assets/openvr/bindings/psvr2_sense.json"
-            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input/bindings/psvr2_sense.json"
     )
+    # Input assets must refresh even when no C++ file needs relinking.
+    add_custom_target(cojvr_openvr_input ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/openvr"
+            "$<TARGET_FILE_DIR:cojvr_d3d9_native_stereo_proxy>/cojvr_openvr_input"
+    )
+    add_dependencies(cojvr_d3d9_native_stereo_proxy cojvr_openvr_input)
 
     add_library(cojvr_d3d9_openvr_flat_proxy SHARED
         src/backends/d3d9/classic_readback_bridge.cpp
@@ -450,6 +449,9 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME reload_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_reload_cartridge.py" --check)
     add_test(NAME textured_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_textured_cartridge.py" --check)
     add_test(NAME openvr_action_assets COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/openvr_action_assets.py")
+    add_test(NAME release_frontend COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/release_frontend.ps1"
+        -SourceDirectory "${CMAKE_SOURCE_DIR}")
     add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(
         NAME validation_result_tools

@@ -684,6 +684,29 @@ PS VR2 with Sense controllers through SteamVR is the development reference.
 Bindings belong to runtime assets; game logic consumes logical actions/poses.
 Compatibility with other devices requires independent acceptance.
 
+## Public pre-alpha distribution
+
+`tools/package_release.ps1` builds/tests the Win32 OpenVR path and packages an
+explicit file allowlist with a complete SHA-256 inventory. Dependency identities
+live in `release/dependencies.lock.json`: portable isolated Python, the x86
+OpenVR DLL and the official Microsoft-signed x86 VC++ redistributable. The player
+uses Windows PowerShell 5.1 on x64 Windows; no compiler, Git, system Python or
+dependency download is required. Game files are patched locally and never shipped.
+
+`release/cojvr.ps1` owns the public install/session journal and calls the existing
+exact-build transactional stage/unstage boundaries. Updates restore originals
+before deploying a replacement; failure retains recovery data or restores the
+original game. Manual-reload preference survives an update. Input manifests bind
+every referenced controller JSON, preserving legacy Sense-only restoration.
+Additional bindings are experimental, independent of physical acceptance.
+
+Install prepares the first session. PrepareSession rotates prior outputs into
+local evidence and assigns a fresh correlated run/stage identity before the user
+manually starts SteamVR and the game. Community reports use a bounded text
+allowlist and redact common local paths; they are inspected and shared manually.
+They do not replace canonical `vr_test.ps1 prepare`/`finish` acceptance evidence.
+The GitHub release workflow produces a draft prerelease for explicit publication.
+
 ## Physical boxing
 
 The shared `MotionPunchContact` policy admits current closed-fist poses per hand

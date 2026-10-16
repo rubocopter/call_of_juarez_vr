@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a problem with an experimental Call of Juarez VR prerelease.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is experimental community testing, not a fully tested campaign or a supported release. Back up saves before testing.
+
+        Use CoJ-VR.cmd > Diagnostics to generate a local report. Inspect it before manually attaching it here: reports may contain personal paths or other private information. Nothing is uploaded automatically. Do not include unreviewed saves, memory dumps or unrelated personal files.
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: Include the full prerelease version; for a source build, include its commit.
+      placeholder: v0.1.0-prealpha.1
+    validations:
+      required: true
+  - type: input
+    id: chapter
+    attributes:
+      label: Chapter / checkpoint
+      description: Name the chapter, character and nearest checkpoint, or say startup/menu/installation.
+    validations:
+      required: true
+  - type: input
+    id: headset
+    attributes:
+      label: Headset / visor
+      description: Include the headset model and SteamVR version if known.
+    validations:
+      required: true
+  - type: input
+    id: controllers
+    attributes:
+      label: Controllers and binding
+      description: Include controller models, selected binding and any custom changes. Additional packaged bindings are experimental; physical validation is limited to PS VR2 Sense.
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and system
+      description: Include GPU model, driver version and Windows version; CPU/RAM are useful for performance reports.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps, expected result and actual result
+      description: Include reproducibility, ManualReload on/off, theater/immersive mode, held controls and relevant tracking/menu/save/load transitions.
+      placeholder: |
+        1. Start at...
+        2. Perform...
+        Expected:
+        Actual:
+        Repeats:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Reviewed diagnostics / logs
+      description: Manually attach the inspected local diagnostic report or paste relevant reviewed error text. If unavailable, explain why. Remove personal information before submitting.
+    validations:
+      required: false
