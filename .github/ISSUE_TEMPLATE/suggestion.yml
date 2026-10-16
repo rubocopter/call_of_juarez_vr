@@ -1,0 +1,22 @@
+name: Suggestion
+description: Suggest an improvement to controls, comfort, interactions or usability.
+title: "[Suggestion]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A short explanation is enough; no logs are needed. Use the bug form for a reproducible failure or the compatibility form for setup, image-quality or performance observations.
+  - type: textarea
+    id: experience
+    attributes:
+      label: What would you like to improve?
+      description: Describe the situation and how you would like it to feel or work. Mention your controller/headset if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Suggested approach or example (optional)
+      description: An idea or comparison is welcome. Review any attachments for private information before sharing.
+    validations:
+      required: false

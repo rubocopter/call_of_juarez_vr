@@ -24,6 +24,96 @@ A queued click which never becomes deliverable can also hold its target until
 navigation cancels it. Successful JNI calls and an intervening Present do not
 prove native hover processing.
 
+## Native VR settings integration boundary
+
+**Source/archive inspection; planned integration.** The provisional OpenVR panel
+is a development surface, not an extension of the native menu tree. The original
+recognized `code.pak` contains these existing routes (bytecode offsets are within
+the named method, not native RVAs):
+
+| Caller | Existing options route |
+| --- | --- |
+| `MenuMain.OnUICommand` | Offset 83 recognizes `ID_OPTIONS`; `OnOptions` offset 15 calls `ShowUI(1, Integer(GetUIID()))`. |
+| `MenuInGame.OnUICommand` | Offset 134 recognizes `ID_OPTIONS`; `OnOptions` offset 16 calls `ShowUI(6, Integer(GetUIID()))`. |
+| `MainMenuModule.GetUIClassName` | Explicit mapping: 0 `MenuMain`, 1 `MenuOptions`, 6 `MenuOptionsInGame`, 9 `MenuInGame`. |
+| `MenuOptions.Show(Object)` / `OnBack` | Stores `m_nCaller`; `OnBack` offset 7 returns through `ShowUI(m_nCaller)`. |
+
+The corresponding original `Data0.pak` members are
+`Data/Menu/scr/Main.scr` (Options button, line 206), `InGame.scr` (119),
+`Options.scr` (categories, 117), `OptionsInGame.scr` (categories, 72), and
+`Data/Menu/UIDef/MenuButton.def` (command/focus/input properties, 21).
+These are locations inside original archive members, not redistributed assets.
+Native widgets already provide style, focus, selection and command notification.
+The current hand pointer/trigger, accept/back and modal routing can supply input
+to those widgets; sprite visibility or cursor echo alone cannot prove activation.
+
+Adding a script button alone cannot implement a new entry: the Java consumers
+recognize explicit command IDs. `MainMenuModule` also constructs a 56-entry UI
+array (constructor offsets 35–41), with an explicit class-name table. There is
+no demonstrated open-ended page-registration API. A new page must qualify
+registry/capacity changes and every affected consumer; never reuse an apparently
+empty index without checking its other owners.
+
+The realistic route is a VR entry in both existing Options variants, reachable
+from main and pause, leading to one native editor that preserves the caller and
+back/modal behavior. Reuse native widgets and naturally scheduled sprite drawing;
+do not replay UI traversal for the second eye. Native menus retain their existing
+flat-theater presentation. Rendering, comfort/locomotion, controls/interaction
+and HUD/cinematics are future groups, not permission to expose unimplemented
+options. Initially only implemented preferences should appear.
+
+`runtime/vr_settings` already supplies `CinematicsMode`, bounded validation,
+version-1 load/save and atomic publication. The remaining coordination is in
+`OpenVrStereoPresenter::Impl::Worker`: it initializes the panel's editable copy, checks panel
+publication, publishes a changed value and saves it. External calls to
+`PublishCinematicMode` or `SaveVrSettings` alone would not synchronize that copy.
+There is no current multi-editor failure because the presenter is the only
+coordinator. Preserve this working route now; extract one preference owner before
+introducing the second UI. A value-only request/result bridge and synchronized
+snapshot are a proposal, not existing JNI engine APIs.
+
+Preserve these application/persistence contracts during that extraction:
+
+- `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini` is independent of staging and
+  panel lifetime. Missing/invalid input defaults to theater; version 1 permits
+  only its recognized keys and rejects duplicates/unknown versions. There is
+  currently no migration. Extending the file requires explicit version-1
+  migration that retains saved cinematic values; do not silently add keys that
+  the strict old reader would reject or erase unknown future versions.
+- Atomic temporary-file replacement retains the previous file on failed save.
+  A session-applied value and its persisted status are distinct. The existing
+  panel rolls back an invisible failed proposal before publication/persistence;
+  preserve that safeguard without making preferences depend on successful panel
+  rendering when a different valid editor submits a change.
+- Runtime movie admission remains game-owned: immersive selection does not
+  bypass pause, death, mission-end or unknown-owner fallback.
+
+Native input requires an explicit owner split. The current
+`SettingsInputCaptured()` suppresses both gameplay and injected native pointer
+delivery. Reusing it unchanged for a native page would block editing. Preserve
+gameplay suppression and available-release barriers while admitting pointer,
+accept/back only to the verified native editor. Bind requests to its menu,
+caller/modal and lifetime; the panel's player-generation/presentation token does
+not identify a particular native page. JNI references stay on the game thread;
+the renderer receives only values. Closing, modal replacement and context loss
+must cancel pending requests without stale clicks or resumed held actions.
+
+This is larger than a safe script edit. `patch_coj_weapon_consumers.py` currently
+patches enumerated classes and verifies other archive members remain unchanged;
+it supplies no native-settings bridge. The deployment already journals exact
+`code.pak` and `Data0.pak` derivatives, so extend those verified transformations
+and hash/inventory/restoration tests instead of overwriting game resources or
+shipping original classes/scripts. Preserve their unrelated weapon/mesh patches.
+
+Incremental exits: first prove the shared preference owner with existing panel
+tests plus two-editor synchronization, version-1 migration and save-failure tests;
+then qualify the native command/registry/resource bridge with main/paused callers,
+modal/back, unknown-build rejection and byte-identical rollback fixtures. Only
+then add the native page and batch its controller navigation/held-input checks
+into a relevant canonical headset candidate. Keep the provisional panel usable
+throughout; no duplicate preference file, new overlay or placeholder setting is
+needed for this investigation.
+
 ## Native consumer and coordinates
 
 The following are RVAs in the identified ChromeEngine image (size `0x60C000`):

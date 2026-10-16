@@ -1,0 +1,47 @@
+name: Compatibility, image quality or performance
+description: Share setup observations, successful tests, image quality or performance feedback.
+title: "[Feedback]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Brief observations are welcome, including successful tests. Please distinguish startup/menu access from gameplay and name the scenes you tried. A report does not establish headset or campaign support.
+
+        Logs are optional. CoJ-VR.cmd > 3 — Diagnostics creates a local report. Inspect it and remove private information before sharing it manually. There is no automatic upload or remote telemetry. Do not share unreviewed saves or memory dumps.
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: Full downloaded version, or commit and local changes for a source build. Development fixes may not be in the published ZIP.
+      placeholder: v0.1.0-prealpha.1
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: Headset, controllers/binding, GPU and Windows. Add CPU/RAM, driver, SteamVR version and connection method if known.
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: What did you try and observe?
+      description: Startup only, menus or gameplay? Name the chapter/checkpoint and describe what worked or felt wrong. For quality/performance, include game resolution, SteamVR percentage, refresh rate and recording/reprojection state if known. Measured FPS/frame times or a simple subjective description are both welcome.
+      placeholder: |
+        Startup: reached menu / failed...
+        Scene tried:
+        Image:
+        Head/hand tracking:
+        Inputs and binding:
+        Problems / steps (if applicable):
+        Mark anything you did not try as "not tested".
+    validations:
+      required: true
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Extra details or reviewed attachments (optional)
+      description: Relevant settings, comparisons, an inspected local report or a reviewed screenshot/clip. Remove personal information before sharing.
+    validations:
+      required: false

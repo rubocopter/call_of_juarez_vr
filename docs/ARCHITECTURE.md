@@ -84,6 +84,14 @@ reads each currently bound color RT0, not a swap-chain backbuffer that may echo
 both eyes. Frame identity includes the exact HMD render pose/sequence submitted
 through OpenVR explicit-pose submission. See [camera contracts](research/COJ_CAMERA_PATH.md).
 
+Scene resolution remains engine-owned. Capture allocates from the current RT0
+description, and native-stereo D3D11 eyes preserve that extent through equal-size
+copies. OpenVR's cached recommended extent does not resize ChromeEngine targets.
+Independent eye resolution must qualify native color/depth/intermediate ownership
+before the full render-view passes, retaining desktop/theater and lease/reset
+boundaries. [Resolution research](research/COJ_VR_RENDER_RESOLUTION.md) owns the
+source trace, memory constraints and incremental implementation criteria.
+
 ## Physical hand contact
 
 Physical Hands contact uses game-neutral per-hand input/motion admission with
@@ -226,6 +234,29 @@ dashboard and HMD tracking loss invalidate these edges and pending UI actions.
 Stereo presentation state likewise discards partial eye confirmation across
 tracking, connection and lifecycle loss; this is state policy, not a claim about
 rendered image alignment or frame-pacing improvement.
+
+## Preferences and future native settings
+
+`runtime/vr_settings` already separates bounded version-1 configuration I/O,
+safe cinematic defaults and atomic game-thread publication from panel rendering.
+The presenter currently coordinates load, panel selection, publication and save;
+the panel retains its own editable mode. This is sufficient for the single
+experimental surface, not a synchronized multi-UI preference owner. Preserve it
+until another editor or preference needs that boundary.
+
+Before adding a native editor, move that coordination into one shared preference
+owner. Both interfaces submit value-only requests and read its current values;
+neither duplicates validation, filesystem access or runtime application. Keep
+theater as the missing/invalid-config default and preserve version-1 values with
+an explicit migration before extending the strict schema. Save failure must
+remain distinguishable from a session-applied value. Runtime eligibility and
+native ownership remain authoritative regardless of the selected preference.
+
+The provisional panel remains a development tool. Native settings need a distinct
+UI input owner: the panel's current capture flag blocks native pointer delivery
+and cannot simply be reused while editing a native page. Exact principal/pause
+routes, resource constraints and the proposed bridge are in
+[UI research](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary).
 
 ## Expanded campaign input
 

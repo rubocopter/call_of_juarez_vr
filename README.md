@@ -9,39 +9,41 @@
   <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square">
   <img alt="Runtime: SteamVR" src="https://img.shields.io/badge/runtime-SteamVR-1b2838?style=flat-square">
 </p>
-<p align="center">
-  <a href="https://ko-fi.com/onitaku"><img alt="Support me on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
-</p>
 
 **A native PCVR conversion of Call of Juarez (2006), built around tracked head and hands.**
 
 > **Experimental community-testing pre-alpha.** The campaign is not fully tested, crashes can block progress, and this is not a supported release. Physical validation is limited to exercised scenes with PS VR2 Sense through SteamVR; other packaged controller bindings are experimental.
 
-**Development branch: `main`.** Development and releases share this branch. Separate branches are temporary and reserved for specific tests or focused work; players should download a versioned release below.
-
 **[Download v0.1.0-prealpha.1 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.1/CoJ-VR-0.1.0-prealpha.1-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.1)
 
-## What works
+## Quickstart
 
-- Native stereo, head tracking, recentering and room-scale movement.
-- Controller locomotion, physical crouching and snap turning.
-- Independent tracked hands and weapons, with the original torso and legs visible. Exercised pistol effects and whip use work in-headset.
-- Controller menus, equipment wheel and haptics, wrist compass, encountered HUD and subtitles.
-- Physical Hands combat with immediate knuckle contact; headset-tested in a fight against three enemies. Broader hand, campaign and recovery coverage remains open.
-- Experimental manual revolver reload: Square opens/closes, the free-hand trigger carries and inserts rounds, hands remain tracked and accepted insertions give haptic feedback. The game owns ammunition.
-- Exercised pickup/carry, drawers, Focus and corrected failure-screen presentation.
+You need **Windows 10/11 x64**, the **original Steam Call of Juarez (2006), D3D9 mode**, SteamVR and GPU/headset drivers. Unknown game builds are rejected. OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
 
-## Requirements and installation
+1. **Back up your saves.** Run the original game in D3D9 mode once, then close it.
+2. Download and extract the complete **Windows player ZIP** above. Keep its folders together; GitHub's automatic source-code ZIP is for development.
+3. Double-click **CoJ-VR.cmd**, choose **1 — Install/update** and select the game folder containing `CoJ.exe`. Manual reload is optional.
+4. Installation prepares the first session. Start **SteamVR**, then the **D3D9 game**, manually. Close them manually afterward.
+5. Before **every subsequent play session**, with the game closed, choose **6 — Prepare session**, then start SteamVR and the game manually again.
 
-The package requires **Windows 10/11 x64** and targets the **original Steam Call of Juarez (2006), x86 game, D3D9 and OpenVR/SteamVR**. Exact executable and archive identities are checked; unknown builds are rejected. You supply the game, SteamVR, and GPU/headset drivers. OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
+No compiler, Git, system Python or PowerShell 7 is needed. The package bundles Python and the VC++ x86 runtime for offline installation and uses Windows PowerShell 5.1.
 
-Published player ZIPs appear on the [Releases page](https://github.com/rubocopter/call_of_juarez_vr/releases). Choose the **windows-x64.zip** asset; GitHub's automatic source-code ZIP is for development. Extract the complete player ZIP anywhere and double-click **CoJ-VR.cmd**. Its menu provides **Install/update**, **Uninstall/recover**, **Diagnostics**, **Status**, **Verify package** (5) and **Prepare session** (6). Bundled Python and the VC++ x86 redistributable allow offline installation without a compiler, Git or system Python. The launcher uses system Windows PowerShell 5.1; PowerShell 7 is not required.
+To update, close the game, extract a newer player ZIP and choose **1 — Install/update**; your manual-reload choice persists unless changed. Use **2 — Uninstall/recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **5 — Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
 
-Back up your saves before testing. Close the game before installing, updating or uninstalling. Select the game directory and optionally enable **ManualReload** during installation. That preference persists across updates unless explicitly changed. To update, extract a newer ZIP and choose Install/update; there is no automatic updater. Keep installation backups and recovery data until uninstall succeeds. If a protected Steam game folder causes **Access denied**, right-click **CoJ-VR.cmd**, choose **Run as administrator** and retry.
+### Image quality
 
-Installation prepares the first play session. Before **every subsequent play session**, with the game closed, choose **6 — Prepare session** to create a fresh diagnostic identity. Then start SteamVR and the D3D9 game manually; the launcher does not start them. Close them manually afterward. **5 — Verify package** checks package files; it does not prepare a play session.
+**Image resolution:** Stereo eye frames currently use the resolution of the game's own D3D9 render target. SteamVR supplies headset optics and a recommended per-eye size, but changing SteamVR's resolution percentage does not make the game render more pixels. If the image appears to be 1024×768, close the game, use **2 — Uninstall/recover**, launch the unmodded D3D9 game and select a higher resolution supported by its video settings, then quit and **1 — Install/update** the mod again. The installer preserves the selected game resolution and stages FSAA 0. The game does not yet render directly at SteamVR's recommended per-eye resolution; higher settings may increase GPU and 32-bit game memory pressure. Avoid changing resolution during an active VR session until device-reset recovery is validated.
 
-PS VR2 Sense is the only physically validated controller reference. Additional packaged bindings are experimental and do not establish compatibility with another headset or PC. See the [controller cheat sheet](release/README.txt) for Sense, Oculus/Meta Touch, Valve Index, Vive wands and WMR, including Touch/Index directional stick-click pause/recenter. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls) remain available.
+The internal source is the game's current color render target (**RT0**); resizing it afterward cannot recover detail the game never rendered. DSR or a similar driver option may help only if your GPU/driver exposes it **and the game actually renders at the higher selected resolution**; availability and improvement are not guaranteed.
+
+## What you can try
+
+These features have scoped headset validation in exercised scenes, not full campaign coverage:
+
+- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and snap turning.
+- Independent tracked hands/weapons with the original torso and legs; exercised pistol effects, whip use and physical Hands combat.
+- Controller menus, equipment wheel/haptics, wrist compass, encountered HUD/subtitles, pickup/carry, drawers and Focus.
+- Optional experimental manual revolver reload: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
 
 ## Controller guide
 
@@ -49,17 +51,28 @@ PS VR2 Sense is the only physically validated controller reference. Additional p
 
 PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. Manual reload is optional: Square opens/closes, and the free-hand trigger picks up and inserts rounds. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
 
+The VR settings panel is a **provisional development interface**, not the final settings experience; more comfort options are planned.
+
+PS VR2 with Sense through SteamVR is the only physically validated reference, limited to exercised scenes. Packaged Touch, Index, Vive wand and WMR bindings are experimental and do not establish support for another headset or PC. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls).
+
 ## Known limitations
 
+- Community testing of the published pre-alpha reports the view staying flat after the arrival-in-Hope cinematic. Recovery through that transition remains unvalidated; fixes under development are not included in **v0.1.0-prealpha.1**. Theater during the movie itself is intentional.
 - A chest/possible-scroll interaction has caused a campaign crash. Its cause and recovery remain unresolved; progress can be lost.
 - Immersive movies previously flashed the wrong image. A correction awaits headset retesting. Theater is the default; immersive movie subtitles are not transported.
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
 - Optional manual reload has scoped acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. The latest hand-directed interaction also awaits physical acceptance.
 
-## Reporting a problem
+**Published package vs development:** the download above is the tagged `v0.1.0-prealpha.1` build. `main` is the development branch; local changes and subsequent fixes are not part of that ZIP until a new version is published. See [Validation](docs/VALIDATION.md) for current acceptance limits.
 
-Use **Diagnostics** to generate a local report. Inspect it for personal paths or other private information before manually attaching it to a [GitHub bug report](https://github.com/rubocopter/call_of_juarez_vr/issues/new?template=bug_report.yml). Include the package version, chapter/checkpoint, headset, controllers, GPU and reproduction steps. Reports are not uploaded automatically; do not attach saves or memory dumps without reviewing their contents.
+## Feedback
+
+- [Reproducible bug](https://github.com/rubocopter/call_of_juarez_vr/issues/new?template=bug_report.yml): what happened, where and how to repeat it.
+- [Compatibility, image quality or performance](https://github.com/rubocopter/call_of_juarez_vr/issues/new?template=compatibility_report.yml): your setup and what you observed, including successful tests.
+- [Suggestion](https://github.com/rubocopter/call_of_juarez_vr/issues/new?template=suggestion.yml): what would improve your experience.
+
+Logs are **optional**. **3 — Diagnostics** creates a local report for you to inspect and manually share; there is no automatic upload or remote telemetry. Remove private information before attaching reports, screenshots or clips. Do not share unreviewed saves or memory dumps.
 
 ## Documentation
 
@@ -90,3 +103,11 @@ The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File
 An unofficial community project, not affiliated with or endorsed by Techland, Ubisoft, Valve or Sony Interactive Entertainment. Game assets are not redistributed; the imported cartridge is [CC0](assets/models/README.md).
 
 No project-code license has been selected. Bundled Python, OpenVR and Microsoft VC++ runtime licenses and source notices are listed in [THIRD_PARTY_NOTICES.txt](release/THIRD_PARTY_NOTICES.txt); they do not license the project code.
+
+## Support development
+
+If you would like to help fund development, [support the project on Ko-fi](https://ko-fi.com/onitaku).
+
+<p align="center">
+  <a href="https://ko-fi.com/onitaku"><img alt="Support me on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
+</p>

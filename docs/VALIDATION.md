@@ -26,6 +26,15 @@ Users start/close the game and SteamVR manually. Community diagnostics are
 generated locally, inspected for private data and attached manually to issues;
 they do not replace canonical evidence or operator acceptance below.
 
+Community reports remain observations, not support qualification. Chtiblue
+reports startup with Pimax Dream Air, RTX 5090 and SteamVR; controller coverage,
+tracking quality, sustained performance and campaign recovery are not established
+by that report. The known source-resolution limitation also affects the PS VR2
+development path: native stereo retains the game's RT0 extent, independently of
+SteamVR's recommendation. Independent eye resolution is planned; the
+[source investigation](research/COJ_VR_RENDER_RESOLUTION.md) adds no physical
+acceptance and makes no claim that DSR works on a particular setup.
+
 ## Current feature state
 
 | Boundary | Confirmed state | Remaining limits |

@@ -37,12 +37,18 @@ useful history; the current route resolves that gate for the exercised fight.
 Broader hand parity, campaign contexts and recovery remain open. The VR settings
 panel and exercised boxing death/recovery are also accepted. Immersive movies
 previously showed intermittent wrong-image flashes; that correction has not been
-retested and remains pending. Future comfort options should extend the functional
-panel.
+retested and remains pending. The functional settings panel remains a provisional
+development tool; future native settings should share its preference policy.
 
 Immediate work, in order:
 
-1. **Make the held cartridge convincing.** Preserve the accepted reload and
+1. **Campaign continuity and ownership recovery.** Check the already implemented
+   movie-continuity correction in the next relevant campaign candidate, including
+   return to stereo after the Hope cinematic when available. Preserve the
+   chest/possible-scroll fault diagnostic and record a recurrence without
+   inventing its cause. Batch focus/tracking/dashboard and held-control recovery;
+   an accepted ordinary menu or quit does not close those gates.
+2. **Make the held cartridge convincing.** Preserve the accepted reload and
    textured CC0 .357. Its revised skin-derived anchor is host-tested and has
    bounded live delivery evidence, but the latest close-up does not establish
    finger contact; the operator still reports a floating cartridge. Offline skin
@@ -58,13 +64,13 @@ Immediate work, in order:
    observer is ready to collect the next batch, without enabling occlusion.
    The current compositor has no native scene depth. Batch one physical
    grip/roll/release/insertion/recovery check after a material correction.
-2. **Qualify the native loading port.** Existing read-only root/barrel/gate/drum
+3. **Qualify the native loading port.** Existing read-only root/barrel/gate/drum
    observations show changed gate pose and independent drum motion. Displayed
    six-mouth pivot rankings have bounded live evidence, but a pivot is not a
    socket. The operator accepts the port's visible presentation; next establish
    a measured phase-bound mouth frame/clearance before enabling precise insertion
    or any independent mechanical writer. The current grip zone stays active.
-3. **Close relevant recovery and interaction gates.** Square rearming across
+4. **Close relevant reload and interaction gates.** Square rearming across
    ownership/availability loss and conventional recovery after disable are
    strengthened and host-tested. Qualified zone-entry feedback is host-tested;
    native insertion retains its stronger independently gated pulse.
@@ -76,7 +82,7 @@ Immediate work, in order:
    Frontier coverage when available. The replacement left-Sense L1 ray and
    held-only cyan reference still need acceptance, independent of the earlier
    successful HMD-directed drawer interaction.
-4. **Broaden campaign and performance coverage.** Mounted controls, other weapons,
+5. **Broaden campaign and performance coverage.** Mounted controls, other weapons,
    special optics/duels/climbing and optional HUD rows need eligible scenes.
    Current gameplay performance has positive operator feedback; defer tuning
    until evidence identifies a problem. The cause of recording-associated
@@ -93,6 +99,24 @@ A pending visual/physical gate blocks promotion of that specific behavior only.
 Continue independent offline work on controls, UI, recovery and other qualified
 boundaries while waiting; accumulate relevant checks into one substantial
 candidate rather than requesting repeated small physical sessions.
+
+## Independent-resolution and native-settings preparation
+
+These are planned engineering tracks that can advance offline without displacing
+campaign continuity, physical interactions or reload work:
+
+- **VR render resolution:** the [source trace and exits](research/COJ_VR_RENDER_RESOLUTION.md)
+  identify the native target-family allocation/binding boundary before full eye
+  renders. Qualify its color/depth/intermediate ownership before a restart-only
+  independent-size prototype. Larger transport textures alone are not higher
+  resolution rendering. Add a shared scale preference only after effective
+  rendering, memory bounds and failure/restoration behavior are implemented.
+- **Native VR settings:** retain the existing single-panel preference path now.
+  Before another editor, extract its coordination into one shared preference
+  owner, preserving version-1 values. Qualify the
+  [native command/resource/input bridge](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary)
+  for both Options variants before a native page; no new overlay or fictitious
+  settings are required. The existing panel stays usable during development.
 
 ## Next implementation gates
 
@@ -213,17 +237,13 @@ state recovery and pointer source-size/in-flight cancellation are also
 implemented/host-tested. Physical focus/dashboard/tracking and eligible resize
 recovery remain in the combined menu/gameplay gate.
 
-Physical jabs, curved hooks and ascending strokes are implemented/host-tested for exact `WeaponHands`.
-The motion policy distinguishes physical hands from the shared native weapon's
-owning hand and emits one closed-fist stroke at extension/retreat. A synchronous
-native attack retains permissions, mode, cooldown, collision/hit/damage and effects;
-scoped sampled world segments replace only that attempt's native melee trace.
-One native loop retains hit de-duplication across the entire curve; no shortcut
-chord, repeated native attacks or shared parameter writes approximate the stroke. Tracking,
-owner/context/menu/cinematic/recenter loss cancels and requires a fresh release.
-Both-hand effectiveness/contact and recovery join consolidated physical testing.
-Knuckle volume, guard/blocking and AI anticipation of the physical
-wind-up remain planned. Dual pistol reload retains its existing behavior.
+Current physical `WeaponHands` combat uses fresh displayed-knuckle contact and
+adjacent-pose motion, retaining native attack permissions, cooldown and damage.
+It has scoped headset acceptance in the exercised three-enemy fight; the earlier
+completed-curve implementation is superseded. Broader hand/campaign and ownership
+recovery remain pending. Full fist volume, guard/blocking and AI anticipation of
+the physical wind-up remain planned. Dual pistol reload retains its existing
+behavior. [Validation](VALIDATION.md#current-feature-state) owns acceptance limits.
 
 ## Milestone 5 — additional renderers and games
 
