@@ -130,6 +130,10 @@ campaign continuity, physical interactions or reload work:
   independent-size prototype. Larger transport textures alone are not higher
   resolution rendering. Add a shared scale preference only after effective
   rendering, memory bounds and failure/restoration behavior are implemented.
+  The [written design proposal](research/COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
+  is awaiting operator review. It specifies same-size isolation before a fixed
+  2560x1920 experiment, with native target/effect qualification as a blocking
+  prerequisite; no independent-resolution implementation is accepted yet.
 - **Native VR settings:** retain the existing single-panel preference path now.
   Before another editor, extract its coordination into one shared preference
   owner, preserving version-1 values. Qualify the

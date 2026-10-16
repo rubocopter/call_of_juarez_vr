@@ -10,6 +10,12 @@ This is source-established behavior, not independent-resolution implementation
 or new headset acceptance. The exact engine identity and memory findings remain
 in [the resource census](COJ_D3D9_RESOURCE_CENSUS.md).
 
+The [independent-resolution design proposal](COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
+defines fixed-startup experiments, optical/resource ownership, memory accounting,
+rollback and acceptance. It is awaiting operator design review, not implementation
+approval. Its first gate still requires the complete native target/effect map;
+the source trace below does not qualify an independent-size writer.
+
 | Stage | Dimension decision and owner | Source boundary |
 | --- | --- | --- |
 | Game configuration | Native video settings select `Resolution(w,h)` in Documents `call of juarez/out/Settings/Video.scr`. The deployment helper preserves it and journals/restores the original bytes; it changes FSAA to 0. | `tools/coj_video_profile.ps1`, `release/cojvr.ps1` |
@@ -53,6 +59,12 @@ native configuration side more precisely (addresses below are RVAs):
   Success commits proposed dimensions; `0x6830` publishes the committed size to
   the native dimension cache and conditionally rebuilds its dependent state.
   This is a renderer reinitialization request, not an eye-only extent API.
+- The retained exact-build decompilation of `0x1D8A00` also calls `0x224EC0`,
+  `0x225690` and `0x224F90` in the postprocess rebuild branch. Creation failure
+  can disable postprocessing and a later failure reaches the native fatal path.
+  These call sites guide resource-owner research; their full allocation graph,
+  signatures and safe offscreen scope are not qualified. They are not an approved
+  per-eye construction/destruction API.
 
 These static observations identify the ordinary game's settings transaction,
 not the complete renderer allocation graph or live success of a selected mode.
