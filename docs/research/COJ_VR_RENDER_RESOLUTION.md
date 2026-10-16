@@ -10,10 +10,10 @@ This is source-established behavior, not independent-resolution implementation
 or new headset acceptance. The exact engine identity and memory findings remain
 in [the resource census](COJ_D3D9_RESOURCE_CENSUS.md).
 
-The [independent-resolution design proposal](COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
+The [approved independent-resolution design](COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
 defines fixed-startup experiments, optical/resource ownership, memory accounting,
-rollback and acceptance. It is awaiting operator design review, not implementation
-approval. Its first gate still requires the complete native target/effect map;
+rollback and acceptance, with autonomous progression through its prerequisites.
+Its first gate still requires the complete native target/effect map;
 the source trace below does not qualify an independent-size writer.
 
 | Stage | Dimension decision and owner | Source boundary |
@@ -98,6 +98,32 @@ Reuse the bounded diagnostics before adding another observer:
   descriptors, identities, viewport and matrices. It is tied to eligible manual
   pickup observations, not a general campaign census. Matching metadata does
   not establish depth content, ownership throughout the pass or hand coverage.
+- `render_resource_probe`: startup-only bounded full-wrapper binding/draw census,
+  with live gameplay evidence. Collection completed without read failure or
+  truncation; this does not qualify allocation/lifetime or every presentation
+  route. The operator reports preserved exercised functionality at the original
+  size with occasional stutters. Instrumented pacing cannot qualify performance.
+
+## Native target-family finding from the gameplay census
+
+The eye wrapper uses multiple color formats and intermediate extents rather than
+one interchangeable RT0. In particular, a native pass binds a FourCC `NULL`
+color surface with a viewport larger than that color descriptor and a larger
+bound depth surface. The observed native draw succeeds. The strict analyzer's
+RT0-only containment check rejects this combination, so its report remains
+incomplete even though collector scope headers complete successfully. This does
+not establish a one-pixel scene, a bad capture or a resizing-safe shadow target.
+Its precise effect role and raster contract still require qualification.
+
+Classify scene, depth-oriented, reduction/filtering and other effect resources
+by their actual pass/format/alias relationships before selecting any family for
+replacement. The captured ordinary color passes include the selected scene
+extent and multiple smaller intermediates. Neither a color descriptor alone nor
+uniform scaling of every bound texture defines the eye-resolution contract.
+Use the retained complete trace for further offline classification; do not
+request another identical physical capture merely because the analyzer stops at
+the unclassified pass. Settings/movie coverage, programmable constants, creation,
+reuse/destruction and compositor retirement remain separate unresolved gates.
 
 The presenter and bridge's size checks establish copy equality by source
 inspection. Native-stereo submission does not independently log every output

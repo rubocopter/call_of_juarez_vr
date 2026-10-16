@@ -43,12 +43,22 @@ The [approved independent-resolution design](research/COJ_VR_INDEPENDENT_RESOLUT
 has a startup-only binding observer and offline analyzer implemented and
 host-tested. Real D3D9/Ex tests cover read-only state/pixels, release before Reset,
 ResetEx invalidation, hook forwarding/continuity, scope cancellation and control
-preservation. Synthetic analysis rejects incomplete/foreign traces. No game
-resource trace has qualified this observer yet. Allocation/effect/constant
+preservation. Synthetic analysis rejects incomplete/foreign traces. A finished
+canonical session now exercises bounded gameplay eye collection without read
+failures or truncation. The operator confirms the exercised functional checklist
+still works at the original resolution, with occasional stutters. This is scoped
+continuity acceptance with diagnostics active, not a performance or higher-detail
+gate. Settings/movie resource scopes have not been captured by this census.
+The strict offline analyzer remains incomplete on a native FourCC `NULL` color
+target whose raster viewport follows a larger depth surface; classify that pass
+before admitting a complete binding graph. Allocation/effect/constant
 ownership and compositor retirement remain Q0 gates. Diagnostic sessions perturb
 pacing and cannot establish performance improvement. Independent rendering,
 actual detail and functional continuity at new sizes require the specified
 native and headset evidence; complete bindings never admit resizing by themselves.
+The canonical full-profile verifier retained rejection for an unobserved Sense
+loading-continuation press. Complete collection, normal restoration and operator
+acceptance do not overwrite that verdict or establish the missing input gesture.
 
 ## Current feature state
 

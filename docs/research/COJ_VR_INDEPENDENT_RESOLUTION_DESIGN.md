@@ -589,6 +589,14 @@ de hooks, resultados originales, controles y rechazo del analizador. Esto no
 cualifica el grafo del juego, retiro OpenVR, nitidez ni continuidad en visor.
 Q0 y el escritor B0/B1 siguen pendientes.
 
+La primera captura real del colector cubre gameplay sin fallos de lectura ni
+truncamiento, con continuidad funcional confirmada por el operador en los
+contextos probados. El analizador sigue incompleto: un pase nativo combina color
+FourCC `NULL` con viewport/profundidad mayores que su descriptor de color.
+[La investigación de resolución](COJ_VR_RENDER_RESOLUTION.md#native-target-family-finding-from-the-gameplay-census)
+recoge esta frontera; clasificarla con los datos existentes antes de repetir
+captura. Esto no acepta Q0, ópticas programables, nuevas dimensiones ni pacing.
+
 La entrada/salida de llamadas nativas y la apertura/cierre del observador
 comparten un monitor de llamadas en vuelo; su mutex nunca se retiene al ejecutar
 el original. Así se rechaza también una llamada extranjera cuyo callback de

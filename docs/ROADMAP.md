@@ -133,8 +133,12 @@ campaign continuity, physical interactions or reload work:
   The [approved design](research/COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
   specifies same-size isolation before a fixed 2560x1920 experiment. Its opt-in
   bounded per-eye binding observer and conservative analyzer are implemented
-  and host-tested. Native allocation/lifetime/effect/constant mapping and
-  compositor retirement still block Q0. Live correlation and headset A/B remain
+  and host-tested; bounded gameplay collection now has live evidence and scoped
+  operator confirmation of functional continuity at the original size. Classify
+  the observed FourCC `NULL` color/depth raster pass rejected by the strict
+  analyzer, using existing captured data before requesting another session.
+  Native allocation/lifetime/effect/constant mapping and compositor retirement
+  still block Q0. Settings/movie resource correlation and headset A/B remain
   pending; no independent-resolution writer is admitted and the published
   prerelease remains unchanged.
 - **Native VR settings:** retain the existing single-panel preference path now.
