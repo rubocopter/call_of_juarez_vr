@@ -809,8 +809,8 @@ if ($RequireGameplayInput) {
             "A deferred fire action failed to reach the native input route."
     }
     Assert-LogMatch `
-        "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_circle;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
-        "Circle did not open the shipped in-game Escape menu from native-stereo gameplay."
+        "camera_probe_event: event=native_stereo_ui_back result=applied detail=.*;source=right_options;route=LawmanGame\.sm_cActiveGameModule\.OnInputKey\(Escape\)" `
+        "Options did not open the shipped in-game Escape menu from native-stereo gameplay."
     Assert-LogMatch `
         "camera_probe_event: event=controller_aim result=applied detail=.*left_visual_origin_written=true;right_visual_origin_written=true;.*tracking_basis=level_recenter_minus_actor_yaw;direction_owner=m_avLookDirDevForHand;fire_origin=measured_weapon_muzzle_cache;visual_origin_owner=m_avAimFromPoint;.*fire_origin_release=tracking_menu_or_generation_invalidation;native_accuracy_spread=preserved" `
         "Controller tip axes did not reach the exact CoJ aim adapter."

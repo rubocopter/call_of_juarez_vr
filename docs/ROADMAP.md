@@ -142,20 +142,23 @@ campaign continuity, physical interactions or reload work:
   The [native ownership map](research/COJ_PPFX_TARGET_OWNERSHIP.md) now resolves
   destructive creation, alias-aware release, effect references and renderer
   internal/default/depth caches, including integer-buffer versus float-quad
-  rounding. Next correlate native/COM identities and qualify constants/history,
-  sprite ordering and a private-bank transaction before same-size isolation.
-  Reused gameplay evidence supplies partial sprite/flush line-order and target
-  correlation; old generation namespaces remain explicitly unqualified. The
-  collector now separates device generation from its reset-attempt epoch and
-  the analyzer checks both, without a dedicated new headset request.
+  rounding. Qualify constants/history, complete sprite ordering and a private-bank
+  transaction before same-size isolation; bounded native/COM correlation below
+  supplies structural use evidence only.
+  The collector separates device generation from its reset-attempt epoch and
+  the analyzer checks both; older generation namespaces remain unqualified.
   Native descriptor/cache snapshots and their separate binding correlation are
   now implemented/host-tested, including exact classes, bounded lists/names,
-  aliases, LAA and failed-read rejection. Route reservations retain gameplay,
-  settings and movie opportunities within six pairs. Collect the new native
-  identities in the next substantial candidate; the old log lacks them.
+  aliases, LAA and failed-read rejection. Route reservations now have live
+  evidence: two complete pairs per gameplay/settings/immersive-movie route,
+  matching native snapshots and use of all 14 `scene30.ppfx` descriptors.
+  Default/internal surface and placeholder identities correlate as well. One
+  settings frame qualifies sprite/flush order and matching device generation;
+  this does not establish sprite coverage or generalize ordering to other frames.
   Native allocation/lifetime/effect/constant mapping and compositor retirement
-  still block Q0. Settings/movie resource correlation and headset A/B remain
-  pending; no independent-resolution writer is admitted and the published
+  still block Q0. Original-size settings/movie structural correlation is now
+  live-tested; independent-size continuity and headset A/B remain pending.
+  No independent-resolution writer is admitted and the published
   prerelease remains unchanged.
 - **Native VR settings:** retain the existing single-panel preference path now.
   Before another editor, extract its coordination into one shared preference
@@ -208,6 +211,11 @@ headset sessions:
 - **Global ownership:** menu -> gameplay -> wheel -> pause -> dashboard ->
   gameplay with held mapped controls, tracking loss and eligible source resize.
   Require fresh release/press, no delayed action/haptic replay and coherent eyes.
+- **Loading continuation:** the operator reports Circle/Options work. Cross and
+  trigger selection now deliver the key-down required by the exact loading UI;
+  the previous release-only call was ignored. Both routes and failure cleanup are
+  host-tested. Check one fresh Cross/trigger continuation in the next relevant
+  combined session, preserving held-input barriers and native post-load ownership.
 
 The expanded Frontier/Walker/Cogswell manual profiles are implemented/host-tested,
 including exact class admission and Cogswell's rifle-reserve readback. Add their

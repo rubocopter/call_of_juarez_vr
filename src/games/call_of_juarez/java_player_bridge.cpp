@@ -4446,7 +4446,8 @@ bool JavaPlayerBridge::TryDispatchUiSelectPress(
         }
         JValue loading_args[3]{};
         loading_args[0].i = 1;
-        loading_args[1].z = 0;
+        // GameUILoading consumes key-down; key-up does not continue loading.
+        loading_args[1].z = 1;
         loading_args[2].c = 0;
         call_void(env, ui, on_input_key, loading_args);
         DeleteLocal(env, ui);
@@ -4572,7 +4573,8 @@ bool JavaPlayerBridge::TryDispatchUiPointerSelectPress(
         }
         JValue loading_args[3]{};
         loading_args[0].i = 1;
-        loading_args[1].z = 0;
+        // Same loading-only native press for ray selection; no generic click.
+        loading_args[1].z = 1;
         loading_args[2].c = 0;
         call_void(env, ui, on_input_key, loading_args);
         DeleteLocal(env, ui);

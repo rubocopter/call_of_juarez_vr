@@ -48,7 +48,8 @@ canonical session now exercises bounded gameplay eye collection without read
 failures or truncation. The operator confirms the exercised functional checklist
 still works at the original resolution, with occasional stutters. This is scoped
 continuity acceptance with diagnostics active, not a performance or higher-detail
-gate. Settings/movie resource scopes have not been captured by this census.
+gate. A later bounded collection includes complete gameplay, settings and
+immersive-movie resource scopes at the original size.
 The offline analyzer classifies the observed FourCC `NULL` color placeholder
 against its bound D16 depth extent, with explicit layout/Z and viewport checks.
 It now reads the captured complete gameplay pairs; ordinary out-of-bounds color
@@ -62,24 +63,42 @@ The [native PP ownership map](research/COJ_PPFX_TARGET_OWNERSHIP.md) now establi
 static allocator/release/alias and renderer-cache responsibilities. This is
 research evidence only; it adds no live allocation, independent-size, shader
 constant or recovery acceptance, and leaves Q0 open.
-Existing gameplay evidence also contains ordered sprite/flush samples after an
-eye pair with matching original-size color target metadata. Full generation
-correlation remains incomplete because the old eye epoch differs from the HUD
-device counter. Separate counter collection and conservative offline correlation
-are host-tested; neither this partial evidence nor complete future metadata
-admits mirror mutation, alpha/coverage or independent resolution.
+Sprite/flush analysis preserves distinct device-generation and probe-epoch
+namespaces. Older gameplay samples cannot qualify their device-generation
+identity retrospectively; fresh correlation uses both explicit counters.
+Ordering metadata alone does not admit mirror mutation, alpha/coverage or
+independent resolution.
 The bounded native PP descriptor/cache reader, exact-build admission bridge and
 separate offline native identity correlation are implemented and host-tested.
 Synthetic fixtures cover LAA identities, aliases, class/list/count/name bounds,
 root changes, failed reads, unallocated/dirty resources and the split sampler
 caches. Serialization preserves byte names and unused 2D reciprocal-depth bits;
 it does not call copied COM identities. Sampling now reserves two attempts per
-gameplay/settings/movie route while retaining the six-pair total. Live native
-identity, programmable constants/history, private-family rollback and submitted
-OpenVR output retirement remain unqualified; no resizing writer is enabled.
+gameplay/settings/movie route while retaining the six-pair total. Runtime
+collection now supplies both reserved pairs for each route, complete native
+begin/end snapshots and exact-value correlation for all 14 `scene30.ppfx`
+descriptors, plus native default/internal color/depth and placeholder identities.
+Five loaded effect classes/names match the bounded map. This is live-tested
+structural correlation, not an allocation/lifetime proof; unmatched resources
+remain explicit. One settings frame also supplies naturally scheduled sprite/flush
+ordering against the original-size default color target with matching device
+generation. Other sampled frames lack that ordering evidence. Pixel coverage,
+programmable constants/history, private-family rollback and submitted OpenVR
+output retirement remain unqualified; no resizing writer is enabled.
 The canonical full-profile verifier retained rejection for an unobserved Sense
 loading-continuation press. Complete collection, normal restoration and operator
 acceptance do not overwrite that verdict or establish the missing input gesture.
+The operator subsequently reports that only Circle and Options continue the
+encountered loading screens; this does not establish Cross/trigger continuation.
+The exact loading handler schedules its continuation only on key-down, while the
+previous Cross/trigger adapter delivered key-up. Both adapter paths now send one
+key-down, with JNI admission, single-delivery and exception cleanup host coverage;
+physical continuation remains pending in the next combined candidate. Delivery
+telemetry must not be equated with timer resume or mission continuation.
+The general verifier also required the obsolete Circle gameplay-pause mapping.
+It now requires Options with the same successful native-stereo Escape route;
+host fixtures reject Circle-only, flat-only, failed, foreign-route and missing
+evidence. The already archived rejection is preserved.
 
 ## Current feature state
 

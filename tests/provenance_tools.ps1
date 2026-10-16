@@ -969,7 +969,7 @@ try {
         "camera_probe_event: event=controller_weapon_tracking result=applied detail=frame_sequence=2;side=left;grip=(1,2,3);muzzle=(1,2,3);direction=(0,0,-1);writer=FromUpForwardPosElementWorld;origin_owner=per_hand_shot_consumer;detail=",
         "camera_probe_event: event=controller_weapon_restore result=ok detail=frame_sequence=2;detail=",
         "camera_probe_event: event=gameplay_input result=applied detail=frame_sequence=2;active=true;move=0.7,0.8;turn=0.4,0;fire_left=true;fire_right=false;jump=false;reload=false;run=false;crouch=true;physical_crouch=true;interact=false;weapon_next=false;weapon_previous=false;kick=false;blocking_ui_gameplay_suppressed=false;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate;analog_transaction=LockApplyControllerState+dispatch+UnlockApplyControllerState+ApplyControllerState;",
-        "camera_probe_event: event=native_stereo_ui_back result=applied detail=frame_sequence=2;source=right_circle;route=LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)",
+        "camera_probe_event: event=native_stereo_ui_back result=applied detail=frame_sequence=2;source=right_options;route=LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)",
         "openvr_input_event: action=recenter result=pressed source=global_action owner=presenter_thread",
         "camera_probe_event: event=camera_hmd_recenter_requested result=ok detail=source=openvr_global_action;pose_sequence=3",
         "camera_probe_event: event=body_arm_recovery result=ok detail=frame_sequence=3;recenter_sequence=3;previous_fault=false;transaction_active=false;natural_verified=true;calibration_preserved=true",
@@ -1004,6 +1004,29 @@ try {
     $PersistedFull = Get-Content (Join-Path $StereoVerifierRunDirectory 'analysis/validation-result.json') -Raw | ConvertFrom-Json
     Assert-True ($PersistedFull.outcome -eq 'pass' -and $PersistedFull.validationProfile -eq 'full') `
         'Full-profile canonical result was not persisted (including legacy profile inference).'
+
+    # Gameplay Circle is alternate fire; only Options owns native pause. Keep
+    # the native-stereo owner, successful result and exact Escape route required.
+    $NativePauseEvent = @($StereoVerifierLog | Where-Object { $_ -match 'event=native_stereo_ui_back ' })[0]
+    $WithoutNativePause = @($StereoVerifierLog | Where-Object { $_ -notmatch 'event=native_stereo_ui_back ' })
+    foreach ($PauseCase in @(
+        @{ name = 'Circle only'; event = $NativePauseEvent.Replace('source=right_options;', 'source=right_circle;') },
+        @{ name = 'flat UI only'; event = $NativePauseEvent.Replace('event=native_stereo_ui_back ', 'event=flat_ui_back ') },
+        @{ name = 'wrong native route'; event = $NativePauseEvent.Replace('LawmanGame.sm_cActiveGameModule.OnInputKey(Escape)', 'GameWithMenu.sm_cMenuModule.GetCurrentUI.CallOnInputKeyGlobal(Escape)') },
+        @{ name = 'failed delivery'; event = $NativePauseEvent.Replace('result=applied ', 'result=failed ') },
+        @{ name = 'missing event'; event = $null }
+    )) {
+        $PauseLog = if ($PauseCase.event) { Add-NativeRunEvents $WithoutNativePause @($PauseCase.event) } else { $WithoutNativePause }
+        Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $PauseLog
+        $PauseFailure = $null
+        try {
+            & (Join-Path $SourceDirectory 'tools\verify_native_stereo_live_test.ps1') `
+                -GameDirectory $StereoVerifierGame | Out-Null
+        } catch { $PauseFailure = $_.Exception.Message }
+        Assert-True ($PauseFailure -eq 'Options did not open the shipped in-game Escape menu from native-stereo gameplay.') `
+            "Native-stereo pause accepted $($PauseCase.name) or rejected an unrelated gate: $PauseFailure"
+    }
+    Set-Content -LiteralPath (Join-Path $StereoVerifierGame 'cojvr.log') -Encoding UTF8 -Value $StereoVerifierLog
 
     $TransportRun = Get-Content -LiteralPath (Join-Path $StereoVerifierGame ".cojvr-run.json") -Raw | ConvertFrom-Json
     $TransportRun.validation | Add-Member -NotePropertyName profile -NotePropertyValue "transport" -Force

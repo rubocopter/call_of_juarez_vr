@@ -189,6 +189,27 @@ this when both idle click IDs are zero. Direct proxy fixtures cover both size ax
 held/edge packets, stale selection, new hover/selection and the idle interleaving.
 This correction is implemented/host-tested; physical resize recovery is pending.
 
+## Loading continuation
+
+The exact shipped `GameUILoading.OnInputKey(IZC)V` examines only the pressed
+boolean: a true value schedules `OnUserInput` through `CallOnFrameEnd`; key-up
+returns without scheduling it. The key code/character are not filtered. Its
+mouse-button handler similarly requires a positive second argument.
+`OnUserInput` unregisters exclusive input and starts the fade; the later fade
+callback resumes the timer and starts the mission. Successful JNI delivery alone
+therefore does not prove that loading continued.
+
+Both global/Cross accept and pointer/trigger accept now send one direct native
+key-down to an identified current loading UI. A loading-only request rejects
+ordinary menus; paused hints, mission-end and ordinary menu activation retain
+their own routes. This direct UI handler does not set global held-key state, and
+one call schedules at most one continuation callback. JNI host fixtures cover
+both callers, loading-only admission, single positive delivery, exception cleanup
+and absence of generic Enter/mouse fallback. This correction is host-tested;
+controller-only continuation with Cross/triggers still needs a physical check in
+the next relevant combined candidate. The operator reports that Circle/Options
+continue the exercised loading screens through their Escape press/release route.
+
 ## Evidence limits
 
 **Host-tested:** an independent local x86 probe maps the identified DLL without
@@ -205,7 +226,8 @@ GameMode hint precheck and native `0xCC420` pointer-click route are also physica
 accepted in the exercised ordinary menus, visible Yes/No dialog and gameplay
 pause menu.
 
-Loading reaches gameplay in exercised sessions; controller-only continuation remains
-a separate acceptance boundary. Operator confirmation remains required even when
+Loading reaches gameplay in exercised sessions; Circle/Options have an operator
+continuation report, while the corrected Cross/trigger route remains a separate
+acceptance boundary. Operator confirmation remains required even when
 transport and native input telemetry pass. Exact native boundaries must not be
 generalized to another Chrome Engine build or another game.

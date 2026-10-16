@@ -227,14 +227,25 @@ bindings. It retains unnamed/unmatched usage and multiple aliases explicitly.
 Current target and sampler handles can change normally; stable root/family/cache
 changes reject the correlation. Neither equal endpoints nor named bindings prove
 atomic lifetime, intermediate state, a complete allocation graph or resize safety.
-Fresh exact-game collection is still required; the older binding-only log cannot
-retroactively supply these native snapshots.
+Bounded exact-game collection now supplies complete matching snapshots for both
+eyes in gameplay, VR settings and immersive movies at 2560x1440. Five loaded
+effects are observed (`null`, `hsm`, `scene30`, `scene30simple`, `clear_z`);
+only `scene30.ppfx` owns descriptors in this capture, and all 14 correlate with
+binding use in each sampled eye scope. Native default/internal color/depth and
+placeholder identities also correlate. No borrowed descriptor alias is observed
+in this sampled family; that absence does not remove the static alias contract.
+Unmatched bindings and the unqualified additional-depth branch remain explicit.
+One settings frame additionally correlates the naturally scheduled sprite/flush
+pass after the eye pair with the original-size default target and exact device
+generation. Other sampled frames do not supply that pass. This establishes
+bounded structural delivery/order, not pixel coverage, creation/lifetime,
+interior stability, programmable constants or a private bank.
 
-1. Correlate native effect/container/index/handle, actual COM interfaces and the
-   internal/default/depth surfaces with existing scoped draw evidence. Reject
-   unknown loaded effects and owner/generation changes; do not dereference stale
-   native handles. Static layouts are candidates for a bounded read-only adapter,
-   not live-validated memory contracts.
+1. Extend the bounded native/COM use correlation to unresolved allocation,
+   additional-depth and lifetime boundaries. The sampled five effects do not
+   enumerate every campaign configuration. Reject unknown effects and
+   owner/generation changes for any future writer; do not dereference stale
+   native handles or treat matching endpoints as atomicity.
 2. Map texture-size/viewport/projection shader constants, half-texel/rounding and
    full coverage/history, including NOFSAA copies. Establish the naturally
    scheduled desktop sprite boundary and mirror ordering inside the full wrapper.

@@ -33,7 +33,8 @@ Object* const objects[] = {&game, &lawman, &single, &menu_class, &module_class,
 enum class Id { menu = 1, active, cmenu, cursor, current_ui, ctor, getpos,
     setpos, move, process, x, y, z, ui_index, mousepos, object_id, find_ui,
     yes_no_visible, yes_no_dialog, game_mode, hint_manager, enter_press, enter_release,
-    active_hint, disable_hint, pause_hint, actually_visible, mission_visible, module_key, ui_key };
+    active_hint, disable_hint, pause_hint, actually_visible, mission_visible, module_key, ui_key,
+    loading_key };
 enum class Fault { none, owner_lookup, lookup, allocation, getpos_false, getpos_throw, float_throw,
     cursor_throw, cursor_null };
 Fault fault = Fault::none;
@@ -46,6 +47,8 @@ bool game_mode_lookup_throw = false;
 bool hint_available = false, hint_pauses = false;
 bool mission_visible = false, mission_throw = false, module_key_throw = false;
 bool single_module = true;
+bool loading_ui = false, loading_waiting = false, loading_key_throw = false;
+int loading_presses = 0, loading_releases = 0;
 int continue_presses = 0, continue_releases = 0, back_presses = 0;
 int enter_presses = 0, enter_releases = 0;
 int modal_enter_presses = 0;
@@ -122,6 +125,8 @@ void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) 
         return Token(Id::module_key);
     if (cls == &ui_class && Is(name, "CallOnInputKeyGlobal") && Is(sig, "(IZI)V"))
         return Token(Id::ui_key);
+    if (cls == &ui_class && Is(name, "OnInputKey") && Is(sig, "(IZC)V"))
+        return Token(Id::loading_key);
     if (Is(name, "GetHintManager") && Is(sig, "()LHintManager;")) {
         // Shipped LawmanModule extends Module, not GameMode. The getter is
         // only available on m_GameMode; the old lookup must fail here.
@@ -319,6 +324,15 @@ void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
     }
     if (obj == &ui || obj == &modal_ui) {
         if (method == Token(Id::ui_key)) { Require(!pending && args); return; }
+        if (method == Token(Id::loading_key)) {
+            Require(!pending && obj == &ui && loading_ui && args &&
+                args[0].i == 1 && args[2].c == 0);
+            if (loading_key_throw) { pending = true; return; }
+            // Shipped GameUILoading.OnInputKey PCs 0-10 only consumes key-down.
+            if (args[1].z) { ++loading_presses; loading_waiting = false; }
+            else ++loading_releases;
+            return;
+        }
         if (method == Token(Id::enter_press) || method == Token(Id::enter_release)) {
             Require(!pending && !args);
             if (method == Token(Id::enter_press)) ++enter_presses;
@@ -342,7 +356,7 @@ void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
 std::uint8_t COJVR_JNICALL Instance(void*, void* obj, void* cls) {
     if (obj == &module && cls == &single) { Require(!pending); return single_module ? 1 : 0; }
     Require(!pending && (obj == &ui || obj == &modal_ui) && cls == &loading_class);
-    return 0;
+    return obj == &ui && loading_ui ? 1 : 0;
 }
 std::int32_t COJVR_JNICALL Int(void*, void* obj, void* method, const JValue* args) {
     Require(!pending && (obj == &ui || obj == &modal_ui) &&
@@ -696,6 +710,52 @@ int Run() {
         bridge.Reset(); CheckClean();
     }
     mission_visible = false;
+    for (const bool pointer : {false, true}) {
+        for (const bool require_loading : {false, true}) {
+            global_available = active_available = current_ui_available = true;
+            loading_ui = loading_waiting = true;
+            JavaPlayerBridge bridge; std::string error;
+            CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+            bool observed_loading = false;
+            const int presses_before = loading_presses, releases_before = loading_releases;
+            const int enter_before = enter_presses, clicks_before = native_clicks;
+            const bool sent = pointer ? bridge.TryDispatchUiPointerSelectPress(
+                require_loading, &DispatchMouseButton, &observed_loading, &error, nullptr, &route) :
+                bridge.TryDispatchUiSelectPress(require_loading, &observed_loading, &error, nullptr, &route);
+            ok &= Check(sent && observed_loading && !loading_waiting &&
+                loading_presses == presses_before + 1 && loading_releases == releases_before &&
+                enter_presses == enter_before && native_clicks == clicks_before &&
+                route == CoJUiDispatchRoute::loading_ui,
+                "loading Cross/ray select must send one native key-down, not key-up or generic UI input");
+            bridge.Reset(); CheckClean();
+        }
+        JavaPlayerBridge bridge; std::string error;
+        CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+        loading_ui = loading_waiting = loading_key_throw = true;
+        const int presses_before = loading_presses, clicks_before = native_clicks;
+        const bool sent = pointer ? bridge.TryDispatchUiPointerSelectPress(
+            true, &DispatchMouseButton, nullptr, &error, nullptr, &route) :
+            bridge.TryDispatchUiSelectPress(true, nullptr, &error, nullptr, &route);
+        ok &= Check(!sent && !pending && !error.empty() && loading_waiting &&
+            loading_presses == presses_before && native_clicks == clicks_before &&
+            route == CoJUiDispatchRoute::none,
+            "loading dispatch failure must clean references/exception and reject without click fallback");
+        bridge.Reset(); CheckClean(); loading_key_throw = false;
+    }
+    loading_ui = loading_waiting = false;
+    {
+        JavaPlayerBridge bridge; std::string error;
+        bool observed_loading = true;
+        const int enter_before = enter_presses, clicks_before = native_clicks;
+        ok &= Check(!bridge.TryDispatchUiSelectPress(true, &observed_loading, &error) &&
+            !observed_loading && enter_presses == enter_before && native_clicks == clicks_before,
+            "loading-only request must reject an ordinary menu");
+        ok &= Check(!bridge.TryDispatchUiPointerSelectPress(
+            true, &DispatchMouseButton, &observed_loading, &error) &&
+            !observed_loading && native_clicks == clicks_before,
+            "loading-only pointer request must reject an ordinary menu");
+        bridge.Reset(); CheckClean();
+    }
     hint_available = hint_pauses = current_ui_available = global_available = false;
     for (const std::size_t missing : {15U, 17U, 30U, 39U, 102U}) {
         void* saved = env_table[missing]; env_table[missing] = nullptr;
