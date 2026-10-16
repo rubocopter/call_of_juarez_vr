@@ -981,6 +981,11 @@ if(COJVR_BUILD_TESTS)
     )
     if(MSVC)
         target_compile_options(cojvr_d3d9_stereo_capture_test PRIVATE /W4 /permissive- /EHsc)
+        # This fixture retains multiple large HUD/frame values and reset
+        # temporaries in one function. MSVC Debug cannot reuse their stack
+        # slots; the default 1 MiB stack overflows before the GPU assertions.
+        # This applies only to the synthetic executable, never the game DLL.
+        target_link_options(cojvr_d3d9_stereo_capture_test PRIVATE /STACK:8388608)
     endif()
     add_test(NAME d3d9_stereo_capture COMMAND cojvr_d3d9_stereo_capture_test)
     set_tests_properties(d3d9_stereo_capture PROPERTIES SKIP_RETURN_CODE 77)
