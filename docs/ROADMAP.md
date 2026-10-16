@@ -134,9 +134,11 @@ campaign continuity, physical interactions or reload work:
   specifies same-size isolation before a fixed 2560x1920 experiment. Its opt-in
   bounded per-eye binding observer and conservative analyzer are implemented
   and host-tested; bounded gameplay collection now has live evidence and scoped
-  operator confirmation of functional continuity at the original size. Classify
-  the observed FourCC `NULL` color/depth raster pass rejected by the strict
-  analyzer, using existing captured data before requesting another session.
+  operator confirmation of functional continuity at the original size. The
+  analyzer now classifies the observed FourCC `NULL` placeholder/D16 depth layout
+  and reads complete gameplay pairs from the existing trace, keeping unknown
+  layouts rejected. Continue with native creation/selection/lifetime and actual
+  effect/projection roles; binding classification alone does not qualify them.
   Native allocation/lifetime/effect/constant mapping and compositor retirement
   still block Q0. Settings/movie resource correlation and headset A/B remain
   pending; no independent-resolution writer is admitted and the published

@@ -49,9 +49,11 @@ failures or truncation. The operator confirms the exercised functional checklist
 still works at the original resolution, with occasional stutters. This is scoped
 continuity acceptance with diagnostics active, not a performance or higher-detail
 gate. Settings/movie resource scopes have not been captured by this census.
-The strict offline analyzer remains incomplete on a native FourCC `NULL` color
-target whose raster viewport follows a larger depth surface; classify that pass
-before admitting a complete binding graph. Allocation/effect/constant
+The offline analyzer classifies the observed FourCC `NULL` color placeholder
+against its bound D16 depth extent, with explicit layout/Z and viewport checks.
+It now reads the captured complete gameplay pairs; ordinary out-of-bounds color
+and unqualified NULL/depth layouts still reject. This is bounded binding evidence,
+not a qualified effect graph or verified shadow contents. Allocation/effect/constant
 ownership and compositor retirement remain Q0 gates. Diagnostic sessions perturb
 pacing and cannot establish performance improvement. Independent rendering,
 actual detail and functional continuity at new sizes require the specified

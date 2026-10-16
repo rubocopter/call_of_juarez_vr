@@ -14,6 +14,10 @@ START = re.compile(r'run_start: run_id=([A-Za-z0-9._-]+) build_manifest_id=([a-f
 END = re.compile(r'run_end: run_id=([A-Za-z0-9._-]+)(?:\s|$)')
 PREFIX = 'render_resource_probe: '
 IDENTITY = ('thread', 'frame', 'owner', 'device', 'generation', 'route')
+NULL_COLOR_FORMAT = int.from_bytes(b'NULL', 'little')
+# Exact CoJ census profile. This classifies observations, not a generic driver
+# capability, verified shadow contents or permission to replace these resources.
+NULL_DEPTH_FORMAT = 80  # D3DFMT_D16
 UNRESOLVED = [
     'Native allocation/destruction, pointer reuse and cache/selection fields',
     'Complete effect graph, shader constants, texel offsets and programmable projections',
@@ -71,10 +75,6 @@ def validate_state(state, draw):
     viewport = state.get('viewport')
     if not isinstance(viewport, list) or len(viewport) != 4 or any(type(v) is not int or v < 0 for v in viewport):
         raise ValueError('Invalid viewport')
-    if draw:
-        x, y, width, height = viewport
-        if not width or not height or x+width > targets[0]['width'] or y+height > targets[0]['height']:
-            raise ValueError('Draw outside RT0 extent')
     scissor = state.get('scissor')
     if not isinstance(scissor, list) or len(scissor) != 4 or any(type(v) is not int for v in scissor):
         raise ValueError('Invalid scissor metadata')
@@ -94,6 +94,29 @@ def validate_state(state, draw):
     if type(state.get('transformsValid')) is not bool or not isinstance(matrices, list) or len(matrices) != 32 or any(
             type(v) not in (int, float) or not math.isfinite(v) for v in matrices):
         raise ValueError('Invalid transform metadata')
+    if not draw:
+        return None
+    color, depth = targets[0], state['depth']
+    kind, raster = 'color', color
+    if color['format'] == NULL_COLOR_FORMAT:
+        # NULL is a vendor color placeholder. Its advertised color extent is
+        # not a pixel-bearing scene target. Admit only the observed depth-only
+        # layout, retaining strict viewport/depth and metadata checks.
+        if (color['width'] != 1 or color['height'] != 1 or color['usage'] != 1 or
+                color['pool'] != 0 or color['type'] != 1 or color['samples'] or color['quality'] or
+                any(target['bound'] for target in targets[1:]) or not depth['bound'] or
+                depth['format'] != NULL_DEPTH_FORMAT or depth['usage'] != 2 or
+                depth['pool'] != 0 or depth['type'] != 1 or depth['samples'] or depth['quality'] or
+                z[0] != 1 or z[1] != 1):
+            raise ValueError('Unqualified NULL color/depth layout')
+        kind, raster = 'null_color_depth', depth
+    x, y, width, height = viewport
+    if not width or not height or x+width > raster['width'] or y+height > raster['height']:
+        raise ValueError('Draw outside '+('depth' if kind == 'null_color_depth' else 'RT0')+' extent')
+    return dict(kind=kind, rasterExtent=[raster['width'], raster['height']],
+                colorExtent=[color['width'], color['height']], colorFormat=color['format'],
+                depthExtent=[depth['width'], depth['height']] if depth['bound'] else None,
+                depthFormat=depth['format'] if depth['bound'] else None, viewport=viewport)
 
 
 def analyze(text):
@@ -142,7 +165,7 @@ def analyze(text):
                     raise ValueError('Nested, duplicate or over-budget scope')
                 seen.add(key)
                 active = dict(key=key, identity=identity, eye=eye, calls=0, records=0,
-                              drawCalls=0, drawExtents=set(), operations=Counter(), bindings={})
+                              drawCalls=0, drawExtents=set(), drawPasses={}, operations=Counter(), bindings={})
             elif not active or key != active['key'] or identity != active['identity'] or eye != active['eye']:
                 raise ValueError('Orphan scope or changed identity')
             elif kind == 'record':
@@ -157,13 +180,17 @@ def analyze(text):
                     integer(event, field)
                 draw = operation in (6, 7, 8, 9)
                 state = event.get('state')
-                validate_state(state, draw)
+                raster_pass = validate_state(state, draw)
                 active['calls'] += repeat
                 active['records'] += 1
                 active['operations'][operation] += repeat
                 if draw:
                     active['drawCalls'] += repeat
                     active['drawExtents'].add(tuple(state['viewport'][2:]))
+                    pass_key = json.dumps(raster_pass, sort_keys=True)
+                    if pass_key not in active['drawPasses']:
+                        active['drawPasses'][pass_key] = dict(raster_pass, drawCalls=0)
+                    active['drawPasses'][pass_key]['drawCalls'] += repeat
                 for binding in state['targets'] + state['textures'] + [state['depth']]:
                     if binding['bound']:
                         # Include descriptor in the key: a reused address is never merged into a lifetime.
@@ -176,6 +203,7 @@ def analyze(text):
                 result = dict(zip(IDENTITY, identity), scope=scope, eye=eye,
                               calls=active['calls'], records=active['records'], drawCalls=active['drawCalls'],
                               drawExtents=[list(v) for v in sorted(active['drawExtents'])],
+                              drawPasses=list(active['drawPasses'].values()),
                               operations=dict(active['operations']), bindings=list(active['bindings'].values()))
                 report['scopes'].append(result)
                 if eye == 0:

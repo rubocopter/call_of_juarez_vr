@@ -36,6 +36,18 @@ def log(events):
     return '\n'.join([f'run_start: run_id=synthetic build_manifest_id={BUILD} pid=1']+
                      ['render_resource_probe: '+json.dumps(e) for e in events]+['run_end: run_id=synthetic'])
 
+
+def null_depth_pair():
+    events=pair()
+    for e in events:
+        if e['event']!='record':continue
+        state=e['state']
+        state['targets'][0].update(width=1,height=1,format=int.from_bytes(b'NULL','little'))
+        state['depth'].update(width=2048,height=2048,format=80,usage=2,parent=70)
+        state['viewport']=[1,1,2046,2046]
+        state['scissor']=[0,0,1,1]
+    return events
+
 class ResourceAnalysisTests(unittest.TestCase):
     def reject(self,events):
         r=a.analyze(log(events));self.assertNotEqual(r['status'],'observed');self.assertFalse(r['resizingAdmitted'])
@@ -88,5 +100,35 @@ class ResourceAnalysisTests(unittest.TestCase):
         for viewport in ([0,0,0,1440],[0,0,3000,1440]):
             events=pair();events[1]['state']['viewport']=viewport;self.reject(events)
         events=pair();events[1]['op']=0;self.reject(events)
+
+    def test_null_color_pass_uses_verified_depth_extent(self):
+        r=a.analyze(log(null_depth_pair()))
+        self.assertEqual(r['status'],'observed',r['errors'])
+        self.assertFalse(r['resizingAdmitted']);self.assertFalse(r['headsetValidated'])
+        draw=r['scopes'][0]['drawPasses'][0]
+        self.assertEqual(draw['kind'],'null_color_depth')
+        self.assertEqual(draw['rasterExtent'],[2048,2048])
+        self.assertEqual(draw['colorExtent'],[1,1])
+        self.assertEqual(draw['viewport'],[1,1,2046,2046])
+        self.assertEqual(draw['drawCalls'],2)
+        self.assertTrue(r['unresolved'])
+
+    def test_null_color_profile_rejects_unqualified_layouts(self):
+        for key,value in [('bound',False),('format',75),('usage',1),('width',1024),
+                          ('samples',2),('quality',1),('pool',2),('type',3)]:
+            events=null_depth_pair();events[1]['state']['depth'][key]=value;self.reject(events)
+        for key,value in [('width',2),('usage',0),('samples',2),('quality',1),('pool',2),('type',3)]:
+            events=null_depth_pair();events[1]['state']['targets'][0][key]=value;self.reject(events)
+        for z in ([0,1,4],[1,0,4],[2,1,4]):
+            events=null_depth_pair();events[1]['state']['z']=z;self.reject(events)
+        events=null_depth_pair();state=events[1]['state']
+        state['targetSlots']=2;state['targets'].append(copy.deepcopy(RESOURCE));self.reject(events)
+        events=null_depth_pair();events[1]['state']['viewport']=[1,1,2048,2048];self.reject(events)
+
+    def test_ordinary_color_does_not_borrow_larger_depth_bounds(self):
+        events=null_depth_pair();events[1]['state']['targets'][0]['format']=21
+        self.reject(events)
+        r=a.analyze(log(pair()));self.assertEqual(r['status'],'observed')
+        self.assertEqual(r['scopes'][0]['drawPasses'][0]['kind'],'color')
 
 if __name__=='__main__':unittest.main()

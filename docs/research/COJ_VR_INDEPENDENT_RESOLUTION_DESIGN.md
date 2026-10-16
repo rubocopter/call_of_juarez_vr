@@ -591,11 +591,13 @@ Q0 y el escritor B0/B1 siguen pendientes.
 
 La primera captura real del colector cubre gameplay sin fallos de lectura ni
 truncamiento, con continuidad funcional confirmada por el operador en los
-contextos probados. El analizador sigue incompleto: un pase nativo combina color
-FourCC `NULL` con viewport/profundidad mayores que su descriptor de color.
+contextos probados. Un pase nativo combina color FourCC `NULL` con viewport/
+profundidad mayores que su descriptor de color. El analizador lo clasifica ahora
+con un perfil explícito `NULL`/D16 y comprueba su viewport contra profundidad;
+conserva el rechazo de colores ordinarios fuera de límites y perfiles desconocidos.
 [La investigación de resolución](COJ_VR_RENDER_RESOLUTION.md#native-target-family-finding-from-the-gameplay-census)
-recoge esta frontera; clasificarla con los datos existentes antes de repetir
-captura. Esto no acepta Q0, ópticas programables, nuevas dimensiones ni pacing.
+recoge esta frontera. Los pares de gameplay ya se analizan completos con los
+datos existentes. Esto no acepta Q0, ópticas programables, nuevas dimensiones ni pacing.
 
 La entrada/salida de llamadas nativas y la apertura/cierre del observador
 comparten un monitor de llamadas en vuelo; su mutex nunca se retiene al ejecutar

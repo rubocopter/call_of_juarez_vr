@@ -109,20 +109,30 @@ Reuse the bounded diagnostics before adding another observer:
 The eye wrapper uses multiple color formats and intermediate extents rather than
 one interchangeable RT0. In particular, a native pass binds a FourCC `NULL`
 color surface with a viewport larger than that color descriptor and a larger
-bound depth surface. The observed native draw succeeds. The strict analyzer's
-RT0-only containment check rejects this combination, so its report remains
-incomplete even though collector scope headers complete successfully. This does
-not establish a one-pixel scene, a bad capture or a resizing-safe shadow target.
-Its precise effect role and raster contract still require qualification.
+bound depth surface. The observed native draw succeeds. An RT0-only containment
+rule initially rejected this combination. NVIDIA documents `NULL` as a color
+placeholder for passes that do not need color storage, including shadow depth
+rendering; see its [GPU Programming Guide, section 6.4.1](https://developer.download.nvidia.com/GPU_Programming_Guide/GPU_Programming_Guide_G80.pdf#page=57).
+That API description explains the placeholder, not this game's precise effect.
+
+The analyzer now classifies the observed one-pixel `NULL` / D16 combination as
+`null_color_depth`: no additional bound MRT, DEFAULT surface resources, native
+RT/depth usage, no multisampling and depth test/write enabled. It checks viewport
+containment against depth and reports both color and raster extents. Other
+layouts remain unqualified; ordinary color targets still use their own bounds.
+`drawPasses` separates these classes and counts the actual recorded draw repeats
+within each eye scope, without assigning effect names from size alone. Existing
+capture data now completes this bounded analysis. This does not establish shadow
+contents, allocation lifetime, a one-pixel scene or a resizing-safe family.
 
 Classify scene, depth-oriented, reduction/filtering and other effect resources
 by their actual pass/format/alias relationships before selecting any family for
 replacement. The captured ordinary color passes include the selected scene
 extent and multiple smaller intermediates. Neither a color descriptor alone nor
 uniform scaling of every bound texture defines the eye-resolution contract.
-Use the retained complete trace for further offline classification; do not
-request another identical physical capture merely because the analyzer stops at
-the unclassified pass. Settings/movie coverage, programmable constants, creation,
+Use the retained complete trace for further offline classification; no repeat of
+the same capture is required for this resolved containment assumption.
+Settings/movie coverage, programmable constants, creation,
 reuse/destruction and compositor retirement remain separate unresolved gates.
 
 The presenter and bridge's size checks establish copy equality by source
