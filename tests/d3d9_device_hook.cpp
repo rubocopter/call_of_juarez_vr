@@ -126,7 +126,7 @@ int main() {
         return Fail("failed to install D3D9 device hook");
     }
     for (const auto& slot : cojvr::backends::d3d9::InspectAllDeviceVtableHooks()) {
-        if (slot.slot_name == "Reset") {
+        if (slot.slot_name != "Present" && slot.slot_name != "BeginScene" && slot.slot_name != "EndScene") {
             device->Release();
             d3d9->Release();
             DestroyWindow(window);

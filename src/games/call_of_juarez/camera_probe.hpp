@@ -77,6 +77,7 @@ struct CameraProbeCommand {
     bool vr_gameplay_input_enabled = true;
     bool capture_readback_enabled = true;
     bool second_eye_render_enabled = true;
+    bool render_resource_probe_enabled = false;
 };
 
 [[nodiscard]] bool ParseCameraProbeCommand(
@@ -351,6 +352,9 @@ struct CameraStereoRuntimeCallbacks {
     void (*publish_reload_feedback_owner)(void* context, std::uint64_t token) noexcept = nullptr;
     // Read-only renderer observation. No depth buffer ownership/admission.
     void (*observe_reload_depth)(void* context,runtime::Eye eye,std::uint64_t frame_sequence) noexcept = nullptr;
+    // Diagnostic scope around the exact full wrapper only; no capture or fallback replay.
+    void (*observe_render_pass)(void*, runtime::Eye, std::uint64_t, std::uintptr_t,
+        bool begin, bool complete, const char* route) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

@@ -39,6 +39,17 @@ SteamVR's recommendation. Independent eye resolution is planned; the
 [source investigation](research/COJ_VR_RENDER_RESOLUTION.md) adds no physical
 acceptance and makes no claim that DSR works on a particular setup.
 
+The [approved independent-resolution design](research/COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
+has a startup-only binding observer and offline analyzer implemented and
+host-tested. Real D3D9/Ex tests cover read-only state/pixels, release before Reset,
+ResetEx invalidation, hook forwarding/continuity, scope cancellation and control
+preservation. Synthetic analysis rejects incomplete/foreign traces. No game
+resource trace has qualified this observer yet. Allocation/effect/constant
+ownership and compositor retirement remain Q0 gates. Diagnostic sessions perturb
+pacing and cannot establish performance improvement. Independent rendering,
+actual detail and functional continuity at new sizes require the specified
+native and headset evidence; complete bindings never admit resizing by themselves.
+
 ## Current feature state
 
 | Boundary | Confirmed state | Remaining limits |

@@ -32,6 +32,7 @@
 #include <iomanip>
 #include <iterator>
 #include <mutex>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -131,6 +132,166 @@ std::filesystem::path LogPath() noexcept {
 void LogLine(const std::string_view line) noexcept {
     const auto path = LogPath();
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
+}
+
+
+using ResourceProbe = cojvr::backends::d3d9::D3D9RenderResourceProbe;
+using ResourceContext = cojvr::backends::d3d9::D3D9RenderResourceContext;
+std::atomic_bool g_resource_probe_enabled{false};
+std::atomic_uint g_resource_probe_pairs{0};
+std::atomic_uint64_t g_resource_probe_resets{0};
+cojvr::backends::d3d9::RenderResourceCallBoundary g_resource_call_boundary;
+struct ResourceProbeThread {
+    std::unique_ptr<ResourceProbe> probe;
+    IDirect3DDevice9* device = nullptr; // value-only; current wrapper owns the device
+    std::uint64_t frame=0, generation=0;
+    std::uintptr_t owner=0;
+    unsigned route=0,eye=0;
+    std::uint64_t integrity_epoch=0;
+    bool active=false, selected=false;
+};
+thread_local ResourceProbeThread g_resource_probe_thread;
+
+void WriteResourceInfo(std::ostream& out,
+    const cojvr::backends::d3d9::D3D9RenderResourceInfo& r) {
+    out << "{\"object\":" << r.object << ",\"parent\":" << r.parent
+        << ",\"surface\":" << r.surface << ",\"width\":" << r.width
+        << ",\"height\":" << r.height << ",\"depth\":" << r.depth
+        << ",\"levels\":" << r.levels << ",\"format\":" << r.format
+        << ",\"usage\":" << r.usage << ",\"pool\":" << r.pool
+        << ",\"samples\":" << r.samples << ",\"quality\":" << r.quality
+        << ",\"type\":" << r.type << ",\"bound\":" << r.bound
+        << ",\"valid\":" << r.valid << '}';
+}
+template<class T> void WriteResourceArray(std::ostream& out, const T& values) {
+    out << '['; bool first=true;
+    for(const auto value:values){ if(!first)out<<',';first=false;out<<value; }
+    out << ']';
+}
+void ResourceProbeSink(void*, const ResourceContext& context,
+    const cojvr::backends::d3d9::D3D9RenderResourceRecord* record,
+    const cojvr::backends::d3d9::D3D9RenderResourceSummary* summary) noexcept {
+    try {
+        std::ostringstream out; out << std::boolalpha;
+        out << "render_resource_probe: {\"schema\":1,\"event\":\""
+            << (record?"record":summary?"end":"begin")
+            << "\",\"coverage\":\"binding_state_only\",\"readOnly\":true,\"resizingAdmitted\":false"
+            << ",\"scope\":" << context.scope << ",\"thread\":" << context.thread
+            << ",\"frame\":" << context.frame << ",\"owner\":" << context.owner
+            << ",\"device\":" << context.device << ",\"generation\":" << context.generation
+            << ",\"eye\":" << context.eye << ",\"route\":" << context.route;
+        if(record) {
+            const auto& r=*record;const auto& state=r.state;
+            out << ",\"ordinal\":" << r.ordinal << ",\"repeat\":" << r.repeat
+                << ",\"op\":" << static_cast<unsigned>(r.event.operation)
+                << ",\"selector\":" << r.event.selector << ",\"hr\":" << static_cast<std::uint32_t>(r.event.result)
+                << ",\"caller\":" << r.event.caller << ",\"source\":" << r.event.source
+                << ",\"destination\":" << r.event.destination
+                << ",\"state\":{\"valid\":" << state.valid
+                << ",\"targetSlots\":" << state.target_slots << ",\"textureSlots\":" << state.texture_slots
+                << ",\"targets\":[";
+            for(unsigned i=0;i<state.target_slots;++i){if(i)out<<',';WriteResourceInfo(out,state.targets[i]);}
+            out << "],\"depth\":";WriteResourceInfo(out,state.depth);
+            out << ",\"textures\":[";
+            for(unsigned i=0;i<state.texture_slots;++i){if(i)out<<',';WriteResourceInfo(out,state.textures[i]);}
+            out << "],\"viewport\":";WriteResourceArray(out,state.viewport);
+            out << ",\"viewportDepth\":";WriteResourceArray(out,state.viewport_depth);
+            out << ",\"scissor\":";WriteResourceArray(out,state.scissor);
+            out << ",\"scissorEnabled\":" << state.scissor_enabled;
+            out << ",\"z\":";WriteResourceArray(out,state.z);
+            out << ",\"vertexShader\":" << state.vertex_shader << ",\"pixelShader\":" << state.pixel_shader
+                << ",\"transformsValid\":" << state.transforms_valid << ",\"transforms\":";
+            WriteResourceArray(out,state.transforms);out << '}';
+        }
+        if(summary)out << ",\"calls\":" << summary->calls << ",\"records\":" << summary->records
+            << ",\"readFailures\":" << summary->read_failures << ",\"complete\":" << summary->complete
+            << ",\"truncated\":" << summary->truncated;
+        out << '}'; LogLine(out.str());
+    } catch (...) { LogLine("render_resource_probe_error: serialization_failed"); }
+}
+void ResourceProbeCall(IDirect3DDevice9* device,bool entering) noexcept {
+    if(entering)g_resource_call_boundary.Enter(device);else g_resource_call_boundary.Leave();
+}
+void CancelResourceProbe() noexcept;
+void ResourceProbeEvent(IDirect3DDevice9* device,
+    const cojvr::backends::d3d9::RenderResourceEvent& event) noexcept {
+    if(event.operation==cojvr::backends::d3d9::RenderResourceOperation::reset) {
+        CancelResourceProbe();g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);return;
+    }
+    auto& trace=g_resource_probe_thread;
+    if(trace.active&&trace.probe) (void)trace.probe->Record(device,event);
+}
+void CancelResourceProbe() noexcept {
+    auto& trace=g_resource_probe_thread;
+    (void)g_resource_call_boundary.End(trace.device);
+    if(trace.active&&trace.probe)(void)trace.probe->End(trace.device,false);
+    trace.active=false;trace.selected=false;
+}
+cojvr::backends::d3d9::ResourceProbeHookContinuity CurrentProbeContinuity(IDirect3DDevice9* expected) noexcept {
+    std::lock_guard lock(g_stereo.device_mutex);
+    // The scope stores values, not a COM lease. Do not dereference an old
+    // device after replacement may have released its final retained reference.
+    if(!expected||g_stereo.device!=expected)return {};
+    return cojvr::backends::d3d9::InspectResourceProbeHookContinuity(expected);
+}
+void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
+    std::uintptr_t owner,bool begin,bool complete,const char* route_name) noexcept {
+    if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
+    const DWORD error=GetLastError();
+    auto& trace=g_resource_probe_thread;
+    const unsigned route=std::string_view(route_name)=="movie"?2:
+        std::string_view(route_name)=="settings"?1:0;
+    if(!begin) {
+        if(!trace.active){SetLastError(error);return;}
+        const auto integrity=CurrentProbeContinuity(trace.device);
+        const auto current_generation=g_stereo.device_generation.load(std::memory_order_acquire)+
+            g_resource_probe_resets.load(std::memory_order_acquire);
+        const bool calls_complete=g_resource_call_boundary.End(trace.device);
+        complete=complete&&trace.frame==frame&&trace.owner==owner&&trace.route==route&&
+            trace.eye==(eye==cojvr::runtime::Eye::left?0u:1u)&&trace.generation==current_generation&&
+            integrity.intact&&integrity.epoch==trace.integrity_epoch&&
+            calls_complete;
+        if(trace.active&&trace.probe)(void)trace.probe->End(trace.device,complete);
+        trace.active=false;
+        SetLastError(error);return;
+    }
+    try {
+        if(trace.active)CancelResourceProbe();
+        IDirect3DDevice9* device=nullptr;
+        {std::lock_guard lock(g_stereo.device_mutex);device=g_stereo.device;}
+        const auto generation=g_stereo.device_generation.load(std::memory_order_acquire)+
+            g_resource_probe_resets.load(std::memory_order_acquire);
+        if(eye==cojvr::runtime::Eye::left) {
+            const bool due=frame>3&&(!trace.frame||trace.owner!=owner||trace.route!=route||
+                trace.generation!=generation||frame>trace.frame+900);
+            trace.selected=false;
+            if(due&&device&&owner) {
+                auto attempt=g_resource_probe_pairs.load(std::memory_order_relaxed);
+                while(attempt<6&&!g_resource_probe_pairs.compare_exchange_weak(
+                    attempt,attempt+1,std::memory_order_relaxed)) {}
+                if(attempt<6) {
+                    trace.selected=true;trace.frame=frame;trace.owner=owner;trace.device=device;
+                    trace.generation=generation;trace.route=route;
+                }
+            }
+        }
+        if(trace.selected&&trace.frame==frame&&trace.owner==owner&&trace.device==device&&
+            trace.generation==generation&&trace.route==route) {
+            const auto integrity=CurrentProbeContinuity(device);
+            if(!integrity.intact||!g_resource_call_boundary.Begin(device)) {
+                trace.selected=false;SetLastError(error);return;
+            }
+            trace.integrity_epoch=integrity.epoch;
+            if(!trace.probe)trace.probe=std::make_unique<ResourceProbe>(&ResourceProbeSink);
+            ResourceContext context{};context.device=reinterpret_cast<std::uintptr_t>(device);
+            context.generation=generation;context.frame=frame;context.owner=owner;
+            context.eye=eye==cojvr::runtime::Eye::left?0:1;context.route=route;
+            trace.eye=context.eye;
+            trace.active=trace.probe->Begin(device,context);
+            if(!trace.active)CancelResourceProbe();
+        }
+    } catch (...) { CancelResourceProbe(); }
+    SetLastError(error);
 }
 
 std::uintptr_t ModuleRva(const std::uintptr_t address) noexcept {
@@ -1136,6 +1297,7 @@ void AfterDevicePresent(IDirect3DDevice9* device, const HRESULT result) noexcept
 void BeforeDeviceReset(
     IDirect3DDevice9* device,
     D3DPRESENT_PARAMETERS* parameters) noexcept {
+    CancelResourceProbe();
     g_stereo.frame_pacer.Reset();
     const float refresh_hz = g_stereo.runtime_ready ? g_stereo.presenter.display_frequency_hz() : 0.0F;
     if (parameters) (void)g_stereo.present_policy.Begin(*parameters, refresh_hz, true);
@@ -1356,6 +1518,8 @@ void AfterCreateDevice(
         };
         log_factory_identity("factory_native_identity");
         IDirect3DDevice9* replacement = observed;
+        if(g_resource_probe_enabled.load(std::memory_order_acquire))
+            g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
         HWND root = focus_window ? GetAncestor(focus_window, GA_ROOT) : nullptr;
         if (!root) root = focus_window;
         g_stereo.game_window.store(
@@ -1389,6 +1553,8 @@ void AfterCreateDevice(
             .method_trace = &DeviceMethodTrace,
             .get_direct3d_factory = factory,
             .get_direct3d_device = replacement,
+            .resource_probe_event = g_resource_probe_enabled.load() ? &ResourceProbeEvent : nullptr,
+            .resource_probe_call = g_resource_probe_enabled.load() ? &ResourceProbeCall : nullptr,
         };
         const auto device_hook =
             cojvr::backends::d3d9::InstallDeviceVtableHookDetailed(
@@ -2008,6 +2174,18 @@ void EnsureStarted() noexcept {
             const bool exit_boundary_ready = exit_hook ==
                 cojvr::games::call_of_juarez::GameShutdownHookStatus::installed;
 
+            // Startup-only opt-in; runtime control edits cannot change the hook set.
+            {
+                std::ifstream input(GameDirectory()/L"cojvr-camera-control.json",std::ios::binary);
+                std::string control(65537,'\0'); input.read(control.data(),static_cast<std::streamsize>(control.size()));
+                control.resize(static_cast<std::size_t>(input.gcount()));
+                cojvr::games::call_of_juarez::CameraProbeCommand command{};
+                if(control.size()<=65536&&cojvr::games::call_of_juarez::ParseCameraProbeCommand(control,command,nullptr))
+                    g_resource_probe_enabled.store(command.render_resource_probe_enabled);
+                LogLine(std::string("render_resource_probe_config: startup_enabled=")+
+                    (g_resource_probe_enabled.load()?"true":"false")+" coverage=binding_state_only max_pairs=6 max_records_per_eye=4096 cpu_buffer_bytes_per_thread="+
+                    std::to_string(sizeof(cojvr::backends::d3d9::D3D9RenderResourceRecord)*ResourceProbe::max_records));
+            }
             cojvr::games::call_of_juarez::CameraStereoRuntimeCallbacks stereo_callbacks{};
             if (exit_boundary_ready && StartStereoRuntime()) {
                 stereo_callbacks.context = &g_stereo;
@@ -2020,6 +2198,7 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
                 stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
                 stereo_callbacks.observe_reload_depth = &ObserveReloadDepth;
+                if(g_resource_probe_enabled.load())stereo_callbacks.observe_render_pass = &ObserveRenderPass;
             }
 
             const auto control_path = GameDirectory() / L"cojvr-camera-control.json";

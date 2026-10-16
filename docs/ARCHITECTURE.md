@@ -98,6 +98,11 @@ Independent eye resolution must qualify native color/depth/intermediate ownershi
 before the full render-view passes, retaining desktop/theater and lease/reset
 boundaries. [Resolution research](research/COJ_VR_RENDER_RESOLUTION.md) owns the
 source trace, memory constraints and incremental implementation criteria.
+A startup-only, bounded read-only D3D9 binding probe brackets the exact full eye
+wrappers and correlates device/generation/frame/owner identity. Reset/ResetEx
+invalidation and conservative offline analysis do not establish allocation
+ownership, programmable projections or independent-size admission. Disable the
+opt-in probe for performance qualification.
 
 ## Physical hand contact
 

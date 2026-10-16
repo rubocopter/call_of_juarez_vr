@@ -4701,6 +4701,27 @@ bool RestorePendingCameraOnlyState(void* camera) noexcept {
 // callback. Replay only the complete renderer wrapper; never update a movie,
 // player, weapon or body for an eye. The original snapshot remains authoritative
 // for both passes, including the exact source right axis.
+class ScopedRenderResourceObservation {
+public:
+    ScopedRenderResourceObservation(runtime::Eye eye, std::uint64_t frame,
+        void* owner, const char* route) noexcept
+        : eye_(eye), frame_(frame), owner_(reinterpret_cast<std::uintptr_t>(owner)), route_(route) {
+        if (g_stereo_callbacks.observe_render_pass)
+            g_stereo_callbacks.observe_render_pass(g_stereo_callbacks.context,eye_,frame_,owner_,true,false,route_);
+    }
+    void Complete(bool complete = true) noexcept { complete_ = complete; }
+    ~ScopedRenderResourceObservation() {
+        if (g_stereo_callbacks.observe_render_pass)
+            g_stereo_callbacks.observe_render_pass(g_stereo_callbacks.context,eye_,frame_,owner_,false,complete_,route_);
+    }
+private:
+    runtime::Eye eye_;
+    std::uint64_t frame_;
+    std::uintptr_t owner_;
+    const char* route_;
+    bool complete_ = false;
+};
+
 void RenderCameraOnlyStereo(
     const RenderViewFn original, void* owner, void* view, void* camera,
     const CameraRenderStateSnapshot& natural_render_state,
@@ -4756,8 +4777,13 @@ void RenderCameraOnlyStereo(
         ConfigureStereoEyeOverride(camera,relative_head_pose,yaw,sample.eyes[index],
             frame_sequence,sample.hmd_pose.sequence);
         bool rendered=true;
-        if(index==0)original(owner,view);
-        else rendered=ReplayFullRenderViewForStereoEye(original,owner,view,right_guard_restored);
+        {
+            ScopedRenderResourceObservation observation(sample.eyes[index].eye,frame_sequence,owner,
+                movie ? "movie" : "settings");
+            if(index==0)original(owner,view);
+            else rendered=ReplayFullRenderViewForStereoEye(original,owner,view,right_guard_restored);
+            observation.Complete(rendered);
+        }
         const bool applied=rendered && g_stereo_eye_override.camera_applied &&
             g_stereo_eye_override.projection_applied && g_stereo_eye_override.renderer_camera_match;
         if(rendered) {
@@ -6208,7 +6234,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         manual_result.gesture.claimed_hand==manual_result.gesture.cartridge_hand&&
         (manual_result.gesture.cartridge_hand==0?raw_reload_input.fire_right:
          manual_result.gesture.cartridge_hand==1?raw_reload_input.fire_left:false);
-    original(owner, view);
+    {
+        ScopedRenderResourceObservation observation(runtime::Eye::left,frame_sequence,owner,"gameplay");
+        original(owner, view);
+        observation.Complete();
+    }
     if(observe_reload_depth){
         g_stereo_callbacks.observe_reload_depth(g_stereo_callbacks.context,runtime::Eye::left,frame_sequence);
         --g_reload_depth_observation_budget;
@@ -6249,8 +6279,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             render_eyes[1],
             frame_sequence,
             sample.hmd_pose.sequence);
-        right_full_view_pass = ReplayFullRenderViewForStereoEye(
-            original, owner, view, right_view_guard_restored);
+        {
+            ScopedRenderResourceObservation observation(runtime::Eye::right,frame_sequence,owner,"gameplay");
+            right_full_view_pass = ReplayFullRenderViewForStereoEye(
+                original, owner, view, right_view_guard_restored);
+            observation.Complete(right_full_view_pass);
+        }
         if (right_full_view_pass)
             observe_native_fx(CoJNativeFxPhase::right_eye, "right_eye_complete");
         if (right_full_view_pass) {
@@ -6886,6 +6920,10 @@ bool ParseCameraProbeCommand(
     std::string* error) noexcept {
     CameraProbeCommand parsed{};
     bool enabled_present = false;
+    bool resource_probe_present = false;
+    if (!ReadBool(text,"renderResourceProbeEnabled",parsed.render_resource_probe_enabled,resource_probe_present)) {
+        SetError(error,"renderResourceProbeEnabled must be true or false"); return false;
+    }
     if (!ReadBool(text, "enabled", parsed.enabled, enabled_present) || !enabled_present) {
         SetError(error, "enabled must be true or false");
         return false;

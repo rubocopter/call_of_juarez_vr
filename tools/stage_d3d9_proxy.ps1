@@ -12,7 +12,8 @@ param(
     [switch]$IndependentHands,
     [switch]$LargeAddressAware,
     [switch]$ReloadWaitProbe,
-    [switch]$ManualReload
+    [switch]$ManualReload,
+    [switch]$RenderResourceProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -113,6 +114,9 @@ $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
 if ($IndependentHands -and -not $IsNativeStereo) { throw "Independent hands require the native-stereo candidate." }
 if ($ReloadWaitProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
     throw "ReloadWaitProbe requires native stereo with independent hands."
+}
+if ($RenderResourceProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
+    throw 'RenderResourceProbe requires native stereo with independent hands.'
 }
 if ($ManualReload -and ($ReloadWaitProbe -or -not $IsNativeStereo -or -not $IndependentHands)) {
     throw 'ManualReload requires native stereo with independent hands and cannot combine with ReloadWaitProbe.'
@@ -311,6 +315,9 @@ $HadOriginalCameraControl = $IsCameraIntegration -and (Test-Path -LiteralPath $C
 $HadOriginalOpenVr = $IsOpenVrIntegration -and (Test-Path -LiteralPath $OpenVrDestination -PathType Leaf)
 $HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrInputDestination -PathType Container)
 $CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"bodyIkEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0,`n  `"movementTraceEnabled`": false,`n  `"movementTracePhase`": `"off`",`n  `"vrGameplayInputEnabled`": true,`n  `"captureReadbackEnabled`": true,`n  `"secondEyeRenderEnabled`": true`n}`n"
+if ($RenderResourceProbe) {
+    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "renderResourceProbeEnabled": true')
+}
 $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
 if ($IndependentHands) {
     $CameraControlText = $CameraControlText.Replace('"bodyIkEnabled": false,', '"bodyIkEnabled": false, "independentHandsEnabled": true,')
@@ -544,6 +551,7 @@ if ($HadOriginal) {
         codeArchiveManaged = $IsNativeStereo
         reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
         manualReloadInstalled = $ManualReload.IsPresent
+        renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
         playerArchiveManaged = $IndependentHands.IsPresent
         originalPlayerSha256 = if ($IndependentHands) { $OriginalPlayerHash } else { $null }
         stagedPlayerSha256 = if ($IndependentHands) { $PatchedPlayerHash } else { $null }
@@ -628,6 +636,7 @@ if ($HadOriginal) {
         validation = [ordered]@{
             reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
             manualReloadInstalled = $ManualReload.IsPresent
+            renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
             requireExactChromeEngine = $IsCameraIntegration
             requireOpenVrRuntimeState = $IsNativeStereo -and $ValidationProfile -ne "startup"

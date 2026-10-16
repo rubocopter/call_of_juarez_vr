@@ -102,6 +102,7 @@ add_library(cojvr_diagnostics STATIC
 
 add_library(cojvr_d3d9_hooks STATIC
     src/backends/d3d9/diagnostic_context.cpp
+    src/backends/d3d9/render_resource_probe.cpp
     src/backends/d3d9/device_vtable_hook.cpp
     src/backends/d3d9/factory_vtable_hook.cpp
     src/backends/d3d9/hook_registry.cpp
@@ -446,6 +447,8 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME reload_wait_probe COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_wait_probe.py")
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
     add_test(NAME manual_reload_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_analysis.py")
+    add_test(NAME render_resource_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/render_resource_analysis.py")
+    add_test(NAME render_resource_controls COMMAND pwsh -NoProfile -File "${CMAKE_SOURCE_DIR}/tests/render_resource_controls.ps1" -SourceDirectory "${CMAKE_SOURCE_DIR}" -BinaryDirectory "${CMAKE_BINARY_DIR}")
     add_test(NAME reload_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_reload_cartridge.py" --check)
     add_test(NAME textured_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_textured_cartridge.py" --check)
     add_test(NAME openvr_action_assets COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/openvr_action_assets.py")
@@ -810,6 +813,15 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9_device_hook COMMAND cojvr_d3d9_device_hook_test)
     set_tests_properties(d3d9_device_hook PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(cojvr_render_resource_probe_test tests/render_resource_probe.cpp
+        src/backends/d3d9/system_d3d9.cpp)
+    target_link_libraries(cojvr_render_resource_probe_test PRIVATE cojvr_d3d9_hooks)
+    target_compile_features(cojvr_render_resource_probe_test PRIVATE cxx_std_20)
+    add_test(NAME render_resource_probe COMMAND cojvr_render_resource_probe_test)
+    add_test(NAME render_resource_probe_ex COMMAND cojvr_render_resource_probe_test --ex)
+    set_tests_properties(render_resource_probe_ex PROPERTIES SKIP_RETURN_CODE 77)
+    set_tests_properties(render_resource_probe PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(
         cojvr_d3d9_swapchain_hook_test

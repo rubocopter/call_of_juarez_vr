@@ -3,6 +3,7 @@
 #include "backends/d3d9/hook_diagnostics.hpp"
 #include "backends/d3d9/hook_registry.hpp"
 #include "backends/d3d9/com_trace.hpp"
+#include "backends/d3d9/render_resource_probe.hpp"
 
 #include <d3d9.h>
 
@@ -24,12 +25,19 @@ struct DeviceHookCallbacks {
     // Borrowed factory. The owner must retain it until this device hook is restored.
     IDirect3D9* get_direct3d_factory = nullptr;
     IDirect3DDevice9* get_direct3d_device = nullptr;
+    void (*resource_probe_event)(IDirect3DDevice9*, const RenderResourceEvent&) noexcept = nullptr;
+    void (*resource_probe_call)(IDirect3DDevice9*, bool entering) noexcept = nullptr;
 };
 
 struct DeviceVtableHookStatus {
     bool installed = false;
     bool device_uses_hooked_vtable = false;
 };
+struct ResourceProbeHookContinuity {
+    std::uint64_t epoch=0;
+    bool intact=false;
+};
+[[nodiscard]] ResourceProbeHookContinuity InspectResourceProbeHookContinuity(IDirect3DDevice9*) noexcept;
 
 struct DeviceVtableHookContinuity {
     void** vtable = nullptr;

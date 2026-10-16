@@ -1,6 +1,8 @@
 # Resolución VR independiente — especificación técnica
 
-Estado: **propuesta para revisión del operador; implementación no autorizada aún**.
+Estado: **diseño aprobado para avance autónomo; escritor bloqueado por Q0**.
+El diagnóstico de bindings está implementado y probado en host; el renderizado
+con dimensiones independientes sigue pendiente de cualificación nativa y visor.
 Referencia funcional: código de `main` en `3dba9f8` y aceptación acotada registrada
 en [VALIDATION](../VALIDATION.md). Alcance acordado el 16 de octubre de 2026.
 
@@ -65,7 +67,7 @@ No hace falta cambiar ABI de input, calibración, JNI de armas, ammo ni persiste
 de preferencias para este prototipo. Las adiciones propuestas se limitan a un
 descriptor de extensión/layout, un ámbito D3D9 de escena, datos de cualificación
 del adaptador CoJ y su conexión con los callbacks existentes. Los nombres/ficheros
-nuevos se concretarán en el plan tras aprobar esta especificación.
+nuevos se concretan en el plan local de ejecución del diseño aprobado.
 
 ## 3. Inventario que autoriza la familia de escena
 
@@ -480,8 +482,9 @@ sin su presupuesto y comparación. C se evalúa solo después de B1/B2 seguros.
 
 ## 10. Plan incremental y puertas de revisión
 
-Esta secuencia es el plan de **validación del diseño**, no el plan de cambios
-de código que requiere aprobación posterior.
+Esta secuencia conserva las puertas técnicas del diseño aprobado. La autorización
+de avance autónomo permite implementar sus requisitos; no sustituye la evidencia
+nativa ni la aceptación física necesarias para habilitar un escritor.
 
 | Etapa | Trabajo limitado | Salida exigida / condición de parada |
 | --- | --- | --- |
@@ -523,13 +526,79 @@ campaña completa o `supported`. VALIDATION conserva cada aceptación real.
 | Confundir texturas mayores con render real | Evidencia de draws/intermedios y detalle nuevo anterior al compositor. |
 | Sobrecoste no lineal | Medir p95/p99, memoria y reprojection; no justificar C con la relación de píxeles. |
 
-El diseño permite preparar un prototipo acotado **después** de cerrar Q0; todavía
-no autoriza un candidato con dimensiones independientes. La revisión debe
-aceptar explícitamente B1 a 2560×1920, el espejo reducido con bandas, el par de
-teatro reservado, los presupuestos y el fallback con cuarentena. Si se aprueba
-esta especificación, el siguiente paso es un plan de implementación escrito con
-tareas por fichero/prueba y método de ejecución elegido. No se implementa por
-aprobar únicamente el alcance o este borrador.
+El diseño aprobado permite preparar un prototipo acotado **después** de cerrar
+Q0. Incluye B0 al tamaño actual, B1 a 2560×1920, el espejo reducido con bandas, el par de teatro
+reservado, los presupuestos y el fallback con cuarentena. Ninguna autorización
+elimina la condición de parada por recursos nativos desconocidos.
+
+## 12. Requisito implementado: observación de bindings
+
+`backends/d3d9/render_resource_probe.hpp/.cpp` contiene el observador de valores
+y su colector limitado. Lee MRT, profundidad, 16 samplers de píxel y cuatro de
+vértice cuando proceda, alias superficie/textura, viewport, scissor, Z y shaders.
+View/projection del estado fijo se registran con validez separada: no demuestran
+la proyección usada por un shader programable. Las referencias COM adquiridas
+se liberan dentro de cada consulta; las identidades copiadas no son leases ni
+pruebas de vida, residencia o asignaciones únicas.
+
+`DeviceHookCallbacks.resource_probe_event` observa después de SetRenderTarget,
+SetDepthStencilSurface, SetTexture, SetViewport, SetScissorRect, Clear, las cuatro
+variantes de DrawPrimitive y StretchRect. Reenvía argumentos una vez y preserva
+HRESULT y LastError. Reset invalida antes de llamar al original; ResetEx también
+cuando su interfaz comparte la vtable observada. Este hook extendido solo
+invalida el diagnóstico, sin ejecutar política de Reset clásico ni modificar
+sus parámetros. Una vtable extendida distinta queda sin cualificar. Creación,
+destrucción y cambios internos no interceptados aún necesitan su mapa.
+
+`CameraStereoRuntimeCallbacks.observe_render_pass` delimita exclusivamente el
+wrapper completo en gameplay, ajustes y cine inmersivo. Captura, transporte y
+replay natural de recuperación quedan fuera. El proxy correlaciona thread,
+frame, owner nativo, dispositivo y generación del diagnóstico. Los intentos de
+Reset/ResetEx cambian su época aun si fallan; este contador no reemplaza la
+generación de transporte. Cancelación, identidad perdida, eventos del mismo
+dispositivo en otro hilo, lectura fallida, hooks perdidos/recuperados o
+desbordamiento impiden declarar completo el scope. La continuidad de slots se
+comprueba al abrir/cerrar y los cambios conocidos de propiedad avanzan una época;
+esto no prueba ausencia de cambios internos invisibles entre observaciones.
+
+Activación **solo al arrancar**: control `renderResourceProbeEnabled`, falso por
+defecto. `vr_test.ps1 prepare -BodyIkAtStart -RenderResourceProbe` lo propaga al
+control y a la procedencia de staging/run. Tracking/body/recenter lo preservan.
+Para ejercitar la recarga manual, conservar además su opción `-ManualReload`.
+No se añade interfaz al panel ni se modifica la pre-release publicada.
+
+El presupuesto global es seis intentos de par y 4096 registros distintos por
+ojo. Selecciona el primer frame elegible después del arranque, cambios de owner,
+ruta o generación y después intervalos superiores a 900 frames. Agrupa registros
+idénticos consecutivos conservando el conteo; saturación marca `truncated` y no
+amplía el límite. Reserva un buffer de CPU por hilo admitido y lo reutiliza;
+no crea superficies GPU. Las consultas/logs pueden alterar mucho el pacing:
+estas sesiones **no cualifican rendimiento** y no sustituyen A/B sin diagnóstico.
+
+`tools/analyze_coj_render_resources.py` exige un solo intervalo exacto run/build,
+scopes ordenados y ojos con igual identidad; verifica esquema, conteos, reads,
+draws, frames crecientes y truncamiento. Devuelve `observed` para bindings
+completos o `incomplete` con motivos, siempre `resizingAdmitted=false` y
+`headsetValidated=false`. Los marcadores correlacionan; no autentican el log ni
+reemplazan el inventario canónico. Crear la salida fuera de la evidencia.
+
+Las pruebas de host cubren D3D9 y D3D9Ex reales, píxeles/estado invariantes,
+profundidad presente/ausente, alias, liberación antes de Reset, ResetEx,
+coalescencia, límite, hilo/identidad inválidos, cancelación, pérdida y recuperación
+de hooks, resultados originales, controles y rechazo del analizador. Esto no
+cualifica el grafo del juego, retiro OpenVR, nitidez ni continuidad en visor.
+Q0 y el escritor B0/B1 siguen pendientes.
+
+La entrada/salida de llamadas nativas y la apertura/cierre del observador
+comparten un monitor de llamadas en vuelo; su mutex nunca se retiene al ejecutar
+el original. Así se rechaza también una llamada extranjera cuyo callback de
+salida aún no llegó. La mutación de hooks y la publicación/lectura de su época
+se sincronizan entre sí. La inspección comprueba el dispositivo vigente bajo
+su mutex antes de desreferenciarlo; un cambio de dispositivo invalida la época.
+El buffer añade a VA/commit de CPU `sizeof(D3D9RenderResourceRecord) * 4096`
+bytes por hilo admitido, como máximo seis hilos por presupuesto, además de
+scratch de serialización/log. El arranque registra los bytes del build; este
+coste del diagnóstico se elimina del experimento A/B, no se carga a VRAM.
 
 ## Referencias de API y límites de evidencia
 

@@ -121,6 +121,11 @@ int main() {
         std::cerr << "manual reload marker invalid\n"; return 1;
     }
 
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"renderResourceProbeEnabled":true})",command,&error) ||
+        !command.render_resource_probe_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"renderResourceProbeEnabled":1})",command,&error)) {
+        std::cerr << "invalid resource probe control\n"; return 1;
+    }
     if (ParseCameraProbeCommand(R"({"enabled":true,"fovDegrees":200})", command, &error) ||
         ParseCameraProbeCommand(R"({"yawDegrees":10})", command, &error) ||
         ParseCameraProbeCommand(R"({"enabled":true,"pitchDegrees":nan})", command, &error) ||

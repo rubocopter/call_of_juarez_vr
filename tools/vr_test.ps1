@@ -13,7 +13,8 @@ param(
     [switch]$LargeAddressAware,
 
     [switch]$ReloadWaitProbe,
-    [switch]$ManualReload
+    [switch]$ManualReload,
+    [switch]$RenderResourceProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -96,6 +97,9 @@ $ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 switch ($Action) {
     "prepare" {
         Assert-GameClosed
+        if ($RenderResourceProbe -and ($StartupOnly -or -not $BodyIkAtStart)) {
+            throw "RenderResourceProbe requires the full BodyIkAtStart candidate."
+        }
         if ($BodyIkAtStart -and $StartupOnly) {
             throw "StartupOnly and BodyIkAtStart cannot be combined."
         }
@@ -144,7 +148,7 @@ switch ($Action) {
                 -ValidationProfile $ValidationProfile `
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
-                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -199,6 +203,7 @@ switch ($Action) {
         Write-Host "Run ID: $($Run.runId)"
         Write-Host "Validation profile: $ValidationProfile"
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
+        Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"
         Write-Host "Bounded reload wait/zero-transfer probe: $($ReloadWaitProbe.IsPresent.ToString().ToLowerInvariant()) (gesture route; Square remains native)"

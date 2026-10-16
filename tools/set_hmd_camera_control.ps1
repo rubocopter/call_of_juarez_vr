@@ -75,6 +75,9 @@ $Control = [ordered]@{
     manualReloadInstalled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['manualReloadInstalled'] -and
         [bool]$ExistingControl.manualReloadInstalled
+    renderResourceProbeEnabled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['renderResourceProbeEnabled'] -and
+        [bool]$ExistingControl.renderResourceProbeEnabled
     vrGameplayInputEnabled = if ($null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['vrGameplayInputEnabled']) {
         [bool]$ExistingControl.vrGameplayInputEnabled
