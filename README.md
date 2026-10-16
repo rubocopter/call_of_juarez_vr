@@ -39,6 +39,12 @@ Installation prepares the first play session. Before **every subsequent play ses
 
 PS VR2 Sense is the only physically validated controller reference. Additional packaged bindings are experimental and do not establish compatibility with another headset or PC. See the [controller cheat sheet](release/README.txt) for Sense, Oculus/Meta Touch, Valve Index, Vive wands and WMR, including Touch/Index directional stick-click pause/recenter. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls) remain available. No download is announced here yet.
 
+## Controller guide
+
+[![Current PS VR2 Sense controls](assets/CoJ_sensevr.png)](assets/CoJ_sensevr.png)
+
+PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. Manual reload is optional: Square opens/closes, and the free-hand trigger picks up and inserts rounds. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
+
 ## Known limitations
 
 - A chest/possible-scroll interaction has caused a campaign crash. Its cause and recovery remain unresolved; progress can be lost.
