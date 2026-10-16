@@ -11,7 +11,7 @@ a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)
 BUILD = 'a'*64
 BASE = dict(schema=1, coverage='binding_state_only', readOnly=True, resizingAdmitted=False,
-            thread=3, frame=9, owner=20, device=30, generation=1, route=0)
+            thread=3, frame=9, owner=20, device=30, generation=1, deviceGeneration=1, route=0)
 RESOURCE = dict(object=40, parent=50, surface=40, width=2560, height=1440,
                 bound=True, valid=True, format=21, usage=1, pool=0, samples=0, quality=0,
                 depth=0, levels=1, type=1)
@@ -47,6 +47,27 @@ def null_depth_pair():
         state['viewport']=[1,1,2046,2046]
         state['scissor']=[0,0,1,1]
     return events
+
+
+def sprite_log(**changes):
+    fields=dict(pass_sequence=7,frame_sequence=9,present_sequence=12,thread_id=3,
+                owner='0x70',option=0,device='0x1e',rt='0x28',rt_hr='0x0',
+                desc_hr='0x0',viewport_hr='0x0',generation=1,size='2560,1440',
+                format=21,viewport='0,0,2560,1440',alpha_blend=1,src_blend=5,
+                dst_blend=6,color_write=15,separate_alpha=0,depth=0)
+    fields.update(changes)
+    lines=[]
+    for stage in ('sprites_begin','sprites_end','flush_begin','flush_end'):
+        row=dict(fields)
+        if stage.startswith('flush'):row['owner']='0x80'
+        lines.append('native_hud_boundary: stage='+stage+';'+
+                     ';'.join(f'{k}={v}' for k,v in row.items()))
+    return lines
+
+
+def with_sprites(lines=None,events=None):
+    source=log(pair() if events is None else events)
+    return source.replace('run_end:', '\n'.join(sprite_log() if lines is None else lines)+'\nrun_end:')
 
 class ResourceAnalysisTests(unittest.TestCase):
     def reject(self,events):
@@ -130,5 +151,101 @@ class ResourceAnalysisTests(unittest.TestCase):
         self.reject(events)
         r=a.analyze(log(pair()));self.assertEqual(r['status'],'observed')
         self.assertEqual(r['scopes'][0]['drawPasses'][0]['kind'],'color')
+
+    def test_sprite_order_is_separate_read_only_correlation(self):
+        r=a.analyze(with_sprites());self.assertEqual(r['status'],'observed')
+        hud=r['desktopSpriteOrdering'];self.assertEqual(hud['status'],'observed',hud['errors'])
+        self.assertFalse(hud['mirrorAdmitted']);self.assertFalse(r['resizingAdmitted'])
+        self.assertEqual(hud['passes'][0]['target'],40)
+        self.assertGreater(hud['passes'][0]['beginLine'],r['scopes'][1]['endLine'])
+        self.assertEqual(r['scopes'][1]['lastObservedTarget']['object'],40)
+        self.assertEqual(hud['passes'][0]['spriteOwner'],112)
+        self.assertEqual(hud['passes'][0]['flushOwner'],128)
+
+    def test_sprite_missing_or_unavailable_does_not_invalidate_binding_evidence(self):
+        for source in (log(pair()),with_sprites(sprite_log()[:2]),
+                       with_sprites([s+';target_observation=unavailable' for s in sprite_log()])):
+            r=a.analyze(source);self.assertEqual(r['status'],'observed')
+            self.assertEqual(r['desktopSpriteOrdering']['status'],'incomplete')
+            self.assertFalse(r['desktopSpriteOrdering']['mirrorAdmitted'])
+
+    def test_sprite_wrong_target_context_and_queries_reject(self):
+        for field,value in [('rt','0x99'),('device','0x99'),('generation',2),
+                            ('thread_id',99),('rt_hr','0x8876086c'),('desc_hr','0x1'),
+                            ('viewport_hr','0x8876086c'),('option',1),('format',113),
+                            ('size','2804,2860'),('viewport','0,0,1,1')]:
+            with self.subTest(field=field):
+                r=a.analyze(with_sprites(sprite_log(**{field:value})))
+                self.assertEqual(r['status'],'observed')
+                self.assertEqual(r['desktopSpriteOrdering']['status'],'incomplete')
+
+    def test_sprite_order_duplicate_nested_and_owner_changes_reject(self):
+        good=sprite_log()
+        cases=[list(reversed(good)),good+good,[good[0],good[0]]+good[1:],
+               [good[0],good[1].replace('owner=0x70','owner=0x71')]+good[2:],
+               good[:2]+[good[2].replace('present_sequence=12','present_sequence=13')]+good[3:],
+               good[:1]+sprite_log(frame_sequence=8)+good[1:]]
+        for lines in cases:
+            self.assertEqual(a.analyze(with_sprites(lines))['desktopSpriteOrdering']['status'],'incomplete')
+
+    def test_sprite_before_pair_or_outside_interval_reject(self):
+        good='\n'.join(sprite_log())
+        sources=[good+'\n'+log(pair()),log(pair())+'\n'+good,
+                 log(pair()).replace('render_resource_probe:',good+'\nrender_resource_probe:',1)]
+        for source in sources:
+            r=a.analyze(source);self.assertEqual(r['status'],'observed')
+            self.assertEqual(r['desktopSpriteOrdering']['status'],'incomplete')
+
+    def test_sprite_correlation_reports_partial_sampling(self):
+        extra=pair()
+        for e in extra:e['scope']+=2;e['frame']+=1
+        source=with_sprites().replace('run_end:', '\n'.join(
+            'render_resource_probe: '+json.dumps(e) for e in extra)+'\nrun_end:')
+        hud=a.analyze(source)['desktopSpriteOrdering']
+        self.assertEqual(hud['status'],'observed',hud['errors'])
+        self.assertEqual(hud['matchedFrames'],[9]);self.assertEqual(hud['unobservedFrames'],[10])
+
+    def test_stale_sprite_frame_after_later_eye_scope_rejects(self):
+        extra=pair()
+        for e in extra:e['scope']+=2;e['frame']+=1
+        r=a.analyze(with_sprites(events=pair()+extra))
+        self.assertEqual(r['status'],'observed')
+        self.assertEqual(r['desktopSpriteOrdering']['status'],'incomplete')
+
+    def test_sprite_unrelated_frame_does_not_establish_order(self):
+        hud=a.analyze(with_sprites(sprite_log(frame_sequence=8)))['desktopSpriteOrdering']
+        self.assertEqual(hud['status'],'incomplete');self.assertEqual(hud['matchedFrames'],[])
+
+    def test_legacy_probe_epoch_is_not_native_device_generation(self):
+        events=pair()
+        for e in events:
+            del e['deviceGeneration'];e['generation']=4
+        r=a.analyze(with_sprites(sprite_log(generation=2),events))
+        self.assertEqual(r['status'],'observed')
+        hud=r['desktopSpriteOrdering'];self.assertEqual(hud['status'],'incomplete')
+        self.assertIn('Native device generation absent from eye scope',hud['errors'])
+        self.assertEqual(len(hud['passes']),1)
+        self.assertEqual(hud['passes'][0]['probeEpoch'],4)
+        self.assertEqual(hud['passes'][0]['deviceGeneration'],2)
+        self.assertFalse(hud['generationQualified']);self.assertFalse(hud['mirrorAdmitted'])
+
+    def test_explicit_device_generation_must_be_complete_and_stable(self):
+        for mutate in ('missing','changed','foreign_eye','boolean'):
+            events=pair()
+            if mutate=='missing':del events[1]['deviceGeneration']
+            if mutate=='changed':events[1]['deviceGeneration']=2
+            if mutate=='foreign_eye':
+                for e in events[3:]:e['deviceGeneration']=2
+            if mutate=='boolean':
+                for e in events:e['deviceGeneration']=True
+            self.reject(events)
+
+    def test_sprite_bad_fields_and_over_budget_reject(self):
+        for lines in ([s+';rt=0x28' for s in sprite_log()],
+                      [s.replace('pass_sequence=7','pass_sequence=-1') for s in sprite_log()],
+                      [s.replace('thread_id=3','thread_id=3junk') for s in sprite_log()],
+                      [s.replace('stage=sprites_begin','stage=unknown') for s in sprite_log()],
+                      [s for i in range(33) for s in sprite_log(pass_sequence=i+1)]):
+            self.assertEqual(a.analyze(with_sprites(lines))['desktopSpriteOrdering']['status'],'incomplete')
 
 if __name__=='__main__':unittest.main()

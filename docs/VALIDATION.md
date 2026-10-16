@@ -62,6 +62,12 @@ The [native PP ownership map](research/COJ_PPFX_TARGET_OWNERSHIP.md) now establi
 static allocator/release/alias and renderer-cache responsibilities. This is
 research evidence only; it adds no live allocation, independent-size, shader
 constant or recovery acceptance, and leaves Q0 open.
+Existing gameplay evidence also contains ordered sprite/flush samples after an
+eye pair with matching original-size color target metadata. Full generation
+correlation remains incomplete because the old eye epoch differs from the HUD
+device counter. Separate counter collection and conservative offline correlation
+are host-tested; neither this partial evidence nor complete future metadata
+admits mirror mutation, alpha/coverage or independent resolution.
 The canonical full-profile verifier retained rejection for an unobserved Sense
 loading-continuation press. Complete collection, normal restoration and operator
 acceptance do not overwrite that verdict or establish the missing input gesture.

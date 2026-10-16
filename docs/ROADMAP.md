@@ -144,6 +144,10 @@ campaign continuity, physical interactions or reload work:
   internal/default/depth caches, including integer-buffer versus float-quad
   rounding. Next correlate native/COM identities and qualify constants/history,
   sprite ordering and a private-bank transaction before same-size isolation.
+  Reused gameplay evidence supplies partial sprite/flush line-order and target
+  correlation; old generation namespaces remain explicitly unqualified. The
+  collector now separates device generation from its reset-attempt epoch and
+  the analyzer checks both, without a dedicated new headset request.
   Native allocation/lifetime/effect/constant mapping and compositor retirement
   still block Q0. Settings/movie resource correlation and headset A/B remain
   pending; no independent-resolution writer is admitted and the published

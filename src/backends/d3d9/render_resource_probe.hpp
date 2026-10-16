@@ -59,6 +59,9 @@ struct D3D9RenderResourceSnapshot {
 };
 [[nodiscard]] D3D9RenderResourceSnapshot ObserveD3D9RenderResources(IDirect3DDevice9*) noexcept;
 struct D3D9RenderResourceContext {
+    // Native device generation is distinct from generation's probe continuity
+    // epoch, which also counts reset attempts. Zero means not supplied.
+    std::uint64_t device_generation=0;
     std::uintptr_t device=0;
     std::uint64_t generation=0,frame=0,owner=0,scope=0;
     std::uint32_t thread=0,eye=0,route=0; // gameplay/settings/movie = 0/1/2

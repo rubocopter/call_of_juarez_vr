@@ -180,6 +180,7 @@ void ResourceProbeSink(void*, const ResourceContext& context,
             << ",\"frame\":" << context.frame << ",\"owner\":" << context.owner
             << ",\"device\":" << context.device << ",\"generation\":" << context.generation
             << ",\"eye\":" << context.eye << ",\"route\":" << context.route;
+        if(context.device_generation)out << ",\"deviceGeneration\":" << context.device_generation;
         if(record) {
             const auto& r=*record;const auto& state=r.state;
             out << ",\"ordinal\":" << r.ordinal << ",\"repeat\":" << r.repeat
@@ -259,7 +260,8 @@ void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
         if(trace.active)CancelResourceProbe();
         IDirect3DDevice9* device=nullptr;
         {std::lock_guard lock(g_stereo.device_mutex);device=g_stereo.device;}
-        const auto generation=g_stereo.device_generation.load(std::memory_order_acquire)+
+        const auto device_generation=g_stereo.device_generation.load(std::memory_order_acquire);
+        const auto generation=device_generation+
             g_resource_probe_resets.load(std::memory_order_acquire);
         if(eye==cojvr::runtime::Eye::left) {
             const bool due=frame>3&&(!trace.frame||trace.owner!=owner||trace.route!=route||
@@ -284,6 +286,7 @@ void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
             trace.integrity_epoch=integrity.epoch;
             if(!trace.probe)trace.probe=std::make_unique<ResourceProbe>(&ResourceProbeSink);
             ResourceContext context{};context.device=reinterpret_cast<std::uintptr_t>(device);
+            context.device_generation=device_generation;
             context.generation=generation;context.frame=frame;context.owner=owner;
             context.eye=eye==cojvr::runtime::Eye::left?0:1;context.route=route;
             trace.eye=context.eye;

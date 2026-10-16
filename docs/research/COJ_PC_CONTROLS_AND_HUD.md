@@ -645,6 +645,17 @@ redirected and no sprite pass is replayed. Host tests cover forwarding and owned
 restoration; live scheduling, target ownership and usable alpha/coverage still
 require evidence before implementing HUD capture and composition.
 
+Finished gameplay evidence now includes sampled ordered sprite traversal and
+flush after a complete eye pair, with matching thread/frame, device, color RT
+identity, native extent and viewport. The offline resource analyzer retains
+these source-line correlations. Its original eye-probe `generation` includes
+reset attempts while the HUD counter is native device generation; the old log
+cannot equate those namespaces. The separate ordering component therefore stays
+incomplete for generation qualification, preserving the observed metadata.
+New diagnostic collection records both counters explicitly and host tests check
+their separation. This does not qualify usable alpha/coverage, an independent
+target, a mirror write, every script route or new headset behavior.
+
 The native red no-shoot indication is separate from reticle alignment:
 `HUDCrosshairHand.CanShowDontShot` delegates to `Being.CanShowDontShot(hand)`;
 `CanFireAtTarget` and `AimingAtValidTarget` are separate predicates. The eyes-only

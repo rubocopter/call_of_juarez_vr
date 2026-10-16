@@ -11,7 +11,8 @@ using namespace cojvr::backends::d3d9;
 using Microsoft::WRL::ComPtr;
 namespace {
 void Check(bool ok,const char* why){if(!ok){std::cerr<<why<<'\n';std::exit(1);}}
-struct Output { unsigned begins=0; std::vector<D3D9RenderResourceRecord> records; std::vector<D3D9RenderResourceSummary> ends; };
+struct Output { unsigned begins=0; std::vector<D3D9RenderResourceRecord> records; std::vector<D3D9RenderResourceSummary> ends;
+    std::vector<D3D9RenderResourceContext> contexts; };
 std::vector<RenderResourceEvent> hook_events;
 unsigned call_enters=0,call_leaves=0;
 void HookCall(IDirect3DDevice9*,bool entering) noexcept {
@@ -20,9 +21,10 @@ void HookCall(IDirect3DDevice9*,bool entering) noexcept {
 void HookEvent(IDirect3DDevice9*,const RenderResourceEvent& event) noexcept {
     hook_events.push_back(event);SetLastError(0xBAD);
 }
-void Sink(void* ctx,const D3D9RenderResourceContext&,const D3D9RenderResourceRecord* record,
+void Sink(void* ctx,const D3D9RenderResourceContext& context,const D3D9RenderResourceRecord* record,
           const D3D9RenderResourceSummary* summary) noexcept {
     auto& out=*static_cast<Output*>(ctx);
+    out.contexts.push_back(context);
     if(record)out.records.push_back(*record);else if(summary)out.ends.push_back(*summary);else ++out.begins;
 }
 }
@@ -86,6 +88,7 @@ int main(int argc,char**){
     Output out;D3D9RenderResourceProbe probe(&Sink,&out,2);
     D3D9RenderResourceContext context{};context.device=reinterpret_cast<std::uintptr_t>(device.Get());
     context.generation=1;context.frame=4;context.owner=3;context.eye=0;
+    context.device_generation=2;context.generation=7; // Different counter namespaces.
     auto invalid_context=context;invalid_context.frame=0;
     Check(!probe.Begin(device.Get(),invalid_context),"zero frame admitted");
     invalid_context=context;invalid_context.generation=0;
@@ -97,6 +100,10 @@ int main(int argc,char**){
     const RenderResourceEvent event{RenderResourceOperation::draw,0,S_OK,0x1234,0,0};
     Check(probe.Record(device.Get(),event)&&probe.Record(device.Get(),event),"record failed");
     Check(probe.End(device.Get(),true),"valid scope failed to finish");
+    Check(out.contexts.size()==3,"missing begin/record/end context");
+    for(const auto& emitted:out.contexts)
+        Check(emitted.generation==7&&emitted.device_generation==2,
+            "device generation was lost or confused with probe continuity epoch");
     Check(out.begins==1&&out.records.size()==1&&out.records[0].repeat==2&&out.ends.size()==1&&
         out.ends[0].complete&&out.ends[0].calls==2,"coalescing lost a draw or completion");
     Check(!probe.End(device.Get(),true),"orphan End succeeded");

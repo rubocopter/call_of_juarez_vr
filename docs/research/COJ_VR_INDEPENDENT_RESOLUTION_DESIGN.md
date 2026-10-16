@@ -602,6 +602,21 @@ de hooks, resultados originales, controles y rechazo del analizador. Esto no
 cualifica el grafo del juego, retiro OpenVR, nitidez ni continuidad en visor.
 Q0 y el escritor B0/B1 siguen pendientes.
 
+El analizador añade un componente separado `desktopSpriteOrdering`: comprueba
+orden de traversal/flush después del par, thread/frame/Present, propietarios
+estables por etapa, dispositivo, target, extensión, viewport y queries. Conserva
+líneas de origen y muestreo parcial; `mirrorAdmitted` siempre es falso. Esta
+correlación no demuestra cobertura/alpha, que el último binding observado sea
+un snapshot del estado al retornar, ni que un blit conserve el scheduling.
+La época `generation` del probe incluye intentos de Reset y no es el contador
+de dispositivo del HUD. El colector añade ahora `deviceGeneration` por separado;
+el host prueba que ambos valores se conservan distintos. El analizador exige
+ese valor explícito y estable para cualificar la generación del componente.
+Logs anteriores pueden conservar pases coincidentes por orden/target, pero el
+componente queda `incomplete`, con `generationQualified=false`; nunca se deduce
+una equivalencia por diferencia numérica. Su resultado no cambia el análisis de
+bindings ni el verificador canónico y no exige una sesión física dedicada.
+
 La primera captura real del colector cubre gameplay sin fallos de lectura ni
 truncamiento, con continuidad funcional confirmada por el operador en los
 contextos probados. Un pase nativo combina color FourCC `NULL` con viewport/
