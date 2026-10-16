@@ -17,6 +17,8 @@
 
 > **Experimental community-testing pre-alpha.** The campaign is not fully tested, crashes can block progress, and this is not a supported release. Physical validation is limited to exercised scenes with PS VR2 Sense through SteamVR; other packaged controller bindings are experimental.
 
+**Development branch: `main`.** Development and releases share this branch. Separate branches are temporary and reserved for specific tests or focused work; players should download a versioned release below.
+
 ## What works
 
 - Native stereo, head tracking, recentering and room-scale movement.
@@ -37,7 +39,7 @@ Back up your saves before testing. Close the game before installing, updating or
 
 Installation prepares the first play session. Before **every subsequent play session**, with the game closed, choose **6 — Prepare session** to create a fresh diagnostic identity. Then start SteamVR and the D3D9 game manually; the launcher does not start them. Close them manually afterward. **5 — Verify package** checks package files; it does not prepare a play session.
 
-PS VR2 Sense is the only physically validated controller reference. Additional packaged bindings are experimental and do not establish compatibility with another headset or PC. See the [controller cheat sheet](release/README.txt) for Sense, Oculus/Meta Touch, Valve Index, Vive wands and WMR, including Touch/Index directional stick-click pause/recenter. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls) remain available. No download is announced here yet.
+PS VR2 Sense is the only physically validated controller reference. Additional packaged bindings are experimental and do not establish compatibility with another headset or PC. See the [controller cheat sheet](release/README.txt) for Sense, Oculus/Meta Touch, Valve Index, Vive wands and WMR, including Touch/Index directional stick-click pause/recenter. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls) remain available.
 
 ## Controller guide
 

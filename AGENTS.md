@@ -68,6 +68,10 @@ pwsh -File tools/vr_test.ps1 finish
 
 ## Before editing
 
+- Work on `main` by default. Use a temporary branch only for a specific test or
+  focused task that benefits from isolation; integrate completed work back into
+  `main`. Do not create a branch or pull request for routine work by default.
+
 - Inspect `git status`, branch/upstream relation, current source and current staging state.
 - Do not overwrite user changes or assume a documented task remains pending.
 - Inspect the current local handoff/evidence under `work/` when continuing an active physical gate.
