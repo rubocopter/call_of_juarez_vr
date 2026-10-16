@@ -148,6 +148,11 @@ campaign continuity, physical interactions or reload work:
   correlation; old generation namespaces remain explicitly unqualified. The
   collector now separates device generation from its reset-attempt epoch and
   the analyzer checks both, without a dedicated new headset request.
+  Native descriptor/cache snapshots and their separate binding correlation are
+  now implemented/host-tested, including exact classes, bounded lists/names,
+  aliases, LAA and failed-read rejection. Route reservations retain gameplay,
+  settings and movie opportunities within six pairs. Collect the new native
+  identities in the next substantial candidate; the old log lacks them.
   Native allocation/lifetime/effect/constant mapping and compositor retirement
   still block Q0. Settings/movie resource correlation and headset A/B remain
   pending; no independent-resolution writer is admitted and the published

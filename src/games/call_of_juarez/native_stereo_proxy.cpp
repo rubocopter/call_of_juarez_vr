@@ -3,6 +3,7 @@
 #include "games/call_of_juarez/d3d9ex_legacy_resource_compat.hpp"
 #include "games/call_of_juarez/game_shutdown_hook.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/ppfx_resource_telemetry.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/depth_observation.hpp"
@@ -138,7 +139,7 @@ void LogLine(const std::string_view line) noexcept {
 using ResourceProbe = cojvr::backends::d3d9::D3D9RenderResourceProbe;
 using ResourceContext = cojvr::backends::d3d9::D3D9RenderResourceContext;
 std::atomic_bool g_resource_probe_enabled{false};
-std::atomic_uint g_resource_probe_pairs{0};
+cojvr::backends::d3d9::RenderResourceRouteBudget g_resource_probe_pairs;
 std::atomic_uint64_t g_resource_probe_resets{0};
 cojvr::backends::d3d9::RenderResourceCallBoundary g_resource_call_boundary;
 struct ResourceProbeThread {
@@ -168,9 +169,25 @@ template<class T> void WriteResourceArray(std::ostream& out, const T& values) {
     for(const auto value:values){ if(!first)out<<',';first=false;out<<value; }
     out << ']';
 }
+void EmitNativePostprocessObservation(const ResourceContext& context,
+    const cojvr::backends::d3d9::D3D9RenderResourceSummary* summary) noexcept {
+    try {
+        using namespace cojvr::games::call_of_juarez;
+        const auto snapshot=ObserveInstalledCoJPostprocessResources();
+        CoJPostprocessObservationContext provenance;
+        provenance.scope=context.scope;provenance.thread=context.thread;
+        provenance.frame=context.frame;provenance.owner=context.owner;
+        provenance.device=context.device;provenance.device_generation=context.device_generation;
+        provenance.probe_epoch=context.generation;provenance.eye=context.eye;
+        provenance.route=context.route;provenance.begin=summary==nullptr;
+        provenance.scope_complete=summary&&summary->complete;
+        LogLine(FormatCoJPostprocessObservation(snapshot,provenance));
+    } catch (...) { LogLine("native_ppfx_resource_probe_error: serialization_failed"); }
+}
 void ResourceProbeSink(void*, const ResourceContext& context,
     const cojvr::backends::d3d9::D3D9RenderResourceRecord* record,
     const cojvr::backends::d3d9::D3D9RenderResourceSummary* summary) noexcept {
+    if(!record)EmitNativePostprocessObservation(context,summary);
     try {
         std::ostringstream out; out << std::boolalpha;
         out << "render_resource_probe: {\"schema\":1,\"event\":\""
@@ -268,10 +285,7 @@ void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
                 trace.generation!=generation||frame>trace.frame+900);
             trace.selected=false;
             if(due&&device&&owner) {
-                auto attempt=g_resource_probe_pairs.load(std::memory_order_relaxed);
-                while(attempt<6&&!g_resource_probe_pairs.compare_exchange_weak(
-                    attempt,attempt+1,std::memory_order_relaxed)) {}
-                if(attempt<6) {
+                if(g_resource_probe_pairs.TryAcquire(route)) {
                     trace.selected=true;trace.frame=frame;trace.owner=owner;trace.device=device;
                     trace.generation=generation;trace.route=route;
                 }
@@ -2186,8 +2200,9 @@ void EnsureStarted() noexcept {
                 if(control.size()<=65536&&cojvr::games::call_of_juarez::ParseCameraProbeCommand(control,command,nullptr))
                     g_resource_probe_enabled.store(command.render_resource_probe_enabled);
                 LogLine(std::string("render_resource_probe_config: startup_enabled=")+
-                    (g_resource_probe_enabled.load()?"true":"false")+" coverage=binding_state_only max_pairs=6 max_records_per_eye=4096 cpu_buffer_bytes_per_thread="+
-                    std::to_string(sizeof(cojvr::backends::d3d9::D3D9RenderResourceRecord)*ResourceProbe::max_records));
+                    (g_resource_probe_enabled.load()?"true":"false")+" coverage=binding_state_only max_pairs=6 pairs_per_route=2 max_records_per_eye=4096 cpu_buffer_bytes_per_thread="+
+                    std::to_string(sizeof(cojvr::backends::d3d9::D3D9RenderResourceRecord)*ResourceProbe::max_records)+
+                    ";native_snapshot_bytes="+std::to_string(sizeof(cojvr::games::call_of_juarez::CoJPostprocessResourceSnapshot)));
             }
             cojvr::games::call_of_juarez::CameraStereoRuntimeCallbacks stereo_callbacks{};
             if (exit_boundary_ready && StartStereoRuntime()) {

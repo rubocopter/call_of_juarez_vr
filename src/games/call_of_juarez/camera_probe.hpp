@@ -234,6 +234,8 @@ enum class CoJWeaponReticleHand { none, right, left };
 [[nodiscard]] bool ShouldRetainCoJBodyRestoreTransaction(bool restored) noexcept;
 
 [[nodiscard]] bool IsSupportedChromeEngineHash(std::string_view sha256) noexcept;
+struct CoJPostprocessResourceSnapshot;
+[[nodiscard]] CoJPostprocessResourceSnapshot ObserveInstalledCoJPostprocessResources() noexcept;
 
 using CameraProbeEventCallback = void (*)(
     const char* event,

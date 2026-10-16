@@ -66,6 +66,22 @@ struct D3D9RenderResourceContext {
     std::uint64_t generation=0,frame=0,owner=0,scope=0;
     std::uint32_t thread=0,eye=0,route=0; // gameplay/settings/movie = 0/1/2
 };
+// Reserve two attempts for each gameplay/settings/movie route. Total stays six;
+// long gameplay sessions cannot exhaust the other routes' observation window.
+class RenderResourceRouteBudget {
+public:
+    [[nodiscard]] bool TryAcquire(unsigned route) noexcept {
+        if(route>=attempts_.size())return false;
+        auto attempt=attempts_[route].load(std::memory_order_relaxed);
+        while(attempt<2) {
+            if(attempts_[route].compare_exchange_weak(attempt,attempt+1,
+                std::memory_order_relaxed))return true;
+        }
+        return false;
+    }
+private:
+    std::array<std::atomic_uint,3> attempts_{};
+};
 struct D3D9RenderResourceRecord {
     RenderResourceEvent event{};
     D3D9RenderResourceSnapshot state{};

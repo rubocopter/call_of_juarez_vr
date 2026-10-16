@@ -112,6 +112,14 @@ Logical dimensions also drive screen quads, with different rounding from buffer
 dimensions. These static contracts constrain a future private bank but do not
 admit it without runtime correlation, effect/constant and retirement qualification.
 
+The same default-off diagnostic now copies bounded native PP descriptors and
+renderer cache identities through an exact-build game adapter and checked
+own-process memory reads. No copied COM identity is called or retained. Begin/end
+structural snapshots correlate with D3D9 bindings, preserving alias names and
+unknowns without claiming atomic lifetime or independent resource ownership.
+Two pair attempts are reserved per gameplay/settings/movie route within the
+existing six-pair limit; absent routes remain unobserved.
+
 ## Physical hand contact
 
 Physical Hands contact uses game-neutral per-hand input/motion admission with

@@ -1,7 +1,9 @@
 #include "games/call_of_juarez/camera_probe.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/ppfx_resource_observation.hpp"
 #include "runtime/vr_math.hpp"
+#include <windows.h>
 
 #include <cmath>
 #include <iostream>
@@ -68,6 +70,15 @@ cojvr::runtime::Quaternion MultiplyQuaternion(
 
 int main() {
     using namespace cojvr::games::call_of_juarez;
+
+    SetLastError(0x7134);
+    const auto uninstalled_ppfx = ObserveInstalledCoJPostprocessResources();
+    if (uninstalled_ppfx.valid ||
+        uninstalled_ppfx.status != CoJPostprocessObservationStatus::unknown_build ||
+        GetLastError() != 0x7134) {
+        std::cerr << "native PPFX observation admitted an uninstalled/unverified engine\n";
+        return 1;
+    }
 
     if (ShouldRetainCoJBodyRestoreTransaction(true) ||
         !ShouldRetainCoJBodyRestoreTransaction(false)) {

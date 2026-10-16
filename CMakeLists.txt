@@ -110,6 +110,12 @@ add_library(cojvr_d3d9_hooks STATIC
     src/backends/d3d9/vtable_patch.cpp
 )
 
+add_library(cojvr_coj_ppfx_observation STATIC
+    src/games/call_of_juarez/ppfx_resource_observation.cpp
+    src/games/call_of_juarez/ppfx_resource_telemetry.cpp)
+target_include_directories(cojvr_coj_ppfx_observation PUBLIC src)
+target_compile_features(cojvr_coj_ppfx_observation PUBLIC cxx_std_20)
+
 add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/hud_boundary_probe.cpp
     src/games/call_of_juarez/hud_text_reader.cpp
@@ -142,7 +148,7 @@ target_link_libraries(cojvr_d3d9_hooks PUBLIC dxguid)
 target_include_directories(cojvr_coj_camera_probe PUBLIC src)
 target_compile_features(cojvr_coj_camera_probe PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_coj_camera_probe PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-target_link_libraries(cojvr_coj_camera_probe PUBLIC cojvr_build_identity cojvr_d3d9_hooks cojvr_runtime cojvr_diagnostics)
+target_link_libraries(cojvr_coj_camera_probe PUBLIC cojvr_build_identity cojvr_d3d9_hooks cojvr_runtime cojvr_diagnostics cojvr_coj_ppfx_observation)
 
 if(COJVR_ENABLE_OPENVR)
     add_library(cojvr_openvr_runtime STATIC
@@ -822,6 +828,15 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME render_resource_probe_ex COMMAND cojvr_render_resource_probe_test --ex)
     set_tests_properties(render_resource_probe_ex PROPERTIES SKIP_RETURN_CODE 77)
     set_tests_properties(render_resource_probe PROPERTIES SKIP_RETURN_CODE 77)
+
+    add_executable(cojvr_ppfx_resource_observation_test tests/ppfx_resource_observation.cpp)
+    target_link_libraries(cojvr_ppfx_resource_observation_test PRIVATE cojvr_coj_ppfx_observation)
+    add_test(NAME ppfx_resource_observation COMMAND cojvr_ppfx_resource_observation_test)
+    add_executable(cojvr_ppfx_resource_telemetry_fixture tests/ppfx_resource_telemetry.cpp)
+    target_link_libraries(cojvr_ppfx_resource_telemetry_fixture PRIVATE cojvr_coj_ppfx_observation)
+    add_test(NAME ppfx_resource_telemetry COMMAND "${COJVR_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/ppfx_resource_telemetry.py" "$<TARGET_FILE:cojvr_ppfx_resource_telemetry_fixture>"
+        "$<TARGET_FILE:cojvr_ppfx_resource_observation_test>")
 
     add_executable(
         cojvr_d3d9_swapchain_hook_test

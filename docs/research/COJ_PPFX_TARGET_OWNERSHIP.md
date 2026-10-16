@@ -61,6 +61,13 @@ are at `+0x6C4/+0x6C8/+0x6CC`; loaded effects have a reference count at `+0x81C`
 The render-command compiler embeds the effect/container pointer and buffer index
 in commands. Switching only the manager global leaves those references unresolved.
 
+The loaded-list size is the manager's u32 at `+0x650`; this is distinct from an
+effect's i32 native reference count. Each effect filename is an inline 260-byte
+array at `+0x684`, with a terminator at `+0x787`; descriptor names remain 64
+bytes. The manager and effect native vtables are RVA `0x314C48/0x3180AC`.
+The diagnostic's maximum of 16 loaded effects is its own conservative bound,
+not an established engine list limit.
+
 Temp entries may borrow equal-sized/equal-format/equal-option entries from
 **earlier loaded effects**. The allocator avoids using one handle twice in the
 same effect. Linked entries skip native release; they do not acquire an
@@ -76,6 +83,15 @@ dimensions at `+0x148/+0x14C` and reciprocal dimensions at `+0x154/+0x158`.
 `0x23DDD0` creates those COM interfaces. Its errors are logged by native code;
 a returned native object is not proof of a non-null successful COM allocation.
 Readback validation is required before any experimental admission.
+
+The word at native texture `+0` aliases the selected COM interface; it is not a
+native vtable. Kind is u32 `+0x130` (2D/volume/cube = 0/1/2), flags are u32 at
+`+0x134`, and requested W/H/D `+0x13C/+0x140/+0x144` must be distinguished from
+physical creation W/H/D `+0x148/+0x14C/+0x150`. Native sampler texture pointers
+also occupy two distinct ranges: 16 pixel slots at renderer `+0x1CD0` and four
+vertex slots at `+0x1D50`. The intervening `+0x1D10` words are sampler state,
+not four additional textures. An observer must not follow those state words as
+objects or apply the renderer vtable contract to a texture's COM alias.
 
 The renderer has additional resources outside the PP descriptor arrays:
 
@@ -193,6 +209,26 @@ That is 0.07 MiB at 2560x1920 and 0.12 MiB at 2804x2860 before padding, metadata
 and other histories. Cheap history payload does not solve native ownership.
 
 ## Remaining Q0 work and implementation order
+
+The optional resource diagnostic now includes a bounded structural reader in
+`games/call_of_juarez/ppfx_resource_observation.*`, an installed exact-SHA bridge
+and escaped value-only telemetry. It reads native Begin/End snapshots for the
+selected full-eye scopes through checked own-process memory copies, without
+calling native accessors, COM interfaces or resource factories. Names, topology,
+aliases, requested/physical dimensions, split sampler handles and internal/default
+surface values are retained. Unknown builds, root/class/list/read failures,
+dirty/unallocated resources and caps keep the optional observation incomplete.
+
+Synthetic memory fixtures establish bounded decoding and read-failure handling;
+they do not establish that a copied address remains a live object. The offline
+`nativePostprocess` component checks scope/order/generation, matching native
+families at both endpoints and exact-value associations with observed D3D9
+bindings. It retains unnamed/unmatched usage and multiple aliases explicitly.
+Current target and sampler handles can change normally; stable root/family/cache
+changes reject the correlation. Neither equal endpoints nor named bindings prove
+atomic lifetime, intermediate state, a complete allocation graph or resize safety.
+Fresh exact-game collection is still required; the older binding-only log cannot
+retroactively supply these native snapshots.
 
 1. Correlate native effect/container/index/handle, actual COM interfaces and the
    internal/default/depth surfaces with existing scoped draw evidence. Reject

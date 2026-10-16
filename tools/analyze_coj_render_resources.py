@@ -9,6 +9,7 @@ import json
 import math
 from pathlib import Path
 import re
+import struct
 
 START = re.compile(r'run_start: run_id=([A-Za-z0-9._-]+) build_manifest_id=([a-fA-F0-9]{64})(?:\s|$)')
 END = re.compile(r'run_end: run_id=([A-Za-z0-9._-]+)(?:\s|$)')
@@ -245,12 +246,285 @@ def analyze_sprite_ordering(lines, start, end, scopes):
     return result
 
 
+NATIVE_PREFIX = 'native_ppfx_resource_probe: '
+# Recognize the namespace before validating its delimiter, so malformed native
+# lines cannot expose marker-like byte names to the independent parsers.
+NATIVE_LINE = re.compile(r'^[^{]*?(native_ppfx_resource_probe(?:_error)?)\b')
+NATIVE_COVERAGE = 'native_ppfx_structural_snapshot'
+U32 = 2**32-1
+NATIVE_VOLATILE = ('currentTarget', 'pixelSamplerHandles', 'vertexSamplerHandles')
+NATIVE_SURFACES = ('defaultColorSurface', 'defaultDepthSurface', 'internalColorSurface',
+                   'internalDepthSurface', 'additionalDepthSurface')
+
+
+def native_component():
+    return dict(status='incomplete', coverage=NATIVE_COVERAGE, readOnly=True,
+                resizingAdmitted=False, correlationOnly=True, headsetValidated=False,
+                lifetimeQualified=False, atomicSnapshot=False, rolesQualified=False,
+                completeAllocationGraph=False, scopes=[], errors=[])
+
+
+def native_pointer(obj, key, optional=False):
+    # All bits are significant, including the LAA high bit. No dereference or COM call.
+    return integer(obj, key, 0 if optional else 1, U32-1)
+
+
+def native_array(obj, key, count):
+    values = obj.get(key)
+    if type(values) is not list or len(values) != count:
+        raise ValueError('Invalid native array: '+key)
+    return values
+
+
+def native_name(obj, capacity):
+    name = obj.get('name')
+    if (type(name) is not str or not 0 < len(name) < capacity or
+            any(not 0 < ord(char) <= 255 for char in name)):
+        raise ValueError('Invalid bounded native byte name')
+
+
+def native_fields(obj, fields):
+    if type(obj) is not dict or set(obj) != set(fields.split()):
+        raise ValueError('Missing/foreign native structural fields')
+
+
+def validate_native_snapshot(event):
+    """Validate copied structure, never an allocation graph or an atomic snapshot."""
+    if type(event) is not dict or integer(event, 'schema', 1, 1) != 1:
+        raise ValueError('Unsupported native schema')
+    native_fields(event, '''schema phase coverage readOnly resizingAdmitted scope thread frame owner
+        device deviceGeneration generation eye route bindingScopeComplete complete truncated status
+        engineBase renderer manager nativeDevice rendererVtable managerVtable listSentinel loadedEffectCount
+        globalBufferCount managerDirty effectCount bufferCount rendererState effects buffers''')
+    if (event.get('coverage') != NATIVE_COVERAGE or event.get('readOnly') is not True or
+            event.get('resizingAdmitted') is not False):
+        raise ValueError('Unexpected native authority or coverage')
+    phase = event.get('phase')
+    if phase not in ('begin', 'end') or event.get('bindingScopeComplete') is not (phase == 'end'):
+        raise ValueError('Invalid native phase/binding completion')
+    if (event.get('complete') is not True or event.get('truncated') is not False or
+            integer(event, 'status', 0, 14) != 0 or integer(event, 'managerDirty', 0, 255) != 0):
+        raise ValueError('Incomplete/truncated/dirty native snapshot')
+    for key in ('scope', 'frame', 'generation', 'deviceGeneration'):
+        integer(event, key, 1)
+    integer(event, 'thread', 1, U32)
+    integer(event, 'eye', 0, 1)
+    integer(event, 'route', 0, 2)
+    for key in ('owner', 'device', 'engineBase', 'renderer', 'manager', 'nativeDevice', 'listSentinel'):
+        native_pointer(event, key)
+    if event['device'] != event['nativeDevice']:
+        raise ValueError('Native device differs from binding context')
+    base = event['engineBase']
+    if base + 0x5902af >= U32:
+        raise ValueError('Native image address overflow')
+    for key, offset in (('rendererVtable', 0x312334), ('managerVtable', 0x314c48)):
+        if native_pointer(event, key) != base + offset:
+            raise ValueError('Foreign native vtable: '+key)
+    effects = native_array(event, 'effects', integer(event, 'effectCount', 0, 16))
+    buffers = native_array(event, 'buffers', integer(event, 'bufferCount', 0, 272))
+    if integer(event, 'loadedEffectCount', 0, 16) != len(effects):
+        raise ValueError('Native loaded-effect count mismatch')
+    containers = [(event['manager'], integer(event, 'globalBufferCount', 0, 16), True)]
+    nodes, owners = set(), {event['manager']}
+    sentinel = event['listSentinel']
+    previous = sentinel
+    for index, effect in enumerate(effects):
+        native_fields(effect, 'node next previous effect vtable bufferCount name')
+        for key in ('node', 'next', 'previous', 'effect', 'vtable'):
+            native_pointer(effect, key)
+        node, owner = effect['node'], effect['effect']
+        following = effects[index+1].get('node') if index+1 < len(effects) and type(effects[index+1]) is dict else sentinel
+        if (node == sentinel or node in nodes or owner in owners or
+                effect['previous'] != previous or effect['next'] != following):
+            raise ValueError('Invalid/duplicate/cyclic native topology')
+        if effect['vtable'] != base + 0x3180ac:
+            raise ValueError('Foreign native effect vtable')
+        native_name(effect, 260)
+        containers.append((owner, integer(effect, 'bufferCount', 0, 16), False))
+        nodes.add(node)
+        owners.add(owner)
+        previous = node
+    if sum(count for _, count, _ in containers) != len(buffers):
+        raise ValueError('Native global/effect buffer count mismatch')
+    position = 0
+    textures = {}
+    for container, count, global_ in containers:
+        if container + 0x647 >= U32:
+            raise ValueError('Native container address overflow')
+        for index in range(count):
+            buffer = buffers[position]
+            position += 1
+            native_fields(buffer, '''container entry index global name logicalWidth logicalHeight rgbBits
+                alphaBits widthDivisor heightDivisor internalColor depthAttachment nativeBpp tempShareable
+                linkedBorrowed texture''')
+            if (native_pointer(buffer, 'container') != container or
+                    integer(buffer, 'index', 0, 15) != index or buffer.get('global') is not global_ or
+                    native_pointer(buffer, 'entry') != container + 4 + index*0x64):
+                raise ValueError('Native container/index/entry mismatch')
+            native_name(buffer, 64)
+            for key in ('logicalWidth', 'logicalHeight'):
+                integer(buffer, key, 1, 2**31-1)
+            for key in ('rgbBits', 'alphaBits', 'widthDivisor', 'heightDivisor'):
+                integer(buffer, key, -2**31, 2**31-1)
+            # These are raw native byte options, not normalized boolean fields.
+            for key in ('internalColor', 'depthAttachment', 'nativeBpp', 'tempShareable', 'linkedBorrowed'):
+                integer(buffer, key, 0, 255)
+            texture = buffer.get('texture')
+            native_fields(texture, '''handle selectedInterface texture2d textureCube textureVolume usage
+                format flags kind requestedWidth requestedHeight requestedDepth width height depth inverseSizeBits''')
+            handle = native_pointer(texture, 'handle')
+            if handle + 0x15f >= U32:
+                raise ValueError('Native texture address overflow')
+            for key in ('texture2d', 'textureCube', 'textureVolume'):
+                native_pointer(texture, key, optional=True)
+            kind = integer(texture, 'kind', 0, 2)
+            selected = native_pointer(texture, 'selectedInterface')
+            if selected != texture[('texture2d', 'textureVolume', 'textureCube')[kind]]:
+                raise ValueError('Unallocated/inconsistent native texture interface')
+            for key in ('usage', 'format', 'flags'):
+                integer(texture, key, 0, U32)
+            for key in ('width', 'height', 'requestedWidth', 'requestedHeight'):
+                integer(texture, key, 1, U32)
+            for key in ('depth', 'requestedDepth'):
+                integer(texture, key, 1 if kind == 1 else 0, U32)
+            bits = native_array(texture, 'inverseSizeBits', 3)
+            for axis, word in enumerate(bits):
+                integer({'bits': word}, 'bits', 0, U32)
+                value = struct.unpack('<f', struct.pack('<I', word))[0]
+                # Native 2D creation can divide by depth zero. This unused
+                # reciprocal is retained as bits; only volume depth qualifies.
+                if (axis < 2 or kind == 1) and (not math.isfinite(value) or value <= 0):
+                    raise ValueError('Invalid native reciprocal dimension')
+            if handle in textures and textures[handle] != texture:
+                raise ValueError('Conflicting native aliases for one handle')
+            textures[handle] = texture
+    state = event.get('rendererState')
+    native_fields(state, '''logicalWidth logicalHeight viewportClampWidth viewportClampHeight currentTarget
+        defaultColorSurface defaultDepthSurface internalColorSurface internalDepthSurface additionalDepthSurface
+        placeholderTexture pixelSamplerHandles vertexSamplerHandles''')
+    for key in ('logicalWidth', 'logicalHeight', 'viewportClampWidth', 'viewportClampHeight'):
+        integer(state, key, 1, U32)
+    for key in NATIVE_SURFACES + ('currentTarget', 'placeholderTexture'):
+        native_pointer(state, key, optional=True)
+    for key, size in (('pixelSamplerHandles', 16), ('vertexSamplerHandles', 4)):
+        for value in native_array(state, key, size):
+            native_pointer({'handle': value}, 'handle', optional=True)
+
+
+def correlate_native_scope(scope, begin, end):
+    """Match values only. Native handles and sampler handles are never COM identities."""
+    aliases = {}
+    sources = {}
+    for index, buffer in enumerate(begin['buffers']):
+        handle = buffer['texture']['handle']
+        group = aliases.setdefault(handle, dict(nativeHandle=handle, names=[], bufferIndices=[]))
+        group['names'].append(buffer['name'])
+        group['bufferIndices'].append(index)
+        for key in ('texture2d', 'textureCube', 'textureVolume'):
+            value = buffer['texture'][key]
+            if value:
+                sources.setdefault(value, []).append((f'buffers[{index}].texture.{key}', True, index))
+    for key in NATIVE_SURFACES + ('placeholderTexture',):
+        value = begin['rendererState'][key]
+        if value:
+            sources.setdefault(value, []).append(('rendererState.'+key, key == 'placeholderTexture', None))
+    matches, unknowns, used = [], [], set()
+    for index, binding in enumerate(scope['bindings']):
+        obj = native_pointer(binding, 'object')
+        parent = native_pointer(binding, 'parent', optional=True)
+        found = []
+        for value in {obj, parent} - {0}:
+            for path, texture, buffer_index in sources.get(value, []):
+                if value == obj or texture:
+                    found.append(path)
+                    if buffer_index is not None:
+                        used.add(buffer_index)
+        row = dict(bindingIndex=index, object=obj, parent=parent)
+        if found:
+            matches.append(dict(row, sources=sorted(found)))
+        else:
+            unknowns.append(row)
+    return dict(scope=scope['scope'], thread=scope['thread'], frame=scope['frame'], eye=scope['eye'],
+                beginSnapshot=begin, endSnapshot=end, aliases=list(aliases.values()), matches=matches,
+                unknowns=unknowns, unusedBuffers=sorted(set(range(len(begin['buffers']))) - used))
+
+
+def analyze_native_postprocess(lines, start, end, scopes):
+    result = native_component()
+    snapshots = {}
+    count = 0
+    line_number = 0
+    try:
+        if not 0 < len(scopes) <= 12:
+            raise ValueError('Native correlation requires bounded complete binding scopes')
+        selected = {(scope['thread'], scope['scope']): scope for scope in scopes}
+        for index, line in enumerate(lines):
+            line_number = index+1
+            marker = NATIVE_LINE.match(line)
+            if marker is None:
+                continue
+            if marker[1] == 'native_ppfx_resource_probe_error':
+                raise ValueError('Native probe serialization failure')
+            if not start < index < end:
+                raise ValueError('Native snapshot outside run interval')
+            if line[marker.end():marker.end()+2] != ': ':
+                raise ValueError('Malformed native probe prefix')
+            count += 1
+            if count > 24:
+                raise ValueError('Native snapshot budget exceeded')
+            event = json.loads(line[marker.end()+2:], object_pairs_hook=unique_object,
+                               parse_constant=reject_constant)
+            validate_native_snapshot(event)
+            scope = selected.get((event['thread'], event['scope']))
+            if scope is None or any(event[key] != scope.get(key) for key in
+                                    IDENTITY + ('eye', 'deviceGeneration')):
+                raise ValueError('Foreign native scope identity/device generation')
+            key = (event['thread'], event['scope'], event['phase'])
+            if key in snapshots:
+                raise ValueError('Duplicate native phase')
+            if event['phase'] == 'begin':
+                prior_end = max([start+1] + [s['endLine'] for s in scopes if
+                    s['thread'] == scope['thread'] and s['endLine'] < scope['beginLine']])
+                if not prior_end < line_number < scope['beginLine']:
+                    raise ValueError('Native begin outside preceding binding boundary')
+            else:
+                if not scope['beginLine'] < line_number < scope['endLine']:
+                    raise ValueError('Native end outside binding scope')
+                if (event['thread'], event['scope'], 'begin') not in snapshots:
+                    raise ValueError('Native end precedes begin')
+            snapshots[key] = dict(event, line=line_number)
+        for scope in scopes:
+            key = (scope['thread'], scope['scope'])
+            if key+('begin',) not in snapshots or key+('end',) not in snapshots:
+                raise ValueError('Missing native begin/end snapshots')
+            begin, finish = snapshots[key+('begin',)], snapshots[key+('end',)]
+            def family(snapshot):
+                stable = {k: v for k, v in snapshot.items() if k not in
+                          ('phase', 'bindingScopeComplete', 'line', 'rendererState')}
+                stable['rendererState'] = {k: v for k, v in snapshot['rendererState'].items()
+                                           if k not in NATIVE_VOLATILE}
+                return stable
+            if family(begin) != family(finish):
+                raise ValueError('Native family/topology/cache changed within scope')
+            result['scopes'].append(correlate_native_scope(scope, begin, finish))
+        result['status'] = 'observed'
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as error:
+        result['errors'].append(f'Line {line_number}: {error}')
+    return result
+
+
 def analyze(text):
     report = dict(schema=1, status='incomplete', readOnly=True, resizingAdmitted=False,
                   coverage='binding_state_only', headsetValidated=False,
-                  correlationOnly=True, scopes=[], pairs=[], unresolved=UNRESOLVED[:], errors=[])
+                  correlationOnly=True, scopes=[], pairs=[], unresolved=UNRESOLVED[:], errors=[],
+                  nativePostprocess=native_component())
+    report['nativePostprocess']['errors'] = ['Complete canonical binding interval unavailable']
     try:
-        lines = text.splitlines()
+        native_lines = text.splitlines()
+        # Preserve line indices while isolating the optional namespace from the
+        # established marker/binding/sprite parsers. Byte names can contain their
+        # marker text; those strings are data, never additional telemetry.
+        lines = ['' if NATIVE_LINE.match(line) else line for line in native_lines]
         starts = [(i, START.search(line)) for i, line in enumerate(lines) if 'run_start:' in line]
         ends = [(i, END.search(line)) for i, line in enumerate(lines) if 'run_end:' in line]
         if len(starts) != 1 or len(ends) != 1 or not starts[0][1] or not ends[0][1]:
@@ -360,6 +634,7 @@ def analyze(text):
             raise ValueError('Missing complete eye pair')
         report['status'] = 'observed'
         report['desktopSpriteOrdering'] = analyze_sprite_ordering(lines, start, end, report['scopes'])
+        report['nativePostprocess'] = analyze_native_postprocess(native_lines, start, end, report['scopes'])
     except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as error:
         report['errors'].append(str(error))
     return report
@@ -377,7 +652,9 @@ def main():
         json.dump(report, stream, indent=2, allow_nan=False)
         stream.write('\n')
     sprite_status = report.get('desktopSpriteOrdering', {}).get('status', 'not_evaluated')
-    print(report['status']+'; resizingAdmitted=false; headsetValidated=false; spriteOrdering='+sprite_status)
+    native_status = report['nativePostprocess']['status']
+    print(report['status']+'; resizingAdmitted=false; headsetValidated=false; spriteOrdering='+sprite_status+
+          '; nativePostprocess='+native_status)
     return 0 if report['status'] == 'observed' else 2
 
 

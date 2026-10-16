@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "games/call_of_juarez/native_fx_probe.hpp"
+#include "games/call_of_juarez/ppfx_resource_observation.hpp"
 #include "runtime/body_tracking.hpp"
 #include "runtime/gameplay_utility.hpp"
 #include "games/call_of_juarez/gameplay_ui_adapter.hpp"
@@ -110,6 +111,7 @@ struct CommandSnapshot {
 cojvr::backends::d3d9::HookRegistry g_camera_hooks;
 cojvr::backends::d3d9::HookRegistry g_render_view_hooks;
 std::byte* g_engine_base = nullptr;
+std::atomic_uint32_t g_ppfx_engine_base{0};
 void** g_camera_vtable = nullptr;
 void** g_render_view_entry = nullptr;
 RenderCameraUpdateFn g_original_render_camera_update = nullptr;
@@ -7411,6 +7413,30 @@ bool IsSupportedChromeEngineHash(const std::string_view sha256) noexcept {
     return true;
 }
 
+CoJPostprocessResourceSnapshot ObserveInstalledCoJPostprocessResources() noexcept {
+    const DWORD saved_error = GetLastError();
+    const auto base = g_ppfx_engine_base.load(std::memory_order_acquire);
+    const bool admitted = base && g_installed.load(std::memory_order_acquire);
+    const CoJPostprocessMemoryReader reader{
+        [](void*, std::uint32_t address, void* destination, std::size_t bytes) noexcept {
+            const DWORD error = GetLastError();
+            SIZE_T copied = 0;
+            const bool ok = ReadProcessMemory(GetCurrentProcess(),
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(address)),
+                destination, bytes, &copied) && copied == bytes;
+            SetLastError(error);
+            return ok;
+        }, nullptr};
+    auto snapshot = ObserveCoJPostprocessResources(reader, base, admitted);
+    if (base != g_ppfx_engine_base.load(std::memory_order_acquire) ||
+        (admitted && !g_installed.load(std::memory_order_acquire))) {
+        snapshot.valid = false;
+        snapshot.status = CoJPostprocessObservationStatus::changed_roots;
+    }
+    SetLastError(saved_error);
+    return snapshot;
+}
+
 void ObserveHudBoundary(void*, const CoJHudBoundaryEvent& event) noexcept {
     const auto frame = g_stereo_frame_sequence.load(std::memory_order_acquire);
     if (g_stereo_callbacks.observe_hud_boundary)
@@ -7535,6 +7561,8 @@ CameraProbeInstallStatus InitializeCameraProbe(
                 return CameraProbeInstallStatus::hook_failed;
             }
         }
+        g_ppfx_engine_base.store(static_cast<std::uint32_t>(
+            reinterpret_cast<std::uintptr_t>(engine)), std::memory_order_release);
         g_installed.store(true, std::memory_order_release);
         if (g_stereo_callbacks.observe_hud_boundary) {
             const CoJHudBoundaryHookTargets targets{
@@ -7618,6 +7646,7 @@ void ShutdownCameraProbe() noexcept {
     } catch (...) {
         EmitEvent("camera_probe_restore", "exception", "restore_exception");
     }
+    g_ppfx_engine_base.store(0, std::memory_order_release);
     g_installed.store(false, std::memory_order_release);
     g_initialized.store(false, std::memory_order_release);
     g_camera_vtable = nullptr;

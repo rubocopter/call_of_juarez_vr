@@ -30,6 +30,21 @@ void Sink(void* ctx,const D3D9RenderResourceContext& context,const D3D9RenderRes
 }
 int main(int argc,char**){
     const bool use_ex=argc>1;
+    RenderResourceRouteBudget route_budget;
+    Check(!route_budget.TryAcquire(3),"unknown diagnostic route acquired budget");
+    for(unsigned route=0;route<3;++route) {
+        Check(route_budget.TryAcquire(route)&&route_budget.TryAcquire(route),
+            "route did not retain its two reserved samples");
+        Check(!route_budget.TryAcquire(route),"gameplay consumed settings/movie sample budget");
+    }
+    RenderResourceRouteBudget concurrent_budget;
+    std::atomic_uint acquired{0};
+    std::vector<std::thread> contenders;
+    for(unsigned i=0;i<24;++i)contenders.emplace_back([&,i]{
+        if(concurrent_budget.TryAcquire(i%3))++acquired;
+    });
+    for(auto& contender:contenders)contender.join();
+    Check(acquired==6,"concurrent route reservations exceeded or lost global six-pair bound");
     RenderResourceCallBoundary boundary;
     auto* identity=reinterpret_cast<IDirect3DDevice9*>(0x1234);
     boundary.Enter(identity);

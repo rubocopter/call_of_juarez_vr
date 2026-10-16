@@ -68,6 +68,15 @@ correlation remains incomplete because the old eye epoch differs from the HUD
 device counter. Separate counter collection and conservative offline correlation
 are host-tested; neither this partial evidence nor complete future metadata
 admits mirror mutation, alpha/coverage or independent resolution.
+The bounded native PP descriptor/cache reader, exact-build admission bridge and
+separate offline native identity correlation are implemented and host-tested.
+Synthetic fixtures cover LAA identities, aliases, class/list/count/name bounds,
+root changes, failed reads, unallocated/dirty resources and the split sampler
+caches. Serialization preserves byte names and unused 2D reciprocal-depth bits;
+it does not call copied COM identities. Sampling now reserves two attempts per
+gameplay/settings/movie route while retaining the six-pair total. Live native
+identity, programmable constants/history, private-family rollback and submitted
+OpenVR output retirement remain unqualified; no resizing writer is enabled.
 The canonical full-profile verifier retained rejection for an unobserved Sense
 loading-continuation press. Complete collection, normal restoration and operator
 acceptance do not overwrite that verdict or establish the missing input gesture.

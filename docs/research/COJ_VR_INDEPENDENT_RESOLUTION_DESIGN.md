@@ -580,8 +580,9 @@ control y a la procedencia de staging/run. Tracking/body/recenter lo preservan.
 Para ejercitar la recarga manual, conservar además su opción `-ManualReload`.
 No se añade interfaz al panel ni se modifica la pre-release publicada.
 
-El presupuesto global es seis intentos de par y 4096 registros distintos por
-ojo. Selecciona el primer frame elegible después del arranque, cambios de owner,
+El presupuesto global es seis intentos de par, reservados dos para gameplay,
+dos para ajustes y dos para cine inmersivo, y 4096 registros distintos por ojo.
+Una ruta ausente no cede su reserva a gameplay. Selecciona el primer frame elegible después del arranque, cambios de owner,
 ruta o generación y después intervalos superiores a 900 frames. Agrupa registros
 idénticos consecutivos conservando el conteo; saturación marca `truncated` y no
 amplía el límite. Reserva un buffer de CPU por hilo admitido y lo reutiliza;
@@ -626,6 +627,26 @@ conserva el rechazo de colores ordinarios fuera de límites y perfiles desconoci
 [La investigación de resolución](COJ_VR_RENDER_RESOLUTION.md#native-target-family-finding-from-the-gameplay-census)
 recoge esta frontera. Los pares de gameplay ya se analizan completos con los
 datos existentes. Esto no acepta Q0, ópticas programables, nuevas dimensiones ni pacing.
+
+El mismo opt-in añade ahora `native_ppfx_resource_probe`, dos snapshots de
+estructura nativa por scope admitido. El lector exacto solo copia memoria propia
+con bytes comprobados; no llama a métodos nativos/COM ni crea, selecciona o libera
+recursos. Mantiene 16 efectos observados como máximo, 16 descriptores por
+contenedor y 272 en total; un exceso produce incompleto, no un límite supuesto
+del motor. Nombres, listas, aliases y caches siguen el
+[mapa exacto de propiedad](COJ_PPFX_TARGET_OWNERSHIP.md). Cada arranque registra
+`sizeof` del snapshot como coste CPU transitorio, separado del buffer de bindings;
+serialización y pila/scratch también cuestan VA/commit. No se añade coste GPU.
+
+`nativePostprocess` mantiene un resultado separado: compara procedencia y familia
+en ambos extremos y relaciona interfaces/superficies por sus valores con los
+bindings registrados. Las diferencias normales de target actual/samplers se
+conservan; cambios de familia/cache estable o lecturas fallidas no se aceptan.
+Los punteros copiados no conceden referencias ni prueban vida atómica. El
+componente conserva `resizingAdmitted=false`, `lifetimeQualified=false`,
+`atomicSnapshot=false`, `rolesQualified=false` y `completeAllocationGraph=false`.
+El log anterior queda incompleto para esta nueva observación sin perder los
+bindings ya válidos. Este diagnóstico aporta evidencia a Q0; no habilita B0/B1.
 
 La entrada/salida de llamadas nativas y la apertura/cierre del observador
 comparten un monitor de llamadas en vuelo; su mutex nunca se retiene al ejecutar
