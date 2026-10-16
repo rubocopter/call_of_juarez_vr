@@ -233,7 +233,7 @@ requires a second independent game demonstration before generalization.
 
 ## Release direction
 
-Prepare `v0.1.0-prealpha.1` as an experimental community-testing prerelease.
+`v0.1.0-prealpha.1` is published as an experimental community-testing prerelease.
 Public testing may begin before full campaign coverage; it does not promote any
 validation state or promise campaign completion, recovery, comfort or support.
 The chest/possible-scroll crash remains unresolved, and the immersive-movie

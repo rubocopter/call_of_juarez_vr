@@ -19,6 +19,8 @@
 
 **Development branch: `main`.** Development and releases share this branch. Separate branches are temporary and reserved for specific tests or focused work; players should download a versioned release below.
 
+**[Download v0.1.0-prealpha.1 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.1/CoJ-VR-0.1.0-prealpha.1-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.1)
+
 ## What works
 
 - Native stereo, head tracking, recentering and room-scale movement.

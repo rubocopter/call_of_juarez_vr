@@ -12,7 +12,7 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Public prerelease policy
 
-`v0.1.0-prealpha.1` is being prepared for experimental community testing before
+`v0.1.0-prealpha.1` is published for experimental community testing before
 whole-campaign acceptance. Distribution, package verification and additional
 controller bindings do not promote any validation state. Physical acceptance
 remains limited to the exercised Steam 2006 D3D9/OpenVR scenes and PS VR2 Sense.
