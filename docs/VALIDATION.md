@@ -58,6 +58,10 @@ ownership and compositor retirement remain Q0 gates. Diagnostic sessions perturb
 pacing and cannot establish performance improvement. Independent rendering,
 actual detail and functional continuity at new sizes require the specified
 native and headset evidence; complete bindings never admit resizing by themselves.
+The [native PP ownership map](research/COJ_PPFX_TARGET_OWNERSHIP.md) now establishes
+static allocator/release/alias and renderer-cache responsibilities. This is
+research evidence only; it adds no live allocation, independent-size, shader
+constant or recovery acceptance, and leaves Q0 open.
 The canonical full-profile verifier retained rejection for an unobserved Sense
 loading-continuation press. Complete collection, normal restoration and operator
 acceptance do not overwrite that verdict or establish the missing input gesture.

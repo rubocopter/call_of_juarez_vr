@@ -104,6 +104,14 @@ invalidation and conservative offline analysis do not establish allocation
 ownership, programmable projections or independent-size admission. Disable the
 opt-in probe for performance qualification.
 
+The exact-build [PP target ownership map](research/COJ_PPFX_TARGET_OWNERSHIP.md)
+identifies alias-aware native buffer ownership and additional renderer color,
+depth, default-target and viewport caches. Native reconstruction destroys the
+old family before allocating; it is not an independent per-eye transaction.
+Logical dimensions also drive screen quads, with different rounding from buffer
+dimensions. These static contracts constrain a future private bank but do not
+admit it without runtime correlation, effect/constant and retirement qualification.
+
 ## Physical hand contact
 
 Physical Hands contact uses game-neutral per-hand input/motion admission with

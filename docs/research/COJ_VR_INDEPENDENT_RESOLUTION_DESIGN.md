@@ -53,9 +53,9 @@ una modificación futura; no describe una API ya implementada.
 | Mismo archivo: `RenderCameraOnlyStereo` | Cine inmersivo y ajustes usan el wrapper por ojo; el cine no adquiere cuerpo/gameplay. | Misma familia VR y misma restauración para estas dos rutas, manteniendo sus propietarios distintos. El replay natural de recuperación queda fuera del ámbito VR. |
 | Mismo archivo: `ReplayFullRenderViewForStereoEye` | Wrapper `0x30FB0`; guarda, limpia y restaura el guard de `view+0xD7`. | Conservarlo íntegro; no usar core `0x30E00` ni introducir más actualizaciones de scripts. Un ámbito VR fallido impide capturar/publicar ese ojo. |
 | Mismo archivo: `ConfigureStereoEyeOverride`, `HookSetFov`, `BuildCameraProbeFrustum` | Posición/orientación y frustum proceden del seguimiento y EyeFov. | Mantener ópticas, unidades y near/far. Validar la proyección efectiva que usa cada pase después de cualquier cambio de target. |
-| Motor: selección de recursos dentro del wrapper/core | **No cualificada todavía**: no existe inventario completo de slots/caches/efectos. | Cualificar el contexto que selecciona la familia de escena y sus tamaños. El adaptador de juego guarda/restaura únicamente campos exactos demostrados; el backend mantiene los recursos COM. No inventar RVA, offsets o firmas de este escritor. |
+| Motor: selección de recursos dentro del wrapper/core | Mapa estático parcial de CPPManager, aliases y caches internos; todavía falta correlación de identidades y consumidores. | Cualificar el contexto que selecciona la familia de escena y sus tamaños. El adaptador de juego guarda/restaura únicamente campos exactos demostrados; el backend mantiene los recursos COM. No inventar RVA, offsets o firmas de este escritor. |
 | Motor: configuración `0x1D81B0`, aplicación `0x1D8A00`, notificación `0x6830` | Setter de dimensiones propuestas, reinicialización global y cache de dimensiones nativas. | Puntos de investigación y exclusión: no invocarlos para cada ojo ni sobrescribir globalmente las dimensiones del escritorio. |
-| Motor: `0x224EC0`, `0x225690`, `0x224F90` | El análisis estático retenido de `0x1D8A00` muestra llamadas en la rama de reconstrucción de postproceso y fallos de creación. Sus firmas, grafo y ámbito no están cualificados. | Investigar quién libera, configura y crea sus dependencias. No llamar a estas funciones como supuesto constructor offscreen seguro. |
+| Motor: `0x224EC0`, `0x225690`, `0x224F90` | Liberación de referencias a efectos de escena, selección/carga de efectos y creación de buffers respectivamente. La creación libera la familia anterior antes de asignar; los temporales pueden compartir handles entre efectos. | El [mapa exacto de propiedad](COJ_PPFX_TARGET_OWNERSHIP.md) concreta estas fronteras y caches. No llamar a la reconstrucción por ojo ni copiar superficialmente CPPManager; todavía falta cualificar una transacción privada completa. |
 | `backends/d3d9/device_vtable_hook.cpp`: `HookSetRenderTarget`, `HookSetDepthStencilSurface`, `HookClear`, `HookSetTexture` | Los callbacks de traza actuales registran nombre/entrada/salida, no un grafo completo de superficies y productores. | Añadir solo la observación de argumentos/identidad/callsite que falte; incluir viewport, scissor, creación y lecturas. No convertir la traza actual en prueba de propiedad de recursos. |
 | `backends/d3d9/d3d9_stereo_capture.cpp`: `EnsureResources`, `CaptureEyeSurface`, `EndFrame`, `TryCollectReady` | Captura superficie explícita, anillo de tres pares, evento productor y lease al consumidor. | Usar la superficie final cualificada del ojo, aunque el wrapper haya restaurado otro RT0; copia completa del mismo tamaño. Preparación de recursos separada de su uso/publicación para detectar asignaciones fallidas antes de mutar la escena. |
 | `games/call_of_juarez/native_stereo_proxy.cpp`: `BeginStereoFrame`, callbacks de captura/envío/invalidation, `BeforeDeviceReset`, `AfterDeviceReset` | Coordina propietario, generación, cadencia y captura; Reset correcto incrementa generación. | Coordinar admisión fija, epoch de resolución y retiro; el intento de Reset también invalida autoridad experimental aunque falle y no avance la generación nativa. |
@@ -235,6 +235,11 @@ secuencialmente una familia de escena: el copy del ojo izquierdo precede a los
 dibujos del derecho en el mismo dispositivo D3D9. El anillo de seis texturas
 privadas evita que esa reutilización pise la imagen en transporte. Si hay historia
 por ojo, su coste separado se incorpora al inventario antes de B0.
+El análisis de los materiales scene30 ya identifica mezcla con destino previo en
+`16Prev` y `1x1_16`: se presupuestan y cualifican historias separadas por ojo, con
+inicialización y reinicio explícitos. La reutilización secuencial solo puede
+aplicarse a scratch demostrado independiente de esas historias; no a toda la
+familia sin separar sus referencias nativas.
 
 Orden de un ojo:
 
@@ -297,6 +302,14 @@ La suma incluye cada color/MRT/depth/intermedio/historia privada, con formato y
 reglas de tamaño reales. Un ejemplo de un color de 4 B/px a mitad y otro a cuarto
 añade 5,86 MiB en B1 y 9,56 MiB en C; no demuestra ese número de efectos del motor.
 HDR, MSAA, mips y doble buffering alterarían ese modelo; MSAA no se admite en P1.
+
+El [mapa de postproceso](COJ_PPFX_TARGET_OWNERSHIP.md#effects-rounding-and-a-partial-payload-budget)
+añade un presupuesto parcial derivado de los 14 colores de scene30 y separa
+sus superficies internas y destino final. Sustituye el ejemplo mínimo únicamente
+para esa receta/formato; no cierra el presupuesto de asignación, aliases, otras
+rutas o VA del proceso. También identifica división entera en buffers frente a
+división flotante en quads: 2804×2860 necesita cualificar ese redondeo además de
+ópticas y formato. FSAA 0 no elimina por sí solo la copia interna de HDR.
 
 Además:
 

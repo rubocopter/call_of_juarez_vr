@@ -72,6 +72,15 @@ They do not authorize calling those setters during eye rendering. The renderer's
 indirect reinitialization entry and its target/effect lifetime still need focused
 qualification before any independent-size writer is added.
 
+Focused follow-up now resolves the responsibilities of the native PP buffer
+allocator, alias-aware release, effect references and renderer-owned internal
+color/depth/default-target caches. The exact RVAs, descriptor layout, rounding
+and partial recipe budget live in [the PP target ownership map](COJ_PPFX_TARGET_OWNERSHIP.md).
+Creation releases the old family first and is not a safe per-eye transaction;
+FSAA 0 still permits the native internal color/copy path. This is static progress,
+not live allocation qualification. Native/COM identity correlation, programmable
+constants/history, desktop sprite ordering and retirement still block Q0.
+
 The reversible workaround is to close the game, uninstall/recover through the
 launcher, select a higher mode in the unmodded D3D9 game, quit and reinstall.
 DSR/custom modes are conditional candidates: enabling a driver option alone

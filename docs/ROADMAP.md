@@ -139,6 +139,11 @@ campaign continuity, physical interactions or reload work:
   and reads complete gameplay pairs from the existing trace, keeping unknown
   layouts rejected. Continue with native creation/selection/lifetime and actual
   effect/projection roles; binding classification alone does not qualify them.
+  The [native ownership map](research/COJ_PPFX_TARGET_OWNERSHIP.md) now resolves
+  destructive creation, alias-aware release, effect references and renderer
+  internal/default/depth caches, including integer-buffer versus float-quad
+  rounding. Next correlate native/COM identities and qualify constants/history,
+  sprite ordering and a private-bank transaction before same-size isolation.
   Native allocation/lifetime/effect/constant mapping and compositor retirement
   still block Q0. Settings/movie resource correlation and headset A/B remain
   pending; no independent-resolution writer is admitted and the published
