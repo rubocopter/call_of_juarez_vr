@@ -290,7 +290,8 @@ static bool ReadCoJReloadOwner(void* env, void* player, CoJMotionReloadOwner& ou
     if (!Clean(env) || !id_method) return reject(CoJMotionReloadRejectReason::jni_failure);
     const std::int32_t id = Fn<Integer>(env, 51)(env, first[armed].weapons[0], id_method, nullptr);
     if (!Clean(env)) return reject(CoJMotionReloadRejectReason::jni_failure);
-    if (id <= 0) return reject(CoJMotionReloadRejectReason::invalid_weapon_id);
+    if (!IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(id)))
+        return reject(CoJMotionReloadRejectReason::invalid_weapon_id);
     // Recheck on the same game owner before publication. This rejects observed
     // replacement, without claiming cross-thread atomicity or advancing state.
     if (!read(second) || !eligible(second, armed)) return false;
@@ -393,7 +394,7 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     if (!Clean(env) || !same(owner,player)) return false;
     void* id_method = method(weapon_type,"GetThisID","()I");
     const int identity = integer(weapon,id_method,nullptr);
-    if (!ok || identity<=0) return false;
+    if (!ok || !IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(identity))) return false;
     CoJReloadTraceSnapshot value{};
     value.armed_hand=armed; value.weapon_id=static_cast<std::uint32_t>(identity);
     std::array<void*,4> state_methods{};

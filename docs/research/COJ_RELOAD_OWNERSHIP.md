@@ -90,8 +90,14 @@ desired weapon objects must match by JNI identity; the support hand has none.
 Both hands reject attack and actual/desired/state-machine two-hand flags. Death,
 carrying, reload, alternate states, replacement and unavailable observation fail
 closed. A second bounded observation rechecks coherence before publishing the
-positive `GameObject.GetThisID()` identity. The caller supplies current local
-player generation, native gameplay epoch and input context ownership.
+opaque 32-bit `GameObject.GetThisID()` identity. JNI carries this value as a
+signed `jint`; bit 31 is valid for LAA objects and must survive observation,
+ticket matching and diagnostics. Zero and all-ones remain invalid sentinels.
+Signed-positive admission rejected otherwise coherent single-pistol owners
+after high-address allocation; host regressions cover both hands, native reload
+recovery, readback, ticket publication and replacement with high-bit identities.
+The caller supplies current local player generation, native gameplay epoch and
+input context ownership.
 
 These getters read shipped state. No ammunition-capacity, reserve-eligibility or
 weapon-parameter helper is called: `GetWeaponMaxAmmoToReload` and parameter

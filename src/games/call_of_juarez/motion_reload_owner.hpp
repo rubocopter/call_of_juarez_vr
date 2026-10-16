@@ -3,6 +3,12 @@
 #include <cstdint>
 
 namespace cojvr::games::call_of_juarez {
+// GetThisID crosses JNI as a signed jint but owns an opaque x86 identity.
+// LAA objects may set bit 31; retain all bits and reject only the sentinels
+// and identities wider than the exact native boundary.
+[[nodiscard]] constexpr bool IsCoJNativeObjectIdentity(const std::uint64_t id) noexcept {
+    return id != 0 && id < 0xffffffffULL;
+}
 enum class CoJMotionReloadRejectReason : std::uint8_t {
     none,
     invalid_context,

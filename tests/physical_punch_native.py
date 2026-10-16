@@ -233,6 +233,23 @@ class VM:
             raise AssertionError('missing contact-time helper')
 
 class BoxingTests(unittest.TestCase):
+    def test_laa_owner_bits_survive_all_native_boxing_routes(self):
+        for identity in (-2147483648, -2031559512, -131072):
+            for hand in (0,1):
+                vm=VM();vm.weapon['id']=identity;vm.boxing_hand=hand
+                self.assertEqual(vm.ready(),identity)
+                self.assertEqual(vm.run('cojvrPhysicalPunchNativeHand','(I)I',[identity]),hand)
+                self.assertEqual(vm.run('cojvrPhysicalPunchNativeHand','(I)I',[identity+1]),-1)
+                self.assertTrue(vm.punch(owner=identity))
+                vm=VM();vm.weapon['id']=identity;vm.boxing_hand=hand;vm.execute_melee=True
+                self.assertEqual(vm.contact(owner=identity),2)
+                self.assertEqual(len(vm.attacks),1);self.assertEqual(len(vm.hits),1)
+        for identity in (0,-1):
+            vm=VM();vm.weapon['id']=identity
+            self.assertEqual(vm.run('cojvrPhysicalPunchNativeHand','(I)I',[identity]),-1)
+            self.assertFalse(vm.punch(owner=identity))
+            self.assertEqual(vm.contact(owner=identity),-1)
+
     def test_contact_probe_clear_has_no_attack_cooldown_or_native_entry(self):
         for flag in (False,True):
             vm=VM();vm.obstacle=None;vm.owner_flag=flag

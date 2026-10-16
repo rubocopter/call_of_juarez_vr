@@ -19,8 +19,12 @@ remains limited to the exercised Steam 2006 D3D9/OpenVR scenes and PS VR2 Sense.
 Other packaged bindings are experimental, with no support claim for other PCs
 or headsets.
 
-Disclose the unresolved chest/possible-scroll crash, immersive-movie flicker
-correction awaiting retest, incomplete campaign coverage and open recovery gates.
+Disclose the unresolved chest/possible-scroll crash, incomplete campaign coverage
+and open recovery gates. Movie mode switching and return from exercised cinematics
+now have scoped operator acceptance; the specific Hope transition remains separate.
+Community testing also reports persistent flat presentation after the cinematic
+on arrival in Hope. An unfinished-capture ring exhaustion defect is corrected
+and host-tested locally; recovery in that campaign scene remains unvalidated.
 Recommend save backups because crashes or blocked progression can lose progress.
 Users start/close the game and SteamVR manually. Community diagnostics are
 generated locally, inspected for private data and attached manually to issues;
@@ -59,6 +63,26 @@ acceptance and makes no claim that DSR works on a particular setup.
 
 ## Host verification boundary
 
+The latest combined candidate exposed a high-address identity rejection in
+otherwise enabled manual reload and physical Hands. The operator reports native
+reload even with one pistol and empty support, and full native body with Hands.
+Runtime observation confirms invalid weapon identity in an otherwise coherent
+single-pistol context and selected boxing with no admitted owner. Signed-positive
+`GetThisID` predicates rejected LAA high-bit owners; preserving opaque 32-bit
+identities is now host-tested across reload admission/recovery/readback/tickets
+and native/JNI boxing identity, contact and diagnostics. Zero/all-ones and changed
+owners still reject. The operator confirms that the corrected candidate restores
+independent Hands presentation, manual reload and physical melee in the exercised
+session. Inventoried evidence correlates manual insertions with native unit
+readbacks and records scoped hand presentation and admitted physical boxing.
+This is scoped headset acceptance of the restored functional baseline. The
+collected samples do not establish a high-bit weapon owner in that successful
+session, so actual high-address runtime coverage remains separate from the host
+regressions. Cartridge contact/occlusion, broader weapons, campaign permissions
+and tracking/menu/save/death recovery retain their own gates. The complete
+collected run still retains its canonical telemetry rejection for the unobserved
+loading-screen Sense continuation; operator acceptance does not change it.
+
 The configured Win32 Release build succeeds. The public OpenVR Release tree registers 89
 CTest tests: 88 passed, none failed and one classic shared-texture test was skipped
 because the environment does not provide that capability. Classic shared render
@@ -95,6 +119,24 @@ previously admitted these movies as tracked stereo and omitted that subtitle pat
 The movie getter/owner-loss/end and JNI fault cases are host-tested. Camera comfort,
 subtitle visibility and entry/exit with held controls remain physically unvalidated;
 ordinary encountered dialogue acceptance does not accept movie subtitles.
+
+Community feedback identifies failure to recover stereo after the cinematic on
+arrival in Hope, including a Quest 3 report. Reviewed community telemetry contains
+three captured-but-unsubmitted pairs per process, persistent capture-ring
+saturation and no later return to stereo after the final logged movie entry. Normal
+shutdown completes without shared-texture open/copy or compositor-submit errors.
+Source inspection and a failing real-device host regression establish that an
+owner change before `EndFrame` can strand each unfinished slot until the ring is
+exhausted. The next capture now reclaims only its unfinished unpublished slot;
+same-device GPU command ordering preserves writes, while pending fences and
+consumer leases remain protected. Classic readback and D3D9Ex/D3D11 host tests
+cover repeated one-/two-eye cancellations, a fresh recovered pair, retained
+consumer content and independent pending-frame survival. This is **host-tested**
+recovery, not confirmation that Hope is fixed in the headset or that the fault
+is specific to Quest. The supplied log spans multiple launches under one public
+run identity and does not qualify as canonical physical acceptance evidence.
+Include the Hope transition and ordinary controls after it in the next relevant
+campaign acceptance; theater during the movie remains intentional.
 
 A new campaign crash was reported while interacting near a chest/possible scroll.
 Collected native evidence ends after interaction acquires blocking UI, with no
@@ -205,9 +247,12 @@ owners retain theater. Movie subtitle sprites are not yet transported in
 immersive; the settings panel discloses this limitation, and theater retains
 their naturally rendered native pass. Neither host tests nor the operator's observation of a cinema
 screen qualify immersive comfort, movie subtitles or transition recovery.
-The latest immersive trial reports intermittent wrong-image flashes lasting
-about a second. Presentation-mode continuity remains rejected for that route;
-preserve blocking-UI/death safety while removing transient movie fallback flips.
+An earlier immersive trial reported intermittent wrong-image flashes lasting
+about a second. After the continuity corrections, the operator reports no problems
+while toggling cinematic presentation and entering movies, and no persistent flat
+presentation afterward. This accepts mode switching and recovery in those exercised
+scenes only; no specific Hope scene, immersive subtitle transport, full comfort
+coverage or gameplay-hand/reload recovery is established by that observation.
 
 Add these checks to the same ordinary session:
 

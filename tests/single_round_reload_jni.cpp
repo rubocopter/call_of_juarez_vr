@@ -229,8 +229,8 @@ void TicketReset(JavaPlayerBridge& bridge, int hand = 0) {
     pending_ticket = nullptr;
     native_active_ticket = &active_ticket_object;
 }
-int ArmCheck(JavaPlayerBridge& bridge, bool expected, int hand = 0) {
-    const bool result = bridge.TryArmSingleRoundReload({hand, 123, true, true});
+int ArmCheck(JavaPlayerBridge& bridge, bool expected, int hand = 0, std::uint32_t expected_id = 123) {
+    const bool result = bridge.TryArmSingleRoundReload({hand, expected_id, true, true});
     Require(result == expected, "pending arm result mismatch");
     Require(refs == 0 && !pending, "pending arm leaked local reference or exception");
     Require(expected ? pending_ticket == &weapon : pending_ticket == nullptr,
@@ -589,6 +589,10 @@ int main() {
         "unowned clear required VM/player");
     for (int hand = 0; hand < 2; ++hand) {
         TicketReset(bridge, hand); const int calls = ArmCheck(bridge, true, hand);
+        for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
+            TicketReset(bridge,hand);weapon_id=static_cast<std::int32_t>(id);ArmCheck(bridge,true,hand,id);
+            TicketReset(bridge,hand);weapon_id=static_cast<std::int32_t>(id);ArmCheck(bridge,false,hand,id+1);
+        }
         for (int operation = 1; operation <= calls; ++operation) {
             TicketReset(bridge, hand); fail_step = operation; ArmCheck(bridge, false, hand);
         }

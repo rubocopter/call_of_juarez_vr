@@ -352,6 +352,17 @@ struct D3D9StereoCapture::Impl {
     bool AcquireSlot(const std::uint64_t frame_sequence) noexcept {
         if (current_frame == frame_sequence && current_slot < slots.size()) return true;
         ReclaimConsumerSlots();
+        if (current_slot < slots.size()) {
+            auto& abandoned = slots[current_slot];
+            if (abandoned.frame_sequence && !abandoned.pending && !abandoned.release_state) {
+                // Ownership can change after eye copies but before EndFrame.
+                // No consumer has seen this unfenced pair. Later copies on the
+                // same D3D9 device are ordered after its old StretchRect calls,
+                // so reuse is safe without dropping pending or leased frames.
+                abandoned.ResetState();
+                ++stats.frames_invalidated;
+            }
+        }
         current_frame = 0;
         current_slot = slots.size();
         for (std::size_t index = 0; index < slots.size(); ++index) {

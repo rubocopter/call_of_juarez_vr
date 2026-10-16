@@ -32,6 +32,7 @@ bool same_exception=false;
 int same_calls=0,frame_reads=0;
 CoJHandFrames live_frames{};
 int holding=0,identity_calls=0;
+std::int32_t fixture_identity=17;
 bool counters_missing=false,replace_owner=false,replace_generation=false,foreign_weapon=false;
 JavaPlayerBridge* observing_bridge=nullptr;
 struct Vector{float x=0,y=0,z=0;} vectors[128];
@@ -82,7 +83,7 @@ unsigned char __stdcall Boolean(void*,void*,void* method,const JValue* args){
     }
     if(method==&selected_id)return selected?1:0;
     Check(method==&punch_id,"punch signature");++calls;
-    Check(args[0].i==1&&args[1].i==17,"physical hand and expected weapon owner");
+    Check(args[0].i==1&&args[1].i==fixture_identity,"physical hand and expected weapon owner");
     auto* root=static_cast<Array*>(args[2].l);
     Check(root->length==(curved?2:1),"all physical segments admitted in one native attempt");
     auto* first=static_cast<Array*>(root->items[0]);auto* last=static_cast<Array*>(root->items[root->length-1]);
@@ -103,7 +104,7 @@ int __stdcall Integer(void*,void*,void* method,const JValue* args){
         Check(false,"unexpected model identity name");return -1;
     }
     if(method==&contact_id){
-        ++calls;Check(args[0].i==1&&args[1].i==17&&(args[2].z!=0)==contact_allow,"exact contact status JNI arguments");
+        ++calls;Check(args[0].i==1&&args[1].i==fixture_identity&&(args[2].z!=0)==contact_allow,"exact contact status JNI arguments");
         auto* root=static_cast<Array*>(args[3].l);
         Check(root->length==2,"independent contact rows, no connecting chord");
         auto* a=static_cast<Array*>(root->items[0]);auto* b=static_cast<Array*>(root->items[1]);
@@ -114,12 +115,12 @@ int __stdcall Integer(void*,void*,void* method,const JValue* args){
         return contact_result;
     }
     if(method==&native_hand_id){
-        Check(args&&args[0].i==17,"native-hand query binds expected owner");
+        Check(args&&args[0].i==fixture_identity,"native-hand query binds expected owner");
         ++identity_calls;
         if(identity_calls>1&&replace_generation)++observing_bridge->being_generation_;
         return (foreign_weapon||(identity_calls>1&&replace_owner))?-1:holding;
     }
-    Check(method==&owner_id||method==&identity_id,"exact owner identity method");return 17;
+    Check(method==&owner_id||method==&identity_id,"exact owner identity method");return fixture_identity;
 }
 void* __stdcall Object(void*,void* target,void* method,const JValue* args){
     if(Fail())return nullptr;
@@ -168,6 +169,7 @@ void* __stdcall NewArray(void*,int length,void* component,void*){if(Fail())retur
 void __stdcall SetElement(void*,void* obj,int index,void* value){if(Fail()){pending=true;return;}
     auto* a=static_cast<Array*>(obj);Check(index>=0&&index<a->length,"native array bounds");a->items[index]=value;}
 void Reset(){refs=step=created=calls=array_count=0;fail=-1;pending=null_failure=curved=false;selected=native_result=true;
+    fixture_identity=17;
     identity_calls=holding=0;counters_missing=replace_owner=replace_generation=foreign_weapon=false;
     contact_result=0;contact_allow=true;
     geometry_mode=false;same_owner=hidden_arms=true;frame_drift=geometry_generation_change=false;same_calls=frame_reads=0;
@@ -235,6 +237,23 @@ int main(){
     Check(!b.TryResolvePhysicalPunchNativeHand(17,resolved)&&resolved==-1,"foreign class rejected by exact helper");
     Reset();resolved=0;Check(!b.TryResolvePhysicalPunchNativeHand(0,resolved)&&resolved==-1&&step==0,"invalid owner fails before JNI");
     const std::array<std::array<JavaPlayerPosition,2>,2> segments{{{{{1,2,3},{2,2,3}}},{{{100,2,3},{100,2,3}}}}};
+    for(const std::uint32_t high_owner:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
+        Reset();fixture_identity=static_cast<std::int32_t>(high_owner);owner=0;
+        Check(b.TryObservePhysicalBoxing(observed,owner)&&observed&&owner==high_owner&&refs==0,
+            "LAA boxing identity must preserve the high bit");
+        int high_hand=-1;
+        Check(b.TryResolvePhysicalPunchNativeHand(high_owner,high_hand)&&high_hand==0&&refs==0,
+            "LAA boxing hand identity must round-trip through jint");
+        CoJPhysicalPunchDiagnostics high_diagnostics{};
+        Check(b.TryObservePhysicalPunchDiagnostics(high_diagnostics)&&high_diagnostics.valid&&
+            high_diagnostics.owner_id==high_owner&&refs==0,"LAA diagnostics preserve exact owner");
+        Check(b.TryPhysicalPunch(1,high_owner,{10,20,30},{10,20,18})&&refs==0,
+            "LAA physical attempt must preserve the owner bits");
+        contact_result=2;
+        Check(b.TryPhysicalPunchContact(1,high_owner,true,segments)==CoJPunchContactResult::attacked&&refs==0,
+            "LAA current-contact attempt must preserve the owner bits");
+    }
+    Reset();
     for(bool allow:{false,true})for(int result:{-1,0,1,2}){
         Reset();contact_allow=allow;contact_result=result;
         Check(static_cast<int>(b.TryPhysicalPunchContact(1,17,allow,segments))==result&&calls==1&&refs==0&&!pending,

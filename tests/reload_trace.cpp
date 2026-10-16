@@ -20,6 +20,7 @@ int refs = 0, steps = 0, fail_at = -1;
 bool pending = false, without_exception = false, replace = false, bad_float = false;
 bool owner_matches = true, coherent = true, known = true;
 int armed = 0;
+std::int32_t fixture_identity=123;
 void Require(bool value, const char* why) {
     if (!value) { std::cerr << why << '\n'; std::exit(1); }
 }
@@ -73,7 +74,7 @@ void* JCALL Object(void*, void*, void* id, const Value* args) {
 }
 int JCALL Integer(void*, void*, void* id, const Value* args) {
     if (Fail()) return 0;
-    if (!std::strcmp(static_cast<char*>(id),"GetThisID")) { if (replace) return 456; return 123; }
+    if (!std::strcmp(static_cast<char*>(id),"GetThisID")) { if (replace) return 456; return fixture_identity; }
     if (!std::strcmp(static_cast<char*>(id),"GetAmmoCount")) { if (fail_at == -2) replace = true; return 3; }
     return args[0].integer == armed ? 21 : 0;
 }
@@ -109,6 +110,7 @@ float JCALL GetFloat(void*, void*, void* id) {
 }
 template<class T> void Set(int i, T p) { table[i] = reinterpret_cast<void*>(p); }
 void Reset() {
+    fixture_identity=123;
     steps = 0; fail_at = -1; pending = without_exception = replace = bad_float = false;
     owner_matches = coherent = known = true; armed = 0;
 }
@@ -116,7 +118,7 @@ int Check(bool expected, bool probe=false) {
     CoJReloadTraceSnapshot out{}; out.valid = true; out.weapon_id = 999;
     Require(ReadCoJReloadTrace(&holder,&player,out,probe) == expected, "trace observation admission mismatch");
     Require(!pending && refs == 0, "trace exception/local reference leak");
-    Require(expected ? out.valid && out.armed_hand == armed && out.weapon_id == 123 &&
+    Require(expected ? out.valid && out.armed_hand == armed && out.weapon_id == static_cast<std::uint32_t>(fixture_identity) &&
         out.ammo_readback == 3 && out.reserve_readback == 12 && out.animation_id[0] == 77 &&
         out.states[armed][0] == 21 && out.min_advance[armed] == .25F && out.max_advance[armed] == .5F &&
         out.current_time[armed] == 4.F && out.start_time[armed] == 3.F && out.drum_phase == 60.F :
@@ -228,6 +230,11 @@ int main() {
     Set(6,Find); Set(15,Exception); Set(17,Clear); Set(23,Delete); Set(24,Same);
     Set(31,Class); Set(33,Method); Set(36,Object); Set(39,Boolean); Set(51,Integer); Set(57,Float);
     Set(94,Field); Set(95,GetObject); Set(100,GetInt); Set(102,GetFloat);
+    for(int hand=0;hand<2;++hand)for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
+        Reset();armed=hand;fixture_identity=static_cast<std::int32_t>(id);Check(true,true);
+        Reset();armed=hand;fixture_identity=static_cast<std::int32_t>(id);fail_at=-2;Check(false,true);
+    }
+    for(int invalid:{0,-1}){Reset();fixture_identity=invalid;Check(false,true);}
     Reset(); const int count=Check(true);
     Reset(); const int probe_count=Check(true,true);
     for (int i=1;i<=probe_count;++i) { Reset(); fail_at=i; Check(false,true); }

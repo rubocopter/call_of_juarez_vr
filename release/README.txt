@@ -83,6 +83,20 @@ Before EVERY subsequent play session, close the game and choose menu option
 6 - Prepare session. This creates a fresh diagnostic identity for that play
 session. Then start SteamVR and the D3D9 game manually.
 
+IMAGE RESOLUTION
+
+The mod currently captures each eye at the game's own D3D9 render-target
+resolution. SteamVR supplies headset optics, but increasing SteamVR's render
+resolution percentage alone does not increase native game detail or make the
+game render at SteamVR's recommended per-eye resolution.
+
+For a sharper source image, close the game and choose 2 - Uninstall/recover.
+Run the unmodded D3D9 game, select a higher resolution supported by its video
+settings, and exit. Choose 1 - Install/update again. The installer preserves
+the chosen game resolution and stages FSAA 0. Higher resolutions can increase
+GPU and 32-bit game memory use. Avoid live resolution changes during a VR
+session; device-reset recovery remains unvalidated.
+
 If a protected Steam game folder causes Access denied, right-click CoJ-VR.cmd,
 choose Run as administrator and retry the operation.
 

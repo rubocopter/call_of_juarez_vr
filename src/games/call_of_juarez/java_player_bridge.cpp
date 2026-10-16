@@ -582,14 +582,15 @@ bool JavaPlayerBridge::TryObservePhysicalBoxing(bool& selected,std::uint32_t& ow
         ok=!ClearException(env,error,"physical boxing helper unavailable")&&ready;
         if(ok){const auto id=integer(env,being_,ready,nullptr);
             ok=!ClearException(env,error,"physical boxing owner read failed");
-            if(ok&&id>0)owner=static_cast<std::uint32_t>(id);}
+            if(ok&&IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(id)))
+                owner=static_cast<std::uint32_t>(id);}
     }
     DeleteLocal(env,cls);return ok;
 }
 bool JavaPlayerBridge::TryResolvePhysicalPunchNativeHand(const std::uint32_t owner,
     int& native_hand,std::string* error) noexcept {
     native_hand=-1;
-    if(!being_||!owner||owner>0x7FFFFFFFU)return false;
+    if(!being_||!IsCoJNativeObjectIdentity(owner))return false;
     void* const player=being_;
     const auto generation=being_generation_;
     void* env=Environment(error);
@@ -644,7 +645,8 @@ bool JavaPlayerBridge::TryObservePhysicalPunchDiagnostics(CoJPhysicalPunchDiagno
         ok=!ClearException(env,error,"punch diagnostic weapon identity lookup failed")&&id;
         if(ok){const int observed=integer(env,weapon,id,nullptr);
             ok=!ClearException(env,error,"punch diagnostic weapon identity read failed")&&
-                observed>0&&static_cast<std::uint32_t>(observed)==owner;}}
+                IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(observed))&&
+                static_cast<std::uint32_t>(observed)==owner;}}
     const bool identity_verified=ok;
     int values[2]{};
     constexpr const char* names[]{"cojvrPhysicalMeleeEntries","cojvrPhysicalNativeHitCalls"};
@@ -670,7 +672,7 @@ bool JavaPlayerBridge::TryPhysicalPunch(const int hand,const std::uint32_t owner
 }
 bool JavaPlayerBridge::TryPhysicalPunchPath(const int hand,const std::uint32_t owner,
     const std::span<const JavaPlayerPosition> points,std::string* error) noexcept {
-    if(!being_||hand<0||hand>1||!owner||owner>0x7FFFFFFFU||points.size()<2||points.size()>64)return false;
+    if(!being_||hand<0||hand>1||!IsCoJNativeObjectIdentity(owner)||points.size()<2||points.size()>64)return false;
     float length=0;
     for(std::size_t i=0;i<points.size();++i){
         const auto p=points[i];
@@ -729,7 +731,7 @@ CoJPunchContactResult JavaPlayerBridge::TryPhysicalPunchContact(const int hand,
     const std::uint32_t owner,const bool allow_attack,
     const std::span<const std::array<JavaPlayerPosition,2>> segments,std::string* error) noexcept {
     constexpr auto unavailable=CoJPunchContactResult::unavailable;
-    if(!being_||hand<0||hand>1||!owner||owner>0x7FFFFFFFU||segments.empty()||segments.size()>63)return unavailable;
+    if(!being_||hand<0||hand>1||!IsCoJNativeObjectIdentity(owner)||segments.empty()||segments.size()>63)return unavailable;
     for(const auto& pair:segments){
         for(const auto& point:pair)if(!std::isfinite(point.x)||!std::isfinite(point.y)||!std::isfinite(point.z))return unavailable;
         const float dx=pair[1].x-pair[0].x,dy=pair[1].y-pair[0].y,dz=pair[1].z-pair[0].z;
@@ -1724,7 +1726,8 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     void* id_method = get_method(env, weapon_class, "GetThisID", "()I");
     if (!clean() || !id_method) return false;
     const auto id = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA)(env, weapons[0], id_method, nullptr);
-    if (!clean() || id <= 0 || static_cast<std::uint64_t>(id) != owner.weapon_id) {
+    if (!clean() || !IsCoJNativeObjectIdentity(owner.weapon_id) ||
+        static_cast<std::uint32_t>(id) != owner.weapon_id) {
         SetError(error, "pending reload weapon ID changed"); return false;
     }
     // Recheck state after the acquisition and class/ID reads, then verify that

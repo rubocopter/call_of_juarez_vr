@@ -246,6 +246,55 @@ int main() {
         return Fail("shared-texture shutdown did not retire every queued GPU copy before releasing producer leases");
     }
 
+    // Cancelled movie/menu frames have no EndFrame. Reuse their private slot,
+    // while preserving a consumer lease and a separately fenced pending pair.
+    {
+        cojvr::backends::d3d9::D3D9StereoCapture interrupted;
+        // HUD-bearing frame values are large; keep this fixture off main's
+        // already populated Win32 stack.
+        auto pairs = std::make_unique<std::array<cojvr::backends::d3d9::StereoCpuFrame, 3>>();
+        auto& retained = (*pairs)[0];
+        auto& pending = (*pairs)[1];
+        auto& recovered = (*pairs)[2];
+        if (!CaptureGpuFrame(interrupted, device9ex.Get(), source.Get(), 100, retained) ||
+            !interrupted.CaptureEyeSurface(device9ex.Get(), source.Get(),
+                cojvr::runtime::Eye::left, 101, 1) ||
+            !interrupted.CaptureEyeSurface(device9ex.Get(), source.Get(),
+                cojvr::runtime::Eye::right, 101, 1) ||
+            !interrupted.EndFrame(101, TestPose(), 201))
+            return Fail("could not retain leased/pending pairs before cancellation");
+        for (std::uint64_t sequence = 102; sequence < 110; ++sequence) {
+            if (!interrupted.CaptureEyeSurface(device9ex.Get(), source.Get(),
+                    cojvr::runtime::Eye::left, sequence, 1) ||
+                (sequence % 2 && !interrupted.CaptureEyeSurface(device9ex.Get(), source.Get(),
+                    cojvr::runtime::Eye::right, sequence, 1)))
+                return Fail("cancelled eye copies exhausted the GPU stereo ring");
+        }
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            (void)device9ex->Present(nullptr, nullptr, nullptr, nullptr);
+            if (interrupted.TryCollectReady(pending)) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (pending.capture_sequence != 101 ||
+            !CaptureGpuFrame(interrupted, device9ex.Get(), source.Get(), 110, recovered) ||
+            recovered.capture_sequence != 110 || recovered.render_pose_sequence != 210 ||
+            recovered.producer_slot == retained.producer_slot ||
+            recovered.producer_slot == pending.producer_slot ||
+            recovered.shared_eyes[0].shared_handle == retained.shared_eyes[0].shared_handle ||
+            recovered.shared_eyes[1].shared_handle == pending.shared_eyes[1].shared_handle)
+            return Fail("cancellation lost a pending pair or reused a consumer-owned GPU slot");
+        cojvr::backends::openvr::D3D9SharedTextureBridge resumed_bridge;
+        if (!resumed_bridge.CopyFrame(device11.Get(), context11.Get(), recovered,
+                raw_destinations, timing))
+            return Fail("recovered GPU stereo pair could not reach the consumer");
+        resumed_bridge.Shutdown(context11.Get());
+        if (resumed_bridge.stats().copy_fences_completed != 1 ||
+            resumed_bridge.stats().abandoned_on_shutdown != 0 ||
+            interrupted.stats().frames_invalidated != 8 ||
+            interrupted.stats().frames_dropped_no_slot != 0)
+            return Fail("cancelled GPU pair recovery did not preserve retirement/accounting");
+    }
+
     // A failed per-copy query is not proof of retirement. An independent GPU
     // boundary must eventually make the capture ring usable again, without a
     // wait on the producer/presenter or unsafe release during Reset generation.

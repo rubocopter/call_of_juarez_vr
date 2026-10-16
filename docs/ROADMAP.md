@@ -36,9 +36,28 @@ better. Earlier intermittent-hit and rejected completed-curve reports remain
 useful history; the current route resolves that gate for the exercised fight.
 Broader hand parity, campaign contexts and recovery remain open. The VR settings
 panel and exercised boxing death/recovery are also accepted. Immersive movies
-previously showed intermittent wrong-image flashes; that correction has not been
-retested and remains pending. The functional settings panel remains a provisional
-development tool; future native settings should share its preference policy.
+previously showed intermittent wrong-image flashes. The latest operator trial
+accepts toggling and entering cinematics without reported problems or persistent
+flat presentation in the exercised scenes; Hope-specific recovery remains separate.
+That same combined candidate exposed signed-positive native-identity rejection
+with high-address objects, blocking single-pistol manual reload and physical Hands.
+Opaque 32-bit identity preservation is implemented/host-tested. The operator
+confirms that the corrected candidate restores independent Hands, manual reload
+and physical melee in the exercised session. That functional baseline has scoped
+headset acceptance; its successful capture does not establish a high-bit weapon
+owner, so actual high-address runtime coverage remains a separate gate. No new
+test is needed solely to reconfirm those restored functions.
+The functional settings panel remains a provisional development tool; future
+native settings should share its preference policy.
+
+Community testing reports stereo remaining flat after the arrival-in-Hope
+cinematic. An unfinished capture could permanently consume a ring slot when
+ownership cancelled submission; repeated transitions exhausted the ring.
+Reclaiming only the current unfinished unpublished slot is implemented and
+host-tested on classic D3D9 and D3D9Ex/D3D11, preserving pending/leased frames.
+Verify recovery through the affected campaign transition before treating that
+report as resolved. This campaign stability gate takes priority over visual
+reload refinement; it does not establish a Quest-specific cause or acceptance.
 
 Immediate work, in order:
 
@@ -256,9 +275,11 @@ requires a second independent game demonstration before generalization.
 `v0.1.0-prealpha.1` is published as an experimental community-testing prerelease.
 Public testing may begin before full campaign coverage; it does not promote any
 validation state or promise campaign completion, recovery, comfort or support.
-The chest/possible-scroll crash remains unresolved, and the immersive-movie
-flicker correction still needs headset retesting. Publish those limitations and
-recommend save backups alongside the package.
+The chest/possible-scroll crash remains unresolved. Local cinematic switching
+and recovery now have scoped acceptance; the published package and unexercised
+campaign transitions retain their own limits. Restored hand/reload/melee behavior
+has scoped operator acceptance; actual high-address coverage remains separate.
+Publish those limitations and recommend save backups alongside the package.
 
 The distribution target remains the exact original Steam 2006 D3D9/OpenVR build.
 Only PS VR2 Sense has scoped physical validation. Additional packaged controller

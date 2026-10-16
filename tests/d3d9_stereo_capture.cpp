@@ -442,6 +442,48 @@ int main() {
         return Fail("capture did not recover from rejected HUD metadata");
     }
 
+    // A movie/menu ownership change can cancel submission after one or both
+    // eyes were copied. Repeated cancellations must not exhaust the ring.
+    {
+        cojvr::backends::d3d9::D3D9StereoCapture interrupted;
+        cojvr::backends::d3d9::StereoCpuFrame retained_pair;
+        if (!CaptureAndCollect(interrupted, second_device.Get(), second_back_buffer.Get(),
+                99, 3, retained_pair))
+            return Fail("could not retain a pair before cancelled captures");
+        const auto retained_hash = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+            retained_pair.eyes[0].borrowed_pixels, retained_pair.eyes[0].stride,
+            retained_pair.eyes[0].width, retained_pair.eyes[0].height);
+        for (std::uint64_t sequence = 100; sequence < 108; ++sequence) {
+            if (!interrupted.CaptureEye(second_device.Get(), cojvr::runtime::Eye::left,
+                    sequence, 3) ||
+                (sequence % 2 && !interrupted.CaptureEye(second_device.Get(),
+                    cojvr::runtime::Eye::right, sequence, 3))) {
+                return Fail("cancelled eye captures permanently exhausted the stereo ring");
+            }
+            // Deliberately omit EndFrame, as an owner change does.
+        }
+        cojvr::backends::d3d9::StereoCpuFrame recovered;
+        if (interrupted.TryCollectReady(recovered) ||
+            !CaptureAndCollect(interrupted, second_device.Get(), second_back_buffer.Get(),
+                109, 3, recovered) || recovered.capture_sequence != 109 ||
+            recovered.render_pose_sequence != 150 ||
+            recovered.hud_text.text.hint.view() != u"VR!") {
+            return Fail("stereo did not recover with a fresh pair after cancelled captures");
+        }
+        const auto left = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+            recovered.eyes[0].borrowed_pixels, recovered.eyes[0].stride,
+            recovered.eyes[0].width, recovered.eyes[0].height);
+        const auto right = cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+            recovered.eyes[1].borrowed_pixels, recovered.eyes[1].stride,
+            recovered.eyes[1].width, recovered.eyes[1].height);
+        if (!left || !right || left == right)
+            return Fail("recovered stereo pair did not retain independent eye pixels");
+        if (retained_hash != cojvr::backends::d3d9::HashBgrxSurfaceIgnoringAlpha(
+                retained_pair.eyes[0].borrowed_pixels, retained_pair.eyes[0].stride,
+                retained_pair.eyes[0].width, retained_pair.eyes[0].height))
+            return Fail("cancelled captures overwrote a consumer's retained eye pixels");
+    }
+
     std::cout << "Deferred D3D9 stereo ring -> leased SYSTEMMEM frame passed: "
               << capture.collect_description() << '\n';
     return 0;

@@ -200,7 +200,7 @@ int CheckRecovery(bool expected, int hand=0) {
         "passive native reload recovery eligibility mismatch");
     Require(refs==0 && !pending,"recovery reader leaked exception/local reference");
     Require(expected ? out.valid && out.single_round_supported && out.armed_hand==hand &&
-        out.weapon_id==123 && diagnostic.reason==CoJMotionReloadRejectReason::none :
+        out.weapon_id==static_cast<std::uint32_t>(weapon_id) && diagnostic.reason==CoJMotionReloadRejectReason::none :
         !out.valid && !out.single_round_supported && out.armed_hand==-1 && out.weapon_id==0,
         "recovery reader published stale or wrong ownership");
     return step;
@@ -365,6 +365,12 @@ int main() {
     Set(6, Find); Set(15, Exception); Set(17, Clear); Set(23, Delete);
     Set(24, Same); Set(31, Class); Set(33, Lookup);
     Set(36, Object); Set(39, Boolean); Set(51, Integer);
+    for(int hand=0;hand<2;++hand)for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
+        Reset(hand);weapon_id=static_cast<std::int32_t>(id);Check(true,hand);
+        ReloadRecovery(hand);weapon_id=static_cast<std::int32_t>(id);CheckRecovery(true,hand);
+        ReloadRecovery(hand);weapon_id=static_cast<std::int32_t>(id);
+        recovery_mutation=RecoveryMutation::identity;CheckRecovery(false,hand);
+    }
     EmptySupportNativeAnimationOccupancy();
     NativeReloadRecovery();
     NativeReloadContinuationIntegration();

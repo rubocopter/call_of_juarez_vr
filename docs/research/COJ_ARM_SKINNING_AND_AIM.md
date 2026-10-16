@@ -467,6 +467,13 @@ retains native `CanAttack`/delay and `AttackInside`/module/sound/hit behavior wh
 avoiding animation scheduling for a physical stroke. Exact class/owner, settled
 current/destination/desired states, campaign movie/timer, death/carry/network and
 per-hand attack permissions are rechecked. Other-hand replacement rejects it.
+The exact weapon identity is an opaque x86 value transported as signed `jint`.
+High-bit LAA identities must round-trip through observation, native-hand lookup,
+contact, attack and diagnostic reads without a signed-positive predicate.
+Zero/all-ones still reject, as do class/owner/state changes. Native bytecode and
+JNI host regressions cover high-bit owners; physical recovery with these owners
+remains a separate gate. Rejection of a high-bit shared Hands owner also prevents
+its independent-hand pose from being admitted, exposing the ordinary native body.
 
 The earlier completed-curve adapter used tracking grip centres and waited for
 stopping/reversal before native collision. Its physical effectiveness was

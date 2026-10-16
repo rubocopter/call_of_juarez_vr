@@ -77,7 +77,8 @@ def patch_punch_classes(player, melee):
 
     # Identity is independent of optional diagnostic counters. Reuse exact
     # Hands admission and confirm the native slot rather than the physical fist.
-    c=Code();c.emit(0x1b);c.branch(0x9e,'no')
+    c=Code();c.emit(0x1b);c.branch(0x99,'no')
+    c.emit(0x1b,0x02);c.branch(0x9f,'no')
     c.emit(0x2a);c.ref(0xb6,ready);c.emit(0x1b);c.branch(0xa0,'no')
     c.emit(0x2a);c.ref(0xb6,boxing_hand);c.emit(0x3d)
     c.emit(0x1c);c.branch(0x9b,'no');c.emit(0x1c,0x04);c.branch(0xa3,'no')
@@ -108,7 +109,8 @@ def patch_punch_classes(player, melee):
     # First tangent defines only native auxiliary origin/basis. Collision uses
     # every world segment, including vertical motion and returning curves.
     c.emit(0x19,10,0x03,0x32,0x04,0x32,0x3a,4)
-    c.emit(0x1c);c.branch(0x9e,'no')
+    c.emit(0x1c);c.branch(0x99,'no')
+    c.emit(0x1c,0x02);c.branch(0x9f,'no')
     c.emit(0x2a);c.ref(0xb6,ready);c.emit(0x1c);c.branch(0xa0,'no')
     c.emit(0x2a);c.ref(0xb6,boxing_hand);c.emit(0x36,5)
     c.emit(0x2a,0x15,5,0x1b);c.ref(0xb6,can_attack);c.branch(0x99,'no')
@@ -167,7 +169,8 @@ def patch_punch_classes(player, melee):
         c.emit(0x19,4,0x15,7,0x32,endpoint,0x32);c.branch(0xc6,'denied')
     c.emit(0x84,7,1);c.branch(0xa7,'validate_contact')
     c.label('contact_validated')
-    c.emit(0x1c);c.branch(0x9e,'denied')
+    c.emit(0x1c);c.branch(0x99,'denied')
+    c.emit(0x1c,0x02);c.branch(0x9f,'denied')
     c.emit(0x2a);c.ref(0xb6,ready);c.emit(0x1c);c.branch(0xa0,'denied')
     c.emit(0x2a,0x2a);c.ref(0xb6,boxing_hand);c.ref(0xb6,actual)
     c.ref(0xc0,p.cls('WeaponMelee'));c.emit(0x3a,5)

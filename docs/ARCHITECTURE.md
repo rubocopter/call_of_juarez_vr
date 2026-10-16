@@ -36,6 +36,13 @@ without rewriting it. A foreign destination or incomplete memory-protection
 restoration still reports failure. Original targets remain available to in-flight
 callbacks after retirement. This cleanup case has deterministic host coverage.
 
+Exact-game object identities retain all 32 bits across JNI's signed `jint`,
+including LAA high-bit values; zero/all-ones remain invalid. Reload ticket and
+physical Hands ownership use equality and native context rather than signed
+positivity. General JVM/native LAA compatibility remains separate from the scoped
+functional recovery accepted in [Validation](VALIDATION.md); host regressions do
+not establish physical coverage of every identity range.
+
 Each physical candidate binds source state, build manifest, deployed hashes and
 one fresh run ID to one game process. `tools/vr_test.ps1 prepare` builds, checks
 and stages; `finish` collects evidence and restores original assets transactionally.
@@ -630,6 +637,11 @@ consumer_done: the producer still rejects invalidation/reuse of those slots.
 Dropping session/COM references alone is not retirement evidence. Safe resource
 teardown/recreation after device removal needs its own qualified boundary.
 Original failure counters remain nonzero after successful recovery.
+If ownership cancels a pair after eye copies but before `EndFrame`, the next
+capture reuses only that unfinished, unfenced, unpublished slot. Subsequent
+copies on the same D3D9 device follow its earlier commands in order. Pending
+producer fences, failed-query quarantine and consumer-owned slots remain
+ineligible; a movie/menu transition cannot permanently strand an unfinished slot.
 Context/device mismatches and stale/unknown producer epochs reject; source or
 consumer replacement defers while old copies remain pending. Rebinding and cache
 reopening require retirement first. Rebuild/invalidation defers while a consumer
