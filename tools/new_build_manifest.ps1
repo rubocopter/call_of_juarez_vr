@@ -90,8 +90,8 @@ $BranchOutput = @(Invoke-Git @("branch", "--show-current"))
 $HeadCommit = ([string]$HeadCommitOutput[0]).Trim()
 $HeadTree = ([string]$HeadTreeOutput[0]).Trim()
 $Branch = if ($BranchOutput.Count -gt 0) { ([string]$BranchOutput[0]).Trim() } else { "" }
-$StatusLines = @(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all")) |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$StatusLines = @(@(Invoke-Git @("status", "--porcelain=v1", "--untracked-files=all")) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 $Dirty = $StatusLines.Count -ne 0
 if ($Dirty -and -not $AllowDirty) {
     throw "The source tree is dirty. Commit/stash changes or pass -AllowDirty to create a non-commit-reproducible manifest."
