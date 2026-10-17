@@ -423,6 +423,13 @@ int main() {
         return Fail("flat capture did not recover across Reset without explicit invalidation");
     }
 
+    {
+        cojvr::backends::d3d9::D3D9StereoCapture shared_only;
+        if(shared_only.PrepareSharedOnly(second_device.Get(),2560,1920,D3DFMT_A8R8G8B8,3)||
+            shared_only.stats().fallback_activations||!shared_only.TryInvalidateResources())
+            return Fail("shared-only admission allocated classic fallback resources");
+        if(capture.TryInvalidateResources())return Fail("retirement discarded a retained consumer lease");
+    }
     const auto stats = capture.stats();
     if (stats.frames_fenced != 4 || stats.frames_collected != 4 ||
         stats.frames_dropped_no_slot != 0) {

@@ -13,7 +13,9 @@ param(
     [switch]$LargeAddressAware,
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
-    [switch]$RenderResourceProbe
+    [switch]$RenderResourceProbe,
+    [ValidateSet('off','2560x1440','2560x1920')]
+    [string]$IndependentEyeResolution = 'off'
 )
 
 $ErrorActionPreference = "Stop"
@@ -318,6 +320,14 @@ $CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n 
 if ($RenderResourceProbe) {
     $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "renderResourceProbeEnabled": true')
 }
+if ($IndependentEyeResolution -ne 'off') {
+    if (-not $IsNativeStereo -or -not $IndependentHands -or -not $LargeAddressAware) {
+        throw 'IndependentEyeResolution requires the native stereo independent-hands LAA prototype.'
+    }
+    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true',
+        ('"secondEyeRenderEnabled": true, "independentEyeResolution": "' + $IndependentEyeResolution + '"'))
+    $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
+}
 $CameraControlBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($CameraControlText)
 if ($IndependentHands) {
     $CameraControlText = $CameraControlText.Replace('"bodyIkEnabled": false,', '"bodyIkEnabled": false, "independentHandsEnabled": true,')
@@ -552,6 +562,7 @@ if ($HadOriginal) {
         reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
         manualReloadInstalled = $ManualReload.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+        independentEyeResolution = $IndependentEyeResolution
         playerArchiveManaged = $IndependentHands.IsPresent
         originalPlayerSha256 = if ($IndependentHands) { $OriginalPlayerHash } else { $null }
         stagedPlayerSha256 = if ($IndependentHands) { $PatchedPlayerHash } else { $null }
@@ -637,6 +648,7 @@ if ($HadOriginal) {
             reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
             manualReloadInstalled = $ManualReload.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+            independentEyeResolution = $IndependentEyeResolution
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
             requireExactChromeEngine = $IsCameraIntegration
             requireOpenVrRuntimeState = $IsNativeStereo -and $ValidationProfile -ne "startup"

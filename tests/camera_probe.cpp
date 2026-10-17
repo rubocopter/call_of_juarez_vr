@@ -144,6 +144,15 @@ int main() {
         std::cerr << "invalid control command was accepted\n";
         return 1;
     }
+    if(!ParseCameraProbeCommand(R"({"enabled":false,"independentEyeResolution":"2560x1920"})",command,&error)||
+        command.independent_eye_height!=1920 ||
+        !ParseCameraProbeCommand(R"({"enabled":false,"independentEyeResolution":"2560x1440"})",command,&error)||
+        command.independent_eye_height!=1440 ||
+        !ParseCameraProbeCommand(R"({"enabled":false})",command,&error)||command.independent_eye_height!=0 ||
+        ParseCameraProbeCommand(R"({"enabled":false,"independentEyeResolution":"2804x2860"})",command,&error)||
+        ParseCameraProbeCommand(R"({"enabled":false,"independentEyeResolution":1920})",command,&error)) {
+        std::cerr<<"invalid startup independent eye extent control\n";return 1;
+    }
 
     if (!ParseCameraProbeCommand(
             R"({"enabled":false,"trackingEnabled":true,"bodyIkEnabled":true,"independentHandsEnabled":true})",

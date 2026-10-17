@@ -78,6 +78,8 @@ struct CameraProbeCommand {
     bool capture_readback_enabled = true;
     bool second_eye_render_enabled = true;
     bool render_resource_probe_enabled = false;
+    // Read once by the renderer at startup; 0 disables, width fixed at 2560.
+    std::uint32_t independent_eye_height = 0;
 };
 
 [[nodiscard]] bool ParseCameraProbeCommand(
@@ -357,6 +359,23 @@ struct CameraStereoRuntimeCallbacks {
     // Diagnostic scope around the exact full wrapper only; no capture or fallback replay.
     void (*observe_render_pass)(void*, runtime::Eye, std::uint64_t, std::uintptr_t,
         bool begin, bool complete, const char* route) noexcept = nullptr;
+    // Optional resource transaction around the full wrapper AND eye capture.
+    // Install begin/end together. End is called even after a rejected begin;
+    // False invalidates the pair. The pending query below separately decides
+    // whether rollback must be retried with the same eye/frame before rendering.
+    // Without that query, false conservatively retains restoration for retry.
+    bool (*begin_eye_render)(void*, runtime::Eye, std::uint64_t frame) noexcept = nullptr;
+    bool (*end_eye_render)(void*, runtime::Eye, std::uint64_t frame) noexcept = nullptr;
+    // Called only after both eyes and camera/body/hand/weapon restoration,
+    // before submission and the native caller's sprite pass. False invalidates
+    // the pair and calls end(right,frame) to prove rollback before fallback.
+    // A mirror-only callback must restore its own state even on failure.
+    bool (*mirror_eye_pair)(void*, std::uint64_t frame) noexcept = nullptr;
+    // Authoritative native/GPU quarantine, including failed Begin/Mirror.
+    // True forbids natural world replay even if End reported success.
+    bool (*eye_render_restoration_pending)(void*) noexcept = nullptr;
+    // False revokes a desktop source; true follows a completed natural wrapper.
+    void (*observe_natural_render)(void*,bool complete) noexcept = nullptr;
 };
 
 enum class CameraProbeInstallStatus {

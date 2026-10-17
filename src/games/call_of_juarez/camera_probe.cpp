@@ -4724,6 +4724,135 @@ private:
     bool complete_ = false;
 };
 
+struct EyeRenderRestoreTransaction {
+    void* context = nullptr;
+    bool (*end)(void*, runtime::Eye, std::uint64_t) noexcept = nullptr;
+    runtime::Eye eye = runtime::Eye::left;
+    std::uint64_t frame = 0;
+};
+EyeRenderRestoreTransaction g_eye_render_restore;
+
+void InvalidateStereoEyePair() noexcept {
+    if(g_stereo_callbacks.invalidate_frame)
+        g_stereo_callbacks.invalidate_frame(g_stereo_callbacks.context);
+}
+
+bool NativeEyeRenderRestorationPending() noexcept {
+    return g_stereo_callbacks.eye_render_restoration_pending &&
+        g_stereo_callbacks.eye_render_restoration_pending(g_stereo_callbacks.context);
+}
+
+bool EyeRenderRestorationPending() noexcept {
+    return g_eye_render_restore.end || NativeEyeRenderRestorationPending();
+}
+
+bool RestorePendingEyeRenderResources() noexcept {
+    if(!g_eye_render_restore.end) {
+        if(!NativeEyeRenderRestorationPending())return true;
+        InvalidateStereoEyePair(); // The owner may retry its retained rollback.
+        return !NativeEyeRenderRestorationPending();
+    }
+    const auto pending=g_eye_render_restore;
+    const bool ended=pending.end(pending.context,pending.eye,pending.frame);
+    const bool failed=!ended || NativeEyeRenderRestorationPending();
+    if(failed)InvalidateStereoEyePair();
+    // End can reject the eye after restoring it completely. Reject publication,
+    // but permit one natural replay when the authoritative query proves safety.
+    const bool restoration_pending=g_stereo_callbacks.eye_render_restoration_pending
+        ? NativeEyeRenderRestorationPending() : !ended;
+    if(!restoration_pending)g_eye_render_restore={};
+    return !failed;
+}
+
+bool EyeRenderCallbacksEnabled() noexcept {
+    return g_stereo_callbacks.begin_eye_render || g_stereo_callbacks.end_eye_render ||
+        g_stereo_callbacks.mirror_eye_pair || g_stereo_callbacks.eye_render_restoration_pending;
+}
+
+// Unlike the read-only observer, this scope retains the resource family through
+// capture. A rejected begin still needs a verified end before natural replay.
+class ScopedStereoEyeRender {
+public:
+    ScopedStereoEyeRender(runtime::Eye eye,std::uint64_t frame) noexcept {
+        if(EyeRenderRestorationPending()) {
+            InvalidateStereoEyePair();
+            return;
+        }
+        if(!g_stereo_callbacks.begin_eye_render && !g_stereo_callbacks.end_eye_render) {
+            begun_=true;
+            return;
+        }
+        if(!g_stereo_callbacks.begin_eye_render || !g_stereo_callbacks.end_eye_render) {
+            InvalidateStereoEyePair();
+            return;
+        }
+        g_eye_render_restore={g_stereo_callbacks.context,g_stereo_callbacks.end_eye_render,eye,frame};
+        owns_restore_=true;
+        begun_=g_stereo_callbacks.begin_eye_render(g_stereo_callbacks.context,eye,frame);
+        if(!begun_)InvalidateStereoEyePair();
+    }
+    ScopedStereoEyeRender(const ScopedStereoEyeRender&)=delete;
+    ScopedStereoEyeRender& operator=(const ScopedStereoEyeRender&)=delete;
+    ~ScopedStereoEyeRender() { (void)Finish(); }
+    bool begun() const noexcept { return begun_; }
+    bool Finish() noexcept {
+        if(!finished_) {
+            restored_=owns_restore_ ? RestorePendingEyeRenderResources() : !EyeRenderRestorationPending();
+            finished_=true;
+        }
+        return restored_;
+    }
+private:
+    bool begun_=false,owns_restore_=false,finished_=false,restored_=false;
+};
+
+bool MirrorStereoEyePair(std::uint64_t frame) noexcept {
+    if(EyeRenderRestorationPending()) {
+        InvalidateStereoEyePair();
+        return false;
+    }
+    if(!g_stereo_callbacks.mirror_eye_pair)return true;
+    if(g_stereo_callbacks.mirror_eye_pair(g_stereo_callbacks.context,frame))return true;
+    InvalidateStereoEyePair();
+    // The mirror can fail while restoring its own graphics state. Prove that
+    // rollback too; a failed end retains the same barrier as an eye failure.
+    if(g_stereo_callbacks.end_eye_render) {
+        g_eye_render_restore={g_stereo_callbacks.context,g_stereo_callbacks.end_eye_render,
+            runtime::Eye::right,frame};
+        (void)RestorePendingEyeRenderResources();
+    }
+    return false;
+}
+
+bool NaturalStereoReplayResourcesReady() noexcept {
+    return !EyeRenderRestorationPending() && !g_camera_only_restore.camera;
+}
+
+void ObserveNaturalRender(bool complete) noexcept {
+    if(g_stereo_callbacks.observe_natural_render)
+        g_stereo_callbacks.observe_natural_render(g_stereo_callbacks.context,complete);
+}
+void ForwardNaturalRender(RenderViewFn original,void* owner,void* view) {
+    const bool eligible=view&&IsReadable(static_cast<unsigned char*>(view)+kViewRenderedThisFrameOffset,1)&&
+        !*(static_cast<unsigned char*>(view)+kViewRenderedThisFrameOffset);
+    original(owner,view);
+    ObserveNaturalRender(eligible&&NaturalStereoReplayResourcesReady());
+}
+
+bool ReplayNaturalStereoView(const RenderViewFn original,void* owner,void* view,void* camera,
+    const CameraRenderStateSnapshot& natural,bool& guard_restored,bool& state_restored) noexcept {
+    guard_restored=state_restored=false;
+    if(!NaturalStereoReplayResourcesReady())return false;
+    g_stereo_eye_override={};
+    g_camera_only_restore={camera,natural};
+    ScopedNaturalCameraReplay native_only;
+    const bool rendered=ReplayFullRenderViewForStereoEye(original,owner,view,guard_restored);
+    state_restored=RestorePendingCameraOnlyState(camera);
+    const bool complete=rendered && guard_restored && state_restored;
+    ObserveNaturalRender(complete);
+    return complete;
+}
+
 void RenderCameraOnlyStereo(
     const RenderViewFn original, void* owner, void* view, void* camera,
     const CameraRenderStateSnapshot& natural_render_state,
@@ -4737,6 +4866,7 @@ void RenderCameraOnlyStereo(
     } clear_eye_override;
     std::array<bool,2> captured{};
     std::array<bool,2> restored{};
+    std::array<bool,2> resources_restored{};
     bool right_guard_restored=false;
     // Settings retain the already-owned actor yaw in the natural gameplay
     // camera, but never commit another actor rotation. Scripted cameras are
@@ -4773,13 +4903,14 @@ void RenderCameraOnlyStereo(
         }
     }
     for(std::size_t index=0;index<2;++index) {
-        if(index==1 && (!second_eye_enabled || !captured[0] || !restored[0] ||
+        if(index==1 && (!second_eye_enabled || !captured[0] || !restored[0] || !resources_restored[0] ||
             !RenderOwnerStillUsesView(owner,view) || CameraForView(view)!=camera))break;
         g_camera_only_restore={camera,natural_render_state};
         ConfigureStereoEyeOverride(camera,relative_head_pose,yaw,sample.eyes[index],
             frame_sequence,sample.hmd_pose.sequence);
-        bool rendered=true;
-        {
+        ScopedStereoEyeRender eye_render(sample.eyes[index].eye,frame_sequence);
+        bool rendered=eye_render.begun();
+        if(rendered) {
             ScopedRenderResourceObservation observation(sample.eyes[index].eye,frame_sequence,owner,
                 movie ? "movie" : "settings");
             if(index==0)original(owner,view);
@@ -4795,6 +4926,7 @@ void RenderCameraOnlyStereo(
         std::uint64_t hash=0;
         if(applied)captured[index]=g_stereo_callbacks.capture_eye(
             g_stereo_callbacks.context,sample.eyes[index].eye,frame_sequence,&hash);
+        resources_restored[index]=eye_render.Finish();
         // Restore even when wrapper, projection or capture fails. A failed
         // restoration prevents both the next eye and publication of the pair.
         restored[index]=RestorePendingCameraOnlyState(camera);
@@ -4807,7 +4939,8 @@ void RenderCameraOnlyStereo(
         g_stereo_callbacks.invalidate_frame(g_stereo_callbacks.context);
     bool submitted=false;
     if(captured[0] && captured[1] && restored[0] && restored[1] && right_guard_restored &&
-        hands_restored && weapons_restored) {
+        resources_restored[0] && resources_restored[1] && hands_restored && weapons_restored &&
+        MirrorStereoEyePair(frame_sequence)) {
         runtime::StereoHudTextOverlay hud_text{};
         hud_text.frame_sequence=frame_sequence;
         hud_text.eyes=sample.eyes;
@@ -4827,14 +4960,10 @@ void RenderCameraOnlyStereo(
     bool natural_fallback_replayed=false;
     bool natural_guard_restored=false;
     bool natural_state_restored=false;
-    if(!submitted && !g_camera_only_restore.camera && hands_restored && weapons_restored &&
+    if(!submitted && NaturalStereoReplayResourcesReady() && hands_restored && weapons_restored &&
         RenderOwnerStillUsesView(owner,view) && CameraForView(view)==camera) {
-        g_stereo_eye_override={};
-        g_camera_only_restore={camera,natural_render_state};
-        ScopedNaturalCameraReplay native_only;
-        const bool rendered=ReplayFullRenderViewForStereoEye(original,owner,view,natural_guard_restored);
-        natural_state_restored=RestorePendingCameraOnlyState(camera);
-        natural_fallback_replayed=rendered && natural_guard_restored && natural_state_restored;
+        natural_fallback_replayed=ReplayNaturalStereoView(original,owner,view,camera,natural_render_state,
+            natural_guard_restored,natural_state_restored);
     }
     if(g_camera_only_restore.camera && g_stereo_callbacks.invalidate_frame)
         g_stereo_callbacks.invalidate_frame(g_stereo_callbacks.context);
@@ -4848,6 +4977,8 @@ void RenderCameraOnlyStereo(
                 ";right_captured="+std::to_string(captured[1])+
                 ";left_restored="+std::to_string(restored[0])+
                 ";right_restored="+std::to_string(restored[1])+
+                ";left_resources_restored="+std::to_string(resources_restored[0])+
+                ";right_resources_restored="+std::to_string(resources_restored[1])+
                 ";right_guard_restored="+std::to_string(right_guard_restored)+
                 ";natural_fallback_replayed="+std::to_string(natural_fallback_replayed)+
                 ";natural_guard_restored="+std::to_string(natural_guard_restored)+
@@ -4877,6 +5008,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         original(owner, view);
         return;
     }
+
+    ObserveNaturalRender(false);
+
+    // Do not even forward a natural wrapper while a previous eye's native or
+    // D3D resource rollback is pending. Retry with its retained eye/frame first.
+    (void)RestorePendingEyeRenderResources();
+    if(EyeRenderRestorationPending())return;
 
     const CommandSnapshot snapshot = CurrentCommand();
     const auto cancel_gameplay=[&](const char* reason="render_context_lost") noexcept {
@@ -4912,12 +5050,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (!g_java_player_bridge.RestoreTrackedHands(&stale_weapon_error)) {
         cancel_gameplay();
         EmitEvent("body_hand_restore","failed",stale_weapon_error);
-        original(owner,view);return;
+        if(!EyeRenderCallbacksEnabled())ForwardNaturalRender(original,owner,view);
+        return;
     }
     if (!g_java_player_bridge.RestoreTrackedWeapons(&stale_weapon_error)) {
         cancel_gameplay();
         EmitEvent("controller_weapon_restore", "failed", stale_weapon_error);
-        original(owner, view);
+        if(!EyeRenderCallbacksEnabled())ForwardNaturalRender(original,owner,view);
         return;
     }
     if (g_stereo_callbacks.set_capture_readback_enabled) {
@@ -4931,7 +5070,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         !RestorePendingCameraOnlyState(CameraForView(view))) {
         cancel_gameplay("camera_only_restoration_pending");
         (void)UpdateLocalHeadVisibility(false,g_stereo_frame_sequence.load(std::memory_order_acquire));
-        original(owner,view);
+        if(!EyeRenderCallbacksEnabled())ForwardNaturalRender(original,owner,view);
         return;
     }
     if (!snapshot.command.tracking_enabled || !StereoCallbacksReady()) {
@@ -4939,14 +5078,14 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
-        original(owner, view);
+        ForwardNaturalRender(original,owner,view);
         return;
     }
 
     void* camera = CameraForView(view);
     if (!camera) {
         cancel_gameplay();
-        original(owner, view);
+        ForwardNaturalRender(original,owner,view);
         return;
     }
 
@@ -4956,7 +5095,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         EmitEvent(
             "camera_native_stereo_state", "unavailable",
             "camera=" + std::to_string(reinterpret_cast<std::uintptr_t>(camera)));
-        original(owner, view);
+        ForwardNaturalRender(original,owner,view);
         return;
     }
 
@@ -4969,7 +5108,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
-        original(owner, view);
+        ForwardNaturalRender(original,owner,view);
         return;
     }
 
@@ -4996,7 +5135,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (void)UpdateLocalHeadVisibility(
             false,
             g_stereo_frame_sequence.load(std::memory_order_acquire));
-        original(owner, view);
+        ForwardNaturalRender(original,owner,view);
         return;
     }
     g_body_tracker.SetHeadPose(relative_head_pose);
@@ -5045,7 +5184,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         if(!camera_only_allowed || !body_restored || !head_restored ||
             g_left_arm_rotation.active || g_right_arm_rotation.active ||
             g_gameplay_owner_release_pending) {
-            original(owner,view);
+            ForwardNaturalRender(original,owner,view);
             return;
         }
         RenderCameraOnlyStereo(original,owner,view,camera,natural_render_state,
@@ -5618,7 +5757,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
         (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
         (void)UpdateLocalHeadVisibility(false,frame_sequence);
-        original(owner,view);
+        ForwardNaturalRender(original,owner,view);
         return;
     }
     // F can synchronously mount/dismount the player. Re-read the authoritative
@@ -6222,6 +6361,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 ";source=cached_squint;native_update=false;ui_optics=physical");
         } catch (...) {}
     }
+    if(EyeRenderCallbacksEnabled())g_camera_only_restore={camera,natural_render_state};
     ConfigureStereoEyeOverride(
         camera,
         render_head_pose,
@@ -6236,44 +6376,53 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         manual_result.gesture.claimed_hand==manual_result.gesture.cartridge_hand&&
         (manual_result.gesture.cartridge_hand==0?raw_reload_input.fire_right:
          manual_result.gesture.cartridge_hand==1?raw_reload_input.fire_left:false);
-    {
+    ScopedStereoEyeRender left_eye_render(runtime::Eye::left,frame_sequence);
+    if(left_eye_render.begun()) {
         ScopedRenderResourceObservation observation(runtime::Eye::left,frame_sequence,owner,"gameplay");
         original(owner, view);
         observation.Complete();
     }
-    if(observe_reload_depth){
+    if(left_eye_render.begun() && observe_reload_depth){
         g_stereo_callbacks.observe_reload_depth(g_stereo_callbacks.context,runtime::Eye::left,frame_sequence);
         --g_reload_depth_observation_budget;
     }
-    observe_native_fx(CoJNativeFxPhase::left_eye, "left_eye_complete");
-    g_diagnostic_left_eye_renders.fetch_add(1, std::memory_order_acq_rel);
-    ObserveIndependentHandRenderState(frame_sequence,"left_eye_complete",
-        aim_observation.left_origin_valid,aim_observation.right_origin_valid,
-        aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified,aim_observation.right_whip_aim_verified);
-    ObserveAppliedArmRenderState(
-        true, g_left_arm_rotation, frame_sequence, "left_eye_complete");
-    ObserveAppliedArmRenderState(
-        false, g_right_arm_rotation, frame_sequence, "left_eye_complete");
+    if(left_eye_render.begun()) {
+        observe_native_fx(CoJNativeFxPhase::left_eye, "left_eye_complete");
+        g_diagnostic_left_eye_renders.fetch_add(1, std::memory_order_acq_rel);
+        ObserveIndependentHandRenderState(frame_sequence,"left_eye_complete",
+            aim_observation.left_origin_valid,aim_observation.right_origin_valid,
+            aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified,aim_observation.right_whip_aim_verified);
+        ObserveAppliedArmRenderState(
+            true, g_left_arm_rotation, frame_sequence, "left_eye_complete");
+        ObserveAppliedArmRenderState(
+            false, g_right_arm_rotation, frame_sequence, "left_eye_complete");
+    }
     const bool left_camera_applied = g_stereo_eye_override.camera_applied;
     const bool left_projection_applied = g_stereo_eye_override.projection_applied;
     const bool left_renderer_camera_match = g_stereo_eye_override.renderer_camera_match;
     const CameraProbeVector left_applied_position = g_stereo_eye_override.applied_position;
     const CameraProbeBasis left_applied_basis = g_stereo_eye_override.applied_basis;
     const CameraProbeFrustum left_applied_frustum = g_stereo_eye_override.applied_frustum;
-    if (left_camera_applied && left_projection_applied) {
+    if (left_eye_render.begun() && left_camera_applied && left_projection_applied) {
         left_captured = g_stereo_callbacks.capture_eye(
             g_stereo_callbacks.context, cojvr::runtime::Eye::left,
             frame_sequence, &left_hash);
     }
-    const bool left_state_restored = RestoreCameraRenderState(camera, natural_render_state);
+    const bool left_resources_restored=left_eye_render.Finish();
+    const bool left_state_restored = EyeRenderCallbacksEnabled()
+        ? RestorePendingCameraOnlyState(camera) : RestoreCameraRenderState(camera, natural_render_state);
 
     bool right_state_restored = false;
+    bool right_resources_restored = false;
+    bool right_eye_attempted = false;
     bool right_renderer_camera_match = false;
     CameraProbeVector right_applied_position{};
     CameraProbeBasis right_applied_basis{};
     CameraProbeFrustum right_applied_frustum{};
     if (snapshot.command.second_eye_render_enabled && left_captured &&
-        left_state_restored && RenderOwnerStillUsesView(owner, view)) {
+        left_state_restored && left_resources_restored && RenderOwnerStillUsesView(owner, view)) {
+        right_eye_attempted=true;
+        if(EyeRenderCallbacksEnabled())g_camera_only_restore={camera,natural_render_state};
         ConfigureStereoEyeOverride(
             camera,
             render_head_pose,
@@ -6281,7 +6430,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             render_eyes[1],
             frame_sequence,
             sample.hmd_pose.sequence);
-        {
+        ScopedStereoEyeRender right_eye_render(runtime::Eye::right,frame_sequence);
+        if(right_eye_render.begun()) {
             ScopedRenderResourceObservation observation(runtime::Eye::right,frame_sequence,owner,"gameplay");
             right_full_view_pass = ReplayFullRenderViewForStereoEye(
                 original, owner, view, right_view_guard_restored);
@@ -6295,10 +6445,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 aim_observation.left_origin_valid,aim_observation.right_origin_valid,
                 aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified,aim_observation.right_whip_aim_verified);
         }
-        ObserveAppliedArmRenderState(
-            true, g_left_arm_rotation, frame_sequence, "right_eye_complete");
-        ObserveAppliedArmRenderState(
-            false, g_right_arm_rotation, frame_sequence, "right_eye_complete");
+        if(right_eye_render.begun()) {
+            ObserveAppliedArmRenderState(
+                true, g_left_arm_rotation, frame_sequence, "right_eye_complete");
+            ObserveAppliedArmRenderState(
+                false, g_right_arm_rotation, frame_sequence, "right_eye_complete");
+        }
         right_rendered = right_full_view_pass &&
             g_stereo_eye_override.camera_applied &&
             g_stereo_eye_override.projection_applied;
@@ -6315,7 +6467,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 g_stereo_callbacks.context, cojvr::runtime::Eye::right,
                 frame_sequence, &right_hash);
         }
-        right_state_restored = RestoreCameraRenderState(camera, natural_render_state);
+        right_resources_restored=right_eye_render.Finish();
+        right_state_restored = EyeRenderCallbacksEnabled()
+            ? RestorePendingCameraOnlyState(camera) : RestoreCameraRenderState(camera, natural_render_state);
     }
 
     if (observe_body_actor) {
@@ -6394,6 +6548,18 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (void)ObserveBodyActorBoundary(body_actor, frame_sequence, "roomscale_restore");
     }
 
+    const bool eye_resources_restored=left_resources_restored && right_resources_restored;
+    const bool native_paths_restored=left_state_restored && (!right_eye_attempted || right_state_restored) &&
+        hands_restored && weapon_restored && !g_arm_rotation_faulted &&
+        !g_left_arm_rotation.active && !g_right_arm_rotation.active && !g_room_scale_body_offset.active;
+    // Keep legacy submission policy when callbacks are disabled. An independent
+    // family can only be mirrored/published after every native overlay is back.
+    const bool eye_pair_ready=left_captured && right_captured &&
+        left_state_restored && right_state_restored && eye_resources_restored &&
+        (!EyeRenderCallbacksEnabled() || native_paths_restored);
+    const bool mirror_ready=eye_pair_ready && MirrorStereoEyePair(frame_sequence);
+    if(EyeRenderCallbacksEnabled() && !native_paths_restored)InvalidateStereoEyePair();
+
     if (!left_captured || !right_captured || !left_state_restored || !right_state_restored ||
         g_arm_rotation_faulted || !gameplay_input_ok)
         (void)PublishReloadFeedbackOwner(0, 0, {});
@@ -6462,7 +6628,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         }
     }
 
-    if (left_captured && right_captured && left_state_restored && right_state_restored) {
+    if (mirror_ready) {
         runtime::StereoHudTextOverlay hud_text{};
         hud_text.frame_sequence = frame_sequence;
         hud_text.eyes = sample.eyes;
@@ -6575,10 +6741,25 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         submitted = g_stereo_callbacks.submit_frame(
             g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle, hud_text);
     }
-    if (left_camera_applied && right_rendered) {
+    if (left_camera_applied && right_rendered &&
+        (!EyeRenderCallbacksEnabled() || mirror_ready)) {
         g_diagnostic_stereo_pairs.fetch_add(1, std::memory_order_acq_rel);
     }
-    CommitBodyYawOwnership(body_position_update, frame_sequence);
+    // Independent eye resources leave the desktop untouched. A rejected pair
+    // needs one natural render for Present, never while any rollback is pending.
+    if(EyeRenderCallbacksEnabled() && !submitted && NaturalStereoReplayResourcesReady() &&
+        left_state_restored && (!right_eye_attempted || right_state_restored) &&
+        hands_restored && weapon_restored && !g_arm_rotation_faulted &&
+        !g_left_arm_rotation.active && !g_right_arm_rotation.active && !g_room_scale_body_offset.active &&
+        RenderOwnerStillUsesView(owner,view) && CameraForView(view)==camera) {
+        bool natural_guard_restored=false;
+        bool natural_state_restored=false;
+        if(!ReplayNaturalStereoView(original,owner,view,camera,natural_render_state,
+            natural_guard_restored,natural_state_restored))InvalidateStereoEyePair();
+    }
+    if(!EyeRenderCallbacksEnabled() ||
+        (eye_resources_restored && native_paths_restored && NaturalStereoReplayResourcesReady()))
+        CommitBodyYawOwnership(body_position_update, frame_sequence);
 
     // Observe the camera/actor boundary after a snap or recenter. Use only
     // captured poses and completed eye frames; never refresh, rotate or replay
@@ -6726,6 +6907,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                    << (right_view_guard_restored ? "true" : "false")
                    << ";right_captured=" << (right_captured ? "true" : "false")
                    << ";right_state_restored=" << (right_state_restored ? "true" : "false")
+                   << ";left_resources_restored=" << (left_resources_restored ? "true" : "false")
+                   << ";right_resources_restored=" << (right_resources_restored ? "true" : "false")
+                   << ";mirror_ready=" << (mirror_ready ? "true" : "false")
                    << ";submitted=" << (submitted ? "true" : "false")
                    << ";transport_accepted=" << (submitted ? "true" : "false")
                    << ";content_hash_deferred="
@@ -6921,6 +7105,15 @@ bool ParseCameraProbeCommand(
     CameraProbeCommand& command,
     std::string* error) noexcept {
     CameraProbeCommand parsed{};
+    std::string independent_extent;
+    bool independent_present=false;
+    if(!ReadString(text,"independentEyeResolution",independent_extent,independent_present)||
+        (independent_present&&independent_extent!="off"&&independent_extent!="2560x1440"&&
+         independent_extent!="2560x1920")) {
+        SetError(error,"independentEyeResolution must be off, 2560x1440 or 2560x1920");return false;
+    }
+    parsed.independent_eye_height=independent_extent=="2560x1920"?1920:
+        independent_extent=="2560x1440"?1440:0;
     bool enabled_present = false;
     bool resource_probe_present = false;
     if (!ReadBool(text,"renderResourceProbeEnabled",parsed.render_resource_probe_enabled,resource_probe_present)) {

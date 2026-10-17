@@ -27,6 +27,10 @@ struct DeviceHookCallbacks {
     IDirect3DDevice9* get_direct3d_device = nullptr;
     void (*resource_probe_event)(IDirect3DDevice9*, const RenderResourceEvent&) noexcept = nullptr;
     void (*resource_probe_call)(IDirect3DDevice9*, bool entering) noexcept = nullptr;
+    // Source retirement on the caller thread, before BOTH Reset entry points.
+    // False defers forwarding while an owned rollback remains incomplete.
+    bool (*allow_reset)(IDirect3DDevice9*) noexcept = nullptr;
+    void (*after_reset_ex)(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*,HRESULT) noexcept = nullptr;
 };
 
 struct DeviceVtableHookStatus {

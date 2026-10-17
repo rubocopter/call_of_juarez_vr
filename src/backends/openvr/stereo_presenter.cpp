@@ -7,6 +7,8 @@
 #include "backends/openvr/d3d11_session.hpp"
 #include "backends/openvr/d3d9_shared_texture_bridge.hpp"
 #include "backends/openvr/presentation_cadence.hpp"
+#include "backends/openvr/fixed_output_bank.hpp"
+#include "backends/openvr/fixed_output_frame_mailbox.hpp"
 #include "runtime/hmd_frame_pacing.hpp"
 #include "runtime/ui_pointer_ownership.hpp"
 #include "runtime/openvr_runtime.hpp"
@@ -29,6 +31,7 @@
 #include <iomanip>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -271,6 +274,22 @@ struct OpenVrStereoPresenter::Impl {
     void* log_context = nullptr;
     FlatUiPointerCallback flat_ui_callback = nullptr;
     void* flat_ui_context = nullptr;
+    FixedOutputConfiguration fixed_configuration{};
+    std::atomic_bool fixed_policy_enabled{false};
+    std::atomic_bool fixed_native_failed{false};
+    FixedOutputFrameAuthority fixed_frame_authority;
+    FixedOutputFrameMailbox fixed_frame_mailbox;
+    FixedOutputBank* fixed_outputs = nullptr; // Process-lifetime root; never delete.
+    mutable std::mutex fixed_mutex;
+    FixedOutputReadiness fixed_readiness{};
+    bool fixed_theater_capture_initialized = false;
+
+    void SnapshotFixedOutputs() noexcept {
+        if (!fixed_outputs) return;
+        std::lock_guard lock(fixed_mutex);
+        fixed_readiness = fixed_outputs->Readiness();
+        fixed_readiness.theater_capture_initialized = fixed_theater_capture_initialized;
+    }
 
     void Log(const std::string_view line) const noexcept {
         if (log_callback) log_callback(log_context, line);
@@ -404,6 +423,18 @@ struct OpenVrStereoPresenter::Impl {
             SetError("presenter rejected unsupported D3D9Ex shared texture format");
             return false;
         }
+        if (fixed_outputs) {
+            if ((!flat_theater && !shared) ||
+                !fixed_outputs->Select(d3d11.device(), d3d11.context(), flat_theater,
+                    source_width, source_height, desired_format, textures)) {
+                SetError("fixed outputs rejected unprepared layout, transport or consumer; fresh natural theater required");
+                return false;
+            }
+            texture_width = desired_width;
+            texture_height = desired_height;
+            texture_format = desired_format;
+            return true;
+        }
         if (textures[0] && textures[1] &&
             texture_width == desired_width && texture_height == desired_height &&
             texture_format == desired_format) {
@@ -445,6 +476,7 @@ struct OpenVrStereoPresenter::Impl {
         D3D11SessionBridge& d3d11,
         D3D9SharedTextureBridge& shared_bridge,
         d3d9::StereoCpuFrame& frame,
+        std::uint64_t fixed_authority_epoch,
         const FlatUiPointerSample& flat_ui_pointer,
         std::vector<std::uint8_t>& flat_pointer_scratch,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
@@ -456,17 +488,40 @@ struct OpenVrStereoPresenter::Impl {
         double& hash_ms,
         double& upload_ms,
         D3D9SharedTextureCopyTiming& shared_timing) noexcept {
+        bool composition_ok = true;
+        const auto authority_ok = [&]() noexcept {
+            return !fixed_outputs || fixed_frame_authority.Allows(fixed_authority_epoch);
+        };
+        const auto run_authorized = [&](auto&& operation) noexcept {
+            return fixed_outputs
+                ? fixed_frame_authority.Execute(fixed_authority_epoch, operation)
+                : operation();
+        };
+        const auto update_output = [&](std::size_t eye, const D3D11_BOX* box,
+                                       const void* pixels, UINT row_pitch) noexcept {
+            const bool updated = run_authorized([&]() noexcept {
+                d3d11.context()->UpdateSubresource(textures[eye].Get(), 0, box, pixels, row_pitch, 0);
+                return true;
+            });
+            if (!updated) composition_ok = false;
+            return updated;
+        };
         const auto draw_hud_text = [&]() noexcept {
+            if (!authority_ok()) { composition_ok = false; return; }
             if (frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
                 frame.hud_text.frame_sequence != frame.capture_sequence) return;
             const std::array<ID3D11Texture2D*, 2> targets{textures[0].Get(), textures[1].Get()};
-            if (!hud_text_compositor.Draw(d3d11.device(), d3d11.context(),
-                    frame.hud_text, frame.capture_sequence, targets)) {
+            if (!run_authorized([&]() noexcept {
+                    return hud_text_compositor.Draw(d3d11.device(), d3d11.context(),
+                        frame.hud_text, frame.capture_sequence, targets);
+                })) {
+                composition_ok = false;
                 if (frame.capture_sequence <= 8 || frame.capture_sequence % 127 == 0)
                     SetError("native HUD text composition unavailable");
             }
         };
         const auto draw_gameplay_reticle = [&]() noexcept {
+            if (!authority_ok()) { composition_ok = false; return; }
             if (!frame.gameplay_reticle.active ||
                 frame.gameplay_reticle.frame_sequence != frame.capture_sequence ||
                 frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
@@ -490,8 +545,7 @@ struct OpenVrStereoPresenter::Impl {
                 const std::uint32_t count = right - left;
                 std::fill_n(pixels.begin(), count, color);
                 D3D11_BOX box{left, center_y, 0U, right, center_y + 1U, 1U};
-                d3d11.context()->UpdateSubresource(
-                    textures[eye].Get(), 0, &box, pixels.data(), count * 4U, 0);
+                (void)update_output(eye, &box, pixels.data(), count * 4U);
             };
             const auto draw_vertical = [&](const std::size_t eye,
                                            const std::uint32_t center_x,
@@ -503,8 +557,7 @@ struct OpenVrStereoPresenter::Impl {
                 const std::uint32_t count = bottom - top;
                 std::fill_n(pixels.begin(), count, color);
                 D3D11_BOX box{center_x, top, 0U, center_x + 1U, bottom, 1U};
-                d3d11.context()->UpdateSubresource(
-                    textures[eye].Get(), 0, &box, pixels.data(), 4U, 0);
+                (void)update_output(eye, &box, pixels.data(), 4U);
             };
             for (std::size_t eye = 0; eye < 2; ++eye) {
                 const auto& point = frame.gameplay_reticle.eyes[eye];
@@ -536,7 +589,7 @@ struct OpenVrStereoPresenter::Impl {
                             }
                             D3D11_BOX box{static_cast<UINT>(first),static_cast<UINT>(py),0U,
                                 static_cast<UINT>(first)+count,static_cast<UINT>(py)+1U,1U};
-                            d3d11.context()->UpdateSubresource(textures[eye].Get(),0,&box,pixels.data(),count*4U,0);
+                            if (!update_output(eye, &box, pixels.data(), count*4U)) return;
                         }
                     }
                     continue;
@@ -563,19 +616,38 @@ struct OpenVrStereoPresenter::Impl {
                 d3d11, frame, textures, texture_width, texture_height, texture_format)) {
             return false;
         }
+        // Persistent pairs must never acquire authority from half an update.
+        // Reserve all pointer scratch and validate BOTH placements before writing.
+        if (fixed_outputs && frame.presentation_mode == d3d9::FramePresentationMode::flat_theater) {
+            for (std::size_t eye=0; eye<2; ++eye) {
+                runtime::FlatTheaterEyePlacement placement{};
+                if (!runtime::ComputeFlatTheaterEyePlacement(eyes[eye], FrameWidth(frame), FrameHeight(frame),
+                        texture_width, texture_height, placement)) {
+                    SetError("fixed theater rejected incompatible placement"); return false;
+                }
+            }
+            try {
+                flat_pointer_scratch.reserve(static_cast<std::size_t>(FrameWidth(frame))*FrameHeight(frame)*4U);
+            } catch (...) {
+                SetError("fixed theater could not reserve pointer scratch"); return false;
+            }
+        }
         if (frame.transport == d3d9::StereoFrameTransport::d3d9ex_shared_texture) {
             const std::array<ID3D11Texture2D*, 2> destination{
                 textures[0].Get(), textures[1].Get()};
-            if (!shared_bridge.CopyFrame(
-                    d3d11.device(), d3d11.context(), frame,
-                    destination, shared_timing)) {
+            if (!run_authorized([&]() noexcept {
+                    // The bridge owns the complete source-lease/copy transaction.
+                    // Invalidation during it cannot cancel already queued copies.
+                    return shared_bridge.CopyFrame(d3d11.device(), d3d11.context(),
+                        frame, destination, shared_timing);
+                })) {
                 SetError(std::string(shared_bridge.last_error()));
                 return false;
             }
             upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
             draw_gameplay_reticle();
             draw_hud_text();
-            return true;
+            return !fixed_outputs || (composition_ok && authority_ok());
         }
         const auto& left = frame.eyes[0];
         const auto& right = frame.eyes[1];
@@ -612,6 +684,7 @@ struct OpenVrStereoPresenter::Impl {
 
         const auto upload_begin = std::chrono::steady_clock::now();
         for (std::size_t eye = 0; eye < 2; ++eye) {
+            if (!authority_ok()) return false;
             const auto& source = frame.eyes[eye];
             if (flat_theater) {
                 runtime::FlatTheaterEyePlacement placement{};
@@ -630,8 +703,7 @@ struct OpenVrStereoPresenter::Impl {
                 box.right = left_offset + source.width;
                 box.bottom = top_offset + source.height;
                 box.back = 1;
-                d3d11.context()->UpdateSubresource(
-                    textures[eye].Get(), 0, &box, CpuEyeData(source), source.stride, 0);
+                if (!update_output(eye, &box, CpuEyeData(source), source.stride)) return false;
 
                 if (flat_ui_pointer.active &&
                     flat_ui_pointer.source_width == source.width &&
@@ -766,26 +838,25 @@ struct OpenVrStereoPresenter::Impl {
                     cursor_box.right = left_offset + patch_right;
                     cursor_box.bottom = top_offset + patch_bottom;
                     cursor_box.back = 1;
-                    d3d11.context()->UpdateSubresource(
-                        textures[eye].Get(), 0, &cursor_box,
-                        flat_pointer_scratch.data(), patch_width * 4U, 0);
+                    if (!update_output(eye, &cursor_box,
+                            flat_pointer_scratch.data(), patch_width * 4U)) return false;
                 }
             } else {
-                d3d11.context()->UpdateSubresource(
-                    textures[eye].Get(), 0, nullptr, CpuEyeData(source), source.stride, 0);
+                if (!update_output(eye, nullptr, CpuEyeData(source), source.stride)) return false;
             }
         }
         draw_gameplay_reticle();
         draw_hud_text();
         const auto upload_end = std::chrono::steady_clock::now();
         upload_ms = MillisecondsBetween(upload_begin, upload_end);
-        return true;
+        return !fixed_outputs || (composition_ok && authority_ok());
     }
 
     bool SubmitEyes(
         runtime::OpenVrRuntime& runtime,
         const std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         const runtime::Pose& render_hmd_pose,
+        std::uint64_t fixed_authority_epoch,
         int& left_result,
         int& right_result,
         double& submit_ms,
@@ -793,10 +864,19 @@ struct OpenVrStereoPresenter::Impl {
         scene_focus_pending = false;
         const auto submit_begin = std::chrono::steady_clock::now();
         std::string submit_error;
-        if (!SubmitEyeD3D11WithPose(
-                runtime, textures[0].Get(), EyeSubmission::Left,
-                render_hmd_pose,
-                left_result, submit_error)) {
+        const auto authority_ok = [&]() noexcept {
+            if (!fixed_outputs || fixed_frame_authority.Allows(fixed_authority_epoch)) return true;
+            SetError("fixed output capture authority invalidated during submission"); return false;
+        };
+        const auto submit_eye = [&](ID3D11Texture2D* texture, EyeSubmission eye, int& result) noexcept {
+            const auto submit = [&]() noexcept {
+                return SubmitEyeD3D11WithPose(runtime, texture, eye, render_hmd_pose, result, submit_error);
+            };
+            return fixed_outputs ? fixed_frame_authority.Execute(fixed_authority_epoch, submit) : submit();
+        };
+        if (!authority_ok()) return false;
+        if (!submit_eye(textures[0].Get(), EyeSubmission::Left, left_result)) {
+            if (!authority_ok()) return false;
             SetError(submit_error);
             if (IsOpenVrSceneFocusPending(left_result)) {
                 scene_focus_pending = true;
@@ -805,10 +885,9 @@ struct OpenVrStereoPresenter::Impl {
             ++submit_failures;
             return false;
         }
-        if (!SubmitEyeD3D11WithPose(
-                runtime, textures[1].Get(), EyeSubmission::Right,
-                render_hmd_pose,
-                right_result, submit_error)) {
+        if (!authority_ok()) return false;
+        if (!submit_eye(textures[1].Get(), EyeSubmission::Right, right_result)) {
+            if (!authority_ok()) return false;
             SetError(submit_error);
             if (IsOpenVrSceneFocusPending(right_result)) {
                 scene_focus_pending = true;
@@ -819,10 +898,19 @@ struct OpenVrStereoPresenter::Impl {
         }
         const auto submit_end = std::chrono::steady_clock::now();
         submit_ms = MillisecondsBetween(submit_begin, submit_end);
-        return true;
+        return authority_ok();
     }
 
     void Worker() noexcept {
+        struct FixedSessionScope {
+            Impl& owner;
+            ~FixedSessionScope() {
+                if (owner.fixed_outputs) {
+                    owner.fixed_outputs->Seal();
+                    owner.SnapshotFixedOutputs();
+                }
+            }
+        } fixed_session_scope{*this};
         runtime::OpenVrRuntime runtime;
         D3D11SessionBridge d3d11;
         D3D9SharedTextureBridge shared_bridge;
@@ -841,6 +929,8 @@ struct OpenVrStereoPresenter::Impl {
         std::uint32_t texture_width = 0;
         std::uint32_t texture_height = 0;
         DXGI_FORMAT texture_format = DXGI_FORMAT_UNKNOWN;
+        bool fixed_submission_attempted = false;
+        std::uint64_t active_fixed_authority_epoch = 0;
         std::uint64_t active_device_id = 0;
         std::uint64_t active_generation = 0;
         std::uint64_t active_capture_sequence = 0;
@@ -976,6 +1066,26 @@ struct OpenVrStereoPresenter::Impl {
                 return;
             }
 
+            if (fixed_outputs) {
+                std::uint32_t width=0, height=0;
+                // A rejected optics/configuration is still a consumed attempt.
+                (void)runtime::ComputeFlatTheaterTextureExtent(eyes,
+                    fixed_configuration.desktop_width, fixed_configuration.desktop_height, width, height);
+                fixed_outputs->Prepare(d3d11.device(), d3d11.context(), fixed_configuration, width, height);
+                SnapshotFixedOutputs();
+                const auto readiness = fixed_outputs->Readiness();
+                Log("native_stereo_fixed_outputs: state=" + std::to_string(static_cast<int>(readiness.state)) +
+                    ";failure=" + std::to_string(static_cast<int>(readiness.failure)) +
+                    ";retained_textures=" + std::to_string(readiness.retained_textures) +
+                    ";payload_bytes=" + std::to_string(readiness.payload_bytes) +
+                    ";lifetime=process;compositor_retirement=unproven");
+                if (readiness.state != FixedOutputState::ready && readiness.state != FixedOutputState::theater_ready) {
+                    SetError("fixed output preparation failed; process restart required");
+                    // Use common owner-thread cleanup; do not bypass root sealing.
+                    throw std::runtime_error("fixed output preparation failed");
+                }
+            }
+
             running.store(true, std::memory_order_release);
             settings_overlay_ready=settings_overlay.Prepare(vr::VROverlay());
             Log(std::string("vr_settings: status=")+(settings_overlay_ready?"ready":"overlay_unavailable")+
@@ -1000,6 +1110,7 @@ struct OpenVrStereoPresenter::Impl {
             LogRuntimeState(previous_runtime_state, "initialized");
 
             while (!stop_requested.load(std::memory_order_acquire)) {
+                if (fixed_outputs && !fixed_frame_authority.Allows(active_fixed_authority_epoch)) cadence.Invalidate();
                 shared_bridge.Poll(d3d11.context());
                 {
                     const auto shared_stats = shared_bridge.stats();
@@ -1046,7 +1157,8 @@ struct OpenVrStereoPresenter::Impl {
                     have_previous_presentation_state &&
                     previous_presentation_state.dashboard_visible;
                 const bool compositor_pacing =
-                    cadence.scene_submission_allowed(dashboard_visible_before_poll);
+                    cadence.scene_submission_allowed(dashboard_visible_before_poll) ||
+                    (fixed_outputs && fixed_submission_attempted);
                 const bool pose_ok =
                     (compositor_pacing
                          ? runtime.WaitForTrackedPoses(tracked_poses)
@@ -1567,8 +1679,10 @@ struct OpenVrStereoPresenter::Impl {
                     feedback_context.Snapshot(),std::chrono::steady_clock::now());
                 reload_haptics.UpdateOwner(reload_feedback_owner.load(std::memory_order_acquire));
                 d3d9::StereoCpuFrame frame{};
-                const bool have_new_frame = mailbox.WaitConsumeLatest(
-                    frame, cadence.scene_submission_allowed(dashboard_visible) ? 0U : 2U);
+                std::uint64_t incoming_fixed_authority_epoch = 0;
+                const bool have_new_frame = fixed_outputs
+                    ? fixed_frame_mailbox.Consume(mailbox, frame, incoming_fixed_authority_epoch)
+                    : mailbox.WaitConsumeLatest(frame, cadence.scene_submission_allowed(dashboard_visible) ? 0U : 2U);
                 std::uint64_t left_hash = 0;
                 std::uint64_t right_hash = 0;
                 double hash_ms = 0.0;
@@ -1585,7 +1699,8 @@ struct OpenVrStereoPresenter::Impl {
                         (frame.generation < active_generation ||
                          (frame.generation == active_generation &&
                           frame.device_id != active_device_id));
-                    if (stale || stale_generation) {
+                    if (stale || stale_generation ||
+                        (fixed_outputs && !fixed_frame_authority.Allows(incoming_fixed_authority_epoch))) {
                         ++rejected_frames;
                         Log("native_stereo_presenter_frame: status=rejected reason=stale frame_sequence=" +
                             std::to_string(frame.capture_sequence));
@@ -1617,14 +1732,17 @@ struct OpenVrStereoPresenter::Impl {
                         const bool shared_frame = frame.transport ==
                             d3d9::StereoFrameTransport::d3d9ex_shared_texture;
                         const auto shared_stats_before = shared_bridge.stats();
-                        const bool uploaded = UploadFrame(
-                                d3d11, shared_bridge, frame, flat_ui_pointer,
+                        if (fixed_outputs) cadence.Invalidate();
+                        const bool uploaded = (!fixed_outputs || fixed_frame_authority.Allows(incoming_fixed_authority_epoch)) && UploadFrame(
+                                d3d11, shared_bridge, frame, incoming_fixed_authority_epoch, flat_ui_pointer,
                                 flat_pointer_scratch,
                                 textures, texture_width, texture_height, texture_format,
                                 left_hash, right_hash, hash_ms, upload_ms, shared_timing);
                         const auto shared_stats_after = shared_bridge.stats();
                         log_retired_leases(shared_stats_after.copy_fences_completed);
-                        if (uploaded) {
+                        if (uploaded && (!fixed_outputs ||
+                            (fixed_frame_authority.Allows(incoming_fixed_authority_epoch) &&
+                             fixed_outputs->HealthyEndpoints(d3d11.device(), d3d11.context())))) {
                             // Feedback observes only fresh accepted captures;
                             // compositor repeats, rejected uploads and stale
                             // metadata never produce events. Resource replacement
@@ -1750,16 +1868,37 @@ struct OpenVrStereoPresenter::Impl {
                             const bool first_presentable_frame = !cadence.presentable();
                             const bool mode_changed = !have_active_presentation_mode ||
                                 active_presentation_mode != frame.presentation_mode;
-                            active_capture_sequence = frame.capture_sequence;
-                            active_transport_sequence = incoming_transport_sequence;
-                            active_capture_time = frame.capture_time;
-                            active_render_pose_sequence = frame.render_pose_sequence;
-                            active_render_hmd_pose = frame.render_hmd_pose;
-                            active_source_width = FrameWidth(frame);
-                            active_source_height = FrameHeight(frame);
-                            active_presentation_mode = frame.presentation_mode;
-                            have_active_presentation_mode = true;
-                            cadence.FrameUploaded();
+                            const auto commit_upload = [&]() noexcept {
+                                active_capture_sequence = frame.capture_sequence;
+                                active_transport_sequence = incoming_transport_sequence;
+                                active_capture_time = frame.capture_time;
+                                active_render_pose_sequence = frame.render_pose_sequence;
+                                active_render_hmd_pose = frame.render_hmd_pose;
+                                active_source_width = FrameWidth(frame);
+                                active_source_height = FrameHeight(frame);
+                                active_presentation_mode = frame.presentation_mode;
+                                active_fixed_authority_epoch = incoming_fixed_authority_epoch;
+                                have_active_presentation_mode = true;
+                                cadence.FrameUploaded();
+                                return true;
+                            };
+                            const bool committed = fixed_outputs
+                                ? fixed_frame_authority.Execute(incoming_fixed_authority_epoch, commit_upload)
+                                : commit_upload();
+                            if (!committed) {
+                                cadence.Invalidate();
+                                ++rejected_frames;
+                                if (frame.transport == d3d9::StereoFrameTransport::cpu_bgrx)
+                                    mailbox.Recycle(std::move(frame));
+                                continue;
+                            }
+                            if (fixed_outputs && frame.presentation_mode == d3d9::FramePresentationMode::flat_theater &&
+                                frame.capture_sequence && frame.render_pose_sequence &&
+                                frame.render_hmd_pose.orientation_valid && frame.render_hmd_pose.position_valid &&
+                                !fixed_theater_capture_initialized) {
+                                fixed_theater_capture_initialized = true;
+                                SnapshotFixedOutputs();
+                            }
                             ++frames_uploaded;
                             if (mode_changed) {
                                 Log(std::string("native_stereo_presenter_transition: status=content_mode mode=") +
@@ -1849,6 +1988,11 @@ struct OpenVrStereoPresenter::Impl {
                         } else {
                             wheel_haptics.UpdateContext(false, gameplay_context_generation,
                                 std::chrono::steady_clock::now());
+                            if(fixed_outputs&&frame.presentation_mode==d3d9::FramePresentationMode::native_stereo&&
+                               fixed_frame_authority.Allows(incoming_fixed_authority_epoch)){
+                                fixed_native_failed.store(true,std::memory_order_release);
+                                fixed_frame_authority.Invalidate();
+                            }
                             ++rejected_frames;
                             Log("native_stereo_presenter_frame: status=rejected frame_sequence=" +
                                 std::to_string(frame.capture_sequence) + ";error=" + ErrorCopy());
@@ -1863,7 +2007,16 @@ struct OpenVrStereoPresenter::Impl {
                     std::lock_guard lock(tracking_mutex);
                     latest_pose = {};
                 }
-                if (!cadence.presentable()) continue;
+                if (fixed_outputs && !fixed_frame_authority.Allows(active_fixed_authority_epoch)) cadence.Invalidate();
+                if (!cadence.presentable()) {
+                    if (fixed_outputs && !have_new_frame) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    continue;
+                }
+                if (fixed_outputs && !fixed_outputs->HealthyEndpoints(d3d11.device(), d3d11.context())) {
+                    cadence.Invalidate();
+                    SetError("fixed output consumer is unavailable; process restart required");
+                    break;
+                }
                 // Do not permanently gate scene submission on the dashboard flag.
                 // SteamVR can report the overlay state while transitioning between
                 // compositor layers, and dropping all submits here can leave the
@@ -1895,9 +2048,16 @@ struct OpenVrStereoPresenter::Impl {
                     continue;
                 }
                 const PresentationContent pending_content = cadence.pending_content();
+                if (fixed_outputs) fixed_submission_attempted = true;
                 if (!SubmitEyes(
-                        runtime, textures, submit_pose,
+                        runtime, textures, submit_pose, active_fixed_authority_epoch,
                         left_result, right_result, submit_ms, scene_focus_pending)) {
+                    if (fixed_outputs) cadence.Invalidate();
+                    if(fixed_outputs&&!flat_theater_active&&!scene_focus_pending&&
+                       fixed_frame_authority.Allows(active_fixed_authority_epoch)){
+                        fixed_native_failed.store(true,std::memory_order_release);
+                        fixed_frame_authority.Invalidate();
+                    }
                     if (scene_focus_pending) {
                         Log("native_stereo_presenter_submit: status=deferred reason=scene_focus_pending frame_sequence=" +
                             std::to_string(active_capture_sequence) + ";runtime_result=" +
@@ -2019,6 +2179,12 @@ struct OpenVrStereoPresenter::Impl {
         runtime::PublishSettingsInputCapture(false);
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
         hud_text_compositor.Reset();
+        if (fixed_outputs) {
+            if (d3d11.context()) d3d11.context()->ClearState();
+            fixed_outputs->Seal();
+            SnapshotFixedOutputs();
+            Log("native_stereo_fixed_outputs: state=stopped;lifetime=process;compositor_retired=false");
+        }
         d3d11.Shutdown();
         Log("native_stereo_presenter_shutdown: stage=d3d11_end");
         Log("native_stereo_presenter_shutdown: stage=runtime_begin");
@@ -2069,9 +2235,32 @@ bool OpenVrStereoPresenter::Start(
     const PresenterLogCallback log_callback,
     void* const log_context,
     const FlatUiPointerCallback flat_ui_callback,
-    void* const flat_ui_context) noexcept {
+    void* const flat_ui_context,
+    const FixedOutputConfiguration fixed_outputs) noexcept {
     try {
         Stop();
+        {
+            std::lock_guard lock(impl_->fixed_mutex);
+            impl_->fixed_readiness = {};
+            if (FixedOutputBank::ProcessSessionClaimed()) {
+                impl_->fixed_readiness.state = FixedOutputState::failed;
+                impl_->fixed_readiness.failure = FixedOutputFailure::process_claimed;
+                impl_->SetError("fixed output process session already consumed; restart required");
+                return false;
+            }
+            impl_->fixed_configuration = fixed_outputs;
+            impl_->fixed_policy_enabled.store(fixed_outputs.enabled, std::memory_order_release);
+            impl_->fixed_theater_capture_initialized = false;
+            impl_->fixed_outputs = fixed_outputs.enabled ? FixedOutputBank::ClaimProcessSession() : nullptr;
+            if (fixed_outputs.enabled) {
+                impl_->fixed_readiness.state = impl_->fixed_outputs ? FixedOutputState::preparing : FixedOutputState::failed;
+                impl_->fixed_readiness.failure = impl_->fixed_outputs ? FixedOutputFailure::none : FixedOutputFailure::allocation;
+                if (!impl_->fixed_outputs) {
+                    impl_->SetError("fixed output process claim failed; restart required");
+                    return false;
+                }
+            }
+        }
         impl_->mailbox.Reset();
         impl_->stop_requested.store(false, std::memory_order_release);
         impl_->running.store(false, std::memory_order_release);
@@ -2159,6 +2348,7 @@ bool OpenVrStereoPresenter::Start(
 
 void OpenVrStereoPresenter::Stop() noexcept {
     if (!impl_) return;
+    InvalidateFixedOutputFrameAuthority();
     // Start also calls Stop: invalidate the epoch even if already unavailable.
     // Never reset to zero and accidentally reuse a previous capture token.
     impl_->feedback_context.Reset();
@@ -2173,8 +2363,25 @@ void OpenVrStereoPresenter::Stop() noexcept {
     impl_->running.store(false, std::memory_order_release);
 }
 
-bool OpenVrStereoPresenter::Publish(d3d9::StereoCpuFrame frame) noexcept {
+FixedOutputReadiness OpenVrStereoPresenter::GetFixedOutputReadiness() const noexcept {
+    std::lock_guard lock(impl_->fixed_mutex);
+    auto result=impl_->fixed_readiness;
+    result.native_content_failed=impl_->fixed_native_failed.load(std::memory_order_acquire);
+    return result;
+}
+
+std::uint64_t OpenVrStereoPresenter::FixedOutputFrameAuthorityEpoch() const noexcept {
+    return impl_->fixed_policy_enabled.load(std::memory_order_acquire) ? impl_->fixed_frame_authority.Epoch() : 0;
+}
+
+void OpenVrStereoPresenter::InvalidateFixedOutputFrameAuthority() noexcept {
+    if (impl_->fixed_policy_enabled.load(std::memory_order_acquire)) impl_->fixed_frame_authority.Invalidate();
+}
+
+bool OpenVrStereoPresenter::Publish(d3d9::StereoCpuFrame frame, const std::uint64_t fixed_output_authority_epoch) noexcept {
     if (!impl_->running.load(std::memory_order_acquire)) return false;
+    if (impl_->fixed_outputs) return impl_->fixed_frame_mailbox.Publish(
+        impl_->mailbox, impl_->fixed_frame_authority, std::move(frame), fixed_output_authority_epoch);
     return impl_->mailbox.Publish(std::move(frame));
 }
 

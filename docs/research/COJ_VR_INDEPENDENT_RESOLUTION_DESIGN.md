@@ -1,8 +1,9 @@
 # Resolución VR independiente — especificación técnica
 
-Estado: **diseño aprobado para avance autónomo; escritor bloqueado por Q0**.
-El diagnóstico de bindings está implementado y probado en host; el renderizado
-con dimensiones independientes sigue pendiente de cualificación nativa y visor.
+Estado: **prototipo local implementado y probado en host; B0/B1 físicos pendientes**.
+El banco privado y su restauración pasan pruebas GPU con memoria nativa
+sintética. Las pruebas no cualifican el juego real, detalle visual, rendimiento
+ni visor. Q0/B0/B1 mantienen sus puertas físicas; no cambian la pre-release.
 Referencia funcional: código de `main` en `3dba9f8` y aceptación acotada registrada
 en [VALIDATION](../VALIDATION.md). Alcance acordado el 16 de octubre de 2026.
 
@@ -301,6 +302,14 @@ motor solo necesita dos superficies. Modelo completo:
 La suma incluye cada color/MRT/depth/intermedio/historia privada, con formato y
 reglas de tamaño reales. Un ejemplo de un color de 4 B/px a mitad y otro a cuarto
 añade 5,86 MiB en B1 y 9,56 MiB en C; no demuestra ese número de efectos del motor.
+El prototipo ya cuenta su receta completa antes de asignar. Con depth de 4 B,
+additional-depth D16 y teatro 3859x2860, el banco privado cuesta 172,16 MiB en B0
+y 226,21 MiB en B1; transporte más cuatro salidas añade 196,70/234,20 MiB.
+Son 368,86/460,42 MiB de payload privado, además de la familia original,
+SYSTEMMEM de teatro, overlays, temporales y asignaciones del driver. La admisión
+reserva también una segunda posible representación de banco/transporte,
+128 MiB de temporales, el techo de salidas y 512 MiB libres, con un hueco VA
+continuo mínimo de 128 MiB. Este margen conservador no es una medición de VRAM.
 HDR, MSAA, mips y doble buffering alterarían ese modelo; MSAA no se admite en P1.
 
 El [mapa de postproceso](COJ_PPFX_TARGET_OWNERSHIP.md#effects-rounding-and-a-partial-payload-budget)
@@ -383,7 +392,7 @@ resolución. Reiniciar una sesión nueva es necesario para volver a intentarlo.
 | Anillo saturado o captura cancelada | No esperar ni sobrescribir leases. Reutilizar únicamente la reserva sin fence/publicación permitida por la corrección actual. Repetición solo dentro de freshness vigente y mismo propietario. |
 | Fallo de copia/sharing | Rechazar ambos ojos; no activar readback clásico experimental. Mantener leases inciertos, restaurar escena y seleccionar nueva captura natural para teatro. |
 | Cambio de owner, pausa, película, muerte o tracking | Cancelar autoridad inmediatamente según las barreras actuales. Una transición intencionada a teatro no es fallo: conserva familia preparada si sigue válida, sin autoridad para publicar frames anteriores. |
-| Reset/ResetEx intentado, exitoso o fallido | Parar admisión experimental e invalidar epoch antes de reenviar. No alterar dimensiones originales ni fabricar éxito. Retirar recursos según sus reglas; tras el resultado, no reutilizar campos/superficies de escena previos sin nueva cualificación. Para P1 se permanece en ruta base el resto de la sesión. |
+| Reset/ResetEx intentado, exitoso o fallido | Invalidar autoridad antes de reenviar; un retiro pendiente veta el intento. No alterar dimensiones originales ni fabricar éxito. Mantener las cuatro salidas D3D11; retirar la escena/anillo D3D9 solo con prueba suficiente. Un intento fallido no readmite VR; una nueva generación nativa tras éxito exige cualificación y captura fresca. Los fallos experimentales permanecen enclavados durante la sesión. |
 | Device/context replacement o device removed | Nada de reabrir recursos viejos sobre otro dispositivo. Mantener cuarentena si no existe prueba de retiro; volver a escena natural solo cuando el dispositivo nativo sea funcional. |
 | Restauración incompleta | Invalidar par, retener referencias y registro de recuperación y bloquear más escrituras. No «continuar» sobre una mezcla de familia VR/nativa. Si no se puede restaurar por dispositivo perdido, no se promete teatro operativo: se conserva salida nativa cuando sea posible y se requiere cierre normal/reinicio. |
 | Quit | Restaurar en el hilo dueño antes de destruir juego; usar el límite actual pre-DestroyGame y drenaje acotado. No marcar como retirado un lease abandonado ni borrar pruebas del error. |

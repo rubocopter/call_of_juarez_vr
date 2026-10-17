@@ -78,6 +78,10 @@ $Control = [ordered]@{
     renderResourceProbeEnabled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['renderResourceProbeEnabled'] -and
         [bool]$ExistingControl.renderResourceProbeEnabled
+    independentEyeResolution = if ($null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['independentEyeResolution']) {
+        [string]$ExistingControl.independentEyeResolution
+    } else { 'off' }
     vrGameplayInputEnabled = if ($null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['vrGameplayInputEnabled']) {
         [bool]$ExistingControl.vrGameplayInputEnabled

@@ -343,6 +343,7 @@ HRESULT STDMETHODCALLTYPE HookReset(
     const auto original = reinterpret_cast<ResetFn>(
         g_registry.OriginalTarget(vtable, kResetIndex));
     if (!original) return D3DERR_INVALIDCALL;
+    if (callbacks.allow_reset && !callbacks.allow_reset(device)) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
     ProbeEvent(callbacks, device, {RenderResourceOperation::reset, 0, S_FALSE,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
@@ -361,12 +362,15 @@ HRESULT STDMETHODCALLTYPE HookResetEx(IDirect3DDevice9Ex* device,
     using Fn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9Ex*, D3DPRESENT_PARAMETERS*, D3DDISPLAYMODEEX*);
     const auto original = reinterpret_cast<Fn>(g_registry.OriginalTarget(vtable, 132));
     if (!original) return D3DERR_INVALIDCALL;
+    if (callbacks.allow_reset && !callbacks.allow_reset(device)) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
     // Invalidation only. Do not redirect ResetEx through classic Reset callbacks
     // or modify any presentation parameter in this diagnostic hook.
     ProbeEvent(callbacks, device, {RenderResourceOperation::reset, 1, S_FALSE,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
-    return original(device, parameters, mode);
+    const HRESULT result=original(device,parameters,mode);
+    if(callbacks.after_reset_ex)callbacks.after_reset_ex(device,parameters,result);
+    return result;
 }
 
 HRESULT STDMETHODCALLTYPE HookPresent(
@@ -468,7 +472,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
     }
 
     bool probe_ex = false;
-    if (callbacks.resource_probe_event) {
+    if (callbacks.resource_probe_event || callbacks.allow_reset || callbacks.after_reset_ex) {
         // Query before taking the callback mutex: a repeated installation may
         // already have QueryInterface hooked through the same callback map.
         IDirect3DDevice9Ex* extended = nullptr;
@@ -515,9 +519,9 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
             requests[request_count++] = {83, reinterpret_cast<void*>(&HookDrawPrimitiveUP)};
             requests[request_count++] = {84, reinterpret_cast<void*>(&HookDrawIndexedPrimitiveUP)};
             requests[request_count++] = {34, reinterpret_cast<void*>(&HookStretchRect)};
-            if (probe_ex) requests[request_count++] = {132, reinterpret_cast<void*>(&HookResetEx)};
         }
-        if (callbacks.before_reset || callbacks.after_reset || callbacks.method_trace || callbacks.resource_probe_event) {
+        if (probe_ex) requests[request_count++] = {132, reinterpret_cast<void*>(&HookResetEx)};
+        if (callbacks.before_reset || callbacks.after_reset || callbacks.method_trace || callbacks.resource_probe_event || callbacks.allow_reset) {
             requests[request_count++] = HookSlotRequest{
                 kResetIndex, reinterpret_cast<void*>(&HookReset)};
         }

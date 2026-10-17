@@ -85,6 +85,27 @@ ordering against the original-size default color target with matching device
 generation. Other sampled frames lack that ordering evidence. Pixel coverage,
 programmable constants/history, private-family rollback and submitted OpenVR
 output retirement remain unqualified; no resizing writer is enabled.
+The local startup-only private-bank implementation now exists behind
+`independentEyeResolution` (`off`, `2560x1440`, `2560x1920`). It remains
+experimental: real D3D9Ex with synthetic native memory verifies new raster rows,
+depth/viewport/scissor, separate histories, CPU/GPU rollback, mirror bars and
+Reset retirement. Checked-write and graphics-restoration faults retain recovery
+state; fixed-output allocation/authority and native-queue policies have host
+coverage. This supersedes the earlier implementation-pending statement, without
+promoting Q0/B0/B1 game or headset acceptance. The original-size collected runs
+did not exercise this writer. Published prerelease files remain unchanged.
+
+For the first private-bank run, verify menus/loading, gameplay, manual reload,
+hands/melee, settings, immersive/theater cinematics and normal quit. B0 is the
+same-size isolation gate; B1 adds 33.3% vertical samples at the same optics.
+Accept B1 only with fresh per-eye native geometry/capture/pose provenance,
+visible new vertical detail, unchanged angular geometry and no regressions.
+Compare the same save/view, SteamVR scale/refresh and recording state against A:
+record CPU/GPU frame times and pacing from SteamVR frame timing, process private
+bytes/VA, capture/upload/frame-age tails and fallback/reset diagnostics. Host
+GPU patterns cannot substitute for those measurements. Reject a run with stale
+eye/theater sources, unmatched owner/generation, failed restoration, continuing
+allocation growth, unacceptable pacing or missing effective-size evidence.
 The canonical full-profile verifier retained rejection for an unobserved Sense
 loading-continuation press. Complete collection, normal restoration and operator
 acceptance do not overwrite that verdict or establish the missing input gesture.

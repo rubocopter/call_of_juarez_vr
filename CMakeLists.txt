@@ -116,6 +116,12 @@ add_library(cojvr_coj_ppfx_observation STATIC
 target_include_directories(cojvr_coj_ppfx_observation PUBLIC src)
 target_compile_features(cojvr_coj_ppfx_observation PUBLIC cxx_std_20)
 
+add_library(cojvr_d3d9_independent_targets STATIC src/backends/d3d9/independent_eye_targets.cpp)
+target_include_directories(cojvr_d3d9_independent_targets PUBLIC src)
+target_compile_features(cojvr_d3d9_independent_targets PUBLIC cxx_std_20)
+target_compile_definitions(cojvr_d3d9_independent_targets PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(cojvr_d3d9_independent_targets PUBLIC dxguid)
+
 add_library(cojvr_coj_camera_probe STATIC
     src/games/call_of_juarez/hud_boundary_probe.cpp
     src/games/call_of_juarez/hud_text_reader.cpp
@@ -312,6 +318,8 @@ if(COJVR_ENABLE_OPENVR)
 
     add_library(cojvr_d3d9_native_stereo_proxy SHARED
         src/games/call_of_juarez/native_stereo_proxy.cpp
+        src/games/call_of_juarez/independent_render_scope.cpp
+        src/games/call_of_juarez/native_render_queue_witness.cpp
         src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
         src/games/call_of_juarez/d3d9_native_stereo_proxy.def
         src/backends/d3d9/d3d9_stereo_capture.cpp
@@ -329,6 +337,7 @@ if(COJVR_ENABLE_OPENVR)
             cojvr_coj_camera_probe
             cojvr_diagnostics
             cojvr_d3d9_hooks
+            cojvr_d3d9_independent_targets
             cojvr_openvr_d3d11_backend
             d3d11
             dxgi
@@ -832,6 +841,65 @@ if(COJVR_BUILD_TESTS)
     add_executable(cojvr_ppfx_resource_observation_test tests/ppfx_resource_observation.cpp)
     target_link_libraries(cojvr_ppfx_resource_observation_test PRIVATE cojvr_coj_ppfx_observation)
     add_test(NAME ppfx_resource_observation COMMAND cojvr_ppfx_resource_observation_test)
+    add_executable(cojvr_native_render_transaction_test tests/native_render_transaction.cpp)
+    target_include_directories(cojvr_native_render_transaction_test PRIVATE src)
+    target_compile_features(cojvr_native_render_transaction_test PRIVATE cxx_std_20)
+    add_test(NAME native_render_transaction COMMAND cojvr_native_render_transaction_test)
+    add_executable(cojvr_independent_resolution_recipe_test tests/independent_resolution_recipe.cpp)
+    target_include_directories(cojvr_independent_resolution_recipe_test PRIVATE src)
+    target_compile_features(cojvr_independent_resolution_recipe_test PRIVATE cxx_std_20)
+    add_test(NAME independent_resolution_recipe COMMAND cojvr_independent_resolution_recipe_test)
+    add_executable(cojvr_independent_render_fields_test tests/independent_render_fields.cpp)
+    target_include_directories(cojvr_independent_render_fields_test PRIVATE src)
+    target_compile_features(cojvr_independent_render_fields_test PRIVATE cxx_std_20)
+    add_test(NAME independent_render_fields COMMAND cojvr_independent_render_fields_test)
+    add_executable(cojvr_independent_eye_targets_test tests/independent_eye_targets.cpp
+        src/backends/d3d9/independent_eye_targets.cpp src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_independent_eye_targets_test PRIVATE src)
+    target_compile_features(cojvr_independent_eye_targets_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_independent_eye_targets_test PRIVATE
+        COJVR_INDEPENDENT_EYE_FAULT_TESTING NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cojvr_independent_eye_targets_test PRIVATE d3d9 dxguid user32)
+    add_test(NAME independent_eye_targets COMMAND cojvr_independent_eye_targets_test)
+    set_tests_properties(independent_eye_targets PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(cojvr_independent_render_scope_test tests/independent_render_scope.cpp
+        src/games/call_of_juarez/independent_render_scope.cpp
+        src/games/call_of_juarez/native_render_queue_witness.cpp src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_independent_render_scope_test PRIVATE src)
+    target_compile_features(cojvr_independent_render_scope_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_independent_render_scope_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cojvr_independent_render_scope_test PRIVATE cojvr_d3d9_independent_targets
+        cojvr_d3d9_hooks d3d9 dxguid user32)
+    if(MSVC)
+        target_link_options(cojvr_independent_render_scope_test PRIVATE /LARGEADDRESSAWARE)
+    endif()
+    add_test(NAME independent_render_scope COMMAND cojvr_independent_render_scope_test)
+    set_tests_properties(independent_render_scope PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(cojvr_native_render_queue_witness_test tests/native_render_queue_witness.cpp)
+    target_include_directories(cojvr_native_render_queue_witness_test PRIVATE src)
+    target_compile_features(cojvr_native_render_queue_witness_test PRIVATE cxx_std_20)
+    add_test(NAME native_render_queue_witness COMMAND cojvr_native_render_queue_witness_test)
+    add_executable(cojvr_source_capture_admission_test tests/source_capture_admission.cpp)
+    target_include_directories(cojvr_source_capture_admission_test PRIVATE src)
+    target_compile_features(cojvr_source_capture_admission_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_source_capture_admission_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME source_capture_admission COMMAND cojvr_source_capture_admission_test)
+    if(COJVR_ENABLE_OPENVR)
+        add_executable(cojvr_fixed_output_authority_test tests/fixed_output_authority.cpp
+            src/backends/d3d9/frame_mailbox.cpp)
+        target_include_directories(cojvr_fixed_output_authority_test PRIVATE src)
+        target_compile_features(cojvr_fixed_output_authority_test PRIVATE cxx_std_20)
+        add_test(NAME fixed_output_authority COMMAND cojvr_fixed_output_authority_test)
+        add_executable(cojvr_fixed_output_bank_test tests/fixed_output_bank.cpp)
+        target_include_directories(cojvr_fixed_output_bank_test PRIVATE src)
+        target_compile_features(cojvr_fixed_output_bank_test PRIVATE cxx_std_20)
+        target_compile_definitions(cojvr_fixed_output_bank_test PRIVATE
+            COJVR_FIXED_OUTPUT_FAULT_TESTING NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_link_libraries(cojvr_fixed_output_bank_test PRIVATE d3d11 dxgi dxguid)
+        foreach(FIXED_OUTPUT_CASE RANGE 0 19)
+            add_test(NAME fixed_output_${FIXED_OUTPUT_CASE} COMMAND cojvr_fixed_output_bank_test ${FIXED_OUTPUT_CASE})
+        endforeach()
+    endif()
     add_executable(cojvr_ppfx_resource_telemetry_fixture tests/ppfx_resource_telemetry.cpp)
     target_link_libraries(cojvr_ppfx_resource_telemetry_fixture PRIVATE cojvr_coj_ppfx_observation)
     add_test(NAME ppfx_resource_telemetry COMMAND "${COJVR_PYTHON_EXECUTABLE}"
@@ -958,6 +1026,8 @@ if(COJVR_BUILD_TESTS)
     if(TARGET cojvr_d3d9_native_stereo_proxy)
         add_executable(cojvr_flat_ui_delivery_test
             tests/flat_ui_delivery.cpp
+            src/games/call_of_juarez/independent_render_scope.cpp
+            src/games/call_of_juarez/native_render_queue_witness.cpp
             src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
             src/backends/d3d9/d3d9_stereo_capture.cpp
             src/backends/d3d9/system_d3d9.cpp)
@@ -967,6 +1037,7 @@ if(COJVR_BUILD_TESTS)
             NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
         target_link_libraries(cojvr_flat_ui_delivery_test PRIVATE
             cojvr_coj_camera_probe cojvr_diagnostics cojvr_d3d9_hooks
+            cojvr_d3d9_independent_targets
             cojvr_openvr_d3d11_backend d3d11 dxgi dxguid)
         add_test(NAME flat_ui_delivery COMMAND cojvr_flat_ui_delivery_test)
     endif()

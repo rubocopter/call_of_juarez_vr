@@ -38,6 +38,9 @@ public:
 
     D3D9StereoCapture(const D3D9StereoCapture&) = delete;
     D3D9StereoCapture& operator=(const D3D9StereoCapture&) = delete;
+    [[nodiscard]] bool PrepareSharedOnly(IDirect3DDevice9*,std::uint32_t width,
+        std::uint32_t height,D3DFORMAT,std::uint64_t generation) noexcept;
+    [[nodiscard]] bool TryInvalidateResources() noexcept;
 
     [[nodiscard]] bool CaptureEye(
         IDirect3DDevice9* device,

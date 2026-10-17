@@ -91,13 +91,28 @@ reads each currently bound color RT0, not a swap-chain backbuffer that may echo
 both eyes. Frame identity includes the exact HMD render pose/sequence submitted
 through OpenVR explicit-pose submission. See [camera contracts](research/COJ_CAMERA_PATH.md).
 
-Scene resolution remains engine-owned. Capture allocates from the current RT0
+By default scene resolution remains engine-owned. Capture allocates from the current RT0
 description, and native-stereo D3D11 eyes preserve that extent through equal-size
 copies. OpenVR's cached recommended extent does not resize ChromeEngine targets.
 Independent eye resolution must qualify native color/depth/intermediate ownership
 before the full render-view passes, retaining desktop/theater and lease/reset
 boundaries. [Resolution research](research/COJ_VR_RENDER_RESOLUTION.md) owns the
 source trace, memory constraints and incremental implementation criteria.
+
+An experimental startup-only private bank now implements fixed 2560x1440
+isolation and 2560x1920 eye rendering with the original 2560x1440 desktop.
+The exact adapter borrows registered CTexture payload fields only during the
+full wrapper and capture, restores renderer matrices/material sources/cache
+values and fog, and never writes native reference counts or queue containers.
+Natural queue producer/playback witnesses qualify completed CPU command
+consumption; GPU capture/consumer fences remain separate. Two eye histories
+are private; other admitted scratch resources are sequential. The transport
+prepares shared-only resources before native mutation. Four D3D11 output
+textures reserve separate native/theater pairs for process lifetime; retained
+ownership does not prove compositor retirement. Failed restoration retains
+its preimage and resources, and vetoes Reset/ResetEx until retirement succeeds.
+Actual native rendering, image quality and continuity remain physical gates in
+[Validation](VALIDATION.md); host GPU fixtures do not qualify the game or visor.
 A startup-only, bounded read-only D3D9 binding probe brackets the exact full eye
 wrappers and correlates device/generation/frame/owner identity. Reset/ResetEx
 invalidation and conservative offline analysis do not establish allocation

@@ -158,8 +158,12 @@ campaign continuity, physical interactions or reload work:
   Native allocation/lifetime/effect/constant mapping and compositor retirement
   still block Q0. Original-size settings/movie structural correlation is now
   live-tested; independent-size continuity and headset A/B remain pending.
-  No independent-resolution writer is admitted and the published
-  prerelease remains unchanged.
+  The local default-off writer now implements same-size isolation and fixed
+  2560x1920 private rendering, with real-GPU/synthetic-native host coverage.
+  Complete its canonical B0 then B1 physical gates, effective geometry/optics,
+  detail and performance measurements before acceptance. Fixed outputs retain
+  bounded process-lifetime ownership; this is not compositor retirement proof.
+  The published prerelease remains unchanged.
 - **Native VR settings:** retain the existing single-panel preference path now.
   Before another editor, extract its coordination into one shared preference
   owner, preserving version-1 values. Qualify the

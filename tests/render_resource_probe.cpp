@@ -15,6 +15,12 @@ struct Output { unsigned begins=0; std::vector<D3D9RenderResourceRecord> records
     std::vector<D3D9RenderResourceContext> contexts; };
 std::vector<RenderResourceEvent> hook_events;
 unsigned call_enters=0,call_leaves=0;
+bool reset_allowed=true;unsigned reset_admissions=0;
+unsigned reset_ex_returns=0;
+void AfterResetEx(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*,HRESULT hr) noexcept {
+    if(SUCCEEDED(hr))++reset_ex_returns;
+}
+bool AllowReset(IDirect3DDevice9*) noexcept {++reset_admissions;return reset_allowed;}
 void HookCall(IDirect3DDevice9*,bool entering) noexcept {
     if(entering)++call_enters;else ++call_leaves;SetLastError(0xBAD);
 }
@@ -177,9 +183,19 @@ int main(int argc,char**){
     (void)ReacquireDeviceVtableHookDetailed(device.Get());
     const auto recovered=InspectResourceProbeHookContinuity(device.Get());
     Check(recovered.intact&&recovered.epoch>integrity.epoch,"reacquisition did not invalidate active trace epoch");
+    callbacks.allow_reset=&AllowReset;
+    callbacks.after_reset_ex=&AfterResetEx;
+    Check(InstallDeviceVtableHook(device.Get(),callbacks),"reset admission hook update failed");
+    reset_allowed=false;const auto parameters_before=pp;
+    Check((use_ex?device_ex->ResetEx(&pp,nullptr):device->Reset(&pp))==D3DERR_INVALIDCALL&&
+        reset_admissions==1&&std::memcmp(&parameters_before,&pp,sizeof(pp))==0,
+        "pending rollback must veto Reset/ResetEx before parameter/native mutation");
+    reset_allowed=true;
     const auto before_reset=hook_events.size();
     const auto reset_result=use_ex?device_ex->ResetEx(&pp,nullptr):device->Reset(&pp);
     Check(SUCCEEDED(reset_result),"observed reset failed");
+    Check(reset_admissions==2,"both rejected and allowed attempts require source admission");
+    Check(reset_ex_returns==(use_ex?1u:0u),"ResetEx completion/generation must follow only forwarded success");
     unsigned reset_events=0;
     for(std::size_t i=before_reset;i<hook_events.size();++i) {
         if(hook_events[i].operation==RenderResourceOperation::reset) {

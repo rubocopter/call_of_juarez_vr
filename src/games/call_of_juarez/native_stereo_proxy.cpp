@@ -4,6 +4,8 @@
 #include "games/call_of_juarez/game_shutdown_hook.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "games/call_of_juarez/ppfx_resource_telemetry.hpp"
+#include "games/call_of_juarez/independent_render_scope.hpp"
+#include "games/call_of_juarez/independent_resolution_recipe.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/depth_observation.hpp"
@@ -17,6 +19,7 @@
 #include "runtime/vr_settings.hpp"
 #include "runtime/ui_pointer_ownership.hpp"
 #include "backends/d3d9/vr_present_policy.hpp"
+#include "backends/d3d9/source_capture_admission.hpp"
 
 #include <windows.h>
 #include <psapi.h>
@@ -49,11 +52,36 @@ std::atomic_bool g_finalization_started{false};
 std::atomic_bool g_finalization_completed{false};
 wchar_t g_process_exit_log_path[32768]{};
 
+struct SourceCaptureAuthorization {
+    std::uint64_t sequence = 0, source_epoch = 0, owner_epoch = 0;
+    std::uint64_t owner = 0;
+    std::uint64_t output_epoch = 0, generation = 0;
+    std::uintptr_t device = 0;
+};
+
 struct NativeStereoState {
     std::atomic<std::uint64_t> frame_feedback_context_token{0};
     cojvr::backends::d3d9::D3D9StereoCapture capture;
     cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
     cojvr::backends::openvr::OpenVrStereoPresenter presenter;
+    // Startup-only opt-in. The deliberately leaked state also keeps this facade
+    // out of DLL/static destruction; explicit retirement runs before DestroyGame.
+    cojvr::backends::openvr::FixedOutputConfiguration fixed_outputs{};
+    cojvr::games::call_of_juarez::CoJIndependentRenderScope independent_render;
+    std::mutex source_mutex;
+    std::uint64_t source_epoch = 1, source_owner = 0;
+    bool source_owner_known = false, source_mode_known = false;
+    cojvr::backends::d3d9::FramePresentationMode source_mode{};
+    std::array<SourceCaptureAuthorization, 3> source_captures{};
+    std::size_t next_source_capture = 0;
+    cojvr::backends::d3d9::SourceCaptureAdmission source_capture_admission;
+    std::atomic_bool independent_bank_faulted{false};
+    std::atomic_bool natural_world_seen{false},natural_frame_ready{true};
+    std::atomic_uint64_t natural_owner{0},natural_generation{0},reset_suspended_generation{0};
+    std::atomic_bool independent_admission_blocked{true};
+    std::uint64_t independent_frame = 0, independent_generation = 0;
+    std::uint64_t independent_source_epoch = 0, independent_history_epoch = 0;
+    cojvr::runtime::Eye independent_eye = cojvr::runtime::Eye::left;
     cojvr::runtime::HmdFramePacer frame_pacer;
     cojvr::runtime::VrFrameCadence frame_cadence;
     std::atomic_bool desktop_vsync_disabled{false};
@@ -133,6 +161,111 @@ std::filesystem::path LogPath() noexcept {
 void LogLine(const std::string_view line) noexcept {
     const auto path = LogPath();
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
+}
+
+// The source fence covers both producers. In particular, a blocked owner that
+// remains blocked must not invalidate every natural Present and starve theater.
+void InvalidateSourceLocked(NativeStereoState& state) noexcept {
+    state.source_capture_admission.Invalidate();
+    ++state.source_epoch;
+    state.source_captures = {};
+    state.presenter.InvalidateFixedOutputFrameAuthority();
+}
+
+void InvalidateSourceAuthority(NativeStereoState& state) noexcept {
+    state.source_capture_admission.Invalidate();
+    state.stereo_queue.Invalidate();
+    if (!state.fixed_outputs.enabled) return;
+    std::lock_guard lock(state.source_mutex);
+    InvalidateSourceLocked(state);
+}
+
+void ObserveSourceOwner(NativeStereoState& state, std::uint64_t owner) noexcept {
+    if (!state.fixed_outputs.enabled) return;
+    std::lock_guard lock(state.source_mutex);
+    if (state.source_owner_known && state.source_owner != owner)
+        InvalidateSourceLocked(state);
+    state.source_owner = owner;
+    state.source_owner_known = true;
+}
+
+SourceCaptureAuthorization AuthorizeSourceCapture(NativeStereoState& state,
+    std::uint64_t sequence, std::uint64_t owner_epoch, std::uint64_t generation,
+    IDirect3DDevice9* device,
+    cojvr::backends::d3d9::FramePresentationMode mode) noexcept {
+    if (!state.fixed_outputs.enabled) return {};
+    std::lock_guard lock(state.source_mutex);
+    if (state.source_mode_known && state.source_mode != mode)
+        InvalidateSourceLocked(state);
+    state.source_mode = mode;
+    state.source_mode_known = true;
+    // This is the ORIGINAL presenter token, before CaptureEye/CaptureFlatFrame.
+    const SourceCaptureAuthorization authorization{sequence, state.source_epoch,
+        owner_epoch, state.source_owner, state.presenter.FixedOutputFrameAuthorityEpoch(), generation,
+        reinterpret_cast<std::uintptr_t>(device)};
+    if (mode == cojvr::backends::d3d9::FramePresentationMode::native_stereo)
+        state.source_captures[state.next_source_capture++ % state.source_captures.size()] = authorization;
+    return authorization;
+}
+
+SourceCaptureAuthorization FindSourceCapture(NativeStereoState& state,
+    std::uint64_t sequence) noexcept {
+    std::lock_guard lock(state.source_mutex);
+    for (const auto& capture : state.source_captures)
+        if (sequence && capture.sequence == sequence) return capture;
+    return {};
+}
+
+bool SourceCaptureCurrent(NativeStereoState& state,
+    const SourceCaptureAuthorization& capture) noexcept {
+    std::lock_guard lock(state.source_mutex);
+    return capture.sequence && capture.source_epoch == state.source_epoch &&
+        capture.owner == state.source_owner &&
+        capture.generation == state.device_generation.load(std::memory_order_acquire);
+}
+
+void IndependentBankFault(NativeStereoState& state, const char* stage) noexcept {
+    InvalidateSourceAuthority(state);
+    state.presenter.PublishGameplayFeedbackContext(false);
+    // Allocation/unsupported-family faults latch until an explicit owner-thread
+    // reset/retirement. Never retry a failed bank allocation on every eye/frame.
+    if (state.independent_bank_faulted.exchange(true, std::memory_order_acq_rel)) return;
+    try {
+        LogLine(std::string("independent_eye_bank: status=failed stage=") + stage +
+            " error=" + std::string(state.independent_render.last_error()));
+    } catch (...) {}
+}
+
+bool RetireIndependentBank(NativeStereoState& state, const char* boundary) noexcept {
+    if (!state.fixed_outputs.enabled) return true;
+    InvalidateSourceAuthority(state);
+    // The adapter owns restoration and release checks, including thread identity.
+    // Always attempt retirement before forwarding Reset, even a failed Reset.
+    if(state.independent_render.restoration_pending())(void)state.independent_render.End();
+    const bool captures_retired=state.capture.TryInvalidateResources();
+    const bool retired=captures_retired&&state.independent_render.InvalidateBeforeReset();
+    if(!retired)state.independent_bank_faulted.store(true,std::memory_order_release);
+    state.independent_history_epoch = 0;
+    if (retired) state.independent_frame = 0;
+    if (retired) state.capture.InvalidateResources();
+    if (!retired) {
+        try {
+            LogLine(std::string("independent_eye_bank: status=retirement_failed boundary=") +
+                boundary + " error=" + std::string(state.independent_render.last_error()));
+        } catch (...) {}
+    }
+    return retired;
+}
+
+void CancelResourceProbe() noexcept;
+bool AllowDeviceReset(IDirect3DDevice9*) noexcept {
+    if (!g_stereo.fixed_outputs.enabled) return true;
+    CancelResourceProbe();
+    g_stereo.reset_suspended_generation.store(g_stereo.device_generation.load());
+    g_stereo.natural_frame_ready.store(false);
+    // Called by both Reset entry points on their caller/owner thread. Failure
+    // vetoes forwarding, retaining all pending restoration references intact.
+    return RetireIndependentBank(g_stereo, "Reset_or_ResetEx");
 }
 
 
@@ -234,8 +367,19 @@ void CancelResourceProbe() noexcept;
 void ResourceProbeEvent(IDirect3DDevice9* device,
     const cojvr::backends::d3d9::RenderResourceEvent& event) noexcept {
     if(event.operation==cojvr::backends::d3d9::RenderResourceOperation::reset) {
-        CancelResourceProbe();g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);return;
+        if (g_resource_probe_enabled.load(std::memory_order_acquire)) {
+            CancelResourceProbe();g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
+        }
+        return;
     }
+    if (g_stereo.fixed_outputs.enabled && g_stereo.independent_render.active() &&
+        (g_stereo.independent_frame <= 8 || g_stereo.independent_frame % 90 == 0)) {
+        using Operation = cojvr::backends::d3d9::RenderResourceOperation;
+        if (event.operation == Operation::draw || event.operation == Operation::draw_indexed ||
+            event.operation == Operation::draw_up || event.operation == Operation::draw_indexed_up)
+            g_stereo.independent_render.RecordNativeDraw(device, event.caller);
+    }
+    if (!g_resource_probe_enabled.load(std::memory_order_acquire)) return;
     auto& trace=g_resource_probe_thread;
     if(trace.active&&trace.probe) (void)trace.probe->Record(device,event);
 }
@@ -915,8 +1059,29 @@ bool PublishCapturedFrame(
     NativeStereoState& state,
     cojvr::backends::d3d9::StereoCpuFrame frame,
     const cojvr::backends::d3d9::FramePresentationMode presentation_mode,
-    const char* source) noexcept {
+    const char* source,
+    const SourceCaptureAuthorization authorization = {}) noexcept {
     try {
+        if (state.fixed_outputs.enabled) {
+            if (!SourceCaptureCurrent(state, authorization) ||
+                authorization.sequence != frame.capture_sequence ||
+                authorization.device != frame.device_id ||
+                authorization.generation != frame.generation) return false;
+            // Fixed native output is an equal-extent shared copy only. A CPU
+            // compatibility fallback cannot silently admit the private route.
+            if (presentation_mode == cojvr::backends::d3d9::FramePresentationMode::native_stereo) {
+                bool valid = frame.transport ==
+                    cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
+                for (const auto& eye : frame.shared_eyes)
+                    valid = valid && eye.width == state.fixed_outputs.native_width &&
+                        eye.height == state.fixed_outputs.native_height &&
+                        eye.d3d_format == state.fixed_outputs.native_d3d_format;
+                if (!valid) {
+                    IndependentBankFault(state, "native_shared_layout");
+                    return false;
+                }
+            }
+        }
         frame.presentation_mode = presentation_mode;
         frame.transport_sequence =
             state.transport_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -927,7 +1092,7 @@ bool PublishCapturedFrame(
         const std::uintptr_t device_id = frame.device_id;
         const std::uint64_t generation = frame.generation;
         const std::uint32_t producer_slot = frame.producer_slot;
-        if (!state.presenter.Publish(std::move(frame))) {
+        if (!state.presenter.Publish(std::move(frame), authorization.output_epoch)) {
             LogTransportFailure(
                 capture_sequence, source,
                 "presenter mailbox rejected completed CPU frame");
@@ -1028,6 +1193,8 @@ std::uint64_t ObserveStereoOwner(NativeStereoState& state,
     bool observed, bool settings_captured, bool immersive_movie) noexcept {
     const auto token = PublishSettingsOwner(state, owner, observed);
     const bool allowed = observed && (!owner.blocked() || immersive_movie);
+    ObserveSourceOwner(state, (token << 2U) |
+        (allowed ? (immersive_movie ? 3U : (settings_captured ? 2U : 1U)) : 0U));
     if (!allowed) {
         state.frame_settings_captured.store(false, std::memory_order_release);
         state.frame_owner_epoch.store(0, std::memory_order_release);
@@ -1038,20 +1205,40 @@ std::uint64_t ObserveStereoOwner(NativeStereoState& state,
         (token << 2U) | (immersive_movie ? 3U : (settings_captured ? 2U : 1U)) : 0);
 }
 
+void ObserveNaturalFrame(void* context,bool complete) noexcept {
+    auto& state=*static_cast<NativeStereoState*>(context);
+    state.natural_world_seen.store(true,std::memory_order_release);
+    state.natural_frame_ready.store(false,std::memory_order_release);
+    if(!complete)return;
+    cojvr::games::call_of_juarez::CoJPresentationOwner owner{};
+    const bool observed=cojvr::games::call_of_juarez::ObserveCameraGamePresentationOwner(owner);
+    const bool movie=observed&&owner.immersive_movie_allowed()&&
+        cojvr::runtime::CurrentCinematicMode()==cojvr::runtime::CinematicsMode::immersive;
+    (void)ObserveStereoOwner(state,owner,observed,cojvr::runtime::SettingsInputCaptured(),movie);
+    std::lock_guard lock(state.source_mutex);
+    state.natural_owner.store(state.source_owner);
+    state.natural_generation.store(state.device_generation.load());
+    state.natural_frame_ready.store(observed,std::memory_order_release);
+}
+
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (!device || !g_stereo.runtime_ready) {
-        g_stereo.stereo_queue.Invalidate();
+        InvalidateSourceAuthority(g_stereo);
         g_stereo.presenter.PublishGameplayFeedbackContext(false);
         return;
     }
     if (g_stereo.frame_cadence.PresentNeedsPacing()) {
         if (!PaceRenderFrame(&g_stereo)) {
-            g_stereo.stereo_queue.Invalidate();
+            InvalidateSourceAuthority(g_stereo);
             g_stereo.presenter.PublishGameplayFeedbackContext(false);
             return;
         }
         (void)g_stereo.frame_cadence.PresentNeedsPacing();
     }
+    // A failed native/COM rollback still owns its restore transaction. Do not
+    // capture partially redirected targets as natural desktop/theater content.
+    if (g_stereo.fixed_outputs.enabled &&
+        (g_stereo.independent_render.active() || g_stereo.independent_render.restoration_pending())) return;
     try {
         bool timer_frozen = false;
         std::string timer_error;
@@ -1073,8 +1260,25 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             g_stereo.flat_ui_select_retry = {};
         }
         const std::uint64_t now_ms = GetTickCount64();
-        ObserveStereoOwner(g_stereo, presentation, presentation_valid, settings_captured, immersive_movie);
+        const auto present_owner_epoch = ObserveStereoOwner(
+            g_stereo, presentation, presentation_valid, settings_captured, immersive_movie);
         if (g_stereo.flat_ui_select_release_required) g_stereo.stereo_queue.Invalidate();
+        if (g_stereo.fixed_outputs.enabled) {
+            const auto sequence = g_stereo.source_capture_admission.queued_sequence();
+            const auto authorization = FindSourceCapture(g_stereo, sequence);
+            if (g_stereo.source_capture_admission.PreserveForPresent(sequence,
+                    presentation_valid && (!presentation_blocked || immersive_movie) &&
+                        !g_stereo.flat_ui_select_release_required,
+                    present_owner_epoch && authorization.owner_epoch == present_owner_epoch &&
+                        g_stereo.stereo_queue.CaptureEpoch(sequence) == present_owner_epoch,
+                    SourceCaptureCurrent(g_stereo, authorization))) {
+                // Queued does not mean published/fresh. Preserve its token for
+                // next Begin's collection, and never recapture the eye mirror
+                // under the natural-theater label at this Present boundary.
+                g_stereo.flat_capture_active.store(false, std::memory_order_release);
+                return;
+            }
+        }
         const bool stereo_fresh = g_stereo.stereo_queue.Fresh(now_ms);
         if (!presentation_valid || presentation_blocked || settings_captured || g_stereo.flat_ui_select_release_required ||
             !stereo_fresh) {
@@ -1222,6 +1426,11 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             }
 
         }
+        if(g_stereo.fixed_outputs.enabled&&g_stereo.natural_world_seen.load()){
+            std::lock_guard lock(g_stereo.source_mutex);
+            if(!g_stereo.natural_frame_ready.load()||g_stereo.natural_owner.load()!=g_stereo.source_owner||
+               g_stereo.natural_generation.load()!=g_stereo.device_generation.load())return;
+        }
         // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
         // Capture every second Present; the presenter repeats the latest frame
         // at compositor cadence between updates.
@@ -1236,12 +1445,26 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         const std::uint64_t generation =
             g_stereo.device_generation.load(std::memory_order_acquire);
         if (generation == 0) return;
+        // Menu dispatch above may have changed native owner synchronously.
+        // Freeze the fresh flat owner and source mode before its immediate copy.
+        if (g_stereo.fixed_outputs.enabled) {
+            cojvr::games::call_of_juarez::CoJPresentationOwner flat_owner{};
+            const bool observed = cojvr::games::call_of_juarez::ObserveCameraGamePresentationOwner(flat_owner);
+            const bool movie = observed && flat_owner.immersive_movie_allowed() &&
+                cojvr::runtime::CurrentCinematicMode() == cojvr::runtime::CinematicsMode::immersive;
+            (void)ObserveStereoOwner(g_stereo, flat_owner, observed,
+                cojvr::runtime::SettingsInputCaptured(), movie);
+        }
+        const auto authorization = AuthorizeSourceCapture(g_stereo, present_sequence,
+            g_stereo.frame_owner_epoch.load(std::memory_order_acquire), generation, device,
+            cojvr::backends::d3d9::FramePresentationMode::flat_theater);
         cojvr::backends::d3d9::StereoCpuFrame completed{};
         if (!g_stereo.flat_capture.CaptureFlatFrameImmediate(
                 device, back_buffer.Get(), present_sequence, generation,
                 tracking.pose, tracking.sequence, completed)) {
             LogTransportFailure(
                 present_sequence, "flat_capture", g_stereo.flat_capture.last_error());
+            if (g_stereo.fixed_outputs.enabled) InvalidateSourceAuthority(g_stereo);
             return;
         }
         if (ShouldLogStereoTiming(present_sequence)) {
@@ -1252,7 +1475,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         if (PublishCapturedFrame(
                 g_stereo, std::move(completed),
                 cojvr::backends::d3d9::FramePresentationMode::flat_theater,
-                "flat_publish")) {
+                "flat_publish", authorization)) {
             g_stereo.stereo_queue.FlatPublished();
             if (ShouldLogStereoTiming(present_sequence))
                 LogLine(
@@ -1535,6 +1758,7 @@ void AfterCreateDevice(
         };
         log_factory_identity("factory_native_identity");
         IDirect3DDevice9* replacement = observed;
+        (void)RetireIndependentBank(g_stereo, "device_replacement");
         if(g_resource_probe_enabled.load(std::memory_order_acquire))
             g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
         HWND root = focus_window ? GetAncestor(focus_window, GA_ROOT) : nullptr;
@@ -1570,8 +1794,11 @@ void AfterCreateDevice(
             .method_trace = &DeviceMethodTrace,
             .get_direct3d_factory = factory,
             .get_direct3d_device = replacement,
-            .resource_probe_event = g_resource_probe_enabled.load() ? &ResourceProbeEvent : nullptr,
+            .resource_probe_event = (g_resource_probe_enabled.load() || g_stereo.fixed_outputs.enabled)
+                ? &ResourceProbeEvent : nullptr,
             .resource_probe_call = g_resource_probe_enabled.load() ? &ResourceProbeCall : nullptr,
+            .allow_reset = g_stereo.fixed_outputs.enabled ? &AllowDeviceReset : nullptr,
+            .after_reset_ex = g_stereo.fixed_outputs.enabled ? &AfterDeviceReset : nullptr,
         };
         const auto device_hook =
             cojvr::backends::d3d9::InstallDeviceVtableHookDetailed(
@@ -1644,7 +1871,7 @@ void AfterCreateDevice(
 void InvalidateStereoFrame(void* context) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return;
-    state->stereo_queue.Invalidate();
+    InvalidateSourceAuthority(*state);
     state->presenter.PublishGameplayFeedbackContext(false);
 }
 
@@ -1654,12 +1881,33 @@ bool BeginStereoFrame(
     sample = {};
     auto* state = static_cast<NativeStereoState*>(context);
     if (!state) return false;
+    state->source_capture_admission.BeginFrame();
     if (!state->runtime_ready ||
         g_finalization_started.load(std::memory_order_acquire) || !state->presenter.running() ||
         !PaceRenderFrame(state)) {
-        state->stereo_queue.Invalidate();
+        InvalidateSourceAuthority(*state);
         state->presenter.PublishGameplayFeedbackContext(false);
         return false;
+    }
+    if (state->fixed_outputs.enabled) {
+        const auto readiness = state->presenter.GetFixedOutputReadiness();
+        cojvr::games::call_of_juarez::CoJIndependentResolutionRecipe recipe{};
+        const bool eligible = readiness.state == cojvr::backends::openvr::FixedOutputState::ready &&
+            readiness.theater_capture_initialized && !readiness.native_content_failed &&
+            state->device_generation.load()>state->reset_suspended_generation.load() &&
+            !state->independent_bank_faulted.load(std::memory_order_acquire) &&
+            !state->independent_render.active() && !state->independent_render.restoration_pending() &&
+            state->capture_readback_enabled.load(std::memory_order_acquire) &&
+            cojvr::games::call_of_juarez::BuildCoJIndependentResolutionRecipe(
+                cojvr::games::call_of_juarez::ObserveInstalledCoJPostprocessResources(),
+                state->fixed_outputs.native_height, recipe);
+        const bool previously_blocked = state->independent_admission_blocked.exchange(
+            !eligible, std::memory_order_acq_rel);
+        if (!eligible) {
+            if (!previously_blocked) InvalidateSourceAuthority(*state);
+            state->presenter.PublishGameplayFeedbackContext(false);
+            return false; // Natural full wrapper supplies a fresh theater source.
+        }
     }
     bool timer_frozen = false;
     std::string timer_error;
@@ -1715,10 +1963,13 @@ bool BeginStereoFrame(
         state->capture_readback_enabled.load(std::memory_order_acquire);
     if (capture_enabled && state->capture.TryCollectReady(completed)) {
         const std::uint64_t sequence = completed.capture_sequence;
-        if (state->stereo_queue.Accept(sequence) && PublishCapturedFrame(
+        const auto authorization = state->fixed_outputs.enabled ?
+            FindSourceCapture(*state, sequence) : SourceCaptureAuthorization{};
+        if ((!state->fixed_outputs.enabled || authorization.owner_epoch == frame_epoch) &&
+            state->stereo_queue.Accept(sequence) && PublishCapturedFrame(
                 *state, std::move(completed),
                 cojvr::backends::d3d9::FramePresentationMode::native_stereo,
-                "publish") && state->stereo_queue.Published(frame_epoch)) {
+                "publish", authorization) && state->stereo_queue.Published(frame_epoch)) {
             if (state->flat_capture_active.exchange(false, std::memory_order_acq_rel))
                 LogLine("native_stereo_flat_theater: status=leaving reason=native_stereo_active");
             if (ShouldLogStereoTiming(sequence)) {
@@ -1772,6 +2023,106 @@ bool BeginStereoFrame(
     return true;
 }
 
+bool BeginIndependentEyeRender(void* context, const cojvr::runtime::Eye eye,
+    const std::uint64_t frame_sequence) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state || !state->fixed_outputs.enabled) return false;
+    const auto readiness = state->presenter.GetFixedOutputReadiness();
+    if (readiness.state != cojvr::backends::openvr::FixedOutputState::ready ||
+        !readiness.theater_capture_initialized || readiness.native_content_failed ||
+        state->device_generation.load()<=state->reset_suspended_generation.load() ||
+        state->independent_bank_faulted.load(std::memory_order_acquire) ||
+        state->independent_render.active() || state->independent_render.restoration_pending()) return false;
+    Microsoft::WRL::ComPtr<IDirect3DDevice9> device;
+    device.Attach(RetainCurrentDevice());
+    if (!device) return false;
+    const auto generation = state->device_generation.load(std::memory_order_acquire);
+    if (!generation) return false;
+    const auto owner_epoch = state->frame_owner_epoch.load(std::memory_order_acquire);
+    SourceCaptureAuthorization authorization{};
+    if (eye == cojvr::runtime::Eye::left) {
+        if (!state->stereo_queue.BindCapture(owner_epoch, frame_sequence)) return false;
+        authorization = AuthorizeSourceCapture(*state, frame_sequence, owner_epoch, generation,
+            device.Get(), cojvr::backends::d3d9::FramePresentationMode::native_stereo);
+    } else {
+        authorization = FindSourceCapture(*state, frame_sequence);
+        if (!owner_epoch || state->stereo_queue.CaptureEpoch(frame_sequence) != owner_epoch ||
+            authorization.owner_epoch != owner_epoch || !SourceCaptureCurrent(*state, authorization)) return false;
+    }
+    if (state->independent_render.payload_bytes() &&
+        state->independent_history_epoch != authorization.source_epoch &&
+        !state->independent_render.ClearHistories()) {
+        IndependentBankFault(*state, "clear_histories");
+        return false;
+    }
+    state->native_render_thread.store(GetCurrentThreadId(), std::memory_order_release);
+    state->independent_frame = frame_sequence;
+    state->independent_eye = eye;
+    state->independent_generation = generation;
+    state->independent_source_epoch = authorization.source_epoch;
+    // Installed observation is admitted by exact executable/engine SHA identity;
+    // the adapter additionally checks the complete native resource family.
+    if(!state->capture.PrepareSharedOnly(device.Get(),state->fixed_outputs.native_width,
+        state->fixed_outputs.native_height,static_cast<D3DFORMAT>(state->fixed_outputs.native_d3d_format),generation)){
+        IndependentBankFault(*state,"prepare_shared_capture");return false;
+    }
+    if (!state->independent_render.Begin(device.Get(), generation,
+            cojvr::games::call_of_juarez::ObserveInstalledCoJPostprocessResources(),
+            state->fixed_outputs.native_height, eye)) {
+        if (state->independent_render.last_error() == "awaiting natural queue completion") {
+            InvalidateSourceAuthority(*state);
+            state->presenter.PublishGameplayFeedbackContext(false);
+        } else {
+            IndependentBankFault(*state, "begin");
+        }
+        return false;
+    }
+    state->independent_history_epoch = authorization.source_epoch;
+    return true;
+}
+
+bool EndIndependentEyeRender(void* context, const cojvr::runtime::Eye eye,
+    const std::uint64_t frame_sequence) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state) return false;
+    // A rejected Begin may have made no mutation, or completed its own rollback.
+    // There is no owned End transaction in that case and no new fault to latch.
+    if (!state->independent_render.active() && !state->independent_render.restoration_pending())
+        return true;
+    const bool matching = state->independent_frame == frame_sequence && state->independent_eye == eye;
+    // Never short-circuit End: capture/owner failure still owes native rollback.
+    const bool ended = state->independent_render.End();
+    if (!ended || !matching) IndependentBankFault(*state, "end");
+    // Eye validity is independent from rollback safety. The optional pending
+    // query lets the camera reject this eye yet safely replay the natural view.
+    return ended && matching;
+}
+
+bool IndependentEyeRestorationPending(void* context) noexcept {
+    const auto* state = static_cast<NativeStereoState*>(context);
+    return state && state->independent_render.restoration_pending();
+}
+
+bool MirrorIndependentEyePair(void* context, const std::uint64_t frame_sequence) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state || state->independent_bank_faulted.load(std::memory_order_acquire) ||
+        state->independent_render.active() || state->independent_render.restoration_pending() ||
+        state->independent_frame != frame_sequence || state->independent_eye != cojvr::runtime::Eye::right ||
+        !state->stereo_queue.CaptureEpoch(frame_sequence) ||
+        !SourceCaptureCurrent(*state, FindSourceCapture(*state, frame_sequence))) return false;
+    // The game adapter retains the ORIGINAL final desktop surface at Begin.
+    // It owns the aspect-preserving mirror after native-field/COM restoration.
+    if (!state->independent_render.Mirror()) {
+        IndependentBankFault(*state, "mirror");
+        // Mirror has its own saved COM state after the eye scope ended. Attempt
+        // restoration here too. The caller must retain an End barrier if it
+        // remains pending before admitting any natural fallback render.
+        (void)EndIndependentEyeRender(context, cojvr::runtime::Eye::right, frame_sequence);
+        return false;
+    }
+    return true;
+}
+
 bool CaptureStereoEye(
     void* context,
     const cojvr::runtime::Eye eye,
@@ -1782,7 +2133,7 @@ bool CaptureStereoEye(
     state->native_render_thread.store(GetCurrentThreadId(), std::memory_order_release);
     *content_hash = 0;
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
-    if (eye == cojvr::runtime::Eye::left) {
+    if (eye == cojvr::runtime::Eye::left && !state->fixed_outputs.enabled) {
         if (!state->stereo_queue.BindCapture(
                 state->frame_owner_epoch.load(std::memory_order_acquire), frame_sequence)) return false;
     } else if (!state->stereo_queue.CaptureEpoch(frame_sequence)) {
@@ -1795,10 +2146,35 @@ bool CaptureStereoEye(
     }
     const std::uint64_t generation =
         state->device_generation.load(std::memory_order_acquire);
+    if (state->fixed_outputs.enabled) {
+        const auto authorization = FindSourceCapture(*state, frame_sequence);
+        Microsoft::WRL::ComPtr<IDirect3DSurface9> target;
+        D3DSURFACE_DESC description{};
+        const bool valid = state->independent_render.active() &&
+            state->independent_frame == frame_sequence && state->independent_eye == eye &&
+            state->independent_generation == generation &&
+            state->independent_source_epoch == authorization.source_epoch &&
+            SourceCaptureCurrent(*state, authorization) &&
+            SUCCEEDED(device->GetRenderTarget(0, &target)) && target &&
+            SUCCEEDED(target->GetDesc(&description)) &&
+            description.Width == state->fixed_outputs.native_width &&
+            description.Height == state->fixed_outputs.native_height &&
+            description.Format == state->fixed_outputs.native_d3d_format &&
+            description.MultiSampleType == D3DMULTISAMPLE_NONE;
+        if (!valid) {
+            device->Release();
+            IndependentBankFault(*state, "capture_source");
+            return false;
+        }
+    }
     const std::uintptr_t device_id = reinterpret_cast<std::uintptr_t>(device);
     const bool captured = state->capture.CaptureEye(
         device, eye, frame_sequence, generation);
     device->Release();
+    if (captured && state->fixed_outputs.enabled && !state->capture.gpu_resident_active()) {
+        IndependentBankFault(*state, "capture_requires_native_shared_transport");
+        return false;
+    }
     if (captured) {
         std::uint64_t previously_logged =
             state->capture_resources_generation_logged.load(std::memory_order_acquire);
@@ -1833,11 +2209,32 @@ bool CaptureStereoEye(
                  << frame_sequence << " eye="
                  << (eye == cojvr::runtime::Eye::left ? "left " : "right ")
                  << state->capture.capture_description();
+            if (state->fixed_outputs.enabled) {
+                const auto evidence = state->independent_render.evidence();
+                MEMORYSTATUSEX memory{sizeof(memory)};
+                PROCESS_MEMORY_COUNTERS_EX process{};
+                process.cb=sizeof(process);
+                (void)GlobalMemoryStatusEx(&memory);
+                (void)GetProcessMemoryInfo(GetCurrentProcess(),
+                    reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&process),sizeof(process));
+                line << ";private_bank_payload_bytes=" << state->independent_render.payload_bytes()
+                     << ";available_va_bytes=" << memory.ullAvailVirtual
+                     << ";process_private_bytes=" << process.PrivateUsage;
+                line << ";geometry_draws=" << evidence.draws
+                     << ";full_extent_depth_draws=" << evidence.full_extent_depth_draws
+                     << ";geometry_color_width=" << evidence.color_width
+                     << ";geometry_color_height=" << evidence.color_height
+                     << ";geometry_depth_width=" << evidence.depth_width
+                     << ";geometry_depth_height=" << evidence.depth_height
+                     << ";geometry_viewport_width=" << evidence.viewport_width
+                     << ";geometry_viewport_height=" << evidence.viewport_height;
+            }
             LogLine(line.str());
         }
     }
     if (!captured) {
         LogTransportFailure(frame_sequence, "capture", state->capture.last_error());
+        if (state->fixed_outputs.enabled) InvalidateSourceAuthority(*state);
     }
     return captured;
 }
@@ -1909,6 +2306,15 @@ bool SubmitStereoFrame(
     captured_hud_text.feedback_context_token =
         state->frame_feedback_context_token.load(std::memory_order_acquire);
     const auto frame_epoch = state->stereo_queue.CaptureEpoch(frame_sequence);
+    if (state->fixed_outputs.enabled) {
+        const auto authorization = FindSourceCapture(*state, frame_sequence);
+        if (state->independent_bank_faulted.load(std::memory_order_acquire) ||
+            state->independent_render.active() || state->independent_render.restoration_pending() ||
+            authorization.owner_epoch != frame_epoch || !SourceCaptureCurrent(*state, authorization)) {
+            InvalidateSourceAuthority(*state);
+            return false;
+        }
+    }
     cojvr::games::call_of_juarez::CoJPresentationOwner presentation{};
     const bool observed = cojvr::games::call_of_juarez::ObserveCameraGamePresentationOwner(presentation);
     const bool movie = observed && presentation.immersive_movie_allowed() &&
@@ -1920,10 +2326,15 @@ bool SubmitStereoFrame(
     const bool accepted = state->capture.EndFrame(
         frame_sequence, render_hmd_pose.pose, render_hmd_pose.sequence, capture_reticle, captured_hud_text);
     if (accepted && !state->stereo_queue.Queued(
-            frame_epoch, frame_sequence, GetTickCount64()))
+            frame_epoch, frame_sequence, GetTickCount64())) {
+        if (state->fixed_outputs.enabled) InvalidateSourceAuthority(*state);
         return false;
+    }
+    if (accepted && state->fixed_outputs.enabled)
+        state->source_capture_admission.Queued(frame_sequence);
     if (!accepted) {
         LogTransportFailure(frame_sequence, "fence", state->capture.last_error());
+        if (state->fixed_outputs.enabled) InvalidateSourceAuthority(*state);
     } else if (ShouldLogStereoTiming(frame_sequence)) {
         std::ostringstream line;
         line << "native_stereo_frame_queue: status=ok frame_sequence="
@@ -1942,6 +2353,7 @@ void SetCaptureReadbackEnabled(void* context, const bool enabled) noexcept {
     const bool previous = state->capture_readback_enabled.exchange(
         enabled, std::memory_order_acq_rel);
     if (previous == enabled) return;
+    if (state->fixed_outputs.enabled) InvalidateSourceAuthority(*state);
     LogLine(std::string("native_stereo_diagnostic_capture: status=") +
         (enabled ? "enabled" : "disabled") +
         ";readback=" + (enabled ? "active" : "bypassed") +
@@ -1980,7 +2392,8 @@ bool StartStereoRuntime() noexcept {
         LogLine("openvr_input: status=unavailable error=manifest_path_exception");
     }
     if (!g_stereo.presenter.Start(
-            manifest_path, &PresenterLog, nullptr, &FlatUiPointer, nullptr)) {
+            manifest_path, &PresenterLog, nullptr, &FlatUiPointer, nullptr,
+            g_stereo.fixed_outputs)) {
         LogLine(
             "native_stereo_runtime: status=unavailable owner=presenter_thread error=" +
             g_stereo.presenter.last_error());
@@ -1988,6 +2401,7 @@ bool StartStereoRuntime() noexcept {
     }
     if (!g_stereo.presenter.EyeViews(g_stereo.eyes)) {
         LogLine("native_stereo_runtime: status=eye_config_failed owner=presenter_thread");
+        InvalidateSourceAuthority(g_stereo);
         g_stereo.presenter.Stop();
         return false;
     }
@@ -2008,12 +2422,14 @@ bool StartStereoRuntime() noexcept {
 
 void Finalize() noexcept {
     if (g_finalization_started.exchange(true, std::memory_order_acq_rel)) return;
+    InvalidateSourceAuthority(g_stereo);
     g_stereo.presenter.PublishGameplayFeedbackContext(false);
     g_stereo.frame_feedback_context_token.store(0, std::memory_order_release);
     LogLine("native_stereo_pre_exit: stage=begin boundary=CoJ.exe!DestroyGame");
     g_stereo.runtime_ready = false;
     StopPresentHookWorker();
     cojvr::games::call_of_juarez::ShutdownCameraProbe();
+    (void)RetireIndependentBank(g_stereo, "pre_destroy_game");
     const bool legacy_texture_restored =
         cojvr::games::call_of_juarez::RestoreD3D9ExLegacyTextureCompatibility();
     LogLine(std::string("native_stereo_legacy_texture_hook: status=") +
@@ -2044,6 +2460,8 @@ void Finalize() noexcept {
     g_stereo.capture.Shutdown();
     g_stereo.flat_capture.Shutdown();
     LogLine("native_stereo_shutdown: stage=capture_end");
+    if(g_stereo.fixed_outputs.enabled)LogLine(std::string("independent_eye_shutdown: restored=")+
+        (g_stereo.independent_render.Shutdown()?"true":"false"));
     try {
         const auto capture_stats = g_stereo.capture.stats();
         const auto presenter_stats = g_stereo.presenter.stats();
@@ -2197,8 +2615,25 @@ void EnsureStarted() noexcept {
                 std::string control(65537,'\0'); input.read(control.data(),static_cast<std::streamsize>(control.size()));
                 control.resize(static_cast<std::size_t>(input.gcount()));
                 cojvr::games::call_of_juarez::CameraProbeCommand command{};
-                if(control.size()<=65536&&cojvr::games::call_of_juarez::ParseCameraProbeCommand(control,command,nullptr))
+                if(control.size()<=65536&&cojvr::games::call_of_juarez::ParseCameraProbeCommand(control,command,nullptr)) {
                     g_resource_probe_enabled.store(command.render_resource_probe_enabled);
+                    if (command.independent_eye_height == 1440 || command.independent_eye_height == 1920) {
+                        g_stereo.fixed_outputs = {
+                            .enabled = true,
+                            .native_width = 2560,
+                            .native_height = command.independent_eye_height,
+                            .desktop_width = 2560,
+                            .desktop_height = 1440,
+                            .native_d3d_format = 21,
+                            .max_output_bytes = 128ULL * 1024 * 1024,
+                        };
+                    }
+                }
+                LogLine(std::string("independent_eye_config: startup_enabled=") +
+                    (g_stereo.fixed_outputs.enabled ? "true" : "false") +
+                    ";native_width=" + std::to_string(g_stereo.fixed_outputs.native_width) +
+                    ";native_height=" + std::to_string(g_stereo.fixed_outputs.native_height) +
+                    ";desktop=2560x1440;format=21;max_output_bytes=134217728;runtime_edits=ignored");
                 LogLine(std::string("render_resource_probe_config: startup_enabled=")+
                     (g_resource_probe_enabled.load()?"true":"false")+" coverage=binding_state_only max_pairs=6 pairs_per_route=2 max_records_per_eye=4096 cpu_buffer_bytes_per_thread="+
                     std::to_string(sizeof(cojvr::backends::d3d9::D3D9RenderResourceRecord)*ResourceProbe::max_records)+
@@ -2216,6 +2651,13 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
                 stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
                 stereo_callbacks.observe_reload_depth = &ObserveReloadDepth;
+                if (g_stereo.fixed_outputs.enabled) {
+                    stereo_callbacks.begin_eye_render = &BeginIndependentEyeRender;
+                    stereo_callbacks.end_eye_render = &EndIndependentEyeRender;
+                    stereo_callbacks.mirror_eye_pair = &MirrorIndependentEyePair;
+                    stereo_callbacks.eye_render_restoration_pending = &IndependentEyeRestorationPending;
+                    stereo_callbacks.observe_natural_render = &ObserveNaturalFrame;
+                }
                 if(g_resource_probe_enabled.load())stereo_callbacks.observe_render_pass = &ObserveRenderPass;
             }
 

@@ -14,7 +14,9 @@ param(
 
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
-    [switch]$RenderResourceProbe
+    [switch]$RenderResourceProbe,
+    [ValidateSet('off','2560x1440','2560x1920')]
+    [string]$IndependentEyeResolution = 'off'
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,6 +99,9 @@ $ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 switch ($Action) {
     "prepare" {
         Assert-GameClosed
+        if ($IndependentEyeResolution -ne 'off' -and ($StartupOnly -or -not $BodyIkAtStart -or -not $LargeAddressAware)) {
+            throw 'IndependentEyeResolution requires full BodyIkAtStart and LargeAddressAware.'
+        }
         if ($RenderResourceProbe -and ($StartupOnly -or -not $BodyIkAtStart)) {
             throw "RenderResourceProbe requires the full BodyIkAtStart candidate."
         }
@@ -148,7 +153,8 @@ switch ($Action) {
                 -ValidationProfile $ValidationProfile `
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
-                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe `
+                -IndependentEyeResolution $IndependentEyeResolution
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -204,6 +210,7 @@ switch ($Action) {
         Write-Host "Validation profile: $ValidationProfile"
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
+        Write-Host "Independent eye prototype: $IndependentEyeResolution (startup only; desktop dimensions preserved; unsupported context falls back to native theater)."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"
         Write-Host "Bounded reload wait/zero-transfer probe: $($ReloadWaitProbe.IsPresent.ToString().ToLowerInvariant()) (gesture route; Square remains native)"

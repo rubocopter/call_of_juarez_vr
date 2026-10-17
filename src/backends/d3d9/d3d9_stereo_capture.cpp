@@ -103,6 +103,7 @@ struct D3D9StereoCapture::Impl {
     TransportMode transport_mode = TransportMode::classic_cpu_fallback;
     bool resources_initialized = false;
     bool flat_resources_initialized = false;
+    bool shared_only = false;
 #if defined(COJVR_GPU_COPY_FAULT_TESTING)
     bool force_next_fence_poll_failure = false;
 #endif
@@ -224,6 +225,15 @@ struct D3D9StereoCapture::Impl {
             last_error = Failure("capture surface GetDesc", hr);
             return false;
         }
+        if(shared_only&&(!resources_initialized||resource_device.Get()!=device||
+            generation!=resource_generation||!SameDescription(desc,source_desc))){
+            last_error="shared-only capture layout was not prepared before rendering";return false;
+        }
+        return PrepareResources(device,desc,resource_generation);
+    }
+    bool PrepareResources(IDirect3DDevice9* device,const D3DSURFACE_DESC& desc,
+        const std::uint64_t resource_generation) noexcept {
+        HRESULT hr=S_OK;
         if (desc.Format == kD3dFormatNull) {
             last_error = "capture source is D3DFMT_NULL auxiliary render target";
             return false;
@@ -239,6 +249,9 @@ struct D3D9StereoCapture::Impl {
         }
 
         ReclaimConsumerSlots();
+        if(shared_only&&resources_initialized){
+            last_error="shared-only layout replacement requires explicit retirement";return false;
+        }
         for (const auto& slot : slots) {
             if (slot.release_state) {
                 last_error =
@@ -291,6 +304,8 @@ struct D3D9StereoCapture::Impl {
                 for (auto& surface : slot.gpu_eyes) surface.Reset();
                 slot.shared_handles = {};
             }
+            if(shared_only){last_error="shared-only transport allocation failed; CPU fallback excluded";
+                ReleaseResources();return false;}
             fallback_reason = !is_d3d9ex
                 ? "classic_d3d9_device_has_no_shared_resource_interop"
                 : Failure("D3D9Ex shared render-target texture creation", shared_failure);
@@ -938,6 +953,31 @@ void D3D9StereoCapture::InvalidateResources() noexcept {
         }
     }
     impl_->ReleaseResources();
+}
+
+bool D3D9StereoCapture::PrepareSharedOnly(IDirect3DDevice9* device,std::uint32_t width,
+    std::uint32_t height,D3DFORMAT format,std::uint64_t generation) noexcept {
+    if(!device||!generation||!width||!height||width>8192||height>8192)return false;
+    impl_->shared_only=true;
+    const D3DSURFACE_DESC desc{format,D3DRTYPE_SURFACE,D3DUSAGE_RENDERTARGET,
+        D3DPOOL_DEFAULT,D3DMULTISAMPLE_NONE,0,width,height};
+    return impl_->PrepareResources(device,desc,generation)&&gpu_resident_active();
+}
+bool D3D9StereoCapture::TryInvalidateResources() noexcept {
+    impl_->ReclaimConsumerSlots();
+    for(auto& slot:impl_->slots){
+        if(slot.release_state)return false;
+        if(slot.producer_fence_failed)return false;
+        if(!slot.pending&&(slot.eye_captured[0]||slot.eye_captured[1])){
+            if(!slot.fence||FAILED(slot.fence->Issue(D3DISSUE_END)))return false;
+            slot.pending=true;
+        }
+        if(slot.pending){BOOL done=FALSE;
+            const auto hr=slot.fence->GetData(&done,sizeof(done),D3DGETDATA_FLUSH);
+            if(hr!=S_OK||!done)return false;
+        }
+    }
+    impl_->ReleaseResources();return true;
 }
 
 void D3D9StereoCapture::Shutdown() noexcept { InvalidateResources(); }

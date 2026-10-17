@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backends/d3d9/frame_mailbox.hpp"
+#include "backends/openvr/fixed_output_policy.hpp"
 #include "runtime/vr_types.hpp"
 #include "runtime/vr_settings.hpp"
 
@@ -97,8 +98,18 @@ public:
         PresenterLogCallback log_callback = nullptr,
         void* log_context = nullptr,
         FlatUiPointerCallback flat_ui_callback = nullptr,
-        void* flat_ui_context = nullptr) noexcept;
+        void* flat_ui_context = nullptr,
+        FixedOutputConfiguration fixed_outputs = {}) noexcept;
     void Stop() noexcept;
+    // Storage readiness only, not native-family, capture or headset admission.
+    [[nodiscard]] FixedOutputReadiness GetFixedOutputReadiness() const noexcept;
+    // Sample at capture authorization and carry to Publish. The producer must
+    // ALSO validate its own source-queue CaptureEpoch before publication.
+    [[nodiscard]] std::uint64_t FixedOutputFrameAuthorityEpoch() const noexcept;
+    // Call before Reset/ResetEx forwarding and on rejected/aborted ownership.
+    // Invalidates pixels/queued captures, never the four output allocations.
+    // Cannot retract an eye already handed to the compositor.
+    void InvalidateFixedOutputFrameAuthority() noexcept;
     void PublishGameplayFeedbackContext(bool available) noexcept;
     [[nodiscard]] std::uint64_t GameplayFeedbackContextToken() const noexcept;
     void PublishReloadFeedbackOwner(std::uint64_t token) noexcept;
@@ -106,7 +117,8 @@ public:
     void PublishSettingsContext(std::uint64_t token, bool available = true) noexcept;
     void PublishSettingsLanguage(runtime::SettingsLanguage language) noexcept;
 
-    [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame) noexcept;
+    [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame,
+        std::uint64_t fixed_output_authority_epoch = 0) noexcept;
     [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;
     void RecycleFrame(d3d9::StereoCpuFrame frame) noexcept;
     [[nodiscard]] bool LatestTracking(OpenVrTrackingSample& sample) noexcept;
