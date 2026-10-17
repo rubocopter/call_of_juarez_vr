@@ -137,6 +137,15 @@ int main() {
         ParseCameraProbeCommand(R"({"enabled":false,"renderResourceProbeEnabled":1})",command,&error)) {
         std::cerr << "invalid resource probe control\n"; return 1;
     }
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":true})",command,&error) ||
+        !command.frame_luma_probe_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":1})",command,&error) ||
+        ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":truejunk})",command,&error) ||
+        ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":false1})",command,&error) ||
+        ParseCameraProbeCommand(R"({"enabled":false,"frameLumaProbeEnabled":true junk})",command,&error) ||
+        !ParseCameraProbeCommand(R"({"enabled":false})",command,&error) || command.frame_luma_probe_enabled) {
+        std::cerr << "invalid luma probe opt-in/default\n"; return 1;
+    }
     if (ParseCameraProbeCommand(R"({"enabled":true,"fovDegrees":200})", command, &error) ||
         ParseCameraProbeCommand(R"({"yawDegrees":10})", command, &error) ||
         ParseCameraProbeCommand(R"({"enabled":true,"pitchDegrees":nan})", command, &error) ||

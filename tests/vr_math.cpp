@@ -208,6 +208,41 @@ int main() {
     psvr_right.fov = FovFromTangents(-0.95F, 1.84F, 1.33F, -1.33F);
     psvr_left.width = psvr_right.width = 2804;
     psvr_left.height = psvr_right.height = 2860;
+    {
+        std::uint32_t reference_w=0,reference_h=0,menu_w=0,menu_h=0,canvas_w=0,canvas_h=0;
+        const std::array<EyeView,2> menu_eyes{psvr_left,psvr_right};
+        if (!ComputeFlatTheaterTextureExtent(menu_eyes,2560,1440,reference_w,reference_h) ||
+            !ComputeFlatTheaterTextureExtent(menu_eyes,2804,2860,canvas_w,canvas_h) ||
+            !ComputeFlatTheaterMenuRectangle(menu_eyes,2804,2860,2560,1440,canvas_w,canvas_h,menu_w,menu_h) ||
+            double(menu_w)/canvas_w>2560.0/reference_w ||
+            double(menu_h)/canvas_h>1440.0/reference_h || menu_w>=2804 || menu_h>=2860)
+            return Fail("menu must fit the reference angular box in the existing canvas");
+        const double tx=.5*(std::tan(psvr_left.fov.angle_right)-std::tan(psvr_left.fov.angle_left)+
+            std::tan(psvr_right.fov.angle_right)-std::tan(psvr_right.fov.angle_left));
+        const double ty=.5*(std::tan(psvr_left.fov.angle_up)-std::tan(psvr_left.fov.angle_down)+
+            std::tan(psvr_right.fov.angle_up)-std::tan(psvr_right.fov.angle_down));
+        if (std::abs((double(menu_w)*tx/canvas_w)/(double(menu_h)*ty/canvas_h)-2804.0/2860)>0.002)
+            return Fail("menu geometry stretched the captured image");
+        FlatTheaterEyePlacement placement{};
+        for (const auto& eye:menu_eyes)
+            if (!ComputeFlatTheaterEyePlacement(eye,menu_w,menu_h,canvas_w,canvas_h,placement))
+                return Fail("logical menu rectangle clipped an asymmetric eye");
+        Pose anchor{},aim{};
+        anchor.orientation_valid=anchor.position_valid=true;
+        aim=anchor;aim.position={0.1F,0.1F,0.0F};
+        FlatTheaterPointerProjection old_pointer{},new_pointer{};
+        if (!ProjectFlatTheaterPointer(anchor,aim,psvr_left.fov,psvr_right.fov,
+                menu_w,menu_h,canvas_w,canvas_h,old_pointer) ||
+            !ProjectFlatTheaterSourcePointer(anchor,aim,psvr_left.fov,psvr_right.fov,
+                2804,2860,menu_w,menu_h,canvas_w,canvas_h,new_pointer) ||
+            std::abs(old_pointer.u-new_pointer.u)>0.001F ||
+            std::abs(old_pointer.v-new_pointer.v)>0.001F ||
+            new_pointer.pixel_x>=2804 || new_pointer.pixel_y>=2860)
+            return Fail("logical menu scale changed ray alignment or native source coordinates");
+        std::uint32_t same_w=0,same_h=0;
+        if (ComputeFlatTheaterMenuRectangle(menu_eyes,2804,2860,0,1440,canvas_w,canvas_h,same_w,same_h))
+            return Fail("logical menu reference accepted zero");
+    }
     std::uint32_t flat_width = 0;
     std::uint32_t flat_height = 0;
     if (!ComputeFlatTheaterTextureExtent(

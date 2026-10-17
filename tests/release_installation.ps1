@@ -17,10 +17,11 @@ if ($null -eq $Runtime -or $Runtime.Installed -ne 1 -or
 }
 $Root = Join-Path $SourceDirectory ('work/release-installation-' + [guid]::NewGuid().ToString('N'))
 $Game = Join-Path $Root ('Game ' + [char]0x00F1 + ' sandbox')
+$Preference=Join-Path $Root 'user/resolution.json'
 New-Item -ItemType Directory -Path $Game -Force | Out-Null
 function Assert-True($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Invoke-Frontend([string[]]$Arguments, [bool]$ShouldPass=$true) {
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDirectory 'cojvr.ps1') @Arguments -GameDirectory $Game
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDirectory 'cojvr.ps1') @Arguments -GameDirectory $Game -ResolutionSettingsPath $Preference
     Assert-True (($LASTEXITCODE -eq 0) -eq $ShouldPass) "Unexpected frontend exit code $LASTEXITCODE for $Arguments."
 }
 function Assert-Originals {
@@ -56,6 +57,13 @@ try {
     Assert-True ($Stage.runId -eq $RunAfter.runId) 'Session/stage identity mismatch.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game 'cojvr.log'))) 'Prior session log remains active.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game 'callstack.txt'))) 'Prior crash remains active.'
+    foreach($Extent in @(@(2804,2860),@(2428,2477))) {
+        Invoke-Frontend @('-Action','ConfigureResolution','-ResolutionProfile','Manual','-ResolutionWidth',[string]$Extent[0],'-ResolutionHeight',[string]$Extent[1])
+        Invoke-Frontend @('-Action','PrepareSession')
+        $ProfileRun=Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+        Assert-True ($ProfileRun.validation.videoProfile.resolution -eq "$($Extent[0])x$($Extent[1])") 'Selected startup extent was not applied.'
+        Assert-True ((Get-Content $Video -Raw) -match ('Resolution\('+[string]$Extent[0]+','+[string]$Extent[1]+'\)')) 'Actual Video.scr differs from applied profile metadata.'
+    }
     $Actions = Get-Content -LiteralPath (Join-Path $Game 'cojvr_openvr_input/actions.json') -Raw | ConvertFrom-Json
     Assert-True ($Actions.default_bindings.Count -ge 5) 'Additional controller defaults not installed.'
     foreach ($Binding in $Actions.default_bindings) {

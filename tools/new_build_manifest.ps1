@@ -133,6 +133,13 @@ if ($DiagnosticMode -in @("d3d9_openvr_flat", "d3d9_hmd_camera", "d3d9_native_st
     }
 }
 if ($DiagnosticMode -eq "d3d9_native_stereo") {
+    foreach ($Name in @('cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe')) {
+        $HelperPath=Join-Path ([IO.Path]::GetDirectoryName($ProxyPath)) $Name
+        if (Test-Path -LiteralPath $HelperPath -PathType Leaf) {
+            $Artifacts += [ordered]@{role='resolution_helper';fileName=$Name;sourcePath=$HelperPath;
+                sha256=Get-UpperSha256 $HelperPath;size=(Get-Item -LiteralPath $HelperPath).Length}
+        }
+    }
     foreach ($File in $OpenVrInputManifest.files) {
         $Role = if ($File.path -eq 'actions.json') { 'openvr_action_manifest' }
             elseif ($File.path -eq 'bindings/psvr2_sense.json') { 'openvr_binding_psvr2_sense' }

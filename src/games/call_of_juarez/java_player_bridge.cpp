@@ -3966,6 +3966,70 @@ bool JavaPlayerBridge::TryResolveUiCursor(
     return true;
 }
 
+bool JavaPlayerBridge::TryObserveMainMenu(bool& active, std::string* error, std::uint32_t* owner) noexcept {
+    active = false;
+    if (owner) *owner = 0;
+    void* env = Environment(error);
+    if (!env) return false;
+    const auto find_class = EnvFunction<FindClassFn>(env, kFindClass);
+    const auto is_instance = EnvFunction<IsInstanceOfFn>(env, kIsInstanceOf);
+    const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
+    const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
+    const auto call_boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+    const auto call_int = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA);
+    if (!find_class || !is_instance || !get_class || !get_method || !call_boolean || !call_int ||
+        !EnvFunction<ExceptionOccurredFn>(env, kExceptionOccurred) ||
+        !EnvFunction<ExceptionClearFn>(env, kExceptionClear) ||
+        !EnvFunction<DeleteLocalRefFn>(env, kDeleteLocalRef)) return false;
+    if (ClearException(env, error, "pending JNI exception before main-menu observation")) return false;
+    void* ui = nullptr;
+    CoJUiDispatchRoute route = CoJUiDispatchRoute::none;
+    const auto resolution = TryResolveCurrentGameUi(env, ui, route, error, false);
+    if (resolution != CoJCurrentUiResolution::resolved || !ui) {
+        DeleteLocal(env, ui);
+        (void)ClearException(env, error, "main-menu owner observation failed");
+        return false;
+    }
+    if (route != CoJUiDispatchRoute::global_menu) {
+        DeleteLocal(env, ui);
+        return true;
+    }
+    void* main_class = find_class(env, "MenuMain");
+    if (ClearException(env, error, "MenuMain lookup failed") || !main_class) {
+        DeleteLocal(env, main_class); DeleteLocal(env, ui); return false;
+    }
+    const bool main = is_instance(env, ui, main_class) != 0;
+    bool failed = ClearException(env, error, "MenuMain type observation failed");
+    bool visible = false;
+    std::uint32_t identity = 0;
+    if (main && !failed) {
+        void* ui_class = get_class(env, ui);
+        failed = ClearException(env, error, "MenuMain class observation failed") || !ui_class;
+        if (!failed) {
+            void* visibility = get_method(env, ui_class, "IsActuallyVisible", "()Z");
+            failed = ClearException(env, error, "MenuMain visibility lookup failed") || !visibility;
+            if (!failed) {
+                visible = call_boolean(env, ui, visibility, nullptr) != 0;
+                failed = ClearException(env, error, "MenuMain visibility read failed");
+            }
+            if (visible && !failed) {
+                void* get_id = get_method(env, ui_class, "GetThisID", "()I");
+                failed = ClearException(env, error, "MenuMain identity lookup failed") || !get_id;
+                if (!failed) {
+                    identity = static_cast<std::uint32_t>(call_int(env, ui, get_id, nullptr));
+                    failed = ClearException(env, error, "MenuMain identity read failed") ||
+                        !IsCoJNativeObjectIdentity(identity);
+                }
+            }
+        }
+        DeleteLocal(env, ui_class);
+    }
+    DeleteLocal(env, main_class); DeleteLocal(env, ui);
+    active = !failed && main && visible && identity;
+    if (owner && active) *owner = identity;
+    return !failed;
+}
+
 bool JavaPlayerBridge::TryReadUiPointer(
     JavaPlayerPosition& position, std::string* error, std::int32_t* ui_index) noexcept {
     position = {};

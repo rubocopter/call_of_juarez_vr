@@ -478,6 +478,9 @@ public:
         std::string* error = nullptr,
         CoJNativeUiMouseDispatch dispatch_mouse = nullptr,
         bool* input_consumed = nullptr) noexcept;
+    // Read-only existing global MenuMain admission; no GetUI/LoadUI or input.
+    [[nodiscard]] bool TryObserveMainMenu(bool& active, std::string* error = nullptr,
+        std::uint32_t* owner = nullptr) noexcept;
     // Observe the current UI's native GetMousePos (X/Z mapped to X/Y), falling
     // back to cursor sprite position only when no current UI exists. Call on
     // the game thread; failure clears all output.

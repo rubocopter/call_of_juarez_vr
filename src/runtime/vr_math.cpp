@@ -231,6 +231,57 @@ bool ComputeFlatTheaterTextureExtent(
     return true;
 }
 
+bool ComputeFlatTheaterMenuRectangle(
+    const std::array<EyeView, 2>& eyes,
+    const std::uint32_t source_width, const std::uint32_t source_height,
+    const std::uint32_t reference_width, const std::uint32_t reference_height,
+    const std::uint32_t texture_width, const std::uint32_t texture_height,
+    std::uint32_t& draw_width, std::uint32_t& draw_height) noexcept {
+    draw_width = draw_height = 0;
+    std::uint32_t reference_texture_width = 0, reference_texture_height = 0;
+    if (!source_width || !source_height || !texture_width || !texture_height || !ComputeFlatTheaterTextureExtent(
+            eyes, reference_width, reference_height,
+            reference_texture_width, reference_texture_height)) return false;
+    double span_x=0,span_y=0,available_w=texture_width,available_h=texture_height;
+    for (const auto& eye:eyes) {
+        span_x += .5*(std::tan(eye.fov.angle_right)-std::tan(eye.fov.angle_left));
+        span_y += .5*(std::tan(eye.fov.angle_up)-std::tan(eye.fov.angle_down));
+        float u=0,v=0;
+        if (!FlatTheaterEyeCenter(eye,u,v,1.5F)) return false;
+        available_w=std::min(available_w,2.0*std::min(u,1-u)*texture_width-2);
+        available_h=std::min(available_h,2.0*std::min(v,1-v)*texture_height-2);
+    }
+    if (span_x<=0 || span_y<=0) return false;
+    const double scale=std::min({double(reference_width)/reference_texture_width*span_x/source_width,
+        double(reference_height)/reference_texture_height*span_y/source_height,
+        available_w/texture_width*span_x/source_width,available_h/texture_height*span_y/source_height});
+    const double width=std::floor(source_width*scale/span_x*texture_width);
+    const double height=std::floor(source_height*scale/span_y*texture_height);
+    if (!std::isfinite(width)||!std::isfinite(height)||width<1||height<1||
+        width>texture_width||height>texture_height) return false;
+    draw_width=static_cast<std::uint32_t>(width);
+    draw_height=static_cast<std::uint32_t>(height);
+    return true;
+}
+
+bool ProjectFlatTheaterSourcePointer(
+    const Pose& anchor,const Pose& aim,EyeFov left,EyeFov right,
+    std::uint32_t source_width,std::uint32_t source_height,
+    std::uint32_t draw_width,std::uint32_t draw_height,
+    std::uint32_t texture_width,std::uint32_t texture_height,
+    FlatTheaterPointerProjection& projection) noexcept {
+    projection={};
+    if (!source_width||!source_height||!ProjectFlatTheaterPointer(anchor,aim,left,right,
+        draw_width,draw_height,texture_width,texture_height,projection)) return false;
+    projection.pixel_x=std::min(source_width-1,static_cast<std::uint32_t>(projection.u*source_width));
+    projection.pixel_y=std::min(source_height-1,static_cast<std::uint32_t>(projection.v*source_height));
+    projection.beam_origin_x=std::min(source_width-1,static_cast<std::uint32_t>(
+        std::uint64_t(projection.beam_origin_x)*source_width/draw_width));
+    projection.beam_origin_y=std::min(source_height-1,static_cast<std::uint32_t>(
+        std::uint64_t(projection.beam_origin_y)*source_height/draw_height));
+    return true;
+}
+
 bool ComputeFlatTheaterEyePlacement(
     const EyeView& eye,
     const std::uint32_t source_width,

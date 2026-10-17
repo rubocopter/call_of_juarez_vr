@@ -51,6 +51,22 @@ struct FlatTheaterPointerBeam {
     std::uint32_t end_y = 0;
 };
 
+// Aspect-preserving fit into the reference angular box, within an EXISTING
+// output canvas. Returns the visible rectangle, never a render-target size.
+[[nodiscard]] bool ComputeFlatTheaterMenuRectangle(
+    const std::array<EyeView, 2>& eyes,
+    std::uint32_t source_width, std::uint32_t source_height,
+    std::uint32_t reference_width, std::uint32_t reference_height,
+    std::uint32_t texture_width, std::uint32_t texture_height,
+    std::uint32_t& draw_width, std::uint32_t& draw_height) noexcept;
+
+[[nodiscard]] bool ProjectFlatTheaterSourcePointer(
+    const Pose& anchor, const Pose& aim, EyeFov left, EyeFov right,
+    std::uint32_t source_width, std::uint32_t source_height,
+    std::uint32_t draw_width, std::uint32_t draw_height,
+    std::uint32_t texture_width, std::uint32_t texture_height,
+    FlatTheaterPointerProjection& projection) noexcept;
+
 // Builds the visible screen-space segment from the projected tracked
 // controller origin to the menu hit point.
 [[nodiscard]] bool ComputeFlatTheaterPointerBeam(

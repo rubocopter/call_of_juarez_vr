@@ -25,6 +25,21 @@ $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
 $Run = $Provenance.Run
 $Lines = @($ValidationContext.RuntimeLines)
 
+if ([string]$Run.validation.videoProfile.nativeResolution -eq '2804x2860' -or
+    [bool]$Run.validation.videoProfile.experimentalResolution) {
+    $RequestedExtent=[string]$Run.validation.videoProfile.resolution
+    $ResolutionJson = & python (Join-Path $PSScriptRoot 'analyze_coj_native_resolution.py') `
+        (Join-Path $GameDirectory 'cojvr.log') --expected $RequestedExtent
+    if ($LASTEXITCODE -ne 0) { throw 'Native-resolution analyzer failed to execute.' }
+    $ResolutionEvidence = ($ResolutionJson -join "`n") | ConvertFrom-Json
+    if ($ResolutionEvidence.status -ne 'observed' -or
+        $ResolutionEvidence.runId -cne $Run.runId -or
+        $ResolutionEvidence.buildManifestId -ine $Run.buildManifestId) {
+        throw "$RequestedExtent native raster/capture/submitted eye buffers were not verified: $($ResolutionEvidence.errors -join '; ')"
+    }
+    Write-Host "PASS - sampled native color/depth/viewport and both captured/submitted eye buffers are $RequestedExtent (no headset acceptance implied)."
+}
+
 Assert-CoJExecutableProvenance $Run $Provenance.StageState
 if (([string]$Run.game.engine.sha256).ToUpperInvariant() -ne $ExpectedChromeEngineHash -or
     -not [bool]$Run.game.engine.knownInspectedBuild) {

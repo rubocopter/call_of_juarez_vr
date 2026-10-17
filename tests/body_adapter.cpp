@@ -1234,6 +1234,18 @@ int main() {
     // Body translation must share the demonstrated skeleton convention (-Z
     // forward), exclude physical height and rotate with the tracking reference.
     bool body_offset_valid = false;
+    // Ray-only visual fit trial: native camera forward is the tracking +Z
+    // (backward) axis. Looking down must not lower or enlarge the setback.
+    const Vec3 ray_back=BuildCoJVisualBodySetback(true,true,{0,0,1},100,body_offset_valid);
+    if (!body_offset_valid || !Near(Distance(ray_back,{0,0,8}),0) ||
+        !Near(Distance(BuildCoJVisualBodySetback(true,true,{.6F,.8F,0},100,body_offset_valid),{8,0,0}),0) ||
+        !body_offset_valid ||
+        !Near(Distance(BuildCoJVisualBodySetback(false,true,{0,0,1},100,body_offset_valid),{}),0) ||
+        !Near(Distance(BuildCoJVisualBodySetback(true,false,{0,0,1},100,body_offset_valid),{}),0)) {
+        std::cerr << "Ray visual setback changed height, actor parity or native-hand route\n";return 1;
+    }
+    (void)BuildCoJVisualBodySetback(true,true,{0,1,0},100,body_offset_valid);
+    if (body_offset_valid) {std::cerr << "Ray setback accepted an unqualified horizontal direction\n";return 1;}
     const Vec3 forward_body = BuildCoJVisualBodyOffset(
         {0.0F, -0.4F, -0.2F}, {1, 0, 0}, {0, 0, 1}, 100.0F, body_offset_valid);
     if (!body_offset_valid || !Near(Distance(forward_body, {0, 0, -20}), 0.0F)) {

@@ -24,12 +24,15 @@ struct Object { float x = 0, y = 0, z = 0; int locals = 0, globals = 0; };
 Object game, lawman, single, menu_class, module_class, cursor_class, vector_class, ui_class;
 Object global_menu, active_menu, module, global_cursor, active_cursor, vector, exception, ui;
 Object modal_ui;
+Object main_menu_class;
+bool main_menu_ui = false;
+bool main_menu_visible = true, main_visibility_fault = false;
 Object game_mode_class, game_mode, loading_class;
 Object manager_class, manager, hint_class, hint;
 Object* const objects[] = {&game, &lawman, &single, &menu_class, &module_class,
     &cursor_class, &vector_class, &global_menu, &active_menu, &module,
     &global_cursor, &active_cursor, &vector, &exception, &ui_class, &ui, &modal_ui,
-    &game_mode_class, &game_mode, &loading_class, &manager_class, &manager, &hint_class, &hint};
+    &game_mode_class, &game_mode, &loading_class, &manager_class, &manager, &hint_class, &hint, &main_menu_class};
 enum class Id { menu = 1, active, cmenu, cursor, current_ui, ctor, getpos,
     setpos, move, process, x, y, z, ui_index, mousepos, object_id, find_ui,
     yes_no_visible, yes_no_dialog, game_mode, hint_manager, enter_press, enter_release,
@@ -90,6 +93,7 @@ void* COJVR_JNICALL Find(void*, const char* name) {
     if (Is(name, "LawmanModule")) return Local(module_class);
     if (Is(name, "GameMode")) return Local(game_mode_class);
     if (Is(name, "GameUILoading")) return Local(loading_class);
+    if (Is(name, "MenuMain")) return Local(main_menu_class);
     if (Is(name, "Vector")) return Local(vector_class);
     Require(false); return nullptr;
 }
@@ -271,6 +275,11 @@ std::uint8_t COJVR_JNICALL Boolean(void*, void* obj, void* method, const JValue*
         Require(!pending && !args);
         return modal_visible ? 1 : 0;
     }
+    if (obj == &ui && method == Token(Id::actually_visible)) {
+        Require(!pending && !args);
+        if (main_visibility_fault) { pending=true; return 0; }
+        return main_menu_visible ? 1 : 0;
+    }
     if (obj == &hint) {
         Require(!pending && method == Token(Id::pause_hint) && !args);
         return hint_pauses ? 1 : 0;
@@ -354,6 +363,7 @@ void COJVR_JNICALL Void(void*, void* obj, void* method, const JValue* args) {
     }
 }
 std::uint8_t COJVR_JNICALL Instance(void*, void* obj, void* cls) {
+    if (cls == &main_menu_class) { Require(!pending); return obj == &ui && main_menu_ui ? 1 : 0; }
     if (obj == &module && cls == &single) { Require(!pending); return single_module ? 1 : 0; }
     Require(!pending && (obj == &ui || obj == &modal_ui) && cls == &loading_class);
     return obj == &ui && loading_ui ? 1 : 0;
@@ -433,6 +443,40 @@ int Run() {
     global_cursor.x = 123.25F; global_cursor.y = 456.5F; global_cursor.z = 7.0F;
     active_cursor.x = 321.0F; active_cursor.y = 654.0F; active_cursor.z = 9.0F;
     bool ok = true;
+    current_ui_available = main_menu_ui = global_available = true;
+    for (int scenario=0;scenario<5;++scenario) {
+        global_available = scenario != 2;
+        main_menu_ui = scenario != 1;
+        current_ui_available = scenario != 3;
+        modal_visible = scenario == 4;
+        JavaPlayerBridge bridge; std::string error; bool main = true;
+        const int before_mutations=mutations, before_loads=creating_ui_lookups;
+        const bool observed=bridge.TryObserveMainMenu(main,&error);
+        ok &= Check((observed && main)==(scenario==0) &&
+            mutations==before_mutations && creating_ui_lookups==before_loads,
+            "menu reference requires an existing global MenuMain without UI creation or mutation");
+        bridge.Reset(); CheckClean();
+    }
+    current_ui_available = main_menu_ui = modal_visible = false;
+    for (int scenario=0;scenario<2;++scenario) {
+        current_ui_available=main_menu_ui=global_available=true;
+        main_menu_visible=false;main_visibility_fault=scenario==1;
+        JavaPlayerBridge bridge;bool main=true;
+        const int before=mutations;
+        (void)bridge.TryObserveMainMenu(main);
+        ok &= Check(!main && !pending && mutations==before,
+            "hidden or unreadable MenuMain must not acquire presentation authority");
+        bridge.Reset();CheckClean();
+    }
+    current_ui_available=main_menu_ui=main_visibility_fault=false;main_menu_visible=true;
+    global_available = true;
+    {
+        void* saved=env_table[32];env_table[32]=nullptr;
+        JavaPlayerBridge bridge;bool main=true;
+        ok &= Check(!bridge.TryObserveMainMenu(main) && !main,
+            "missing menu type observation must clear presentation authority");
+        env_table[32]=saved;bridge.Reset();CheckClean();
+    }
     for (const bool use_global : {true, false}) {
         global_available = use_global;
         JavaPlayerBridge bridge;

@@ -78,6 +78,7 @@ struct CameraProbeCommand {
     bool capture_readback_enabled = true;
     bool second_eye_render_enabled = true;
     bool render_resource_probe_enabled = false;
+    bool frame_luma_probe_enabled = false; // Startup-only read-only flash diagnosis.
     // Read once by the renderer at startup; 0 disables, width fixed at 2560.
     std::uint32_t independent_eye_height = 0;
 };
@@ -299,6 +300,8 @@ struct CameraStereoDiagnosticCounters {
     float pixel_y,
     std::string* error = nullptr,
     bool* input_consumed = nullptr) noexcept;
+// Positive existing global MenuMain observation on the game thread.
+[[nodiscard]] bool ObserveCameraMainMenuActive(std::uint32_t* owner = nullptr) noexcept;
 // Read CoJ's logical menu cursor on the game thread, without delivering input.
 // Unavailable/failed observations clear position.
 [[nodiscard]] bool ObserveCameraUiPointerPosition(

@@ -1,4 +1,4 @@
-"""Exact CoJ player mesh split; geometry partition keeps native proportions."""
+"""Exact CoJ player split; preserve proportions and scope Ray's free coat in VR."""
 import argparse, copy, hashlib, shutil, struct, zipfile
 from pathlib import Path
 
@@ -33,7 +33,11 @@ def split_player_mesh(data, body_name):
         raise ValueError('Skin array size mismatch')
     ip=cs[0x140][0]; wp=cs[0x130][0]; q=cs[0x151][0]; qe=q+cs[0x151][1]
     indices=struct.unpack_from('<'+'H'*ni,data,ip)
-    result=bytearray(data); extra=bytearray(data[body:body+size]); next_index=0; removed=retained=0
+    result=bytearray(data); extra=bytearray(data[body:body+size]); next_index=0; removed=retained=coat_removed=0
+    # Exact Ray cloth grid: row 00 is anchored; only simulated distal rows
+    # 01/02/03 join the existing scoped hidden node. Billy is unchanged.
+    free_coat_bones={f'Lip_Cloak_{side}_{column}0{row}'
+        for side in 'LR' for column in 'ABCD' for row in (1,2,3)} if body_name=='RayBody' else set()
     for _ in range(nb):
         if q+12>qe:raise ValueError('Truncated skin batch')
         material,start,count,np=struct.unpack_from('<HIIH',data,q);q+=12
@@ -41,7 +45,7 @@ def split_player_mesh(data, body_name):
             raise ValueError('Invalid skin batch coverage')
         palette=struct.unpack_from('<'+'H'*np,data,q);q+=2*np
         if any(n>=len(names) for n in palette):raise ValueError('Invalid skin bone palette')
-        forbidden={}
+        forbidden={}; free_coat={}; hand_vertices={}
         for ix in set(indices[start:start+count]):
             if ix>=nv:raise ValueError('Invalid vertex index')
             bi=struct.unpack_from('<4B',data,wp+12*ix);weights=struct.unpack_from('<4H',data,wp+12*ix+4)
@@ -60,21 +64,28 @@ def split_player_mesh(data, body_name):
                 if any(n not in lower for n in influences):
                     raise ValueError('Hand skin contributor is outside the rigid hand overlay')
             forbidden[ix]=arm and not hand
+            free_coat[ix]=any(n in free_coat_bones for n in influences)
+            hand_vertices[ix]=hand
         for offset in range(start,start+count,3):
             tri=indices[offset:offset+3]
             is_arm=any(forbidden[ix] for ix in tri)
+            is_coat=any(free_coat[ix] for ix in tri)
+            if is_coat and any(hand_vertices[ix] for ix in tri):
+                raise ValueError('Ray cloth partition overlaps retained hand geometry')
             # Keep draw/vertex counts and all palette/bind data unchanged.
-            destination=result if is_arm else extra
-            at=ip+2*offset if is_arm else ip-body+2*offset
+            hidden=is_arm or is_coat
+            destination=result if hidden else extra
+            at=ip+2*offset if hidden else ip-body+2*offset
             struct.pack_into('<3H',destination,at,tri[0],tri[0],tri[0])
-            removed+=is_arm;retained+=not is_arm
+            removed+=is_arm;coat_removed+=is_coat and not is_arm;retained+=not hidden
         next_index=start+count
     if next_index!=ni or q!=qe or removed==0 or retained==0:raise ValueError('Incomplete arm partition')
     extra[20:52]=b'CoJVRHiddenArms'.ljust(32,b'\0')
     # Append without relocating any existing node or auxiliary file offsets.
     result.extend(extra)
     struct.pack_into('<I',result,8,len(result));struct.pack_into('<I',result,16,len(nodes)+1)
-    return bytes(result),{'arm_triangles':removed,'retained_triangles':retained}
+    return bytes(result),{'arm_triangles':removed,'free_coat_triangles':coat_removed,
+        'hidden_triangles':removed+coat_removed,'retained_triangles':retained}
 
 MESH_HASHES = {
     'Ray':'9b3f4579cd32476f866dc1aad5a1bd0f1bc913449548f40f7c76bd37cd8d33b5',
@@ -122,4 +133,4 @@ def patch_archive(source, output):
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('source',type=Path);parser.add_argument('output',type=Path)
     args=parser.parse_args();patch_archive(args.source,args.output)
-    print('Exact player arm geometry partitioned; other compressed archive records unchanged')
+    print('Exact player arms and Ray free coat partitioned; other compressed archive records unchanged')

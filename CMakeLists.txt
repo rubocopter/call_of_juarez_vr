@@ -189,6 +189,17 @@ if(COJVR_ENABLE_OPENVR)
             "${COJVR_OPENVR_DLL}"
             "$<TARGET_FILE_DIR:cojvr_openvr_probe>/openvr_api.dll"
     )
+    add_executable(cojvr_d3d9_resolution_limits tools/d3d9_resolution_limits.cpp src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_d3d9_resolution_limits PRIVATE src)
+    target_compile_features(cojvr_d3d9_resolution_limits PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_d3d9_resolution_limits PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_executable(cojvr_openvr_resolution_query tools/openvr_resolution_query.cpp)
+    target_link_libraries(cojvr_openvr_resolution_query PRIVATE openvr_api)
+    target_compile_features(cojvr_openvr_resolution_query PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_openvr_resolution_query PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_custom_command(TARGET cojvr_openvr_resolution_query POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${COJVR_OPENVR_DLL}"
+            "$<TARGET_FILE_DIR:cojvr_openvr_resolution_query>/openvr_api.dll")
 endif()
 
 if(COJVR_ENABLE_OPENXR)
@@ -463,6 +474,22 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
     add_test(NAME manual_reload_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_analysis.py")
     add_test(NAME render_resource_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/render_resource_analysis.py")
+    add_test(NAME native_resolution_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_resolution_analysis.py")
+    add_test(NAME resolution_profiles COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/resolution_profiles.py")
+    add_test(NAME resolution_profile_workflow COMMAND "${COJVR_POWERSHELL_EXECUTABLE}" -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/tests/resolution_profile_workflow.ps1"
+        -SourceDirectory "${CMAKE_SOURCE_DIR}" -BinaryDirectory "${CMAKE_BINARY_DIR}")
+    foreach(resolution_test IN ITEMS resolution_settings resolution_session release_resolution_video)
+        add_test(NAME ${resolution_test} COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_SOURCE_DIR}/tests/${resolution_test}.ps1" -SourceDirectory "${CMAKE_SOURCE_DIR}")
+    endforeach()
+    if(COJVR_ENABLE_OPENVR)
+        add_test(NAME d3d9_resolution_limits_cli COMMAND "${COJVR_PYTHON_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/d3d9_resolution_limits.py" "$<TARGET_FILE:cojvr_d3d9_resolution_limits>")
+        add_test(NAME openvr_resolution_query_cli COMMAND "${COJVR_PYTHON_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/openvr_resolution_query.py" "$<TARGET_FILE:cojvr_openvr_resolution_query>")
+    endif()
+    add_test(NAME frame_luma_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/frame_luma_analysis.py")
     add_test(NAME render_resource_controls COMMAND pwsh -NoProfile -File "${CMAKE_SOURCE_DIR}/tests/render_resource_controls.ps1" -SourceDirectory "${CMAKE_SOURCE_DIR}" -BinaryDirectory "${CMAKE_BINARY_DIR}")
     add_test(NAME reload_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_reload_cartridge.py" --check)
     add_test(NAME textured_cartridge_import COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/import_textured_cartridge.py" --check)
@@ -838,6 +865,15 @@ if(COJVR_BUILD_TESTS)
     set_tests_properties(render_resource_probe_ex PROPERTIES SKIP_RETURN_CODE 77)
     set_tests_properties(render_resource_probe PROPERTIES SKIP_RETURN_CODE 77)
 
+    add_executable(cojvr_frame_luma_probe_test tests/frame_luma_probe.cpp
+        src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_frame_luma_probe_test PRIVATE src)
+    target_compile_features(cojvr_frame_luma_probe_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_frame_luma_probe_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME frame_luma_probe COMMAND cojvr_frame_luma_probe_test)
+    add_test(NAME frame_luma_probe_ex COMMAND cojvr_frame_luma_probe_test --ex)
+    set_tests_properties(frame_luma_probe frame_luma_probe_ex PROPERTIES SKIP_RETURN_CODE 77)
+
     add_executable(cojvr_ppfx_resource_observation_test tests/ppfx_resource_observation.cpp)
     target_link_libraries(cojvr_ppfx_resource_observation_test PRIVATE cojvr_coj_ppfx_observation)
     add_test(NAME ppfx_resource_observation COMMAND cojvr_ppfx_resource_observation_test)
@@ -934,6 +970,12 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_vr_math_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME vr_math COMMAND cojvr_vr_math_test)
+    add_executable(cojvr_flat_menu_composition_test tests/flat_menu_composition.cpp)
+    target_include_directories(cojvr_flat_menu_composition_test PRIVATE src)
+    target_compile_features(cojvr_flat_menu_composition_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_flat_menu_composition_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(cojvr_flat_menu_composition_test PRIVATE d3d11 d3dcompiler)
+    add_test(NAME flat_menu_composition COMMAND cojvr_flat_menu_composition_test)
 
     add_executable(
         cojvr_frame_mailbox_test

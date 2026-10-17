@@ -15,8 +15,19 @@ param(
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
+    [switch]$FrameLumaProbe,
+    [switch]$MenuPresentationCheck,
     [ValidateSet('off','2560x1440','2560x1920')]
-    [string]$IndependentEyeResolution = 'off'
+    [string]$IndependentEyeResolution = 'off',
+    [ValidateSet('preserve','2804x2860')]
+    [string]$NativeResolution = 'preserve',
+    [ValidateSet('Preserve','Auto','75%','100%','125%','Manual')]
+    [string]$ResolutionProfile = 'Preserve',
+    [object]$ResolutionWidth = 0,
+    [object]$ResolutionHeight = 0,
+    [switch]$ExperimentalResolutionProfile,
+    [switch]$UseSavedResolutionProfile,
+    [string]$ResolutionSettingsPath = ''
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,11 +52,85 @@ function Restore-VrVideoProfile {
 }
 
 function Apply-VrVideoProfile {
+    param([ValidateSet('preserve','2804x2860')] [string]$NativeResolution = 'preserve',
+          [object]$ExperimentalWidth=0,[object]$ExperimentalHeight=0)
     if (-not (Test-Path -LiteralPath $LocalStateDirectory -PathType Container)) {
         New-Item -ItemType Directory -Path $LocalStateDirectory -Force | Out-Null
     }
     return Apply-CoJVrVideoProfile -VideoPath (Get-CoJVideoSettingsPath) `
-        -StatePath $VideoProfileStatePath -BackupPath $VideoProfileBackupPath
+        -StatePath $VideoProfileStatePath -BackupPath $VideoProfileBackupPath -NativeResolution $NativeResolution `
+        -ExperimentalWidth $ExperimentalWidth -ExperimentalHeight $ExperimentalHeight
+}
+
+function Invoke-VrResolutionObservation {
+    $PreparationId='resolution-'+[guid]::NewGuid().ToString('N')
+    $Helper=Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_openvr_resolution_query.exe'
+    $Raw=& $Helper --preparation-id $PreparationId
+    $ExitCode=$LASTEXITCODE
+    if ($ExitCode -notin @(0,2)) {throw 'Resolution observation helper failed.'}
+    try {$Record=($Raw -join "`n") | ConvertFrom-Json} catch {throw 'Resolution helper did not return a valid observation.'}
+    return [pscustomobject]@{PreparationId=$PreparationId;Record=$Record}
+}
+
+function Invoke-VrNativeResolutionLimits {
+    param([int]$Width,[int]$Height)
+    $Helper=Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_d3d9_resolution_limits.exe'
+    $Raw=& $Helper --width $Width --height $Height
+    $ExitCode=$LASTEXITCODE
+    try {$Record=($Raw -join "`n") | ConvertFrom-Json} catch {throw 'Invalid native resolution limits report.'}
+    if ($ExitCode -notin @(0,2) -or $Record.schemaVersion -ne 1 -or
+        $Record.recordType -ne 'cojvr-native-resolution-limits' -or $Record.adapterIndex -ne 0 -or
+        $Record.requestedWidth -ne $Width -or $Record.requestedHeight -ne $Height -or
+        $Record.status -notin @('caps_compatible','incompatible','unavailable') -or
+        (($ExitCode -eq 0) -ne ($Record.status -eq 'caps_compatible'))) {
+        throw 'Native resolution limits report is inconsistent.'
+    }
+    return $Record
+}
+
+function Resolve-VrResolutionProfile {
+    param([ValidateSet('Preserve','Auto','75%','100%','125%','Manual')][string]$Profile='Preserve',
+          [object]$Width=0,[object]$Height=0,[switch]$Experimental)
+    $Width=ConvertTo-CoJNativeDimension $Width
+    $Height=ConvertTo-CoJNativeDimension $Height
+    if ($Profile -eq 'Preserve') {
+        if ($Width -or $Height -or $Experimental) {throw 'Explicit dimensions/experimental opt-in require a resolution profile.'}
+        return [pscustomobject]@{Status='preserve';Width=0;Height=0;Experimental=$false;Profile=$Profile;Proposal=$null}
+    }
+    if (-not $Experimental) {throw 'Resolution profiles require ExperimentalResolutionProfile until release qualification is complete.'}
+    $Resolver=Join-Path $RepositoryRoot 'tools/coj_resolution_profiles.py'
+    if ($Profile -eq 'Manual') {
+        $Raw=python $Resolver --profile Manual --width $Width --height $Height
+    } else {
+        if ($Width -or $Height) {throw 'Only Manual accepts explicit dimensions.'}
+        $Observation=Invoke-VrResolutionObservation
+        $Raw=$Observation.Record | ConvertTo-Json -Depth 6 -Compress |
+            python $Resolver --profile $Profile --observation - --preparation-id $Observation.PreparationId
+    }
+    $ExitCode=$LASTEXITCODE
+    try {$Proposal=($Raw -join "`n") | ConvertFrom-Json} catch {throw 'Invalid resolution proposal report.'}
+    if ($ExitCode -ne 0 -or $Proposal.status -eq 'rejected') {throw ('Resolution request rejected: '+($Proposal.errors -join '; '))}
+    if ($Proposal.status -eq 'unavailable') {
+        return [pscustomobject]@{Status='preserve_unavailable';Width=0;Height=0;Experimental=$false;Profile=$Profile;Proposal=$Proposal}
+    }
+    if ($Proposal.status -ne 'proposal_only' -or @($Proposal.candidateDimensions).Count -ne 2 -or $Proposal.applyAllowed) {
+        throw 'Unexpected resolution proposal admission state.'
+    }
+    # This bounded trial checks only the native default adapter. DXGI and D3D9
+    # ordinals are not an adapter-identity proof; multi-GPU remains unqualified.
+    if ($Profile -ne 'Manual' -and $Observation.Record.adapterIndex -ne 0) {
+        return [pscustomobject]@{Status='preserve_adapter_unqualified';Width=0;Height=0;
+            Experimental=$false;Profile=$Profile;Proposal=$Proposal}
+    }
+    $Limits=Invoke-VrNativeResolutionLimits -Width $Proposal.candidateDimensions[0] -Height $Proposal.candidateDimensions[1]
+    if ($Limits.status -ne 'caps_compatible') {
+        return [pscustomobject]@{Status='preserve_incompatible';Width=0;Height=0;Experimental=$false;
+            Profile=$Profile;Proposal=$Proposal;Limits=$Limits}
+    }
+    # Explicit controlled native-video trial, not public automatic admission.
+    # Native allocation, x86 memory and actual raster quality remain physical gates.
+    return [pscustomobject]@{Status='experimental_trial';Width=[int]$Proposal.candidateDimensions[0];
+        Height=[int]$Proposal.candidateDimensions[1];Experimental=$true;Profile=$Profile;Proposal=$Proposal;Limits=$Limits}
 }
 
 function Write-LocalConfig([string]$ResolvedGameDirectory) {
@@ -98,7 +183,46 @@ $ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 
 switch ($Action) {
     "prepare" {
+        if ($UseSavedResolutionProfile) {
+            if ($PSBoundParameters.ContainsKey('ResolutionProfile') -or $ResolutionWidth -or $ResolutionHeight -or
+                $ExperimentalResolutionProfile -or $NativeResolution -ne 'preserve') {
+                throw 'Saved resolution selection cannot be combined with an explicit override.'
+            }
+            . (Join-Path $PSScriptRoot 'coj_resolution_settings.ps1')
+            . (Join-Path $PSScriptRoot 'coj_resolution_session.ps1')
+            if ([string]::IsNullOrWhiteSpace($ResolutionSettingsPath)) {$ResolutionSettingsPath=Get-CoJResolutionSettingsPath}
+            $SavedResolution=Read-CoJResolutionSettings -Path $ResolutionSettingsPath
+            $ResolutionProfile=$SavedResolution.profile
+            $ResolutionWidth=$SavedResolution.width;$ResolutionHeight=$SavedResolution.height
+            $ExperimentalResolutionProfile=[switch]($ResolutionProfile -ne 'Preserve')
+        }
         Assert-GameClosed
+        $ResolutionWidth=ConvertTo-CoJNativeDimension $ResolutionWidth
+        $ResolutionHeight=ConvertTo-CoJNativeDimension $ResolutionHeight
+        $ProfileRequested=$ResolutionProfile -ne 'Preserve'
+        if (($ResolutionWidth -or $ResolutionHeight -or $ExperimentalResolutionProfile) -and -not $ProfileRequested) {
+            throw 'Explicit dimensions/experimental opt-in require ResolutionProfile.'
+        }
+        if ($ProfileRequested -and ($NativeResolution -ne 'preserve' -or -not $ExperimentalResolutionProfile -or
+                $KeepVideoSettings -or $StartupOnly -or -not $BodyIkAtStart -or -not $LargeAddressAware -or $IndependentEyeResolution -ne 'off')) {
+            throw 'Experimental profiles require full LAA BodyIkAtStart, reversible video, bank off, and no legacy NativeResolution override.'
+        }
+        if ($ResolutionProfile -ne 'Manual' -and ($ResolutionWidth -or $ResolutionHeight)) {throw 'Only Manual accepts explicit dimensions.'}
+        if ($MenuPresentationCheck -and $NativeResolution -ne '2804x2860' -and
+                -not ($ResolutionProfile -eq 'Manual' -and $ResolutionWidth -eq 2804 -and $ResolutionHeight -eq 2860)) {
+            throw 'MenuPresentationCheck requires the explicit 2804x2860 native trial.'
+        }
+        if ($NativeResolution -ne 'preserve' -or $ProfileRequested) {
+            if ($KeepVideoSettings -or $StartupOnly -or -not $BodyIkAtStart -or -not $LargeAddressAware -or $IndependentEyeResolution -ne 'off') {
+                throw 'NativeResolution requires full BodyIkAtStart, LargeAddressAware, video-profile restoration and independent resolution off.'
+            }
+            # Dimension qualification uses the binding census. The flash probe
+            # observes pixels instead and keeps the expensive census off.
+            if (-not $FrameLumaProbe -and -not $MenuPresentationCheck) { $RenderResourceProbe = [switch]$true }
+        }
+        if ($FrameLumaProbe -and ($StartupOnly -or -not $BodyIkAtStart -or $IndependentEyeResolution -ne 'off')) {
+            throw 'FrameLumaProbe requires ordinary native stereo with BodyIkAtStart and independent resolution off.'
+        }
         if ($IndependentEyeResolution -ne 'off' -and ($StartupOnly -or -not $BodyIkAtStart -or -not $LargeAddressAware)) {
             throw 'IndependentEyeResolution requires full BodyIkAtStart and LargeAddressAware.'
         }
@@ -125,8 +249,21 @@ switch ($Action) {
         Push-Location $RepositoryRoot
         try {
             Invoke-Checked { cmake --preset win32-debug } "Win32 configure failed."
-            Invoke-Checked { cmake --build --preset release } "Release build failed."
-            Invoke-Checked { ctest --preset release } "Release host tests failed."
+            if ($MenuPresentationCheck -or $FrameLumaProbe) {
+                Invoke-Checked { cmake --build --preset release --target cojvr_d3d9_native_stereo_proxy cojvr_vr_math_test cojvr_ui_cursor_jni_test cojvr_flat_menu_composition_test cojvr_frame_mailbox_test cojvr_body_adapter_test cojvr_camera_probe_test cojvr_independent_hand_test } "Focused candidate build failed."
+                Invoke-Checked { ctest --preset release -R '^(vr_math|ui_cursor_jni|flat_menu_composition|frame_mailbox|player_mesh_split|body_adapter|camera_probe|independent_hand|vr_video_profile|native_resolution_analysis|render_resource_analysis)$' } "Focused host tests failed."
+                if ($FrameLumaProbe) {
+                    Invoke-Checked { cmake --build --preset release --target cojvr_frame_luma_probe_test cojvr_camera_probe_test } "Luma probe build failed."
+                    Invoke-Checked { ctest --preset release -R '^(frame_luma_probe|frame_luma_probe_ex|camera_probe|render_resource_controls|frame_luma_analysis)$' } "Luma probe host tests failed."
+                }
+            } else {
+                Invoke-Checked { cmake --build --preset release } "Release build failed."
+                Invoke-Checked { ctest --preset release } "Release host tests failed."
+            }
+            if ($ProfileRequested) {
+                Invoke-Checked { cmake --build --preset release --target cojvr_openvr_resolution_query cojvr_d3d9_resolution_limits } "Resolution helper build failed."
+                Invoke-Checked { ctest --preset release -R '^(resolution_profiles|resolution_profile_workflow|openvr_resolution_query_cli|d3d9_resolution_limits_cli)$' } "Resolution profile host tests failed."
+            }
         } finally {
             Pop-Location
         }
@@ -144,6 +281,12 @@ switch ($Action) {
             -AllowDirty
         if ($LASTEXITCODE -ne 0) { throw "Build-manifest generation failed." }
 
+        $ResolutionDecision=if ($UseSavedResolutionProfile) {
+            Resolve-CoJLaunchResolution -Settings $SavedResolution -PythonExecutable 'python' `
+                -ResolverPath (Join-Path $PSScriptRoot 'coj_resolution_profiles.py') `
+                -QueryHelperPath (Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_openvr_resolution_query.exe') `
+                -LimitsHelperPath (Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_d3d9_resolution_limits.exe')
+        } else {Resolve-VrResolutionProfile -Profile $ResolutionProfile -Width $ResolutionWidth -Height $ResolutionHeight -Experimental:$ExperimentalResolutionProfile}
         $ValidationProfile = if ($StartupOnly) { "startup" } elseif ($BodyIkAtStart) { "full" } else { "transport" }
         try {
             & (Join-Path $PSScriptRoot "stage_d3d9_proxy.ps1") `
@@ -153,7 +296,7 @@ switch ($Action) {
                 -ValidationProfile $ValidationProfile `
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
-                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe `
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe `
                 -IndependentEyeResolution $IndependentEyeResolution
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
@@ -169,13 +312,28 @@ switch ($Action) {
 
             $VideoProfile = $null
             if (-not $KeepVideoSettings) {
-                $VideoProfile = Apply-VrVideoProfile
+                if ($ResolutionDecision.Experimental -and $ResolutionProfile -ne 'Manual') {
+                    $ObservationAge=([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($ResolutionDecision.Proposal.observation.observedUtc)).TotalSeconds
+                    if ($ObservationAge -lt 0 -or $ObservationAge -gt 120) {throw 'Resolution observation expired before video apply; prepare a fresh session.'}
+                }
+                $VideoProfile = Apply-VrVideoProfile -NativeResolution $NativeResolution `
+                    -ExperimentalWidth $ResolutionDecision.Width -ExperimentalHeight $ResolutionDecision.Height
                 $RunForProfile = Get-Content -LiteralPath $CurrentRunPath -Raw | ConvertFrom-Json
+                if ($MenuPresentationCheck) {
+                    $RunForProfile.validation | Add-Member -NotePropertyName operatorScope -NotePropertyValue 'main_menu_presentation' -Force
+                    $RunForProfile.validation | Add-Member -NotePropertyName hostTestScope -NotePropertyValue 'vr_math,ui_cursor_jni,flat_menu_composition,frame_mailbox,player_mesh_split,body_adapter,camera_probe,independent_hand,vr_video_profile,native_resolution_analysis,render_resource_analysis' -Force
+                }
                 $RunForProfile.validation | Add-Member -NotePropertyName videoProfile -NotePropertyValue ([ordered]@{
                     resolution = $VideoProfile.resolution
+                    nativeResolution = $VideoProfile.nativeResolution
+                    originalResolution = $VideoProfile.originalResolution
+                    windowed = $VideoProfile.windowed
                     fsaa = $VideoProfile.fsaa
                     originalSha256 = $VideoProfile.originalSha256
                     appliedSha256 = $VideoProfile.appliedSha256
+                    resolutionProfile = $ResolutionProfile
+                    experimentalResolution = $ResolutionDecision.Experimental
+                    resolutionDecision = $ResolutionDecision
                 }) -Force
                 [System.IO.File]::WriteAllText(
                     $CurrentRunPath,
@@ -207,6 +365,25 @@ switch ($Action) {
         Write-Host ""
         Write-Host "Native-stereo VR test candidate ready."
         Write-Host "Run ID: $($Run.runId)"
+        if ($ProfileRequested) {
+            Write-Host "Startup resolution profile: $ResolutionProfile; decision=$($ResolutionDecision.Status); actual requested native size=$($VideoProfile.resolution)."
+            Write-Host 'Experimental application is separate from release qualification; native memory, per-eye raster size and headset performance remain unqualified at new dimensions.'
+        }
+        if ($FrameLumaProbe) {
+            Write-Host 'White-flash diagnostic: fixed 16x16 samples of each native eye and desktop before Present; no image correction, effect edits or resolution transitions.'
+            Write-Host 'Start manually; observe the main menu and a short gameplay segment until a flash occurs, then close normally and run finish.'
+            Write-Host 'Pixel sampling/readback perturbs timing; this run diagnoses content, not performance acceptance.'
+            break
+        }
+        if ($MenuPresentationCheck) {
+            Write-Host 'Focused menu presentation candidate: native 2804x2860; independent bank off; original video restored by finish.'
+            Write-Host 'Only the existing visible global MenuMain receives the aspect-preserving reference rectangle; output allocations remain source-owned.'
+            Write-Host 'Start SteamVR/game manually. Check main menu size, ray/hover/L2/R2 selection and mouse priority; enter gameplay; open/close pause; return to main menu.'
+            Write-Host 'No campaign segment or naturally unavailable cinematic is required. New menu comfort/navigation remain unvalidated until this check.'
+            Write-Host 'The canonical full-profile verifier retains separate requirements; unexercised gates are not promoted by this focused operator scope.'
+            Write-Host 'Close normally, then run: pwsh -File tools/vr_test.ps1 finish'
+            break
+        }
         Write-Host "Validation profile: $ValidationProfile"
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
@@ -215,7 +392,7 @@ switch ($Action) {
         Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"
         Write-Host "Bounded reload wait/zero-transfer probe: $($ReloadWaitProbe.IsPresent.ToString().ToLowerInvariant()) (gesture route; Square remains native)"
         Write-Host "Persistent manual reload candidate: $($ManualReload.IsPresent.ToString().ToLowerInvariant()) (Square opens/closes; free trigger inserts one native round)"
-        Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { "$($VideoProfile.resolution), FSAA 0 (selected resolution preserved; restored by finish)" })"
+        Write-Host "VR video profile: $(if ($KeepVideoSettings) { 'unchanged' } else { "$($VideoProfile.resolution), FSAA 0, native override=$NativeResolution (restored by finish)" })"
         Write-Host "Start SteamVR manually, then launch Call of Juarez normally."
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Cross jumps, Square reloads, Circle toggles alternate fire, L1 performs Action, R1 kicks on foot / holds gallop mounted, L3 toggles crouch and R3 toggles Focus. The sole default table is docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls."

@@ -218,6 +218,21 @@ $Report = [ordered]@{
     }
 }
 
+if ([string]$Provenance.Run.validation.videoProfile.nativeResolution -eq '2804x2860' -or
+    [bool]$Provenance.Run.validation.videoProfile.experimentalResolution) {
+    $RequestedExtent=[string]$Provenance.Run.validation.videoProfile.resolution
+    $ResolutionJson = & python (Join-Path $PSScriptRoot 'analyze_coj_native_resolution.py') `
+        (Join-Path $GameDirectory 'cojvr.log') --expected $RequestedExtent
+    if ($LASTEXITCODE -ne 0) { throw 'Native-resolution analyzer failed to execute.' }
+    $ResolutionEvidence = ($ResolutionJson -join "`n") | ConvertFrom-Json
+    if ($ResolutionEvidence.runId -and ($ResolutionEvidence.runId -cne $RunId -or
+        $ResolutionEvidence.buildManifestId -ine $Provenance.Run.buildManifestId)) {
+        throw 'Native-resolution evidence does not match the current run/build.'
+    }
+    $Report.renderResolution = $ResolutionEvidence
+    Write-Host "Native resolution evidence: $($ResolutionEvidence.status); requested=$RequestedExtent; headsetValidated=false."
+}
+
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $GameDirectory "cojvr-native-stereo-summary.json"
 }

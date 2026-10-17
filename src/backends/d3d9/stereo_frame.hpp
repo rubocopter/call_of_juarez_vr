@@ -126,6 +126,10 @@ struct StereoCpuFrame {
     runtime::StereoHudTextOverlay hud_text{};
     std::chrono::steady_clock::time_point capture_time{};
     FramePresentationMode presentation_mode = FramePresentationMode::native_stereo;
+    // Optional flat-only presentation footprint. Zero preserves native layout;
+    // source pixels and input coordinates always retain their actual extent.
+    std::uint32_t flat_reference_width = 0, flat_reference_height = 0;
+    std::uint32_t flat_reference_owner = 0;
     StereoFrameTransport transport = StereoFrameTransport::cpu_bgrx;
     std::array<CpuEyeFrame, 2> eyes{};
     std::array<SharedTextureEyeFrame, 2> shared_eyes{};

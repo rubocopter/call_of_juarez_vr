@@ -479,6 +479,8 @@ bool D3D9StereoCapture::CaptureEyeSurface(
         const auto end = std::chrono::steady_clock::now();
 
         std::ostringstream out;
+        D3DSURFACE_DESC capture_desc{};
+        const bool capture_desc_valid = SUCCEEDED(slot.gpu_eyes[eye_index]->GetDesc(&capture_desc));
         out << "transport="
             << (impl_->transport_mode == Impl::TransportMode::d3d9ex_shared_texture
                     ? "d3d9ex_shared_texture_ring"
@@ -486,6 +488,10 @@ bool D3D9StereoCapture::CaptureEyeSurface(
             << ";capture_source=render_target0"
             << ";source_is_backbuffer=" << (source_is_backbuffer ? "true" : "false")
             << ";eye_surface=" << impl_->source_desc.Width << 'x' << impl_->source_desc.Height
+            << ";capture_surface=";
+        if (capture_desc_valid) out << capture_desc.Width << 'x' << capture_desc.Height;
+        else out << "unavailable";
+        out
             << ";viewport=";
         if (viewport_valid) {
             out << viewport.X << ',' << viewport.Y << ',' << viewport.Width << ','

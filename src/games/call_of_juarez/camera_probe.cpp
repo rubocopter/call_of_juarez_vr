@@ -250,6 +250,8 @@ ArmGeometryContinuityState g_left_arm_geometry_continuity{};
 ArmGeometryContinuityState g_right_arm_geometry_continuity{};
 bool g_arm_rotation_faulted = false;
 struct AppliedRoomScaleBodyOffset {
+    bool model_observed = false;
+    bool verified_ray = false;
     std::uint64_t being_generation = 0;
     int pelvis_element = -1;
     JavaPlayerPosition natural_position{};
@@ -2379,7 +2381,7 @@ bool ApplyRoomScaleBodyOffset(
     // pelvis vertically with HMD height pulled the torso into the headset in
     // the 20260921 physical run.
     bool offset_valid = false;
-    const cojvr::runtime::Vec3 world_offset = BuildCoJVisualBodyOffset(
+    cojvr::runtime::Vec3 world_offset = BuildCoJVisualBodyOffset(
         relative_head_pose.position,
         {tracking_basis.right.x, tracking_basis.right.y, tracking_basis.right.z},
         {tracking_basis.forward.x, tracking_basis.forward.y, tracking_basis.forward.z},
@@ -2405,6 +2407,25 @@ bool ApplyRoomScaleBodyOffset(
     if (g_room_scale_body_offset.faulted) {
         if (error) *error = "visual body room-scale writes disabled after restore failure";
         return false;
+    }
+
+    // Positive current-being mesh identity; ambiguous/unknown models receive no
+    // fit adjustment. Cache only within the existing being generation.
+    if (!g_room_scale_body_offset.model_observed) {
+        int ray=-1,billy=-1;
+        const bool ray_found=g_java_player_bridge.TryGetMeshElementByName("RayBody",ray,nullptr);
+        const bool billy_found=g_java_player_bridge.TryGetMeshElementByName("BillyBody",billy,nullptr);
+        g_room_scale_body_offset.verified_ray=ray_found && ray>=0 && !billy_found;
+        g_room_scale_body_offset.model_observed=true;
+    }
+    bool setback_valid=false;
+    const auto setback=BuildCoJVisualBodySetback(g_room_scale_body_offset.verified_ray,
+        CurrentCommand().command.independent_hands_enabled,
+        {natural_basis.forward.x,natural_basis.forward.y,natural_basis.forward.z},
+        kGameUnitsPerMeter,setback_valid);
+    if (setback_valid) {
+        world_offset.x+=setback.x;
+        world_offset.z+=setback.z;
     }
 
     JavaPlayerPosition position{};
@@ -2439,6 +2460,8 @@ bool ApplyRoomScaleBodyOffset(
                    << ";pelvis_element=" << g_room_scale_body_offset.pelvis_element
                    << ";tracking_offset=" << RuntimeVectorText(relative_head_pose.position)
                    << ";world_offset=" << RuntimeVectorText(world_offset)
+                   << ";visual_setback=" << RuntimeVectorText(setback)
+                   << ";verified_ray=" << (g_room_scale_body_offset.verified_ray ? "true" : "false")
                    << ";actor_write=false"
                    << ";scope=stereo_render_only"
                    << ";restore=after_both_eyes";
@@ -7048,6 +7071,11 @@ bool DispatchCameraUiPointerMotion(
         pixel_x, pixel_y, error, &DispatchNativeUiMouse, input_consumed);
 }
 
+bool ObserveCameraMainMenuActive(std::uint32_t* owner) noexcept {
+    bool active = false;
+    return g_java_player_bridge.TryObserveMainMenu(active, nullptr, owner) && active;
+}
+
 bool ObserveCameraUiPointerPosition(
     CameraProbeVector& position,
     std::string* error,
@@ -7118,6 +7146,20 @@ bool ParseCameraProbeCommand(
     bool resource_probe_present = false;
     if (!ReadBool(text,"renderResourceProbeEnabled",parsed.render_resource_probe_enabled,resource_probe_present)) {
         SetError(error,"renderResourceProbeEnabled must be true or false"); return false;
+    }
+    bool luma_probe_present = false;
+    if (!ReadBool(text,"frameLumaProbeEnabled",parsed.frame_luma_probe_enabled,luma_probe_present)) {
+        SetError(error,"frameLumaProbeEnabled must be true or false"); return false;
+    }
+    if (luma_probe_present) {
+        // This startup opt-in authorizes GPU diagnostics. Unlike legacy control
+        // fields, accept only a complete boolean token, never "truejunk".
+        auto end = *ValueOffset(text,"frameLumaProbeEnabled") +
+            (parsed.frame_luma_probe_enabled ? 4U : 5U);
+        while (end < text.size() && (text[end]==' ' || text[end]=='\t' || text[end]=='\r' || text[end]=='\n')) ++end;
+        if (end >= text.size() || (text[end]!=',' && text[end]!='}')) {
+            SetError(error,"frameLumaProbeEnabled requires a complete boolean token"); return false;
+        }
     }
     if (!ReadBool(text, "enabled", parsed.enabled, enabled_present) || !enabled_present) {
         SetError(error, "enabled must be true or false");

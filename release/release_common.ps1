@@ -51,7 +51,9 @@ function Read-CojvrRelease([string]$PackageRoot) {
         'payload/d3d9_native_stereo.build-manifest.json','payload/cojvr_openvr_input/actions.json',
         'dependencies/python/python.exe','dependencies/vc_redist.x86.exe',
         'tools/stage_d3d9_proxy.ps1','tools/unstage_d3d9_proxy.ps1',
-        'tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1')) {
+        'tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1',
+        'tools/coj_resolution_settings.ps1','tools/coj_resolution_session.ps1','tools/coj_resolution_profiles.py',
+        'tools/cojvr_openvr_resolution_query.exe','tools/cojvr_d3d9_resolution_limits.exe','tools/openvr_api.dll')) {
         if (-not $Seen.ContainsKey($Required)) { throw "Release inventory omits required file '$Required'." }
     }
     foreach ($Item in Get-ChildItem -LiteralPath $Root -Recurse -Force) {

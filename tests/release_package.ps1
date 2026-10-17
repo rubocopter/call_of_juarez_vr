@@ -86,14 +86,15 @@ try {
         Assert-True (Test-Path -LiteralPath (Join-Path $Root $Required) -PathType Leaf) "Required release file missing: $Required"
     }
     $ExpectedTools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
-        'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'patch_coj_weapon_consumers.py',
+        'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_settings.ps1','coj_resolution_session.ps1',
+        'coj_resolution_profiles.py','cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe','openvr_api.dll','patch_coj_weapon_consumers.py',
         'inspect_java_bytecode.py', 'coj_reload_wait_probe.py', 'coj_manual_reload.py',
         'coj_physical_punch.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
     $ActualTools = @(Get-ChildItem -LiteralPath (Join-Path $Root 'tools') -File -Recurse | ForEach-Object { $_.Name })
     Assert-True (@(Compare-Object $ExpectedTools $ActualTools).Count -eq 0) 'Release tools differ from the explicit allowlist.'
     foreach ($Item in $Manifest.files) {
         Assert-True ($Item.path -notmatch '(?i)(\.pak$|\.pdb$|\.lib$|\.obj$|\.pyc$|(^|/)(__pycache__|work|build|\.git)/)') "Forbidden player payload: $($Item.path)"
-        Assert-True ($Item.path -notmatch '\.exe$' -or $Item.path -cmatch '^dependencies/(vc_redist\.x86\.exe|python/pythonw?\.exe)$') 'Unexpected executable in player ZIP.'
+        Assert-True ($Item.path -notmatch '\.exe$' -or $Item.path -cmatch '^(dependencies/(vc_redist\.x86\.exe|python/pythonw?\.exe)|tools/cojvr_(openvr_resolution_query|d3d9_resolution_limits)\.exe)$') 'Unexpected executable in player ZIP.'
     }
     $Lock = Get-Content -LiteralPath (Join-Path $Root 'dependencies.lock.json') -Raw | ConvertFrom-Json
     Assert-True ($Manifest.dependencies.pythonVersion -ceq $Lock.python.version -and
@@ -113,7 +114,8 @@ try {
         Assert-RelativePath $Artifact.fileName
         Assert-True (-not $BuildFiles.ContainsKey($Artifact.fileName)) 'Duplicate build inventory entry.'
         $BuildFiles[$Artifact.fileName] = $true
-        $Path = Join-Path $Root ('payload/' + $Artifact.fileName)
+        $Prefix=if ($Artifact.role -eq 'resolution_helper') {'tools/'} else {'payload/'}
+        $Path = Join-Path $Root ($Prefix + $Artifact.fileName)
         Assert-True ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ceq $Artifact.sha256 -and
             (Get-Item -LiteralPath $Path).Length -eq $Artifact.size) 'Portable build artifact mismatch.'
     }
@@ -124,6 +126,12 @@ try {
     Assert-True ((Get-FileHash -LiteralPath (Join-Path $Root 'licenses/OpenVR-LICENSE.txt') -Algorithm SHA256).Hash -ceq $Lock.openvr.licenseSha256) 'OpenVR license differs from pinned SDK.'
     Assert-Machine (Join-Path $Root 'payload/d3d9_native_stereo.dll') 0x14C
     Assert-Machine (Join-Path $Root 'payload/openvr_api.dll') 0x14C
+    foreach ($Name in @('cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe')) {
+        Assert-Machine (Join-Path $Root "tools/$Name") 0x14C
+        $Invalid=& (Join-Path $Root "tools/$Name") --invalid
+        Assert-True ($LASTEXITCODE -eq 2 -and ($Invalid | ConvertFrom-Json).status -eq 'unavailable') 'Relocated resolution helper failed its no-runtime CLI check.'
+    }
+    Assert-True ((Get-FileHash -LiteralPath (Join-Path $Root 'tools/openvr_api.dll')).Hash -eq $Lock.openvr.win32DllSha256) 'Helper OpenVR DLL differs from lock.'
     Assert-Machine (Join-Path $Root 'dependencies/python/python.exe') 0x8664
     $Ascii = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $Root 'payload/d3d9_native_stereo.dll')))
     foreach ($Match in [regex]::Matches($Ascii, 'RSDS[\s\S]{20}([^\x00]+)\x00')) {

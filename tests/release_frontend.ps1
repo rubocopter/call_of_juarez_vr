@@ -20,7 +20,9 @@ function New-Package {
         'payload/d3d9_native_stereo.build-manifest.json','payload/cojvr_openvr_input/actions.json',
         'dependencies/python/python.exe','dependencies/vc_redist.x86.exe',
         'tools/stage_d3d9_proxy.ps1','tools/unstage_d3d9_proxy.ps1',
-        'tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1')
+        'tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1',
+        'tools/coj_resolution_settings.ps1','tools/coj_resolution_session.ps1','tools/coj_resolution_profiles.py',
+        'tools/cojvr_openvr_resolution_query.exe','tools/cojvr_d3d9_resolution_limits.exe','tools/openvr_api.dll')
     $Files = @(foreach ($Name in $Names) {
         $Path = Join-Path $Package $Name
         New-Item -ItemType Directory -Path (Split-Path $Path -Parent) -Force | Out-Null
@@ -80,7 +82,7 @@ try {
     Write-Host 'PASS release frontend: inventory, relocation, tampering, traversal, duplicates, unknown game, ownership and private diagnostics.'
     Assert-True (Test-Path -LiteralPath (Join-Path $SourceDirectory 'release/cojvr.ps1')) 'Public installer command is not implemented.'
     $Package = New-Package
-    foreach ($Relative in @('release/cojvr.ps1','release/release_common.ps1','tools/unstage_d3d9_proxy.ps1','tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/openvr_input_manifest.ps1')) {
+    foreach ($Relative in @('release/cojvr.ps1','release/release_common.ps1','tools/unstage_d3d9_proxy.ps1','tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/openvr_input_manifest.ps1','tools/coj_resolution_settings.ps1')) {
         $Destination = if ($Relative.StartsWith('release/')) { $Relative.Substring(8) } else { $Relative }
         Copy-Item -LiteralPath (Join-Path $SourceDirectory $Relative) -Destination (Join-Path $Package $Destination) -Force
     }
@@ -89,6 +91,9 @@ try {
         @{path=$_.FullName.Substring($Package.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash;size=$_.Length}
     })
     Write-CojvrPublicJson (Join-Path $Package 'release-manifest.json') $Manifest
+    $Preference=Join-Path $Root 'user/resolution.json'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Package 'cojvr.ps1') -Action ConfigureResolution -ResolutionProfile Manual -ResolutionWidth 2804 -ResolutionHeight 2860 -ResolutionSettingsPath $Preference
+    Assert-True ($LASTEXITCODE -eq 0 -and (Get-Content $Preference -Raw | ConvertFrom-Json).width -eq 2804) 'Relocated selector did not persist the Manual choice.'
     . (Join-Path $SourceDirectory 'tools/deployment_transaction.ps1')
     $Public = @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installing';buildManifestId=('b'*64);sourceCommit=('c'*40);version='0.1.0-prealpha.1';runId='public-recovery-test'}
     Write-CojvrPublicJson (Join-Path $Game '.cojvr-public-install.json') $Public

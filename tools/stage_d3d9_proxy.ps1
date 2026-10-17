@@ -14,6 +14,7 @@ param(
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
+    [switch]$FrameLumaProbe,
     [ValidateSet('off','2560x1440','2560x1920')]
     [string]$IndependentEyeResolution = 'off'
 )
@@ -320,6 +321,12 @@ $CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n 
 if ($RenderResourceProbe) {
     $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "renderResourceProbeEnabled": true')
 }
+if ($FrameLumaProbe) {
+    if (-not $IsNativeStereo -or -not $IndependentHands -or $IndependentEyeResolution -ne 'off') {
+        throw 'FrameLumaProbe requires ordinary native stereo with independent hands and the private bank off.'
+    }
+    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "frameLumaProbeEnabled": true')
+}
 if ($IndependentEyeResolution -ne 'off') {
     if (-not $IsNativeStereo -or -not $IndependentHands -or -not $LargeAddressAware) {
         throw 'IndependentEyeResolution requires the native stereo independent-hands LAA prototype.'
@@ -562,6 +569,7 @@ if ($HadOriginal) {
         reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
         manualReloadInstalled = $ManualReload.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+        frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
         independentEyeResolution = $IndependentEyeResolution
         playerArchiveManaged = $IndependentHands.IsPresent
         originalPlayerSha256 = if ($IndependentHands) { $OriginalPlayerHash } else { $null }
@@ -648,6 +656,7 @@ if ($HadOriginal) {
             reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
             manualReloadInstalled = $ManualReload.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+            frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
             independentEyeResolution = $IndependentEyeResolution
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }
             requireExactChromeEngine = $IsCameraIntegration

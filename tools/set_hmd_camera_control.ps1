@@ -78,6 +78,9 @@ $Control = [ordered]@{
     renderResourceProbeEnabled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['renderResourceProbeEnabled'] -and
         [bool]$ExistingControl.renderResourceProbeEnabled
+    frameLumaProbeEnabled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['frameLumaProbeEnabled'] -and
+        [bool]$ExistingControl.frameLumaProbeEnabled
     independentEyeResolution = if ($null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['independentEyeResolution']) {
         [string]$ExistingControl.independentEyeResolution

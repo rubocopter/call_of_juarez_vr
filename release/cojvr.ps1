@@ -1,10 +1,15 @@
 #Requires -Version 5.1
 param(
-    [ValidateSet('Menu','Install','Uninstall','Diagnose','Status','Verify','PrepareSession')]
+    [ValidateSet('Menu','Install','Uninstall','Diagnose','Status','Verify','PrepareSession','ConfigureResolution')]
     [string]$Action = 'Menu',
     [string]$GameDirectory = '',
     [switch]$ManualReload,
-    [string]$VideoSettingsPath = ''
+    [string]$VideoSettingsPath = '',
+    [ValidateSet('Preserve','Auto','75%','100%','125%','Manual')]
+    [string]$ResolutionProfile = 'Preserve',
+    [object]$ResolutionWidth = 0,
+    [object]$ResolutionHeight = 0,
+    [string]$ResolutionSettingsPath = ''
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'release_common.ps1')
@@ -54,6 +59,7 @@ function Assert-PublicStageIdentity([string]$Game, [object]$State) {
 }
 function Restore-PublicInstall([string]$Game, [object]$State) {
     Assert-PublicStageIdentity $Game $State
+    [void](Restore-CoJVrVideoProfile -StatePath (Join-Path $Game '.cojvr-session-video.json') -BackupPath (Join-Path $Game '.cojvr-session-video.backup'))
     $Stage = Join-Path $Game '.cojvr-d3d9-stage.json'
     $Journal = Join-Path $Game '.cojvr-deployment-transaction.json'
     if ((Test-Path -LiteralPath $Stage) -or (Test-Path -LiteralPath $Journal)) {
@@ -76,6 +82,74 @@ function Install-PublicRuntime([object]$Manifest) {
     $Process = Start-Process -FilePath $Installer -ArgumentList '/install','/passive','/norestart' -Verb RunAs -WindowStyle Hidden -Wait -PassThru
     if ($Process.ExitCode -notin @(0,1638,3010)) { throw "VC++ runtime installation failed (code $($Process.ExitCode))." }
     if ($Process.ExitCode -eq 3010) { throw 'The VC++ runtime requires a Windows restart. Restart, then run Install again; the game has not been patched.' }
+}
+function Read-PublicResolutionSettings {
+    $Path=$ResolutionSettingsPath
+    if ([string]::IsNullOrWhiteSpace($Path)) {$Path=Get-CoJResolutionSettingsPath}
+    return Read-CoJResolutionSettings -Path $Path
+}
+function Resolve-PublicResolution($Settings) {
+    return Resolve-CoJLaunchResolution -Settings $Settings `
+        -PythonExecutable (Join-Path $PSScriptRoot 'dependencies/python/python.exe') `
+        -ResolverPath (Join-Path $PSScriptRoot 'tools/coj_resolution_profiles.py') `
+        -QueryHelperPath (Join-Path $PSScriptRoot 'tools/cojvr_openvr_resolution_query.exe') `
+        -LimitsHelperPath (Join-Path $PSScriptRoot 'tools/cojvr_d3d9_resolution_limits.exe')
+}
+function Assert-PublicNativeResolutionContext([string]$Game) {
+    $Stage=Get-Content -LiteralPath (Join-Path $Game '.cojvr-d3d9-stage.json') -Raw | ConvertFrom-Json
+    $Expected='C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9'
+    if ($Stage.stagedExecutableSha256 -ne $Expected -or
+        (Get-FileHash -LiteralPath (Join-Path $Game 'CoJ.exe') -Algorithm SHA256).Hash -ne $Expected -or
+        ($Stage.PSObject.Properties['independentEyeResolution'] -and $Stage.independentEyeResolution -ne 'off')) {
+        throw 'Resolution profiles require the recognized LAA executable and ordinary native stereo. Recover/install first.'
+    }
+}
+function Update-PublicSessionVideo([string]$Game,[object]$Run) {
+    $Baseline=Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-video.json') -Encoding UTF8 -Raw | ConvertFrom-Json
+    $Video=[string]$Baseline.videoPath
+    if ([string]::IsNullOrWhiteSpace($Video) -or $Baseline.appliedSha256 -notmatch '^[A-Fa-f0-9]{64}$') {
+        throw 'Missing or invalid installation video baseline; recover/install first.'
+    }
+    $Decision=Resolve-PublicResolution (Read-PublicResolutionSettings)
+    if ($Decision.Experimental) {Assert-PublicNativeResolutionContext $Game}
+    $Journal=Join-Path $Game '.cojvr-session-video.json'
+    $Backup=Join-Path $Game '.cojvr-session-video.backup'
+    if (Test-Path -LiteralPath $Journal -PathType Leaf) {
+        $Previous=Get-Content -LiteralPath $Journal -Encoding UTF8 -Raw | ConvertFrom-Json
+        if ($Previous.videoPath -ne $Video -or $Previous.originalSha256 -ne $Baseline.appliedSha256) {
+            throw 'Session video baseline does not match the installation. Keep backups and recover first.'
+        }
+        [void](Restore-CoJVrVideoProfile -StatePath $Journal -BackupPath $Backup)
+    }
+    if ((Get-FileHash -LiteralPath $Video -Algorithm SHA256).Hash -ne $Baseline.appliedSha256) {
+        throw 'Installation video baseline changed outside a session. Recover/install before applying profiles.'
+    }
+    $Applied=Apply-CoJVrVideoProfile -VideoPath $Video -StatePath $Journal -BackupPath $Backup `
+        -ExperimentalWidth $Decision.Width -ExperimentalHeight $Decision.Height
+    $Run.validation | Add-Member -NotePropertyName videoProfile -NotePropertyValue ([ordered]@{
+        resolution=$Applied.resolution;nativeResolution=$Applied.nativeResolution;
+        originalResolution=$Applied.originalResolution;windowed=$Applied.windowed;fsaa=$Applied.fsaa;
+        originalSha256=$Applied.originalSha256;appliedSha256=$Applied.appliedSha256;
+        resolutionProfile=$Decision.Profile;experimentalResolution=$Decision.Experimental;resolutionDecision=$Decision
+    }) -Force
+    Write-Host "Resolution: $($Decision.Profile); $($Decision.Status); native request $($Applied.resolution)."
+}
+function Show-PublicResolutionSelector {
+    $Current=Read-PublicResolutionSettings
+    $Extent=if($Current.profile -eq 'Manual'){" $($Current.width)x$($Current.height)"}else{''}
+    Write-Host "`nResolution profile: $($Current.profile)$Extent"
+    Write-Host '1 Preserve game settings | 2 Auto | 3 75% | 4 100% | 5 125% | 6 Manual | 0 Cancel'
+    Write-Host 'Explicit profiles are experimental startup choices. Percentages scale pixel count relative to the SteamVR query.'
+    $Choice=Read-Host 'Profile'
+    if ($Choice -eq '0') {return}
+    $Profile=@{'1'='Preserve';'2'='Auto';'3'='75%';'4'='100%';'5'='125%';'6'='Manual'}[$Choice]
+    if (-not $Profile) {throw 'Invalid profile choice.'}
+    $Width=0;$Height=0
+    if ($Profile -eq 'Manual') {$Width=Read-Host 'Width per eye';$Height=Read-Host 'Height per eye'}
+    $Path=$ResolutionSettingsPath
+    if ([string]::IsNullOrWhiteSpace($Path)) {$Path=Get-CoJResolutionSettingsPath}
+    [void](Write-CoJResolutionSettings -Path $Path -Profile $Profile -Width $Width -Height $Height)
+    Write-Host 'Saved. Choose 6 - Prepare session with the game closed to apply. Start SteamVR first for Auto/percentage profiles.'
 }
 function Start-PublicSession([string]$Game, [object]$State) {
     Assert-PublicStageIdentity $Game $State
@@ -100,7 +174,6 @@ function Start-PublicSession([string]$Game, [object]$State) {
     New-Item -ItemType Directory -Path $NewDirectory | Out-Null
     Copy-Item -LiteralPath $BuildPath -Destination (Join-Path $NewDirectory 'build-manifest.json')
     $StatePath = Join-Path $Game '.cojvr-public-install.json'
-    $StateText = [IO.File]::ReadAllText($StatePath)
     $Moved = @()
     $Stage.runId = $RunId
     $Run.runId = $RunId
@@ -110,6 +183,7 @@ function Start-PublicSession([string]$Game, [object]$State) {
         # Retain both identities across an interrupted metadata publication.
         $State | Add-Member -NotePropertyName pendingRunId -NotePropertyValue $RunId -Force
         Write-CojvrPublicJson $StatePath $State
+        Update-PublicSessionVideo $Game $Run
         foreach ($Name in @('cojvr.log','callstack.txt','cojvr-native-stereo-summary.json')) {
             $Path = Join-Path $Game $Name
             if (Test-Path -LiteralPath $Path -PathType Leaf) {
@@ -127,15 +201,25 @@ function Start-PublicSession([string]$Game, [object]$State) {
     } catch {
         [IO.File]::WriteAllText($StagePath, $StageText, [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText($RunPath, $RunText, [Text.UTF8Encoding]::new($false))
-        [IO.File]::WriteAllText($StatePath, $StateText, [Text.UTF8Encoding]::new($false))
+        # Keep pendingRunId durable: a failed video/metadata transaction must
+        # recover its session layer before another preparation can be admitted.
         foreach ($Entry in $Moved) { Move-Item -LiteralPath $Entry.archive -Destination $Entry.source -Force }
-        throw
+        throw "Session preparation failed. Keep backups and use Uninstall/recover or Install/update: $($_.Exception.Message)"
     }
     Write-Host "Fresh community session: $RunId. Start SteamVR and the game manually."
 }
 function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Reload, [bool]$ReloadSpecified) {
     $Manifest = Read-CojvrRelease $PSScriptRoot
     if ($RequestedAction -eq 'Verify') { Write-Host "Package $($Manifest.version): all files verified."; return }
+    if ($RequestedAction -eq 'ConfigureResolution') {
+        Assert-GameClosed
+        . (Join-Path $PSScriptRoot 'tools/coj_resolution_settings.ps1')
+        $Path=$ResolutionSettingsPath
+        if ([string]::IsNullOrWhiteSpace($Path)) {$Path=Get-CoJResolutionSettingsPath}
+        [void](Write-CoJResolutionSettings -Path $Path -Profile $ResolutionProfile -Width $ResolutionWidth -Height $ResolutionHeight)
+        Write-Host "Saved resolution profile: $ResolutionProfile. Apply through Prepare session while the game is closed."
+        return
+    }
     if ($RequestedAction -eq 'Diagnose') {
         $Reports = Join-Path $env:LOCALAPPDATA 'CoJVR/Reports'
         $Zip = New-CojvrPublicReport -GameDirectory $Game -OutputDirectory $Reports -Version $Manifest.version
@@ -145,6 +229,10 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
     }
     $State = Assert-CojvrPublicOwnership $Game
     if ($RequestedAction -eq 'Status') {
+        . (Join-Path $PSScriptRoot 'tools/coj_resolution_settings.ps1')
+        $Selected=Read-PublicResolutionSettings
+        $Extent=if($Selected.profile -eq 'Manual'){" $($Selected.width)x$($Selected.height)"}else{''}
+        Write-Host "Next session resolution: $($Selected.profile)$Extent"
         Write-Host "Package: $($Manifest.version)"
         Write-Host "Game: $Game"
         if ($null -eq $State) { Write-Host 'Public mod is not installed.' } else {
@@ -167,8 +255,12 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             Write-Host 'Original game files and video settings restored. VR preferences and local reports retained.'
             return
         }
+        . (Join-Path $PSScriptRoot 'tools/coj_resolution_settings.ps1')
+        . (Join-Path $PSScriptRoot 'tools/coj_resolution_session.ps1')
+        [void](Read-PublicResolutionSettings)
         if ($RequestedAction -eq 'PrepareSession') {
             if ($null -eq $State -or $State.phase -ne 'installed') { throw 'Install the mod or recover its interrupted installation first.' }
+            Assert-CojvrPublicGame $Game -Installed
             Start-PublicSession $Game $State
             return
         }
@@ -200,6 +292,10 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             & (Join-Path $PSScriptRoot 'tools/set_hmd_camera_control.ps1') -GameDirectory $Game -Mode enable
             & (Join-Path $PSScriptRoot 'tools/set_hmd_camera_control.ps1') -GameDirectory $Game -Mode body-enable
             [void](Apply-CoJVrVideoProfile -VideoPath $VideoPath -StatePath (Join-Path $Game '.cojvr-public-video.json') -BackupPath (Join-Path $Game '.cojvr-public-video.backup'))
+            $RunPath=Join-Path $Game '.cojvr-run.json'
+            $Run=Get-Content -LiteralPath $RunPath -Raw | ConvertFrom-Json
+            Update-PublicSessionVideo $Game $Run
+            Write-CojvrPublicJson $RunPath $Run
             $State.phase = 'installed'
             Write-CojvrPublicJson (Join-Path $Game '.cojvr-public-install.json') $State
         } catch {
@@ -216,7 +312,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
 
 try {
     if ($Action -ne 'Menu') {
-        $Game = if ($Action -eq 'Verify') { '' } else { Resolve-CojvrPublicGame $GameDirectory }
+        $Game = if ($Action -in @('Verify','ConfigureResolution')) { '' } else { Resolve-CojvrPublicGame $GameDirectory }
         Invoke-PublicAction $Action $Game $ManualReload.IsPresent $PSBoundParameters.ContainsKey('ManualReload')
     } else {
         Write-Host 'Call of Juarez VR - community pre-alpha'
@@ -226,9 +322,18 @@ try {
         }
         while ($true) {
             Write-Host "`nGame: $Game"
-            Write-Host '1 Install/update | 2 Uninstall/recover | 3 Diagnostics | 4 Status | 5 Verify package | 6 Prepare session | 0 Exit'
+            Write-Host '1 Install/update | 2 Uninstall/recover | 3 Diagnostics | 4 Status | 5 Verify package | 6 Prepare session | 7 Resolution profiles | 0 Exit'
             $Choice = Read-Host 'Choose'
             if ($Choice -eq '0') { break }
+            if ($Choice -eq '7') {
+                try {
+                    [void](Read-CojvrRelease $PSScriptRoot)
+                    Assert-GameClosed
+                    . (Join-Path $PSScriptRoot 'tools/coj_resolution_settings.ps1')
+                    Show-PublicResolutionSelector
+                } catch { Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red }
+                continue
+            }
             $Requested = @{'1'='Install';'2'='Uninstall';'3'='Diagnose';'4'='Status';'5'='Verify';'6'='PrepareSession'}[$Choice]
             if ($null -eq $Requested) { continue }
             $Reload = $false

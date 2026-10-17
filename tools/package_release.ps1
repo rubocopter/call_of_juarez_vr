@@ -74,10 +74,15 @@ if ($BuildManifest.manifestId -cnotmatch '^[A-F0-9]{64}$') { throw 'Invalid buil
 foreach ($RequiredRole in @('proxy', 'openvr_runtime', 'openvr_action_manifest', 'openvr_binding_psvr2_sense')) {
     if (@($BuildManifest.artifacts | Where-Object { $_.role -eq $RequiredRole }).Count -ne 1) { throw "Build inventory must contain exactly one $RequiredRole." }
 }
+foreach ($Name in @('cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe')) {
+    if (@($BuildManifest.artifacts | Where-Object { $_.role -eq 'resolution_helper' -and $_.fileName -eq $Name }).Count -ne 1) {
+        throw "Build provenance omits resolution helper: $Name. Build helpers and regenerate the manifest."
+    }
+}
 $ArtifactNames = @{}
 foreach ($Artifact in $BuildManifest.artifacts) {
     $Name = [string]$Artifact.fileName
-    if ($Name -notin @('d3d9_native_stereo.dll', 'openvr_api.dll') -and $Name -cnotmatch '^cojvr_openvr_input/[A-Za-z0-9_./-]+\.json$') {
+    if ($Name -notin @('d3d9_native_stereo.dll', 'openvr_api.dll','cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe') -and $Name -cnotmatch '^cojvr_openvr_input/[A-Za-z0-9_./-]+\.json$') {
         throw "Unexpected release build artifact: $Name"
     }
     if ($Name -match '(^|/)\.\.(/|$)' -or $ArtifactNames.ContainsKey($Name)) { throw 'Unsafe or duplicate build artifact.' }
@@ -97,7 +102,8 @@ foreach ($Match in [regex]::Matches($ProxyAscii, 'RSDS[\s\S]{20}([^\x00]+)\x00')
 
 & (Join-Path $PSScriptRoot 'bootstrap_release_dependencies.ps1') -Destination $DependencyDirectory
 $Tools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
-    'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'patch_coj_weapon_consumers.py',
+    'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_profiles.py',
+    'coj_resolution_settings.ps1','coj_resolution_session.ps1','patch_coj_weapon_consumers.py',
     'inspect_java_bytecode.py', 'coj_reload_wait_probe.py', 'coj_manual_reload.py',
     'coj_physical_punch.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -119,6 +125,9 @@ try {
     }
     foreach ($Name in $Tools) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot "tools/$Name") -Destination (Join-Path $PackageRoot "tools/$Name")
+    }
+    foreach ($Name in @('cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe','openvr_api.dll')) {
+        Copy-Item -LiteralPath (Join-Path $Artifacts $Name) -Destination (Join-Path $PackageRoot "tools/$Name")
     }
     foreach ($Name in @('d3d9_native_stereo.dll', 'openvr_api.dll', 'cojvr_openvr_input')) {
         Copy-Item -LiteralPath (Join-Path $Artifacts $Name) -Destination (Join-Path $PackageRoot 'payload') -Recurse

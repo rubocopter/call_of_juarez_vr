@@ -99,6 +99,13 @@ struct TrackedAimPoseDiagnostics {
     float game_units_per_meter,
     bool& valid) noexcept;
 
+// User-requested Ray fit trial. Native camera +forward is the backward tracking
+// axis. Apply only to the temporary visual pelvis before independent hands.
+[[nodiscard]] cojvr::runtime::Vec3 BuildCoJVisualBodySetback(
+    bool verified_ray, bool independent_hands,
+    cojvr::runtime::Vec3 native_camera_forward,
+    float game_units_per_meter, bool& valid) noexcept;
+
 // Physical room-scale crouch is detected from calibrated HMD height and merged
 // with the explicit controller action so either source drives the game's native
 // crouch pose/animation. Hysteresis keeps height noise from toggling the action.

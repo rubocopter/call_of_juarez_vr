@@ -15,6 +15,7 @@
 #include "runtime/gameplay_utility.hpp"
 #include "runtime/reload_haptics.hpp"
 #include "runtime/vr_math.hpp"
+#include "backends/openvr/flat_menu_composition.hpp"
 
 #include <d3d11.h>
 #include <d3d9.h>
@@ -407,11 +408,14 @@ struct OpenVrStereoPresenter::Impl {
         const std::uint32_t source_height = FrameHeight(frame);
         std::uint32_t desired_width = source_width;
         std::uint32_t desired_height = source_height;
-        if (flat_theater &&
-            !runtime::ComputeFlatTheaterTextureExtent(
-                eyes, source_width, source_height, desired_width, desired_height)) {
-            SetError("presenter rejected invalid flat-theater eye geometry");
-            return false;
+        if (flat_theater) {
+            // Angular presentation never participates in the allocation key.
+            const bool geometry_ok = runtime::ComputeFlatTheaterTextureExtent(
+                eyes, source_width, source_height, desired_width, desired_height);
+            if (!geometry_ok) {
+                SetError("presenter rejected invalid flat-theater eye geometry");
+                return false;
+            }
         }
         if (desired_width > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION ||
             desired_height > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION) {
@@ -477,8 +481,11 @@ struct OpenVrStereoPresenter::Impl {
         D3D9SharedTextureBridge& shared_bridge,
         d3d9::StereoCpuFrame& frame,
         std::uint64_t fixed_authority_epoch,
-        const FlatUiPointerSample& flat_ui_pointer,
+        const FlatUiPointerSample& input_flat_ui_pointer,
         std::vector<std::uint8_t>& flat_pointer_scratch,
+        FlatMenuCompositor& flat_menu_compositor,
+        bool& menu_gpu_disabled,
+        bool clear_flat_canvas,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         std::uint32_t& texture_width,
         std::uint32_t& texture_height,
@@ -489,6 +496,7 @@ struct OpenVrStereoPresenter::Impl {
         double& upload_ms,
         D3D9SharedTextureCopyTiming& shared_timing) noexcept {
         bool composition_ok = true;
+        auto flat_ui_pointer = input_flat_ui_pointer;
         const auto authority_ok = [&]() noexcept {
             return !fixed_outputs || fixed_frame_authority.Allows(fixed_authority_epoch);
         };
@@ -683,6 +691,52 @@ struct OpenVrStereoPresenter::Impl {
         }
 
         const auto upload_begin = std::chrono::steady_clock::now();
+        const bool menu_profile=flat_theater && !menu_gpu_disabled && frame.flat_reference_owner &&
+            frame.flat_reference_width && frame.flat_reference_height;
+        if (menu_profile) {
+            std::uint32_t width=0,height=0;
+            std::array<MenuDrawRectangle,2> rectangles{};
+            bool valid=CpuEyeData(left)==CpuEyeData(right) && runtime::ComputeFlatTheaterMenuRectangle(
+                eyes,left.width,left.height,frame.flat_reference_width,frame.flat_reference_height,
+                texture_width,texture_height,width,height);
+            for(unsigned eye=0;eye<2&&valid;++eye) {
+                runtime::FlatTheaterEyePlacement placement{};
+                valid=runtime::ComputeFlatTheaterEyePlacement(eyes[eye],width,height,texture_width,texture_height,placement);
+                rectangles[eye]={placement.left,placement.top,width,height};
+            }
+            const bool pointer_valid=flat_ui_pointer.active && flat_ui_pointer.source_width==left.width &&
+                flat_ui_pointer.source_height==left.height;
+            MenuDrawPointer pointer{pointer_valid,float(flat_ui_pointer.pixel_x),float(flat_ui_pointer.pixel_y),
+                float(flat_ui_pointer.beam_origin_valid?flat_ui_pointer.beam_origin_x:flat_ui_pointer.pixel_x),
+                float(flat_ui_pointer.beam_origin_valid?flat_ui_pointer.beam_origin_y:flat_ui_pointer.pixel_y)};
+            if(valid && flat_menu_compositor.Draw(d3d11.device(),d3d11.context(),CpuEyeData(left),
+                left.width,left.height,left.stride,{textures[0].Get(),textures[1].Get()},rectangles,pointer,clear_flat_canvas)) {
+                upload_ms=MillisecondsBetween(upload_begin,std::chrono::steady_clock::now());
+                if(ShouldLogSequence(frame.capture_sequence)) {
+                    std::ostringstream timing;
+                    timing<<"native_stereo_menu_gpu: status=ok;frame_sequence="<<frame.capture_sequence
+                        <<";cpu_queue_ms="<<upload_ms<<";source_allocations="<<flat_menu_compositor.source_allocations()
+                        <<";source_payload_bytes="<<std::uint64_t(left.width)*left.height*4;
+                    Log(timing.str());
+                }
+                return true;
+            }
+            // One failed attempt per session, then retain the ordinary usable UI.
+            // Clear the metadata too so pointer projection matches that fallback.
+            menu_gpu_disabled=true;
+            frame.flat_reference_width=frame.flat_reference_height=frame.flat_reference_owner=0;
+            clear_flat_canvas=true;flat_ui_pointer={};
+            std::ostringstream failure;failure<<"native_stereo_menu_gpu: status=fallback;reason="
+                <<(valid?"gpu_prepare_or_draw_failed":"layout_failed")<<";hr=0x"<<std::hex<<flat_menu_compositor.last_result();
+            Log(failure.str());flat_menu_compositor.Reset();
+        }
+        if (clear_flat_canvas && flat_theater) {
+            std::array<ComPtr<ID3D11RenderTargetView>,2> views;
+            for (unsigned eye=0;eye<2;++eye)
+                if (FAILED(d3d11.device()->CreateRenderTargetView(textures[eye].Get(),nullptr,&views[eye]))) return false;
+            constexpr float black[4]={0,0,0,1};
+            for (const auto& view:views) d3d11.context()->ClearRenderTargetView(view.Get(),black);
+        }
         for (std::size_t eye = 0; eye < 2; ++eye) {
             if (!authority_ok()) return false;
             const auto& source = frame.eyes[eye];
@@ -939,11 +993,15 @@ struct OpenVrStereoPresenter::Impl {
         std::chrono::steady_clock::time_point active_capture_time{};
         runtime::Pose active_render_hmd_pose{};
         std::uint32_t active_source_width = 0;
+        std::uint32_t active_flat_reference_width = 0, active_flat_reference_height = 0;
+        std::uint32_t active_flat_reference_owner = 0;
         std::uint32_t active_source_height = 0;
         runtime::Pose flat_theater_anchor_pose{};
         bool flat_theater_anchor_valid = false;
         FlatUiPointerSample flat_ui_pointer{};
         std::vector<std::uint8_t> flat_pointer_scratch;
+        FlatMenuCompositor flat_menu_compositor;
+        bool menu_gpu_disabled=false;
         runtime::UiPointerOwnership pointer_ownership;
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
         runtime::EquipmentWheelHaptics wheel_haptics;
@@ -1031,6 +1089,23 @@ struct OpenVrStereoPresenter::Impl {
                 Log("native_stereo_presenter_shutdown: stage=runtime_end init_failed=true");
                 SignalInitialization(false);
                 return;
+            }
+            // Read-only provenance. Do not identify/rebind this process: the
+            // Steam application identity also owns the accepted input bindings.
+            {
+                std::array<char,vr::k_unMaxApplicationKeyLength> key{};
+                auto* applications=vr::VRApplications();
+                const bool known=applications && applications->GetApplicationKeyByProcessId(
+                    GetCurrentProcessId(),key.data(),static_cast<std::uint32_t>(key.size()))==vr::VRApplicationError_None;
+                key.back()='\0';
+                for (char& c:key) if(c && !((c>='a'&&c<='z')||(c>='A'&&c<='Z')||
+                    (c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')) c='?';
+                std::ostringstream identity;
+                identity << "openvr_resolution_identity: application_key=" << (known?key.data():"unavailable")
+                         << ";recommended=" << eyes[0].width << 'x' << eyes[0].height
+                         << ";adapter=" << runtime.system_info().dxgi_adapter_index
+                         << ";identity_changed=false;recommendation_equivalence=unqualified";
+                Log(identity.str());
             }
             for (const auto& eye : eyes) {
                 std::ostringstream optics;
@@ -1473,10 +1548,16 @@ struct OpenVrStereoPresenter::Impl {
                                                      const bool using_left_hand) noexcept {
                             if (!valid || pointer.active) return;
                             runtime::FlatTheaterPointerProjection projected{};
-                            if (!runtime::ProjectFlatTheaterPointer(
+                            std::uint32_t draw_width=active_source_width,draw_height=active_source_height;
+                            if (active_flat_reference_owner && !runtime::ComputeFlatTheaterMenuRectangle(
+                                    eyes,active_source_width,active_source_height,
+                                    active_flat_reference_width,active_flat_reference_height,
+                                    texture_width,texture_height,draw_width,draw_height)) return;
+                            if (!runtime::ProjectFlatTheaterSourcePointer(
                                     flat_theater_anchor_pose, aim_pose,
                                     eyes[0].fov, eyes[1].fov,
                                     active_source_width, active_source_height,
+                                    draw_width, draw_height,
                                     texture_width, texture_height, projected)) {
                                 return;
                             }
@@ -1732,12 +1813,26 @@ struct OpenVrStereoPresenter::Impl {
                         const bool shared_frame = frame.transport ==
                             d3d9::StereoFrameTransport::d3d9ex_shared_texture;
                         const auto shared_stats_before = shared_bridge.stats();
+                        if(menu_gpu_disabled) frame.flat_reference_width=frame.flat_reference_height=frame.flat_reference_owner=0;
+                        bool flat_reference_changed =
+                            active_flat_reference_width != frame.flat_reference_width ||
+                            active_flat_reference_height != frame.flat_reference_height ||
+                            active_flat_reference_owner != frame.flat_reference_owner;
+                        if (flat_reference_changed) {
+                            pointer_ownership.Suspend();
+                            flat_ui_pointer = {};
+                            PublishFlatUiPointer(flat_ui_pointer);
+                        }
                         if (fixed_outputs) cadence.Invalidate();
                         const bool uploaded = (!fixed_outputs || fixed_frame_authority.Allows(incoming_fixed_authority_epoch)) && UploadFrame(
                                 d3d11, shared_bridge, frame, incoming_fixed_authority_epoch, flat_ui_pointer,
-                                flat_pointer_scratch,
+                                flat_pointer_scratch, flat_menu_compositor, menu_gpu_disabled, flat_reference_changed,
                                 textures, texture_width, texture_height, texture_format,
                                 left_hash, right_hash, hash_ms, upload_ms, shared_timing);
+                        if(!flat_reference_changed && active_flat_reference_owner!=frame.flat_reference_owner) {
+                            flat_reference_changed=true;
+                            pointer_ownership.Suspend();flat_ui_pointer={};PublishFlatUiPointer(flat_ui_pointer);
+                        }
                         const auto shared_stats_after = shared_bridge.stats();
                         log_retired_leases(shared_stats_after.copy_fences_completed);
                         if (uploaded && (!fixed_outputs ||
@@ -1875,6 +1970,9 @@ struct OpenVrStereoPresenter::Impl {
                                 active_render_pose_sequence = frame.render_pose_sequence;
                                 active_render_hmd_pose = frame.render_hmd_pose;
                                 active_source_width = FrameWidth(frame);
+                                active_flat_reference_width = frame.flat_reference_width;
+                                active_flat_reference_height = frame.flat_reference_height;
+                                active_flat_reference_owner = frame.flat_reference_owner;
                                 active_source_height = FrameHeight(frame);
                                 active_presentation_mode = frame.presentation_mode;
                                 active_fixed_authority_epoch = incoming_fixed_authority_epoch;
@@ -1900,7 +1998,7 @@ struct OpenVrStereoPresenter::Impl {
                                 SnapshotFixedOutputs();
                             }
                             ++frames_uploaded;
-                            if (mode_changed) {
+                            if (mode_changed || flat_reference_changed) {
                                 Log(std::string("native_stereo_presenter_transition: status=content_mode mode=") +
                                     (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
                                          ? "flat_theater"
@@ -1909,11 +2007,15 @@ struct OpenVrStereoPresenter::Impl {
                                     d3d9::FramePresentationMode::flat_theater) {
                                     runtime::FlatTheaterEyePlacement left_placement{};
                                     runtime::FlatTheaterEyePlacement right_placement{};
+                                    std::uint32_t draw_width=FrameWidth(frame),draw_height=FrameHeight(frame);
+                                    if (frame.flat_reference_owner) (void)runtime::ComputeFlatTheaterMenuRectangle(
+                                        eyes,FrameWidth(frame),FrameHeight(frame),frame.flat_reference_width,
+                                        frame.flat_reference_height,texture_width,texture_height,draw_width,draw_height);
                                     if (runtime::ComputeFlatTheaterEyePlacement(
-                                            eyes[0], FrameWidth(frame), FrameHeight(frame),
+                                            eyes[0], draw_width, draw_height,
                                             texture_width, texture_height, left_placement) &&
                                         runtime::ComputeFlatTheaterEyePlacement(
-                                            eyes[1], FrameWidth(frame), FrameHeight(frame),
+                                            eyes[1], draw_width, draw_height,
                                             texture_width, texture_height, right_placement)) {
                                         std::ostringstream geometry;
                                         geometry << "native_stereo_flat_theater_geometry: status=active"
@@ -1921,6 +2023,13 @@ struct OpenVrStereoPresenter::Impl {
                                                  << ";texture=" << texture_width << 'x' << texture_height
                                                  << ";source=" << FrameWidth(frame) << 'x'
                                                  << FrameHeight(frame)
+                                                 << ";logical_reference=" << frame.flat_reference_width << 'x'
+                                                 << frame.flat_reference_height
+                                                 << ";visible_rectangle=" << draw_width << 'x' << draw_height
+                                                 << ";menu_owner=" << frame.flat_reference_owner
+                                                 << ";left_texture_identity=" << textures[0].Get()
+                                                 << ";right_texture_identity=" << textures[1].Get()
+                                                 << ";allocation_policy=source_only"
                                                  << ";left_offset=" << left_placement.left << ','
                                                  << left_placement.top
                                                  << ";right_offset=" << right_placement.left << ','
@@ -1935,6 +2044,9 @@ struct OpenVrStereoPresenter::Impl {
                                 LogPresentationState(runtime, "frame_ready");
                             }
                             if (ShouldLogSequence(frame.capture_sequence)) {
+                                D3D11_TEXTURE2D_DESC left_desc{}, right_desc{};
+                                if (textures[0]) textures[0]->GetDesc(&left_desc);
+                                if (textures[1]) textures[1]->GetDesc(&right_desc);
                                 const bool frame_uses_shared_transport = frame.transport ==
                                     d3d9::StereoFrameTransport::d3d9ex_shared_texture;
                                 std::ostringstream line;
@@ -1942,6 +2054,9 @@ struct OpenVrStereoPresenter::Impl {
                                      << frame.capture_sequence
                                      << ";render_pose_sequence=" << frame.render_pose_sequence
                                      << ";generation=" << frame.generation
+                                     << ";source=" << FrameWidth(frame) << 'x' << FrameHeight(frame)
+                                     << ";left_texture=" << left_desc.Width << 'x' << left_desc.Height
+                                     << ";right_texture=" << right_desc.Width << 'x' << right_desc.Height
                                      << ";presentation_mode="
                                       << (frame.presentation_mode == d3d9::FramePresentationMode::flat_theater
                                               ? "flat_theater"
@@ -2086,7 +2201,10 @@ struct OpenVrStereoPresenter::Impl {
                 const std::uint64_t submit_sequence =
                     new_frame_submissions.load(std::memory_order_acquire) +
                     repeated_frame_submissions.load(std::memory_order_acquire);
-                if (ShouldLogSequence(submit_sequence)) {
+                // Keep sampled upload/capture identities observable even when
+                // earlier theater/repeated submissions shift the submit cadence.
+                if (ShouldLogSequence(submit_sequence) ||
+                    (uploaded_new_frame && ShouldLogSequence(active_capture_sequence))) {
                     std::ostringstream line;
                     line << "native_stereo_presenter_timing: status=ok submit_sequence="
                          << submit_sequence
@@ -2179,6 +2297,7 @@ struct OpenVrStereoPresenter::Impl {
         runtime::PublishSettingsInputCapture(false);
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
         hud_text_compositor.Reset();
+        flat_menu_compositor.Reset();
         if (fixed_outputs) {
             if (d3d11.context()) d3d11.context()->ClearState();
             fixed_outputs->Seal();

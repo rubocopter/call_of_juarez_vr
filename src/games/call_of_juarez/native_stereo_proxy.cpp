@@ -20,6 +20,7 @@
 #include "runtime/ui_pointer_ownership.hpp"
 #include "backends/d3d9/vr_present_policy.hpp"
 #include "backends/d3d9/source_capture_admission.hpp"
+#include "backends/d3d9/frame_luma_probe.hpp"
 
 #include <windows.h>
 #include <psapi.h>
@@ -60,6 +61,16 @@ struct SourceCaptureAuthorization {
 };
 
 struct NativeStereoState {
+    struct LumaChannel {
+        cojvr::backends::d3d9::D3D9FrameLumaProbe probe;
+        cojvr::backends::d3d9::FrameLumaSample previous{};
+        bool have_previous = false, disabled = false;
+        std::uint64_t observations = 0, logged_time_ns = 0;
+    };
+    bool luma_enabled = false; // Startup-only diagnostic; never a visual writer.
+    std::mutex luma_mutex;
+    std::array<LumaChannel, 3> luma_channels;
+    std::atomic_uint64_t luma_pose_sequence{0};
     std::atomic<std::uint64_t> frame_feedback_context_token{0};
     cojvr::backends::d3d9::D3D9StereoCapture capture;
     cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
@@ -163,6 +174,93 @@ void LogLine(const std::string_view line) noexcept {
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
 }
 
+void ResetFrameLumaProbes() noexcept {
+    std::lock_guard lock(g_stereo.luma_mutex);
+    for (auto& channel : g_stereo.luma_channels) {
+        channel.probe.Reset();
+        channel.have_previous = false;
+        channel.logged_time_ns = 0;
+    }
+    g_stereo.luma_pose_sequence.store(0);
+    if (g_stereo.luma_enabled) LogLine("native_stereo_luma_probe: status=reset;pending_samples=discarded");
+}
+
+void LogLumaSample(std::size_t stream, const cojvr::backends::d3d9::FrameLumaSample& sample) {
+    static constexpr const char* names[]{"left", "right", "desktop"};
+    std::ostringstream line;
+    line << "native_stereo_luma_probe: status=sample;stream=" << names[stream]
+         << ";sequence=" << sample.sequence << ";generation=" << sample.generation
+         << ";pose_sequence=" << sample.pose_sequence << ";time_ns=" << sample.timestamp_ns
+         << ";device=" << sample.device << ";source=" << sample.source
+         << ";source_width=" << sample.source_width << ";source_height=" << sample.source_height
+         << ";format=" << static_cast<unsigned>(sample.source_format)
+         << std::fixed << std::setprecision(4)
+         << ";mean=" << (sample.mean_r + sample.mean_g + sample.mean_b) / 3.0
+         << ";mean_r=" << sample.mean_r << ";mean_g=" << sample.mean_g << ";mean_b=" << sample.mean_b
+         << ";white_fraction=" << sample.white_fraction
+         << ";queue_ms=" << sample.queue_ms << ";readback_ms=" << sample.readback_ms;
+    LogLine(line.str());
+}
+
+void PollFrameLumaProbes() noexcept {
+    if (!g_stereo.luma_enabled) return;
+    try {
+        std::lock_guard lock(g_stereo.luma_mutex);
+        for (std::size_t stream = 0; stream < g_stereo.luma_channels.size(); ++stream) {
+            auto& channel = g_stereo.luma_channels[stream];
+            if (channel.disabled) continue;
+            cojvr::backends::d3d9::FrameLumaSample sample{};
+            // One non-flushing query poll per channel; never spin for completion.
+            if (!channel.probe.Poll(sample)) {
+                if (FAILED(channel.probe.last_result)) {
+                    channel.disabled = true;
+                    LogLine("native_stereo_luma_probe: status=disabled;reason=readback_failed;stream=" + std::to_string(stream));
+                    channel.probe.Reset();
+                }
+                continue;
+            }
+            ++channel.observations;
+            const bool same = channel.have_previous && sample.generation == channel.previous.generation &&
+                sample.device == channel.previous.device && sample.source == channel.previous.source &&
+                sample.source_width == channel.previous.source_width && sample.source_height == channel.previous.source_height;
+            const auto mean = [](const auto& value) { return (value.mean_r+value.mean_g+value.mean_b)/3.0; };
+            const bool changed = same && (std::abs(mean(sample)-mean(channel.previous)) >= 24.0 ||
+                (sample.white_fraction >= .75) != (channel.previous.white_fraction >= .75));
+            if (changed && channel.previous.timestamp_ns > channel.logged_time_ns) {
+                LogLumaSample(stream, channel.previous);
+                channel.logged_time_ns = channel.previous.timestamp_ns;
+            }
+            if (!same || changed || channel.observations % 90 == 0) {
+                LogLumaSample(stream, sample);
+                channel.logged_time_ns = sample.timestamp_ns;
+            }
+            channel.previous = sample;
+            channel.have_previous = true;
+        }
+    } catch (...) {} // Diagnostic allocation/logging cannot alter rendering.
+}
+
+void QueueFrameLumaProbe(IDirect3DDevice9* device, IDirect3DSurface9* source,
+                         std::size_t stream, std::uint64_t sequence) noexcept {
+    if (!g_stereo.luma_enabled || !device || !source || !sequence ||
+        g_finalization_started.load(std::memory_order_acquire)) return;
+    try {
+        std::lock_guard lock(g_stereo.luma_mutex);
+        auto& channel = g_stereo.luma_channels[stream];
+        if (channel.disabled) return;
+        if (!channel.probe.Queue(device, source, sequence, g_stereo.device_generation.load(),
+                g_stereo.luma_pose_sequence.load()) && FAILED(channel.probe.last_result)) {
+            // Unavailable diagnostic is never a capture/gameplay failure or retry loop.
+            channel.disabled = true;
+            std::ostringstream line;
+            line << "native_stereo_luma_probe: status=disabled;stream=" << stream
+                 << ";hr=" << channel.probe.last_result;
+            LogLine(line.str());
+            channel.probe.Reset();
+        }
+    } catch (...) {}
+}
+
 // The source fence covers both producers. In particular, a blocked owner that
 // remains blocked must not invalidate every natural Present and starve theater.
 void InvalidateSourceLocked(NativeStereoState& state) noexcept {
@@ -259,6 +357,7 @@ bool RetireIndependentBank(NativeStereoState& state, const char* boundary) noexc
 
 void CancelResourceProbe() noexcept;
 bool AllowDeviceReset(IDirect3DDevice9*) noexcept {
+    ResetFrameLumaProbes(); // Called before both Reset and ResetEx, even failed attempts.
     if (!g_stereo.fixed_outputs.enabled) return true;
     CancelResourceProbe();
     g_stereo.reset_suspended_generation.store(g_stereo.device_generation.load());
@@ -1472,6 +1571,16 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 "native_stereo_flat_theater: status=captured " +
                 std::string(g_stereo.flat_capture.capture_description()));
         }
+        // Presentation only: no native UI, camera, target or cursor mutation.
+        // Positive exact-game MenuMain ownership excludes pause/loading/movie.
+        std::uint32_t menu_owner = 0;
+        if (!g_stereo.fixed_outputs.enabled && completed.eyes[0].width == 2804 &&
+            completed.eyes[0].height == 2860 &&
+            cojvr::games::call_of_juarez::ObserveCameraMainMenuActive(&menu_owner)) {
+            completed.flat_reference_width = 2560;
+            completed.flat_reference_height = 1440;
+            completed.flat_reference_owner = menu_owner;
+        }
         if (PublishCapturedFrame(
                 g_stereo, std::move(completed),
                 cojvr::backends::d3d9::FramePresentationMode::flat_theater,
@@ -1511,6 +1620,12 @@ void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
             }
         }
         BeforePresentBoundary(device, "device_present");
+        PollFrameLumaProbes();
+        if (g_stereo.luma_enabled) {
+            Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
+            if (SUCCEEDED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer)))
+                QueueFrameLumaProbe(device, backbuffer.Get(), 2, g_device_present_sequence);
+        }
     }
 }
 
@@ -1604,6 +1719,13 @@ void AfterDeviceReset(
 void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
     if (g_device_present_depth == 0) {
         BeforePresentBoundary(device, "swapchain_present");
+        PollFrameLumaProbes();
+        if (g_stereo.luma_enabled && device) {
+            Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
+            if (SUCCEEDED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer)))
+                QueueFrameLumaProbe(device, backbuffer.Get(), 2,
+                    g_stereo.present_telemetry_sequence.fetch_add(1) + 1);
+        }
     }
 }
 
@@ -1758,6 +1880,7 @@ void AfterCreateDevice(
         };
         log_factory_identity("factory_native_identity");
         IDirect3DDevice9* replacement = observed;
+        ResetFrameLumaProbes();
         (void)RetireIndependentBank(g_stereo, "device_replacement");
         if(g_resource_probe_enabled.load(std::memory_order_acquire))
             g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
@@ -1797,7 +1920,7 @@ void AfterCreateDevice(
             .resource_probe_event = (g_resource_probe_enabled.load() || g_stereo.fixed_outputs.enabled)
                 ? &ResourceProbeEvent : nullptr,
             .resource_probe_call = g_resource_probe_enabled.load() ? &ResourceProbeCall : nullptr,
-            .allow_reset = g_stereo.fixed_outputs.enabled ? &AllowDeviceReset : nullptr,
+            .allow_reset = (g_stereo.fixed_outputs.enabled || g_stereo.luma_enabled) ? &AllowDeviceReset : nullptr,
             .after_reset_ex = g_stereo.fixed_outputs.enabled ? &AfterDeviceReset : nullptr,
         };
         const auto device_hook =
@@ -1981,6 +2104,7 @@ bool BeginStereoFrame(
     }
     sample.hmd_pose.pose = tracking.pose;
     sample.hmd_pose.sequence = tracking.sequence;
+    state->luma_pose_sequence.store(tracking.sequence, std::memory_order_release);
     sample.native_gameplay_context_token =
         state->frame_feedback_context_token.load(std::memory_order_acquire);
     sample.left_controller = tracking.left_controller;
@@ -2168,6 +2292,11 @@ bool CaptureStereoEye(
         }
     }
     const std::uintptr_t device_id = reinterpret_cast<std::uintptr_t>(device);
+    if (state->luma_enabled) {
+        Microsoft::WRL::ComPtr<IDirect3DSurface9> source;
+        if (SUCCEEDED(device->GetRenderTarget(0, &source)))
+            QueueFrameLumaProbe(device, source.Get(), eye == cojvr::runtime::Eye::left ? 0 : 1, frame_sequence);
+    }
     const bool captured = state->capture.CaptureEye(
         device, eye, frame_sequence, generation);
     device->Release();
@@ -2459,6 +2588,21 @@ void Finalize() noexcept {
     LogLine("native_stereo_shutdown: stage=capture_begin");
     g_stereo.capture.Shutdown();
     g_stereo.flat_capture.Shutdown();
+    if (g_stereo.luma_enabled) {
+        std::lock_guard lock(g_stereo.luma_mutex);
+        for (std::size_t stream=0;stream<g_stereo.luma_channels.size();++stream) {
+            const auto& channel=g_stereo.luma_channels[stream];
+            try {
+                std::ostringstream line;
+                line << "native_stereo_luma_probe: status=summary;stream=" << stream
+                     << ";queued=" << channel.probe.queued << ";completed=" << channel.probe.completed
+                     << ";dropped=" << channel.probe.dropped << ";failures=" << channel.probe.failures
+                     << ";disabled=" << (channel.disabled ? "true" : "false");
+                LogLine(line.str());
+            } catch (...) {}
+        }
+    }
+    ResetFrameLumaProbes();
     LogLine("native_stereo_shutdown: stage=capture_end");
     if(g_stereo.fixed_outputs.enabled)LogLine(std::string("independent_eye_shutdown: restored=")+
         (g_stereo.independent_render.Shutdown()?"true":"false"));
@@ -2617,6 +2761,7 @@ void EnsureStarted() noexcept {
                 cojvr::games::call_of_juarez::CameraProbeCommand command{};
                 if(control.size()<=65536&&cojvr::games::call_of_juarez::ParseCameraProbeCommand(control,command,nullptr)) {
                     g_resource_probe_enabled.store(command.render_resource_probe_enabled);
+                    g_stereo.luma_enabled = command.frame_luma_probe_enabled;
                     if (command.independent_eye_height == 1440 || command.independent_eye_height == 1920) {
                         g_stereo.fixed_outputs = {
                             .enabled = true,
@@ -2629,6 +2774,9 @@ void EnsureStarted() noexcept {
                         };
                     }
                 }
+                LogLine(std::string("native_stereo_luma_probe_config: startup_enabled=") +
+                    (g_stereo.luma_enabled ? "true" : "false") +
+                    ";grid=16x16;ring_slots_per_stream=3;query_poll=no_flush;effects_unchanged=true;coverage=native_source_points");
                 LogLine(std::string("independent_eye_config: startup_enabled=") +
                     (g_stereo.fixed_outputs.enabled ? "true" : "false") +
                     ";native_width=" + std::to_string(g_stereo.fixed_outputs.native_width) +

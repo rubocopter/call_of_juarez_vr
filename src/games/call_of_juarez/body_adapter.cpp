@@ -1644,6 +1644,22 @@ cojvr::runtime::Vec3 BuildCoJVisualBodyOffset(
         {}, {tracked_head.x, 0, tracked_head.z}, game_units_per_meter, valid);
 }
 
+cojvr::runtime::Vec3 BuildCoJVisualBodySetback(
+    const bool verified_ray, const bool independent_hands,
+    const cojvr::runtime::Vec3 native_camera_forward,
+    const float game_units_per_meter, bool& valid) noexcept {
+    valid=true;
+    if (!verified_ray || !independent_hands) return {};
+    valid=false;
+    if (!Finite(native_camera_forward) || !std::isfinite(game_units_per_meter) || game_units_per_meter<=0) return {};
+    const auto direction=Normalize({native_camera_forward.x,0,native_camera_forward.z});
+    if (Length(direction)<.99F) return {};
+    constexpr float setback_m=.08F;
+    const auto offset=Scale(direction,setback_m*game_units_per_meter);
+    valid=Finite(offset);
+    return valid ? offset : cojvr::runtime::Vec3{};
+}
+
 cojvr::runtime::Vec3 BuildTrackedArmTarget(
     const cojvr::runtime::Vec3 head_world_target,
     const cojvr::runtime::Vec3 camera_right,
