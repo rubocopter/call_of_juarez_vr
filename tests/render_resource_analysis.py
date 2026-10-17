@@ -571,7 +571,7 @@ class NativePostprocessTests(unittest.TestCase):
 
     def test_cli_summarizes_native_without_changing_binding_exit_or_evidence(self):
         for lines,status in ((native_lines(),'observed'),(log(pair()).splitlines(),'incomplete')):
-            with tempfile.TemporaryDirectory(dir=TOOL.parents[1]/'work') as directory:
+            with tempfile.TemporaryDirectory() as directory:
                 source=Path(directory)/'native-cli.log'
                 output=Path(directory)/'report.json'
                 content='\n'.join(lines).encode('utf-8')

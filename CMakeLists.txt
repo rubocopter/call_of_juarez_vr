@@ -876,6 +876,11 @@ if(COJVR_BUILD_TESTS)
 
     add_executable(cojvr_ppfx_resource_observation_test tests/ppfx_resource_observation.cpp)
     target_link_libraries(cojvr_ppfx_resource_observation_test PRIVATE cojvr_coj_ppfx_observation)
+    if(MSVC)
+        # Debug retains large snapshot return temporaries in this fixture.
+        # Reserve enough stack only for the synthetic executable.
+        target_link_options(cojvr_ppfx_resource_observation_test PRIVATE /STACK:8388608)
+    endif()
     add_test(NAME ppfx_resource_observation COMMAND cojvr_ppfx_resource_observation_test)
     add_executable(cojvr_native_render_transaction_test tests/native_render_transaction.cpp)
     target_include_directories(cojvr_native_render_transaction_test PRIVATE src)

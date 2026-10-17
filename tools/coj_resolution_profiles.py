@@ -17,6 +17,9 @@ GATES=['exact_game_build','recommendation_application_identity','native_adapter_
 def load_observation(text):
     if not isinstance(text,str) or len(text.encode('utf-8'))>65536:
         raise ValueError('Observation exceeds 64 KiB')
+    # Windows PowerShell 5.1 can prefix redirected stdin with a UTF-8 BOM.
+    # Match the existing utf-8-sig file input without relaxing JSON validation.
+    if text.startswith('\ufeff'): text=text[1:]
     def unique(pairs):
         value={}
         for key,item in pairs:
@@ -115,7 +118,7 @@ def main():
         stdin_observation=args.observation is not None and str(args.observation)=='-'
         if args.observation and not stdin_observation and args.observation.stat().st_size>65536: raise ValueError('Observation exceeds 64 KiB')
         observation=load_observation(sys.stdin.read(65537) if stdin_observation else
-            args.observation.read_text(encoding='utf-8-sig')) if args.observation else None
+            args.observation.read_text(encoding='utf-8')) if args.observation else None
         report=resolve(args.profile,observation=observation,expected_preparation_id=args.preparation_id,
                        width=args.width,height=args.height)
     except (OSError,ValueError) as error:

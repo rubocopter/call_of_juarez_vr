@@ -1,7 +1,11 @@
 """Offline proposals are never evidence that a native resolution was applied."""
 from datetime import datetime, timezone
 from pathlib import Path
+import json
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 import coj_resolution_profiles as profiles
@@ -57,5 +61,33 @@ class ResolutionProfiles(unittest.TestCase):
     def test_json_rejects_duplicates_nonfinite_and_large_records(self):
         for text in ['{"schemaVersion":1,"schemaVersion":1}','{"x":NaN}','{"x":Infinity}',' '*65537]:
             with self.assertRaises(ValueError): profiles.load_observation(text)
+
+    def test_cli_accepts_one_utf8_bom_from_windows_stdin(self):
+        record=observation(observedUtc=datetime.now(timezone.utc).isoformat(),hmdModel='fixture-é')
+        run=subprocess.run([sys.executable,str(Path(profiles.__file__)),
+            '--profile','100%','--observation','-','--preparation-id','fixture'],
+            input=b'\xef\xbb\xbf'+json.dumps(record,ensure_ascii=False).encode('utf-8'),capture_output=True,
+            env=dict(os.environ,PYTHONIOENCODING='utf-8'))
+        self.assertEqual(run.returncode,0,run.stdout.decode('utf-8')+run.stderr.decode('utf-8'))
+        result=json.loads(run.stdout)
+        self.assertEqual(result['candidateDimensions'],[2804,2860])
+        self.assertEqual(result['observation']['hmdModel'],'fixture-é')
+        self.assertFalse(result['applyAllowed'])
+        for text in ['\ufeff\ufeff{}','\ufeff{"x":1,"x":2}','\ufeff{"x":NaN}','\ufeff'+' '*65534]:
+            with self.assertRaises(ValueError): profiles.load_observation(text)
+
+    def test_file_accepts_one_bom_and_rejects_two(self):
+        record=observation(observedUtc=datetime.now(timezone.utc).isoformat())
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'observation.json'
+            for count in (0,1,2):
+                content=b'\xef\xbb\xbf'*count+json.dumps(record).encode('utf-8')
+                source.write_bytes(content)
+                run=subprocess.run([sys.executable,str(Path(profiles.__file__)),
+                    '--profile','Auto','--observation',str(source),'--preparation-id','fixture'],
+                    capture_output=True,env=dict(os.environ,PYTHONIOENCODING='utf-8'))
+                self.assertEqual(run.returncode,0 if count<2 else 1,run.stdout.decode('utf-8'))
+                self.assertFalse(json.loads(run.stdout)['applyAllowed'])
+                self.assertEqual(source.read_bytes(),content)
 
 if __name__=='__main__': unittest.main()

@@ -45,6 +45,9 @@ and packaged bindings remain experimental.
 - Extend package inventories, build manifests and offline verification to include
   resolution helpers and tools. The public menu retains its seven operations;
   no separate development selector is needed.
+- Accept the UTF-8 marker that Windows PowerShell 5.1 can add to recommendation
+  input, preventing valid Auto/percentage profiles from being rejected on those
+  consoles. Strict JSON and size validation remain in place.
 - Add opt-in render-resource and frame diagnostics with explicit generation
   correlation. These are internal investigation tools, disabled by default.
   The separate independent-render-target prototype remains off and unaccepted;
