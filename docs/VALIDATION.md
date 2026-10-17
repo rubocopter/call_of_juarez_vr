@@ -12,19 +12,24 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Public prerelease policy
 
-`v0.1.0-prealpha.1` is published for experimental community testing before
-whole-campaign acceptance. Distribution, package verification and additional
+`v0.1.0-prealpha.2` packages the consolidated implementation and accepted baseline
+for experimental community testing. `v0.1.0-prealpha.1` remains
+the previously published experimental community-testing prerelease; its archived
+package and verdicts are unchanged. Neither release claims whole-campaign
+acceptance. Distribution, package verification and additional
 controller bindings do not promote any validation state. Physical acceptance
 remains limited to the exercised Steam 2006 D3D9/OpenVR scenes and PS VR2 Sense.
 Other packaged bindings are experimental, with no support claim for other PCs
 or headsets.
 
 Disclose the unresolved chest/possible-scroll crash, incomplete campaign coverage
-and open recovery gates. Movie mode switching and return from exercised cinematics
-now have scoped operator acceptance; the specific Hope transition remains separate.
-Community testing also reports persistent flat presentation after the cinematic
-on arrival in Hope. An unfinished-capture ring exhaustion defect is corrected
-and host-tested locally; recovery in that campaign scene remains unvalidated.
+and open recovery gates. The operator explicitly confirms that stereo recovery
+after the Hope cinematic is fixed and headset-validated on the exercised PS VR2
+setup. Declared physical evidence also covers multiple exercised cinematics,
+entry/exit, hot theater/immersive switches even mid-sequence, different weapons,
+headset recenter and continued gameplay. This closes the exercised Hope recovery
+gate; it does not qualify every campaign cinematic, immersive subtitle transport,
+extreme device/tracking loss or other headsets. No repeat physical test is requested.
 Recommend save backups because crashes or blocked progression can lose progress.
 Users start/close the game and SteamVR manually. Community diagnostics are
 generated locally, inspected for private data and attached manually to issues;
@@ -35,7 +40,8 @@ reports startup with Pimax Dream Air, RTX 5090 and SteamVR; controller coverage,
 tracking quality, sustained performance and campaign recovery are not established
 by that report. The known source-resolution limitation also affects the PS VR2
 development path: native stereo retains the game's RT0 extent, independently of
-SteamVR's recommendation. Independent eye resolution is planned; the
+SteamVR's recommendation. Independent eye resolution remains a default-off,
+rejected experimental prototype; the
 [source investigation](research/COJ_VR_RENDER_RESOLUTION.md) adds no physical
 acceptance and makes no claim that DSR works on a particular setup.
 
@@ -84,7 +90,7 @@ remain explicit. One settings frame also supplies naturally scheduled sprite/flu
 ordering against the original-size default color target with matching device
 generation. Other sampled frames lack that ordering evidence. Pixel coverage,
 programmable constants/history, private-family rollback and submitted OpenVR
-output retirement remain unqualified; no resizing writer is enabled.
+output retirement remain unqualified; no resizing writer is enabled by default.
 The local startup-only private-bank implementation now exists behind
 `independentEyeResolution` (`off`, `2560x1440`, `2560x1920`). It remains
 experimental: real D3D9Ex with synthetic native memory verifies new raster rows,
@@ -93,7 +99,7 @@ Reset retirement. Checked-write and graphics-restoration faults retain recovery
 state; fixed-output allocation/authority and native-queue policies have host
 coverage. This supersedes the earlier implementation-pending statement, without
 promoting Q0/B0/B1 game or headset acceptance. The original-size collected runs
-did not exercise this writer. Published prerelease files remain unchanged.
+did not exercise this writer. The .2 consolidation does not accept or enable it.
 
 The first private-bank B0 run is **rejected**. Its native queue admission failed
 before the first eye mutation/capture; the run recorded zero fenced stereo pairs.
@@ -145,7 +151,8 @@ evidence. The already archived rejection is preserved.
 
 | Boundary | Confirmed state | Remaining limits |
 | --- | --- | --- |
-| Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. | Broad loading/device transitions and sustained pacing. |
+| Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
+| Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, immersive subtitle transport, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
 | Locomotion | Exercised native analog movement, head-relative direction, jump parity, physical crouch and corrected snap turning accepted. | Mounted contexts and campaign-specific movement. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. | Left/dual/special weapons, broader finger and recovery coverage. Connected-arm IK is a diagnostic, not the accepted presentation. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. | Broader weapons, ballistic birth vectors, whip reach/climbing and special optics. |
@@ -218,9 +225,11 @@ the consolidated acceptance below, rather than being listed as missing code.
 Scripted in-game cinematics now use native movie ownership to select flat theater,
 including the naturally rendered module subtitle sprite. The running timer alone
 previously admitted these movies as tracked stereo and omitted that subtitle path.
-The movie getter/owner-loss/end and JNI fault cases are host-tested. Camera comfort,
-subtitle visibility and entry/exit with held controls remain physically unvalidated;
-ordinary encountered dialogue acceptance does not accept movie subtitles.
+The movie getter/owner-loss/end and JNI fault cases are host-tested. Exercised
+entry/exit and mode-switch recovery now have the declared operator headset
+acceptance below. Broad comfort, movie-subtitle visibility and adversarial
+held-control/loss cases remain separate; ordinary encountered dialogue acceptance
+does not accept movie subtitles.
 
 Community feedback identifies failure to recover stereo after the cinematic on
 arrival in Hope, including a Quest 3 report. Reviewed community telemetry contains
@@ -233,12 +242,13 @@ exhausted. The next capture now reclaims only its unfinished unpublished slot;
 same-device GPU command ordering preserves writes, while pending fences and
 consumer leases remain protected. Classic readback and D3D9Ex/D3D11 host tests
 cover repeated one-/two-eye cancellations, a fresh recovered pair, retained
-consumer content and independent pending-frame survival. This is **host-tested**
-recovery, not confirmation that Hope is fixed in the headset or that the fault
-is specific to Quest. The supplied log spans multiple launches under one public
-run identity and does not qualify as canonical physical acceptance evidence.
-Include the Hope transition and ordinary controls after it in the next relevant
-campaign acceptance; theater during the movie remains intentional.
+consumer content and independent pending-frame survival. These are host tests;
+the operator separately declares physical headset validation that Hope recovery
+is fixed, including continued gameplay. The community log spans multiple launches
+under one public run identity and remains noncanonical; this declaration does not
+retroactively qualify that log, invent telemetry or change an archived verdict.
+The correction is not Quest-specific, and PS VR2 acceptance does not validate
+Quest recovery. Theater during the movie remains the intentional default.
 
 A new campaign crash was reported while interacting near a chest/possible scroll.
 Collected native evidence ends after interaction acquires blocking UI, with no
@@ -281,9 +291,9 @@ reports one effective punch in many attempts. That run contains 16 native melee
 entries, nine requests with native `Hit` calls and seven without; neither these
 counts nor synthetic gesture coverage establish reliable enemy damage. Long
 curves and discontinuities also left closed fists behind release fences. The
-active integration is being replaced with current-contact evaluation and
+active integration was subsequently replaced with current-contact evaluation and
 measured displayed-fist geometry. Cinematic continuity was not exercised in
-that session and remains pending.
+that rejected session; later declared physical acceptance is recorded separately.
 Select native Hands, release the triggers once, then hold either or both
 corresponding triggers to claim closed fists. The current implementation queries
 contact on each fresh pose using measured displayed knuckle skin and only the
@@ -347,16 +357,24 @@ Theater remains the default. Opt-in immersive movies use camera-only stereo:
 gameplay/body/weapon mutation stays blocked, and invalid/dead/mission-end/frozen
 owners retain theater. Movie subtitle sprites are not yet transported in
 immersive; the settings panel discloses this limitation, and theater retains
-their naturally rendered native pass. Neither host tests nor the operator's observation of a cinema
-screen qualify immersive comfort, movie subtitles or transition recovery.
+their naturally rendered native pass. Host tests and an observation of a cinema
+screen alone do not qualify immersive comfort, movie subtitles or recovery.
 An earlier immersive trial reported intermittent wrong-image flashes lasting
 about a second. After the continuity corrections, the operator reports no problems
 while toggling cinematic presentation and entering movies, and no persistent flat
-presentation afterward. This accepts mode switching and recovery in those exercised
-scenes only; no specific Hope scene, immersive subtitle transport, full comfort
-coverage or gameplay-hand/reload recovery is established by that observation.
+presentation afterward. The operator now explicitly declares the Hope stereo
+recovery fixed and **headset-validated**, across multiple exercised cinematics,
+entry/exit, hot theater/immersive switches even mid-sequence, different weapons,
+headset recenter and continued gameplay. This is declared operator physical
+evidence, not a newly collected telemetry result. It supersedes the earlier
+Hope-specific physical gate without changing archived rejections. All-campaign
+cinematics, immersive subtitle transport, full comfort coverage, extreme
+device/tracking loss and other headsets remain open. Continued gameplay does not
+independently qualify every hand/reload interruption. No repeat physical tests
+are requested for these accepted cinematic checks.
 
-Add these checks to the same ordinary session:
+Retain the following protocol for later changes or unexercised contexts; it is
+not a request to repeat the accepted settings/cinematic baseline for .2:
 
 1. **Settings:** tap Options for native pause; hold it for one second to open
    VR settings. Release buttons and center sticks, then use right-stick left/right
@@ -702,9 +720,10 @@ No separate short headset run is required for this addition.
 
 ## Image-quality profile acceptance
 
-**Headset-validated, scoped:** the operator accepts ordinary native stereo at
-2804x2860 after repeated play with perceptibly improved clarity and no noticed
-performance issue. It is the chosen local Manual default for the PS VR2 reference
+**Headset-validated, scoped:** the operator accepts ordinary native stereo with
+Manual 2804x2860 after repeated play with perceptibly improved clarity, coherent
+stereo and no perceptible performance issues during the tested resolution scenes.
+It is the chosen local Manual default for the PS VR2 reference
 setup. Prior effective-size evidence supplies full-size color/depth/viewport draws
 in both eyes, equal-size captures, distinct measured 2804x2860 D3D11 outputs and
 successful matched-pose submission. This is actual world raster resolution,
@@ -712,16 +731,17 @@ not window/mirror enlargement. Do not require another identical physical test.
 
 The isolated, visible and native-identified global MenuMain uses the 2560x1440
 angular reference while preserving capture aspect and native cursor coordinates.
-The operator confirms the menu-only GPU replacement resolves the severe slowdown.
+The operator accepts the main-menu GPU/angular correction and confirms that the
+menu-only GPU replacement resolves the severe slowdown.
 The rejected CPU resampling variant is superseded; it is not an alternate active
 route. Pause, loading, movies and native stereo keep their established layouts.
 See [menu ownership](research/COJ_UI_MOUSE_PATH.md) and
 [resolution evidence](research/COJ_VR_RENDER_RESOLUTION.md#explicit-native-resolution-trial).
 
-Ray's exercised 8 cm horizontal visual setback has operator acceptance. Retain
-the existing distal-coat partition and scoped pelvis restoration, without camera,
-actor/collision, hand-target or Billy adjustment. This closes the requested fit
-check, not a cloth-physics or whole-campaign gate.
+Ray's exercised 8 cm horizontal visual setback with the retained distal-coat
+partition has operator acceptance. Retain that partition and scoped pelvis
+restoration, without camera, actor/collision, hand-target or Billy adjustment.
+This closes the requested fit check, not a cloth-physics or whole-campaign gate.
 
 **Implemented/host-tested:** saved launcher profiles, startup-only application,
 query/caps bounds, pixel-count scaling, separate session/install video journals,
@@ -730,7 +750,8 @@ host sandbox exercises profile reapplication, updates and original restoration.
 These tests do not qualify other dimensions, headsets or GPU/CPU memory limits.
 Missing or incompatible queries preserve the selected native settings. New
 installations retain Preserve as their safe default; the operator's local choice
-remains Manual 2804x2860. The published prerelease is unchanged.
+remains Manual 2804x2860. These are the profile limits carried into the .2
+consolidation; publication does not extend their physical acceptance.
 
 **Open:** quantified sustained frame timing, recording compatibility, reset/device
 loss, memory/VA/loading headroom, general

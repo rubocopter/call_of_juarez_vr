@@ -26,9 +26,9 @@ instruction; do not claim a root cause from its export names. A bound, non-handl
 render-fault reporter is implemented/host-tested for the next ordinary candidate.
 Scripted in-game movies now yield stereo/body ownership to native flat theater,
 including the module subtitle pass, even with a running timer. Movie detection,
-end/loss and exception cleanup are host-tested; comfort and subtitle/held-input
-entry/exit acceptance join the combined session. These corrections take precedence
-when exercising the affected campaign scenes.
+end/loss and exception cleanup are host-tested. Exercised entry/exit and stereo
+recovery have the declared physical acceptance below; broad comfort, subtitle
+transport and adversarial held-input/loss cases remain separate gates.
 
 The current knuckle-contact combat route now has scoped headset validation: the
 operator reports defeating three enemies with Hands and says it felt substantially
@@ -38,8 +38,14 @@ Broader hand parity, campaign contexts and recovery remain open. The VR settings
 panel and exercised boxing death/recovery are also accepted. Immersive movies
 previously showed intermittent wrong-image flashes. The latest operator trial
 accepts toggling and entering cinematics without reported problems or persistent
-flat presentation in the exercised scenes; Hope-specific recovery remains separate.
-That same combined candidate exposed signed-positive native-identity rejection
+flat presentation. The operator explicitly declares stereo recovery after Hope
+fixed and headset-validated, across multiple exercised cinematics, entry/exit,
+hot theater/immersive switches even mid-sequence, different weapons, headset
+recenter and continued gameplay. This is declared operator physical evidence;
+no new telemetry or archived-verdict promotion is implied. All-campaign
+cinematics, immersive subtitles, extreme device/tracking loss and other headsets
+remain open. No repeat physical tests are requested for accepted recovery.
+An earlier combined candidate exposed signed-positive native-identity rejection
 with high-address objects, blocking single-pistol manual reload and physical Hands.
 Opaque 32-bit identity preservation is implemented/host-tested. The operator
 confirms that the corrected candidate restores independent Hands, manual reload
@@ -50,21 +56,22 @@ test is needed solely to reconfirm those restored functions.
 The functional settings panel remains a provisional development tool; future
 native settings should share its preference policy.
 
-Community testing reports stereo remaining flat after the arrival-in-Hope
+Community testing previously reported stereo remaining flat after the arrival-in-Hope
 cinematic. An unfinished capture could permanently consume a ring slot when
 ownership cancelled submission; repeated transitions exhausted the ring.
 Reclaiming only the current unfinished unpublished slot is implemented and
 host-tested on classic D3D9 and D3D9Ex/D3D11, preserving pending/leased frames.
-Verify recovery through the affected campaign transition before treating that
-report as resolved. This campaign stability gate takes priority over visual
-reload refinement; it does not establish a Quest-specific cause or acceptance.
+The operator's subsequent physical declaration closes the exercised Hope
+recovery gate. Preserve this correction and its acceptance; do not schedule
+another Hope test for consolidation. Other campaign transitions and device-loss
+recovery remain open, without a Quest-specific cause or acceptance claim.
 
 Immediate work, in order:
 
-1. **Campaign continuity and ownership recovery.** Check the already implemented
-   movie-continuity correction in the next relevant campaign candidate, including
-   return to stereo after the Hope cinematic when available. Preserve the
-   chest/possible-scroll fault diagnostic and record a recurrence without
+1. **Remaining campaign continuity and ownership recovery.** Preserve accepted
+   Hope/multi-cinematic recovery and hot switching. Broaden coverage only for
+   unexercised campaign and ownership boundaries; accepted recovery needs no repeat.
+   Preserve the chest/possible-scroll fault diagnostic and record a recurrence without
    inventing its cause. Batch focus/tracking/dashboard and held-control recovery;
    an accepted ordinary menu or quit does not close those gates.
 2. **Make the held cartridge convincing.** Preserve the accepted reload and
@@ -163,7 +170,7 @@ campaign continuity, physical interactions or reload work:
   Complete its canonical B0 then B1 physical gates, effective geometry/optics,
   detail and performance measurements before acceptance. Fixed outputs retain
   bounded process-lifetime ownership; this is not compositor retirement proof.
-  The published prerelease remains unchanged.
+  It remains default-off and unaccepted in the .2 consolidation.
   The first B0 operator run is rejected: queue admission prevented every stereo
   pair and the shared admission gate disabled gameplay input. Keep the prototype
   off, recover ordinary VR and resolve the native rejection and usable fallback
@@ -182,7 +189,8 @@ campaign continuity, physical interactions or reload work:
   host and isolated exact-game installation coverage. Other dimensions and general
   recommendation/memory limits remain unqualified. New installations default to
   Preserve rather than imposing the local PS VR2 size universally. The published
-  prerelease and archived verifier verdicts remain unchanged. Next work follows
+  .1 archive and all archived verifier verdicts remain unchanged; .2 consolidates
+  the scoped acceptance and experimental profile tooling. Next work follows
   unresolved campaign/profile gates; another Ray-fit or identical resolution
   candidate is not pending.
 - **Native VR settings:** retain the existing single-panel preference path now.
@@ -272,9 +280,10 @@ candidate, and the operator starts/closes the game and SteamVR.
 
 ## Milestone 1 — native stereo and HMD
 
-Achieved in exercised contexts: per-eye rendering, tracked head, recenter and
-room-scale motion. Finish broad loading/reset/transition coverage, sustained
-pacing and recording compatibility before public support claims.
+Achieved in exercised contexts: per-eye rendering, tracked head, recenter,
+room-scale motion and stereo recovery after Hope and multiple cinematics,
+including hot mode switches. Finish broad loading/reset/transition coverage,
+sustained pacing and recording compatibility before public support claims.
 
 ## Milestone 2 — player body and comfort
 
@@ -332,14 +341,27 @@ requires a second independent game demonstration before generalization.
 
 ## Release direction
 
-`v0.1.0-prealpha.1` is published as an experimental community-testing prerelease.
-Public testing may begin before full campaign coverage; it does not promote any
-validation state or promise campaign completion, recovery, comfort or support.
-The chest/possible-scroll crash remains unresolved. Local cinematic switching
-and recovery now have scoped acceptance; the published package and unexercised
-campaign transitions retain their own limits. Restored hand/reload/melee behavior
-has scoped operator acceptance; actual high-address coverage remains separate.
-Publish those limitations and recommend save backups alongside the package.
+`v0.1.0-prealpha.2` packages the consolidated implementation and accepted baseline
+for experimental community testing, including the declared physical acceptance below.
+`v0.1.0-prealpha.1` remains the previously published community-testing prerelease;
+its package and archived verdicts are preserved.
+
+The .2 baseline retains repeated operator acceptance of Manual 2804x2860 clarity,
+stereo and no perceptible performance issues during the tested PS VR2 resolution scenes,
+backed by prior actual raster/capture/output evidence. Main-menu GPU/angular
+correction and Ray's 8 cm visual setback with the coat partition are accepted.
+Hope/multi-cinematic stereo recovery, entry/exit, hot switches including
+mid-sequence, different weapons, headset recenter and continued gameplay are
+headset-validated by the operator's explicit physical declaration. No repeat
+physical tests are requested. The independent RT prototype remains rejected,
+unaccepted and default-off; these ordinary-path results do not promote it.
+
+Public testing does not promise campaign completion, general recovery, comfort
+or support. All-campaign cinematics, immersive subtitle transport, extreme
+device/tracking loss and other headset compatibility remain open. The
+chest/possible-scroll crash remains unresolved. Restored hand/reload/melee
+behavior has scoped operator acceptance; actual high-address coverage remains
+separate. Publish those limitations and recommend save backups with the package.
 
 The distribution target remains the exact original Steam 2006 D3D9/OpenVR build.
 Only PS VR2 Sense has scoped physical validation. Additional packaged controller

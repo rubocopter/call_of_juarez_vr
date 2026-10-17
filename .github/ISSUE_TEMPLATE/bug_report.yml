@@ -13,7 +13,7 @@ body:
     attributes:
       label: Package version
       description: Full downloaded version, or commit and local changes for a source build. Development fixes may not be in the published ZIP.
-      placeholder: v0.1.0-prealpha.1
+      placeholder: v0.1.0-prealpha.2
     validations:
       required: true
   - type: textarea
@@ -27,7 +27,7 @@ body:
     id: steps
     attributes:
       label: Steps, expected result and actual result
-      description: Name the chapter, character and checkpoint (or startup/menu/installation). Mention relevant settings such as manual reload or theater/immersive movies.
+      description: Name the chapter, character and checkpoint (or startup/menu/installation). Mention manual reload, theater/immersive movies and the saved/applied resolution profile and per-eye dimensions when relevant.
       placeholder: |
         1. Start at...
         2. Perform...

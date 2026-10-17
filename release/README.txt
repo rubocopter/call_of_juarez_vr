@@ -1,4 +1,4 @@
-Call of Juarez VR - experimental player package
+Call of Juarez VR 0.1.0-prealpha.2 - experimental player package
 Experimental community-testing prerelease
 
 The complete campaign is not tested. Crashes can block or lose progress.
@@ -76,8 +76,13 @@ INSTALL / UPDATE
 3. Double-click CoJ-VR.cmd and choose Install/update.
 4. Select the game directory when asked. ManualReload is optional: enable it
    only if you want the experimental manual revolver-loading interaction.
-5. Installation prepares the first session. Start SteamVR and the D3D9 game
-   manually. Close them manually afterward; the launcher does not start them.
+5. Installation prepares the first session using the saved resolution profile
+   (Preserve for new users). If you keep it, start SteamVR and the D3D9 game
+   manually; no extra preparation is needed. To change it, choose 7 - Resolution
+   profiles, then 6 - Prepare session before starting the game. Auto/percentage
+   profiles require SteamVR running before Install/update or Prepare session.
+   Start and close the game and SteamVR manually. Avoid switching desktop focus
+   while playing: the original game can crash when it loses focus.
 
 Before EVERY subsequent play session, close the game and choose menu option
 6 - Prepare session. This creates a fresh diagnostic identity and applies the
@@ -103,8 +108,12 @@ The existing engine renders at the applied native size; no post-capture upscaler
 is added. Menu/theater sources also change. Dimensions are fixed for the session;
 saving a profile never resizes a running game. Higher sizes can increase GPU and
 32-bit game memory use. Caps do not qualify total memory or every headset.
-2804x2860 is one tested local reference, not a universal default. Inspect the
-reported applied size; configured dimensions alone do not prove actual eye raster.
+Manual 2804x2860 per eye is the accepted local PS VR2 reference: repeated
+operator tests report sharper detail, correct stereo and no perceptible
+performance issues in the exercised scenarios, with prior measured native
+raster/capture/output dimensions. It is not a universal default or sustained
+performance guarantee. Inspect the reported applied size; configured dimensions
+alone do not prove actual eye raster.
 
 Profile intent persists across update/uninstall, independently of cinematic
 preferences. Each preparation restores the prior session override first.
@@ -116,8 +125,8 @@ If a protected Steam game folder causes Access denied, right-click CoJ-VR.cmd,
 choose Run as administrator and retry the operation.
 
 To update, extract a newer complete ZIP and choose Install/update again.
-There is no auto updater. Your manual-reload choice persists across updates
-unless you explicitly change it. Retain installation backups and recovery
+There is no auto updater. Manual-reload and resolution choices persist across updates
+unless you explicitly change them. Retain installation backups and recovery
 data until uninstall has succeeded. Do not remove them to bypass an error.
 
 VERIFY / STATUS / DIAGNOSTICS / UNINSTALL
@@ -150,8 +159,11 @@ KNOWN LIMITATIONS
 
 - A chest/possible-scroll interaction has caused a crash. Cause and recovery
   are unresolved; campaign progress is at risk.
-- Immersive movies have shown wrong-image flashes. A correction awaits headset
-  retesting. Theater is the default. Immersive movie subtitles are unavailable.
+- Full campaign cinematic coverage and immersive subtitle transport remain open.
+  Stereo recovery after Hope and multiple other exercised cinematics is fixed
+  and headset-validated, including hot mode changes, weapons and recentering.
+  Theater remains the default. Earlier intermittent full-scene flashes have not
+  recurred in later exercised sessions, but their cause remains unresolved.
 - Tracking/dashboard/held-input recovery, broader death/retry, save/load,
   abnormal exit, device loss and sustained/recorded performance remain open.
 - Mounted controls, other weapons, special optics, duels and climbing lack full

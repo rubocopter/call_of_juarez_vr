@@ -1,71 +1,128 @@
-# Unpublished launcher additions
+# v0.1.0-prealpha.2 — Pre-alpha / Experimental Community Release
 
-The next package adds saved startup resolution profiles through launcher option 7
-and Prepare session. Preserve remains default; Auto/pixel-percentage/Manual choices
-are experimental and retain the native renderer. Session video overrides restore
-before another profile and before installation originals. Cinematic preferences
-remain separate. This source change does not update the published prerelease or
-qualify new headset sizes, memory limits or recommendation identity equivalence.
+Cumulative changes since **v0.1.0-prealpha.1** for the exact original Steam
+Call of Juarez (2006), D3D9/OpenVR build. Back up saves: campaign coverage is
+incomplete and crashes can block progress. No feature is promoted to `supported`.
+Only exercised PS VR2 Sense scenarios have physical acceptance; other hardware
+and packaged bindings remain experimental.
 
-# v0.1.0-prealpha.1 — experimental community prerelease
+## Highlights
 
-Prepared for community testing before whole-campaign acceptance. No feature is promoted to `supported`, and no complete
-campaign or compatibility with other PCs/headsets is promised. Back up saves:
-crashes and blocked progression can lose progress.
+- **Higher native per-eye resolution with saved startup profiles**, integrated
+  into the player launcher. New installations default to Preserve.
+- **Improved main-menu presentation and performance at 2804×2860**:
+  the accepted GPU presentation retains the agreed angular reference, proportions,
+  pointer and native coordinates. This targeted correction requires verified
+  main-menu ownership and exactly that source size; other sizes retain the
+  established presentation.
+- **Fixed stereo recovery after cinematics**, including the previously reported
+  Hope transition. The operator confirms headset acceptance across multiple
+  exercised sequences, entry/exit, hot presentation-mode changes during sequences,
+  different equipped weapons, headset recentering and continued gameplay.
+- **Improved Ray body and coat presentation**, with the accepted 8 cm horizontal
+  visual setback and scoped coat partition. Camera, collisions, hand targets and
+  Billy's fit retain their established behavior.
 
-## Target and exercised features
+## Fixes and improvements
 
-- Windows 10/11 x64 host; exact original Steam Call of Juarez (2006), x86 game,
-  D3D9 and OpenVR/SteamVR.
-  Unknown executable/archive builds are rejected.
-- Native stereo/head tracking, locomotion, independent hands/weapons, controller
-  menus, encountered HUD/subtitles and physical Hands combat have scoped
-  acceptance in exercised scenes with PS VR2 Sense.
-- Optional manual revolver reload has scoped acceptance for opening/closing,
-  successive native unit loading, tracked hands and insertion haptics. It is not
-  a complete physical cylinder/chamber simulation.
-- Additional packaged controller bindings are experimental. Only PS VR2 Sense
-  has physical validation; a binding does not establish hardware support.
+- Recover unfinished stereo capture slots when presentation ownership changes
+  before a pair completes, preserving pending GPU work and consumer leases.
+  This prevents interrupted captures from permanently exhausting the ring.
+- Preserve all 32 bits of native weapon/object identity across the Java/native
+  boundary, including high-bit identities, for reload and physical Hands combat.
+  This corrects erroneous signed-identity rejection; it does not establish general
+  high-address compatibility for every native/JVM path.
+- Correct Sense Cross and trigger selection on loading screens to deliver the
+  native key press needed to continue. Host tests cover both routes and cleanup;
+  their fresh headset continuation check remains separate from cinematic acceptance.
+- Keep main-menu pointer mapping consistent with its source size and presentation.
+  Ordinary native stereo remains the active render path.
+- Add persistent profile selection, bounded SteamVR query and D3D9 limits helpers,
+  and layered session-video recovery to Install/update and Prepare session.
+  Preparation restores the previous override before applying the next; update
+  preserves ManualReload and resolution intent. Uninstall restores the session
+  layer before the installation originals and preserves conflicting edits.
+- Extend package inventories, build manifests and offline verification to include
+  resolution helpers and tools. The public menu retains its seven operations;
+  no separate development selector is needed.
+- Add opt-in render-resource and frame diagnostics with explicit generation
+  correlation. These are internal investigation tools, disabled by default.
+  The separate independent-render-target prototype remains off and unaccepted;
+  it is not the resolution mechanism offered by this release.
 
-## Package workflow
+## Resolution profiles
 
-Extract the complete ZIP anywhere and double-click `CoJ-VR.cmd` for Install/update,
-Uninstall, Diagnostics and Status. System Windows PowerShell 5.1 is used; no
-PowerShell 7, compiler, Git or system Python is needed. Python and the VC++ x86
-redistributable are bundled for offline installation. Users supply the game,
-SteamVR and GPU/headset drivers and start/close the game and SteamVR manually.
+Extract the complete **player ZIP** and run **CoJ-VR.cmd**. With the game closed,
+choose **7 — Resolution profiles**, then **6 — Prepare session** to apply a changed
+choice. Installation already prepares a session using the saved profile: no
+second preparation is needed unless you change it afterward. On subsequent
+sessions, close the game, optionally change the profile, and choose 6.
 
-ManualReload is an optional installation choice that persists across updates
-unless explicitly changed. Updates use a newer extracted ZIP; there is no auto
-updater. Preserve original backups and recovery data until uninstall succeeds.
-See `README.txt` for package-root CLI commands and reporting instructions.
+- **Preserve (default):** retain the game's selected native resolution; no
+  SteamVR recommendation query.
+- **Auto / 100%:** use the current helper recommendation. Start SteamVR manually
+  before Install/update or Prepare session needs to query it.
+- **75% / 125%:** scale the recommendation's total pixel count, approximately
+  preserving aspect ratio (each axis scales by the square root of the percentage).
+- **Manual:** enter width and height per eye; no SteamVR recommendation is needed.
 
-## Known issues and incomplete coverage
+**Manual 2804×2860 per eye is the accepted local PS VR2 reference.** Prior
+instrumented evidence establishes actual raster/capture/output dimensions. The
+operator reports repeated satisfactory stereo, sharper detail and no perceptible
+performance problems during the exercised tests. This is declared physical
+acceptance, not a new telemetry measurement, universal default or sustained
+performance guarantee. No repeat of these accepted tests is required for release.
 
-- **Chest interaction crash:** an interaction near a chest/possible scroll has
-  crashed the game. Cause and recovery are unresolved; added fault diagnostics
-  are not a fix.
-- **Movies:** immersive mode previously flashed the wrong image. The correction
-  awaits headset retesting. Theater remains the default; immersive movie subtitle
-  transport is unfinished. Movie transitions and comfort need further testing.
-- **Recovery:** broader tracking/dashboard/held-control, death/retry, manual-session
-  save/load, disable and abnormal-exit/device-loss recovery remain open. Acceptance
-  of normal quit or an exercised retry does not close these gates.
-- **Campaign:** mounted contexts, other weapons, special optics, duels, climbing
-  and complete graphical HUD coverage are incomplete. The latest left-hand
-  interaction ray still awaits physical acceptance.
-- **Reload:** cartridge contact/occlusion, precise port/chamber insertion, ejection,
-  additional profiles and broader interruption/comfort coverage remain unfinished.
-- **Performance:** sustained pacing and recording-associated microskips remain
-  unresolved. Current exercised gameplay feedback does not establish recording
-  compatibility or performance on another PC.
-- **Other tracks:** OpenXR is experimental; D3D10 and other CoJ games are outside
-  this prerelease.
+Explicit profiles remain experimental. The helper's application identity is not
+universally proven equivalent to the game's SteamVR recommendation. Query or
+compatibility failures retain the selected native size through the established
+Preserve fallback. Inspect the reported applied size. Higher dimensions increase
+GPU and 32-bit address-space pressure; caps checks do not qualify total memory.
+Profiles change native rendering, menu and theater sources at startup, never a
+running game. There is no new upscaler or independent render-target bank.
 
-Generate Diagnostics locally, inspect the report for private information, then
-manually attach it to a GitHub bug issue with version, chapter, headset,
-controllers, GPU and reproduction steps. Reports are not uploaded automatically.
+## Installation and update
 
-No project-code license has been selected. `THIRD_PARTY_NOTICES.txt` records
-bundled Python, OpenVR and Microsoft VC++ runtime sources, licenses and notice
-locations; those notices do not license the project code.
+Use **1 — Install/update**, including when updating from prealpha.1. Extract a new
+complete ZIP, close the game and retain all original backups/recovery data.
+ManualReload remains optional and persists unless explicitly changed; resolution
+intent also persists. **2 — Uninstall/recover** restores originals. Interrupted
+preparations report recovery instructions; normal successive sessions need no
+separate finish command. **3 — Diagnostics**, **4 — Status** and **5 — Verify
+package** remain available. Reports stay local until manually shared.
+
+Windows PowerShell 5.1, bundled isolated Python and the VC++ x86 redistributable
+provide offline installation without Git, a compiler, global Python or PowerShell 7.
+Users supply the exact game, SteamVR and GPU/headset drivers. Start and close the
+game and SteamVR manually. Avoid switching desktop focus while playing: the
+original game can close unexpectedly when it loses focus.
+
+## Known limitations
+
+- **Campaign:** full campaign and all-cinematic coverage remain incomplete;
+  the accepted Hope/multiple-sequence recovery is no longer an unresolved gate.
+  Mounted contexts, other weapons, special optics, duels, climbing and complete
+  graphical HUD coverage remain unfinished or require broader acceptance.
+- **Crash:** the chest/possible-scroll interaction crash remains unresolved.
+  Diagnostics do not constitute a fix. Keep save backups.
+- **Movies:** theater remains the default. Immersive subtitle transport is
+  unfinished. Earlier intermittent full-scene flashes have not recurred in later
+  exercised sessions, but their cause remains unresolved.
+- **Recovery:** broader tracking/dashboard/held-input, death/retry, save/load,
+  abnormal-exit and device-loss recovery remain open. Accepted cinematic mode
+  changes and normal shutdown do not qualify these exceptional cases.
+- **Interactions/reload:** the latest left-hand interaction ray still awaits
+  physical acceptance. Convincing cartridge contact/occlusion, precise chamber
+  loading, ejection, additional reload profiles and broad interruption coverage
+  remain unfinished; manual reload is still an optional experimental feature.
+- **Performance/hardware:** sustained pacing, recording-associated microskips,
+  general allocation pressure, other profile sizes and other headsets/PCs need
+  independent evidence. Positive local PS VR2 feedback does not close these gates.
+- **Other tracks:** OpenXR, D3D10, Bound in Blood and Gunslinger are outside this
+  player release. The independent-render-target experiment remains disabled.
+
+Inspect local diagnostics for private information before manually attaching them
+to an issue. Include package version, checkpoint, hardware and reproduction steps.
+
+No project-code license has been selected. `THIRD_PARTY_NOTICES.txt` retains the
+bundled dependency sources and license notices; it does not license project code.

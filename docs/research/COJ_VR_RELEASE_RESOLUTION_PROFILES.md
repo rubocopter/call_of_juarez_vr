@@ -3,9 +3,11 @@
 ## Scope and status
 
 **Experimental launcher selection and startup application implemented and
-host-tested; the published prerelease remains unchanged.** Resolve Auto, 75%, 100%, 125% and Manual before
+host-tested and packaged in .2; the published .1 archive is preserved.** Scoped physical
+acceptance remains limited to the exercised Manual 2804x2860 PS VR2 path below.
+Resolve Auto, 75%, 100%, 125% and Manual before
 game startup through the existing native `Video.scr` path. Keep ordinary
-D3D9/OpenVR stereo and the independent eye bank off. This changes the game's
+D3D9/OpenVR stereo active and the independent eye bank off. This changes the game's
 menu/theater source size too. It adds no renderer, upscaler, live resizing,
 in-game resizing or new visor UI.
 

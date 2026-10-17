@@ -30,8 +30,10 @@ their original visibility afterward. The anchored row 00, other torso/legs and
 all hand geometry remain. Billy's derived mesh remains byte-identical to the
 previous arm split. Positions, normals, UVs, skin weights, palettes and original
 node offsets remain unchanged; a cloth/hand boundary rejects rather than hiding
-hand faces. This is a presentation candidate, host-tested against synthetic
-geometry and the exact source meshes, not a qualified cloth-simulation fix.
+hand faces. This presentation is host-tested against synthetic geometry and the
+exact source meshes. The operator accepts the retained coat partition together
+with the exercised 8 cm visual setback below; this does not qualify a
+cloth-simulation fix.
 Whether native cloth world frames follow a temporary pelvis offset remains
 unresolved. Later operator feedback identifies excessive torso presence rather
 than the coat as the remaining discomfort and explicitly requests a small visual
@@ -42,7 +44,7 @@ for the observed player model;
 the later holding-socket and wrist ownership follow-up has operator acceptance
 for exercised grip cohesion, wrist comfort and reload/movement recovery.
 
-The current Ray fit trial adds an 8 cm horizontal setback to the existing scoped
+The accepted scoped Ray fit adds an 8 cm horizontal setback to the existing scoped
 room-scale pelvis offset, only with positively identified current-being `RayBody`,
 no `BillyBody` identity, and independent hands enabled. It uses the natural camera
 backward axis projected onto the ground plane; head pitch does not change the
@@ -50,8 +52,9 @@ horizontal distance. Degenerate direction or unknown/ambiguous identity adds no
 setback. The existing eye-pair transaction stores/restores the entire offset;
 independent hands solve afterward. Camera, actor/collision origin, Billy and
 native stereo dimensions stay unchanged. Arithmetic/axis and existing restoration
-tests are host evidence. The operator accepts the exercised setback in the visor;
-retain this scoped fit without extending acceptance to other contexts or claiming
+tests are host evidence. The operator accepts the exercised setback and retained
+coat partition in the visor; retain this scoped fit without extending acceptance
+to other contexts or claiming
 a measured cloth-physics fix.
 
 For each hand, the rigid overlay includes `Forearm`, `ForeTwist`, `ForeTwist1`,

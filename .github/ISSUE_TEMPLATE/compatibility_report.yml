@@ -13,7 +13,7 @@ body:
     attributes:
       label: Package version
       description: Full downloaded version, or commit and local changes for a source build. Development fixes may not be in the published ZIP.
-      placeholder: v0.1.0-prealpha.1
+      placeholder: v0.1.0-prealpha.2
     validations:
       required: true
   - type: textarea
@@ -27,7 +27,7 @@ body:
     id: observation
     attributes:
       label: What did you try and observe?
-      description: Startup only, menus or gameplay? Name the chapter/checkpoint and describe what worked or felt wrong. For quality/performance, include game resolution, SteamVR percentage, refresh rate and recording/reprojection state if known. Measured FPS/frame times or a simple subjective description are both welcome.
+      description: Startup only, menus or gameplay? Name the chapter/checkpoint and describe what worked or felt wrong. For quality/performance, include saved/applied resolution profile, per-eye dimensions, SteamVR percentage, refresh rate and recording/reprojection state if known. Measured FPS/frame times or a simple subjective description are both welcome.
       placeholder: |
         Startup: reached menu / failed...
         Scene tried:

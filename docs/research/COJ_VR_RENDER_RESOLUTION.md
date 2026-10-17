@@ -199,8 +199,10 @@ same save/view, SteamVR scale/refresh and recording state against the baseline.
 
 The video journal retains the exact original bytes, resolution and fullscreen
 setting before mutation. Failed preparation and `finish` restore them through
-the existing recovery path. Default preparation still preserves the selected size;
-published prerelease files and the independent-resolution design are unchanged.
+the existing recovery path. Default preparation still preserves the selected size.
+The published .1 archive is preserved; .2 packages this ordinary native path
+and scoped acceptance. The independent-resolution
+prototype remains rejected and default-off under its separate design gates.
 
 The completed ordinary-path trial observes native per-eye HDR color (format 113,
 A16B16G16R16F), depth (77, D24X8) and viewport at 2804x2860. Final D3D9 color and
@@ -285,7 +287,8 @@ The [startup profile implementation](COJ_VR_RELEASE_RESOLUTION_PROFILES.md) prov
 saved launcher Auto/75%/100%/125%/Manual choices through those native seams, with
 host-tested bounds, layered recovery and isolated exact-game install coverage.
 It does not qualify other dimensions, automatic defaults or this local size as
-universal. The published prerelease remains unchanged.
+universal. The .2 consolidation retains these experimental limits and the
+operator's scoped Manual 2804x2860 acceptance; the published .1 archive is unchanged.
 
 ## Independent resolution: intervention and prerequisites
 
