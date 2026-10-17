@@ -20,11 +20,39 @@ no hand/finger influence move to that node. Mixed hand/forearm wrist vertices st
 with the hand. Complementary degenerate triangles preserve original index and
 draw counts; positions, normals, UVs, weights and bone palettes stay unchanged.
 The archive and both mesh entries are SHA-256 pinned; unknown inputs fail closed.
+Ray additionally has a simulated overcoat inside the same body node. The operator
+reports large dark cloth surfaces intruding into the forward/downward view, with
+Billy much less affected. The authored Ray cloth grid's distal rows 01/02/03
+(`Lip_Cloak_[LR]_[ABCD]0[123]`) identify 519 triangles, with no hand-triangle
+overlap. Those triangles now join `CoJVRHiddenArms`, so the existing independent
+hand visibility transaction hides them only during owned eye passes and restores
+their original visibility afterward. The anchored row 00, other torso/legs and
+all hand geometry remain. Billy's derived mesh remains byte-identical to the
+previous arm split. Positions, normals, UVs, skin weights, palettes and original
+node offsets remain unchanged; a cloth/hand boundary rejects rather than hiding
+hand faces. This is a presentation candidate, host-tested against synthetic
+geometry and the exact source meshes, not a qualified cloth-simulation fix.
+Whether native cloth world frames follow a temporary pelvis offset remains
+unresolved. Later operator feedback identifies excessive torso presence rather
+than the coat as the remaining discomfort and explicitly requests a small visual
+body setback while retaining this cloth partition.
 Only player mesh entries change, leaving NPCs and unrelated compressed records
 untouched. Native loading and the separated hand presentation are now live-tested
 for the observed player model;
 the later holding-socket and wrist ownership follow-up has operator acceptance
 for exercised grip cohesion, wrist comfort and reload/movement recovery.
+
+The current Ray fit trial adds an 8 cm horizontal setback to the existing scoped
+room-scale pelvis offset, only with positively identified current-being `RayBody`,
+no `BillyBody` identity, and independent hands enabled. It uses the natural camera
+backward axis projected onto the ground plane; head pitch does not change the
+horizontal distance. Degenerate direction or unknown/ambiguous identity adds no
+setback. The existing eye-pair transaction stores/restores the entire offset;
+independent hands solve afterward. Camera, actor/collision origin, Billy and
+native stereo dimensions stay unchanged. Arithmetic/axis and existing restoration
+tests are host evidence. The operator accepts the exercised setback in the visor;
+retain this scoped fit without extending acceptance to other contexts or claiming
+a measured cloth-physics fix.
 
 For each hand, the rigid overlay includes `Forearm`, `ForeTwist`, `ForeTwist1`,
 `Hand`, all fifteen `Finger*` elements and the authored `left_hand`/`right_hand`

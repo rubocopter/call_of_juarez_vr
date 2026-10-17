@@ -151,6 +151,13 @@ only when true; optional lookup failures are cleared before falling back to
 is the preferred root; the active-game menu remains a fallback. These rules are
 covered by JNI fixtures and are **implemented / host-tested**.
 
+Main-menu presentation admission additionally requires current global `MenuMain`
+type, its inherited `IsActuallyVisible()` getter returning true and a valid native
+`GetThisID()`. Existence of `FindUI(0)` alone is insufficient. Exceptions, hidden
+objects, active-game owners and modals retain the existing layout; native identity
+changes cancel pending presentation pointer claims. No native menu layout or
+mouse dispatcher is modified by this presentation-only observation.
+
 Hover and activation are separate native operations. The laser already reached
 the current UI through the `0xC8F00` movement dispatcher, but the old ray-select
 path activated widgets by calling Java Enter. The current candidate obtains the

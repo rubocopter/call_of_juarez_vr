@@ -168,6 +168,23 @@ campaign continuity, physical interactions or reload work:
   pair and the shared admission gate disabled gameplay input. Keep the prototype
   off, recover ordinary VR and resolve the native rejection and usable fallback
   before any B1 trial. Startup/global-input success does not close this gate.
+  The ordinary native route now has measured 2804x2860 raster/capture/output
+  extents and repeated scoped headset acceptance for clarity and observed pacing.
+  Keep Manual 2804x2860 as the operator's local PS VR2 default; no repeat physical
+  test is requested. The isolated MenuMain GPU correction resolves the severe menu
+  slowdown, and the operator accepts Ray's 8 cm visual setback with the coat
+  partition retained. Preserve the established hands, interactions and stereo.
+  Earlier full-scene flashes have not recurred in subsequent exercised sessions,
+  but their cause is unresolved; retain default-off observation tools.
+
+  [Startup profiles](research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md) now include
+  persistent launcher selection, native bounds and layered video recovery, with
+  host and isolated exact-game installation coverage. Other dimensions and general
+  recommendation/memory limits remain unqualified. New installations default to
+  Preserve rather than imposing the local PS VR2 size universally. The published
+  prerelease and archived verifier verdicts remain unchanged. Next work follows
+  unresolved campaign/profile gates; another Ray-fit or identical resolution
+  candidate is not pending.
 - **Native VR settings:** retain the existing single-panel preference path now.
   Before another editor, extract its coordination into one shared preference
   owner, preserving version-1 values. Qualify the

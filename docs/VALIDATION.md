@@ -108,6 +108,13 @@ The precise queue-install/read rejection still requires diagnosis; no guard may
 be bypassed merely to admit the writer. Recovery must preserve usable controls
 and current menus before another private-bank candidate is offered.
 
+The ordinary native path at 2804x2860 is the accepted local PS VR2 reference
+and selected Manual default. It has measured native raster/capture/output extents
+and repeated positive operator feedback; no repeat physical test is requested.
+The menu GPU correction and exercised Ray fit are retained. See the consolidated
+[image-quality acceptance](#image-quality-profile-acceptance) for scope, remaining
+limits and startup-profile validation. The independent bank stays off.
+
 For the first private-bank run, verify menus/loading, gameplay, manual reload,
 hands/melee, settings, immersive/theater cinematics and normal quit. B0 is the
 same-size isolation gate; B1 adds 33.3% vertical samples at the same optics.
@@ -695,15 +702,55 @@ No separate short headset run is required for this addition.
 
 ## Image-quality profile acceptance
 
-Canonical preparation preserves selected resolution and stages FSAA 0 unless
-requested otherwise. Judge readability, aiming and motion stability separately.
-Steam recording off produced accepted head-turn stability; recording-associated
-microskips and sustained performance remain unresolved.
-The operator also reports good current gameplay performance without another
-recording test. Equipment capacity/configuration is a possible explanation for
-recording-associated microskips; no cause is established or attributed to the mod.
-This supports the exercised experience; recording compatibility,
-measured sustained pacing and actual reset/device-loss recovery remain separate.
+**Headset-validated, scoped:** the operator accepts ordinary native stereo at
+2804x2860 after repeated play with perceptibly improved clarity and no noticed
+performance issue. It is the chosen local Manual default for the PS VR2 reference
+setup. Prior effective-size evidence supplies full-size color/depth/viewport draws
+in both eyes, equal-size captures, distinct measured 2804x2860 D3D11 outputs and
+successful matched-pose submission. This is actual world raster resolution,
+not window/mirror enlargement. Do not require another identical physical test.
+
+The isolated, visible and native-identified global MenuMain uses the 2560x1440
+angular reference while preserving capture aspect and native cursor coordinates.
+The operator confirms the menu-only GPU replacement resolves the severe slowdown.
+The rejected CPU resampling variant is superseded; it is not an alternate active
+route. Pause, loading, movies and native stereo keep their established layouts.
+See [menu ownership](research/COJ_UI_MOUSE_PATH.md) and
+[resolution evidence](research/COJ_VR_RENDER_RESOLUTION.md#explicit-native-resolution-trial).
+
+Ray's exercised 8 cm horizontal visual setback has operator acceptance. Retain
+the existing distal-coat partition and scoped pelvis restoration, without camera,
+actor/collision, hand-target or Billy adjustment. This closes the requested fit
+check, not a cloth-physics or whole-campaign gate.
+
+**Implemented/host-tested:** saved launcher profiles, startup-only application,
+query/caps bounds, pixel-count scaling, separate session/install video journals,
+conflict preservation and interrupted preparation/recovery. An isolated exact-game
+host sandbox exercises profile reapplication, updates and original restoration.
+These tests do not qualify other dimensions, headsets or GPU/CPU memory limits.
+Missing or incompatible queries preserve the selected native settings. New
+installations retain Preserve as their safe default; the operator's local choice
+remains Manual 2804x2860. The published prerelease is unchanged.
+
+**Open:** quantified sustained frame timing, recording compatibility, reset/device
+loss, memory/VA/loading headroom, general
+Background/Scene recommendation equivalence, other profiles and broader campaign
+continuity. Full-scene white flashes were reported earlier; subsequent exercised
+sessions are symptom-free and sampled source data has no detected white jump.
+The intermittent cause remains unknown, so retain the default-off luma observer
+without declaring a root-cause fix. The independent private-bank prototype remains
+rejected and off. Archived general-verifier failures retain their own verdicts.
+Head-turn stability with Steam recording off and good current gameplay have
+operator acceptance. Recording-associated microskips remain an observation without
+an established cause; no additional recording test is requested here.
+
+Resource/luma probes are off in the selected ordinary candidate; retain optional
+diagnostic tools and recovery tests for those open boundaries. The existing bounded
+reload trace remains separate from resource/luma sampling. A diagnostic prepare
+with binding census can qualify new dimensions, but cannot establish performance.
+Normal profile selection is not a request to replay the campaign or redo accepted
+2804x2860/Ray checks. Original video bytes and installed assets retain their
+transactional restoration, with intervening edits preserved separately.
 
 ## Evidence policy
 

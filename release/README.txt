@@ -1,4 +1,4 @@
-Call of Juarez VR - v0.1.0-prealpha.1
+Call of Juarez VR - experimental player package
 Experimental community-testing prerelease
 
 The complete campaign is not tested. Crashes can block or lose progress.
@@ -80,8 +80,9 @@ INSTALL / UPDATE
    manually. Close them manually afterward; the launcher does not start them.
 
 Before EVERY subsequent play session, close the game and choose menu option
-6 - Prepare session. This creates a fresh diagnostic identity for that play
-session. Then start SteamVR and the D3D9 game manually.
+6 - Prepare session. This creates a fresh diagnostic identity and applies the
+saved resolution profile for that play session. Start SteamVR before preparation
+for Auto/percentage profiles, then start the D3D9 game manually.
 
 IMAGE RESOLUTION
 
@@ -90,12 +91,26 @@ resolution. SteamVR supplies headset optics, but increasing SteamVR's render
 resolution percentage alone does not increase native game detail or make the
 game render at SteamVR's recommended per-eye resolution.
 
-For a sharper source image, close the game and choose 2 - Uninstall/recover.
-Run the unmodded D3D9 game, select a higher resolution supported by its video
-settings, and exit. Choose 1 - Install/update again. The installer preserves
-the chosen game resolution and stages FSAA 0. Higher resolutions can increase
-GPU and 32-bit game memory use. Avoid live resolution changes during a VR
-session; device-reset recovery remains unvalidated.
+Close the game and choose 7 - Resolution profiles, then 6 - Prepare session.
+Preserve (default) retains the selected game size. Explicit experimental choices
+are Auto, 75%, 100%, 125% and Manual width/height per eye. Percentages scale pixel
+count: 75% uses sqrt(0.75) on each recommended axis. Auto is nominal 100% with
+preserve fallback if the query or necessary compatibility checks fail. SteamVR
+must already be running for Auto/percentages; Manual needs no recommendation.
+The query helper's application scaling equivalence to the game remains unqualified.
+
+The existing engine renders at the applied native size; no post-capture upscaler
+is added. Menu/theater sources also change. Dimensions are fixed for the session;
+saving a profile never resizes a running game. Higher sizes can increase GPU and
+32-bit game memory use. Caps do not qualify total memory or every headset.
+2804x2860 is one tested local reference, not a universal default. Inspect the
+reported applied size; configured dimensions alone do not prove actual eye raster.
+
+Profile intent persists across update/uninstall, independently of cinematic
+preferences. Each preparation restores the prior session override first.
+Uninstall/recovery restores the session and installation video originals in order;
+intervening game/user edits are retained in verified adjacent conflict copies.
+Retain recovery journals and backups on errors. Avoid live resolution changes.
 
 If a protected Steam game folder causes Access denied, right-click CoJ-VR.cmd,
 choose Run as administrator and retry the operation.

@@ -1,3 +1,12 @@
+# Unpublished launcher additions
+
+The next package adds saved startup resolution profiles through launcher option 7
+and Prepare session. Preserve remains default; Auto/pixel-percentage/Manual choices
+are experimental and retain the native renderer. Session video overrides restore
+before another profile and before installation originals. Cinematic preferences
+remain separate. This source change does not update the published prerelease or
+qualify new headset sizes, memory limits or recommendation identity equivalence.
+
 # v0.1.0-prealpha.1 — experimental community prerelease
 
 Prepared for community testing before whole-campaign acceptance. No feature is promoted to `supported`, and no complete

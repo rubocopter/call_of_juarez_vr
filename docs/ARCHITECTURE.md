@@ -99,6 +99,30 @@ before the full render-view passes, retaining desktop/theater and lease/reset
 boundaries. [Resolution research](research/COJ_VR_RENDER_RESOLUTION.md) owns the
 source trace, memory constraints and incremental implementation criteria.
 
+An explicit native-resolution trial may instead change the engine video setting
+at startup, including menu/theater source dimensions, with byte-exact restoration
+through `finish`. It retains ordinary stereo/transport and HMD optics, keeps the
+independent bank off, and requires measured native draw/capture/output extents;
+configuration or window size alone does not qualify rendering resolution.
+The physical workflow additionally accepts explicitly opted-in startup
+Auto/pixel-percentage/Manual proposals through the same video transaction.
+Default behavior remains preserve. Factory-only native caps checks reject
+unsupported dimensions before application; unavailable queries preserve selected
+size. This experimental route does not qualify Background/Scene recommendation
+identity, theater allocations or x86 memory headroom for public releases.
+See [profile contracts](research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md).
+The existing launcher owns a separate bounded `resolution.json` preference;
+the runtime's cinematic `settings.ini` and its saver stay unchanged. Selection
+persists intent only. Installation/PrepareSession resolve and apply it while
+closed, with a session video journal layered over the install-time FSAA journal.
+Restore the session layer before replacing it or restoring installation originals.
+Interrupted metadata publication retains a pending run identity for recovery.
+Explicit selections remain prealpha trials; default Preserve never queries a
+headset or changes the selected resolution.
+The exercised PS VR2 reference uses the operator's accepted Manual 2804x2860
+preference as its local default. This does not impose that size on new users or
+change the meaning of SteamVR-relative profiles.
+
 An experimental startup-only private bank now implements fixed 2560x1440
 isolation and 2560x1920 eye rendering with the original 2560x1440 desktop.
 The exact adapter borrows registered CTexture payload fields only during the
@@ -153,6 +177,21 @@ ownership/tracking loss retains available-release barriers.
 Present content onto a finite-depth head-anchored plane for startup, menus,
 loading, scripted in-game movies by default and blocking native UI. Per-eye geometry and asymmetric optics determine
 texture extents; identical centered images or fixed padding are insufficient.
+
+At the explicit 2804x2860 native trial size, positively observed existing global
+`MenuMain` frames may carry a 2560x1440 presentation reference, only with verified
+`IsActuallyVisible()` and valid native `GetThisID()` identity. The presenter fits
+the captured aspect into the reference angular box inside the existing output
+textures. D3D11 samples one source SRV texture onto those targets; no full-image
+CPU resampling runs on the submission thread. Original capture pixels and native
+cursor coordinates remain unchanged. Angular changes never change the allocation
+key. Source capture and gameplay remain 2804x2860. Other flat routes keep their
+existing layout. Reference/owner changes cancel pending UI pointer claims and
+retain the existing release barrier; absent exact menu ownership uses defaults.
+The menu compositor owns no output targets or retained output views. Its source
+texture is keyed by actual source dimensions/device and retired with the presenter.
+A failed menu preparation/draw disables this adjustment for the session and clears
+its pointer geometry metadata, preserving the ordinary usable menu presentation.
 
 Game callbacks produce captured frames; the presenter owns compositor cadence,
 scene focus, repeat behavior and submission. Immediate flat capture reserves a
@@ -431,8 +470,9 @@ reload session; its independent-hand presentation has scoped operator acceptance
 in the exercised manual context. Both eye draws
 verify frames and arm visibility.
 
-Reload diagnostics are default-off, game-thread value snapshots of the exact
-owner, native states/animation advance, reserve and raw ammunition readback.
+Reload diagnostics are game-thread value snapshots of the exact owner, native
+states/animation advance, reserve and raw ammunition readback. They are off in
+ordinary non-reload staging; `-ManualReload` enables its existing bounded trace.
 They report controller/native ownership policy without changing that ownership.
 An opt-in archive derivative supplies a bounded native wait/zero-transfer probe:
 only an admitted paced ticket attaches its exact hand machine to a pre-Clear
@@ -711,6 +751,16 @@ The cap is not compositor phase lock; WaitGetPoses owns presenter cadence.
 
 ## Evidence and lifecycle
 
+The startup-only `frameLumaProbeEnabled` diagnostic is renderer-owned and off by
+default. It reads native per-eye RT0 and desktop source points into private tiny
+surfaces without rebinding native render state. Correlated raw RGB statistics
+are evidence of sampled content, not a flash cause, photometric measurement or
+performance acceptance. Queries poll without flush/spin; unsupported readback
+disables only the diagnostic stream. Its resources release before Reset/ResetEx
+attempts, device replacement and shutdown. It does not change rendering effects
+or the ordinary stereo/interaction paths. Binding-census collection is a separate
+diagnostic and is not required for this pixel investigation.
+
 The exact pre-DestroyGame import boundary stops producers/restores hooks, joins the
 presenter, drains pending GPU copies, releases capture resources and forwards
 native destruction once. Atexit is too late for worker cleanup and only reports
@@ -825,7 +875,9 @@ and dual reload retain their existing routes.
 
 `prepare` preserves the selected game resolution and stages FSAA 0 unless the
 operator elects to keep video settings. Original video configuration is journaled
-and restored by `finish`. Source resolution, eye target extents and runtime optics
+and restored by `finish`. Intervening video edits are retained as verified,
+journaled conflict copies before original restoration; conflicts or concurrent
+edits that cannot be preserved retain recovery state. Source resolution, eye target extents and runtime optics
 retain explicit provenance; no silent supersampling/performance preset replaces
 native ownership. Frame-generation experiments remain separate from the active
 stereo path. Sustained pacing, recording compatibility, resource loss and broader

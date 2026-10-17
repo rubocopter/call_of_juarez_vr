@@ -145,11 +145,147 @@ Settings/movie coverage, programmable constants, creation,
 reuse/destruction and compositor retirement remain separate unresolved gates.
 
 The presenter and bridge's size checks establish copy equality by source
-inspection. Native-stereo submission does not independently log every output
-texture descriptor. A future diagnostic can report the verified actual output
-descriptor once per resource generation if needed, without per-frame spam.
+inspection. Sampled native capture now reports the actual destination surface
+descriptor (`capture_surface`); sampled presenter uploads read both D3D11 output
+descriptors (`left_texture`, `right_texture`) alongside the source extent.
 Retained local logs are corroboration of their recorded executions only; they
 do not qualify another machine or a new physical gate.
+
+## Explicit native-resolution trial
+
+**Current state:** the ordinary 2804x2860 route is headset-validated in the
+exercised PS VR2 setup and is the operator's chosen local Manual default. Keep
+that acceptance; no identical repeat trial or new Ray-fit test is pending.
+Other profiles and independent rendering retain their own unqualified gates.
+
+`tools/vr_test.ps1 prepare -BodyIkAtStart -LargeAddressAware -ManualReload
+-NativeResolution 2804x2860` requests that extent through the game's existing
+`Video.scr` allocation path, using windowed presentation and FSAA 0. This is an
+explicit exception to preserving the selected video size: menus and theater also
+use the changed game source extent. It never changes the OS desktop display mode,
+introduces an upscaler, enables the rejected independent bank, or changes HMD
+optics. The setting is a request until observed in the actual game. Window/client
+clamping or engine fallback must reject the resolution gate, not be called success.
+
+The ordinary native stereo passes still run the full wrapper with asymmetric HMD
+projections. Capture copies the full RT0 to equal-sized eye surfaces with
+`D3DTEXF_NONE`; the shared D3D11 bridge rejects unequal descriptions before
+`CopyResource`. Both output descriptors are measured, not inferred from window,
+mirror or SteamVR recommendation. The qualifying trial used the bounded read-only
+resource probe to record native draws, color/depth extents, viewport and scissor.
+It is off in the accepted ordinary candidate; retain it for dimension qualification.
+Native lower-resolution shadow/filter passes are retained. A full-size depth-tested
+and depth-writing draw is binding evidence, not proof of shader content or visible
+extra detail; new dimensions or independent-rendering candidates still require
+their own headset comparison. The accepted local size needs no repeat.
+
+`analyze_coj_native_resolution.py` requires a complete run/build interval,
+complete gameplay eye scopes with full-size color/depth/viewport and uncut scissor,
+matching per-eye capture source/destination sizes, shared transport, and a sampled
+pair uploaded to distinct full-size D3D11 eyes and submitted successfully with its
+matching explicit pose. Geometry and submitted-pair samples are reported separately;
+they need not be the same frame. Missing, smaller, incomplete or failed data rejects.
+`finish` embeds the per-eye measurements and rejection reasons under
+`renderResolution` in the inventoried native-stereo summary. This resolution gate
+is separate from the general continuity checks and operator headset acceptance.
+
+The requested extent is 8,019,440 pixels per eye (2.1754 times 2560x1440); one
+uncompressed four-byte surface is about 30.6 MiB. The six capture-ring textures
+alone hold about 183.6 MiB of pixel payload, before engine scene/depth/effects,
+D3D11 outputs, theater/CPU buffers, alignment, driver duplication or fragmentation.
+LAA does not guarantee allocation success, stable pacing or proportional timings.
+Exclude the bounded probe frames when judging sustained performance. Compare the
+same save/view, SteamVR scale/refresh and recording state against the baseline.
+
+The video journal retains the exact original bytes, resolution and fullscreen
+setting before mutation. Failed preparation and `finish` restore them through
+the existing recovery path. Default preparation still preserves the selected size;
+published prerelease files and the independent-resolution design are unchanged.
+
+The completed ordinary-path trial observes native per-eye HDR color (format 113,
+A16B16G16R16F), depth (77, D24X8) and viewport at 2804x2860. Final D3D9 color and
+capture surfaces are also 2804x2860 (format 21, A8R8G8B8); measured D3D11 eye
+outputs retain that extent, with successful matched explicit-pose submissions.
+This establishes native raster/capture/output dimensions for the exercised run;
+lower-resolution shadow/filter passes and shader content remain separate facts.
+The operator reports a correct image and no noticeable poor performance, rather
+than a quantified GPU-time or memory limit. The canonical general verifier's
+unobserved blocking-UI trigger release remains a separate rejected requirement.
+
+The main-menu correction is presentation-only. Read-only `FindUI` resolution and
+`IsInstanceOf(MenuMain)` require the existing global current UI, followed by
+successful `IsActuallyVisible()` and valid `GetThisID()` observation. Active-game
+menus, loading, movies, modals, hidden objects and missing/failed observations
+do not admit it. These use the same existing UI inheritance/read-only getters as
+the established native pointer route; no UI is created or input dispatched.
+
+The previous per-axis padding formula is superseded: it changed output sizes and
+could force the captured image into the old reference aspect. Compute instead the
+old 2560x1440 angular bounding box using the current optical recommendation, then
+fit the current captured image uniformly in plane space, retaining its aspect.
+Account for FOV tangent spans and the existing output canvas dimensions when
+converting the visible rectangle to output pixels. Keep the current asymmetric
+eye centers and finite plane distance. The output allocation key remains actual
+source extent/format and existing presentation mode; reference/owner changes
+never resize or recreate render targets. Clear old content on geometry changes.
+
+Full-image CPU bilinear sampling on the submission thread is rejected. A full-size
+Win32 reproduction exceeded compositor cadence, matching the operator's severe
+main-menu pacing/flicker and immediate submenu recovery. Its cost preceded the old
+upload timer and was therefore missing from that metric; retained source/target
+identities do not support continuous render-target churn as the cause. Small-pixel
+correctness tests alone cannot qualify presentation performance.
+
+The replacement uploads the unchanged original mono capture once to a private
+D3D11 source texture with SHADER_RESOURCE binding only, then linearly samples a
+quad into each existing output target/visible rectangle. Source-coordinate beam
+and reticle composition run in that pixel shader. This is 2D menu presentation,
+never world-render upscaling. It adds one four-byte-per-pixel source texture, about
+30.6 MiB of payload at this trial size, plus shaders/states; driver copies and VA
+remain separate. Source allocation depends only on actual extent/device, not
+angular geometry. Output views are scoped per call; no output target is created
+or retained by the menu helper. Source resources are retired before presenter
+shutdown. Context/device, both output layouts and views are validated before writes.
+
+Input intersections use the same visible rectangle and map back to original
+capture pixels; hover/click dispatch and physical-mouse priority stay native.
+Reference/native-identity changes cancel pending claims and retain release barriers.
+A failed menu layout/prepare/draw latches the adjustment off for the session, clears
+its geometry/owner metadata and retains ordinary full-size UI; there is no repeated
+allocation retry. Generation/capture/recovery ownership is unchanged. Sampled
+`native_stereo_menu_gpu` records include CPU queue time and source allocations;
+CPU queue time is not GPU duration. WARP tests cover pixels/black borders, both
+placements, source-coordinate pointer, source preservation, geometry reuse,
+foreign context rejection and bounds. Actual-size hardware enqueue checks are
+host evidence only. The operator accepts the exercised menu pacing correction;
+the separate intermittent flash cause remains open. A deformation already inside
+the captured layout is separate; fitting cannot repair it. The independent bank
+stays off, and unknown routes retain their original presentation.
+
+The operator confirms that the GPU menu replacement removes the severe main-menu
+slowdown. Earlier full-scene white flashes were visible on the monitor and during
+native gameplay; subsequent exercised sessions are symptom-free and sampled data
+contains no detected white jump. Their intermittent cause remains unresolved.
+Successful copies/submissions do not identify
+the pixel-content fault. Do not disable tone mapping, bloom or change image values
+as a presumed fix without evidence. A separate startup-only `FrameLumaProbe`
+diagnostic observes a fixed 16x16 point grid at native left/right RT0 capture and
+desktop pre-Present, retaining source/pose/generation/time identity. It uses three
+private tiny GPU/SYSTEMMEM pairs per stream, event polls without flush/spin and
+readback only after completion. Sparse records retain the preceding sample around
+large RGB/white-fraction changes. Native source pixels, render state, resolution
+and effects are untouched; resources release before attempted Reset/ResetEx,
+device replacement and shutdown. Unsupported sampling disables only that stream.
+Raw RGB averages are not photometric luminance or proof of a defect: authored
+white transitions remain possible. Point coverage, missed samples and readback
+overhead remain explicit; no observation proves absence of flashes or performance
+acceptance. The binding census remains off by default in this content diagnostic.
+
+The [startup profile implementation](COJ_VR_RELEASE_RESOLUTION_PROFILES.md) provides
+saved launcher Auto/75%/100%/125%/Manual choices through those native seams, with
+host-tested bounds, layered recovery and isolated exact-game install coverage.
+It does not qualify other dimensions, automatic defaults or this local size as
+universal. The published prerelease remains unchanged.
 
 ## Independent resolution: intervention and prerequisites
 
