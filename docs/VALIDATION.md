@@ -95,6 +95,19 @@ coverage. This supersedes the earlier implementation-pending statement, without
 promoting Q0/B0/B1 game or headset acceptance. The original-size collected runs
 did not exercise this writer. Published prerelease files remain unchanged.
 
+The first private-bank B0 run is **rejected**. Its native queue admission failed
+before the first eye mutation/capture; the run recorded zero fenced stereo pairs.
+The session fault latch then blocked the combined stereo/gameplay sample,
+leaving flat presentation without Sense gameplay input. The operator also reports
+pause UI visible only on the monitor. Successful startup theater and global
+recenter/menu buttons do not qualify gameplay fallback. The loading-continuation
+change has positive operator feedback, separately from this rendering failure.
+Keep independent resolution disabled and retain the ordinary VR path. Do not
+advance to B1 or treat the synthetic native-memory GPU test as game acceptance.
+The precise queue-install/read rejection still requires diagnosis; no guard may
+be bypassed merely to admit the writer. Recovery must preserve usable controls
+and current menus before another private-bank candidate is offered.
+
 For the first private-bank run, verify menus/loading, gameplay, manual reload,
 hands/melee, settings, immersive/theater cinematics and normal quit. B0 is the
 same-size isolation gate; B1 adds 33.3% vertical samples at the same optics.

@@ -164,6 +164,10 @@ campaign continuity, physical interactions or reload work:
   detail and performance measurements before acceptance. Fixed outputs retain
   bounded process-lifetime ownership; this is not compositor retirement proof.
   The published prerelease remains unchanged.
+  The first B0 operator run is rejected: queue admission prevented every stereo
+  pair and the shared admission gate disabled gameplay input. Keep the prototype
+  off, recover ordinary VR and resolve the native rejection and usable fallback
+  before any B1 trial. Startup/global-input success does not close this gate.
 - **Native VR settings:** retain the existing single-panel preference path now.
   Before another editor, extract its coordination into one shared preference
   owner, preserving version-1 values. Qualify the

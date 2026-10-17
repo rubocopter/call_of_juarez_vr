@@ -1,6 +1,6 @@
 # Resolución VR independiente — especificación técnica
 
-Estado: **prototipo local implementado y probado en host; B0/B1 físicos pendientes**.
+Estado: **prototipo probado en host; primer B0 real rechazado; B1 bloqueado**.
 El banco privado y su restauración pasan pruebas GPU con memoria nativa
 sintética. Las pruebas no cualifican el juego real, detalle visual, rendimiento
 ni visor. Q0/B0/B1 mantienen sus puertas físicas; no cambian la pre-release.
