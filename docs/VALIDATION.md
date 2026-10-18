@@ -12,11 +12,10 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Public prerelease policy
 
-`v0.1.0-prealpha.2` packages the consolidated implementation and accepted baseline
-for experimental community testing. `v0.1.0-prealpha.1` remains
-the previously published experimental community-testing prerelease; its archived
-package and verdicts are unchanged. Neither release claims whole-campaign
-acceptance. Distribution, package verification and additional
+`v0.1.0-prealpha.3` is cumulative from .2, adding the host-tested projection
+correction and complete installation defaults for experimental community testing.
+The archived .2/.1 packages and verdicts remain unchanged. No release claims
+whole-campaign acceptance. Distribution, package verification and additional
 controller bindings do not promote any validation state. Physical acceptance
 remains limited to the exercised Steam 2006 D3D9/OpenVR scenes and PS VR2 Sense.
 Other packaged bindings are experimental, with no support claim for other PCs
@@ -34,6 +33,33 @@ Recommend save backups because crashes or blocked progression can lose progress.
 Users start/close the game and SteamVR manually. Community diagnostics are
 generated locally, inspected for private data and attached manually to issues;
 they do not replace canonical evidence or operator acceptance below.
+
+The .3 OpenVR projection correction is **implemented/host-tested**.
+The published prealpha.2 converter reverses the vertical projection center when
+raw vertical tangents are asymmetric. Regression tests now compare the complete
+converted matrix and forward menu placement with Valve's independent projection
+formula, covering asymmetric vertical optics in both directions and symmetric
+PS VR2 controls. The corrected conversion preserves the symmetric controls.
+Gameplay distortion and menu gaze alignment on Beyond, Quest and other headsets
+still require physical confirmation; these host checks establish neither a
+complete fishbowl fix nor additional headset acceptance. See the owning
+[projection contract](research/COJ_CAMERA_PATH.md#openvr-projection-conversion).
+
+The .3 product policy uses Auto only when no resolution preference is saved;
+every explicit choice, including Manual and Preserve, survives updates. Auto
+uses the SteamVR helper recommendation, not panel-native pixels. Start SteamVR
+manually before Install/update or PrepareSession for Auto/percentage profiles.
+Unavailable queries or incompatible caps preserve the selected game size with a
+visible explanation, retain intent and retry next preparation. Background/Scene
+identity, memory headroom and broader headset qualification remain open.
+
+Default Install/update enables ordinary stereo, independent hands, native torso/legs,
+physical Hands combat and manual reload, including upgrading prior reload-off states.
+There is no interactive reload prompt. Advanced noninteractive `-ManualReload:$false`
+disables reload for that installation; a later default Install/update enables it again.
+PrepareSession retains installed features without archive repatching and creates
+fresh provenance for later plays. These product defaults add no physical acceptance;
+theater remains default and the rejected independent eye RT/probes remain off.
 
 Community reports remain observations, not support qualification. Chtiblue
 reports startup with Pimax Dream Air, RTX 5090 and SteamVR; controller coverage,
@@ -160,7 +186,7 @@ evidence. The already archived rejection is preserved.
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
 | HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped headset acceptance. Optional status rows accepted only where encountered. | Wrist health styling, concentration state glyphs and paired horse health/fatigue meters are host-tested only. Horse and special HUD contexts, newly translated prompts, scripted-movie comfort/subtitles and complete graphical HUD capture remain open. |
 | Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
-| Persistent manual reload | Opt-in `-ManualReload` is scoped headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers and restoration have correlated live evidence. | Measured loading-mouth geometry/precise insertion, tracking/save/load/death/disable recovery, held-control edges, mirrored/Frontier use and prolonged comfort. |
+| Persistent manual reload | Enabled by default by public .3 Install/update; scoped headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers and restoration have correlated live evidence. | Measured loading-mouth geometry/precise insertion, tracking/save/load/death/disable recovery, held-control edges, mirrored/Frontier use and prolonged comfort. |
 | Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. The later displayed-finger tangent is host-tested only. | The reviewed close-up predates that tangent and still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
 | Native loading port | Operator confirms the port looks correct in exercised reload; its visual presentation has scoped acceptance. Read-only gate/drum motion and six-mouth pivot rankings have bounded live evidence; generic tip/socket policy has synthetic host tests. | No qualified CoJ socket is connected to that policy. Active loading uses the 14 cm grip zone. Phase-bound mouth geometry, precise insertion, independent mechanics and ejection remain planned. |
 | Death and save/load | Corrected failure-screen visibility and latest exercised boxing death/recovery have scoped operator acceptance. Exercised narrated loading after reversible LAA correction and save/load with the thumbnail workaround accepted. | Broader retry/back/held-input recovery, manual-session save roundtrip and allocation pressure remain open. |
@@ -192,8 +218,8 @@ and tracking/menu/save/death recovery retain their own gates. The complete
 collected run still retains its canonical telemetry rejection for the unobserved
 loading-screen Sense continuation; operator acceptance does not change it.
 
-The configured Win32 Release build succeeds. The public OpenVR Release tree registers 89
-CTest tests: 88 passed, none failed and one classic shared-texture test was skipped
+The configured Win32 Release build succeeds. The full host suite registers 135
+CTest tests: 134 passed, none failed and one classic shared-texture test was skipped
 because the environment does not provide that capability. Classic shared render
 targets remain unavailable (`d3d9_classic_d3d11_shared_texture`); the pool probe
 passes. Transient classic-device creation unavailability has also been observed.
@@ -207,8 +233,11 @@ Public distribution has host coverage for inventory/tamper rejection, unknown
 builds, foreign staging, owned recovery with truncated stage JSON, Unicode video
 paths and bounded local reports. An opt-in isolated copy of the exact game also
 exercises install, tracked-head/body enablement, all five controller files,
-fresh session identities/log rotation, conventional/manual updates, retained
-reload preference, byte-identical uninstall and injected deployment failure.
+fresh session identities/log rotation, conventional/manual updates, byte-identical
+uninstall and injected deployment failure. Earlier retained-reload-choice coverage
+belongs to the .2 policy; .3 requires default Install/update to enable prior false
+states, explicit noninteractive false to remain possible, and PrepareSession to
+retain the installed feature set. These policy changes do not promote physical gates.
 The extracted package uses Windows PowerShell 5.1 and bundled isolated Python.
 These checks do not establish another PC, controller, campaign or headset gate.
 
@@ -748,10 +777,12 @@ query/caps bounds, pixel-count scaling, separate session/install video journals,
 conflict preservation and interrupted preparation/recovery. An isolated exact-game
 host sandbox exercises profile reapplication, updates and original restoration.
 These tests do not qualify other dimensions, headsets or GPU/CPU memory limits.
-Missing or incompatible queries preserve the selected native settings. New
-installations retain Preserve as their safe default; the operator's local choice
-remains Manual 2804x2860. These are the profile limits carried into the .2
-consolidation; publication does not extend their physical acceptance.
+Missing or incompatible queries preserve the selected native settings with a
+visible explanation and retain profile intent for retry next preparation. In .3,
+a missing preference uses Auto; every explicit choice persists, including Preserve
+and the operator's Manual 2804x2860. This product default does not qualify memory,
+Background/Scene identity or other headsets, and publication does not extend the
+physical acceptance carried forward from .2.
 
 **Open:** quantified sustained frame timing, recording compatibility, reset/device
 loss, memory/VA/loading headroom, general

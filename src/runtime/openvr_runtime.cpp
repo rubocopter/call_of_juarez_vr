@@ -42,7 +42,7 @@ EyeFov OpenVrProjectionRawToEyeFov(
     const float right,
     const float top,
     const float bottom) noexcept {
-    return FovFromTangents(left, right, -top, -bottom);
+    return FovFromTangents(left, right, bottom, top);
 }
 
 struct OpenVrRuntime::Impl {

@@ -12,7 +12,7 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`,
 
 Native stereo/head tracking, exercised locomotion, independent hands/weapons,
 menus, available Sense controls and encountered HUD/subtitles have scoped
-operator acceptance. The opt-in persistent manual reload now also has scoped
+operator acceptance. The default-on public persistent manual reload now also has scoped
 headset acceptance for opening/closing, tracked hands, successive native unit
 loading, insertion-only haptics and exercised weapon/menu recovery.
 Recovered mission countdown, encountered notices and corrected green/red attack
@@ -187,10 +187,13 @@ campaign continuity, physical interactions or reload work:
   [Startup profiles](research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md) now include
   persistent launcher selection, native bounds and layered video recovery, with
   host and isolated exact-game installation coverage. Other dimensions and general
-  recommendation/memory limits remain unqualified. New installations default to
-  Preserve rather than imposing the local PS VR2 size universally. The published
-  .1 archive and all archived verifier verdicts remain unchanged; .2 consolidates
-  the scoped acceptance and experimental profile tooling. Next work follows
+  recommendation/memory limits remain unqualified. In .3, missing preferences use
+  Auto, relative to the helper recommendation rather than panel-native pixels.
+  Every explicit saved profile, including Manual and Preserve, survives updates;
+  unavailable queries/incompatible caps preserve selected size with a visible
+  explanation and retain intent for retry next preparation. Start SteamVR manually
+  before Install/update or Prepare session for Auto/percentages. The .2/.1 archives
+  and archived verifier verdicts remain unchanged. Next work follows
   unresolved campaign/profile gates; another Ray-fit or identical resolution
   candidate is not pending.
 - **Native VR settings:** retain the existing single-panel preference path now.
@@ -341,10 +344,13 @@ requires a second independent game demonstration before generalization.
 
 ## Release direction
 
-`v0.1.0-prealpha.2` packages the consolidated implementation and accepted baseline
-for experimental community testing, including the declared physical acceptance below.
-`v0.1.0-prealpha.1` remains the previously published community-testing prerelease;
-its package and archived verdicts are preserved.
+`v0.1.0-prealpha.3` is cumulative from .2, adding the host-tested asymmetric
+OpenVR vertical projection correction and complete installation defaults. The
+.2/.1 archives and verdicts remain unchanged. The corrected converter preserves
+symmetric PS VR2 controls; Beyond/Quest gameplay distortion and menu gaze alignment
+still need physical confirmation. It does not establish a complete fishbowl fix
+or additional headset acceptance. Preserve the existing
+[projection contract](research/COJ_CAMERA_PATH.md#openvr-projection-conversion).
 
 The .2 baseline retains repeated operator acceptance of Manual 2804x2860 clarity,
 stereo and no perceptible performance issues during the tested PS VR2 resolution scenes,
@@ -367,16 +373,24 @@ The distribution target remains the exact original Steam 2006 D3D9/OpenVR build.
 Only PS VR2 Sense has scoped physical validation. Additional packaged controller
 bindings are experimental; other PCs/headsets require independent evidence.
 Preserve exact-build rejection, reversible installation and local-only diagnostics
-that users inspect before manually sharing. Manual reload is optional and its
-installation preference persists across explicit ZIP updates; no auto updater
-is planned for this prerelease.
+that users inspect before manually sharing. Default Install/update enables
+ordinary stereo, independent hands, native torso/legs, physical Hands combat and
+manual reload, including prior reload-off installations, without a reload y/n
+prompt. Advanced noninteractive `-ManualReload:$false` remains possible; a later
+default Install/update enables it again. PrepareSession retains installed features
+without archive repatching and creates fresh provenance before later plays.
+Only resolution selection is optional user setup. Missing preferences use Auto;
+all explicit profiles persist. Theater remains default; the rejected independent
+eye RT and investigation probes remain off. These defaults do not qualify helper
+Background/Scene identity, memory or other headsets. No auto updater is planned.
 
 Prepare an offline ZIP for Windows 10/11 x64 hosts and the x86 game, with a
 double-click Windows PowerShell 5.1 menu, bundled Python and VC++ x86 runtime,
 package inventory, dependency licenses/source notices, install/update, uninstall,
 status and diagnostics. Users supply the game, SteamVR and GPU/headset drivers
 and start/close the game and SteamVR manually. Packaging and draft-prerelease
-automation remain separate from publication and physical acceptance. No
-project-code license has been selected; third-party notices remain separate.
+automation remain separate from publication and physical acceptance. Original
+project code is GPL-3.0-or-later; include its license, scope/provenance notice and
+exact corresponding source commit. Third-party notices remain separate.
 Detailed acceptance limits remain in
 [Validation](VALIDATION.md#public-prerelease-policy).

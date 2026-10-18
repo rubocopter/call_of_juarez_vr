@@ -68,9 +68,9 @@ function Read-CoJResolutionSettings {
     try {
         $Stream = [IO.File]::Open($FullPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     } catch [IO.FileNotFoundException] {
-        return (New-CoJResolutionSettings Preserve 0 0)
+        return (New-CoJResolutionSettings Auto 0 0)
     } catch [IO.DirectoryNotFoundException] {
-        return (New-CoJResolutionSettings Preserve 0 0)
+        return (New-CoJResolutionSettings Auto 0 0)
     }
     try {
         if ($Stream.Length -gt 4096) { throw 'Resolution settings exceed 4096 bytes.' }

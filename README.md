@@ -14,7 +14,9 @@
 
 > **Experimental community-testing pre-alpha.** The campaign is not fully tested, crashes can block progress, and this is not a supported release. Physical validation is limited to exercised scenes with PS VR2 Sense through SteamVR; other packaged controller bindings are experimental.
 
-**[Download v0.1.0-prealpha.2 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.2/CoJ-VR-0.1.0-prealpha.2-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.2)
+**[Download v0.1.0-prealpha.3 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.3/CoJ-VR-0.1.0-prealpha.3-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.3)
+
+**New in .3:** corrected OpenVR vertical projection conversion for asymmetric optics (**host-tested**, awaiting Beyond/Quest physical confirmation), Auto resolution when no preference is saved, and manual reload enabled by default on install/update. This release includes the .2 baseline; archived .2/.1 packages and verdicts remain unchanged.
 
 ## Quickstart
 
@@ -22,20 +24,20 @@ You need **Windows 10/11 x64**, the **original Steam Call of Juarez (2006), D3D9
 
 1. **Back up your saves.** Run the original game in D3D9 mode once, then close it.
 2. Download and extract the complete **Windows player ZIP** above. Keep its folders together; GitHub's automatic source-code ZIP is for development.
-3. Double-click **CoJ-VR.cmd**, choose **1 — Install/update** and select the game folder containing `CoJ.exe`. Manual reload is optional.
-4. Installation prepares the first session using your saved resolution profile (**Preserve** on a new installation). To change it, choose **7 — Resolution profiles**, then **6 — Prepare session** to apply the new choice. No additional preparation is needed if you keep the profile used during installation.
-5. Start **SteamVR**, then the **D3D9 game**, manually. For **Auto or percentage profiles**, SteamVR must already be running before Install/update or Prepare session queries it.
-6. Before **every subsequent play session**, close the game, optionally change the profile with **7**, then choose **6 — Prepare session**. Start the game manually; the launcher never starts, closes or changes its focus.
+3. Start **SteamVR manually before Install/update** for Auto or percentage profiles. **Auto** is used when no resolution preference is saved.
+4. Double-click **CoJ-VR.cmd**, choose **1 — Install/update** and select the game folder containing `CoJ.exe`. Stereo, independent hands, native torso/legs, physical Hands combat and manual reload are enabled; there is no reload y/n prompt.
+5. Installation prepares the first session using the saved profile. Resolution selection is optional: choose **7 — Resolution profiles**, then **6 — Prepare session** only if you change it afterward. Start the **D3D9 game manually**.
+6. Before **every subsequent play session**, close the game, start SteamVR manually for Auto/percentages, optionally change the profile with **7**, then choose **6 — Prepare session** for fresh provenance. It retains installed features. Start the game manually; the launcher never starts, closes or changes its focus.
 
 No compiler, Git, system Python or PowerShell 7 is needed. The package bundles Python and the VC++ x86 runtime for offline installation and uses Windows PowerShell 5.1.
 
-To update, close the game, extract a newer player ZIP and choose **1 — Install/update**; your manual-reload and resolution choices persist unless changed. Installation prepares the updated session. Use **2 — Uninstall/recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **5 — Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
+To update, close the game, extract a newer player ZIP, start SteamVR manually for Auto/percentages and choose **1 — Install/update**. Every explicitly saved resolution choice, including Manual and Preserve, persists. Default Install/update enables manual reload even if it was previously off. Advanced noninteractive installation can use `-ManualReload:$false`; Prepare session retains that installed choice, but a later default Install/update enables it again. Installation prepares the updated session. Use **2 — Uninstall/recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **5 — Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
 
 ### Image quality
 
-**Image resolution:** The player package includes [saved startup profiles](docs/research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md): **Preserve, Auto, 75%, 100%, 125% and Manual** width/height per eye. With the game closed, use **CoJ-VR.cmd → 7**, then **6** to apply your choice. Preserve is the default and keeps the selected game resolution. Auto and 100% use the SteamVR helper recommendation; percentages scale total pixel count while approximately preserving aspect ratio. Start SteamVR before preparing these queried profiles. Query or compatibility failures use the safe Preserve fallback; the helper's equivalence to the game's application-specific recommendation remains experimental.
+**Image resolution:** The player package includes [saved startup profiles](docs/research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md): **Preserve, Auto, 75%, 100%, 125% and Manual** width/height per eye. With the game closed, use **CoJ-VR.cmd → 7**, then **6** to apply a change. Missing preferences default to **Auto**; all explicit saved choices persist. Auto and 100% use the **SteamVR helper's recommended per-eye extent, not panel-native pixels**. Percentages scale total pixel count while approximately preserving aspect ratio. Start SteamVR manually before Install/update or Prepare session queries it. If the helper is unavailable or caps are incompatible, preparation keeps the selected game size and explains why; it retains profile intent and retries on the next preparation. Background/Scene recommendation identity remains unqualified.
 
-**Validated local reference:** Manual **2804×2860 per eye** has measured native raster/capture/output dimensions and repeated positive PS VR2 operator feedback. It is that setup's chosen default; no repeat test is pending. It is not imposed on other users: new installations default to Preserve, and other profiles remain experimental. Higher sizes can increase GPU and x86 memory pressure; recommendation equivalence, sustained timings and broad recovery remain separate [validation limits](docs/VALIDATION.md#image-quality-profile-acceptance).
+**Validated local reference:** Manual **2804×2860 per eye** has measured native raster/capture/output dimensions and repeated positive PS VR2 operator feedback. It is that setup's saved choice and remains intact across updates; no repeat test is pending. Auto does not impose that size on other users. Other profiles remain experimental. Higher sizes can increase GPU and x86 memory pressure; recommendation equivalence, sustained timings and broad recovery remain separate [validation limits](docs/VALIDATION.md#image-quality-profile-acceptance).
 
 Profiles change native rendering at startup, including menu/theater sources, and never resize a running game. There is no new upscaler. At **2804×2860**, the accepted main-menu GPU presentation preserves its angular reference, proportions and native pointer coordinates; this targeted correction is not enabled for other sizes. SteamVR's slider alone does not enlarge the game's native render targets.
 
@@ -46,7 +48,7 @@ These features have scoped headset validation in exercised scenes, not full camp
 - Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and snap turning.
 - Independent tracked hands/weapons with the original torso and legs; exercised pistol effects, whip use and physical Hands combat.
 - Controller menus, equipment wheel/haptics, wrist compass, encountered HUD/subtitles, pickup/carry, drawers and Focus.
-- Optional experimental manual revolver reload: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
+- Experimental manual revolver reload, enabled by default: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
 
 Compared with prealpha.1, this release also improves Ray's body/coat presentation, including the accepted 8 cm horizontal visual setback. Stereo recovery after cinematics, including Hope, is fixed and headset-validated across multiple exercised sequences. The operator also accepted hot presentation-mode changes, different equipped weapons, recentering during sequences and continued gameplay; this is not complete campaign coverage.
 
@@ -54,7 +56,7 @@ Compared with prealpha.1, this release also improves Ray's body/coat presentatio
 
 [![Current PS VR2 Sense controls](assets/CoJ_sensevr.png)](assets/CoJ_sensevr.png)
 
-PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. Manual reload is optional: Square opens/closes, and the free-hand trigger picks up and inserts rounds. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
+PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. For manual reload with an eligible revolver and empty support hand: **press Square to open → press/hold the free-hand trigger at your hip to grab a round → bring it to the gun and release → press Square to close**. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
 
 The VR settings panel is a **provisional development interface**, not the final settings experience; more comfort options are planned.
 
@@ -66,9 +68,10 @@ PS VR2 with Sense through SteamVR is the only physically validated reference, li
 - Full campaign cinematic coverage remains open. Theater is the default; immersive movie subtitles are not transported. Earlier intermittent full-scene flashes have not recurred in later exercised sessions, but their cause remains unresolved.
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
-- Optional manual reload has scoped acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. The latest hand-directed interaction also awaits physical acceptance.
+- Manual reload has scoped acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. The latest hand-directed interaction also awaits physical acceptance.
+- The .3 projection correction is host-tested only. Beyond/Quest gameplay distortion and menu gaze alignment still need physical confirmation; other headset support is unqualified. The rejected independent eye RT prototype and investigation probes remain off.
 
-The download above is the tagged **v0.1.0-prealpha.2** build, cumulative since prealpha.1. Later changes on `main` require another release before they reach that ZIP. See [release notes](release/RELEASE_NOTES.md) and [Validation](docs/VALIDATION.md) for changes and acceptance limits.
+The current release target is **v0.1.0-prealpha.3**, cumulative from .2 and .1. Later changes on `main` require another release before they reach that ZIP. See [release notes](release/RELEASE_NOTES.md) and [Validation](docs/VALIDATION.md) for changes and acceptance limits.
 
 ## Feedback
 
@@ -98,7 +101,7 @@ ctest --preset release
 
 Physical candidates use `tools/vr_test.ps1 prepare` and `finish`; add `-BodyIkAtStart -LargeAddressAware -ManualReload` for the manual-reload candidate. The operator starts/closes SteamVR and the game. Read [AGENTS.md](AGENTS.md) and the [validation workflow](docs/VALIDATION.md#evidence-policy) before integration work.
 
-The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.2` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
+The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.3` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
 
 </details>
 

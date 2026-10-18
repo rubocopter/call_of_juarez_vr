@@ -47,11 +47,15 @@ try {
     Invoke-Frontend @('-Action','Install','-VideoSettingsPath',$Video)
     $Control = Get-Content -LiteralPath (Join-Path $Game 'cojvr-camera-control.json') -Raw | ConvertFrom-Json
     Assert-True ($Control.trackingEnabled -and $Control.bodyIkEnabled -and $Control.independentHandsEnabled) 'Public installation does not enable tracked head/body/independent hands.'
+    Assert-True $Control.manualReloadInstalled 'Default installation omitted manual reload.'
     $RunBefore = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+    Assert-True ($RunBefore.validation.manualReloadInstalled -and $RunBefore.validation.handPresentation -eq 'independent_native_hands') 'Default session omitted the complete hands/reload feature set.'
+    Assert-True ($RunBefore.validation.videoProfile.resolutionProfile -eq 'Auto') 'First installation did not select automatic headset resolution.'
     [IO.File]::WriteAllText((Join-Path $Game 'cojvr.log'), 'previous run log')
     [IO.File]::WriteAllText((Join-Path $Game 'callstack.txt'), 'previous crash')
     Invoke-Frontend @('-Action','PrepareSession')
     $RunAfter = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+    Assert-True $RunAfter.validation.manualReloadInstalled 'Preparing another session lost manual reload.'
     Assert-True ($RunBefore.runId -ne $RunAfter.runId) 'Session identity reused.'
     $Stage = Get-Content -LiteralPath (Join-Path $Game '.cojvr-d3d9-stage.json') -Raw | ConvertFrom-Json
     Assert-True ($Stage.runId -eq $RunAfter.runId) 'Session/stage identity mismatch.'
@@ -69,10 +73,25 @@ try {
     foreach ($Binding in $Actions.default_bindings) {
         Assert-True (Test-Path -LiteralPath (Join-Path $Game ('cojvr_openvr_input/' + $Binding.binding_url))) 'Referenced controller binding missing.'
     }
-    Invoke-Frontend @('-Action','Install','-VideoSettingsPath',$Video,'-ManualReload')
-    Invoke-Frontend @('-Action','Install','-VideoSettingsPath',$Video)
+    # Simulate upgrading a conventional-reload installation. The advanced script
+    # override remains available, while a normal update installs all features.
+    & (Join-Path $PackageDirectory 'cojvr.ps1') -Action Install -GameDirectory $Game -VideoSettingsPath $Video -ResolutionSettingsPath $Preference -ManualReload:$false
     $State = Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-install.json') -Raw | ConvertFrom-Json
-    Assert-True $State.manualReload 'Updating reset manual reload preference.'
+    Assert-True (-not $State.manualReload) 'Explicit script reload override ignored.'
+    # The ordinary menu must complete an update and exit with just "1, 0";
+    # no separate reload question may consume the exit selection.
+    . (Join-Path $PackageDirectory 'tools/coj_resolution_session.ps1')
+    $Menu = Invoke-CoJResolutionProgram -ExecutablePath (Get-Command powershell.exe).Source -Arguments @(
+        '-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PackageDirectory 'cojvr.ps1'),
+        '-GameDirectory',$Game,'-VideoSettingsPath',$Video,'-ResolutionSettingsPath',$Preference
+    ) -StandardInput "1`n0`n"
+    Assert-True ($Menu.ExitCode -eq 0) ('Default menu update failed: ' + $Menu.StdErr)
+    $State = Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-install.json') -Raw | ConvertFrom-Json
+    Assert-True $State.manualReload 'Default update did not enable manual reload.'
+    $Control = Get-Content -LiteralPath (Join-Path $Game 'cojvr-camera-control.json') -Raw | ConvertFrom-Json
+    Assert-True ($Control.manualReloadInstalled -and $Control.independentHandsEnabled -and $Control.bodyIkEnabled) 'Updated installation omitted enabled gameplay features.'
+    $UpdatedRun = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+    Assert-True ($UpdatedRun.validation.videoProfile.resolution -eq '2428x2477') 'Default feature update replaced the saved Manual resolution.'
     Invoke-Frontend @('-Action','Uninstall')
     Assert-Originals
     $env:COJVR_DEPLOYMENT_FAILURE_TEST = '1'
@@ -83,7 +102,7 @@ try {
     }
     Assert-Originals
     Invoke-Frontend @('-Action','Verify')
-    Write-Host 'PASS isolated exact-game install, active tracking, fresh sessions, all controllers, updates, preference preservation, uninstall and injected failure restoration. Host-only.'
+    Write-Host 'PASS isolated exact-game complete defaults, Auto resolution, fresh sessions, all controllers, menu update without feature prompts, saved Manual size, uninstall and injected failure restoration. Host-only.'
 } finally {
     $Allowed = [IO.Path]::GetFullPath((Join-Path $SourceDirectory 'work')).TrimEnd('\') + '\'
     $Resolved = [IO.Path]::GetFullPath($Root)

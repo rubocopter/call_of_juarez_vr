@@ -3,10 +3,10 @@ param(
     [ValidateSet('Menu','Install','Uninstall','Diagnose','Status','Verify','PrepareSession','ConfigureResolution')]
     [string]$Action = 'Menu',
     [string]$GameDirectory = '',
-    [switch]$ManualReload,
+    [switch]$ManualReload = $true,
     [string]$VideoSettingsPath = '',
     [ValidateSet('Preserve','Auto','75%','100%','125%','Manual')]
-    [string]$ResolutionProfile = 'Preserve',
+    [string]$ResolutionProfile = 'Auto',
     [object]$ResolutionWidth = 0,
     [object]$ResolutionHeight = 0,
     [string]$ResolutionSettingsPath = ''
@@ -133,6 +133,10 @@ function Update-PublicSessionVideo([string]$Game,[object]$Run) {
         resolutionProfile=$Decision.Profile;experimentalResolution=$Decision.Experimental;resolutionDecision=$Decision
     }) -Force
     Write-Host "Resolution: $($Decision.Profile); $($Decision.Status); native request $($Applied.resolution)."
+    if ($Decision.Profile -ne 'Preserve' -and -not $Decision.Experimental) {
+        Write-Host 'Headset resolution could not be applied; keeping the selected game resolution.'
+        Write-Host 'For Auto/percentage profiles, start SteamVR and choose 6 - Prepare session to retry. Use 7 - Resolution profiles for Manual.'
+    }
 }
 function Show-PublicResolutionSelector {
     $Current=Read-PublicResolutionSettings
@@ -264,7 +268,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             Start-PublicSession $Game $State
             return
         }
-        if ($null -ne $State -and -not $ReloadSpecified) { $Reload = [bool]$State.manualReload }
+        if (-not $ReloadSpecified) { $Reload = $true }
         if ($null -ne $State) { Assert-PublicStageIdentity $Game $State }
         if ($null -ne $State -and $State.phase -eq 'installed') { Assert-CojvrPublicGame $Game -Installed }
         $VideoPath = $VideoSettingsPath
@@ -306,6 +310,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             throw "Installation failed; original game restored: $Failure"
         }
         Write-Host "Installed $($Manifest.version). Start SteamVR, then launch Call of Juarez in D3D9 mode manually."
+        Write-Host "VR gameplay: tracked head/body, independent hands and physical melee. Manual reload: $Reload."
         Write-Host 'Use Prepare session before each subsequent play session for a fresh report identity. Campaign completion and other controllers remain experimental.'
     } finally { $Lock.Dispose() }
 }
@@ -336,14 +341,7 @@ try {
             }
             $Requested = @{'1'='Install';'2'='Uninstall';'3'='Diagnose';'4'='Status';'5'='Verify';'6'='PrepareSession'}[$Choice]
             if ($null -eq $Requested) { continue }
-            $Reload = $false
-            $Specified = $false
-            if ($Requested -eq 'Install') {
-                $Answer = Read-Host 'Experimental manual reload? y/n (Enter preserves installed choice; default n)'
-                $Specified = -not [string]::IsNullOrWhiteSpace($Answer)
-                $Reload = $Answer -match '^(y|yes|s|si)$'
-            }
-            try { Invoke-PublicAction $Requested $Game $Reload $Specified } catch { Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red }
+            try { Invoke-PublicAction $Requested $Game $ManualReload.IsPresent $PSBoundParameters.ContainsKey('ManualReload') } catch { Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red }
         }
     }
 } catch { Write-Error $_; exit 1 }

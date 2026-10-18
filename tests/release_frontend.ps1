@@ -94,6 +94,8 @@ try {
     $Preference=Join-Path $Root 'user/resolution.json'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Package 'cojvr.ps1') -Action ConfigureResolution -ResolutionProfile Manual -ResolutionWidth 2804 -ResolutionHeight 2860 -ResolutionSettingsPath $Preference
     Assert-True ($LASTEXITCODE -eq 0 -and (Get-Content $Preference -Raw | ConvertFrom-Json).width -eq 2804) 'Relocated selector did not persist the Manual choice.'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Package 'cojvr.ps1') -Action ConfigureResolution -ResolutionSettingsPath $Preference
+    Assert-True ($LASTEXITCODE -eq 0 -and (Get-Content $Preference -Raw | ConvertFrom-Json).profile -eq 'Auto') 'Default selector action did not choose automatic headset resolution.'
     . (Join-Path $SourceDirectory 'tools/deployment_transaction.ps1')
     $Public = @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installing';buildManifestId=('b'*64);sourceCommit=('c'*40);version='0.1.0-prealpha.1';runId='public-recovery-test'}
     Write-CojvrPublicJson (Join-Path $Game '.cojvr-public-install.json') $Public

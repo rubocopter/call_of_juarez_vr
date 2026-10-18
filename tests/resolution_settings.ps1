@@ -42,7 +42,7 @@ try {
     $Expected = Join-Path $env:LOCALAPPDATA 'CoJVR/CallOfJuarez/resolution.json'
     Assert-True ((Get-CoJResolutionSettingsPath) -ceq $Expected) 'Default launcher path differs.'
     Assert-True (-not (Test-Path -LiteralPath $env:LOCALAPPDATA)) 'Getting path created files.'
-    Assert-Settings (Read-CoJResolutionSettings -Path $Path) Preserve
+    Assert-Settings (Read-CoJResolutionSettings -Path $Path) Auto
     Assert-True (-not (Test-Path -LiteralPath $Path)) 'Missing read created settings.'
 
     # A real adjacent runtime preference must survive every save and fault.

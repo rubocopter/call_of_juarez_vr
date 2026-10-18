@@ -1,9 +1,14 @@
-Call of Juarez VR 0.1.0-prealpha.2 - experimental player package
+Call of Juarez VR 0.1.0-prealpha.3 - experimental player package
 Experimental community-testing prerelease
 
 The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
+
+.3 includes the .2 baseline plus an OpenVR asymmetric vertical projection fix
+(HOST-TESTED only), Auto when no resolution preference is saved, and default-on
+manual reload for Install/update. Beyond/Quest physical confirmation remains open.
+Archived .2/.1 packages and verdicts are unchanged.
 
 REQUIREMENTS
 
@@ -71,7 +76,7 @@ Crouch / Focus: L / R stick click; Touch/Index require a CENTER click.
 Vive uses L / R trackpad CENTER click. WMR uses stick clicks, not pad centers.
 L grip = interact; R grip = kick (Sense: L1 / R1). Triggers retain the game's
 left/right hand actions; the free-hand trigger carries/releases rounds in
-optional manual reload.
+manual reload, enabled by default.
 Directional clicks can coincide with movement/turning: Touch/Index UP-clicks
 deflect their sticks, Vive pads also move/turn, and WMR's separate movement/turn
 sticks can remain deflected. Center those inputs when you want to stand still.
@@ -82,21 +87,31 @@ INSTALL / UPDATE
 
 1. Extract the complete ZIP anywhere. Keep its folders together.
 2. Back up your saves and close Call of Juarez.
-3. Double-click CoJ-VR.cmd and choose Install/update.
-4. Select the game directory when asked. ManualReload is optional: enable it
-   only if you want the experimental manual revolver-loading interaction.
-5. Installation prepares the first session using the saved resolution profile
-   (Preserve for new users). If you keep it, start SteamVR and the D3D9 game
-   manually; no extra preparation is needed. To change it, choose 7 - Resolution
-   profiles, then 6 - Prepare session before starting the game. Auto/percentage
-   profiles require SteamVR running before Install/update or Prepare session.
+3. Start SteamVR manually BEFORE Install/update for Auto/percentage profiles.
+   Auto is the default when no resolution preference is saved.
+4. Double-click CoJ-VR.cmd, choose Install/update and select the game directory.
+   Ordinary stereo, independent hands, native torso/legs, physical Hands combat
+   and manual reload are enabled. There is no reload y/n prompt.
+5. Installation prepares the first session using the saved resolution profile.
+   Resolution selection is optional: to change it, choose 7 - Resolution profiles,
+   then 6 - Prepare session before starting the D3D9 game manually. No additional
+   preparation is needed if you keep the profile used during installation.
    Start and close the game and SteamVR manually. Avoid switching desktop focus
    while playing: the original game can crash when it loses focus.
 
 Before EVERY subsequent play session, close the game and choose menu option
 6 - Prepare session. This creates a fresh diagnostic identity and applies the
-saved resolution profile for that play session. Start SteamVR before preparation
+saved resolution profile for that play session. It retains the installed feature
+set without repatching game archives. Start SteamVR manually before preparation
 for Auto/percentage profiles, then start the D3D9 game manually.
+
+MANUAL RELOAD
+
+With an eligible revolver, missing rounds, reserve and an empty free hand:
+press Reload (Sense: Square) to open; press/hold the free-hand trigger at your
+hip to grab a round; bring it to the gun and release; press Reload to close.
+Accepted insertions give haptic feedback. Grip/contact and precise chamber
+loading remain unfinished; unsupported weapons retain native reload handling.
 
 IMAGE RESOLUTION
 
@@ -106,11 +121,15 @@ resolution percentage alone does not increase native game detail or make the
 game render at SteamVR's recommended per-eye resolution.
 
 Close the game and choose 7 - Resolution profiles, then 6 - Prepare session.
-Preserve (default) retains the selected game size. Explicit experimental choices
-are Auto, 75%, 100%, 125% and Manual width/height per eye. Percentages scale pixel
-count: 75% uses sqrt(0.75) on each recommended axis. Auto is nominal 100% with
-preserve fallback if the query or necessary compatibility checks fail. SteamVR
-must already be running for Auto/percentages; Manual needs no recommendation.
+Auto is used only when no preference is saved. Every explicitly saved choice,
+including Preserve and Manual, survives updates. Preserve retains the selected
+game size. Auto/100% use the SteamVR helper's recommended per-eye extent, NOT
+panel-native pixels. Other experimental choices are 75%, 125% and Manual
+width/height per eye. Percentages scale pixel count: 75% uses sqrt(0.75) on each
+recommended axis. If the helper is unavailable or caps are incompatible, the
+selected game size is preserved with a visible explanation. Profile intent stays
+saved; the next preparation retries Auto/percentages. SteamVR must already be
+running for those profiles; Manual needs no recommendation.
 The query helper's application scaling equivalence to the game remains unqualified.
 
 The existing engine renders at the applied native size; no post-capture upscaler
@@ -134,8 +153,11 @@ If a protected Steam game folder causes Access denied, right-click CoJ-VR.cmd,
 choose Run as administrator and retry the operation.
 
 To update, extract a newer complete ZIP and choose Install/update again.
-There is no auto updater. Manual-reload and resolution choices persist across updates
-unless you explicitly change them. Retain installation backups and recovery
+There is no auto updater. All explicit resolution preferences persist. Default
+Install/update enables manual reload, including prior installations with it off.
+Advanced noninteractive -ManualReload:$false can disable it for that installation;
+Prepare session retains the choice, but a later default Install/update enables
+it again. Retain installation backups and recovery
 data until uninstall has succeeded. Do not remove them to bypass an error.
 
 VERIFY / STATUS / DIAGNOSTICS / UNINSTALL
@@ -161,11 +183,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\cojvr.ps1 -Action PrepareS
 
 Run PrepareSession with the game closed before every play after the first.
 Verify checks package files; it does not establish game/headset compatibility.
-Use the menu to choose optional ManualReload during installation.
+Install/update enables manual reload without asking. Advanced noninteractive
+Install accepts -ManualReload:$false; a later default Install enables it again.
+PrepareSession keeps the installed feature set and does not repatch archives.
 These are package-root commands; release\cojvr.ps1 is a source-repository path.
 
 KNOWN LIMITATIONS
 
+- The .3 OpenVR projection fix is HOST-TESTED only; Beyond/Quest gameplay
+  distortion and menu gaze alignment still require physical confirmation.
+  Physical acceptance remains scoped to exercised PS VR2 scenes.
+- Background/Scene recommendation identity, other headsets and memory headroom
+  remain unqualified. Auto is a product default, not a support guarantee.
 - A chest/possible-scroll interaction has caused a crash. Cause and recovery
   are unresolved; campaign progress is at risk.
 - Full campaign cinematic coverage and immersive subtitle transport remain open.
@@ -179,6 +208,7 @@ KNOWN LIMITATIONS
   campaign coverage. Manual reload lacks convincing cartridge contact, precise
   chamber loading and broad interruption acceptance.
 - OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
+  The rejected independent eye RT prototype and investigation probes remain off.
 
 REPORTING
 
@@ -191,8 +221,9 @@ https://github.com/rubocopter/call_of_juarez_vr/issues/new?template=bug_report.y
 PACKAGE CONTENTS
 
 CoJ-VR.cmd, cojvr.ps1, README.txt, RELEASE_NOTES.md, THIRD_PARTY_NOTICES.txt,
-payload\, tools\, dependencies\ and release-manifest.json.
+LICENSE, COPYRIGHT_AND_REUSE.md, SOURCE_COMMIT.txt, payload\, tools\,
+dependencies\ and release-manifest.json.
 
 Unofficial project; not endorsed by Techland, Ubisoft, Valve or Sony.
-No project-code license has been selected. Third-party notices do not license
-the project code.
+Original project code is GPL-3.0-or-later; see LICENSE and COPYRIGHT_AND_REUSE.md.
+Bundled dependencies retain their own terms in THIRD_PARTY_NOTICES.txt.

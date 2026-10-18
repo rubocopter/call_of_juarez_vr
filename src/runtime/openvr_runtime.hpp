@@ -88,9 +88,9 @@ private:
     bool pressed_ = false;
 };
 
-// OpenVR GetProjectionRaw uses screen-space vertical signs: top is negative and
-// bottom is positive. Convert that API-specific convention into the neutral
-// EyeFov contract where up is positive and down is negative.
+// Match OpenVR's ComposeProjection in neutral -Z-forward, Y-up space:
+// up uses raw bottom, down uses raw top. Swapping preserves the asymmetric
+// projection center; negating both raw values would reverse its vertical sign.
 [[nodiscard]] EyeFov OpenVrProjectionRawToEyeFov(
     float left,
     float right,

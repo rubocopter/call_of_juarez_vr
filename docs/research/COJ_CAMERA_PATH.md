@@ -41,6 +41,20 @@ The Call of Juarez adapter now performs the only metres -> centimetres conversio
 
 The corrected 100 game-units/metre eye baseline and recenter have physical acceptance for the exercised path.
 
+## OpenVR projection conversion
+
+The OpenVR adapter maps `GetProjectionRaw(left, right, top, bottom)` to neutral
+eye tangents `(left, right, up=bottom, down=top)`. This preserves the vertical
+scale `2/(bottom-top)` and center `(bottom+top)/(bottom-top)` of Valve's
+[ComposeProjection reference](https://github.com/ValveSoftware/openvr/wiki/IVRSystem::GetProjectionRaw).
+Negating both raw vertical values instead reverses the center for vertically
+asymmetric optics; symmetric vertical optics cannot expose that error.
+The exact native projection builder at RVA `0x0022BC50` propagates the supplied
+frustum's vertical center rather than cancelling that difference. Gameplay and
+flat-theater menu placement consume the same converted eye data. Keep this
+conversion in the OpenVR adapter; no headset-specific FOV or menu offset is needed.
+Physical acceptance remains owned by [Validation](../VALIDATION.md).
+
 ## Capture boundary
 
 Reading the swap-chain backbuffer from inside the render-view path produced identical left/right hashes even though two game eye passes ran. Capturing the currently bound D3D9 render target exposed the real eye results.

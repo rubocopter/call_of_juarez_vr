@@ -36,6 +36,73 @@ int main() {
         return 1;
     }
 
+    // Compare against Valve's ComposeProjection, independently of the neutral
+    // helpers: https://github.com/ValveSoftware/openvr/wiki/IVRSystem::GetProjectionRaw
+    // Negating both raw vertical fields passes symmetric PSVR2 optics but flips
+    // the projection center for vertically asymmetric optics such as Beyond's.
+    struct RawProjection {
+        const char* name;
+        float left, right, top, bottom;
+    };
+    constexpr RawProjection projections[]{
+        {"PSVR2 left", -1.84F, 0.95F, -1.33F, 1.33F},
+        {"PSVR2 right", -0.95F, 1.84F, -1.33F, 1.33F},
+        {"Beyond-like left", -1.149F, 0.819F, -1.203F, 0.783F},
+        {"Beyond-like right", -0.840F, 1.125F, -1.206F, 0.782F},
+        {"opposite vertical asymmetry", -1.0F, 1.0F, -0.6F, 1.8F},
+    };
+    bool optics_match = true;
+    for (const auto& raw : projections) {
+        const auto converted = OpenVrProjectionRawToEyeFov(
+            raw.left, raw.right, raw.top, raw.bottom);
+        constexpr float near_plane = 0.25F;
+        constexpr float far_plane = 500.0F;
+        const float idx = 1.0F / (raw.right - raw.left);
+        const float idy = 1.0F / (raw.bottom - raw.top);
+        const float idz = 1.0F / (far_plane - near_plane);
+        const std::array<float, 16> expected{
+            2.0F * idx, 0.0F, (raw.right + raw.left) * idx, 0.0F,
+            0.0F, 2.0F * idy, (raw.bottom + raw.top) * idy, 0.0F,
+            0.0F, 0.0F, -far_plane * idz, -far_plane * near_plane * idz,
+            0.0F, 0.0F, -1.0F, 0.0F,
+        };
+        std::array<float, 16> actual{};
+        if (!cojvr::runtime::BuildReferenceProjectionMatrix(
+                converted, near_plane, far_plane, actual)) {
+            std::cerr << raw.name << ": converted optics rejected\n";
+            return 1;
+        }
+        for (std::size_t index = 0; index < actual.size(); ++index) {
+            if (!Near(actual[index], expected[index])) {
+                std::cerr << raw.name << ": projection coefficient " << index
+                          << " differs from Valve reference: " << actual[index]
+                          << " instead of " << expected[index] << '\n';
+                optics_match = false;
+            }
+        }
+
+        // A forward-facing screen at the eye origin must land at the pixel
+        // selected by the same reference matrix, including vertical asymmetry.
+        cojvr::runtime::EyeView eye{};
+        eye.fov = converted;
+        eye.eye_to_head.orientation = {0.0F, 0.0F, 0.0F, 1.0F};
+        eye.eye_to_head.orientation_valid = eye.eye_to_head.position_valid = true;
+        cojvr::runtime::FlatTheaterEyePlacement placement{};
+        if (!cojvr::runtime::ComputeFlatTheaterEyePlacement(
+                eye, 100, 100, 1000, 1000, placement)) {
+            std::cerr << raw.name << ": forward menu placement rejected\n";
+            return 1;
+        }
+        const float expected_u = (1.0F - expected[2]) * 0.5F;
+        const float expected_v = (1.0F + expected[6]) * 0.5F;
+        if (std::fabs(placement.left + 50.0F - expected_u * 1000.0F) > 0.51F ||
+            std::fabs(placement.top + 50.0F - expected_v * 1000.0F) > 0.51F) {
+            std::cerr << raw.name << ": menu center differs from Valve projection\n";
+            optics_match = false;
+        }
+    }
+    if (!optics_match) return 1;
+
     OpenVrDigitalActionEdge edge;
     if (edge.Update(true, false) || !edge.Update(true, true) ||
         edge.Update(true, true) || edge.Update(true, false) ||

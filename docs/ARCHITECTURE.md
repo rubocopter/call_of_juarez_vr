@@ -5,7 +5,7 @@
 Call of Juarez (2006), Windows x86, is the reference implementation for native
 stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
 tracked head and independent native hands with the game's torso and legs.
-Connected-arm IK remains a rejected diagnostic presentation. Opt-in persistent
+Connected-arm IK remains a rejected diagnostic presentation. Default-on persistent
 manual revolver reload has scoped acceptance; complete chamber/ejection and
 convincing cartridge grip remain development work.
 D3D10, OpenXR and additional games are separate future/experimental tracks.
@@ -91,7 +91,13 @@ reads each currently bound color RT0, not a swap-chain backbuffer that may echo
 both eyes. Frame identity includes the exact HMD render pose/sequence submitted
 through OpenVR explicit-pose submission. See [camera contracts](research/COJ_CAMERA_PATH.md).
 
-By default scene resolution remains engine-owned. Capture allocates from the current RT0
+The .3 OpenVR projection correction follows the owning
+[projection contract](research/COJ_CAMERA_PATH.md#openvr-projection-conversion).
+Complete-matrix and forward-menu host regressions cover asymmetric vertical
+optics and symmetric PS VR2 controls. Beyond/Quest distortion and gaze alignment
+remain physical gates; the correction adds no headset acceptance.
+
+Scene target allocation remains engine-owned. Capture allocates from the current RT0
 description, and native-stereo D3D11 eyes preserve that extent through equal-size
 copies. OpenVR's cached recommended extent does not resize ChromeEngine targets.
 Independent eye resolution must qualify native color/depth/intermediate ownership
@@ -106,7 +112,9 @@ independent bank off, and requires measured native draw/capture/output extents;
 configuration or window size alone does not qualify rendering resolution.
 The physical workflow additionally accepts explicitly opted-in startup
 Auto/pixel-percentage/Manual proposals through the same video transaction.
-Default behavior remains preserve. Factory-only native caps checks reject
+The development workflow preserves resolution unless explicitly opted in; the
+public launcher uses the saved preference, or Auto when none is saved.
+Factory-only native caps checks reject
 unsupported dimensions before application; unavailable queries preserve selected
 size. This experimental route does not qualify Background/Scene recommendation
 identity, theater allocations or x86 memory headroom for public releases.
@@ -117,8 +125,14 @@ persists intent only. Installation/PrepareSession resolve and apply it while
 closed, with a session video journal layered over the install-time FSAA journal.
 Restore the session layer before replacing it or restoring installation originals.
 Interrupted metadata publication retains a pending run identity for recovery.
-Explicit selections remain prealpha trials; default Preserve never queries a
-headset or changes the selected resolution.
+The .3 product default is Auto only for a missing resolution preference; every
+explicit saved choice, including Manual and Preserve, survives updates. Auto
+uses the helper's recommended per-eye extent, not panel-native pixels. The
+operator must start SteamVR before Install/update or PrepareSession for Auto or
+percentages. Unavailable helper queries or incompatible caps preserve the selected
+game size with a visible explanation, retaining intent for a fresh retry at the
+next preparation. Explicit Preserve never queries a headset. This experimental
+default does not qualify Background/Scene identity, memory or other headsets.
 The exercised PS VR2 reference uses the operator's accepted Manual 2804x2860
 preference as its local default. This does not impose that size on new users or
 change the meaning of SteamVR-relative profiles.
@@ -504,8 +518,11 @@ insertion rejection/fault resolves closing and yields requested presentation and
 supervision before publishing the frame, retaining insertion intent only for
 diagnostics. Cancellation preserves the failure cause and distinguishes recenter,
 publication gaps and regressions. These recovery paths are host-tested only.
-The default candidate retains the legacy native-animation route; the persistent
-flow requires `-ManualReload`. See
+The public .3 Install/update enables this persistent flow by default, including
+upgrades from a prior false state, without a reload y/n prompt. Noninteractive
+`-ManualReload:$false` retains the legacy route for that installation; a later
+default Install/update enables persistent reload again. Development candidates
+still select it with `-ManualReload`. See
 [reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).
 
 Parent hand/socket applies before child weapon; restoration restores the parent
@@ -618,9 +635,9 @@ are passive, bounded and sampled before/after fresh F edges; they never trace or
 select. This replacement's physical gate is separate from the accepted older
 HMD-based drawer interaction.
 
-The default motion-reload route is a hybrid request into native action 31,
+The legacy motion-reload route is a hybrid request into native action 31,
 retaining conventional Square and native ammo/reserve/state/animation authority.
-The opt-in persistent route uses Square preparation and native unit insertion
+The default public persistent route uses Square preparation and native unit insertion
 as described above; the following paced/probe contracts are legacy alternatives.
 Exact passive admission supports eight concrete single-pistol/empty-support
 classes; the paced single-round extension uses the five qualified profiles in
@@ -635,7 +652,7 @@ before `Clear`, wait for a bounded native-clock deadline and close through nativ
 callbacks while skipping the ammunition transfer. This logical boundary has
 bounded Peacemaker runtime evidence. It retains native reload presentation;
 held logical state does not establish a fixed mechanical pose or tracked hands.
-The default path continues to transfer one native round per admitted gesture.
+The legacy paced path continues to transfer one native round per admitted gesture.
 
 A separate passive recovery reader preserves an accepted continuation through
 verified native reload/two-hand animation. It proves no carried object via
@@ -647,7 +664,7 @@ but CoJ supplies no qualified socket or cartridge-tip input to enable it.
 Displayed drum/gate observation is a separate read-only game diagnostic. Precise
 chamber/ejection, independently controlled mechanical pose and
 manual-session engine save/load recovery remain unresolved.
-The opt-in manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
+The manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
 It consumes rejected Square admission until release, preserving native fallback
 only for positively identified unsupported contexts. Missing observation cannot
 start conventional reload. Invalid owner/context/poses/input availability,
@@ -825,13 +842,22 @@ dependency download is required. Game files are patched locally and never shippe
 `release/cojvr.ps1` owns the public install/session journal and calls the existing
 exact-build transactional stage/unstage boundaries. Updates restore originals
 before deploying a replacement; failure retains recovery data or restores the
-original game. Manual-reload preference survives an update. Input manifests bind
+original game. Default Install/update enables manual reload on fresh installs
+and upgrades, including prior false states, without an interactive prompt.
+Advanced noninteractive `-ManualReload:$false` disables it for that installation;
+a later default Install/update enables it again. All explicitly saved resolution
+preferences survive updates. Input manifests bind
 every referenced controller JSON, preserving legacy Sense-only restoration.
 Additional bindings are experimental, independent of physical acceptance.
 
-Install prepares the first session. PrepareSession rotates prior outputs into
-local evidence and assigns a fresh correlated run/stage identity before the user
-manually starts SteamVR and the game. Community reports use a bounded text
+Install enables ordinary stereo, independent hands, native torso/legs and physical
+Hands combat alongside manual reload, and prepares the first session. PrepareSession
+retains that installed feature set without repatching archives, rotates prior outputs
+into local evidence and assigns a fresh correlated run/stage identity. For queried
+profiles the user starts SteamVR manually before either preparation, then starts
+the game manually afterward. Theater stays the cinematic default; the rejected
+independent eye RT prototype and investigation probes remain off. Community
+reports use a bounded text
 allowlist and redact common local paths; they are inspected and shared manually.
 They do not replace canonical `vr_test.ps1 prepare`/`finish` acceptance evidence.
 The GitHub release workflow produces a draft prerelease for explicit publication.

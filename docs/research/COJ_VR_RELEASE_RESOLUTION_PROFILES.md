@@ -2,9 +2,11 @@
 
 ## Scope and status
 
-**Experimental launcher selection and startup application implemented and
-host-tested and packaged in .2; the published .1 archive is preserved.** Scoped physical
-acceptance remains limited to the exercised Manual 2804x2860 PS VR2 path below.
+**Experimental launcher selection and startup application are implemented and
+host-tested. .3 uses Auto when no preference is saved and preserves every explicit
+saved profile across updates; archived .2/.1 packages and verdicts are unchanged.**
+This product default adds no physical qualification. Scoped physical acceptance
+remains limited to the exercised Manual 2804x2860 PS VR2 path below.
 Resolve Auto, 75%, 100%, 125% and Manual before
 game startup through the existing native `Video.scr` path. Keep ordinary
 D3D9/OpenVR stereo active and the independent eye bank off. This changes the game's
@@ -20,7 +22,7 @@ settings. Manual needs no runtime observation. Fresh Background recommendations
 produce proposals, not generally qualified CoJ 100% values. Missing recommendations
 report unavailable; malformed/foreign/stale data rejects. The launcher separately
 records an explicit experimental application decision; it does not turn the
-proposal's release qualification flag true. Package publication is unchanged. An explicit
+proposal's release qualification flag true or establish physical support. An explicit
 `vr_test.ps1 prepare -ExperimentalResolutionProfile -ResolutionProfile ...`
 development trial can apply a proposal at startup, with LAA, full Body IK,
 ordinary stereo and reversible video required. Manual also requires
@@ -77,7 +79,8 @@ explicit width/height aspect after compatibility checks.
 
 | Profile | Proposed startup request |
 | --- | --- |
-| Auto | Explicit experimental `p=1` with preserve fallback on unavailable query or incompatible necessary bounds. A generally qualified automatic default remains pending; no speculative GPU scoring or dynamic adjustment. |
+| Preserve | Explicitly retain the selected native game size; no recommendation query. |
+| Auto | Missing-preference product default: experimental `p=1` from the helper recommendation, not panel-native pixels. Preserve selected size with a visible explanation on unavailable query or incompatible necessary bounds; retain Auto intent and retry next preparation. No GPU scoring or dynamic adjustment. |
 | 75% | `p=0.75`; approximately 0.8660 times each recommended dimension. |
 | 100% | `p=1`; recommended dimensions. |
 | 125% | `p=1.25`; approximately 1.1180 times each recommended dimension. |
@@ -87,7 +90,8 @@ These percentages are relative to the queried recommendation, not panel pixels
 or an additional SteamVR slider transformation. Record requested percentage,
 recommendation and rounded result; do not assume which runtime settings produced
 the recommendation. Auto and 100% share a nominal target, but Auto expresses
-conditional default policy. Neither guarantees frame rate. Never silently lower
+conditional default policy. Every explicit saved choice, including Manual and
+Preserve, survives updates. Neither guarantees frame rate. Never silently lower
 a requested profile, clamp axes independently, distort aspect or enlarge only
 transport textures. An inadmissible request falls back to the original selected
 native settings with a visible diagnostic. Manual dimensions and release pixel/byte
@@ -98,10 +102,24 @@ ceilings require measured qualification before broad support or safe defaults ca
 The existing player launcher's option **7 — Resolution profiles** saves intent;
 option **6 — Prepare session** applies it with the game closed. Noninteractive
 `ConfigureResolution` accepts `ResolutionProfile`, `ResolutionWidth` and
-`ResolutionHeight`; Manual alone accepts nonzero axes. Default is Preserve.
-Auto/percentages require an operator-started SteamVR runtime; Auto is an explicit
-experimental nominal 100% choice with preserve fallback, not automatic GPU scoring
-or a qualified release default. No game/runtime lifecycle is automated.
+`ResolutionHeight`; Manual alone accepts nonzero axes. A missing resolution
+preference defaults to Auto; every explicit saved profile, including Manual and
+Preserve, survives Install/update. Auto uses nominal 100% of the helper's fresh
+recommended per-eye extent, not panel-native pixels. Start SteamVR manually
+before Install/update or PrepareSession for Auto/percentages. If the helper is
+unavailable or caps are incompatible, keep the selected game size and show why;
+retain profile intent and retry next preparation. This experimental product
+default does not qualify Background/Scene equivalence, total memory or other
+headsets. No game/runtime lifecycle is automated.
+
+Install/update prepares the first session. Resolution selection is optional;
+PrepareSession is required before later plays for fresh provenance. It retains
+the installed feature set without archive repatching. Default Install/update
+also enables manual reload, including prior false states, without a reload y/n
+prompt. Advanced noninteractive `-ManualReload:$false` applies to that installation;
+a later default Install/update enables it again. Ordinary stereo, independent
+hands, native torso/legs and physical Hands combat remain enabled. Theater stays
+default; independent eye RT and investigation probes remain off.
 
 `tools/coj_resolution_settings.ps1` owns the bounded, strict, atomic launcher
 preference `%LOCALAPPDATA%/CoJVR/CallOfJuarez/resolution.json`. It never writes the
@@ -162,9 +180,10 @@ the header documents it as reserved startup information. `IdentifyApplication`
 requires a known application manifest and does not itself prove matching scale.
 Compare helper results with the game's existing `native_stereo_eye_optics`
 telemetry under controlled global/per-app scale changes, HMD replacement and
-runtime restart. Until equivalence is established, keep automatic default sizing
-disabled and label explicitly selected percentages relative to the helper query,
-with game-application equivalence unqualified; do not claim supported CoJ 100%.
+runtime restart. The .3 Auto product default remains relative to the helper
+query, with game-application equivalence unqualified. This open gate prevents
+support claims for CoJ 100%, not the selected experimental default. Label
+percentages relative to the helper and never substitute panel-native pixels.
 
 Pass only a bounded, versioned value record: recommendation, runtime/HMD/adapter
 and application identity, observation time and preparation identity. Reject
@@ -201,11 +220,14 @@ on 64-bit Windows allows 4 GiB, without guaranteeing contiguous space, commit,
 VRAM or general JVM high-address safety. Preflight must account for measured VA,
 largest free region, commit and loading peaks; an external helper's free VA is
 not the game's budget. Caps and a successful sample allocation cannot establish
-campaign headroom. Until a conservative envelope is qualified, retain Preserve
-as the default and keep selected profiles explicitly experimental rather than
-inventing a safe universal cap or promoting automatic default application.
+campaign headroom. The .3 missing-preference Auto default remains experimental;
+it does not establish a conservative memory envelope or safe universal cap.
+Preserve remains an explicit saved choice and the effective fallback when query
+or necessary caps checks cannot admit a request. Fallback leaves profile intent
+intact for a fresh retry at the next closed-game preparation.
 
-On query/preflight failure, leave selected resolution/fullscreen untouched.
+On query/preflight failure, leave selected resolution/fullscreen untouched,
+show the reason and retain the requested profile for retry next preparation.
 Existing journaled FSAA-0 install policy remains a separate explicit policy.
 On partial apply failure, roll back exact original bytes. On failure discovered
 after launch, report it and recover only after normal close; do not retry smaller
@@ -237,8 +259,8 @@ CreateNew only after verifying the backup; a concurrent replacement is retained.
 Arithmetic/aspect/bounds parsing, preference isolation and interrupted
 apply/reapply/restore/conflict handling have host coverage. General recommendation
 identity, complete native/theater compatibility and x86 memory envelopes remain
-open before broad support or automatic defaults. Reuse the
-[video fixtures](../../tests/vr_video_profile.ps1) and
+open before broad support; the .3 experimental Auto default does not close them.
+Reuse the [video fixtures](../../tests/vr_video_profile.ps1) and
 [native-resolution analyzer](../../tools/analyze_coj_native_resolution.py).
 For a new size, physical evidence must correlate full-size native color/depth/viewport draws in
 both eyes, equal capture extents, distinct equal-size D3D11 outputs and successful
