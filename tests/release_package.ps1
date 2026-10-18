@@ -77,7 +77,7 @@ try {
     $PlayerManifest = Read-PlayerRelease $Root
     Assert-True ($PlayerManifest.version -ceq $Manifest.version -and $PlayerManifest.files.Count -eq $Manifest.files.Count) 'Shipped validator and independent inventory disagree.'
     foreach ($Required in @('cojvr.ps1', 'CoJ-VR.cmd', 'dependencies.lock.json', 'THIRD_PARTY_NOTICES.txt',
-        'licenses/OpenVR-LICENSE.txt', 'payload/d3d9_native_stereo.dll', 'payload/openvr_api.dll',
+        'licenses/OpenVR-LICENSE.txt', 'LICENSE', 'COPYRIGHT_AND_REUSE.md', 'SOURCE_COMMIT.txt', 'payload/d3d9_native_stereo.dll', 'payload/openvr_api.dll',
         'payload/d3d9_native_stereo.build-manifest.json', 'payload/cojvr_openvr_input/actions.json',
         'payload/cojvr_openvr_input/bindings/psvr2_sense.json', 'dependencies/python/python.exe',
         'payload/cojvr_openvr_input/bindings/knuckles.json', 'payload/cojvr_openvr_input/bindings/vive_controller.json',
@@ -85,6 +85,10 @@ try {
         'dependencies/python/python313._pth', 'dependencies/python/LICENSE.txt', 'dependencies/vc_redist.x86.exe')) {
         Assert-True (Test-Path -LiteralPath (Join-Path $Root $Required) -PathType Leaf) "Required release file missing: $Required"
     }
+    $SourceNotice = Get-Content -LiteralPath (Join-Path $Root 'SOURCE_COMMIT.txt') -Raw
+    Assert-True ($SourceNotice.Contains($Manifest.sourceCommit) -and
+        $SourceNotice.Contains("https://github.com/rubocopter/call_of_juarez_vr/tree/$($Manifest.sourceCommit)")) 'Missing exact source revision in release notice.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $Root 'LICENSE') -Raw).Contains('GNU GENERAL PUBLIC LICENSE')) 'Missing GPL license body.'
     $ExpectedTools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
         'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_settings.ps1','coj_resolution_session.ps1',
         'coj_resolution_profiles.py','cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe','openvr_api.dll','patch_coj_weapon_consumers.py',

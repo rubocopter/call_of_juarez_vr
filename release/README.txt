@@ -21,6 +21,15 @@ including dependencies/python/LICENSE.txt and licenses/OpenVR-LICENSE.txt.
 Microsoft's terms accompany the VC++ installer. Game files are not distributed
 in this package.
 
+COPYRIGHT AND SOURCE
+
+Original Call of Juarez VR source code is GNU GPL version 3 or later;
+see LICENSE and COPYRIGHT_AND_REUSE.md for the scope and exclusions.
+SOURCE_COMMIT.txt identifies the exact corresponding source commit and URL
+for this package. Redistributions of modified GPL-covered binaries require
+GPL-compliant source availability and preservation of copyright notices.
+Third-party code and original game assets remain under their own terms.
+
 CONTROLLERS
 
 PS VR2 Sense is the only physically validated reference, limited to exercised
