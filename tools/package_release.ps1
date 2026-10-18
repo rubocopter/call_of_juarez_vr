@@ -142,6 +142,12 @@ try {
     Copy-Item -LiteralPath (Join-Path $DependencyDirectory 'vc_redist.x86.exe') -Destination (Join-Path $PackageRoot 'dependencies/vc_redist.x86.exe')
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'release/dependencies.lock.json') -Destination (Join-Path $PackageRoot 'dependencies.lock.json')
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'release/THIRD_PARTY_NOTICES.txt') -Destination (Join-Path $PackageRoot 'THIRD_PARTY_NOTICES.txt')
+    Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'LICENSE') -Destination (Join-Path $PackageRoot 'LICENSE')
+    Copy-Item -LiteralPath (Join-Path $RepositoryRoot 'COPYRIGHT_AND_REUSE.md') -Destination (Join-Path $PackageRoot 'COPYRIGHT_AND_REUSE.md')
+    [IO.File]::WriteAllText(
+        (Join-Path $PackageRoot 'SOURCE_COMMIT.txt'),
+        "Call of Juarez VR source revision: $SourceCommit`nCorresponding source: https://github.com/rubocopter/call_of_juarez_vr/tree/$SourceCommit`nLicense: GPL-3.0-or-later (project-authored code only); see LICENSE and COPYRIGHT_AND_REUSE.md.`n",
+        [Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot '.cache/deps/openvr-2.15.6/LICENSE') -Destination (Join-Path $PackageRoot 'licenses/OpenVR-LICENSE.txt')
     # Keep the original manifestId as the build correlation identity. Only local
     # provenance fields (paths, status, rebuild commands, timestamp) are omitted.

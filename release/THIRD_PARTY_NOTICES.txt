@@ -1,10 +1,12 @@
 Call of Juarez VR prerelease - third-party notices
 
-Project code
-No project code license has been granted by this notice. The repository has no
-project LICENSE at the time this packaging workflow was added. Do not interpret
-the third-party licenses below as a license for Call of Juarez VR code.
-No game executables, game archives, saves or extracted game data are included.
+Project-authored code (GPL-3.0-or-later)
+Original Call of Juarez VR source code is licensed under GNU GPL v3 or later.
+The full project license is at LICENSE in new player packages; COPYRIGHT_AND_REUSE.md
+sets out scope, provenance and exclusions, and SOURCE_COMMIT.txt identifies
+corresponding source for the particular build. Third-party licenses below are
+separate and remain unchanged. No game executables, game archives, saves or
+extracted game data are included.
 
 Valve OpenVR SDK 2.15.6
 The unmodified x86 openvr_api.dll is distributed with the full Valve license at
