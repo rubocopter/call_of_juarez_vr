@@ -1,8 +1,30 @@
 #include "runtime/gameplay_utility.hpp"
 #include "runtime/equipment_actions.hpp"
 #include <cmath>
+#include <algorithm>
 
 namespace cojvr::runtime {
+float SmoothTurnState::Update(const GameplayInputState& input,
+    const std::uint64_t monotonic_us) noexcept {
+    constexpr float kDeadzone = 0.25F;
+    constexpr float kDegreesPerSecond = 90.0F;
+    const bool available = input.active && input.turn_available && !input.weapon_radial &&
+        std::isfinite(input.turn.x) && std::isfinite(input.turn.y);
+    const bool interrupted = !available || !have_time_ ||
+        context_generation_ != input.input_context_generation ||
+        monotonic_us < previous_us_ || monotonic_us - previous_us_ > 100000;
+    const std::uint64_t elapsed_us = interrupted ? 0 : monotonic_us - previous_us_;
+    previous_us_ = monotonic_us;
+    context_generation_ = input.input_context_generation;
+    have_time_ = available;
+    if (interrupted) armed_ = false;
+    if (!available) return 0.0F;
+    if (std::hypot(input.turn.x, input.turn.y) <= kDeadzone) armed_ = true;
+    if (!armed_ || elapsed_us == 0 || std::fabs(input.turn.x) <= kDeadzone) return 0.0F;
+    const float axis = std::clamp(input.turn.x, -1.0F, 1.0F);
+    const float speed = std::copysign((std::fabs(axis) - kDeadzone) / (1.0F - kDeadzone), axis);
+    return speed * kDegreesPerSecond * (static_cast<float>(elapsed_us) / 1000000.0F);
+}
 AuxiliaryButtonResult AuxiliaryButtonGesture::Update(const bool available, const bool held,
     const std::uint64_t monotonic_ms, const bool objectives_allowed) noexcept {
     if (!available || (pressed_ && monotonic_ms<started_ms_)) {

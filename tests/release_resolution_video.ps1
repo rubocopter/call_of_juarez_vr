@@ -6,7 +6,7 @@ $Ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $SourceDirect
 $Definition=$Ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Update-PublicSessionVideo'},$true)
 if(-not $Definition){throw 'Missing session video transaction boundary'}
 Invoke-Expression $Definition.Extent.Text
-foreach($Name in @('Start-PublicSession','Restore-PublicInstall')) {
+foreach($Name in @('Start-PublicSession','Restore-PublicInstall','Assert-PublicVideoRecoveryPaths')) {
     $Definition=$Ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name},$true)
     Invoke-Expression $Definition.Extent.Text
 }

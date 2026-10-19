@@ -13,6 +13,40 @@ int Selections(const GameplayInputState& state) {
     return count;
 }
 int main() {
+    // Same one-second turn at 50/100/200 Hz; no per-frame yaw or held snaps.
+    for (const std::uint64_t step_us : {20000ULL, 10000ULL, 5000ULL}) {
+        SmoothTurnState smooth;
+        GameplayInputState turn{}; turn.active=true; turn.turn_available=true;
+        Require(smooth.Update(turn, 1000000)==0, "smooth baseline moved");
+        turn.turn.x=1.0F;
+        float yaw=0;
+        for (std::uint64_t time=1000000+step_us; time<=2000000; time+=step_us)
+            yaw+=smooth.Update(turn,time);
+        Require(std::fabs(yaw-90.0F)<0.001F, "smooth turn speed depends on sampling rate");
+        Require(smooth.Update(turn,2000000)==0, "duplicate turn time rotated twice");
+        turn.turn.x=-0.625F;
+        Require(std::fabs(smooth.Update(turn,2020000)+0.9F)<0.00001F,
+            "smooth left/partial stick lost direction or proportional speed");
+        Require(smooth.Update(turn,3000000)==0, "stale input caused a catch-up turn");
+        Require(smooth.Update(turn,3010000)==0, "held turn resumed without center after stale input");
+        turn.turn={}; (void)smooth.Update(turn,3020000);
+        turn.turn.x=1; Require(smooth.Update(turn,3030000)>0, "smooth turn failed to recover after center");
+        turn.active=false; Require(smooth.Update(turn,3040000)==0, "inactive gameplay rotated");
+        turn.active=true; Require(smooth.Update(turn,3050000)==0, "menu exit replayed held turn");
+        turn.turn={}; (void)smooth.Update(turn,3060000);
+        turn.turn.x=1; turn.input_context_generation++;
+        Require(smooth.Update(turn,3070000)==0, "new input owner inherited turn authority");
+        turn.turn={}; (void)smooth.Update(turn,3080000);
+        turn.turn.x=std::numeric_limits<float>::quiet_NaN();
+        Require(smooth.Update(turn,3090000)==0, "invalid stick rotated");
+        turn.turn.x=1; Require(smooth.Update(turn,3100000)==0, "input reacquisition resumed held turn");
+        turn.turn={}; (void)smooth.Update(turn,3110000);
+        turn.weapon_radial=true; turn.turn.x=1;
+        Require(smooth.Update(turn,3120000)==0, "equipment wheel also rotated the player");
+        turn.weapon_radial=false; Require(smooth.Update(turn,3130000)==0, "wheel exit replayed held turn");
+        turn.turn={}; (void)smooth.Update(turn,3140000);
+        turn.turn.x=1; Require(smooth.Update(turn,3130000)==0, "regressing turn clock rotated");
+    }
     AuxiliaryButtonGesture create;
     (void)create.Update(true,false,0);
     Require(!create.Update(true,true,100).objectives,"Create must not dispatch objectives on press");

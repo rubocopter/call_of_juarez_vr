@@ -411,7 +411,23 @@ contexts remain separate gates; dispatch alone does not validate them.
   opponent reaches for his gun. The manual specifies downward mouse movement
   to draw, then upward mouse movement to raise/aim, and allows Q/E leaning. Ordinary
   HMD look and neutral native actions 2/3 do not establish a VR duel contract.
-  The quick-draw input owner and special crosshairs remain unresolved.
+  The shipped `ArmedPlayerBeing.UpdateDuel(float)` consumes signed vertical
+  input accumulated by `DuelRotateVertically`; horizontal actions 2/3 cannot
+  initiate quickdraw. The duel-scoped adapter reuses the existing right-stick
+  axes through `GameInputController.OnInputMouseAxis`, reproducing the shipped
+  joystick shaping and instance pad sensitivities/thresholds. Down draws, up
+  raises and horizontal input aims. The native default pad gain alone cannot
+  cross the draw threshold at typical VR update rates. Only empty-hand downward
+  input adds one current native minimum draw displacement, converted back to
+  mouse rate using native real delta and both native sensitivities. Native
+  float comparison must qualify; invalid factors reject. Drawn-weapon aiming
+  retains ordinary pad gain. The original mouse route retains inversion,
+  controller permissions, native sensitivity and update timing; no weapon or
+  countdown is forced. Exact local module/player/duel/action ownership, native
+  game-time deduplication and centered recovery bound input. Ordinary smooth
+  turning and body-yaw commits yield while a duel owns input; unknown ownership
+  cannot issue actor yaw. Clyde progression, early draw, retry and special
+  crosshair/weapon alignment remain physical gates.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player

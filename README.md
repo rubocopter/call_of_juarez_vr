@@ -16,7 +16,9 @@
 
 **[Download v0.1.0-prealpha.3 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.3/CoJ-VR-0.1.0-prealpha.3-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.3)
 
-**New in .3:** corrected OpenVR vertical projection conversion for asymmetric optics (**host-tested**, awaiting Beyond/Quest physical confirmation), Auto resolution when no preference is saved, and manual reload enabled by default on install/update. This release includes the .2 baseline; archived .2/.1 packages and verdicts remain unchanged.
+**New in .3:** corrected OpenVR vertical projection conversion for asymmetric optics, Auto resolution when no preference is saved, and manual reload enabled by default on install/update. A community user confirms the corrected gameplay view on Bigscreen Beyond; an unspecified Quest report is also positive. This is scoped feedback, not general headset support. This release includes the .2 baseline; archived .2/.1 packages and verdicts remain unchanged.
+
+**Unreleased development candidate:** launcher **8 — Manual reload on/off** with the choice retained across updates; **9 — Controls and startup help**; video-settings compatibility with recognized Cloud Files metadata; careful-movement corrections and smooth turning by default. These changes need physical/community confirmation. The published .3 download and its instructions below retain their original behavior.
 
 ## Quickstart
 

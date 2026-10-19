@@ -2,6 +2,16 @@
 #include "runtime/vr_types.hpp"
 
 namespace cojvr::runtime {
+// Continuous physical yaw in degrees. The game adapter owns its native sign.
+// Interrupted or stale input requires a fresh centered stick before resuming.
+class SmoothTurnState final {
+public:
+    [[nodiscard]] float Update(const GameplayInputState& input,
+        std::uint64_t monotonic_us) noexcept;
+private:
+    std::uint64_t previous_us_ = 0, context_generation_ = 0;
+    bool have_time_ = false, armed_ = false;
+};
 struct AuxiliaryButtonResult { bool objectives=false; bool recenter=false; };
 // Create resolves at the presenter sample rate. Taps are decided on release;
 // interrupted gestures require a real available release before reacquisition.

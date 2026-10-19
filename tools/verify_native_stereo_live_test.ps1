@@ -24,6 +24,7 @@ $Provenance = & (Join-Path $PSScriptRoot "get_run_provenance.ps1") `
     -ExpectedDiagnosticMode "d3d9_native_stereo"
 $Run = $Provenance.Run
 $Lines = @($ValidationContext.RuntimeLines)
+$LocomotionPolicyPattern = '(?:coj_inputanalog_per_axis_deadzone_0[.]04(?:_then_head_relative)?|head_relative_then_coj_inputanalog_per_axis_deadzone_0[.]04)'
 
 if ([string]$Run.validation.videoProfile.nativeResolution -eq '2804x2860' -or
     [bool]$Run.validation.videoProfile.experimentalResolution) {
@@ -842,7 +843,7 @@ if ($RequireGameplayInput) {
         "camera_probe_event: event=controller_weapon_restore result=failed" `
         "A weapon overlay restoration failed."
     Assert-LogMatch `
-        "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=true;physical_crouch=true;.*;locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;route=GameInputController.InputAction.Translate" `
+        "camera_probe_event: event=gameplay_input result=applied detail=.*;active=true;.*;crouch=true;physical_crouch=true;.*;locomotion_policy=$LocomotionPolicyPattern;route=GameInputController.InputAction.Translate" `
         "Physical crouch did not drive the native crouch action."
     Assert-LogNotMatch `
         "renderer=LaserPointer\.PointFromTo" `
@@ -856,7 +857,7 @@ if ($RequireGameplayInput) {
     $MeaningfulGameplayInput = $false
     foreach ($Line in $GameplayLines) {
         if ($Line -notmatch ";active=true;" -or
-            $Line -notmatch ";locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04;" -or
+            $Line -notmatch ";locomotion_policy=$LocomotionPolicyPattern;" -or
             $Line -notmatch ";route=GameInputController.InputAction.Translate") {
             continue
         }

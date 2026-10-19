@@ -3,6 +3,7 @@
 #include <span>
 
 #include "runtime/vr_types.hpp"
+#include "runtime/gameplay_utility.hpp"
 #include "runtime/hud_text.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/gameplay_ui_reader.hpp"
@@ -12,6 +13,7 @@
 #include "games/call_of_juarez/reload_trace.hpp"
 #include "games/call_of_juarez/interaction_selection.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/duel_input.hpp"
 
 #include <array>
 #include <cstdint>
@@ -243,7 +245,8 @@ private:
 // Stick axes are decomposed into the game's directional action model while
 // button semantics stay independent from the physical XR controller profile.
 [[nodiscard]] std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
-    const cojvr::runtime::GameplayInputState& state) noexcept;
+    const cojvr::runtime::GameplayInputState& state,
+    float head_relative_move_yaw_degrees = 0.0F) noexcept;
 [[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
 enum class CoJInputDispatchPhase { all, non_fire, pre_shoulder, shoulder, fire };
 [[nodiscard]] bool ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase phase, int action) noexcept;
@@ -423,6 +426,14 @@ public:
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;
+    // Read-only exact local duel ownership (including native fade/init phases).
+    // Observation failure is unknown ownership: callers must also yield yaw.
+    [[nodiscard]] bool TryObserveDuel(bool& duel_active, std::string* error=nullptr) noexcept;
+    // Call once at the normal pre-input boundary, with the original turn axes.
+    // No global JNI references, retained Java input or gameplay-clock writes.
+    [[nodiscard]] bool TryApplyDuelInput(const runtime::GameplayInputState& state,
+        std::uint64_t monotonic_us,std::string* error=nullptr) noexcept;
+    void InvalidateDuelInput() noexcept { duel_input_state_.Invalidate(); }
     [[nodiscard]] bool TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept;
     // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers
     // use this gaze ray; native look, ballistics, range and trigger rules remain
@@ -443,7 +454,9 @@ public:
     [[nodiscard]] bool TryApplyGameplayInput(
         const cojvr::runtime::GameplayInputState& state,
         std::string* error = nullptr,
-        CoJInputDispatchPhase phase = CoJInputDispatchPhase::all) noexcept;
+        CoJInputDispatchPhase phase = CoJInputDispatchPhase::all,
+        float head_relative_move_yaw_degrees = 0.0F,
+        std::uint64_t monotonic_us = 0) noexcept;
     [[nodiscard]] runtime::GameplayInputState AppliedGameplayCommands() const noexcept;
     // Route an intentional VR UI-select press through the currently visible
     // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive
@@ -524,8 +537,8 @@ public:
         int hand,
         const JavaPlayerPosition& origin,
         std::string* error = nullptr) noexcept;
-    [[nodiscard]] float last_snap_turn_degrees() const noexcept {
-        return last_snap_turn_degrees_;
+    [[nodiscard]] float last_turn_degrees() const noexcept {
+        return last_turn_degrees_;
     }
     [[nodiscard]] bool last_analog_transaction_applied() const noexcept {
         return last_analog_transaction_applied_;
@@ -756,9 +769,10 @@ private:
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     std::array<float,33> last_gameplay_action_values_{};
     bool gameplay_input_applied_ = false;
-    CoJSnapTurnState snap_turn_state_{};
-    float last_snap_turn_degrees_ = 0.0F;
+    runtime::SmoothTurnState smooth_turn_state_{};
+    float last_turn_degrees_ = 0.0F;
     bool last_analog_transaction_applied_ = false;
+    CoJDuelInputState duel_input_state_{};
 };
 
 } // namespace cojvr::games::call_of_juarez

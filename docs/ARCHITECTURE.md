@@ -6,7 +6,7 @@ Call of Juarez (2006), Windows x86, is the reference implementation for native
 stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
 tracked head and independent native hands with the game's torso and legs.
 Connected-arm IK remains a rejected diagnostic presentation. Default-on persistent
-manual revolver reload has scoped acceptance; complete chamber/ejection and
+manual revolver reload has scoped acceptance and a launcher opt-out; complete chamber/ejection and
 convincing cartridge grip remain development work.
 D3D10, OpenXR and additional games are separate future/experimental tracks.
 
@@ -94,8 +94,10 @@ through OpenVR explicit-pose submission. See [camera contracts](research/COJ_CAM
 The .3 OpenVR projection correction follows the owning
 [projection contract](research/COJ_CAMERA_PATH.md#openvr-projection-conversion).
 Complete-matrix and forward-menu host regressions cover asymmetric vertical
-optics and symmetric PS VR2 controls. Beyond/Quest distortion and gaze alignment
-remain physical gates; the correction adds no headset acceptance.
+optics and symmetric PS VR2 controls. Community physical feedback confirms the
+corrected Beyond gameplay view; a Quest report is positive without a specified
+model. These observations do not qualify broad headset/controller support or
+menu gaze alignment.
 
 Scene target allocation remains engine-owned. Capture allocates from the current RT0
 description, and native-stereo D3D11 eyes preserve that extent through equal-size
@@ -377,6 +379,21 @@ Create hold recenters once at 800 ms; a short released tap requests Objectives.
 [The controls document](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
 owns the sole default layout and exact action mappings.
 
+Prepared duels have a separate exact native input owner. The adapter verifies
+the local player's module, duel participant and native action identity, then
+forwards right-stick axes through the original mouse-axis consumer with shipped
+pad shaping and instance gains. The empty-hand downward gesture additionally
+requests one native minimum draw displacement using current native real delta
+and sensitivity conversion; default pad gain alone cannot draw at typical VR
+update rates. No native threshold, clock or equip state is modified.
+Native draw/raise/timing and trigger permissions
+remain final. A fresh centered sample is required on ownership/input loss and
+each native game clock receives at most one delivery, even if VR renders faster.
+Ordinary smooth turn and body-follow yaw yield to this owner, because the same
+native RotateHorizontally method becomes duel aim. Actor-yaw commits recheck
+ownership after callbacks before a nonzero write. The concentration scene is
+independent; no concentration or weapon-equipping logic is replaced.
+
 Optional wheel haptics describe fresh highlighting, not command success: right
 hand, 12 ms, amplitude 0.18, 120 Hz, minimum 80 ms cadence and maximum 100 ms capture
 age. Initial/reacquired/context/resource baselines are silent; stale/centered
@@ -458,10 +475,19 @@ native sprite capture or complete HUD coverage.
 
 Native actor position, collision, grounding and locomotion remain authoritative.
 Analog movement preserves the shipped per-axis 0.04 shaping and float actions 4–7.
-Residual HMD yaw rotates the stick before shaping. Body yaw absorbs only excess
+Controller axes receive native shaping before residual HMD yaw rotates the
+result into the actor frame. Shaping after rotation erased small lateral
+components during careful gaze-directed movement. Native float dispatch uses
+a 0.00001 noise tolerance so slow gaze changes are not swallowed by its cache.
+Native speed coefficients and physics remain authoritative. Body yaw absorbs only excess
 outside the 35-degree free-look cone; that yaw is removed once from tracked camera,
-hand and weapon mapping. Snap maps positive stick X to native -45 degrees and
-negative X to +45 degrees, retaining engage/release latching.
+hand and weapon mapping. Ordinary controller turning defaults to continuous
+yaw: a 0.25 stick deadzone, proportional speed up to 90 degrees/second and
+monotonic elapsed time, mapped to the native yaw sign by the game adapter.
+Unavailable/context-changed input, regressing time or gaps over 100 ms reset
+authority until a fresh centered sample. Duplicate timestamps and later input
+phases never replay rotation. The native turn consumer retains its own mode
+coefficients/permissions. A VR settings smooth/snap selector remains planned.
 
 Room-scale camera and controller targets share tracking-Z/yaw conventions.
 Only horizontal room-scale displacement enters the render-only pelvis overlay;
@@ -843,9 +869,9 @@ dependency download is required. Game files are patched locally and never shippe
 exact-build transactional stage/unstage boundaries. Updates restore originals
 before deploying a replacement; failure retains recovery data or restores the
 original game. Default Install/update enables manual reload on fresh installs
-and upgrades, including prior false states, without an interactive prompt.
-Advanced noninteractive `-ManualReload:$false` disables it for that installation;
-a later default Install/update enables it again. All explicitly saved resolution
+and preserves the installed choice on upgrades. Launcher option 8 changes it
+through the same transactional Install/update path while the game is closed;
+explicit noninteractive `-ManualReload:$false` remains available. All explicitly saved resolution
 preferences survive updates. Input manifests bind
 every referenced controller JSON, preserving legacy Sense-only restoration.
 Additional bindings are experimental, independent of physical acceptance.
@@ -855,7 +881,13 @@ Hands combat alongside manual reload, and prepares the first session. PrepareSes
 retains that installed feature set without repatching archives, rotates prior outputs
 into local evidence and assigns a fresh correlated run/stage identity. For queried
 profiles the user starts SteamVR manually before either preparation, then starts
-the game manually afterward. Theater stays the cinematic default; the rejected
+the game manually afterward. Launcher option 9 exposes startup and per-profile
+pause/save-menu controls. Only video settings paths may admit recognized Cloud
+Files provider reparse tags; junctions, symlinks and unknown tags still reject,
+including ancestors of missing destinations and journaled recovery targets.
+Game/package/backup paths retain the strict rule. This is host-tested path
+compatibility, not physical OneDrive synchronization acceptance.
+Theater stays the cinematic default; the rejected
 independent eye RT prototype and investigation probes remain off. Community
 reports use a bounded text
 allowlist and redact common local paths; they are inspected and shared manually.

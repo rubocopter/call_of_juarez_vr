@@ -57,6 +57,7 @@ constexpr int shot_values[]{12,9,12,63,0,101,202};
 std::array<int,48> accepted{}, rejected{};
 std::array<int,2> native_hand_attacks{};
 std::vector<float> native_turns;
+std::array<float,48> native_analog_values{};
 
 std::int32_t __stdcall GetEnv(void*, void** env, std::int32_t) { *env=&env_holder; return 0; }
 void* __stdcall Exception(void*) { return pending ? &exception : nullptr; }
@@ -147,6 +148,7 @@ void __stdcall Void(void*, void*, void* method, const JValue* args) {
     else if (method==Ptr(apply_method)) ++commits;
     else if (method==Ptr(direct_method)) {
         analog_outside_lock |= !locked;
+        native_analog_values[args[0].i] = args[1].f;
         if (fail_analog) { fail_analog=false; pending=true; }
     }
 }
@@ -360,18 +362,36 @@ int main() {
     bridge.being_=nullptr;
     ok &= Check(!bridge.TryObserveMounted(mounted)&&!mounted,"missing local player accepted mounted state");
     bridge.being_=&player;env_table[33]=old_method;env_table[39]=old_boolean;
+    JavaPlayerBridge careful_bridge; Bind(careful_bridge);
+    cojvr::runtime::GameplayInputState careful{}; careful.active=true; careful.move={0,.08F};
+    ok &= Check(careful_bridge.TryApplyGameplayInput(careful,&error,CoJInputDispatchPhase::non_fire,0),
+        "careful locomotion baseline failed");
+    const auto careful_commits=commits;
+    ok &= Check(careful_bridge.TryApplyGameplayInput(careful,&error,CoJInputDispatchPhase::non_fire,1) &&
+        commits==careful_commits+1 && native_analog_values[6]>0.0007F,
+        "small gaze changes were swallowed by cached analog dispatch tolerance");
+    const auto gaze_commits=commits;
+    ok &= Check(careful_bridge.TryApplyGameplayInput(careful,&error,CoJInputDispatchPhase::non_fire,1) &&
+        commits==gaze_commits, "unchanged careful locomotion caused another native transaction");
     JavaPlayerBridge snap_bridge;Bind(snap_bridge);snap_bridge.being_=&player;
     snap_bridge.rotate_horizontally_method_=Ptr(rotate_method);
-    cojvr::runtime::GameplayInputState turn{};turn.active=true;turn.turn.x=.9F;
-    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire)&&
-        native_turns==std::vector<float>{-45},"right stick delivered leftward native yaw");
-    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::fire)&&
-        snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire)&&native_turns.size()==1,
-        "held snap or fire phase duplicated rotation");
-    turn.turn={};(void)snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire);
-    turn.turn.x=-.9F;
-    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire)&&
-        native_turns==std::vector<float>{-45,45},"left stick delivered rightward native yaw");
+    cojvr::runtime::GameplayInputState turn{};turn.active=true;turn.turn_available=true;
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire,0,1000000)&&
+        native_turns.empty(),"smooth turning must establish a time baseline before rotating");
+    turn.turn.x=1;
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire,0,1010000)&&
+        native_turns.size()==1 && std::fabs(native_turns.back()+0.9F)<0.00001F,
+        "smooth right stick delivered wrong native yaw");
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::fire,0,1020000)&&
+        snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire,0,1010000)&&native_turns.size()==1,
+        "fire phase or duplicate sample rotated twice");
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire,0,1020000)&&
+        native_turns.size()==2 && std::fabs(native_turns.back()+0.9F)<0.00001F,
+        "held smooth turn did not continue");
+    turn.turn.x=-1;
+    ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire,0,1030000)&&
+        native_turns.size()==3 && std::fabs(native_turns.back()-0.9F)<0.00001F,
+        "smooth left stick delivered wrong native yaw");
     // Failed native reload release must retain the held action history so a
     // subsequent unqueued gesture cannot mistake it for a fresh press.
     JavaPlayerBridge reload_history_bridge; Bind(reload_history_bridge);

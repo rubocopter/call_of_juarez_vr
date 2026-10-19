@@ -1,3 +1,29 @@
+# Unreleased compatibility candidate
+
+- Manual reload remains available and defaults on for fresh installs. Launcher
+  option 8 switches to conventional reload or back; updates preserve the choice.
+- Launcher option 9 explains startup and the per-profile pause/save menu controls.
+- Recognized Cloud Files metadata is allowed for video settings only, addressing
+  OneDrive's false-positive link rejection. Real junctions/symlinks and unknown
+  tags still reject, including changed recovery targets. Host coverage uses
+  simulated cloud metadata and real filesystem transactions; live OneDrive
+  operation still needs community confirmation.
+- Native controller-axis shaping runs before head-relative rotation, retaining
+  small lateral components during careful movement. Native dispatch no longer
+  drops small gaze changes. These fixes are host-tested; the complete community
+  gaze-drift report still needs physical confirmation.
+- Smooth turning is the ordinary default: proportional input up to 90 degrees/
+  second in the native normal-look route, independent of rendering sample rate.
+  Native special-mode coefficients remain authoritative. Stale/lost input cannot
+  accumulate a catch-up turn. A VR settings smooth/snap selector is planned.
+- A duel-only right-stick mapping forwards down/up to native draw/raise and
+  horizontal input to native aim, retaining triggers and native permissions.
+  Ordinary turning/body yaw yield during a duel. This is an experimental
+  candidate; Clyde progression and headset aim still need physical confirmation.
+- Scoped community feedback confirms .3's corrected Beyond gameplay view. An
+  unspecified Quest report is also positive. The operator confirms concentration
+  draw/fire in an exercised window-entry rescue; this does not accept duel draw.
+
 # v0.1.0-prealpha.3 — Experimental community release
 
 Cumulative from **prealpha.2**, including the prior prealpha.1 baseline, for the

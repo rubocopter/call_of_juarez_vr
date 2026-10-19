@@ -59,6 +59,7 @@ function Assert-PublicStageIdentity([string]$Game, [object]$State) {
 }
 function Restore-PublicInstall([string]$Game, [object]$State) {
     Assert-PublicStageIdentity $Game $State
+    Assert-PublicVideoRecoveryPaths $Game
     [void](Restore-CoJVrVideoProfile -StatePath (Join-Path $Game '.cojvr-session-video.json') -BackupPath (Join-Path $Game '.cojvr-session-video.backup'))
     $Stage = Join-Path $Game '.cojvr-d3d9-stage.json'
     $Journal = Join-Path $Game '.cojvr-deployment-transaction.json'
@@ -67,6 +68,17 @@ function Restore-PublicInstall([string]$Game, [object]$State) {
     }
     [void](Restore-CoJVrVideoProfile -StatePath (Join-Path $Game '.cojvr-public-video.json') -BackupPath (Join-Path $Game '.cojvr-public-video.backup'))
     Remove-Item -LiteralPath (Join-Path $Game '.cojvr-public-install.json') -Force
+}
+function Assert-PublicVideoRecoveryPaths([string]$Game) {
+    foreach ($Layer in @('public','session')) {
+        $Journal = Join-Path $Game ('.cojvr-' + $Layer + '-video.json')
+        Assert-CojvrNoReparse $Journal
+        Assert-CojvrNoReparse (Join-Path $Game ('.cojvr-' + $Layer + '-video.backup'))
+        if (Test-Path -LiteralPath $Journal -PathType Leaf) {
+            $VideoState = Get-Content -LiteralPath $Journal -Encoding UTF8 -Raw | ConvertFrom-Json
+            Assert-CojvrNoReparse ([string]$VideoState.videoPath) -AllowCloudFiles
+        }
+    }
 }
 function Install-PublicRuntime([object]$Manifest) {
     $Required = [version]([string]$Manifest.dependencies.vcRuntimeVersion).TrimStart('v')
@@ -105,6 +117,7 @@ function Assert-PublicNativeResolutionContext([string]$Game) {
     }
 }
 function Update-PublicSessionVideo([string]$Game,[object]$Run) {
+    Assert-PublicVideoRecoveryPaths $Game
     $Baseline=Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-video.json') -Encoding UTF8 -Raw | ConvertFrom-Json
     $Video=[string]$Baseline.videoPath
     if ([string]::IsNullOrWhiteSpace($Video) -or $Baseline.appliedSha256 -notmatch '^[A-Fa-f0-9]{64}$') {
@@ -154,6 +167,33 @@ function Show-PublicResolutionSelector {
     if ([string]::IsNullOrWhiteSpace($Path)) {$Path=Get-CoJResolutionSettingsPath}
     [void](Write-CoJResolutionSettings -Path $Path -Profile $Profile -Width $Width -Height $Height)
     Write-Host 'Saved. Choose 6 - Prepare session with the game closed to apply. Start SteamVR first for Auto/percentage profiles.'
+}
+function Show-PublicManualReloadSelector([string]$Game) {
+    [void](Read-CojvrRelease $PSScriptRoot)
+    Assert-GameClosed
+    $State = Assert-CojvrPublicOwnership $Game
+    $Current = if ($null -eq $State) { 'On (new installation default)' } elseif ($State.manualReload) { 'On' } else { 'Off' }
+    Write-Host "`nManual reload: $Current"
+    Write-Host '1 On - motion-controller reload | 2 Off - conventional reload | 0 Cancel'
+    Write-Host 'Applies through Install/update with the game closed. Tracked head/body, independent hands and physical melee remain enabled.'
+    $Choice = Read-Host 'Manual reload'
+    if ($Choice -eq '0') { return }
+    if ($Choice -notin @('1','2')) { throw 'Invalid manual reload choice.' }
+    Invoke-PublicAction 'Install' $Game ($Choice -eq '1') $true
+}
+function Show-PublicLauncherHelp {
+    Write-Host "`nStartup: start SteamVR manually -> Install/update (first play or update), or Prepare session (later plays) -> launch the game manually in D3D9 mode."
+    Write-Host 'Keep the game closed during Install/update, Prepare session and reload changes. SteamVR must be running first for Auto/percentage resolution queries.'
+    Write-Host "`nDefault profile      Pause / hold for VR settings       Accept / Back in menus"
+    Write-Host 'PS VR2 Sense         R Options                          R Cross / Circle'
+    Write-Host 'Oculus/Meta Touch    R stick UP + click                  R A / B'
+    Write-Host 'Valve Index          R thumbstick UP + click             R A / B'
+    Write-Host 'HTC Vive wands       R application-menu button           R pad UP / DOWN click'
+    Write-Host 'WMR                  R application-menu button           R pad UP / DOWN click'
+    Write-Host 'Tap and RELEASE to pause. Hold for 1 second to open VR settings instead. UP + click means keep the stick upward while pressing it; center sticks and release controls before resuming.'
+    Write-Host 'Save/load: open the native pause menu, then select Save/Load when the campaign permits. Either hand trigger selects with its menu pointer; profile Accept/Back controls also work.'
+    Write-Host 'Quick Save/Quick Load have no default controller binding. Optional actions can be assigned in SteamVR bindings. Custom bindings may differ from this table.'
+    Write-Host 'Additional controller profiles are experimental. In-game prompts currently use Sense labels.'
 }
 function Start-PublicSession([string]$Game, [object]$State) {
     Assert-PublicStageIdentity $Game $State
@@ -210,7 +250,7 @@ function Start-PublicSession([string]$Game, [object]$State) {
         foreach ($Entry in $Moved) { Move-Item -LiteralPath $Entry.archive -Destination $Entry.source -Force }
         throw "Session preparation failed. Keep backups and use Uninstall/recover or Install/update: $($_.Exception.Message)"
     }
-    Write-Host "Fresh community session: $RunId. Start SteamVR and the game manually."
+    Write-Host "Fresh community session: $RunId. Keep SteamVR running and launch the game manually in D3D9 mode."
 }
 function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Reload, [bool]$ReloadSpecified) {
     $Manifest = Read-CojvrRelease $PSScriptRoot
@@ -268,7 +308,9 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             Start-PublicSession $Game $State
             return
         }
-        if (-not $ReloadSpecified) { $Reload = $true }
+        if (-not $ReloadSpecified) {
+            $Reload = if ($null -ne $State) { [bool]$State.manualReload } else { $true }
+        }
         if ($null -ne $State) { Assert-PublicStageIdentity $Game $State }
         if ($null -ne $State -and $State.phase -eq 'installed') { Assert-CojvrPublicGame $Game -Installed }
         $VideoPath = $VideoSettingsPath
@@ -276,7 +318,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             $VideoPath = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'call of juarez/out/Settings/Video.scr'
         }
         if (-not (Test-Path -LiteralPath $VideoPath -PathType Leaf)) { throw 'Run the original game in D3D9 mode once to create Video.scr before installation.' }
-        Assert-CojvrNoReparse $VideoPath
+        Assert-CojvrNoReparse $VideoPath -AllowCloudFiles
         $Python = Join-Path $PSScriptRoot 'dependencies/python/python.exe'
         & $Python -B -c 'import zipfile, pathlib, inspect_java_bytecode, coj_manual_reload, coj_physical_punch'
         if ($LASTEXITCODE -ne 0) { throw 'Bundled Python/patcher self-check failed. Extract the complete release again.' }
@@ -309,7 +351,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             }
             throw "Installation failed; original game restored: $Failure"
         }
-        Write-Host "Installed $($Manifest.version). Start SteamVR, then launch Call of Juarez in D3D9 mode manually."
+        Write-Host "Installed $($Manifest.version). Keep SteamVR running and launch Call of Juarez in D3D9 mode manually."
         Write-Host "VR gameplay: tracked head/body, independent hands and physical melee. Manual reload: $Reload."
         Write-Host 'Use Prepare session before each subsequent play session for a fresh report identity. Campaign completion and other controllers remain experimental.'
     } finally { $Lock.Dispose() }
@@ -322,14 +364,20 @@ try {
     } else {
         Write-Host 'Call of Juarez VR - community pre-alpha'
         Write-Host 'Experimental campaign support. Back up your saves before testing.'
+        Write-Host 'Start SteamVR manually -> Install/update or Prepare session with the game closed -> launch the game manually in D3D9 mode.'
         try { $Game = Resolve-CojvrPublicGame $GameDirectory } catch {
             $Game = Resolve-CojvrPublicGame (Read-Host 'Game folder containing CoJ.exe')
         }
         while ($true) {
             Write-Host "`nGame: $Game"
-            Write-Host '1 Install/update | 2 Uninstall/recover | 3 Diagnostics | 4 Status | 5 Verify package | 6 Prepare session | 7 Resolution profiles | 0 Exit'
+            Write-Host '1 Install/update | 2 Uninstall/recover | 3 Diagnostics | 4 Status | 5 Verify package | 6 Prepare session | 7 Resolution profiles | 8 Manual reload on/off | 9 Controls and startup help | 0 Exit'
             $Choice = Read-Host 'Choose'
             if ($Choice -eq '0') { break }
+            if ($Choice -eq '9') { Show-PublicLauncherHelp; continue }
+            if ($Choice -eq '8') {
+                try { Show-PublicManualReloadSelector $Game } catch { Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red }
+                continue
+            }
             if ($Choice -eq '7') {
                 try {
                     [void](Read-CojvrRelease $PSScriptRoot)

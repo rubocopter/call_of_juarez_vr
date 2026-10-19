@@ -5041,6 +5041,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
 
     const CommandSnapshot snapshot = CurrentCommand();
     const auto cancel_gameplay=[&](const char* reason="render_context_lost") noexcept {
+        g_java_player_bridge.InvalidateDuelInput();
         (void)PublishReloadFeedbackOwner(0, 0, {});
         CoJReloadTraceSample trace{};
         trace.sequence=g_stereo_frame_sequence.load(std::memory_order_acquire);
@@ -5175,6 +5176,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     const bool recentered = g_pose_tracker.last_recenter_sequence() != 0 &&
         g_pose_tracker.last_recenter_sequence() != prior_recenter;
     if (recentered) {
+        // Recenter adopts the current native heading as its reference even if
+        // a duel owns rotation and therefore suppresses later actor yaw writes.
+        ResetBodyYawOwnership();
         EmitEvent(
             "camera_hmd_recentered", "ok",
             "generation=" + std::to_string(snapshot.generation) +
@@ -5365,6 +5369,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             !g_gameplay_owner_release_pending,
         sample.objectives_requested);
     cojvr::runtime::GameplayInputState gameplay_input = sample.gameplay;
+    bool duel_active = false;
+    std::string duel_error;
+    const bool duel_owner_known = gameplay_input.active &&
+        g_java_player_bridge.TryObserveDuel(duel_active, &duel_error);
+    if (!duel_owner_known || !duel_active || recentered)
+        g_java_player_bridge.InvalidateDuelInput();
     const bool on_foot_crouch_owner = mounted_available && !mounted;
     const bool physical_crouch = g_physical_crouch_state.Update(
         sample.gameplay.active && relative_head_pose.position_valid && on_foot_crouch_owner,
@@ -5391,11 +5401,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         if (locomotion_body_yaw.valid) {
             // BodyYawOwnershipUpdate uses the game's yaw sign. Runtime stick
             // coordinates use +X right/+Y forward, so invert the residual to
-            // obtain positive-right physical head yaw before native shaping.
+            // obtain positive-right physical head yaw. The dispatcher shapes
+            // the controller axes before rotating them into the actor frame.
             head_relative_move_yaw_degrees = -locomotion_body_yaw.head_residual_degrees;
-            gameplay_input.move = RotateCoJMoveForHeadRelativeYaw(
-                gameplay_input.move,
-                head_relative_move_yaw_degrees);
             head_relative_move_valid = true;
         }
     }
@@ -5719,9 +5727,28 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     CoJInteractionSelection interaction_before{};
     if(interaction_pressed)
         (void)g_java_player_bridge.TryObserveInteractionSelection(interaction_before);
-    bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled &&
-        reload_ticket_ready && g_java_player_bridge.TryApplyGameplayInput(gameplay_input, &gameplay_input_error,
-            CoJInputDispatchPhase::pre_shoulder);
+    const auto input_time_us = MonotonicMicroseconds();
+    const bool duel_input_ok = !duel_owner_known || !duel_active ||
+        g_java_player_bridge.TryApplyDuelInput(gameplay_input, input_time_us, &duel_error);
+    auto ordinary_input = gameplay_input;
+    if (!duel_owner_known || duel_active) {
+        // Native RotateHorizontally becomes duel aim while prepared. It cannot
+        // simultaneously own ordinary smooth turning or body-follow yaw.
+        ordinary_input.turn = {};
+        ordinary_input.turn_available = false;
+    }
+    bool gameplay_input_ok = snapshot.command.vr_gameplay_input_enabled && duel_input_ok &&
+        reload_ticket_ready && g_java_player_bridge.TryApplyGameplayInput(ordinary_input, &gameplay_input_error,
+            CoJInputDispatchPhase::pre_shoulder, head_relative_move_yaw_degrees, input_time_us);
+    if (!duel_input_ok && gameplay_input_error.empty()) gameplay_input_error = duel_error;
+    if (ShouldObserveBodyFrame(frame_sequence) || !duel_input_ok) {
+        EmitEvent("duel_input", duel_input_ok ? "observed" : "failed",
+            "frame_sequence=" + std::to_string(frame_sequence) +
+            ";owner_known=" + std::to_string(duel_owner_known) +
+            ";active=" + std::to_string(duel_active) +
+            ";ordinary_yaw_allowed=" + std::to_string(duel_owner_known && !duel_active) +
+            ";route=GameInputController.OnInputMouseAxis;detail=" + duel_error);
+    }
     if(interaction_pressed) {
         CoJInteractionSelection interaction_after{};
         (void)g_java_player_bridge.TryObserveInteractionSelection(interaction_after);
@@ -5868,16 +5895,16 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                             << (snapshot.command.vr_gameplay_input_enabled
                                     ? "shared_vr_game"
                                     : "native_game_exclusive")
-                            << ";locomotion_policy=head_relative_then_coj_inputanalog_per_axis_deadzone_0.04"
+                            << ";locomotion_policy=coj_inputanalog_per_axis_deadzone_0.04_then_head_relative"
                             << ";route=GameInputController.InputAction.Translate";
             if (g_java_player_bridge.last_analog_transaction_applied()) {
                 gameplay_detail
                     << ";analog_transaction=LockApplyControllerState+dispatch+UnlockApplyControllerState+ApplyControllerState";
             }
             gameplay_detail
-                            << ";snap_turn_degrees="
-                            << g_java_player_bridge.last_snap_turn_degrees()
-                            << ";snap_turn_route=PlayerBeing.RotateHorizontally";
+                            << ";turn_mode=smooth;turn_degrees="
+                            << g_java_player_bridge.last_turn_degrees()
+                            << ";turn_route=PlayerBeing.RotateHorizontally";
             if (!gameplay_input_error.empty()) {
                 gameplay_detail << ";detail=" << gameplay_input_error;
             }
@@ -6105,7 +6132,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 runtime::Vec3{fist_reference.up.x,fist_reference.up.y,fist_reference.up.z},
                 runtime::Vec3{fist_reference.forward.x,fist_reference.forward.y,fist_reference.forward.z}};
             const bool continuous=CoJFistContactContinuous(previous.identity,identity,
-                contact.previous_pose_sequence[h])&&g_java_player_bridge.last_snap_turn_degrees()==0.F;
+                contact.previous_pose_sequence[h])&&g_java_player_bridge.last_turn_degrees()==0.F;
             CoJFistContactSweep sweep{};
             if(visual)sweep=BuildCoJFistContactSweep(previous.points,geometry.contacts_cm,continuous);
             if(visual)previous={geometry.contacts_cm,identity};
@@ -6780,16 +6807,23 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         if(!ReplayNaturalStereoView(original,owner,view,camera,natural_render_state,
             natural_guard_restored,natural_state_restored))InvalidateStereoEyePair();
     }
-    if(!EyeRenderCallbacksEnabled() ||
-        (eye_resources_restored && native_paths_restored && NaturalStereoReplayResourcesReady()))
-        CommitBodyYawOwnership(body_position_update, frame_sequence);
+    if(duel_owner_known && !duel_active &&
+        (!EyeRenderCallbacksEnabled() ||
+        (eye_resources_restored && native_paths_restored && NaturalStereoReplayResourcesReady()))) {
+        bool duel_now = false;
+        // Interaction/native callbacks may have entered a duel during the pair.
+        // Refresh ownership before an actual nonzero actor yaw mutation.
+        if (std::fabs(body_position_update.pending_actor_yaw_delta_degrees) <= 1.0e-5F ||
+            (g_java_player_bridge.TryObserveDuel(duel_now) && !duel_now))
+            CommitBodyYawOwnership(body_position_update, frame_sequence);
+    }
 
     // Observe the camera/actor boundary after a snap or recenter. Use only
     // captured poses and completed eye frames; never refresh, rotate or replay
     // a native owner for diagnostics. The burst expires after 180 stereo frames.
-    const float snap_degrees = snapshot.command.vr_gameplay_input_enabled && gameplay_input_ok
-        ? g_java_player_bridge.last_snap_turn_degrees() : 0.0F;
-    if (recentered || snap_degrees != 0.0F) {
+    const float turn_degrees = snapshot.command.vr_gameplay_input_enabled && gameplay_input_ok
+        ? g_java_player_bridge.last_turn_degrees() : 0.0F;
+    if (recentered) {
         g_camera_pose_trace_frames_remaining = 180;
     }
     const bool pose_trace_burst = g_camera_pose_trace_frames_remaining != 0;
@@ -6811,7 +6845,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                    << ";camera=" << reinterpret_cast<std::uintptr_t>(camera)
                    << ";being_generation=" << body_position_update.actor_yaw_generation
                    << ";recentered=" << (recentered ? "true" : "false")
-                   << ";snap_degrees=" << snap_degrees
+                   << ";turn_mode=smooth;turn_degrees=" << turn_degrees
                    << ";raw_orientation=(" << raw.x << ',' << raw.y << ',' << raw.z << ',' << raw.w << ')'
                    << ";relative_orientation=(" << relative.x << ',' << relative.y << ',' << relative.z << ',' << relative.w << ')'
                    << ";natural_valid=" << (natural_valid ? "true" : "false")

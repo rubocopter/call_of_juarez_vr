@@ -5,10 +5,14 @@ The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
 
-.3 includes the .2 baseline plus an OpenVR asymmetric vertical projection fix
-(HOST-TESTED only), Auto when no resolution preference is saved, and default-on
-manual reload for Install/update. Beyond/Quest physical confirmation remains open.
-Archived .2/.1 packages and verdicts are unchanged.
+This development candidate is cumulative from .3, including the earlier .2
+baseline and OpenVR asymmetric vertical projection correction. Community
+feedback confirms the corrected Beyond gameplay view; an unspecified Quest
+report is also positive. These observations do not establish general support.
+Auto remains the missing resolution preference. Manual reload starts on for
+fresh installation and current updates preserve its choice. New movement,
+smooth-turn and duel changes are host-tested, awaiting physical confirmation.
+Archived .3/.2/.1 packages and verdicts are unchanged.
 
 REQUIREMENTS
 
@@ -70,8 +74,22 @@ Hold the wheel input, aim a sector with the right stick/pad, then release the
 wheel input to confirm; center the selection to cancel. In menus, R Cross/Circle
 (Sense), R A/B (Touch/Index), or R pad UP/DOWN click (Vive/WMR) accept/go back.
 Either hand's trigger selects with that hand's menu pointer.
+To save/load, tap and release the profile's Pause control, then select Save/Load
+in the native pause menu when the campaign permits. Quick Save/Quick Load have
+no default controller binding; optional actions can be assigned in SteamVR.
+Launcher option 9 - Controls and startup help shows pause/menu controls by
+profile and the startup sequence. Custom SteamVR bindings may differ.
 
 Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
+Ordinary turning is smooth and proportional, up to 90 degrees/second in native
+normal-look mode. Center the stick after a menu, lost input or long frame gap.
+A smooth/snap selector in VR settings is not implemented yet. This new default
+has host coverage; comfort and behavior still need headset confirmation.
+Experimental duel controls: center the right stick after entering the duel;
+pull it down to draw when the game allows, then up to raise the weapon. Left/
+right aims in the native duel; triggers retain native firing. Ordinary smooth
+turning yields during a duel. Clyde progression and headset aim are not yet
+physically validated. Concentration outside duels keeps its existing controls.
 Crouch / Focus: L / R stick click; Touch/Index require a CENTER click.
 Vive uses L / R trackpad CENTER click. WMR uses stick clicks, not pad centers.
 L grip = interact; R grip = kick (Sense: L1 / R1). Triggers retain the game's
@@ -90,8 +108,10 @@ INSTALL / UPDATE
 3. Start SteamVR manually BEFORE Install/update for Auto/percentage profiles.
    Auto is the default when no resolution preference is saved.
 4. Double-click CoJ-VR.cmd, choose Install/update and select the game directory.
-   Ordinary stereo, independent hands, native torso/legs, physical Hands combat
-   and manual reload are enabled. There is no reload y/n prompt.
+   Ordinary stereo, independent hands, native torso/legs and physical Hands combat
+   are enabled. Manual reload starts on for a fresh installation; updates retain
+   its installed on/off choice. Option 8 - Manual reload on/off changes it through
+   Install/update while the game is closed, without scripting flags.
 5. Installation prepares the first session using the saved resolution profile.
    Resolution selection is optional: to change it, choose 7 - Resolution profiles,
    then 6 - Prepare session before starting the D3D9 game manually. No additional
@@ -106,6 +126,13 @@ set without repatching game archives. Start SteamVR manually before preparation
 for Auto/percentage profiles, then start the D3D9 game manually.
 
 MANUAL RELOAD
+
+Choose 8 - Manual reload on/off with the game closed: 1 On enables the motion
+reload below; 2 Off restores conventional reload; 0 Cancel leaves the installation
+unchanged. Choosing On/Off immediately performs Install/update and prepares the
+session. Tracked head/body, independent hands and physical melee remain enabled.
+Ordinary updates preserve the installed choice, and Prepare session respects it
+without repatching the archives. Start SteamVR first for Auto/percentage profiles.
 
 With an eligible revolver, missing rounds, reserve and an empty free hand:
 press Reload (Sense: Square) to open; press/hold the free-hand trigger at your
@@ -152,12 +179,21 @@ Retain recovery journals and backups on errors. Avoid live resolution changes.
 If a protected Steam game folder causes Access denied, right-click CoJ-VR.cmd,
 choose Run as administrator and retry the operation.
 
+Redirected Documents folders, including OneDrive provider folders, are accepted
+for Video.scr when their reparse metadata belongs to the Windows Cloud Files
+family. This exception applies only to video settings. Symlinks, junctions,
+unknown reparse types and linked deployment/package/backup paths remain rejected.
+The error identifies the offending path component and tag. Keep recovery journals
+and backups when a path check fails; restore the expected path before recovery.
+Coverage uses simulated cloud tags and real junction/rollback sandbox tests;
+live OneDrive operation has not been validated.
+
 To update, extract a newer complete ZIP and choose Install/update again.
-There is no auto updater. All explicit resolution preferences persist. Default
-Install/update enables manual reload, including prior installations with it off.
-Advanced noninteractive -ManualReload:$false can disable it for that installation;
-Prepare session retains the choice, but a later default Install/update enables
-it again. Retain installation backups and recovery
+There is no auto updater. All explicit resolution preferences persist, as does
+the installed manual reload on/off choice. Use option 8 to change reload safely;
+advanced noninteractive Install also accepts -ManualReload:$false or
+-ManualReload:$true. Prepare session retains the installed choice.
+Retain installation backups and recovery
 data until uninstall has succeeded. Do not remove them to bypass an error.
 
 VERIFY / STATUS / DIAGNOSTICS / UNINSTALL
@@ -183,8 +219,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\cojvr.ps1 -Action PrepareS
 
 Run PrepareSession with the game closed before every play after the first.
 Verify checks package files; it does not establish game/headset compatibility.
-Install/update enables manual reload without asking. Advanced noninteractive
-Install accepts -ManualReload:$false; a later default Install enables it again.
+Fresh Install enables manual reload; default updates preserve its installed
+choice. Advanced noninteractive Install accepts -ManualReload:$false or
+-ManualReload:$true to change it explicitly; menu option 8 provides the same choice.
 PrepareSession keeps the installed feature set and does not repatch archives.
 These are package-root commands; release\cojvr.ps1 is a source-repository path.
 

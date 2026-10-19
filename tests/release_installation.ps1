@@ -39,8 +39,8 @@ try {
         Copy-Item -LiteralPath (Join-Path $OriginalGameDirectory $Name) -Destination (Join-Path $Game $Name)
         $OriginalHashes[$Name] = (Get-FileHash -LiteralPath (Join-Path $Game $Name) -Algorithm SHA256).Hash
     }
-    $VideoFolder = Join-Path $Root ('User ' + [char]0x00E9)
-    New-Item -ItemType Directory -Path $VideoFolder | Out-Null
+    $VideoFolder = Join-Path $Root ('OneDrive - User ' + [char]0x00E9 + '/Documents/call of juarez/out/Settings')
+    New-Item -ItemType Directory -Path $VideoFolder -Force | Out-Null
     $Video = Join-Path $VideoFolder 'Video.scr'
     [IO.File]::WriteAllText($Video, "Resolution(1280,720)`nFSAA(4)`n")
     Invoke-Frontend @('-Action','Verify')
@@ -73,8 +73,7 @@ try {
     foreach ($Binding in $Actions.default_bindings) {
         Assert-True (Test-Path -LiteralPath (Join-Path $Game ('cojvr_openvr_input/' + $Binding.binding_url))) 'Referenced controller binding missing.'
     }
-    # Simulate upgrading a conventional-reload installation. The advanced script
-    # override remains available, while a normal update installs all features.
+    # An explicit conventional-reload installation must survive ordinary updates.
     & (Join-Path $PackageDirectory 'cojvr.ps1') -Action Install -GameDirectory $Game -VideoSettingsPath $Video -ResolutionSettingsPath $Preference -ManualReload:$false
     $State = Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-install.json') -Raw | ConvertFrom-Json
     Assert-True (-not $State.manualReload) 'Explicit script reload override ignored.'
@@ -87,11 +86,29 @@ try {
     ) -StandardInput "1`n0`n"
     Assert-True ($Menu.ExitCode -eq 0) ('Default menu update failed: ' + $Menu.StdErr)
     $State = Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-install.json') -Raw | ConvertFrom-Json
-    Assert-True $State.manualReload 'Default update did not enable manual reload.'
+    Assert-True (-not $State.manualReload) 'Default update overwrote explicit reload-off preference.'
     $Control = Get-Content -LiteralPath (Join-Path $Game 'cojvr-camera-control.json') -Raw | ConvertFrom-Json
-    Assert-True ($Control.manualReloadInstalled -and $Control.independentHandsEnabled -and $Control.bodyIkEnabled) 'Updated installation omitted enabled gameplay features.'
+    Assert-True (-not $Control.manualReloadInstalled -and $Control.independentHandsEnabled -and $Control.bodyIkEnabled) 'Updated installation changed reload choice or omitted independent hands/body.'
     $UpdatedRun = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
     Assert-True ($UpdatedRun.validation.videoProfile.resolution -eq '2428x2477') 'Default feature update replaced the saved Manual resolution.'
+    Invoke-Frontend @('-Action','PrepareSession')
+    $Prepared = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+    Assert-True (-not $Prepared.validation.manualReloadInstalled) 'Prepare session enabled unselected manual reload.'
+    $MenuArguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PackageDirectory 'cojvr.ps1'),
+        '-GameDirectory',$Game,'-VideoSettingsPath',$Video,'-ResolutionSettingsPath',$Preference)
+    foreach ($Selection in @(@('1',$true),@('2',$false))) {
+        $Menu = Invoke-CoJResolutionProgram -ExecutablePath (Get-Command powershell.exe).Source -Arguments $MenuArguments -StandardInput ("8`n" + $Selection[0] + "`n0`n")
+        Assert-True ($Menu.ExitCode -eq 0 -and $Menu.StdOut -notmatch 'ERROR:') ('Reload selector failed: ' + $Menu.StdOut + $Menu.StdErr)
+        $State = Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-install.json') -Raw | ConvertFrom-Json
+        $Control = Get-Content -LiteralPath (Join-Path $Game 'cojvr-camera-control.json') -Raw | ConvertFrom-Json
+        Assert-True ($State.manualReload -eq $Selection[1] -and $Control.manualReloadInstalled -eq $Selection[1]) 'Menu selection did not install chosen reload mode.'
+        Invoke-Frontend @('-Action','PrepareSession')
+        $Prepared = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
+        Assert-True ($Prepared.validation.manualReloadInstalled -eq $Selection[1]) 'Prepare session lost menu reload choice.'
+    }
+    $BeforeCancel = (Get-FileHash -LiteralPath (Join-Path $Game '.cojvr-public-install.json')).Hash
+    $Menu = Invoke-CoJResolutionProgram -ExecutablePath (Get-Command powershell.exe).Source -Arguments $MenuArguments -StandardInput "8`n0`n0`n"
+    Assert-True ($Menu.ExitCode -eq 0 -and (Get-FileHash -LiteralPath (Join-Path $Game '.cojvr-public-install.json')).Hash -eq $BeforeCancel) 'Cancelling reload selector changed installation.'
     Invoke-Frontend @('-Action','Uninstall')
     Assert-Originals
     $env:COJVR_DEPLOYMENT_FAILURE_TEST = '1'
@@ -102,7 +119,7 @@ try {
     }
     Assert-Originals
     Invoke-Frontend @('-Action','Verify')
-    Write-Host 'PASS isolated exact-game complete defaults, Auto resolution, fresh sessions, all controllers, menu update without feature prompts, saved Manual size, uninstall and injected failure restoration. Host-only.'
+    Write-Host 'PASS isolated exact-game defaults, Auto resolution, reload on/off selector, preserved update/session preferences, all controllers, saved Manual size, uninstall and failure restoration. Host-only.'
 } finally {
     $Allowed = [IO.Path]::GetFullPath((Join-Path $SourceDirectory 'work')).TrimEnd('\') + '\'
     $Resolved = [IO.Path]::GetFullPath($Root)

@@ -34,15 +34,17 @@ Users start/close the game and SteamVR manually. Community diagnostics are
 generated locally, inspected for private data and attached manually to issues;
 they do not replace canonical evidence or operator acceptance below.
 
-The .3 OpenVR projection correction is **implemented/host-tested**.
+The .3 OpenVR projection correction has host regression coverage and scoped
+community physical confirmation of a corrected Bigscreen Beyond gameplay view.
 The published prealpha.2 converter reverses the vertical projection center when
 raw vertical tangents are asymmetric. Regression tests now compare the complete
 converted matrix and forward menu placement with Valve's independent projection
 formula, covering asymmetric vertical optics in both directions and symmetric
 PS VR2 controls. The corrected conversion preserves the symmetric controls.
-Gameplay distortion and menu gaze alignment on Beyond, Quest and other headsets
-still require physical confirmation; these host checks establish neither a
-complete fishbowl fix nor additional headset acceptance. See the owning
+An additional Quest report describes a good view and smooth play, without a
+specified model. Menu gaze alignment, controller behavior and broader hardware
+remain unqualified; these reports do not establish complete headset support.
+See the owning
 [projection contract](research/COJ_CAMERA_PATH.md#openvr-projection-conversion).
 
 The .3 product policy uses Auto only when no resolution preference is saved;
@@ -53,10 +55,11 @@ Unavailable queries or incompatible caps preserve the selected game size with a
 visible explanation, retain intent and retry next preparation. Background/Scene
 identity, memory headroom and broader headset qualification remain open.
 
-Default Install/update enables ordinary stereo, independent hands, native torso/legs,
-physical Hands combat and manual reload, including upgrading prior reload-off states.
-There is no interactive reload prompt. Advanced noninteractive `-ManualReload:$false`
-disables reload for that installation; a later default Install/update enables it again.
+Current Install/update enables ordinary stereo, independent hands, native torso/legs
+and physical Hands combat. Manual reload defaults on for a fresh install;
+upgrades retain its installed choice. Launcher option 8 switches manual/conventional
+reload through transactional installation; explicit `-ManualReload:$false` remains
+available. This supersedes .3's forced-on upgrade policy.
 PrepareSession retains installed features without archive repatching and creates
 fresh provenance for later plays. These product defaults add no physical acceptance;
 theater remains default and the rejected independent eye RT/probes remain off.
@@ -179,14 +182,14 @@ evidence. The already archived rejection is preserved.
 | --- | --- | --- |
 | Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
 | Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, immersive subtitle transport, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
-| Locomotion | Exercised native analog movement, head-relative direction, jump parity, physical crouch and corrected snap turning accepted. | Mounted contexts and campaign-specific movement. |
+| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. | Community reports gaze-direction drift; shape-before-yaw and finer dispatch tolerance are host-tested corrections awaiting physical confirmation. The new default smooth turn is host-tested only. Mounted/campaign contexts remain open. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. | Left/dual/special weapons, broader finger and recovery coverage. Connected-arm IK is a diagnostic, not the accepted presentation. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. | Broader weapons, ballistic birth vectors, whip reach/climbing and special optics. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
 | HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped headset acceptance. Optional status rows accepted only where encountered. | Wrist health styling, concentration state glyphs and paired horse health/fatigue meters are host-tested only. Horse and special HUD contexts, newly translated prompts, scripted-movie comfort/subtitles and complete graphical HUD capture remain open. |
 | Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
-| Persistent manual reload | Enabled by default by public .3 Install/update; scoped headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers and restoration have correlated live evidence. | Measured loading-mouth geometry/precise insertion, tracking/save/load/death/disable recovery, held-control edges, mirrored/Frontier use and prolonged comfort. |
+| Persistent manual reload | Fresh-install default with launcher opt-out and preserved upgrade choice; scoped PS VR2 headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers/restoration have correlated live evidence. | Beyond community feedback reports difficult insertion and no perceived haptics; other controller feedback remains unqualified. Insertion sound, precise geometry, interruption recovery and prolonged comfort remain open. |
 | Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. The later displayed-finger tangent is host-tested only. | The reviewed close-up predates that tangent and still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
 | Native loading port | Operator confirms the port looks correct in exercised reload; its visual presentation has scoped acceptance. Read-only gate/drum motion and six-mouth pivot rankings have bounded live evidence; generic tip/socket policy has synthetic host tests. | No qualified CoJ socket is connected to that policy. Active loading uses the 14 cm grip zone. Phase-bound mouth geometry, precise insertion, independent mechanics and ejection remain planned. |
 | Death and save/load | Corrected failure-screen visibility and latest exercised boxing death/recovery have scoped operator acceptance. Exercised narrated loading after reversible LAA correction and save/load with the thumbnail workaround accepted. | Broader retry/back/held-input recovery, manual-session save roundtrip and allocation pressure remain open. |
@@ -218,8 +221,8 @@ and tracking/menu/save/death recovery retain their own gates. The complete
 collected run still retains its canonical telemetry rejection for the unobserved
 loading-screen Sense continuation; operator acceptance does not change it.
 
-The configured Win32 Release build succeeds. The full host suite registers 135
-CTest tests: 134 passed, none failed and one classic shared-texture test was skipped
+The configured Win32 Release build succeeds. The full host suite registers 139
+CTest tests: 138 passed, none failed and one classic shared-texture test was skipped
 because the environment does not provide that capability. Classic shared render
 targets remain unavailable (`d3d9_classic_d3d11_shared_texture`); the pool probe
 passes. Transient classic-device creation unavailability has also been observed.
@@ -234,10 +237,12 @@ builds, foreign staging, owned recovery with truncated stage JSON, Unicode video
 paths and bounded local reports. An opt-in isolated copy of the exact game also
 exercises install, tracked-head/body enablement, all five controller files,
 fresh session identities/log rotation, conventional/manual updates, byte-identical
-uninstall and injected deployment failure. Earlier retained-reload-choice coverage
-belongs to the .2 policy; .3 requires default Install/update to enable prior false
-states, explicit noninteractive false to remain possible, and PrepareSession to
-retain the installed feature set. These policy changes do not promote physical gates.
+uninstall and injected deployment failure. Current coverage restores retained
+reload choice and exercises launcher option 8; .3's forced-on upgrade policy is
+historical. Redirected Documents/cloud-tag admission, real junction rejection,
+missing ancestors, exact video restoration and recovery-path replacement rejection
+have host coverage. Cloud metadata is simulated; real OneDrive still needs
+community confirmation. These changes do not promote physical gates.
 The extracted package uses Windows PowerShell 5.1 and bundled isolated Python.
 These checks do not establish another PC, controller, campaign or headset gate.
 
@@ -430,6 +435,15 @@ Comfort options beyond cinematic presentation remain planned.
 Do not repeat an accepted baseline unless a change affects it. Batch related
 checks into one meaningful candidate, recording unavailable cases as pending.
 
+- **Community input candidate:** use a small forward stick while looking left/
+  right within the body-follow cone and across its boundary; confirm no angular
+  deadzone or drift and check a deliberate held smooth turn, direction and
+  centered recovery after pause. Host results do not accept visor comfort.
+- **Clyde duel:** center the right stick at entry, then deliberately pull down
+  when native timing allows, raise with up and aim/fire. Check native early-draw
+  behavior, retry, recenter and return to ordinary movement/turning. Do not force
+  weapon/countdown state to pass the gate. The accepted concentration rescue
+  remains separate and needs no repeat solely for confirmation.
 - **Interaction:** point the left Sense at a drawer's usable part and press L1.
   Head turning must not retarget it. The cyan reference must exist only while
   L1 is held. Check opening, pickup/carry/put-down and release after tracking loss.
@@ -715,6 +729,16 @@ Native per-axis shaping and float actions 4–7 remain the accepted movement sea
 Measured vanilla movement/jump parity closed the earlier diagnosis. Preserve
 camera/body restoration; no speculative physics retuning is pending.
 
+A later community gaze-direction report exposed two host-reproducible input
+defects: rotating before axis shaping drops the lateral component of a 0.08
+forward stick at 30 degrees, and a 0.005 dispatch tolerance suppresses small
+gaze changes. Shaping before yaw and a 0.00001 tolerance have regression coverage.
+This does not prove the complete reported drift is resolved; native forward/
+strafe speed coefficients and body-follow behavior retain their existing owners.
+Continuous default turning is host-tested at multiple sample rates and across
+loss, duplicate-time, wheel and owner transitions; smooth-turn comfort/direction
+remain in the next physical candidate. A settings selector is planned.
+
 ## PC mechanics and gameplay HUD completeness
 
 Critical countdown presentation, encountered objective/journal notifications and
@@ -736,6 +760,19 @@ graphical HUD coverage or require another run solely to reconfirm these visuals.
 Accept only observed content. Horse, broader weapons, climbing, duel/special
 modes and campaign indicators need coverage. Full graphical HUD capture and
 complete physical cylinder reload are planned.
+
+The operator confirms activating concentration, drawing and shooting both
+enemies in an exercised window-entry/hostage-rescue scene. This is scoped
+concentration acceptance; it does not accept duel quickdraw or campaign completion.
+The first Clyde duel is a community-reported progression blocker. Its special
+vertical mouse input was absent from the VR mapping. The separate host-tested
+duel candidate verifies exact JNI ownership and forwards right-stick draw/raise/
+aim to native mouse input. The empty-hand draw conversion uses the current native
+threshold/delta/sensitivities; unchanged bytecode consumes actual C++ policy
+output at 90/120/144 Hz, three mouse settings, both inversion settings and two
+slow-motion factors. This bounded interpreter is not game or visor execution;
+cadence differences between dispatch and the later native update remain a live
+gate alongside Clyde progression, early draw, retry and aim alignment.
 
 The new wrist health meter and low-health text colors are implemented and
 host-tested, including 0/25/50/100 coverage, hidden/out-of-range cache fallback,

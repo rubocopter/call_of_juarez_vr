@@ -1052,8 +1052,53 @@ int main() {
         std::cerr << "VR locomotion did not reproduce InputAnalog's 0.04 deadzone shaping\n";
         return 1;
     }
+    // Reproduce a careful forward step with the gaze turned inside the body's
+    // free-look cone. Applying an axis deadzone after the rotation erases the
+    // lateral component (0.08 * sin(30) == 0.04) and creates an angular deadzone.
+    GameplayInputState careful_forward{};
+    careful_forward.active = true;
+    careful_forward.move = {0.0F, 0.08F};
+    const auto careful_actions = BuildCoJGameplayActionValues(careful_forward, 30.0F);
+    float careful_native_forward = 0.0F, careful_native_right = 0.0F;
+    for (const auto& item : careful_actions) {
+        if (item.action == 4) careful_native_forward = item.value;
+        if (item.action == 6) careful_native_right = item.value;
+    }
+    constexpr float careful_magnitude = (0.08F - 0.04F) / 0.96F;
+    if (!Near(careful_native_forward, careful_magnitude * std::sqrt(0.75F), 0.00001F) ||
+        !Near(careful_native_right, careful_magnitude * 0.5F, 0.00001F)) {
+        std::cerr << "careful head-relative movement lost gaze direction/magnitude inside the body cone\n";
+        return 1;
+    }
+    for (const float yaw : {-180.0F, -90.0F, -35.0F, -5.0F, 0.0F, 5.0F, 35.0F, 90.0F, 180.0F}) {
+        for (const float magnitude : {0.03F, 0.08F, 0.2F, 1.0F}) {
+            careful_forward.move = {0, magnitude};
+            const auto actions = BuildCoJGameplayActionValues(careful_forward, yaw);
+            float forward=0, backward=0, right=0, left=0;
+            for (const auto& item : actions) {
+                if (item.action==4) forward=item.value;
+                if (item.action==5) backward=item.value;
+                if (item.action==6) right=item.value;
+                if (item.action==7) left=item.value;
+            }
+            const float expected_magnitude = magnitude < .04F ? 0 : (magnitude-.04F)/.96F;
+            const float radians = yaw * .017453292519943295F;
+            if (!Near(forward-backward, expected_magnitude*std::cos(radians), .00001F) ||
+                !Near(right-left, expected_magnitude*std::sin(radians), .00001F)) {
+                std::cerr << "head-relative movement changed the shaped magnitude or angular direction\n";
+                return 1;
+            }
+        }
+    }
     GameplayInputState diagonal_gameplay{};
     diagonal_gameplay.active = true;
+    diagonal_gameplay.move = {1,1};
+    for (const auto& item : BuildCoJGameplayActionValues(diagonal_gameplay,45)) {
+        if (item.value < 0 || item.value > 1 || !std::isfinite(item.value)) {
+            std::cerr << "head-relative rotation exceeded a native action's saturated range\n";
+            return 1;
+        }
+    }
     diagonal_gameplay.move = {0.12F, 0.03F};
     const auto diagonal_actions = BuildCoJGameplayActionValues(diagonal_gameplay);
     float diagonal_forward = 0.0F;

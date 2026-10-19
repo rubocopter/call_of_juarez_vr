@@ -497,6 +497,9 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME release_frontend COMMAND powershell -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_SOURCE_DIR}/tests/release_frontend.ps1"
         -SourceDirectory "${CMAKE_SOURCE_DIR}")
+    add_test(NAME release_paths COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/release_paths.ps1"
+        -SourceDirectory "${CMAKE_SOURCE_DIR}")
     add_test(NAME player_mesh_split COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/player_mesh_split.py")
     add_test(
         NAME validation_result_tools
@@ -1283,4 +1286,24 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9_classic_readback_d3d11 COMMAND cojvr_d3d9_classic_readback_d3d11_test)
     set_tests_properties(d3d9_classic_readback_d3d11 PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
+# Isolated exact-game duel input checks; no game or VR runtime is started.
+if(COJVR_BUILD_TESTS)
+    add_executable(cojvr_duel_input_test tests/duel_input.cpp)
+    target_include_directories(cojvr_duel_input_test PRIVATE src)
+    target_compile_features(cojvr_duel_input_test PRIVATE cxx_std_20)
+    add_test(NAME duel_input COMMAND cojvr_duel_input_test)
+    add_executable(cojvr_duel_input_jni_test tests/duel_input_jni.cpp
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp
+        src/games/call_of_juarez/gameplay_ui_reader.cpp src/games/call_of_juarez/focus_zoom.cpp
+        src/games/call_of_juarez/motion_reload_owner.cpp)
+    target_link_libraries(cojvr_duel_input_jni_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_duel_input_jni_test PRIVATE src)
+    target_compile_features(cojvr_duel_input_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_duel_input_jni_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME duel_input_jni COMMAND cojvr_duel_input_jni_test)
+    add_test(NAME duel_input_native COMMAND "${COJVR_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/duel_input_native.py"
+        --mapping-executable "$<TARGET_FILE:cojvr_duel_input_test>")
 endif()

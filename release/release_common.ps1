@@ -10,13 +10,67 @@ function Write-CojvrPublicJson([string]$Path, [object]$Value) {
         Move-Item -LiteralPath $Temp -Destination $Path -Force
     } finally { if (Test-Path -LiteralPath $Temp) { Remove-Item -LiteralPath $Temp -Force } }
 }
-function Assert-CojvrNoReparse([string]$Path) {
-    $Item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    while ($null -ne $Item) {
-        if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Linked paths are not admitted for deployment: '$Path'."
+function Get-CojvrPathMetadata([string]$Path) {
+    # FindFirstFile reports the tag without opening/hydrating a cloud placeholder
+    # or following a leaf link. PowerShell 5.1 FileInfo exposes only attributes.
+    if (-not ('Cojvr.ReleasePathMetadata' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+namespace Cojvr {
+    public static class ReleasePathMetadata {
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct Info {
+            public uint Attributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime, AccessTime, WriteTime;
+            public uint SizeHigh, SizeLow, ReparseTag, Reserved;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string Name;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 14)] public string AlternateName;
         }
-        $Item = if ($Item -is [IO.DirectoryInfo]) { $Item.Parent } else { $Item.Directory }
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr FindFirstFileW(string path, out Info info);
+        [DllImport("kernel32.dll")] static extern bool FindClose(IntPtr handle);
+        public static object Read(string path) {
+            Info info;
+            IntPtr handle = FindFirstFileW(path, out info);
+            if (handle == new IntPtr(-1)) {
+                int error = Marshal.GetLastWin32Error();
+                if (error == 2 || error == 3) return null;
+                throw new Win32Exception(error, "Cannot inspect deployment path: " + path);
+            }
+            try { return info; } finally { FindClose(handle); }
+        }
+    }
+}
+'@
+    }
+    if ($Path -eq [IO.Path]::GetPathRoot($Path)) {
+        return [pscustomobject]@{Attributes=[IO.File]::GetAttributes($Path);ReparseTag=0}
+    }
+    return [Cojvr.ReleasePathMetadata]::Read($Path)
+}
+function Assert-CojvrNoReparse([string]$Path, [switch]$AllowCloudFiles) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A deployment path is required.' }
+    $Probe = [IO.Path]::GetFullPath($Path)
+    $Root = [IO.Path]::GetPathRoot($Probe)
+    if ($Probe.Substring($Root.Length).Contains(':') -or $Probe.IndexOfAny([char[]]'*?') -ge 0) {
+        throw 'Deployment paths must be literal files/directories, without streams or wildcards.'
+    }
+    $Probe = $Probe.TrimEnd('\')
+    if ($Probe.Length -lt $Root.Length) { $Probe = $Root }
+    # Missing destinations still require checking all their existing ancestors.
+    while ($null -ne $Probe) {
+        $Info = Get-CojvrPathMetadata $Probe
+        if ($null -ne $Info -and ($Info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            # Only the documented Cloud Files family (0x9000001A..0x9000F01A).
+            # These store provider data, not another named destination. Unknown
+            # tags, name-surrogate tags, junctions and symlinks always fail closed.
+            if (-not $AllowCloudFiles -or ([uint32]$Info.ReparseTag -band [uint32]4294905855) -ne [uint32]2415919130) {
+                throw "Linked paths are not admitted for deployment: '$Path' (component '$Probe', tag $('0x{0:X8}' -f [uint32]$Info.ReparseTag))."
+            }
+        }
+        $Probe = [IO.Path]::GetDirectoryName($Probe)
     }
 }
 function Read-CojvrRelease([string]$PackageRoot) {

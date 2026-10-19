@@ -17,8 +17,17 @@ headset acceptance for opening/closing, tracked hands, successive native unit
 loading, insertion-only haptics and exercised weapon/menu recovery.
 Recovered mission countdown, encountered notices and corrected green/red attack
 directions now have scoped headset acceptance. Ray's Bible use and on-foot kick
-are accepted in exercised gameplay; concentration and special mechanics remain
-separate gates.
+are accepted in exercised gameplay. Concentration activation, draw and shooting
+both enemies in the exercised window-entry hostage rescue also have operator
+acceptance. Duels remain a separate gate and a reported progression blocker.
+
+The next compatibility candidate restores launcher reload choice and preserves
+it across updates; a complete feature set does not require experimental reload.
+It also fixes two host-reproduced careful-movement defects (axis shaping after
+gaze rotation and a coarse native-dispatch tolerance), defaults to time-based
+smooth turning, and admits recognized Cloud Files metadata only for video settings.
+Real OneDrive operation and the reported gaze drift still need community/visor
+confirmation. A smooth/snap preference in VR settings remains planned.
 
 A reported chest/possible-scroll interaction crash is a current campaign stability
 issue. Evidence is preserved but the symbol-only native stack lacks the actual
@@ -347,9 +356,9 @@ requires a second independent game demonstration before generalization.
 `v0.1.0-prealpha.3` is cumulative from .2, adding the host-tested asymmetric
 OpenVR vertical projection correction and complete installation defaults. The
 .2/.1 archives and verdicts remain unchanged. The corrected converter preserves
-symmetric PS VR2 controls; Beyond/Quest gameplay distortion and menu gaze alignment
-still need physical confirmation. It does not establish a complete fishbowl fix
-or additional headset acceptance. Preserve the existing
+symmetric PS VR2 controls. Community physical feedback confirms the corrected
+Beyond gameplay view; an unspecified Quest report is also positive. Menu gaze
+alignment, broader hardware and controller support remain unqualified. Preserve the existing
 [projection contract](research/COJ_CAMERA_PATH.md#openvr-projection-conversion).
 
 The .2 baseline retains repeated operator acceptance of Manual 2804x2860 clarity,
@@ -375,11 +384,12 @@ bindings are experimental; other PCs/headsets require independent evidence.
 Preserve exact-build rejection, reversible installation and local-only diagnostics
 that users inspect before manually sharing. Default Install/update enables
 ordinary stereo, independent hands, native torso/legs, physical Hands combat and
-manual reload, including prior reload-off installations, without a reload y/n
-prompt. Advanced noninteractive `-ManualReload:$false` remains possible; a later
-default Install/update enables it again. PrepareSession retains installed features
+manual reload on a fresh installation. Current upgrades preserve its installed
+choice; launcher option 8 changes it transactionally while closed and option 9
+explains startup and pause/save controls. Explicit noninteractive
+`-ManualReload:$false` remains possible. PrepareSession retains installed features
 without archive repatching and creates fresh provenance before later plays.
-Only resolution selection is optional user setup. Missing preferences use Auto;
+Resolution and manual reload selection are optional user setup. Missing resolution preferences use Auto;
 all explicit profiles persist. Theater remains default; the rejected independent
 eye RT and investigation probes remain off. These defaults do not qualify helper
 Background/Scene identity, memory or other headsets. No auto updater is planned.

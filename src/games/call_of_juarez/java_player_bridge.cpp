@@ -291,7 +291,8 @@ CoJUiPointerDispatchPolicy BuildCoJUiPointerDispatchPolicy(
 }
 
 std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
-    const cojvr::runtime::GameplayInputState& state) noexcept {
+    const cojvr::runtime::GameplayInputState& state,
+    const float head_relative_move_yaw_degrees) noexcept {
     const auto positive = [](const float value) noexcept {
         return std::max(value, 0.0F);
     };
@@ -315,10 +316,18 @@ std::array<CoJGameplayActionValue, 33> BuildCoJGameplayActionValues(
         move_x = constrain_axis(state.move.x);
         move_y = constrain_axis(state.move.y);
     }
+    // Shape the controller axes in their own frame. Shaping after gaze rotation
+    // drops small lateral components and introduces an angular deadzone during
+    // careful movement. Rotating the shaped vector preserves its magnitude.
+    const auto directed_move = RotateCoJMoveForHeadRelativeYaw(
+        {move_x, move_y}, head_relative_move_yaw_degrees);
+    const float axis_limit = std::max({1.0F, std::fabs(directed_move.x), std::fabs(directed_move.y)});
+    move_x = directed_move.x / axis_limit;
+    move_y = directed_move.y / axis_limit;
     return {{
-        // Horizontal turn is consumed by the exact 90-degree snap path below.
+        // Horizontal turn is consumed by the time-based native yaw path below.
         // Keep both native analog actions neutral so mouse sensitivity cannot
-        // turn a snap request back into continuous rotation.
+        // apply a second rotation on top of the owned smooth turn.
         {2, 0.0F},
         {3, 0.0F},
         {4, positive(move_y)},
@@ -972,8 +981,9 @@ void JavaPlayerBridge::Reset() noexcept {
     last_gameplay_input_ = {};
     last_gameplay_action_values_ = {};
     gameplay_input_applied_ = false;
-    snap_turn_state_ = {};
-    last_snap_turn_degrees_ = 0.0F;
+    smooth_turn_state_ = {};
+    duel_input_state_ = {};
+    last_turn_degrees_ = 0.0F;
     last_analog_transaction_applied_ = false;
     // Preserve the VM until detach completes. Clearing vm_ first made this a
     // no-op and left bridge-owned daemon threads attached to the game JVM.
@@ -3001,20 +3011,22 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
 
 bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
-    std::string* error, const CoJInputDispatchPhase phase) noexcept {
+    std::string* error, const CoJInputDispatchPhase phase,
+    const float head_relative_move_yaw_degrees,
+    const std::uint64_t monotonic_us) noexcept {
     if (!state.active && !CancelManualReload(error)) return false;
     if (!state.active && single_round_reload_pending_ && !ClearSingleRoundReload(error)) return false;
-    float snap_turn_degrees=0.0F;
+    float turn_degrees=0.0F;
     if (phase!=CoJInputDispatchPhase::fire && phase!=CoJInputDispatchPhase::shoulder) {
-        last_snap_turn_degrees_ = 0.0F;
+        last_turn_degrees_ = 0.0F;
         last_analog_transaction_applied_ = false;
-        snap_turn_degrees = snap_turn_state_.Update(state);
+        turn_degrees = -smooth_turn_state_.Update(state, monotonic_us);
     }
     if (!state.active && !gameplay_input_applied_) return true;
 
-    if (snap_turn_degrees != 0.0F) {
-        if (!TryRotateHorizontally(snap_turn_degrees, error)) return false;
-        last_snap_turn_degrees_ = snap_turn_degrees;
+    if (turn_degrees != 0.0F) {
+        if (!TryRotateHorizontally(turn_degrees, error)) return false;
+        last_turn_degrees_ = turn_degrees;
     }
 
     void* env = Environment(error);
@@ -3062,7 +3074,10 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         return false;
     }
 
-    const auto values = BuildCoJGameplayActionValues(state);
+    const auto values = BuildCoJGameplayActionValues(state, head_relative_move_yaw_degrees);
+    // A 0.005 action tolerance hid several degrees of gaze changes during a
+    // careful step. Suppress numerical noise without quantizing that direction.
+    constexpr float kAnalogDispatchEpsilon = 0.00001F;
     auto previous_values = BuildCoJGameplayActionValues({});
     for (std::size_t i=0;i<previous_values.size();++i)
         previous_values[i].value=last_gameplay_action_values_[i];
@@ -3071,7 +3086,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         if (ShouldDispatchCoJGameplayAction(phase,values[index].action) &&
             UseDirectAnalogCoJLocomotion(values[index].action) &&
             (!gameplay_input_applied_ ||
-             std::fabs(values[index].value - previous_values[index].value) > 0.005F)) {
+             std::fabs(values[index].value - previous_values[index].value) > kAnalogDispatchEpsilon)) {
             analog_transaction_needed = true;
             break;
         }
@@ -3113,7 +3128,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         const bool needs_digital_update = !gameplay_input_applied_ ||
             current_pressed != previous_pressed;
         const bool needs_analog_update = !gameplay_input_applied_ ||
-            std::fabs(item.value - previous_item.value) > 0.005F;
+            std::fabs(item.value - previous_item.value) > kAnalogDispatchEpsilon;
         const auto resolve_target_item = [&](void*& target_item) noexcept {
             target_item = nullptr;
             JValue target_type_args[1]{};
@@ -6207,6 +6222,179 @@ bool JavaPlayerBridge::TryApplyUpperBodyTracking(
     const bool restore_failed =
         ClearException(env, error, "ArmedPlayerBeing rotation-state restore failed");
     return !update_failed && !restore_failed;
+}
+
+namespace {
+// All references in this read are local to one synchronous game-thread call.
+// Do not cache jobject values or use numeric pointer equality as JNI identity.
+struct DuelJniRead {
+    void* env;
+    std::array<void*,16> refs{};
+    std::size_t count=0;
+    void* module=nullptr;
+    void* duel=nullptr;
+    void* controller=nullptr;
+    void* player_class=nullptr;
+    int state=-1;
+    std::uint32_t action_identity=0;
+    explicit DuelJniRead(void* environment) noexcept:env(environment){}
+    ~DuelJniRead(){while(count)DeleteLocal(env,refs[--count]);}
+    void* Keep(void* ref) noexcept {
+        if(!ref)return nullptr;
+        if(count==refs.size()){DeleteLocal(env,ref);return nullptr;}
+        refs[count++]=ref;return ref;
+    }
+};
+
+bool ClearDuelException(void* env,std::string* error) noexcept {
+    const auto occurred=EnvFunction<ExceptionOccurredFn>(env,kExceptionOccurred);
+    const auto clear=EnvFunction<ExceptionClearFn>(env,kExceptionClear);
+    void* exception=occurred(env);if(!exception)return false;
+    clear(env);DeleteLocal(env,exception);
+    SetError(error,"duel owner observation failed");return true;
+}
+
+bool ReadDuelOwner(void* env,void* player,DuelJniRead& read,std::string* error) noexcept {
+    const auto find=EnvFunction<FindClassFn>(env,kFindClass);
+    const auto get_class=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto static_field=EnvFunction<GetStaticFieldIdFn>(env,kGetStaticFieldId);
+    const auto object=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+    const auto static_object=EnvFunction<GetStaticObjectFieldFn>(env,kGetStaticObjectField);
+    const auto integer=EnvFunction<GetIntFieldFn>(env,kGetIntField);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto call_int=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    if(!player||!find||!get_class||!field||!static_field||!object||!static_object||
+        !integer||!same||!instance||!method||!call_int||
+        !EnvFunction<DeleteLocalRefFn>(env,kDeleteLocalRef)||
+        !EnvFunction<ExceptionOccurredFn>(env,kExceptionOccurred)||
+        !EnvFunction<ExceptionClearFn>(env,kExceptionClear)) {
+        SetError(error,"duel observation JNI boundary is unavailable");return false;
+    }
+    const auto clean=[&](){return !ClearDuelException(env,error);};
+    if(!clean())return false;
+    const auto klass=[&](const char* name)->void*{
+        void* result=read.Keep(find(env,name));return clean()?result:nullptr;
+    };
+    void* game_class=klass("LawmanGame");if(!game_class)return false;
+    void* single_class=klass("LawmanModuleSingle");if(!single_class)return false;
+    void* armed_class=klass("ArmedPlayerBeing");if(!armed_class)return false;
+    const bool armed=instance(env,player,armed_class)!=0;if(!clean()||!armed)return false;
+    void* active=static_field(env,game_class,"sm_cActiveGameModule","LLawmanModule;");
+    if(!clean()||!active)return false;
+    read.module=read.Keep(static_object(env,game_class,active));
+    if(!clean()||!read.module)return false;
+    const bool single=instance(env,read.module,single_class)!=0;if(!clean()||!single)return false;
+    read.player_class=read.Keep(get_class(env,player));if(!clean()||!read.player_class)return false;
+    void* player_module_field=field(env,read.player_class,"m_Module","LLawmanModule;");
+    if(!clean()||!player_module_field)return false;
+    void* player_module=read.Keep(object(env,player,player_module_field));if(!clean()||!player_module)return false;
+    const bool owned_module=same(env,read.module,player_module)!=0;if(!clean()||!owned_module)return false;
+    void* duel_field=field(env,single_class,"m_cDuel","LDuel;");if(!clean()||!duel_field)return false;
+    read.duel=read.Keep(object(env,read.module,duel_field));if(!clean()||!read.duel)return false;
+    void* duel_class=klass("Duel");if(!duel_class)return false;
+    const bool typed_duel=instance(env,read.duel,duel_class)!=0;if(!clean()||!typed_duel)return false;
+    void* state_field=field(env,duel_class,"m_iState","I");if(!clean()||!state_field)return false;
+    read.state=integer(env,read.duel,state_field);if(!clean()||read.state < -1||read.state>3)return false;
+    if(read.state==-1)return true;
+    void* player_field=field(env,duel_class,"m_cPlayer","LBeing;");if(!clean()||!player_field)return false;
+    void* duel_player=read.Keep(object(env,read.duel,player_field));if(!clean()||!duel_player)return false;
+    const bool owned_player=same(env,duel_player,player)!=0;if(!clean()||!owned_player)return false;
+    void* module_field=field(env,duel_class,"m_cModule","LLawmanModule;");if(!clean()||!module_field)return false;
+    void* duel_module=read.Keep(object(env,read.duel,module_field));if(!clean()||!duel_module)return false;
+    const bool owned_duel=same(env,duel_module,read.module)!=0;if(!clean()||!owned_duel)return false;
+    void* action_field=field(env,duel_class,"m_cAction","Lact_Duel;");if(!clean()||!action_field)return false;
+    void* action=read.Keep(object(env,read.duel,action_field));if(!clean()||!action)return false;
+    void* action_class=read.Keep(get_class(env,action));if(!clean()||!action_class)return false;
+    void* id_method=method(env,action_class,"GetThisID","()I");if(!clean()||!id_method)return false;
+    read.action_identity=static_cast<std::uint32_t>(call_int(env,action,id_method,nullptr));
+    if(!clean()||!read.action_identity||read.action_identity==0xffffffffU)return false;
+    void* controller_field=static_field(env,game_class,"sm_cInputController","LGameInputController;");
+    if(!clean()||!controller_field)return false;
+    read.controller=read.Keep(static_object(env,game_class,controller_field));
+    return clean()&&read.controller;
+}
+} // namespace
+
+bool JavaPlayerBridge::TryObserveDuel(bool& duel_active,std::string* error) noexcept {
+    duel_active=false;
+    void* env=Environment(error);DuelJniRead read(env);
+    if(!env||!ReadDuelOwner(env,being_,read,error)) {duel_input_state_.Invalidate();return false;}
+    duel_active=read.state>=0;
+    if(!duel_active)duel_input_state_.Invalidate();
+    SetError(error,"");return true;
+}
+
+bool JavaPlayerBridge::TryApplyDuelInput(const runtime::GameplayInputState& input,
+    const std::uint64_t monotonic_us,std::string* error) noexcept {
+    if(!input.active||!input.turn_available||input.weapon_radial){duel_input_state_.Invalidate();return true;}
+    void* env=Environment(error);DuelJniRead read(env);
+    const auto fail=[&](){duel_input_state_.Invalidate();return false;};
+    if(!env||!ReadDuelOwner(env,being_,read,error))return fail();
+    if(read.state<1){duel_input_state_.Invalidate();return true;}
+    const auto find=EnvFunction<FindClassFn>(env,kFindClass);
+    const auto instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto real=EnvFunction<GetFloatFieldFn>(env,kGetFloatField);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto call_float=EnvFunction<CallFloatMethodAFn>(env,kCallFloatMethodA);
+    const auto call_bool=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    const auto call_void=EnvFunction<CallVoidMethodAFn>(env,kCallVoidMethodA);
+    if(!real||!call_float||!call_bool||!call_void)return fail();
+    const auto clean=[&](){return !ClearException(env,error,"duel input JNI boundary failed");};
+    void* controller_class=read.Keep(find(env,"GameInputController"));if(!clean()||!controller_class)return fail();
+    const bool typed=instance(env,read.controller,controller_class)!=0;if(!clean()||!typed)return fail();
+    void* allowed=method(env,controller_class,"CanProcessInputs","()Z");if(!clean()||!allowed)return fail();
+    const bool can_process=call_bool(env,read.controller,allowed,nullptr)!=0;if(!clean())return fail();
+    if(!can_process){duel_input_state_.Invalidate();return true;}
+    void* native_clock=method(env,read.player_class,"GetTime","()F");if(!clean()||!native_clock)return fail();
+    const float game_time=call_float(env,being_,native_clock,nullptr);if(!clean())return fail();
+    CoJDuelPadParameters pad;
+    const char* names[]{"fPadSensX","fPadSensY","fPadSpeedXTresh","fPadSpeedYTresh"};
+    float* destinations[]{&pad.sensitivity_x,&pad.sensitivity_y,&pad.threshold_x,&pad.threshold_y};
+    for(int i=0;i<4;++i){
+        void* id=field(env,controller_class,names[i],"F");if(!clean()||!id)return fail();
+        *destinations[i]=real(env,read.controller,id);if(!clean())return fail();
+    }
+    void* mouse=method(env,controller_class,"OnInputMouseAxis","(IF)V");if(!clean()||!mouse)return fail();
+    CoJDuelDrawParameters draw;
+    void* hands=method(env,read.player_class,"HasSomethingInHands","()Z");if(!clean()||!hands)return fail();
+    draw.hands_empty=call_bool(env,being_,hands,nullptr)==0;if(!clean())return fail();
+    if(draw.hands_empty&&input.turn.y<0) {
+        const auto static_method=EnvFunction<GetStaticMethodIdFn>(env,kGetStaticMethodId);
+        const auto static_field=EnvFunction<GetStaticFieldIdFn>(env,kGetStaticFieldId);
+        // Stable JNI 1.4 ABI: CallStaticFloatMethodA / GetStaticFloatField.
+        const auto static_float=EnvFunction<CallFloatMethodAFn>(env,137);
+        const auto static_real=EnvFunction<GetFloatFieldFn>(env,152);
+        if(!static_method||!static_field||!static_float||!static_real)return fail();
+        void* settings=read.Keep(find(env,"InputSettings"));if(!clean()||!settings)return fail();
+        void* game_object=read.Keep(find(env,"GameObject"));if(!clean()||!game_object)return fail();
+        void* ratio=static_method(env,settings,"GetMouseSensitivity","()F");if(!clean()||!ratio)return fail();
+        draw.input_sensitivity=static_float(env,settings,ratio,nullptr);if(!clean())return fail();
+        void* sensitivity=static_method(env,game_object,"GetMouseSensitivityY","()F");
+        if(!clean()||!sensitivity)return fail();
+        draw.mouse_sensitivity_y=static_float(env,game_object,sensitivity,nullptr);if(!clean())return fail();
+        void* threshold=static_field(env,read.player_class,"s_fDuelMouseMinVertVel","F");
+        if(!clean()||!threshold)return fail();
+        draw.minimum_displacement=static_real(env,read.player_class,threshold);if(!clean())return fail();
+        void* delta=method(env,read.player_class,"GetTimeDelta","()F");if(!clean()||!delta)return fail();
+        const float game_delta=call_float(env,being_,delta,nullptr);if(!clean())return fail();
+        void* real_delta=method(env,read.player_class,"GetRealDT","(F)F");if(!clean()||!real_delta)return fail();
+        JValue delta_args[1]{};delta_args[0].f=game_delta;
+        draw.real_dt=call_float(env,being_,real_delta,delta_args);if(!clean())return fail();
+    }
+    const auto axes=duel_input_state_.Update(input,{being_generation_,read.action_identity,game_time},pad,monotonic_us,draw);
+    if(!axes.dispatch){SetError(error,"");return true;}
+    // Consume the clock fence before the first call. Partial failure is never
+    // replayed; the original native method owns inversion/permissions/timing.
+    for(int axis=0;axis<2;++axis){
+        const float value=axis==0?axes.x:axes.y;if(value==0)continue;
+        JValue args[2]{};args[0].i=axis;args[1].f=value;
+        call_void(env,read.controller,mouse,args);if(!clean())return fail();
+    }
+    SetError(error,"");return true;
 }
 
 } // namespace cojvr::games::call_of_juarez
