@@ -1043,6 +1043,15 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_whip_tracking_jni_test PRIVATE cxx_std_20)
     target_compile_definitions(cojvr_whip_tracking_jni_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     add_test(NAME whip_tracking_jni COMMAND cojvr_whip_tracking_jni_test)
+    add_executable(cojvr_hand_finger_eligibility_jni_test tests/hand_finger_eligibility_jni.cpp
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp
+        src/games/call_of_juarez/gameplay_ui_reader.cpp src/games/call_of_juarez/focus_zoom.cpp
+        src/games/call_of_juarez/motion_reload_owner.cpp)
+    target_link_libraries(cojvr_hand_finger_eligibility_jni_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_hand_finger_eligibility_jni_test PRIVATE src)
+    target_compile_features(cojvr_hand_finger_eligibility_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_hand_finger_eligibility_jni_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME hand_finger_eligibility_jni COMMAND cojvr_hand_finger_eligibility_jni_test)
     add_executable(cojvr_single_round_reload_jni_test tests/single_round_reload_jni.cpp
         src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp
         src/games/call_of_juarez/gameplay_ui_reader.cpp src/games/call_of_juarez/focus_zoom.cpp

@@ -573,6 +573,12 @@ local orientations while preserving translations/lengths and Hand/socket frames.
 All fifteen targets join the existing transaction. Empty-hand eligibility checks
 actual/active/desired equipment and pending states, carrying and shared two-hand
 ownership. Missing curls or ambiguity normally retain native fingers. A bridge-owned
+idle-rifle exception admits the logically empty left support only when a stable
+right `WeaponRifle` owns an applied scoped weapon map. Both hands' actual,
+active and desired owners, four native states and two-hand flags must agree
+on repeated observation; carrying, reload, replacement, faults and death reject.
+Only the existing optional finger map changes; rifle input and reload remain native.
+A bridge-owned
 manual opening/wait can admit the empty support hand through the existing native
 reload-recovery reader plus a matching weapon/hand/probe snapshot. Actual carrying,
 replacement, death and failed reads still reject it; the armed hand remains native.

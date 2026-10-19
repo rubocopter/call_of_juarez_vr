@@ -19,7 +19,11 @@ Recovered mission countdown, encountered notices and corrected green/red attack
 directions now have scoped headset acceptance. Ray's Bible use and on-foot kick
 are accepted in exercised gameplay. Concentration activation, draw and shooting
 both enemies in the exercised window-entry hostage rescue also have operator
-acceptance. Duels remain a separate gate and a reported progression blocker.
+acceptance. The operator subsequently confirms Clyde's down/up draw/raise and
+tracked-hand aiming/shooting worked. That exercised duel has scoped headset
+acceptance; early draw/retry/recovery and broader duels remain separate gates.
+Ordinary concentration reactivation is newly reported unavailable while zoom
+works; it remains separate from the accepted scripted concentration encounter.
 
 The next compatibility candidate restores launcher reload choice and preserves
 it across updates; a complete feature set does not require experimental reload.
@@ -31,7 +35,11 @@ confirmation. A smooth/snap preference in VR settings remains planned.
 The candidate also retains simultaneous independently projected reticles for
 both verified firearms instead of selecting a hand by the current trigger.
 Dual-reticle binocular visibility/alignment and Clyde's native center countdown
-join the existing duel acceptance gate; the operator has not yet reached Clyde.
+remain unconfirmed. Long-gun free-hand pose and its reload presentation are
+newly reported gaps; revolver manual-loading acceptance does not qualify them.
+The bounded idle-rifle support-hand eligibility correction reuses existing
+controller finger maps under repeated native ownership checks. Its appearance
+remains a physical gate; long-gun manual reload is still unimplemented.
 
 A reported chest/possible-scroll interaction crash is a current campaign stability
 issue. Evidence is preserved but the symbol-only native stack lacks the actual

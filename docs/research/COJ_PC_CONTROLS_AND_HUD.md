@@ -405,8 +405,31 @@ contexts remain separate gates; dispatch alone does not validate them.
 - **Ray concentration:** the manual says to put guns away and press a mouse
   button to quick-draw when concentration is available. It uses two moving
   crosshairs and a cooldown indication. Mapping hidden action 38 as a new generic
-  slow-motion button would not reproduce this mechanism. Hands action 29 and
-  the special aiming/availability UI are required.
+  slow-motion button would not reproduce this mechanism. The shipped
+  `ArmedPlayerBeing.Attack(IZ)` attempts its pistol quickdraw/`InitBulletTime`
+  route only when both native hand-state machines are empty. Selecting fists
+  with Hands action 29 is not equivalent to holstering both weapons. Native
+  campaign permissions, shelf/climbing, cannon/horse ownership and module
+  availability remain authoritative. `PlayerBeingRay.InitBulletTimeParams`
+  restores five native game-time seconds of cooldown after concentration stops,
+  including duel finish; a pausing hint cannot advance that timer. A fresh
+  L2/R2 press after holstering can request concentration; R3 remains Focus/zoom.
+  With both pistols drawn, hold Triangle, highlight the right wheel sector with
+  the right stick, then release Triangle to holster the right pistol (action
+  22). Center and repeat with the left sector to holster the left pistol
+  (action 23). Each native toggle hides only its matching equipped pistol;
+  selecting its already-empty sector draws it again. Let both animations finish
+  before the fresh trigger. Down/Hands selects fists and is not this sequence.
+- **Single-revolver quick shooting tutorial:** this is native alternate fire,
+  not concentration. The exact pausing `Data/Hints.scr` entry waits for
+  `_ACTION_TOGGLE_ALTERNATE` (default Z, Sense Circle). While the hint blocks
+  gameplay, Cross/select uses the existing `HintManager.DisableCurrentHint`
+  route to dismiss it without necessarily performing that action. Release,
+  then press Circle after gameplay resumes to request alternate fire. Circle
+  remains UI Back/Escape while a blocking UI owns input. Copied HUD hint text
+  translates keys, but native flat-theater tutorial pixels retain PC labels;
+  this display limitation is unresolved. Do not infer a concentration defect
+  from R3 zoom or successful hint dismissal alone.
 - **Duels:** drawing becomes available when the countdown reaches zero or the
   opponent reaches for his gun. The manual specifies downward mouse movement
   to draw, then upward mouse movement to raise/aim, and allows Q/E leaning. Ordinary
@@ -451,9 +474,10 @@ logs, direction/damage indicators, countdown and boss feedback. Subtitle setting
 observation is separate from actually displaying subtitle text in the headset.
 
 The current native-stereo pair is captured in the camera render-view hook.
-`CameraStereoReticleOverlay` carries only activation, frame sequence and two
-projected points; the presenter draws a fixed black/white cross. It carries no
-native HUD sprites/text, target identity, no-shoot state or weapon availability.
+`CameraStereoReticleOverlay` carries a frame identity and two weapon slots,
+each with activation, two captured-eye points and a separately qualified native
+no-shoot flag. The presenter draws a black/white cross or the native-signal-driven
+red warning. It carries no original HUD sprite or native target identity.
 Gameplay HUD recovery covers essential text and selected native wrist feedback.
 It does not reproduce the complete native graphical HUD.
 

@@ -646,6 +646,7 @@ private:
     ElementWorldBasisTarget whip_frame_{};
     [[nodiscard]] bool ReadOwnedWhip(void* env, int hand, void*& whip, std::string* error) noexcept;
     bool weapon_overlay_faulted_ = false;
+    [[nodiscard]] bool TryCanAnimateLongGunSupportHand(int hand) noexcept;
     struct HandOverlay {
         void* object = nullptr;
         CoJHandOverlay frames{};

@@ -221,9 +221,9 @@ and tracking/menu/save/death recovery retain their own gates. The complete
 collected run still retains its canonical telemetry rejection for the unobserved
 loading-screen Sense continuation; operator acceptance does not change it.
 
-The configured Win32 Release build succeeds. The full host suite registers 139
-CTest tests: 138 passed, none failed and one classic shared-texture test was skipped
-because the environment does not provide that capability. Classic shared render
+The configured Win32 Release build and CTest suite qualify host behavior only.
+The classic shared-texture test may be skipped when the environment does not
+provide that capability. On the current host, classic shared render
 targets remain unavailable (`d3d9_classic_d3d11_shared_texture`); the pool probe
 passes. Transient classic-device creation unavailability has also been observed.
 The skip is neither an accepted fallback nor a failure of the active D3D9Ex
@@ -439,11 +439,11 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   right within the body-follow cone and across its boundary; confirm no angular
   deadzone or drift and check a deliberate held smooth turn, direction and
   centered recovery after pause. Host results do not accept visor comfort.
-- **Clyde duel:** center the right stick at entry, then deliberately pull down
-  when native timing allows, raise with up and aim/fire. Check native early-draw
-  behavior, retry, recenter and return to ordinary movement/turning. Do not force
-  weapon/countdown state to pass the gate. The accepted concentration rescue
-  remains separate and needs no repeat solely for confirmation.
+- **Clyde duel:** the operator confirms successful right-stick down/up draw and
+  raise followed by tracked-hand aiming and shooting. That exercised sequence
+  is headset-validated and needs no repeat solely for confirmation. Native
+  early-draw rejection, retry, recenter and return to ordinary turning remain
+  separate gates. Do not force weapon/countdown state to pass them.
 - **Dual weapon reticles:** with two drawn firearms, require both aiming marks
   at rest and while firing either/both triggers. Move the weapons independently,
   then holster/change/reload one; only its mark may disappear when its muzzle
@@ -454,6 +454,13 @@ checks into one meaningful candidate, recording unavailable cases as pending.
 - **Interaction:** point the left Sense at a drawer's usable part and press L1.
   Head turning must not retarget it. The cyan reference must exist only while
   L1 is held. Check opening, pickup/carry/put-down and release after tracking loss.
+- **Long-gun support hand:** the operator reports an unnatural free-left-hand
+  pose away from the rifle. The bounded normal-state eligibility correction
+  reuses controller curls only with a matching applied right-rifle transaction;
+  its visible result remains unaccepted. Check free-hand pose and ordinary
+  equip/fire/reload transitions when this context is available. Long-gun reload
+  remains conventional Square/native animation, outside the manual whitelist;
+  the reported clip contains no reload and cannot qualify it.
 - **Cartridge grip:** the current anchor has already been observed in runtime;
   repeating it solely to reconfirm visibility adds no evidence. After a material
   contact/axis/occlusion correction, combine empty-hand waiting, trigger pickup,
@@ -771,6 +778,14 @@ complete physical cylinder reload are planned.
 The operator confirms activating concentration, drawing and shooting both
 enemies in an exercised window-entry/hostage-rescue scene. This is scoped
 concentration acceptance; it does not accept duel quickdraw or campaign completion.
+Later ordinary concentration reactivation is operator-reported as unavailable
+while Focus/zoom still works; diagnose native availability and activation
+separately from the accepted scripted encounter and duel.
+The exact native audit distinguishes alternate fire, Focus and concentration:
+concentration requires two empty native hand machines, campaign eligibility
+and an elapsed native cooldown before a fresh trigger quickdraw. Fists are not
+empty hand machines. Correct controls are documented in the owning controls
+research; the report does not yet establish a regression or its resolution.
 The first Clyde duel is a community-reported progression blocker. Its special
 vertical mouse input was absent from the VR mapping. The separate host-tested
 duel candidate verifies exact JNI ownership and forwards right-stick draw/raise/
@@ -779,7 +794,10 @@ threshold/delta/sensitivities; unchanged bytecode consumes actual C++ policy
 output at 90/120/144 Hz, three mouse settings, both inversion settings and two
 slow-motion factors. This bounded interpreter is not game or visor execution;
 cadence differences between dispatch and the later native update remain a live
-gate alongside Clyde progression, early draw, retry and aim alignment.
+gate for broader cadence/ownership recovery. The operator subsequently confirms
+the Clyde draw/raise gesture and shooting with tracked-hand aiming worked in
+the headset. This closes that exercised progression blocker, not native early
+draw/retry recovery, countdown visibility or all-campaign duel support.
 
 The new wrist health meter and low-health text colors are implemented and
 host-tested, including 0/25/50/100 coverage, hidden/out-of-range cache fallback,

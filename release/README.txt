@@ -11,7 +11,9 @@ feedback confirms the corrected Beyond gameplay view; an unspecified Quest
 report is also positive. These observations do not establish general support.
 Auto remains the missing resolution preference. Manual reload starts on for
 fresh installation and current updates preserve its choice. New movement,
-smooth-turn and duel changes are host-tested, awaiting physical confirmation.
+smooth-turn changes are host-tested, awaiting physical confirmation. The operator
+confirms Clyde's down/up draw/raise and tracked aiming/shooting; other duels,
+countdown visibility and interruption/retry recovery remain unqualified.
 Archived .3/.2/.1 packages and verdicts are unchanged.
 
 REQUIREMENTS
@@ -73,6 +75,15 @@ WMR              L pad DOWN / UP click       R pad UP / DOWN click
 Hold the wheel input, aim a sector with the right stick/pad, then release the
 wheel input to confirm; center the selection to cancel. In menus, R Cross/Circle
 (Sense), R A/B (Touch/Index), or R pad UP/DOWN click (Vive/WMR) accept/go back.
+
+Sense tutorial help: Cross closes a blocking hint; release before acting again.
+The PC Z prompt means Circle during gameplay (alternate fire / quick shooting).
+R3 is Focus/zoom. Ray concentration requires both weapons holstered, native
+readiness/cooldown, then a fresh L2/R2 quickdraw. Selecting fists is not holstering.
+With both pistols drawn: hold Triangle, highlight right with the right stick,
+release to holster the right pistol. Center, then repeat with the left sector
+for the left pistol. Let both holster animations finish before quickdrawing.
+Native blocking tutorial images still show PC keys; this remains a known limit.
 Either hand's trigger selects with that hand's menu pointer.
 To save/load, tap and release the profile's Pause control, then select Save/Load
 in the native pause menu when the campaign permits. Quick Save/Quick Load have

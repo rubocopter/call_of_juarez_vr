@@ -453,7 +453,18 @@ hand's shared two-hand weapon. `SetDesiredWeapon` can queue an equip while the
 current state is still empty: `GetDesiredWeapon`, `GetDesiredWeaponState`,
 `GetHandStateMashineDestinyState` and `IsDesiredWeaponOperatedTwoHand` observe
 those pending states without advancing them. Ordinary reload/context/pose loss
-retain native fingers. An admitted persistent manual opening/wait instead uses
+retain native fingers. A bounded rifle-support exception now admits controller
+curls for the logically empty left hand only when the right `WeaponRifle`
+already owns an active/applied/valid scoped visual map. Repeated observations
+must match that right actual/active/desired weapon, normal state 1 in all four
+right state getters, null left weapons/empty state 0 and coherent per-hand
+two-hand flags. Carrying, native reload, manual ownership, death, transition,
+replacement, shared active aliases and JNI faults reject. The original
+`HasSomethingInHand` includes opposite-hand two-hand occupancy; this exception
+does not redefine it or alter either weapon's native gameplay ownership.
+The existing fifteen-finger transaction and restoration remain the only writer.
+Long-gun free-hand appearance and transitions remain physical gates.
+An admitted persistent manual opening/wait instead uses
 the same-owner reload-recovery exception for empty support fingers; carrying,
 replacement, death and failed reads still reject it. Its pinch requires a held
 free-trigger claim. The .7/.7 skin-derived anchor has bounded live delivery but

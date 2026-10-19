@@ -2695,6 +2695,86 @@ bool JavaPlayerBridge::TryReadFistContactGeometry(const int hand,
     return geometry.valid;
 }
 
+bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept {
+    // Presentation only: WpnLogicRifle defaults to the right hand. Do not
+    // reinterpret shared active aliases, alternate states or native reload.
+    if(hand!=1 || !being_ || manual_reload_owned_ || independent_hand_faulted_ ||
+        weapon_overlay_faulted_ || weapon_overlays_[1].weapon)return false;
+    const auto& visual=weapon_overlays_[0];
+    if(!visual.weapon || !visual.active || !visual.applied || !visual.plan.valid)return false;
+    void* const player=being_;
+    void* const weapon=visual.weapon;
+    const auto generation=being_generation_;
+    void* env=Environment(nullptr);
+    if(!env || ClearException(env,nullptr,"support finger entry exception"))return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto find=EnvFunction<FindClassFn>(env,kFindClass);
+    const auto instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto object=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto boolean=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    if(!cls_fn || !lookup || !find || !instance || !same || !object || !integer || !boolean)return false;
+    void* cls=cls_fn(env,player);
+    bool failed=ClearException(env,nullptr,"support finger player class") || !cls;
+    constexpr const char* names[]{"GetActiveWeapon","GetActualWeaponNotEmpty","GetDesiredWeapon",
+        "GetHandStateMashineState","GetHandStateMashineDestinyState","GetActualWeaponState",
+        "GetDesiredWeaponState","IsActualWeaponOperatedTwoHand","IsDesiredWeaponOperatedTwoHand",
+        "IsHandStateMashineOperatedTwoHand","IsCarrying","IsWeaponReloading","IsNotAlive"};
+    constexpr const char* signatures[]{"(I)LWeapon;","(I)LWeapon;","(I)LWeapon;",
+        "(I)I","(I)I","(I)I","(I)I","(I)Z","(I)Z","(I)Z","()Z","()Z","()Z"};
+    void* methods[std::size(names)]{};
+    for(std::size_t i=0;!failed && i<std::size(names);++i){
+        methods[i]=lookup(env,cls,names[i],signatures[i]);
+        failed=ClearException(env,nullptr,"support finger getter lookup") || !methods[i];
+    }
+    DeleteLocal(env,cls);if(failed)return false;
+    cls=find(env,"WeaponRifle");
+    failed=ClearException(env,nullptr,"support finger rifle class") || !cls;
+    bool rifle=false;
+    if(!failed){
+        rifle=instance(env,weapon,cls)!=0;
+        failed=ClearException(env,nullptr,"support finger rifle identity");
+    }
+    DeleteLocal(env,cls);if(failed || !rifle)return false;
+    const auto coherent=[&]() noexcept {
+        for(int i=10;i<13;++i){
+            const bool blocked=boolean(env,player,methods[i],nullptr)!=0;
+            if(ClearException(env,nullptr,"support finger context read") || blocked)return false;
+        }
+        for(int h=0;h<2;++h){
+            JValue args[1]{};args[0].i=h;
+            for(int i=0;i<3;++i){
+                void* observed=object(env,player,methods[i],args);
+                bool ok=!ClearException(env,nullptr,"support finger weapon read");
+                if(ok && h==0){
+                    ok=observed && same(env,observed,weapon)!=0;
+                    if(ClearException(env,nullptr,"support finger weapon identity"))ok=false;
+                }else if(ok)ok=observed==nullptr;
+                DeleteLocal(env,observed);if(!ok)return false;
+            }
+            // All four states must agree: normal idle 1 for the rifle,
+            // empty 0 for its logical support. No animation-time writers.
+            for(int i=3;i<7;++i){
+                const int state=integer(env,player,methods[i],args);
+                if(ClearException(env,nullptr,"support finger state read") || state!=(h==0?1:0))return false;
+            }
+            for(int i=7;i<10;++i){
+                const bool two=boolean(env,player,methods[i],args)!=0;
+                if(ClearException(env,nullptr,"support finger two-hand read") || two!=(h==0))return false;
+            }
+        }
+        return being_==player && being_generation_==generation && visual.weapon==weapon &&
+            visual.active && visual.applied && visual.plan.valid && !weapon_overlay_faulted_ &&
+            !weapon_overlays_[1].weapon;
+    };
+    // Recheck native identities/states before granting the scoped finger map.
+    // IsCarrying proves absence of an object independently of the shipped
+    // HasSomethingInHand fallback for the opposite two-hand state machine.
+    return coherent() && coherent();
+}
+
 bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
     if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
     if(manual_reload_owned_){
@@ -2741,10 +2821,12 @@ bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
     if(!ok||has_desired)return false;
     JValue other[1]{};other[0].i=1-hand;
     const bool pending_shared=boolean(env,being_,methods[7],other)!=0;
-    if(ClearException(env,nullptr,"finger pending shared weapon failure")||pending_shared)return false;
+    if(ClearException(env,nullptr,"finger pending shared weapon failure"))return false;
     // This includes carried objects and the other hand's two-handed weapon.
     const bool occupied=boolean(env,being_,methods[2],args)!=0;
-    if(ClearException(env,nullptr,"finger occupied hand failure")||occupied)return false;
+    if(ClearException(env,nullptr,"finger occupied hand failure"))return false;
+    if(pending_shared)return occupied && TryCanAnimateLongGunSupportHand(hand);
+    if(occupied)return false;
     const bool dead=boolean(env,being_,methods[3],nullptr)!=0;
     return !ClearException(env,nullptr,"finger native life state failure")&&!dead;
 }
