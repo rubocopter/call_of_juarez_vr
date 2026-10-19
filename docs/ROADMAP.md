@@ -28,6 +28,10 @@ gaze rotation and a coarse native-dispatch tolerance), defaults to time-based
 smooth turning, and admits recognized Cloud Files metadata only for video settings.
 Real OneDrive operation and the reported gaze drift still need community/visor
 confirmation. A smooth/snap preference in VR settings remains planned.
+The candidate also retains simultaneous independently projected reticles for
+both verified firearms instead of selecting a hand by the current trigger.
+Dual-reticle binocular visibility/alignment and Clyde's native center countdown
+join the existing duel acceptance gate; the operator has not yet reached Clyde.
 
 A reported chest/possible-scroll interaction crash is a current campaign stability
 issue. Evidence is preserved but the symbol-only native stack lacks the actual

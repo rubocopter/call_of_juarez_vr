@@ -383,8 +383,8 @@ int main() {
     const CameraProbeWeaponRay right_gun{
         {39617.503906F, 3636.127197F, 29522.767578F},
         {-0.096656F, -0.209404F, 0.973040F}, true, true, true};
-    if (SelectWeaponReticleHand(unarmed_left_tip, right_gun, true, false) !=
-        CoJWeaponReticleHand::right) {
+    if (SelectWeaponReticleHands(unarmed_left_tip, right_gun) !=
+        CoJWeaponReticleHands::right) {
         std::cerr << "unarmed left tip stole the verified right gun reticle during left fire\n";
         return 1;
     }
@@ -394,11 +394,11 @@ int main() {
     unarmed_right_tip.muzzle_verified = false;
     auto right_whip=unarmed_right_tip;
     right_whip.whip_aim_verified=true;
-    if (SelectWeaponReticleHand(unarmed_left_tip,right_whip,true,false)!=CoJWeaponReticleHand::right) {
+    if (SelectWeaponReticleHands(unarmed_left_tip,right_whip)!=CoJWeaponReticleHands::right) {
         std::cerr<<"published whip aim must retain its right-hand reticle for either trigger\n";return 1;
     }
     right_whip.origin_valid=false;
-    if (SelectWeaponReticleHand(unarmed_left_tip,right_whip,false,true)!=CoJWeaponReticleHand::none) {
+    if (SelectWeaponReticleHands(unarmed_left_tip,right_whip)!=CoJWeaponReticleHands::none) {
         std::cerr<<"invalid whip pose retained a reticle\n";return 1;
     }
     auto invalid_direction = right_gun;
@@ -409,27 +409,20 @@ int main() {
         const char* name;
         CameraProbeWeaponRay left;
         CameraProbeWeaponRay right;
-        bool fire_left;
-        bool fire_right;
-        CoJWeaponReticleHand expected;
+        CoJWeaponReticleHands expected;
     };
     const ReticleSelectionCase reticle_selection_cases[] = {
-        {"right only idle", unarmed_left_tip, right_gun, false, false, CoJWeaponReticleHand::right},
-        {"right only both fire", unarmed_left_tip, right_gun, true, true, CoJWeaponReticleHand::right},
-        {"left only right fire", left_gun, unarmed_right_tip, false, true, CoJWeaponReticleHand::left},
-        {"left only idle", left_gun, unarmed_right_tip, false, false, CoJWeaponReticleHand::left},
-        {"both left fire", left_gun, right_gun, true, false, CoJWeaponReticleHand::left},
-        {"both right fire", left_gun, right_gun, false, true, CoJWeaponReticleHand::right},
-        {"both idle", left_gun, right_gun, false, false, CoJWeaponReticleHand::right},
-        {"both fire", left_gun, right_gun, true, true, CoJWeaponReticleHand::right},
-        {"unarmed valid tips", unarmed_left_tip, unarmed_right_tip, true, false, CoJWeaponReticleHand::none},
-        {"reload has no published muzzle", unarmed_left_tip, unarmed_right_tip, false, true, CoJWeaponReticleHand::none},
-        {"invalid direction tracking", unarmed_left_tip, invalid_direction, false, true, CoJWeaponReticleHand::none},
-        {"invalid origin tracking", unarmed_left_tip, invalid_origin, false, true, CoJWeaponReticleHand::none},
-        {"invalid right falls back to left", left_gun, invalid_direction, false, true, CoJWeaponReticleHand::left},
+        {"right only", unarmed_left_tip, right_gun, CoJWeaponReticleHands::right},
+        {"left only", left_gun, unarmed_right_tip, CoJWeaponReticleHands::left},
+        {"both without firing", left_gun, right_gun, CoJWeaponReticleHands::both},
+        {"unarmed valid tips", unarmed_left_tip, unarmed_right_tip, CoJWeaponReticleHands::none},
+        {"invalid direction tracking", unarmed_left_tip, invalid_direction, CoJWeaponReticleHands::none},
+        {"invalid origin tracking", unarmed_left_tip, invalid_origin, CoJWeaponReticleHands::none},
+        {"invalid right preserves left", left_gun, invalid_direction, CoJWeaponReticleHands::left},
+        {"invalid left preserves right", invalid_origin, right_gun, CoJWeaponReticleHands::right},
     };
     for (const auto& test : reticle_selection_cases) {
-        if (SelectWeaponReticleHand(test.left, test.right, test.fire_left, test.fire_right) != test.expected) {
+        if (SelectWeaponReticleHands(test.left, test.right) != test.expected) {
             std::cerr << "weapon reticle selection failed: " << test.name << '\n';
             return 1;
         }

@@ -530,7 +530,7 @@ struct OpenVrStereoPresenter::Impl {
         };
         const auto draw_gameplay_reticle = [&]() noexcept {
             if (!authority_ok()) { composition_ok = false; return; }
-            if (!frame.gameplay_reticle.active ||
+            if (!frame.gameplay_reticle.active() ||
                 frame.gameplay_reticle.frame_sequence != frame.capture_sequence ||
                 frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
                 texture_width == 0 || texture_height == 0 ||
@@ -567,57 +567,60 @@ struct OpenVrStereoPresenter::Impl {
                 D3D11_BOX box{center_x, top, 0U, center_x + 1U, bottom, 1U};
                 (void)update_output(eye, &box, pixels.data(), 4U);
             };
-            for (std::size_t eye = 0; eye < 2; ++eye) {
-                const auto& point = frame.gameplay_reticle.eyes[eye];
-                if (!point.valid || !std::isfinite(point.u) || !std::isfinite(point.v) ||
-                    point.u < 0.0F || point.u > 1.0F || point.v < 0.0F || point.v > 1.0F) {
-                    continue;
-                }
-                const std::uint32_t center_x = std::min(
-                    texture_width - 1U,
-                    static_cast<std::uint32_t>(
-                        point.u * static_cast<float>(texture_width - 1U) + 0.5F));
-                const std::uint32_t center_y = std::min(
-                    texture_height - 1U,
-                    static_cast<std::uint32_t>(
-                        point.v * static_cast<float>(texture_height - 1U) + 0.5F));
-                if (frame.gameplay_reticle.no_shoot) {
-                    // Upload only contiguous opaque spans of the warning;
-                    // transparent gaps keep the captured world untouched.
-                    for(int y=-8;y<=8;++y){
-                        const int py=static_cast<int>(center_y)+y;
-                        if(py<0||py>=static_cast<int>(texture_height))continue;
-                        for(int x=-8;x<=8;){
-                            const int px=static_cast<int>(center_x)+x;
-                            if(px<0||px>=static_cast<int>(texture_width)||!NoShootReticlePixel(x,y)){++x;continue;}
-                            const int first=px;std::uint32_t count=0;
-                            while(x<=8&&static_cast<int>(center_x)+x<static_cast<int>(texture_width)){
-                                const auto color=NoShootReticlePixel(x,y);if(!color)break;
-                                pixels[count++]=color;++x;
+            for (const auto& marker : frame.gameplay_reticle.weapons) {
+                if (!marker.active || !marker.eyes[0].valid || !marker.eyes[1].valid) continue;
+                for (std::size_t eye = 0; eye < 2; ++eye) {
+                    const auto& point = marker.eyes[eye];
+                    if (!point.valid || !std::isfinite(point.u) || !std::isfinite(point.v) ||
+                        point.u < 0.0F || point.u > 1.0F || point.v < 0.0F || point.v > 1.0F) {
+                        continue;
+                    }
+                    const std::uint32_t center_x = std::min(
+                        texture_width - 1U,
+                        static_cast<std::uint32_t>(
+                            point.u * static_cast<float>(texture_width - 1U) + 0.5F));
+                    const std::uint32_t center_y = std::min(
+                        texture_height - 1U,
+                        static_cast<std::uint32_t>(
+                            point.v * static_cast<float>(texture_height - 1U) + 0.5F));
+                    if (marker.no_shoot) {
+                        // Upload only contiguous opaque spans of the warning;
+                        // transparent gaps keep the captured world untouched.
+                        for(int y=-8;y<=8;++y){
+                            const int py=static_cast<int>(center_y)+y;
+                            if(py<0||py>=static_cast<int>(texture_height))continue;
+                            for(int x=-8;x<=8;){
+                                const int px=static_cast<int>(center_x)+x;
+                                if(px<0||px>=static_cast<int>(texture_width)||!NoShootReticlePixel(x,y)){++x;continue;}
+                                const int first=px;std::uint32_t count=0;
+                                while(x<=8&&static_cast<int>(center_x)+x<static_cast<int>(texture_width)){
+                                    const auto color=NoShootReticlePixel(x,y);if(!color)break;
+                                    pixels[count++]=color;++x;
+                                }
+                                D3D11_BOX box{static_cast<UINT>(first),static_cast<UINT>(py),0U,
+                                    static_cast<UINT>(first)+count,static_cast<UINT>(py)+1U,1U};
+                                if (!update_output(eye, &box, pixels.data(), count*4U)) return;
                             }
-                            D3D11_BOX box{static_cast<UINT>(first),static_cast<UINT>(py),0U,
-                                static_cast<UINT>(first)+count,static_cast<UINT>(py)+1U,1U};
-                            if (!update_output(eye, &box, pixels.data(), count*4U)) return;
+                        }
+                        continue;
+                    }
+                    for (int offset = -1; offset <= 1; ++offset) {
+                        const int horizontal_y = static_cast<int>(center_y) + offset;
+                        const int vertical_x = static_cast<int>(center_x) + offset;
+                        if (horizontal_y >= 0 && horizontal_y < static_cast<int>(texture_height)) {
+                            draw_horizontal(
+                                eye, center_x, static_cast<std::uint32_t>(horizontal_y),
+                                kOutlineRadius, kBlack);
+                        }
+                        if (vertical_x >= 0 && vertical_x < static_cast<int>(texture_width)) {
+                            draw_vertical(
+                                eye, static_cast<std::uint32_t>(vertical_x), center_y,
+                                kOutlineRadius, kBlack);
                         }
                     }
-                    continue;
+                    draw_horizontal(eye, center_x, center_y, kInnerRadius, kWhite);
+                    draw_vertical(eye, center_x, center_y, kInnerRadius, kWhite);
                 }
-                for (int offset = -1; offset <= 1; ++offset) {
-                    const int horizontal_y = static_cast<int>(center_y) + offset;
-                    const int vertical_x = static_cast<int>(center_x) + offset;
-                    if (horizontal_y >= 0 && horizontal_y < static_cast<int>(texture_height)) {
-                        draw_horizontal(
-                            eye, center_x, static_cast<std::uint32_t>(horizontal_y),
-                            kOutlineRadius, kBlack);
-                    }
-                    if (vertical_x >= 0 && vertical_x < static_cast<int>(texture_width)) {
-                        draw_vertical(
-                            eye, static_cast<std::uint32_t>(vertical_x), center_y,
-                            kOutlineRadius, kBlack);
-                    }
-                }
-                draw_horizontal(eye, center_x, center_y, kInnerRadius, kWhite);
-                draw_vertical(eye, center_x, center_y, kInnerRadius, kWhite);
             }
         };
         if (!EnsureTextures(

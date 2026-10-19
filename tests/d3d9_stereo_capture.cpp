@@ -59,11 +59,14 @@ cojvr::runtime::Pose TestRenderPose() {
 cojvr::backends::d3d9::StereoReticleOverlay TestReticle(
     const std::uint64_t frame_sequence) {
     cojvr::backends::d3d9::StereoReticleOverlay reticle{};
-    reticle.active = true;
-    reticle.no_shoot = true;
     reticle.frame_sequence = frame_sequence;
-    reticle.eyes[0] = {.valid = true, .u = 0.25F, .v = 0.40F};
-    reticle.eyes[1] = {.valid = true, .u = 0.75F, .v = 0.60F};
+    reticle.weapons[0].active = true;
+    reticle.weapons[0].no_shoot = true;
+    reticle.weapons[0].eyes[0] = {.valid = true, .u = 0.25F, .v = 0.40F};
+    reticle.weapons[0].eyes[1] = {.valid = true, .u = 0.75F, .v = 0.60F};
+    reticle.weapons[1].active = true;
+    reticle.weapons[1].eyes[0] = {.valid = true, .u = 0.80F, .v = 0.30F};
+    reticle.weapons[1].eyes[1] = {.valid = true, .u = 0.85F, .v = 0.35F};
     return reticle;
 }
 
@@ -217,10 +220,15 @@ int main() {
         frame.render_pose_sequence != 42 || !frame.render_hmd_pose.orientation_valid ||
         !frame.render_hmd_pose.position_valid ||
         std::fabs(frame.render_hmd_pose.position.y - 1.65F) > 0.0001F ||
-        !frame.gameplay_reticle.active || !frame.gameplay_reticle.no_shoot || frame.gameplay_reticle.frame_sequence != 1 ||
-        !frame.gameplay_reticle.eyes[0].valid || !frame.gameplay_reticle.eyes[1].valid ||
-        std::fabs(frame.gameplay_reticle.eyes[0].u - 0.25F) > 0.0001F ||
-        std::fabs(frame.gameplay_reticle.eyes[1].u - 0.75F) > 0.0001F ||
+        !frame.gameplay_reticle.active() || !frame.gameplay_reticle.weapons[0].no_shoot || frame.gameplay_reticle.frame_sequence != 1 ||
+        !frame.gameplay_reticle.weapons[0].active || !frame.gameplay_reticle.weapons[1].active ||
+        frame.gameplay_reticle.weapons[1].no_shoot ||
+        !frame.gameplay_reticle.weapons[0].eyes[0].valid || !frame.gameplay_reticle.weapons[0].eyes[1].valid ||
+        !frame.gameplay_reticle.weapons[1].eyes[0].valid || !frame.gameplay_reticle.weapons[1].eyes[1].valid ||
+        std::fabs(frame.gameplay_reticle.weapons[0].eyes[0].u - 0.25F) > 0.0001F ||
+        std::fabs(frame.gameplay_reticle.weapons[0].eyes[1].u - 0.75F) > 0.0001F ||
+        std::fabs(frame.gameplay_reticle.weapons[1].eyes[0].u - 0.80F) > 0.0001F ||
+        std::fabs(frame.gameplay_reticle.weapons[1].eyes[1].u - 0.85F) > 0.0001F ||
         frame.eyes[0].width != 65 || frame.eyes[0].height != 37 ||
         frame.eyes[0].stride < 65 * 4 || frame.eyes[1].stride < 65 * 4 ||
         frame.transport != cojvr::backends::d3d9::StereoFrameTransport::classic_d3d9_locked_systemmem ||

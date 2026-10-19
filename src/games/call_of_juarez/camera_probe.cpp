@@ -6629,53 +6629,66 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             {aim_observation.right_direction.x,aim_observation.right_direction.y,aim_observation.right_direction.z},
             aim_observation.right_origin_valid,aim_observation.right_direction_valid,
             aim_observation.right_muzzle_verified,aim_observation.right_whip_aim_verified};
-        const auto selected_hand = SelectWeaponReticleHand(
-            left_ray,right_ray,gameplay_input.fire_left,gameplay_input.fire_right);
-        const auto& ray = selected_hand == CoJWeaponReticleHand::left ? left_ray : right_ray;
+        const auto selected_hands = SelectWeaponReticleHands(left_ray, right_ray);
         const float near_limit = std::max(
             left_applied_frustum.near_plane, right_applied_frustum.near_plane);
         const float far_limit = std::min(
             left_applied_frustum.far_plane, right_applied_frustum.far_plane);
         const float reticle_depth = std::min(5000.0F, far_limit * 0.95F);
-        if (selected_hand != CoJWeaponReticleHand::none && reticle_depth > near_limit &&
-            ProjectWorldAimRayToEyeReticle(
-                ray.origin,
-                ray.direction,
-                left_applied_position,
-                left_applied_basis,
-                left_applied_frustum,
-                reticle_depth,
-                gameplay_reticle.eyes[0]) &&
-            ProjectWorldAimRayToEyeReticle(
-                ray.origin,
-                ray.direction,
-                right_applied_position,
-                right_applied_basis,
-                right_applied_frustum,
-                reticle_depth,
-                gameplay_reticle.eyes[1])) {
-            gameplay_reticle.active = true;
-            if (ray.muzzle_verified) {
-                CoJNoShootSnapshot native_warning{};
-                const int hand=selected_hand==CoJWeaponReticleHand::left?1:0;
-                const bool observed=g_java_player_bridge.TryObserveNoShoot(hand,native_warning);
-                const auto warning_assessment=AssessCoJNoShootRay(native_warning,hand,
-                    {ray.origin.x,ray.origin.y,ray.origin.z},{ray.direction.x,ray.direction.y,ray.direction.z});
-                gameplay_reticle.no_shoot=observed&&warning_assessment.reason==CoJNoShootRayReason::matched;
-                if (ShouldObserveBodyFrame(frame_sequence)) {
-                    EmitEvent("native_no_shoot", "observed",
-                        "frame_sequence="+std::to_string(frame_sequence)+
-                        ";hand="+std::to_string(hand)+";valid="+std::to_string(native_warning.valid)+
-                        ";native_visible="+std::to_string(native_warning.warning_visible)+
-                        ";ray_coherent="+std::to_string(gameplay_reticle.no_shoot)+
-                        ";ray_gate="+CoJNoShootRayReasonName(warning_assessment.reason)+
-                        ";origin_drift_cm="+std::to_string(warning_assessment.origin_drift_cm)+
-                        ";direction_cosine="+std::to_string(warning_assessment.direction_cosine)+
-                        ";reason="+std::to_string(native_warning.reason)+
-                        ";age_seconds="+std::to_string(native_warning.age_seconds)+";trace_replayed=false");
+        for (std::size_t hand = 0; hand < gameplay_reticle.weapons.size(); ++hand) {
+            const bool selected = selected_hands == CoJWeaponReticleHands::both ||
+                selected_hands == (hand == 0 ? CoJWeaponReticleHands::right : CoJWeaponReticleHands::left);
+            const auto& ray = hand == 0 ? right_ray : left_ray;
+            auto& marker = gameplay_reticle.weapons[hand];
+            if (selected && reticle_depth > near_limit &&
+                ProjectWorldAimRayToEyeReticle(
+                    ray.origin,
+                    ray.direction,
+                    left_applied_position,
+                    left_applied_basis,
+                    left_applied_frustum,
+                    reticle_depth,
+                    marker.eyes[0]) &&
+                ProjectWorldAimRayToEyeReticle(
+                    ray.origin,
+                    ray.direction,
+                    right_applied_position,
+                    right_applied_basis,
+                    right_applied_frustum,
+                    reticle_depth,
+                    marker.eyes[1])) {
+                marker.active = true;
+                if (ray.muzzle_verified) {
+                    CoJNoShootSnapshot native_warning{};
+                    const auto native_hand = static_cast<int>(hand);
+                    const bool observed=g_java_player_bridge.TryObserveNoShoot(native_hand,native_warning);
+                    const auto warning_assessment=AssessCoJNoShootRay(native_warning,native_hand,
+                        {ray.origin.x,ray.origin.y,ray.origin.z},{ray.direction.x,ray.direction.y,ray.direction.z});
+                    marker.no_shoot=observed&&warning_assessment.reason==CoJNoShootRayReason::matched;
+                    if (ShouldObserveBodyFrame(frame_sequence)) {
+                        EmitEvent("native_no_shoot", "observed",
+                            "frame_sequence="+std::to_string(frame_sequence)+
+                            ";hand="+std::to_string(hand)+";valid="+std::to_string(native_warning.valid)+
+                            ";native_visible="+std::to_string(native_warning.warning_visible)+
+                            ";ray_coherent="+std::to_string(marker.no_shoot)+
+                            ";ray_gate="+CoJNoShootRayReasonName(warning_assessment.reason)+
+                            ";origin_drift_cm="+std::to_string(warning_assessment.origin_drift_cm)+
+                            ";direction_cosine="+std::to_string(warning_assessment.direction_cosine)+
+                            ";reason="+std::to_string(native_warning.reason)+
+                            ";age_seconds="+std::to_string(native_warning.age_seconds)+";trace_replayed=false");
+                    }
                 }
             }
         }
+    }
+
+    if (ShouldObserveBodyFrame(frame_sequence)) {
+        EmitEvent("weapon_reticles", "observed",
+            "frame_sequence=" + std::to_string(frame_sequence) +
+            ";right=" + std::to_string(gameplay_reticle.weapons[0].active) +
+            ";left=" + std::to_string(gameplay_reticle.weapons[1].active) +
+            ";right_no_shoot=" + std::to_string(gameplay_reticle.weapons[0].no_shoot) +
+            ";left_no_shoot=" + std::to_string(gameplay_reticle.weapons[1].no_shoot));
     }
 
     if (mirror_ready) {
@@ -7497,17 +7510,14 @@ bool BuildCameraProbeFrustum(
     return true;
 }
 
-CoJWeaponReticleHand SelectWeaponReticleHand(
+CoJWeaponReticleHands SelectWeaponReticleHands(
     const CameraProbeWeaponRay& left,
-    const CameraProbeWeaponRay& right,
-    const bool fire_left,
-    const bool fire_right) noexcept {
+    const CameraProbeWeaponRay& right) noexcept {
     const bool left_valid = left.muzzle_verified && left.origin_valid && left.direction_valid;
     const bool right_valid = (right.muzzle_verified || right.whip_aim_verified) && right.origin_valid && right.direction_valid;
-    if (left_valid && ((fire_left && !fire_right) || !right_valid)) {
-        return CoJWeaponReticleHand::left;
-    }
-    return right_valid ? CoJWeaponReticleHand::right : CoJWeaponReticleHand::none;
+    if (left_valid && right_valid) return CoJWeaponReticleHands::both;
+    if (left_valid) return CoJWeaponReticleHands::left;
+    return right_valid ? CoJWeaponReticleHands::right : CoJWeaponReticleHands::none;
 }
 
 bool ProjectWorldAimRayToEyeReticle(

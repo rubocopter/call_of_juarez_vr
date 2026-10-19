@@ -53,11 +53,18 @@ struct StereoReticlePoint {
 
 // Normalized top-left-origin coordinates already projected by the game
 // adapter for the exact eye cameras that produced this captured frame.
-struct StereoReticleOverlay {
+struct StereoWeaponReticle {
     bool active = false;
     bool no_shoot = false;
-    std::uint64_t frame_sequence = 0;
     std::array<StereoReticlePoint, 2> eyes{};
+};
+
+struct StereoReticleOverlay {
+    std::uint64_t frame_sequence = 0;
+    std::array<StereoWeaponReticle, 2> weapons{};
+    [[nodiscard]] bool active() const noexcept {
+        return weapons[0].active || weapons[1].active;
+    }
 };
 
 struct ProducerFrameReleaseState {

@@ -676,7 +676,7 @@ bool D3D9StereoCapture::EndFrame(
         }
         slot.render_hmd_pose = render_hmd_pose;
         slot.render_pose_sequence = render_pose_sequence;
-        if (gameplay_reticle.active && gameplay_reticle.frame_sequence != frame_sequence) {
+        if (gameplay_reticle.active() && gameplay_reticle.frame_sequence != frame_sequence) {
             impl_->last_error = "stereo reticle payload does not match the captured frame sequence";
             slot.ResetState();
             impl_->current_frame = 0;

@@ -50,11 +50,16 @@ struct CameraProbeReticlePoint {
     float v = 0.0F;
 };
 
-struct CameraStereoReticleOverlay {
+struct CameraWeaponReticle {
     bool active = false;
     bool no_shoot = false;
-    std::uint64_t frame_sequence = 0;
     std::array<CameraProbeReticlePoint, 2> eyes{};
+};
+
+struct CameraStereoReticleOverlay {
+    std::uint64_t frame_sequence = 0;
+    // Stable hand order: right, left. Each marker has a complete eye pair.
+    std::array<CameraWeaponReticle, 2> weapons{};
 };
 
 struct CameraProbeCommand {
@@ -193,16 +198,15 @@ private:
     bool release_required_=true;
 };
 
-enum class CoJWeaponReticleHand { none, right, left };
+enum class CoJWeaponReticleHands { none, right, left, both };
 
 // Tip tracking alone cannot establish weapon alignment. Select only a published
 // verified muzzle or the owned procedural whip ray; the whip keeps its native
-// two-trigger semantics. Firearms prefer left for left-only fire, else right.
-[[nodiscard]] CoJWeaponReticleHand SelectWeaponReticleHand(
+// two-trigger semantics. Both verified firearms remain visible independently
+// of which trigger is held or which weapon last fired.
+[[nodiscard]] CoJWeaponReticleHands SelectWeaponReticleHands(
     const CameraProbeWeaponRay& left,
-    const CameraProbeWeaponRay& right,
-    bool fire_left,
-    bool fire_right) noexcept;
+    const CameraProbeWeaponRay& right) noexcept;
 
 // Projects a world-space weapon ray onto a camera-facing plane at the supplied
 // eye-space depth and then through the exact asymmetric eye frustum. Output UV

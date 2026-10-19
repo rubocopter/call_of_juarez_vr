@@ -394,6 +394,14 @@ native RotateHorizontally method becomes duel aim. Actor-yaw commits recheck
 ownership after callbacks before a nonzero write. The concentration scene is
 independent; no concentration or weapon-equipping logic is replaced.
 
+Weapon reticles retain two independent hand slots, each with a complete pair
+of captured-eye projections. Every currently verified muzzle is displayed,
+independent of trigger state or last shot; a missing/reloading weapon cannot
+borrow the other hand's ray. The right procedural whip retains its existing
+admitted ray. Native no-shoot warnings are assessed separately for each hand,
+and frame identity, native gameplay ownership and stereo restoration still
+gate publication. Dual-reticle visibility/alignment remains a physical gate.
+
 Optional wheel haptics describe fresh highlighting, not command success: right
 hand, 12 ms, amplitude 0.18, 120 Hz, minimum 80 ms cadence and maximum 100 ms capture
 age. Initial/reacquired/context/resource baselines are silent; stale/centered

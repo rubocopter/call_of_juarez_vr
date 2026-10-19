@@ -444,6 +444,13 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   behavior, retry, recenter and return to ordinary movement/turning. Do not force
   weapon/countdown state to pass the gate. The accepted concentration rescue
   remains separate and needs no repeat solely for confirmation.
+- **Dual weapon reticles:** with two drawn firearms, require both aiming marks
+  at rest and while firing either/both triggers. Move the weapons independently,
+  then holster/change/reload one; only its mark may disappear when its muzzle
+  publication is unavailable. Confirm binocular alignment and no stale marks
+  after pause/tracking loss. Per-hand native protection warnings retain their
+  separate physical gate. The Clyde center countdown is also unobserved in a
+  formal duel; the concentration rescue does not qualify it.
 - **Interaction:** point the left Sense at a drawer's usable part and press L1.
   Head turning must not retarget it. The cyan reference must exist only while
   L1 is held. Check opening, pickup/carry/put-down and release after tracking loss.

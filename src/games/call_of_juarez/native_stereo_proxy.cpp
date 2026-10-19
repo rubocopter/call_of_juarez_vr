@@ -2421,15 +2421,19 @@ bool SubmitStereoFrame(
     if (!state) return false;
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
     cojvr::backends::d3d9::StereoReticleOverlay capture_reticle{};
-    capture_reticle.active = gameplay_reticle.active;
-    capture_reticle.no_shoot = gameplay_reticle.no_shoot;
     capture_reticle.frame_sequence = gameplay_reticle.frame_sequence;
-    for (std::size_t eye = 0; eye < capture_reticle.eyes.size(); ++eye) {
-        capture_reticle.eyes[eye] = {
-            .valid = gameplay_reticle.eyes[eye].valid,
-            .u = gameplay_reticle.eyes[eye].u,
-            .v = gameplay_reticle.eyes[eye].v,
-        };
+    for (std::size_t hand = 0; hand < capture_reticle.weapons.size(); ++hand) {
+        auto& marker = capture_reticle.weapons[hand];
+        const auto& source = gameplay_reticle.weapons[hand];
+        marker.active = source.active;
+        marker.no_shoot = source.no_shoot;
+        for (std::size_t eye = 0; eye < marker.eyes.size(); ++eye) {
+            marker.eyes[eye] = {
+                .valid = source.eyes[eye].valid,
+                .u = source.eyes[eye].u,
+                .v = source.eyes[eye].v,
+            };
+        }
     }
     auto captured_hud_text = hud_text;
     captured_hud_text.feedback_context_token =

@@ -672,6 +672,15 @@ New diagnostic collection records both counters explicitly and host tests check
 their separation. This does not qualify usable alpha/coverage, an independent
 target, a mirror write, every script route or new headset behavior.
 
+The captured reticle payload has one slot per hand, each with both eye points.
+Both verified firearm muzzles publish simultaneously, independent of trigger
+state or last shot. Unarmed tips and unpublished reload/holster rays cannot
+produce a firearm mark. The right procedural whip retains its admitted ray.
+Each hand must project successfully into both captured eye frusta; failure
+suppresses only that hand's marker. Frame/context loss clears both. Selection
+and captured two-marker transport have host coverage; binocular visibility and
+alignment remain physical gates.
+
 The native red no-shoot indication is separate from reticle alignment:
 `HUDCrosshairHand.CanShowDontShot` delegates to `Being.CanShowDontShot(hand)`;
 `CanFireAtTarget` and `AimingAtValidTarget` are separate predicates. The eyes-only
