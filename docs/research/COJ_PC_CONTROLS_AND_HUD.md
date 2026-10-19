@@ -33,8 +33,8 @@ outside that manual are explicitly marked.
 | --- | --- | --- | --- |
 | 0 | Look up | unassigned | tracked HMD; no digital look intent |
 | 1 | Look down | unassigned | tracked HMD; no digital look intent |
-| 2 | Turn left | unassigned | adapter snap; native continuous look neutral |
-| 3 | Turn right | unassigned | adapter snap; native continuous look neutral |
+| 2 | Turn left | unassigned | adapter smooth turn; ordinary native look action neutral; duel mouse route separate |
+| 3 | Turn right | unassigned | adapter smooth turn; ordinary native look action neutral; duel mouse route separate |
 | 4 | Forward | W | move.y positive |
 | 5 | Backward | S | move.y negative |
 | 6 | Strafe right | D | move.x positive |
@@ -126,7 +126,7 @@ user-customized SteamVR bindings or physical controller behavior.
 | --- | --- |
 | Left stick | head-relative movement; small deflection gives native analog slow movement |
 | L3 | on-foot crouch toggle, merged with physical crouch |
-| Right stick | 45-degree snap turn |
+| Right stick | proportional smooth turn; prepared duel uses native draw/raise/aim instead |
 | R3 | Focus toggle; XR magnification follows real native squint |
 | L2 | original LMB / left-hand action |
 | R2 | original RMB / right-hand action |
@@ -194,10 +194,10 @@ center or another sector starts a fresh gesture.
 
 While open, the wheel consumes digital gameplay buttons and all right-stick
 turning. It retains established manual crouch/Focus state and left-stick movement.
-On closing, held buttons must release before gameplay resumes. Snap stays blocked
+On closing, held buttons must release before gameplay resumes. Turning stays blocked
 through the closing sample and subsequent deflected samples until an available
-finite right stick returns inside radius 0.25. This barrier is additional to the
-existing native snap thresholds, 0.70 engage and 0.35 horizontal release.
+finite right stick returns inside radius 0.25. Ordinary smooth turning then uses
+the time-based runtime policy; the retained snap helper is not the default.
 
 Menu/UI owns shared buttons before the wheel: Cross Accept, Circle Back,
 L2/R2 tracked-hand pointer selection and Options native pause/navigation.
