@@ -1,28 +1,91 @@
-# Unreleased compatibility candidate
+# v0.1.0-prealpha.4 — Duels, dual reticles and compatibility
 
-- Manual reload remains available and defaults on for fresh installs. Launcher
-  option 8 switches to conventional reload or back; updates preserve the choice.
-- Launcher option 9 explains startup and the per-profile pause/save menu controls.
-- Recognized Cloud Files metadata is allowed for video settings only, addressing
-  OneDrive's false-positive link rejection. Real junctions/symlinks and unknown
-  tags still reject, including changed recovery targets. Host coverage uses
-  simulated cloud metadata and real filesystem transactions; live OneDrive
-  operation still needs community confirmation.
-- Native controller-axis shaping runs before head-relative rotation, retaining
-  small lateral components during careful movement. Native dispatch no longer
-  drops small gaze changes. These fixes are host-tested; the complete community
-  gaze-drift report still needs physical confirmation.
-- Smooth turning is the ordinary default: proportional input up to 90 degrees/
-  second in the native normal-look route, independent of rendering sample rate.
-  Native special-mode coefficients remain authoritative. Stale/lost input cannot
-  accumulate a catch-up turn. A VR settings smooth/snap selector is planned.
-- A duel-only right-stick mapping forwards down/up to native draw/raise and
-  horizontal input to native aim, retaining triggers and native permissions.
-  Ordinary turning/body yaw yield during a duel. This is an experimental
-  candidate; Clyde progression and headset aim still need physical confirmation.
-- Scoped community feedback confirms .3's corrected Beyond gameplay view. An
-  unspecified Quest report is also positive. The operator confirms concentration
-  draw/fire in an exercised window-entry rescue; this does not accept duel draw.
+Experimental community prerelease for the **original Steam Call of Juarez (2006),
+D3D9/OpenVR**. Cumulative from .3; back up your saves. The operator confirms the
+tested candidate works in the exercised PS VR2 Sense setup. This is scoped
+functional acceptance, not full campaign coverage or general hardware support.
+
+**Manual reload for long guns is not implemented. Rifles/shotguns still use the
+original automatic reload and its native animation (Sense: Square).** Physical
+cartridge loading remains limited to the admitted revolver profiles.
+
+## Changes since prealpha.3
+
+- **Duel controls:** center the right stick on entry, pull down to draw when the
+  game permits, then up to raise. Horizontal stick input retains native duel aim;
+  tracked-hand aiming and triggers remain available. Ordinary turning/body-follow
+  yaw yield to the duel. Clyde draw/raise and tracked aiming/fire are operator-
+  confirmed; native timing, permissions and early-draw rules are preserved.
+- **Two simultaneous weapon reticles:** each verified firearm gets its own
+  continuously displayed aiming mark, including while idle or firing either hand.
+  Each mark has independent projections for both eyes and its own qualified
+  native no-shoot flag. Missing weapon/tracking/context cannot reuse another ray.
+- **Careful movement:** apply native stick shaping before head-relative rotation
+  and retain smaller gaze-direction changes in native input dispatch, addressing
+  the reported angular deadzone/drift during slow movement.
+- **Smooth turning by default:** proportional turning up to 90 degrees/second
+  in normal native look mode. Timing is independent of render sample rate;
+  lost/stale input resets until the stick is centered. Native special-mode
+  coefficients remain authoritative. A smooth/snap selector is still planned.
+- **Long-gun free hand:** allow controller finger curls for the logically empty
+  left support hand when a normally held right rifle owns a verified visual map.
+  This corrects the inherited support-grip pose away from the gun. Firing,
+  alternate-fire, reload and transitional states can retain native fingers;
+  this does not add two-hand gripping or physical long-gun reload.
+- **Manual reload choice restored:** launcher **8 — Manual reload on/off** changes
+  the setting transactionally while the game is closed. Fresh installations
+  default on; updates and Prepare session retain the installed choice.
+- **Launcher help:** **9 — Controls and startup help** explains launch, pause and
+  native save-menu access for each packaged controller profile. Updated guidance
+  distinguishes R3 Focus/zoom, Circle alternate fire and Ray concentration.
+- **OneDrive video-settings compatibility:** recognize Windows Cloud Files
+  metadata for redirected `Video.scr` paths. The exception is limited to video
+  settings; real links/junctions, unknown tags and linked game/package/backup
+  paths remain rejected, including changed recovery targets. Host sandbox and
+  simulated-cloud tests pass; live OneDrive operation still needs confirmation.
+- **Documentation and validation:** current guides reflect the released features,
+  operator confirmations and remaining limits. Ordinary Ray concentration is
+  confirmed after holstering; its native activation rules were clarified, not
+  replaced with a new concentration button or implementation.
+
+## Controls to know
+
+- **Ray concentration:** holster both weapons, allow the native cooldown/readiness
+  and holster animations to finish, then freshly press L2 or R2. With both pistols
+  drawn, hold Triangle, highlight right with the right stick and release to
+  holster right; center, then repeat left for the left pistol. Selecting fists
+  is not holstering. R3 remains Focus/zoom.
+- **Blocking tutorial asking for Z:** Cross dismisses the hint. Release, then
+  Circle requests alternate fire after gameplay resumes. Native tutorial windows
+  still show PC-key labels; this limitation is not fixed in .4.
+- **Reload:** Square opens/closes an admitted manual revolver session when enabled.
+  The free-hand trigger carries/releases rounds. Long guns retain automatic
+  native reload and animation. The manual system remains experimental.
+
+## Install/update and remaining limits
+
+Extract the complete **Windows player ZIP**, close the game, start SteamVR for
+Auto/percentage profiles, then select **1 — Install/update** in `CoJ-VR.cmd`.
+The first session is prepared automatically. Before later plays choose
+**6 — Prepare session** while closed; start the game manually. Saved resolution
+profiles and the reload on/off choice survive updates. **7** changes resolution,
+**8** changes reload, **9** shows controls/help, and **2** restores original files.
+
+The .3 asymmetric OpenVR projection fix and missing-preference Auto resolution
+are retained. Beyond gameplay-view feedback and an unspecified Quest report are
+positive; broader headset/controller compatibility and menu gaze alignment
+remain unqualified. Only PS VR2 Sense is the exercised development reference.
+
+Remaining work includes physical long-gun reload, native VR tutorial labels,
+the smooth/snap selector, convincing cartridge contact/precise chamber loading,
+ejection and broad interruption recovery. Full campaign, other weapons/duels,
+mounted/climbing/scoped contexts, the reported chest/possible-scroll crash,
+device loss and sustained/recorded performance remain open. Theater remains the
+cinematic default; immersive movie subtitle transport is unfinished. Archived
+packages and canonical verifier outcomes are unchanged by operator acceptance.
+
+Original project code is GPL-3.0-or-later. The ZIP includes license/third-party
+notices and `SOURCE_COMMIT.txt`; no game archives are distributed.
 
 # v0.1.0-prealpha.3 — Experimental community release
 

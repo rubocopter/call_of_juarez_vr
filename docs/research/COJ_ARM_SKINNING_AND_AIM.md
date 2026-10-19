@@ -463,7 +463,9 @@ replacement, shared active aliases and JNI faults reject. The original
 `HasSomethingInHand` includes opposite-hand two-hand occupancy; this exception
 does not redefine it or alter either weapon's native gameplay ownership.
 The existing fifteen-finger transaction and restoration remain the only writer.
-Long-gun free-hand appearance and transitions remain physical gates.
+The operator confirms the normal-state free-hand appearance after retesting
+the candidate. Native fire/alternate/reload states are not retargeted by this
+exception; broader transitions and other setups remain separate gates.
 An admitted persistent manual opening/wait instead uses
 the same-owner reload-recovery exception for empty support fingers; carrying,
 replacement, death and failed reads still reject it. Its pinch requires a held

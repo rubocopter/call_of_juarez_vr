@@ -14,11 +14,11 @@
 
 > **Experimental community-testing pre-alpha.** The campaign is not fully tested, crashes can block progress, and this is not a supported release. Physical validation is limited to exercised scenes with PS VR2 Sense through SteamVR; other packaged controller bindings are experimental.
 
-**[Download v0.1.0-prealpha.3 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.3/CoJ-VR-0.1.0-prealpha.3-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.3)
+**[Download v0.1.0-prealpha.4 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.4/CoJ-VR-0.1.0-prealpha.4-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.4)
 
-**New in .3:** corrected OpenVR vertical projection conversion for asymmetric optics, Auto resolution when no preference is saved, and manual reload enabled by default on install/update. A community user confirms the corrected gameplay view on Bigscreen Beyond; an unspecified Quest report is also positive. This is scoped feedback, not general headset support. This release includes the .2 baseline; archived .2/.1 packages and verdicts remain unchanged.
+**New in .4:** native duel draw/raise controls, simultaneous reticles for both firearms, careful-movement corrections, smooth turning by default, improved free-hand fingers with a normally held long gun, and launcher reload on/off and controls/help menus. Updates retain the manual-reload choice. Recognized OneDrive/Cloud Files video-setting paths are admitted; live OneDrive operation still needs community confirmation.
 
-**Unreleased development candidate:** launcher **8 — Manual reload on/off** with the choice retained across updates; **9 — Controls and startup help**; video-settings compatibility with recognized Cloud Files metadata; careful-movement corrections and smooth turning by default. These changes need physical/community confirmation. The published .3 download and its instructions below retain their original behavior.
+**Long-gun manual reload is not implemented.** Rifles/shotguns retain the original automatic reload and its native animation (Sense: Square). Manual cartridge loading remains limited to the admitted revolver profiles. The operator confirms the final candidate's exercised functions on PS VR2, including the corrected support-hand presentation and ordinary concentration activation. This is scoped functional acceptance, not full campaign or hardware support.
 
 ## Quickstart
 
@@ -27,13 +27,13 @@ You need **Windows 10/11 x64**, the **original Steam Call of Juarez (2006), D3D9
 1. **Back up your saves.** Run the original game in D3D9 mode once, then close it.
 2. Download and extract the complete **Windows player ZIP** above. Keep its folders together; GitHub's automatic source-code ZIP is for development.
 3. Start **SteamVR manually before Install/update** for Auto or percentage profiles. **Auto** is used when no resolution preference is saved.
-4. Double-click **CoJ-VR.cmd**, choose **1 — Install/update** and select the game folder containing `CoJ.exe`. Stereo, independent hands, native torso/legs, physical Hands combat and manual reload are enabled; there is no reload y/n prompt.
+4. Double-click **CoJ-VR.cmd**, choose **1 — Install/update** and select the game folder containing `CoJ.exe`. Stereo, independent hands, native torso/legs and physical Hands combat are enabled. Manual revolver reload defaults on for a fresh installation; **8 — Manual reload on/off** changes it while the game is closed.
 5. Installation prepares the first session using the saved profile. Resolution selection is optional: choose **7 — Resolution profiles**, then **6 — Prepare session** only if you change it afterward. Start the **D3D9 game manually**.
 6. Before **every subsequent play session**, close the game, start SteamVR manually for Auto/percentages, optionally change the profile with **7**, then choose **6 — Prepare session** for fresh provenance. It retains installed features. Start the game manually; the launcher never starts, closes or changes its focus.
 
 No compiler, Git, system Python or PowerShell 7 is needed. The package bundles Python and the VC++ x86 runtime for offline installation and uses Windows PowerShell 5.1.
 
-To update, close the game, extract a newer player ZIP, start SteamVR manually for Auto/percentages and choose **1 — Install/update**. Every explicitly saved resolution choice, including Manual and Preserve, persists. Default Install/update enables manual reload even if it was previously off. Advanced noninteractive installation can use `-ManualReload:$false`; Prepare session retains that installed choice, but a later default Install/update enables it again. Installation prepares the updated session. Use **2 — Uninstall/recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **5 — Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
+To update, close the game, extract a newer player ZIP, start SteamVR manually for Auto/percentages and choose **1 — Install/update**. Explicit resolution preferences and the installed manual-reload on/off choice persist. **8** changes reload transactionally; **9 — Controls and startup help** explains launch, pause and save-menu controls for each packaged profile. Installation prepares the updated session. Use **2 — Uninstall/recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **5 — Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
 
 ### Image quality
 
@@ -47,20 +47,34 @@ Profiles change native rendering at startup, including menu/theater sources, and
 
 These features have scoped headset validation in exercised scenes, not full campaign coverage:
 
-- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and snap turning.
+- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and default smooth turning. A smooth/snap selector is still planned.
 - Independent tracked hands/weapons with the original torso and legs; exercised pistol effects, whip use and physical Hands combat.
 - Controller menus, equipment wheel/haptics, wrist compass, encountered HUD/subtitles, pickup/carry, drawers and Focus.
 - Experimental manual revolver reload, enabled by default: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
+- Simultaneous independent aiming reticles with two firearms; Clyde duel draw/raise with the right stick and tracked-hand aiming/fire; corrected free-left-hand fingers with a normally held long gun.
 
 Compared with prealpha.1, this release also improves Ray's body/coat presentation, including the accepted 8 cm horizontal visual setback. Stereo recovery after cinematics, including Hope, is fixed and headset-validated across multiple exercised sequences. The operator also accepted hot presentation-mode changes, different equipped weapons, recentering during sequences and continued gameplay; this is not complete campaign coverage.
 
 ## Controller guide
 
-[![Current PS VR2 Sense controls](assets/CoJ_sensevr.png)](assets/CoJ_sensevr.png)
+Current PS VR2 Sense defaults:
+
+| Control | Action |
+| --- | --- |
+| Left stick / L3 | Move / crouch toggle |
+| Right stick / R3 | Smooth turn (duel: draw/raise/aim) / Focus zoom |
+| L2 / R2 | Left/right native hand action; manual reload uses the free-hand trigger |
+| L1 / R1 | Interact along left-hand ray / kick or mounted gallop |
+| Square / Cross / Circle | Reload / jump / alternate fire |
+| Hold Triangle | Equipment wheel; select with right stick and release to confirm |
+| Create tap / hold 800 ms | Objectives / recenter |
+| Options tap / hold 1 s | Pause on release / VR settings |
 
 PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. For manual reload with an eligible revolver and empty support hand: **press Square to open → press/hold the free-hand trigger at your hip to grab a round → bring it to the gun and release → press Square to close**. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
 
 The VR settings panel is a **provisional development interface**, not the final settings experience; more comfort options are planned.
+
+**Duels:** center the right stick on entry, pull down to draw when the game permits, then up to raise; aim with your tracked hand and use the triggers to fire. **Ray concentration:** holster both weapons and wait for native readiness, then make a fresh L2/R2 press. R3 is Focus/zoom; selecting fists is not holstering. With both pistols drawn, hold Triangle, highlight the right sector with the right stick and release to holster the right pistol; center and repeat left for the left pistol. Let both animations finish. **Blocking hints:** Cross dismisses; release before the next action. A PC Z prompt means Circle/alternate fire once gameplay resumes. Native tutorial windows still display PC keys.
 
 PS VR2 with Sense through SteamVR is the only physically validated reference, limited to exercised scenes. Packaged Touch, Index, Vive wand and WMR bindings are experimental and do not establish support for another headset or PC. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls).
 
@@ -70,10 +84,11 @@ PS VR2 with Sense through SteamVR is the only physically validated reference, li
 - Full campaign cinematic coverage remains open. Theater is the default; immersive movie subtitles are not transported. Earlier intermittent full-scene flashes have not recurred in later exercised sessions, but their cause remains unresolved.
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
-- Manual reload has scoped acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. The latest hand-directed interaction also awaits physical acceptance.
-- The .3 projection correction is host-tested only. Beyond/Quest gameplay distortion and menu gaze alignment still need physical confirmation; other headset support is unqualified. The rejected independent eye RT prototype and investigation probes remain off.
+- Manual reload has scoped revolver acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. Long guns retain automatic native reload and its original animation. The latest hand-directed interaction also awaits physical acceptance.
+- Native tutorial windows still show PC keys. The smooth/snap preference is not available yet. The long-gun support-hand correction applies in normal weapon states; firing/alternate/reload/transitions can retain native fingers.
+- Community feedback confirms the retained .3 projection correction on Beyond and reports a good Quest view without specifying its model. Menu gaze alignment and broader headset/controller support remain unqualified. The rejected independent eye RT prototype and investigation probes remain off.
 
-The current release target is **v0.1.0-prealpha.3**, cumulative from .2 and .1. Later changes on `main` require another release before they reach that ZIP. See [release notes](release/RELEASE_NOTES.md) and [Validation](docs/VALIDATION.md) for changes and acceptance limits.
+The current release target is **v0.1.0-prealpha.4**, cumulative from .3, .2 and .1. See [release notes](release/RELEASE_NOTES.md) for the changes since .3 and [Validation](docs/VALIDATION.md) for acceptance limits. Archived packages and canonical verifier outcomes remain unchanged.
 
 ## Feedback
 

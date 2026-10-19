@@ -449,8 +449,9 @@ contexts remain separate gates; dispatch alone does not validate them.
   countdown is forced. Exact local module/player/duel/action ownership, native
   game-time deduplication and centered recovery bound input. Ordinary smooth
   turning and body-yaw commits yield while a duel owns input; unknown ownership
-  cannot issue actor yaw. Clyde progression, early draw, retry and special
-  crosshair/weapon alignment remain physical gates.
+  cannot issue actor yaw. Clyde draw/raise and tracked aim/fire have scoped
+  operator acceptance. Early draw, retry and precise special crosshair/weapon
+  agreement remain separate physical gates.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player
@@ -702,8 +703,9 @@ state or last shot. Unarmed tips and unpublished reload/holster rays cannot
 produce a firearm mark. The right procedural whip retains its admitted ray.
 Each hand must project successfully into both captured eye frusta; failure
 suppresses only that hand's marker. Frame/context loss clears both. Selection
-and captured two-marker transport have host coverage; binocular visibility and
-alignment remain physical gates.
+and captured two-marker transport have host coverage; the operator confirms the
+exercised combined candidate's dual-reticle presentation. Exact ballistic
+agreement and broader owner/tracking recovery remain separate gates.
 
 The native red no-shoot indication is separate from reticle alignment:
 `HUDCrosshairHand.CanShowDontShot` delegates to `Being.CanShowDontShot(hand)`;

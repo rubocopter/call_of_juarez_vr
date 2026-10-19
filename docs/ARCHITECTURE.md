@@ -400,7 +400,9 @@ independent of trigger state or last shot; a missing/reloading weapon cannot
 borrow the other hand's ray. The right procedural whip retains its existing
 admitted ray. Native no-shoot warnings are assessed separately for each hand,
 and frame identity, native gameplay ownership and stereo restoration still
-gate publication. Dual-reticle visibility/alignment remains a physical gate.
+gate publication. The operator confirms the combined candidate's exercised
+dual-reticle presentation; precise ballistic agreement, protected-target warning
+appearance and broader recovery remain separate gates.
 
 Optional wheel haptics describe fresh highlighting, not command success: right
 hand, 12 ms, amplitude 0.18, 120 Hz, minimum 80 ms cadence and maximum 100 ms capture
@@ -552,11 +554,12 @@ insertion rejection/fault resolves closing and yields requested presentation and
 supervision before publishing the frame, retaining insertion intent only for
 diagnostics. Cancellation preserves the failure cause and distinguishes recenter,
 publication gaps and regressions. These recovery paths are host-tested only.
-The public .3 Install/update enables this persistent flow by default, including
-upgrades from a prior false state, without a reload y/n prompt. Noninteractive
-`-ManualReload:$false` retains the legacy route for that installation; a later
-default Install/update enables persistent reload again. Development candidates
-still select it with `-ManualReload`. See
+The public .4 Install/update defaults this persistent flow on for fresh installs
+and preserves the installed choice on upgrades. Launcher option 8 changes it
+transactionally while closed; Prepare session retains it without repatching.
+Noninteractive `-ManualReload:$false` remains available. Long guns are outside
+manual admission and retain conventional native reload and its original animation.
+Development candidates still select manual revolver reload with `-ManualReload`. See
 [reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).
 
 Parent hand/socket applies before child weapon; restoration restores the parent
@@ -578,6 +581,9 @@ right `WeaponRifle` owns an applied scoped weapon map. Both hands' actual,
 active and desired owners, four native states and two-hand flags must agree
 on repeated observation; carrying, reload, replacement, faults and death reject.
 Only the existing optional finger map changes; rifle input and reload remain native.
+The operator confirms this normal-state free-hand presentation in the exercised
+PS VR2 candidate. Fire/alternate/reload and broader transition coverage remain native
+or separately unqualified; physical long-gun reload is not implemented.
 A bridge-owned
 manual opening/wait can admit the empty support hand through the existing native
 reload-recovery reader plus a matching weapon/hand/probe snapshot. Actual carrying,

@@ -12,9 +12,14 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Public prerelease policy
 
-`v0.1.0-prealpha.3` is cumulative from .2, adding the host-tested projection
-correction and complete installation defaults for experimental community testing.
-The archived .2/.1 packages and verdicts remain unchanged. No release claims
+`v0.1.0-prealpha.4` is cumulative from .3/.2/.1, adding duel input, simultaneous
+weapon reticles, careful-movement/default-smooth corrections, normal-rifle support
+fingers, reload choice/help menus and video-only Cloud Files compatibility. The
+operator confirms the final candidate's exercised functions on PS VR2, including
+normal-rifle free-hand presentation and ordinary concentration after holstering.
+Live OneDrive behavior remains unqualified. Long-gun manual reload is unimplemented;
+Square retains conventional reload and the original animation. The archived
+packages and canonical verdicts remain unchanged. No release claims
 whole-campaign acceptance. Distribution, package verification and additional
 controller bindings do not promote any validation state. Physical acceptance
 remains limited to the exercised Steam 2006 D3D9/OpenVR scenes and PS VR2 Sense.
@@ -182,9 +187,9 @@ evidence. The already archived rejection is preserved.
 | --- | --- | --- |
 | Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
 | Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, immersive subtitle transport, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
-| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. | Community reports gaze-direction drift; shape-before-yaw and finer dispatch tolerance are host-tested corrections awaiting physical confirmation. The new default smooth turn is host-tested only. Mounted/campaign contexts remain open. |
-| Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. | Left/dual/special weapons, broader finger and recovery coverage. Connected-arm IK is a diagnostic, not the accepted presentation. |
-| Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. | Broader weapons, ballistic birth vectors, whip reach/climbing and special optics. |
+| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms the combined candidate's careful-movement corrections and default smooth turn in the exercised PS VR2 setup. | Other headset/controller gaze drift, prolonged comfort and mounted/campaign contexts remain open. The smooth/snap selector is planned. |
+| Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. Corrected free-left-hand fingers with a normally held long gun have scoped operator acceptance. | Firing/alternate/reload retain native fingers. Broader finger, weapon and recovery coverage remains open. Connected-arm IK is diagnostic. |
+| Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. The combined candidate's dual reticles and Clyde draw/raise with tracked aim/fire have operator confirmation. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Long-gun manual reload is unimplemented; native automatic reload/animation remain. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
 | HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped headset acceptance. Optional status rows accepted only where encountered. | Wrist health styling, concentration state glyphs and paired horse health/fatigue meters are host-tested only. Horse and special HUD contexts, newly translated prompts, scripted-movie comfort/subtitles and complete graphical HUD capture remain open. |
@@ -435,32 +440,28 @@ Comfort options beyond cinematic presentation remain planned.
 Do not repeat an accepted baseline unless a change affects it. Batch related
 checks into one meaningful candidate, recording unavailable cases as pending.
 
-- **Community input candidate:** use a small forward stick while looking left/
-  right within the body-follow cone and across its boundary; confirm no angular
-  deadzone or drift and check a deliberate held smooth turn, direction and
-  centered recovery after pause. Host results do not accept visor comfort.
+- **Community input:** the final candidate's exercised movement and default
+  smooth turn have consolidated operator confirmation on PS VR2. Do not request
+  another identical check solely for confirmation. Other headsets/controllers,
+  sustained comfort and adversarial owner/input recovery remain separate gates.
 - **Clyde duel:** the operator confirms successful right-stick down/up draw and
   raise followed by tracked-hand aiming and shooting. That exercised sequence
   is headset-validated and needs no repeat solely for confirmation. Native
   early-draw rejection, retry, recenter and return to ordinary turning remain
   separate gates. Do not force weapon/countdown state to pass them.
-- **Dual weapon reticles:** with two drawn firearms, require both aiming marks
-  at rest and while firing either/both triggers. Move the weapons independently,
-  then holster/change/reload one; only its mark may disappear when its muzzle
-  publication is unavailable. Confirm binocular alignment and no stale marks
-  after pause/tracking loss. Per-hand native protection warnings retain their
-  separate physical gate. The Clyde center countdown is also unobserved in a
-  formal duel; the concentration rescue does not qualify it.
+- **Dual weapon reticles:** the combined operator confirmation accepts the
+  exercised two-marker presentation. Exact ballistic agreement, protected-target
+  warning appearance and stale-mark recovery under pause/tracking loss retain
+  separate gates. It does not qualify all countdown/UI campaign contexts.
 - **Interaction:** point the left Sense at a drawer's usable part and press L1.
   Head turning must not retarget it. The cyan reference must exist only while
   L1 is held. Check opening, pickup/carry/put-down and release after tracking loss.
-- **Long-gun support hand:** the operator reports an unnatural free-left-hand
-  pose away from the rifle. The bounded normal-state eligibility correction
-  reuses controller curls only with a matching applied right-rifle transaction;
-  its visible result remains unaccepted. Check free-hand pose and ordinary
-  equip/fire/reload transitions when this context is available. Long-gun reload
-  remains conventional Square/native animation, outside the manual whitelist;
-  the reported clip contains no reload and cannot qualify it.
+- **Long-gun support hand:** the bounded normal-state correction reuses controller
+  curls with a matching applied right-rifle transaction. Its exercised free-hand
+  appearance is operator-accepted after retesting. Broader equip/fire/reload
+  transition coverage remains separate. Long-gun reload remains conventional
+  Square/native animation, outside the manual whitelist; physical manual reload
+  is not implemented or accepted.
 - **Cartridge grip:** the current anchor has already been observed in runtime;
   repeating it solely to reconfirm visibility adds no evidence. After a material
   contact/axis/occlusion correction, combine empty-hand waiting, trigger pickup,
@@ -747,11 +748,13 @@ A later community gaze-direction report exposed two host-reproducible input
 defects: rotating before axis shaping drops the lateral component of a 0.08
 forward stick at 30 degrees, and a 0.005 dispatch tolerance suppresses small
 gaze changes. Shaping before yaw and a 0.00001 tolerance have regression coverage.
-This does not prove the complete reported drift is resolved; native forward/
+The exercised PS VR2 candidate has operator confirmation; this does not prove
+the complete other-headset community drift report is resolved. Native forward/
 strafe speed coefficients and body-follow behavior retain their existing owners.
 Continuous default turning is host-tested at multiple sample rates and across
-loss, duplicate-time, wheel and owner transitions; smooth-turn comfort/direction
-remain in the next physical candidate. A settings selector is planned.
+loss, duplicate-time, wheel and owner transitions. Ordinary smooth-turn behavior
+has scoped operator acceptance; prolonged comfort and adversarial recovery remain
+open. A settings selector is planned.
 
 ## PC mechanics and gameplay HUD completeness
 
@@ -778,14 +781,15 @@ complete physical cylinder reload are planned.
 The operator confirms activating concentration, drawing and shooting both
 enemies in an exercised window-entry/hostage-rescue scene. This is scoped
 concentration acceptance; it does not accept duel quickdraw or campaign completion.
-Later ordinary concentration reactivation is operator-reported as unavailable
-while Focus/zoom still works; diagnose native availability and activation
-separately from the accepted scripted encounter and duel.
+Ordinary concentration reactivation was initially reported unavailable while
+Focus/zoom worked. After the native activation sequence was explained, the
+operator retested and confirms correct operation in the exercised setup.
 The exact native audit distinguishes alternate fire, Focus and concentration:
 concentration requires two empty native hand machines, campaign eligibility
 and an elapsed native cooldown before a fresh trigger quickdraw. Fists are not
 empty hand machines. Correct controls are documented in the owning controls
-research; the report does not yet establish a regression or its resolution.
+research. The confirmed behavior does not establish a prior code regression
+or justify claiming a new concentration implementation.
 The first Clyde duel is a community-reported progression blocker. Its special
 vertical mouse input was absent from the VR mapping. The separate host-tested
 duel candidate verifies exact JNI ownership and forwards right-stick draw/raise/

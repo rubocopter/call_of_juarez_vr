@@ -1,20 +1,26 @@
-Call of Juarez VR 0.1.0-prealpha.3 - experimental player package
+Call of Juarez VR 0.1.0-prealpha.4 - experimental player package
 Experimental community-testing prerelease
 
 The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
 
-This development candidate is cumulative from .3, including the earlier .2
+This release is cumulative from .3, including the earlier .2
 baseline and OpenVR asymmetric vertical projection correction. Community
 feedback confirms the corrected Beyond gameplay view; an unspecified Quest
 report is also positive. These observations do not establish general support.
 Auto remains the missing resolution preference. Manual reload starts on for
 fresh installation and current updates preserve its choice. New movement,
-smooth-turn changes are host-tested, awaiting physical confirmation. The operator
-confirms Clyde's down/up draw/raise and tracked aiming/shooting; other duels,
-countdown visibility and interruption/retry recovery remain unqualified.
+smooth-turn, dual-reticle and normal long-gun support-hand changes have scoped
+operator confirmation in the exercised PS VR2 candidate. The operator also
+confirms Clyde's down/up draw/raise, tracked aiming/shooting and ordinary Ray
+concentration after holstering. Other hardware, duels and interruption/retry
+recovery remain unqualified.
 Archived .3/.2/.1 packages and verdicts are unchanged.
+
+IMPORTANT: MANUAL RELOAD FOR LONG GUNS IS NOT IMPLEMENTED. Rifles/shotguns
+retain automatic native reload and its original animation (Sense: Square).
+Manual cartridge loading is limited to the admitted revolver profiles.
 
 REQUIREMENTS
 
@@ -94,13 +100,14 @@ profile and the startup sequence. Custom SteamVR bindings may differ.
 Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
 Ordinary turning is smooth and proportional, up to 90 degrees/second in native
 normal-look mode. Center the stick after a menu, lost input or long frame gap.
-A smooth/snap selector in VR settings is not implemented yet. This new default
-has host coverage; comfort and behavior still need headset confirmation.
+A smooth/snap selector in VR settings is not implemented yet. The exercised
+default has operator confirmation; prolonged comfort and other setups remain open.
 Experimental duel controls: center the right stick after entering the duel;
 pull it down to draw when the game allows, then up to raise the weapon. Left/
 right aims in the native duel; triggers retain native firing. Ordinary smooth
-turning yields during a duel. Clyde progression and headset aim are not yet
-physically validated. Concentration outside duels keeps its existing controls.
+turning yields during a duel. Clyde draw/raise and tracked aiming/fire have scoped
+operator confirmation; broader campaign/recovery remains open. Concentration
+outside duels keeps its original activation requirements described above.
 Crouch / Focus: L / R stick click; Touch/Index require a CENTER click.
 Vive uses L / R trackpad CENTER click. WMR uses stick clicks, not pad centers.
 L grip = interact; R grip = kick (Sense: L1 / R1). Triggers retain the game's
@@ -238,9 +245,9 @@ These are package-root commands; release\cojvr.ps1 is a source-repository path.
 
 KNOWN LIMITATIONS
 
-- The .3 OpenVR projection fix is HOST-TESTED only; Beyond/Quest gameplay
-  distortion and menu gaze alignment still require physical confirmation.
-  Physical acceptance remains scoped to exercised PS VR2 scenes.
+- The retained .3 OpenVR projection fix has scoped Beyond gameplay confirmation
+  and a positive Quest report without a specified model. Menu gaze alignment,
+  broader headset/controller support and other PCs remain unqualified.
 - Background/Scene recommendation identity, other headsets and memory headroom
   remain unqualified. Auto is a product default, not a support guarantee.
 - A chest/possible-scroll interaction has caused a crash. Cause and recovery
@@ -255,6 +262,11 @@ KNOWN LIMITATIONS
 - Mounted controls, other weapons, special optics, duels and climbing lack full
   campaign coverage. Manual reload lacks convincing cartridge contact, precise
   chamber loading and broad interruption acceptance.
+- Long guns do not have physical manual reload. Square uses the original
+  automatic reload and its native animation. The support-hand correction is
+  limited to normal weapon states; firing/alternate/reload can keep native fingers.
+- Native tutorial windows still show keyboard labels. Use the controls guide
+  above; R3 zoom, Ray concentration and Circle/alternate fire are different actions.
 - OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
   The rejected independent eye RT prototype and investigation probes remain off.
 

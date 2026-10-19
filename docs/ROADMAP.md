@@ -22,24 +22,29 @@ both enemies in the exercised window-entry hostage rescue also have operator
 acceptance. The operator subsequently confirms Clyde's down/up draw/raise and
 tracked-hand aiming/shooting worked. That exercised duel has scoped headset
 acceptance; early draw/retry/recovery and broader duels remain separate gates.
-Ordinary concentration reactivation is newly reported unavailable while zoom
-works; it remains separate from the accepted scripted concentration encounter.
+Ordinary concentration reactivation is also operator-confirmed after the native
+holster/readiness sequence was explained. R3 Focus/zoom, alternate fire and
+concentration remain distinct; no concentration implementation change was needed.
 
-The next compatibility candidate restores launcher reload choice and preserves
+The .4 release restores launcher reload choice and preserves
 it across updates; a complete feature set does not require experimental reload.
 It also fixes two host-reproduced careful-movement defects (axis shaping after
 gaze rotation and a coarse native-dispatch tolerance), defaults to time-based
 smooth turning, and admits recognized Cloud Files metadata only for video settings.
-Real OneDrive operation and the reported gaze drift still need community/visor
-confirmation. A smooth/snap preference in VR settings remains planned.
-The candidate also retains simultaneous independently projected reticles for
+The operator confirms the final candidate's exercised functions, including
+movement/smooth turning and dual-reticle presentation, on the PS VR2 reference.
+Real OneDrive operation and other headset/controller movement remain unqualified.
+A smooth/snap preference in VR settings remains planned.
+The release also retains simultaneous independently projected reticles for
 both verified firearms instead of selecting a hand by the current trigger.
-Dual-reticle binocular visibility/alignment and Clyde's native center countdown
-remain unconfirmed. Long-gun free-hand pose and its reload presentation are
-newly reported gaps; revolver manual-loading acceptance does not qualify them.
+Protected-target warning visibility, exact ballistic agreement and broader
+countdown contexts retain separate gates. Long-gun free-hand pose has scoped
+operator acceptance; revolver manual-loading acceptance does not qualify long-gun
+manual mechanics or native reload animation quality.
 The bounded idle-rifle support-hand eligibility correction reuses existing
-controller finger maps under repeated native ownership checks. Its appearance
-remains a physical gate; long-gun manual reload is still unimplemented.
+controller finger maps under repeated native ownership checks. The exercised
+normal-state appearance is accepted; long-gun manual reload is still unimplemented
+and Square retains the original automatic reload and native animation.
 
 A reported chest/possible-scroll interaction crash is a current campaign stability
 issue. Evidence is preserved but the symbol-only native stack lacks the actual
@@ -365,9 +370,14 @@ requires a second independent game demonstration before generalization.
 
 ## Release direction
 
-`v0.1.0-prealpha.3` is cumulative from .2, adding the host-tested asymmetric
-OpenVR vertical projection correction and complete installation defaults. The
-.2/.1 archives and verdicts remain unchanged. The corrected converter preserves
+`v0.1.0-prealpha.4` is cumulative from .3/.2/.1. It adds duel input, simultaneous
+reticles, careful-movement corrections, default smooth turning, the normal-rifle
+free-hand correction, reload choice/help menus and video-only Cloud Files path
+compatibility. The tested candidate has scoped operator functional acceptance;
+live OneDrive operation still needs confirmation. Physical long-gun reload,
+native VR tutorial labels and the smooth/snap preference remain planned.
+The .3 asymmetric OpenVR projection correction and Auto resolution default are
+retained. Archived packages and verdicts remain unchanged. The converter preserves
 symmetric PS VR2 controls. Community physical feedback confirms the corrected
 Beyond gameplay view; an unspecified Quest report is also positive. Menu gaze
 alignment, broader hardware and controller support remain unqualified. Preserve the existing
