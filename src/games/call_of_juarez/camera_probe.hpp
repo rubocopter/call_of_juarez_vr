@@ -363,6 +363,8 @@ struct CameraStereoRuntimeCallbacks {
         std::uint64_t frame_sequence) noexcept = nullptr;
     // Latest observed reload-owner epoch; 0 invalidates queued optional feedback.
     void (*publish_reload_feedback_owner)(void* context, std::uint64_t token) noexcept = nullptr;
+    // Independent bow-owner epoch; weapon replacement invalidates queued draw feedback.
+    void (*publish_bow_feedback_owner)(void* context, std::uint64_t token) noexcept = nullptr;
     // Read-only renderer observation. No depth buffer ownership/admission.
     void (*observe_reload_depth)(void* context,runtime::Eye eye,std::uint64_t frame_sequence) noexcept = nullptr;
     // Diagnostic scope around the exact full wrapper only; no capture or fallback replay.

@@ -838,6 +838,7 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
 
 void JavaPlayerBridge::Reset() noexcept {
     fist_skin_generation_=0;fist_skin_model_=-1;
+    if (!TryPublishBowDrawHold(false)) return;
     if (!CancelManualReload()) return;
     if (single_round_reload_pending_ && !ClearSingleRoundReload()) return;
     // A pending failed transaction still owns JNI references and restore data.
@@ -847,6 +848,7 @@ void JavaPlayerBridge::Reset() noexcept {
     void* env = vm_ ? Environment(&ignored) : nullptr;
     if (env) {
         ClearBeing(env);
+        if(being_)return;
         if (vector_class_) {
             if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
                 delete_global(env, vector_class_);
@@ -1501,8 +1503,45 @@ bool JavaPlayerBridge::TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexc
     ui={};return being_&&ReadCoJNoShoot(Environment(nullptr),being_,hand,ui);
 }
 
+bool JavaPlayerBridge::TryObserveMovieSubtitle(runtime::HudText& text) noexcept {
+    text={};
+    void* env=Environment(nullptr);
+    if(!env || !EnsureCampaignAccess(env,nullptr))return false;
+    const auto get_static=EnvFunction<GetStaticObjectFieldFn>(env,kGetStaticObjectField);
+    if(!get_static)return false;
+    void* module=get_static(env,lawman_game_class_,active_game_module_field_);
+    if(ClearException(env,nullptr,"movie subtitle module read failed") || !module) {
+        DeleteLocal(env,module);return false;
+    }
+    CoJPresentationOwner owner{};
+    const bool observed=ReadCoJPresentationOwner(env,module,owner) &&
+        owner.immersive_movie_allowed() && ReadCoJMovieSubtitle(env,module,text);
+    DeleteLocal(env,module);
+    return observed;
+}
+
 bool JavaPlayerBridge::TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept {
     zoom={};return being_&&ReadCoJFocusZoom(Environment(nullptr),being_,zoom);
+}
+
+bool JavaPlayerBridge::TryObserveLongGunSupport(CoJLongGunSupportSnapshot& out) noexcept {
+    out={};
+    if(!being_ || independent_hand_faulted_ || weapon_overlay_faulted_)return false;
+    // The observer must see naturally animated source frames, including after
+    // a restoration fault. Never mix a retained tracked weapon/hand map here.
+    for(const auto& hand:hand_overlays_)if(hand.object)return false;
+    for(const auto& weapon:weapon_overlays_)if(weapon.weapon || weapon.active || weapon.applied)return false;
+    const auto generation=being_generation_;void* player=being_;
+    void* env=Environment(nullptr);if(!env)return false;
+    const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& target) noexcept {
+        auto& bridge=*static_cast<JavaPlayerBridge*>(context);
+        JavaPlayerPosition p{},u{},f{};target={};
+        if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
+        target={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
+    };
+    const bool read=ReadCoJLongGunSupport(env,player,out,frame,this);
+    if(!read || being_!=player || being_generation_!=generation){out={};return false;}
+    return true;
 }
 
 bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
@@ -2432,7 +2471,9 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     const auto object_fn=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
     const auto string_fn=EnvFunction<NewStringUtfFn>(env,kNewStringUtf);
     const auto same_fn=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
-    if(!cls_fn || !method_fn || !int_fn || !object_fn || !string_fn || !same_fn)return false;
+    const auto field_fn=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto float_fn=EnvFunction<GetFloatFieldFn>(env,kGetFloatField);
+    if(!cls_fn || !method_fn || !int_fn || !object_fn || !string_fn || !same_fn || !field_fn || !float_fn)return false;
     void* cls=cls_fn(env,being_);
     if(ClearException(env,error,"reload geometry player class") || !cls){DeleteLocal(env,cls);return false;}
     void* actual_method=method_fn(env,cls,"GetActualWeaponNotEmpty","(I)LWeapon;");
@@ -2446,6 +2487,12 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     DeleteLocal(env,actual);if(failed || !same)return false;
     cls=cls_fn(env,overlay.weapon);
     if(ClearException(env,error,"reload geometry weapon class") || !cls){DeleteLocal(env,cls);return false;}
+    void* phase_field=field_fn(env,cls,"m_fRotate","F");
+    failed=ClearException(env,error,"reload geometry native phase lookup") || !phase_field;
+    if(failed){DeleteLocal(env,cls);return false;}
+    const float phase=float_fn(env,overlay.weapon,phase_field);
+    failed=ClearException(env,error,"reload geometry native phase read") || !std::isfinite(phase);
+    if(failed){DeleteLocal(env,cls);return false;}
     void* id_method=method_fn(env,cls,"GetElementID","(Ljava/lang/String;)I");
     failed=ClearException(env,error,"reload geometry element lookup") || !id_method;
     DeleteLocal(env,cls);if(failed)return false;
@@ -2488,7 +2535,22 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
     same=false;
     if(!failed && actual){same=same_fn(env,actual,overlay.weapon)!=0;failed=ClearException(env,error,"reload geometry final identity");}
     DeleteLocal(env,actual);if(failed || !same)return false;
+    const float phase_after=float_fn(env,overlay.weapon,phase_field);
+    if(ClearException(env,error,"reload geometry final phase read") ||
+        !std::isfinite(phase_after) || phase_after!=phase)return false;
+    observed.native_drum_phase_degrees=phase;
     observed.valid=true;geometry=observed;return true;
+}
+
+bool JavaPlayerBridge::ValidateTrackedBowOwner(const int hand,std::string* error) noexcept {
+    if(hand<0||hand>1)return false;
+    const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
+    if(overlay.bow_holder_element<0)return true;
+    CoJBowAimOwner bow{};
+    if(overlay.weapon && ReadCoJBowAimOwner(Environment(error),being_,bow,overlay.weapon) &&
+        bow.hand==hand && bow.holder_element==overlay.bow_holder_element)return true;
+    SetError(error,"tracked bow owner changed since capture");
+    return false;
 }
 
 bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::string* error) noexcept {
@@ -2497,6 +2559,7 @@ bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::st
     const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
     active=overlay.applied;
     if (!active) return true;
+    if (!ValidateTrackedBowOwner(hand,error)) return false;
     JavaPlayerPosition actual{},direction{};
     const auto close=[](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
         return std::fabs(a.x-b.x)<=tolerance && std::fabs(a.y-b.y)<=tolerance && std::fabs(a.z-b.z)<=tolerance;
@@ -2518,6 +2581,10 @@ bool JavaPlayerBridge::ApplyPreparedTrackedWeapon(const int hand, JavaPlayerPosi
     if (hand<0 || hand>1) return false;
     auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
     if (!overlay.weapon || !overlay.active || overlay.applied || !overlay.plan.valid) return false;
+    // A coherent replacement can have the same class, hand and root pose.
+    // Revalidate against the retained object before the first target write;
+    // keep its preimage/reference owned even when admission has been lost.
+    if (!ValidateTrackedBowOwner(hand,error)) return false;
     const auto j=[](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x,v.y,v.z}; };
     for (std::size_t i=0;i<overlay.targets.size();++i) {
         const auto& target=overlay.targets[i];
@@ -2587,8 +2654,23 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
     DeleteLocal(env, cls);
     int count = failed ? 0 : call_int(env, weapon, count_method, nullptr);
     failed = ClearException(env, error, "weapon element count failed") || count < 1 || count > 256;
-    const int barrel_element = failed ? -1 : call_int(env, weapon, barrel_method, nullptr);
-    failed = ClearException(env, error, "weapon barrel index failed") || failed || barrel_element < 0 || barrel_element >= count;
+    int barrel_element = failed ? -1 : call_int(env, weapon, barrel_method, nullptr);
+    failed = ClearException(env, error, "weapon barrel index failed") || failed;
+    CoJBowAimOwner qualified_bow{};
+    if (!failed && barrel_element < 0) {
+        if (ReadCoJBowAimOwner(env,being_,qualified_bow,weapon)) {
+            if (qualified_bow.hand != hand) {
+                // ActiveWeapon aliases the left bow in the right slot. Its
+                // native holder/shot owner, not loop order, owns the only map.
+                if (unarmed_hand) *unarmed_hand=true;
+                DeleteLocal(env,weapon);
+                SetError(error,"bow visual pose belongs to its native hand");
+                return false;
+            }
+            barrel_element=0;
+        }
+    }
+    failed = failed || barrel_element < 0 || barrel_element >= count;
     JavaPlayerPosition barrel{}, barrel_direction{};
     if (failed || !TryGetWeaponBarrel(hand, barrel, barrel_direction, error)) { DeleteLocal(env, weapon); return false; }
     try {
@@ -2622,6 +2704,7 @@ bool JavaPlayerBridge::CaptureTrackedWeapon(
         overlay.targets = std::move(targets);
         overlay.plan = plan;
         overlay.barrel_element = barrel_element;
+        overlay.bow_holder_element=qualified_bow.valid?qualified_bow.holder_element:-1;
         // Parent hand writes may move the child before its explicit pose commit.
         overlay.active = true;
         if (tracked_hand) *tracked_hand = hand_target;
@@ -2983,6 +3066,69 @@ void JavaPlayerBridge::OnVisualBodyOffsetRestored(const cojvr::runtime::Vec3 off
     }
 }
 
+bool JavaPlayerBridge::TryPublishBowDrawHold(bool held,std::string* error) noexcept {
+    if(!being_)return !held&&!bow_draw_hold_published_;
+    if(!held&&!bow_draw_hold_published_)return true;
+    void* env=Environment(error);if(!env)return false;
+    const auto get_class=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto get_field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+    const auto set_object=EnvFunction<SetObjectFieldFn>(env,kSetObjectField);
+    if(!get_class||!get_field||!set_object)return false;
+    if(!bow_draw_hold_field_){
+        void* cls=get_class(env,being_);
+        const bool class_ok=!ClearException(env,error,"bow hold player class unavailable")&&cls;
+        if(class_ok)bow_draw_hold_field_=get_field(env,cls,"cojvrPhysicalBowDrawWeapon","LWeapon;");
+        const bool field_ok=!ClearException(env,error,"exact bow hold field unavailable")&&bow_draw_hold_field_;
+        DeleteLocal(env,cls);if(!class_ok||!field_ok)return false;
+    }
+    const auto clear=[&]() noexcept {
+        set_object(env,being_,bow_draw_hold_field_,nullptr);
+        const bool ok=!ClearException(env,error,"bow hold clear failed");
+        if(ok)bow_draw_hold_published_=false;
+        return ok;
+    };
+    // Revoke the previous admission before reading this frame's native owner.
+    if(!clear())return false;
+    if(!held)return true;
+    bool active=false;
+    if(independent_hand_faulted_||weapon_overlay_faulted_||
+        weapon_overlays_[1].bow_holder_element<0||!weapon_overlays_[1].applied||
+        !VerifyTrackedWeapon(1,active,error)||!active||!ValidateTrackedBowOwner(1,error))return false;
+    bow_draw_hold_published_=true; // Retain cleanup responsibility even if the setter throws.
+    set_object(env,being_,bow_draw_hold_field_,weapon_overlays_[1].weapon);
+    const bool committed=!ClearException(env,error,"bow hold publication failed");
+    if(!committed||!ValidateTrackedBowOwner(1,error)){(void)clear();return false;}
+    return true;
+}
+
+bool JavaPlayerBridge::TryObserveBowDraw(CoJBowDrawNativeObservation& out) noexcept {
+    out={};
+    if(!being_||independent_hand_faulted_||weapon_overlay_faulted_||
+        !weapon_overlays_[1].applied||weapon_overlays_[1].bow_holder_element<0||
+        !ValidateTrackedBowOwner(1,nullptr))return false;
+    const auto generation=being_generation_;void* player=being_;
+    void* env=Environment(nullptr);if(!env)return false;
+    const auto frame=[](void* context,void*,void* object,int element,CoJBowDrawFrame& target) noexcept {
+        auto& bridge=*static_cast<JavaPlayerBridge*>(context);
+        JavaPlayerPosition p{},u{},f{};target={};
+        if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
+        target.position={p.x,p.y,p.z};target.up={u.x,u.y,u.z};target.forward={f.x,f.y,f.z};
+        target.right={u.y*f.z-u.z*f.y,u.z*f.x-u.x*f.z,u.x*f.y-u.y*f.x};target.valid=true;
+        return true;
+    };
+    if(!ReadCoJBowDrawNative(env,player,out,frame,this)||player!=being_||generation!=being_generation_||
+        !ValidateTrackedBowOwner(1,nullptr)){out={};return false;}
+    return true;
+}
+
+bool JavaPlayerBridge::TryObserveBowAimOwner(int& hand,std::string* error) noexcept {
+    hand=-1;
+    if(!being_)return false;
+    void* env=Environment(error);CoJBowAimOwner bow{};
+    if(!ReadCoJBowAimOwner(env,being_,bow))return false;
+    hand=bow.hand;return true;
+}
+
 bool JavaPlayerBridge::TryGetWeaponBarrel(
     const int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
     std::string* error, CoJWeaponAttackOrigins* attack_origins,
@@ -2998,6 +3144,7 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
     if (!being_ && !Refresh(error)) return false;
     void* env = Environment(error);
     if (!env || !being_ || !EnsureVectorAccess(env, error)) return false;
+    if (!ValidateTrackedBowOwner(hand,error)) return false;
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
@@ -3049,7 +3196,15 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
         return false;
     }
     const int barrel = call_int(env, weapon, barrel_method, nullptr);
-    if (ClearException(env, error, "GetBarrelElement call failed") || barrel < 0) {
+    bool bow_root=false;
+    CoJBowAimOwner bow{};
+    if (!ClearException(env, error, "GetBarrelElement call failed")) {
+        bow_root=barrel<0 && ReadCoJBowAimOwner(env,being_,bow,weapon) && bow.hand==hand;
+    } else {
+        DeleteLocal(env,weapon);
+        return false;
+    }
+    if (barrel < 0 && !bow_root) {
         DeleteLocal(env, weapon);
         SetError(error, "active weapon has no measured barrel element");
         return false;
@@ -3067,8 +3222,20 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
         return !ClearException(env, error, "weapon barrel observation failed") &&
             available && ReadVector(env, vector, value, error);
     };
-    bool ok = read(origin_method, origin) && read(direction_method, direction);
-    if (ok && barrel_frame) {
+    bool ok=false;
+    if(bow_root){
+        // Weapon.GetBarrelDir's missing-element fallback is root +Z. The
+        // paired native +X/up readers avoid GetElementForwardVector's false
+        // return-value bug and retain all controller pitch/roll components.
+        JavaPlayerPosition up{};
+        ok=ReadObjectElementFrame(weapon,0,origin,up,direction,error,true);
+        CoJBowAimOwner after{};
+        ok=ok && ReadCoJBowAimOwner(env,being_,after,weapon) && after.hand==hand &&
+            after.holder_element==bow.holder_element && ValidateTrackedBowOwner(hand,error);
+        if(ok && barrel_frame)*barrel_frame={{origin.x,origin.y,origin.z},
+            {up.x,up.y,up.z},{direction.x,direction.y,direction.z},true};
+    }else ok=read(origin_method, origin) && read(direction_method, direction);
+    if (ok && barrel_frame && !bow_root) {
         JavaPlayerPosition position{}, up{}, forward{};
         ok = ReadObjectElementFrame(weapon, barrel, position, up, forward, error);
         if (ok) *barrel_frame = {{position.x,position.y,position.z},
@@ -4905,13 +5072,14 @@ void JavaPlayerBridge::ClearBeing(void* env) noexcept {
     hud_text_sample_tick_ = 0;
     hud_text_sample_valid_ = false;
     // Keep the captured actor and its method bindings until restoration succeeds.
-    if (!CancelManualReload() || !RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
+    if (!TryPublishBowDrawHold(false) || !CancelManualReload() || !RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
     if (being_) {
         (void)TryPublishInteractionRay({}, {}, false);
         (void)TryPublishWeaponRay(0, {}, {}, false);
         (void)TryPublishWeaponRay(1, {}, {}, false);
     }
     weapon_ray_fields_ = {};
+    bow_draw_hold_field_=nullptr;
     interaction_ray_fields_ = {};
     if (being_ && env) {
         if (const auto delete_global = EnvFunction<DeleteGlobalRefFn>(env, kDeleteGlobalRef)) {
@@ -5059,12 +5227,16 @@ bool JavaPlayerBridge::ResolveBeingMethods(
     void* global_being = new_global(env, local_being);
     if (!global_being || ClearException(env, error, "NewGlobalRef(player being) failed")) return false;
 
-    if (!CancelManualReload(error) || (single_round_reload_pending_ && !ClearSingleRoundReloadField(env,error)) ||
+    if (!TryPublishBowDrawHold(false,error) || !CancelManualReload(error) || (single_round_reload_pending_ && !ClearSingleRoundReloadField(env,error)) ||
         !RestoreTrackedHands(error) || !RestoreTrackedWeapons(error) || !ClearTrackedWhip(true,error)) {
         if (const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef)) del(env,global_being);
         return false;
     }
     ClearBeing(env);
+    if(being_){
+        if(const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef))del(env,global_being);
+        SetError(error,"previous player restoration remains pending");return false;
+    }
     being_ = global_being;
     ++being_generation_;
     if (being_generation_ == 0) being_generation_ = 1;
@@ -5794,7 +5966,8 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
     JavaPlayerPosition& position,
     JavaPlayerPosition& up,
     JavaPlayerPosition& forward,
-    std::string* error) noexcept {
+    std::string* error,
+    const bool require_rigid_source) noexcept {
     position = {};
     up = {};
     forward = {};
@@ -5850,6 +6023,14 @@ bool JavaPlayerBridge::ReadObjectElementFrame(
             "element world up axis is unavailable", up);
     DeleteLocal(env, vector);
     if (!read) return false;
+
+    if(require_rigid_source && !IsCoJLongGunSourceFrameRigid(
+        {position.x,position.y,position.z},{element_x_axis.x,element_x_axis.y,element_x_axis.z},
+        {up.x,up.y,up.z})) {
+        position={};up={};forward={};
+        SetError(error,"natural element world source is not rigid");
+        return false;
+    }
 
     // Exact ChromeEngine3 disassembly shows GetElementLeftVector transforms local
     // +X by the element world matrix. FromUpForwardPosElementWorld stores that same

@@ -596,19 +596,13 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
         : 0.0F;
     const float residual = std::remainder(game_yaw - previous_owned, 360.0F);
 
-    // Keep ordinary head motion in the neck/spine chain. Outside the comfort
-    // cone, absorb only the excess so gradual HMD motion advances the actor
-    // continuously along the boundary. Resetting to a smaller residual would
-    // turn each boundary crossing into an actor jump. Returning inside the
-    // cone leaves the committed actor yaw in place for free look.
-    constexpr float kActorFollowComfortDegrees = 35.0F;
-    float actor_delta = 0.0F;
-    if (std::fabs(residual) > kActorFollowComfortDegrees) {
-        actor_delta = residual - std::copysign(kActorFollowComfortDegrees, residual);
-    }
-
-    result.actor_target_degrees = std::remainder(previous_owned + actor_delta, 360.0F);
-    result.actor_delta_degrees = actor_delta;
+    // Normal gameplay keeps the actor aligned with every HMD yaw change.
+    // Commit only after stereo restoration: this frame's camera, hands and
+    // movement still reference the previously committed actor orientation.
+    // Keeping a free-look cone here leaves persistent forward/strafe mixing
+    // in native locomotion even after the player stops turning their head.
+    result.actor_target_degrees = game_yaw;
+    result.actor_delta_degrees = residual;
     result.camera_compensation_degrees = previous_owned;
     result.head_residual_degrees = std::clamp(residual, -90.0F, 90.0F);
     result.spine_residual_degrees = result.head_residual_degrees * (2.0F / 3.0F);

@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/body_adapter.hpp"
+#include "games/call_of_juarez/camera_probe.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "runtime/body_ik.hpp"
 
@@ -76,9 +77,10 @@ bool CheckGradualBodyYawFollow(
             if (!Near(update.camera_compensation_degrees, owned_yaw) ||
                 !Near(std::remainder(update.actor_target_degrees - owned_yaw, 360.0F),
                     update.actor_delta_degrees) ||
-                std::fabs(std::remainder(-head_yaw - update.actor_target_degrees,
-                    360.0F)) > 35.001F) {
-                std::cerr << "gradual body yaw lost compensation or the comfort boundary\n";
+                !Near(std::remainder(-head_yaw - update.actor_target_degrees,
+                    360.0F), 0.0F, 0.001F) ||
+                !Near(actor_increment, 0.5F, 0.001F)) {
+                std::cerr << "gradual body yaw lost compensation or stopped following the HMD\n";
                 return false;
             }
             if (actor_increment > max_actor_increment) max_actor_increment = actor_increment;
@@ -264,21 +266,21 @@ int main() {
     const auto first_body_yaw = BuildBodyYawOwnershipUpdate(
         right_turn_head, 0.0F, false, false);
     if (!first_body_yaw.valid ||
-        !Near(first_body_yaw.actor_target_degrees, 0.0F) ||
-        !Near(first_body_yaw.actor_delta_degrees, 0.0F) ||
+        !Near(first_body_yaw.actor_target_degrees, -30.0F) ||
+        !Near(first_body_yaw.actor_delta_degrees, -30.0F) ||
         !Near(first_body_yaw.camera_compensation_degrees, 0.0F) ||
         !Near(first_body_yaw.head_residual_degrees, -30.0F) ||
         !Near(first_body_yaw.spine_residual_degrees, -20.0F)) {
-        std::cerr << "body yaw comfort zone rotated the actor during an ordinary head turn\n";
+        std::cerr << "body yaw did not follow a 30-degree HMD turn below the old deadzone\n";
         return 1;
     }
 
-    // Half-degree physical steps cross both sides of the cone, reverse back
-    // through free look, and cross HMD/owned-yaw +/-180 wrapping in both senses.
+    // Every half-degree step must reach the actor, including small turns,
+    // reversals and HMD/owned-yaw +/-180 wrapping in both senses.
     if (!CheckGradualBodyYawFollow(0.0F, 0.0F, {60.0F, -60.0F, 0.0F}) ||
         !CheckGradualBodyYawFollow(0.0F, 0.0F, {-60.0F, 60.0F, 0.0F}) ||
-        !CheckGradualBodyYawFollow(170.0F, -135.0F, {230.0F, 100.0F, 170.0F}) ||
-        !CheckGradualBodyYawFollow(-170.0F, 135.0F, {-230.0F, -100.0F, -170.0F})) {
+        !CheckGradualBodyYawFollow(170.0F, -170.0F, {230.0F, 100.0F, 170.0F}) ||
+        !CheckGradualBodyYawFollow(-170.0F, 170.0F, {-230.0F, -100.0F, -170.0F})) {
         return 1;
     }
 
@@ -293,20 +295,30 @@ int main() {
         float residual;
     };
     // Literal expectations distinguish pre-commit render residuals from the
-    // next actor target, including a held pose and return into the free cone.
-    constexpr std::array<BodyYawCase, 13> body_yaw_cases{{
-        {35.0F, 0.0F, true, false, 0.0F, 0.0F, 0.0F, -35.0F},
-        {35.5F, 0.0F, true, false, -0.5F, -0.5F, 0.0F, -35.5F},
-        {35.5F, -0.5F, true, false, -0.5F, 0.0F, -0.5F, -35.0F},
-        {35.0F, -0.5F, true, false, -0.5F, 0.0F, -0.5F, -34.5F},
-        {-34.5F, -0.5F, true, false, -0.5F, 0.0F, -0.5F, 35.0F},
-        {-35.0F, -0.5F, true, false, 0.0F, 0.5F, -0.5F, 35.5F},
-        {181.0F, -144.0F, true, false, -146.0F, -2.0F, -144.0F, -37.0F},
-        {-181.0F, 144.0F, true, false, 146.0F, 2.0F, 144.0F, 37.0F},
-        {216.0F, -180.0F, true, false, 179.0F, -1.0F, -180.0F, -36.0F},
-        {-216.0F, 180.0F, true, false, -179.0F, 1.0F, 180.0F, 36.0F},
-        {170.0F, 225.0F, true, false, -135.0F, 0.0F, -135.0F, -35.0F},
-        {45.0F, 123.0F, false, false, -10.0F, -10.0F, 0.0F, -45.0F},
+    // next actor target, including held poses and return toward centre.
+    constexpr std::array<BodyYawCase, 23> body_yaw_cases{{
+        {0.25F, 0.0F, true, false, -0.25F, -0.25F, 0.0F, -0.25F},
+        {-0.25F, 0.0F, true, false, 0.25F, 0.25F, 0.0F, 0.25F},
+        {5.0F, 0.0F, true, false, -5.0F, -5.0F, 0.0F, -5.0F},
+        {-5.0F, 0.0F, true, false, 5.0F, 5.0F, 0.0F, 5.0F},
+        {20.0F, 0.0F, true, false, -20.0F, -20.0F, 0.0F, -20.0F},
+        {-20.0F, 0.0F, true, false, 20.0F, 20.0F, 0.0F, 20.0F},
+        {30.0F, -30.0F, true, false, -30.0F, 0.0F, -30.0F, 0.0F},
+        {5.0F, -30.0F, true, false, -5.0F, 25.0F, -30.0F, 25.0F},
+        {0.0F, -5.0F, true, false, 0.0F, 5.0F, -5.0F, 5.0F},
+        {35.0F, 0.0F, true, false, -35.0F, -35.0F, 0.0F, -35.0F},
+        {35.5F, 0.0F, true, false, -35.5F, -35.5F, 0.0F, -35.5F},
+        {35.5F, -35.0F, true, false, -35.5F, -0.5F, -35.0F, -0.5F},
+        {35.0F, -35.5F, true, false, -35.0F, 0.5F, -35.5F, 0.5F},
+        {-34.5F, -0.5F, true, false, 34.5F, 35.0F, -0.5F, 35.0F},
+        {-35.0F, -0.5F, true, false, 35.0F, 35.5F, -0.5F, 35.5F},
+        {181.0F, -144.0F, true, false, 179.0F, -37.0F, -144.0F, -37.0F},
+        {-181.0F, 144.0F, true, false, -179.0F, 37.0F, 144.0F, 37.0F},
+        {216.0F, -180.0F, true, false, 144.0F, -36.0F, -180.0F, -36.0F},
+        {-216.0F, 180.0F, true, false, -144.0F, 36.0F, 180.0F, 36.0F},
+        {170.0F, 225.0F, true, false, -170.0F, -35.0F, -135.0F, -35.0F},
+        {45.0F, 123.0F, false, false, -45.0F, -45.0F, 0.0F, -45.0F},
+        {0.0F, -45.0F, false, false, 0.0F, 0.0F, 0.0F, 0.0F},
         {216.0F, 179.0F, true, true, 0.0F, 0.0F, 0.0F, 0.0F},
     }};
     for (const auto& sample : body_yaw_cases) {
@@ -324,6 +336,64 @@ int main() {
         }
     }
 
+    // Exercise the policy's consumers before and after the end-of-frame actor
+    // commit. Using the next target for compensation would move both camera
+    // and hands early; dropping the move residual would steer a new turn wrong.
+    for (const float physical_yaw : {-60.0F, -30.0F, -5.0F, 0.25F, 5.0F, 20.0F, 30.0F, 60.0F}) {
+        const auto head = HeadPoseAtPhysicalYaw(physical_yaw);
+        float committed_yaw = 0.0F;
+        for (int frame = 0; frame < 3; ++frame) {
+            const auto update = BuildBodyYawOwnershipUpdate(head, committed_yaw, true, false);
+            const auto natural = ApplyCameraProbeOrientation(
+                {0, 0, 1}, {0, 1, 0}, committed_yaw, 0.0F);
+            const auto camera = ApplyCameraPoseOrientation(natural.forward, natural.up,
+                head.orientation, update.camera_compensation_degrees);
+            const auto reference = BuildTrackingReferenceBasis(natural.forward, natural.up,
+                update.camera_compensation_degrees);
+            const auto radians = physical_yaw * 0.017453292519943295F;
+            if (!Near(camera.forward.x, -std::sin(radians), 0.0001F) ||
+                !Near(camera.forward.z, std::cos(radians), 0.0001F)) {
+                std::cerr << "body-follow commit compensated the camera early or twice\n";
+                return 1;
+            }
+            for (const float hand_x : {-0.3F, 0.3F}) {
+                bool valid = false;
+                const auto hand = BuildTrackedHandTarget({100, 200, 300},
+                    {reference.right.x, reference.right.y, reference.right.z},
+                    {reference.up.x, reference.up.y, reference.up.z},
+                    {reference.forward.x, reference.forward.y, reference.forward.z},
+                    {}, {hand_x, 0.2F, -0.5F}, 100.0F, valid);
+                if (!valid || !Near(hand.x, 100.0F + hand_x * 100.0F, 0.001F) ||
+                    !Near(hand.y, 220.0F, 0.001F) || !Near(hand.z, 250.0F, 0.001F)) {
+                    std::cerr << "body-follow commit rotated a fixed tracked hand again\n";
+                    return 1;
+                }
+            }
+            GameplayInputState input{};
+            input.active = true;
+            input.move = {0.0F, 0.08F};
+            const auto actions = BuildCoJGameplayActionValues(input, -update.head_residual_degrees);
+            float forward = 0.0F, right = 0.0F;
+            for (const auto& action : actions) {
+                if (action.action == 4) forward += action.value;
+                if (action.action == 5) forward -= action.value;
+                if (action.action == 6) right += action.value;
+                if (action.action == 7) right -= action.value;
+            }
+            const auto world_move = RotateCoJMoveForHeadRelativeYaw({right, forward}, -committed_yaw);
+            constexpr float magnitude = 1.0F / 24.0F; // (0.08 - 0.04) / 0.96
+            if (!Near(world_move.x, magnitude * std::sin(radians), 0.00001F) ||
+                !Near(world_move.y, magnitude * std::cos(radians), 0.00001F) ||
+                (frame > 0 && (!Near(right, 0.0F, 0.00001F) ||
+                    !Near(forward, magnitude, 0.00001F) ||
+                    !Near(update.actor_delta_degrees, 0.0F, 0.0001F)))) {
+                std::cerr << "body-follow left persistent strafe or doubled head-relative movement\n";
+                return 1;
+            }
+            committed_yaw = update.actor_target_degrees;
+        }
+    }
+
     const float wide_yaw_half = 22.5F * kPi / 180.0F;
     Pose wide_right_turn_head{};
     wide_right_turn_head.orientation = {
@@ -332,21 +402,21 @@ int main() {
     const auto wide_body_yaw = BuildBodyYawOwnershipUpdate(
         wide_right_turn_head, 0.0F, false, false);
     if (!wide_body_yaw.valid ||
-        !Near(wide_body_yaw.actor_target_degrees, -10.0F) ||
-        !Near(wide_body_yaw.actor_delta_degrees, -10.0F) ||
+        !Near(wide_body_yaw.actor_target_degrees, -45.0F) ||
+        !Near(wide_body_yaw.actor_delta_degrees, -45.0F) ||
         !Near(wide_body_yaw.camera_compensation_degrees, 0.0F) ||
         !Near(wide_body_yaw.head_residual_degrees, -45.0F)) {
-        std::cerr << "wide HMD yaw did not move the actor toward the comfort-zone residual\n";
+        std::cerr << "wide HMD yaw did not fully rotate the actor\n";
         return 1;
     }
     const auto settled_body_yaw = BuildBodyYawOwnershipUpdate(
         wide_right_turn_head, wide_body_yaw.actor_target_degrees, true, false);
     if (!settled_body_yaw.valid ||
         !Near(settled_body_yaw.actor_delta_degrees, 0.0F) ||
-        !Near(settled_body_yaw.actor_target_degrees, -10.0F) ||
-        !Near(settled_body_yaw.camera_compensation_degrees, -10.0F) ||
-        !Near(settled_body_yaw.head_residual_degrees, -35.0F) ||
-        !Near(settled_body_yaw.spine_residual_degrees, -23.333333F, 0.001F)) {
+        !Near(settled_body_yaw.actor_target_degrees, -45.0F) ||
+        !Near(settled_body_yaw.camera_compensation_degrees, -45.0F) ||
+        !Near(settled_body_yaw.head_residual_degrees, 0.0F) ||
+        !Near(settled_body_yaw.spine_residual_degrees, 0.0F)) {
         std::cerr << "actor-owned HMD yaw was still being double-applied to the upper body\n";
         return 1;
     }

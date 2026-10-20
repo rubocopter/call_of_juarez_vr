@@ -11,6 +11,9 @@
 #include "games/call_of_juarez/focus_zoom.hpp"
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_geometry.hpp"
+#include "games/call_of_juarez/long_gun_observer.hpp"
+#include "games/call_of_juarez/bow_aim.hpp"
+#include "games/call_of_juarez/bow_draw_native.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
 #include "games/call_of_juarez/interaction_selection.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
@@ -381,13 +384,18 @@ public:
         bool& reloading, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryObserveWeaponShotDiagnostics(
         int hand, CoJWeaponShotDiagnostics& state, std::string* error = nullptr) noexcept;
-    // Read the active weapon's actual mesh barrel, independent of controller
-    // fields and m_avAimFromPoint. Missing weapons/barrels fail closed.
+    // Read a measured firearm barrel, or the exact stable bow's native root
+    // fallback (+Z) when it has no Barrel. Other missing barrels fail closed.
     [[nodiscard]] bool TryGetWeaponBarrel(
         int hand, JavaPlayerPosition& origin, JavaPlayerPosition& direction,
         std::string* error = nullptr,
         CoJWeaponAttackOrigins* attack_origins = nullptr,
         ElementWorldBasisTarget* barrel_frame = nullptr) noexcept;
+    // Exact stable native hand owner; ActiveWeapon aliases gain no second map.
+    [[nodiscard]] bool TryObserveBowAimOwner(int& hand,
+        std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveBowDraw(CoJBowDrawNativeObservation& observation) noexcept;
+    [[nodiscard]] bool TryPublishBowDrawHold(bool held, std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryApplyUpperBodyTracking(
         float head_horizontal_offset_degrees,
         float spine_horizontal_offset_degrees,
@@ -395,8 +403,10 @@ public:
         std::string* error = nullptr) noexcept;
 
     [[nodiscard]] bool TryObserveHudText(runtime::HudTextSnapshot& text) noexcept;
+    [[nodiscard]] bool TryObserveMovieSubtitle(runtime::HudText& text) noexcept;
     [[nodiscard]] bool TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept;
     [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
+    [[nodiscard]] bool TryObserveLongGunSupport(CoJLongGunSupportSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
@@ -624,7 +634,8 @@ private:
 
     [[nodiscard]] bool ReadObjectElementFrame(
         void* object, int element, JavaPlayerPosition& position,
-        JavaPlayerPosition& up, JavaPlayerPosition& forward, std::string* error) noexcept;
+        JavaPlayerPosition& up, JavaPlayerPosition& forward, std::string* error,
+        bool require_rigid_source = false) noexcept;
     [[nodiscard]] bool WriteObjectElementFrame(
         void* object, int element, const JavaPlayerPosition& up,
         const JavaPlayerPosition& forward, const JavaPlayerPosition& position,
@@ -636,15 +647,21 @@ private:
         TrackedWeaponFramePlan plan{};
         JavaPlayerPosition actor_at_capture{};
         int barrel_element = -1;
+        // Nonnegative only for the qualified exact-bow root fallback. Retain
+        // its authored holder identity alongside the captured Java object.
+        int bow_holder_element = -1;
         bool active = false;
         bool applied = false;
     };
+    bool ValidateTrackedBowOwner(int hand, std::string* error) noexcept;
     bool CaptureTrackedWeapon(int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
         cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up, std::string* error,
         const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand,
         bool* unarmed_hand = nullptr) noexcept;
     std::array<WeaponOverlay, 2> weapon_overlays_{};
     std::array<void*, 8> weapon_ray_fields_{};
+    void* bow_draw_hold_field_=nullptr;
+    bool bow_draw_hold_published_=false;
     void* tracked_whip_ = nullptr;
     std::array<void*,3> whip_fields_{};
     std::array<void*,3> whip_vectors_{};

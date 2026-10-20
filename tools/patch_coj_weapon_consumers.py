@@ -27,6 +27,8 @@ SHOT_DIAGNOSTIC_FIELDS = ("cojvrShotSerial", "cojvrHitSerial", "cojvrFxSerial",
 TARGET_OWNER_FIELDS = ("cojvrRightTargetWeapon", "cojvrLeftTargetWeapon")
 MANUAL_RELOAD_FIELDS = ("cojvrManualReloadWeapon", "cojvrSingleRoundWeapon",
                         "cojvrSingleRoundHand", "cojvrSingleRoundCompleted")
+PHYSICAL_BOW_DRAW_FIELD = "cojvrPhysicalBowDrawWeapon"
+CHECK_BULLET_TIME_SHA256 = "6e97b3218cb31c904931261bc2ae9a50ab5baf80f8813d01bb7cec29898e5abf"
 # Mirrors the exact game-adapter profile. Native parameter and network checks
 # remain authoritative after this concrete-class admission.
 SINGLE_ROUND_REVOLVERS = ("WeaponPistolFrontier1878_Regular", "WeaponPistolPeacemaker",
@@ -137,6 +139,36 @@ def manual_reload_replacement_cleanup(active, active_hand, desired_weapon, compl
     c.emit(0x2a,0x01);c.ref(0xb5,active)
     c.emit(0x2a,0x03);c.ref(0xb5,completed)
     c.label('done')
+    return c.finish()
+
+def physical_bow_expiry_guard(published, net_forced, net_game, held, actual,
+                              desired, bow_hand, get_class, get_name, equals,
+                              bow_name, turn_off):
+    """Guard only CheckBulletTime's expiry call; native release always wins.
+
+    The bridge owns this nullable reference's lifetime. Repeated native owner
+    reads reject replacement; exact concrete class-name admission follows the
+    existing Java 1.4 reload guard (no ldc Class literal or new class loader).
+    No BulletTime mode, duration, zoom, animation or native held flag is written.
+    """
+    c = Code()
+    c.emit(0x2a); c.ref(0xb4, published); c.emit(0x4c)
+    c.emit(0x2b); c.branch(0xc6, 'native')
+    c.ref(0xb8, net_game); c.branch(0x9a, 'native')
+    c.emit(0x2a); c.ref(0xb4, net_forced); c.branch(0x9a, 'native')
+    c.emit(0x2a); c.ref(0xb4, held); c.emit(0x03, 0x33); c.branch(0x99, 'native')
+    c.emit(0x2a); c.ref(0xb6, bow_hand); c.emit(0x04); c.branch(0xa0, 'native')
+    for method in (actual, desired):
+        c.emit(0x2a, 0x04); c.ref(0xb6, method); c.emit(0x2b); c.branch(0xa6, 'native')
+    c.emit(0x2b); c.ref(0xb6, get_class); c.ref(0xb6, get_name)
+    c.ref(0x13, bow_name); c.ref(0xb6, equals); c.branch(0x99, 'native')
+    for method in (actual, desired):
+        c.emit(0x2a, 0x04); c.ref(0xb6, method); c.emit(0x2b); c.branch(0xa6, 'native')
+    c.emit(0x2a); c.ref(0xb4, published); c.emit(0x2b); c.branch(0xa6, 'native')
+    c.emit(0x2a); c.ref(0xb4, held); c.emit(0x03, 0x33); c.branch(0x99, 'native')
+    c.emit(0xb1)
+    c.label('native')
+    c.emit(0x2a); c.ref(0xb6, turn_off); c.emit(0xb1)
     return c.finish()
 
 def manual_reload_limiter(ticket, ticket_hand, completed):
@@ -395,6 +427,10 @@ def patch_class(data: bytes) -> bytes:
         extra_fields.extend(u2(0x0081)+u2(name_index)+u2(desc)+u2(0))
         nt=append(b'\x0c'+u2(name_index)+u2(desc))
         manual_refs.append(append(b'\x09'+u2(this_class)+u2(nt)))
+    bow_field_name = utf8(PHYSICAL_BOW_DRAW_FIELD)
+    extra_fields.extend(u2(0x0081)+u2(bow_field_name)+u2(weapon_descriptor)+u2(0))
+    bow_field_nt = append(b'\x0c'+u2(bow_field_name)+u2(weapon_descriptor))
+    bow_field = append(b'\x09'+u2(this_class)+u2(bow_field_nt))
     def method_ref(owner,name,desc):
         cls=append(b'\x07'+u2(utf8(owner)))
         nt=append(b'\x0c'+u2(utf8(name))+u2(utf8(desc)))
@@ -406,6 +442,17 @@ def patch_class(data: bytes) -> bytes:
         method_ref('java/lang/String','equals','(Ljava/lang/Object;)Z'),names,
         method_ref('Weapon','IsReloadWholeClipAtOnce','()Z'),
         find('ArmedPlayerBeing.GetNetIsOwner()Z'))
+    bow_helper_name, bow_helper_desc = utf8('cojvrStopUnownedBowAlternate'), utf8('()V')
+    bow_helper_nt = append(b'\x0c'+u2(bow_helper_name)+u2(bow_helper_desc))
+    bow_helper_ref = append(b'\x0a'+u2(this_class)+u2(bow_helper_nt))
+    bow_class_name = append(b'\x08'+u2(utf8('WeaponBow')))
+    bow_helper = physical_bow_expiry_guard(bow_field, net,
+        find('ArmedPlayerBeing.IsNetGame()Z'), find('ArmedPlayerBeing.m_abAttackHandState[Z'),
+        find('ArmedPlayerBeing.GetActualWeaponNotEmpty(I)LWeapon;'),
+        find('ArmedPlayerBeing.GetDesiredWeapon(I)LWeapon;'),
+        find('ArmedPlayerBeing.GetBowHand()I'), *class_methods[:3], bow_class_name,
+        find('ArmedPlayerBeing.TurnOffAlternateFire()V'))
+    bow_target = ('CheckBulletTime', '()V')
     limiter=manual_reload_limiter(*manual_refs[1:])
     consume=manual_reload_consume(manual_refs[0])
     admission=manual_reload_admission(manual_refs[0],net,*class_methods,
@@ -426,16 +473,23 @@ def patch_class(data: bytes) -> bytes:
     reload_replacement=('UpdateHandState','(IZ)V')
     reload_targets={reload_target,reload_request,reload_public,reload_end,reload_replacement}
     relocation_pool=parse_constant_pool(Reader(u2(next_index)+data[10:cp_end]+additions))
-    method_count = r.u2(); methods = bytearray(u2(method_count+1)); patched = set()
+    method_count = r.u2(); methods = bytearray(u2(method_count+2)); patched = set()
     for _ in range(method_count):
         header = r.read(6); name, desc = pool.utf8(int.from_bytes(header[2:4], "big")), pool.utf8(int.from_bytes(header[4:6], "big"))
         methods.extend(header); count = r.u2(); methods.extend(u2(count))
         for _ in range(count):
             attr_index = r.u2(); attr = r.read(r.u4()); target = targets.get((name, desc))
-            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in {visual_target,attack_target,target_method}|reload_targets):
+            if pool.utf8(attr_index) == "Code" and (target or (name,desc) in {visual_target,attack_target,target_method,bow_target}|reload_targets):
                 cr = Reader(attr); stack, locals_ = cr.u2(), cr.u2(); code = cr.read(cr.u4())
                 if cr.u2() != 0: raise ValueError("Unexpected shot exception table")
-                if (name,desc)==reload_public:
+                if (name,desc)==bow_target:
+                    # Same-length private-helper call at the SECOND cancellation
+                    # only. All native branches and the !rightHeld exit stay exact.
+                    if (hashlib.sha256(code).hexdigest()!=CHECK_BULLET_TIME_SHA256 or
+                        len(code)!=173 or code[114:118]!=b'\x2a\xb6'+u2(find('ArmedPlayerBeing.TurnOffAlternateFire()V'))):
+                        raise ValueError('Unknown exact bow concentration-expiry boundary')
+                    code=code[:115]+b'\xb7'+u2(bow_helper_ref)+code[118:]
+                elif (name,desc)==reload_public:
                     if len(code)!=98 or code[7]!=0xb1 or code[97]!=0xb1:
                         raise ValueError('Unexpected exact public reload boundary')
                     for at in (97,7):
@@ -476,12 +530,14 @@ def patch_class(data: bytes) -> bytes:
                 attr = u2(max(3, stack))+u2(max(5 if target and target[1] else 4, locals_))+u4(len(code))+code+u2(0)+u2(0)
                 patched.add((name, desc))
             methods.extend(u2(attr_index)+u4(len(attr))+attr)
-    if patched != set(targets)|{visual_target,attack_target,target_method}|reload_targets: raise ValueError("Incomplete shot boundary patch")
+    if patched != set(targets)|{visual_target,attack_target,target_method,bow_target}|reload_targets: raise ValueError("Incomplete shot boundary patch")
     helper=visual_direction_source(refs[2:4],net,native_visual_array)
     attr=u2(2)+u2(3)+u4(len(helper))+helper+u2(0)+u2(0)
     methods.extend(u2(2)+u2(visual_name)+u2(visual_desc)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
+    attr=u2(2)+u2(2)+u4(len(bow_helper))+bow_helper+u2(0)+u2(0)
+    methods.extend(u2(2)+u2(bow_helper_name)+u2(bow_helper_desc)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
     return (data[:8]+u2(next_index)+data[10:cp_end]+additions+
-            data[cp_end:fields_at]+u2(field_count+len(FIELDS)+len(TARGET_OWNER_FIELDS)+len(MANUAL_RELOAD_FIELDS))+data[fields_at+2:fields_end]+
+            data[cp_end:fields_at]+u2(field_count+len(FIELDS)+len(TARGET_OWNER_FIELDS)+len(MANUAL_RELOAD_FIELDS)+1)+data[fields_at+2:fields_end]+
             extra_fields+methods+data[r.stream.tell():])
 
 def patch_fire_class(data: bytes) -> bytes:
@@ -777,6 +833,8 @@ def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_re
                    "WeaponWhip.class":patch_whip_class(original.read("WeaponWhip.class"))}
         from coj_native_settings import MENU_CLASS_NAME, patch_menu_class
         patched[MENU_CLASS_NAME] = patch_menu_class(original.read(MENU_CLASS_NAME))
+        from coj_movie_subtitles import MODULE_CLASS_NAME, patch_movie_subtitles
+        patched[MODULE_CLASS_NAME] = patch_movie_subtitles(original.read(MODULE_CLASS_NAME))
         if reload_wait_probe or manual_reload:
             factory=patch_manual_reload_classes if manual_reload else patch_reload_probe_classes
             player, machine = factory(

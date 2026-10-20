@@ -65,11 +65,23 @@ struct ReloadInsertionFeedback {
     bool zone_entered = false;
 };
 
+enum class BowDrawFeedbackKind : std::uint8_t { none, grab, tension, release };
+// Physical string gesture only. Release is a native request, never arrow acknowledgement.
+// Opaque ownership is separate from reload; the producer fills the capture sequence.
+struct BowDrawFeedback {
+    std::uint64_t owner_token = 0;
+    std::uint64_t input_generation = 0;
+    std::uint64_t event_sequence = 0;
+    BowDrawFeedbackKind kind = BowDrawFeedbackKind::none;
+    float tension = 0.F; // Normalized physical draw progress, not native animation time.
+};
+
 struct StereoHudTextOverlay {
     std::uint64_t frame_sequence = 0;
     // Capture-time game-owner availability/epoch, independent of textures.
     std::uint64_t feedback_context_token = 0;
     ReloadInsertionFeedback reload_feedback{};
+    BowDrawFeedback bow_feedback{};
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};
     GameplayUiSnapshot ui{};

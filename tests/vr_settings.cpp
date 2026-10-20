@@ -237,18 +237,14 @@ int main(int argc,char** argv) {
     Require(text.view().find(u"Inmersivo")!=std::u16string_view::npos&&text.view().find(u"guard")!=std::u16string_view::npos,
         "Spanish setting/save-failure feedback absent");
     Require(text.view().find(u"Windows 5")!=std::u16string_view::npos,"menu omitted actual save error");
-    Require(text.view().find(u"experimental")!=std::u16string_view::npos&&
-        text.view().find(u"Subtítulos de cinemáticas pendientes")!=std::u16string_view::npos,
-        "Spanish immersive choice omitted subtitle/experimental limitation");
+    Require(text.view().find(u"experimental")!=std::u16string_view::npos,
+        "Spanish immersive choice omitted experimental status");
     const auto immersive_english=BuildVrSettingsText(CinematicsMode::immersive,SettingsLanguage::english,false,false);
-    Require(immersive_english.view().find(u"experimental")!=std::u16string_view::npos&&
-        immersive_english.view().find(u"Movie subtitles not yet shown")!=std::u16string_view::npos,
-        "English immersive choice omitted subtitle/experimental limitation");
+    Require(immersive_english.view().find(u"experimental")!=std::u16string_view::npos,
+        "English immersive choice omitted experimental status");
     auto english=BuildVrSettingsText(CinematicsMode::theater,SettingsLanguage::english,false,true);
     Require(english.view().find(u"Theater")!=std::u16string_view::npos&&english.view().find(u"release")!=std::u16string_view::npos,
         "entry release prompt absent");
-    Require(english.view().find(u"Movie subtitles not yet shown")==std::u16string_view::npos,
-        "Theater incorrectly inherited immersive subtitle limitation");
     using namespace cojvr::backends::openvr;
     using Microsoft::WRL::ComPtr;
     ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;

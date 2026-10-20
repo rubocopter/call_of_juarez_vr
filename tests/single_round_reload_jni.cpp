@@ -330,6 +330,14 @@ int drum_index = 3, gate_index = 1, unavailable_element = -1;
 int geometry_hand = 0;
 bool replace_during_last_frame = false;
 int replacement_reads = 0;
+int geometry_phase_field,geometry_phase_reads=0;
+float geometry_phase=120;
+bool change_phase_during_read=false;
+void* JNI_CALL GeometryField(void*,void*,const char* name,const char* signature) {
+    Require(!std::strcmp(name,"m_fRotate") && !std::strcmp(signature,"F"),"unexpected mechanical field");
+    if(Fail())return nullptr;
+    return &geometry_phase_field;
+}
 void* JNI_CALL GeometryString(void*, const char* text) {
     if (Fail()) return nullptr;
     geometry_names.emplace_back(text);
@@ -384,6 +392,11 @@ std::uint8_t JNI_CALL GeometryBoolean(void* env, void* object, void* method, con
     return 1;
 }
 float JNI_CALL GeometryFloat(void*, void* object, void* field) {
+    if(field==&geometry_phase_field) {
+        Require(object==&weapon || object==&weapon_alias,"phase read wrong native owner");
+        if(Fail())return std::numeric_limits<float>::quiet_NaN();
+        return geometry_phase+(change_phase_during_read && geometry_phase_reads++>0?60.F:0.F);
+    }
     Require(object == &geometry_vector,"geometry read wrong vector");
     if (Fail()) return std::numeric_limits<float>::quiet_NaN();
     Require(field == &geometry_x || field == &geometry_y || field == &geometry_z,
@@ -396,6 +409,7 @@ void GeometryReset(JavaPlayerBridge& bridge,int hand,bool peacemaker) {
     weapon_class = peacemaker ? &peacemaker_class : &pistol_class;
     drum_index = 3; gate_index = 1; unavailable_element = -1;
     geometry_hand = hand; replace_during_last_frame = false; replacement_reads = 0;
+    geometry_phase=120;geometry_phase_reads=0;change_phase_during_read=false;
     bridge.weapon_overlays_ = {};
     auto& overlay = bridge.weapon_overlays_[hand];
     overlay.weapon = &weapon; overlay.active = overlay.applied = true;
@@ -417,7 +431,7 @@ void GeometryReset(JavaPlayerBridge& bridge,int hand,bool peacemaker) {
     bridge.vector_x_field_ = &geometry_x; bridge.vector_y_field_ = &geometry_y;
     bridge.vector_z_field_ = &geometry_z;
     Set(30,GeometryNew); Set(33,GeometryLookup); Set(39,GeometryBoolean);
-    Set(51,GeometryInteger); Set(102,GeometryFloat); Set(167,GeometryString);
+    Set(51,GeometryInteger); Set(94,GeometryField); Set(102,GeometryFloat); Set(167,GeometryString);
 }
 int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemaker,
     CoJReloadGeometrySource source=CoJReloadGeometrySource::post_overlay) {
@@ -441,6 +455,7 @@ int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemake
             !result.drum.valid && !result.gate.valid,"rejected geometry retained stale output");
         for(const auto& mouth:result.mouths) Require(!mouth.valid,"rejected geometry retained mouth");
     } else {
+        Require(result.native_drum_phase_degrees==geometry_phase,"geometry lost same-owner native drum phase");
         Require(result.valid && result.model==(peacemaker?CoJReloadModel::peacemaker:CoJReloadModel::frontier),
             "geometry returned wrong exact model");
         Require(result.source==source && result.root.valid && result.barrel.valid &&
@@ -473,6 +488,17 @@ int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemake
     return step;
 }
 void ReloadGeometryTests(JavaPlayerBridge& bridge) {
+    for(const auto source_up:{cojvr::runtime::Vec3{0,2,0},cojvr::runtime::Vec3{.2F,1,0}}) {
+        GeometryReset(bridge,0,true);
+        geometry_frames[0].up=source_up;
+        JavaPlayerPosition p{},u{},f{};
+        Require(bridge.ReadObjectElementFrame(&weapon,0,p,u,f,nullptr),
+            "ordinary element reader lost existing normalization contract");
+        Require(!bridge.ReadObjectElementFrame(&weapon,0,p,u,f,nullptr,true) &&
+            p.x==0 && p.y==0 && p.z==0 && u.x==0 && u.y==0 && u.z==0 &&
+            f.x==0 && f.y==0 && f.z==0 && refs==0 && !pending,
+            "strict natural source reader normalized a scaled/sheared native frame");
+    }
     for(int hand=0;hand<2;++hand) for(bool peacemaker:{false,true}) {
         GeometryReset(bridge,hand,peacemaker);
         const int calls=GeometryCheck(bridge,true,hand,peacemaker);
@@ -541,10 +567,14 @@ void ReloadGeometryTests(JavaPlayerBridge& bridge) {
         GeometryCheck(bridge,false,hand,peacemaker);
         Require(replacement_reads==1 && geometry_names.size()==2,
             "replacement regression did not reach final named frame read");
+        GeometryReset(bridge,hand,peacemaker);change_phase_during_read=true;
+        GeometryCheck(bridge,false,hand,peacemaker);
+        GeometryReset(bridge,hand,peacemaker);geometry_phase=std::numeric_limits<float>::quiet_NaN();
+        GeometryCheck(bridge,false,hand,peacemaker);
         GeometryReset(bridge,hand,peacemaker);
         bridge.weapon_overlays_[hand].weapon=&weapon_alias;
         GeometryCheck(bridge,true,hand,peacemaker);
-        for(int slot:{6,15,17,23,24,30,31,33,36,39,51,102,167}) {
+        for(int slot:{6,15,17,23,24,30,31,33,36,39,51,94,102,167}) {
             GeometryReset(bridge,hand,peacemaker); auto saved=table[slot]; table[slot]=nullptr;
             GeometryCheck(bridge,false,hand,peacemaker); table[slot]=saved;
         }

@@ -34,6 +34,10 @@ class ArchiveTests(unittest.TestCase):
                 menu = parse_class(pak.read('MenuOptionsGame.class'))
                 self.assertIn(('cojvrSettingsReady', 'Z'),
                               {(f.name, f.descriptor) for f in menu.fields})
+                movie = parse_class(pak.read('LawmanModule.class'))
+                self.assertTrue({('cojvrMovieSubtitleKey','Ljava/lang/String;'),
+                                 ('cojvrMovieSubtitleId','I'),('cojvrMovieSubtitleMovie','LMovie;')}
+                                <= {(f.name,f.descriptor) for f in movie.fields})
 
     def test_resource_only_mode_retains_unrelated_compressed_records(self):
         with tempfile.TemporaryDirectory(prefix='cojvr-menu-resources-') as directory:

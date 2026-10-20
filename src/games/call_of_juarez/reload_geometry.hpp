@@ -41,6 +41,9 @@ struct CoJReloadGeometrySnapshot {
     ElementWorldBasisTarget drum{}, gate{};
     CoJReloadLocalFrame drum_root{},gate_root{},drum_barrel{},gate_barrel{};
     std::array<ElementWorldBasisTarget,6> mouths{};
+    // Same-owner m_fRotate bracketing this synchronous read, in native degrees.
+    // This is not a chamber index or proof of native animation composition.
+    float native_drum_phase_degrees=0;
     bool valid = false;
 };
 // Exact model observations in centimetres. These are chamber-mouth geometry,

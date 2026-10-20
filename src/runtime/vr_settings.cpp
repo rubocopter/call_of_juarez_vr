@@ -332,8 +332,6 @@ HudText BuildVrSettingsText(CinematicsMode mode,SettingsLanguage language,bool s
     append(es?u"AJUSTES VR\nCinemáticas: ":u"VR SETTINGS\nCinematics: ");
     append(mode==CinematicsMode::immersive?(es?u"Inmersivo (experimental)":u"Immersive (experimental)"):
         (es?u"Cine (predeterminado)":u"Theater (default)"));
-    if(mode==CinematicsMode::immersive)
-        append(es?u"\nSubtítulos de cinemáticas pendientes":u"\nMovie subtitles not yet shown");
     append(es?u"\nStick derecho: izq./der. · Cross: cambiar\nCircle: cerrar":u"\nRight stick: left/right · Cross: change\nCircle: close");
     if(awaiting_release)append(es?u"\nSuelta botones y centra los sticks":u"\nPlease release buttons and center sticks");
     else append(es?u"\nMantén Options 1 s para abrir":u"\nHold Options 1 s to open");

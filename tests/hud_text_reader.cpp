@@ -8,6 +8,7 @@
 namespace fixture {
 struct Object {
     std::unordered_map<std::string, Object*> fields;
+    std::unordered_map<std::string, int> integers;
     std::u16string string;
     int index = 0, locals = 0;
     bool visible = true, boolean = true;
@@ -16,11 +17,14 @@ Object hud_class, game_class, dialog_class, text_class, exception;
 Object player, other, hud, components, trigger, icon, hint, window, info;
 Object settings, dialog, lines, line, actor, subtitle;
 Object interaction_text, hint_text, subtitle_text, localized_subtitle;
+Object module, movie, movie_class, movie_sprite;
 Object* all[] = {&hud_class,&game_class,&dialog_class,&text_class,&exception,&player,&other,
     &hud,&components,&trigger,&icon,&hint,&window,&info,&settings,&dialog,&lines,&line,&actor,
-    &subtitle,&interaction_text,&hint_text,&subtitle_text,&localized_subtitle};
+    &subtitle,&interaction_text,&hint_text,&subtitle_text,&localized_subtitle,
+    &module,&movie,&movie_class,&movie_sprite};
 void* table[180]{}; void** holder = table;
 bool pending = false, fail_field = false, fail_chars = false, wrong_component = false;
+bool movie_lookup_fault=false, change_movie_during_localization=false;
 int pinned = 0, mutations = 0, calls = 0;
 void Require(bool value, const char* message) { if (!value) { std::cerr<<message<<'\n'; std::exit(1); } }
 void* Local(Object* object) { if (object) ++object->locals; return object; }
@@ -32,6 +36,7 @@ void* __stdcall Find(void*, const char* name) {
     if (!std::strcmp(name,"LawmanGame")) return Local(&game_class);
     if (!std::strcmp(name,"Dialog")) return Local(&dialog_class);
     if (!std::strcmp(name,"Text")) return Local(&text_class);
+    if (!std::strcmp(name,"LawmanModuleSingle")) return Local(&movie_class);
     if (!std::strcmp(name,"HUDActiveTrigger")) return Local(&trigger);
     if (!std::strcmp(name,"HUDHint")) return Local(&hint);
     Require(false,"unexpected native class lookup"); return nullptr;
@@ -41,11 +46,14 @@ void __stdcall Clear(void*) { pending = false; }
 void __stdcall Delete(void*, void* value) { auto* o=static_cast<Object*>(value); Require(o && o->locals>0,"invalid local release"); --o->locals; }
 unsigned char __stdcall Same(void*, void* a, void* b) { return a == b; }
 void* __stdcall Class(void*, void* object) { Require(!pending,"pending class"); return Local(static_cast<Object*>(object)); }
-unsigned char __stdcall Instance(void*, void* object, void* cls) { return !wrong_component && object == cls; }
+unsigned char __stdcall Instance(void*, void* object, void* cls) { return !wrong_component &&
+    (object == cls || (object==&module && cls==&movie_class)); }
 std::unordered_map<std::string, std::string> tokens;
-void* __stdcall Field(void*, void*, const char* name, const char*) {
+void* __stdcall Field(void*, void*, const char* name, const char* signature) {
     Require(!pending,"pending lookup");
+    if(!std::strcmp(name,"sm_cActiveGameModule"))Require(!std::strcmp(signature,"LLawmanModule;"),"active module descriptor differs from shipped field");
     if (fail_field && std::strcmp(name,"m_cIcon")==0) { pending=true; return nullptr; }
+    if (movie_lookup_fault && std::strcmp(name,"cojvrMovieSubtitleKey")==0) { pending=true; return nullptr; }
     return &tokens.emplace(name,name).first->second;
 }
 void* __stdcall ObjectField(void*, void* object, void* field) {
@@ -53,18 +61,23 @@ void* __stdcall ObjectField(void*, void* object, void* field) {
     return Local(static_cast<Object*>(object)->fields[*static_cast<std::string*>(field)]);
 }
 unsigned char __stdcall Boolean(void*, void* object, void*) { Require(!pending,"pending boolean"); return static_cast<Object*>(object)->boolean; }
-int __stdcall Integer(void*, void* object, void*) { return static_cast<Object*>(object)->index; }
+int __stdcall Integer(void*, void* object, void* field) {
+    auto* o=static_cast<Object*>(object);
+    auto it=o->integers.find(*static_cast<std::string*>(field));
+    return it==o->integers.end()?o->index:it->second;
+}
 void* __stdcall Method(void* env, void* cls, const char* name, const char* sig) { return Field(env,cls,name,sig); }
 union Value { long long alignment; void* object; };
 unsigned char __stdcall CallBoolean(void*, void* object, void* method, const Value*) {
     Require(!pending,"pending visibility"); ++calls;
     const auto& name=*static_cast<std::string*>(method);
-    Require(name=="IsActuallyVisible" || name=="AreSubtitlesVisible", "mutating method requested");
+    Require(name=="IsActuallyVisible" || name=="AreSubtitlesVisible" || name=="IsVisible", "mutating method requested");
     return static_cast<Object*>(object)->visible;
 }
 void* __stdcall CallStaticObject(void*, void* cls, void* method, const Value* args) {
     Require(cls==&text_class && *static_cast<std::string*>(method)=="Get" && args[0].object==&subtitle_text,
         "subtitle localization must use shipped Text.Get");
+    if(change_movie_during_localization)module.fields["m_cMoviePlaying"]=&other;
     return Local(&localized_subtitle);
 }
 int __stdcall ArrayLength(void*, void* array) { return array==&components ? 23 : 1; }
@@ -208,5 +221,39 @@ int main() {
     wrong_component=true;
     Require(!ReadCoJHudText(&holder,&player,text) && text.hint.view().empty(),"component type mismatch must fail closed"); Clean();
     Require(!ReadCoJHudText(nullptr,&player,text) && text.subtitle.view().empty(),"missing JNI must clear prior text");
+    wrong_component=false;
+    game_class.fields["sm_cActiveGameModule"]=&module;
+    module.fields["m_cMoviePlaying"]=module.fields["cojvrMovieSubtitleMovie"]=&movie;
+    module.fields["cojvrMovieSubtitleKey"]=&subtitle_text;
+    module.fields["cSubtitle"]=&movie_sprite;
+    module.integers["iSubtitleNumber"]=module.integers["cojvrMovieSubtitleId"]=8;
+    localized_subtitle.string=u"LMB: ¿Dónde está el jinete?";
+    auto& movie_text=text.subtitle;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) &&
+        movie_text.view()==localized_subtitle.string,"visible owned movie must copy localized native subtitle"); Clean();
+    module.fields["cojvrMovieSubtitleKey"]=nullptr;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"absent module cache fell back to actor dialogue"); Clean(); module.fields["cojvrMovieSubtitleKey"]=&subtitle_text;
+    module.fields["m_cMoviePlaying"]=nullptr;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"ended movie retained cached line"); Clean(); module.fields["m_cMoviePlaying"]=&movie;
+    module.integers["iSubtitleNumber"]=-1;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"native hide retained cached line"); Clean(); module.integers["iSubtitleNumber"]=8;
+    // Native and cached IDs, current movie, settings and sprite each own a veto.
+    settings.boolean=false;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"disabled movie subtitles retained prior line"); Clean(); settings.boolean=true;
+    movie_sprite.visible=false;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"hidden movie sprite retained line"); Clean(); movie_sprite.visible=true;
+    module.integers["iSubtitleNumber"]=9;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"stale movie subtitle ID displayed"); Clean(); module.integers["iSubtitleNumber"]=8;
+    module.fields["m_cMoviePlaying"]=&other;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"subtitle inherited another movie"); Clean(); module.fields["m_cMoviePlaying"]=&movie;
+    game_class.fields["sm_cActiveGameModule"]=&other;
+    Require(!ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"foreign active module accepted movie text"); Clean(); game_class.fields["sm_cActiveGameModule"]=&module;
+    change_movie_during_localization=true;
+    Require(!ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"owner changed during localization but copied line survived"); Clean(); change_movie_during_localization=false; module.fields["m_cMoviePlaying"]=&movie;
+    movie_lookup_fault=true;
+    Require(!ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"missing movie cache must fail closed with exception cleanup"); Clean(); movie_lookup_fault=false;
+    fail_chars=true;
+    Require(!ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"movie Unicode pin fault retained line"); Clean(); fail_chars=false;
+    Require(!ReadCoJMovieSubtitle(nullptr,&module,movie_text) && movie_text.view().empty(),"missing movie JNI retained prior line");
     std::cout<<"Native HUD ownership, visibility, Unicode and exception cleanup passed\n";
 }

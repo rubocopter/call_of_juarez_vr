@@ -113,6 +113,7 @@ public:
     void PublishGameplayFeedbackContext(bool available) noexcept;
     [[nodiscard]] std::uint64_t GameplayFeedbackContextToken() const noexcept;
     void PublishReloadFeedbackOwner(std::uint64_t token) noexcept;
+    void PublishBowFeedbackOwner(std::uint64_t token) noexcept;
     // Game-owner values only; independent from gameplay feedback and JNI.
     void PublishSettingsContext(std::uint64_t token, bool available = true) noexcept;
     void PublishSettingsLanguage(runtime::SettingsLanguage language) noexcept;

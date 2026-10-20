@@ -10,8 +10,10 @@ struct CoJFocusZoom {
 };
 // Exact-build game-owner caller only. Reads cached native squint fields;
 // GetBeingZoom may run CalculateZoom, so it is deliberately never invoked.
-// Desired/current bows and the shipped scoped rifle retain physical optics;
-// their native factor/scope overrides are separate mechanics.
+// Stable current/desired bow ownership additionally observes the native
+// BulletTime caches and combines concentration with squint. No native update,
+// parameter factory or weapon write. Scoped Winchester remains excluded:
+// its parameter/camera-dependent scope and overlay need separate qualification.
 bool ReadCoJFocusZoom(void* env, void* player, CoJFocusZoom& out) noexcept;
 // Render copies only: leave the runtime optics, eye poses and UI optics intact.
 bool BuildCoJFocusRenderEyes(const std::array<runtime::EyeView, 2>& optical,

@@ -136,6 +136,61 @@ bool EyeResourceScopes() {
     return true;
 }
 int natural_renders=0;
+struct BowCaptureFixture {
+    CoJBowDrawSessionInput input{};
+    BowCaptureFixture(){
+        g_bow_draw_session.Reset();
+        input.selected=input.allowed=input.right_available=input.counter_valid=true;
+        input.player=2;input.context=3;input.input_generation=4;
+        input.native.valid=true;input.native.weapon_id=5;input.native.current_state=1;
+        input.native.root.valid=input.native.arrow.valid=input.native.holder.valid=true;
+        input.head_world_m={0,1.6F,0};input.left_world_m={-.05F,1.3F,-.4F};input.right_world_m={0,1.3F,-.4F};
+        input.native.root.position=input.native.arrow.position={0,130,-40};
+        input.native.root.forward={0,0,-1};input.native.root.right={-1,0,0};
+    }
+    CoJBowDrawSessionOutput Tick(){++input.sequence;input.now_ms+=20;return g_bow_draw_session.Update(input);}
+    bool Grab(){Tick();input.right_held=true;return Tick().gesture.grab;}
+    void Ready(){input.native.current_state=129;input.native.can_attack=input.native.held_right=input.native.release_ready=true;}
+    ~BowCaptureFixture(){g_bow_draw_session.Reset();}
+};
+bool CaptureDropPreservesBow(){
+    g_stereo_callbacks={};
+    BowCaptureFixture bow;if(!bow.Grab())return false;bow.Ready();
+    bow.input.right_world_m.z+=.2F;
+    if(!bow.Tick().dispatch.right)return false;
+    const auto owner=g_bow_draw_session.owner_token();
+    // The physical report contains 31 left capture-ring misses. No right eye
+    // was attempted on those frames; all attempted native resources restored.
+    for(int drop=0;drop<31;++drop){
+        if(CompletePhysicalBowFrame(false,true,true,true,true)||
+            !g_bow_draw_session.active()||g_bow_draw_session.owner_token()!=owner)return false;
+        const auto held=bow.Tick();
+        if(!held.gesture.drawing||!held.dispatch.right||held.dispatch.left||held.dispatch.shot_requested)return false;
+    }
+    if(!CompletePhysicalBowFrame(true,true,true,true,true))return false;
+    bow.input.right_held=false;const auto released=bow.Tick();
+    if(!released.dispatch.shot_requested||!released.dispatch.left||!released.dispatch.pending)return false;
+    if(bow.Tick().dispatch.left)return false;
+    ++bow.input.attack_entries;
+    return !bow.Tick().dispatch.right;
+}
+bool CaptureDropRetainsBowSafety(){
+    g_stereo_callbacks={};
+    for(int fault=0;fault<4;++fault){
+        BowCaptureFixture bow;if(!bow.Grab())return false;bow.Ready();
+        if(CompletePhysicalBowFrame(true,fault!=0,fault!=1,fault!=2,fault!=3)||
+            g_bow_draw_session.active()||g_bow_draw_session.owner_token())return false;
+        if(bow.Tick().gesture.grab)return false;
+        bow.input.right_held=false;
+        if(bow.Tick().dispatch.shot_requested)return false;
+    }
+    BowCaptureFixture bow;if(!bow.Grab())return false;bow.Ready();
+    bow.input.now_ms+=101;
+    const auto stale=bow.Tick();
+    if(stale.gesture.drawing||stale.dispatch.right||stale.dispatch.shot_requested)return false;
+    if(CompletePhysicalBowFrame(false,true,true,true,true)||g_bow_draw_session.active())return false;
+    return !bow.Tick().gesture.grab;
+}
 bool natural_render_scoped=false;
 bool natural_source_ready=false;
 void NaturalSource(void*,bool complete) noexcept {natural_source_ready=complete;}
@@ -176,6 +231,24 @@ bool PendingQueryAndNaturalFallback() {
     // Pending can outlive the camera's local End record (e.g. failed mirror).
     g_eye_render_restore={};
     if(replay()||natural_renders!=1||RestorePendingEyeRenderResources())return false;
+    CoJBowDrawSessionInput bow{};
+    bow.selected=bow.allowed=bow.right_available=bow.counter_valid=true;
+    bow.player=2;bow.context=3;bow.input_generation=4;
+    bow.native.valid=true;bow.native.weapon_id=5;bow.native.current_state=1;
+    bow.native.root.valid=bow.native.arrow.valid=bow.native.holder.valid=true;
+    bow.head_world_m={0,1.6F,0};bow.left_world_m={-.05F,1.3F,-.4F};bow.right_world_m={0,1.3F,-.4F};
+    bow.native.root.position=bow.native.arrow.position={0,130,-40};
+    bow.native.root.forward={0,0,-1};bow.native.root.right={-1,0,0};
+    bow.sequence=1;bow.now_ms=20;(void)g_bow_draw_session.Update(bow);
+    bow.right_held=true;++bow.sequence;bow.now_ms+=20;
+    if(!g_bow_draw_session.Update(bow).gesture.grab)return false;
+    g_original_render_view=reinterpret_cast<RenderViewFn>(&NativeRender);
+    HookRenderViewImpl(camera.data(),nullptr,view.data());
+    if(g_bow_draw_session.active()||g_bow_draw_session.owner_token())return false;
+    // Repeated quarantined frames must not revive the cancelled native owner.
+    HookRenderViewImpl(camera.data(),nullptr,view.data());
+    if(g_bow_draw_session.active()||natural_renders!=1)return false;
+    g_original_render_view=nullptr;
     probe.events.clear();
     if(ScopedEyeAttempt(probe)||!probe.events.empty()||MirrorStereoEyePair(32))return false;
     // Invalidation may retry the native owner's End; requery before rendering.
@@ -212,9 +285,105 @@ bool ReplayPreservesReference() {
     return g_pose_tracker.Update(sample)&&g_pose_tracker.CurrentPose(after)&&
         std::abs(after.position.x-.3F)<.00001F&&g_pose_tracker.last_recenter_sequence()==recenter;
 }
+struct InputLevelProbe {
+    std::vector<std::byte> engine=std::vector<std::byte>(0x542f58+sizeof(void*));
+    std::array<std::byte,0x700> game{};
+    std::array<std::byte,0x100> view{};
+    std::array<void*,2> levels{};
+    void* owner=reinterpret_cast<void*>(0x8f120000);
+    void* foreign=reinterpret_cast<void*>(0x12340000);
+    int calls=0,renders=0,credits=0;
+    bool blocking_ui=false,native_context_valid=false;
+    void*& current() { return *reinterpret_cast<void**>(game.data()+0x668); }
+    void*& singleton() { return *reinterpret_cast<void**>(engine.data()+0x542f58); }
+    void Bind() {
+        singleton()=game.data();current()=owner;levels={owner,foreign};view={};
+        *reinterpret_cast<void***>(game.data()+0x65c)=levels.data();
+        *reinterpret_cast<void***>(game.data()+0x660)=levels.data()+2;
+        calls=renders=credits=0;blocking_ui=native_context_valid=false;
+    }
+};
+InputLevelProbe* input_level_probe=nullptr;
+void __fastcall NativeRenderAfterInput(void* owner,void*,void* view) {
+    auto& p=*input_level_probe;++p.renders;p.native_context_valid=p.current()==owner;
+    *(static_cast<std::uint8_t*>(view)+kViewRenderedThisFrameOffset)=1;
+}
+bool InputRestoresNativeRenderContext() {
+    InputLevelProbe p;input_level_probe=&p;
+    auto* previous_engine=g_engine_base;g_engine_base=p.engine.data();
+    g_stereo_callbacks={};g_stereo_callbacks.observe_natural_render=&NaturalSource;
+    bool passed=true;
+    for(int scenario=0;scenario<7;++scenario) {
+        p.Bind();bool restored=true;
+        std::array<void*,3> relocated{p.foreign,p.owner,p.foreign};
+        const bool delivered=DispatchWithRenderLevelContext(p.owner,[&]() noexcept {
+            ++p.calls;++p.credits;p.blocking_ui=true;p.current()=nullptr;
+            if(scenario==1)p.current()=p.foreign;
+            if(scenario==2)p.levels[0]=p.foreign;
+            if(scenario==3)p.singleton()=nullptr;
+            if(scenario==4) {
+                *reinterpret_cast<void***>(p.game.data()+0x65c)=relocated.data();
+                *reinterpret_cast<void***>(p.game.data()+0x660)=relocated.data()+3;
+            }
+            if(scenario==6)*reinterpret_cast<std::uintptr_t*>(p.game.data()+0x660)=
+                reinterpret_cast<std::uintptr_t>(p.levels.data())+257*sizeof(void*);
+            return scenario!=5;
+        },restored);
+        const bool expected=scenario==0||scenario==4||scenario==5;
+        // A rejected dispatch must not authorize a native continuation.
+        if(restored)ForwardNaturalRender(reinterpret_cast<RenderViewFn>(&NativeRenderAfterInput),p.owner,p.view.data());
+        passed &= restored==expected&&delivered==(expected&&scenario!=5)&&
+            p.calls==1&&p.credits==1&&p.blocking_ui&&p.renders==(expected?1:0);
+        if(expected)passed &= p.native_context_valid&&p.current()==p.owner;
+        else passed &= p.current()==(scenario==1?p.foreign:nullptr);
+    }
+    for(void* entry:std::array<void*,2>{nullptr,p.foreign}) {
+        p.Bind();p.current()=entry;bool restored=true;
+        passed &= !DispatchWithRenderLevelContext(p.owner,[&]() noexcept {++p.calls;return true;},restored)&&
+            !restored&&p.calls==0&&p.current()==entry;
+    }
+    p.Bind();bool outer_restored=false;
+    passed &= DispatchWithRenderLevelContext(p.owner,[&]() noexcept {
+        bool inner_restored=false;
+        const bool inner=DispatchWithRenderLevelContext(p.owner,[&]() noexcept {
+            ++p.calls;p.current()=nullptr;return true;
+        },inner_restored);
+        ++p.calls;p.current()=nullptr;return inner&&inner_restored;
+    },outer_restored)&&outer_restored&&p.calls==2&&p.current()==p.owner;
+    // The unchanged read-only slot succeeds without a write. A cleared read-only
+    // slot rejects without changing protection or reviving a retired context.
+    auto* page=static_cast<std::byte*>(VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
+    if(!page)passed=false;
+    else {
+        for(bool clear:{false,true}) {
+            p.Bind();std::memcpy(page,p.game.data(),p.game.size());p.singleton()=page;
+            RenderInputLevelContext context(p.owner);
+            auto** slot=reinterpret_cast<void**>(page+0x668);
+            if(clear)*slot=nullptr;
+            DWORD old=0;
+            if(!VirtualProtect(page,4096,PAGE_READONLY,&old))passed=false;
+            else {
+                passed &= context.Restore()==!clear&&*slot==(clear?nullptr:p.owner);
+                DWORD ignored=0;if(!VirtualProtect(page,4096,old,&ignored))passed=false;
+            }
+            // Each scope has one completion; a later null cannot rearm it.
+            *slot=nullptr;passed &= !context.Restore()&&*slot==nullptr;
+        }
+        VirtualFree(page,0,MEM_RELEASE);
+    }
+    g_engine_base=previous_engine;g_stereo_callbacks={};input_level_probe=nullptr;
+    return passed;
+}
 }
 }
 int main() {
+    if(!cojvr::games::call_of_juarez::CaptureDropPreservesBow()||
+       !cojvr::games::call_of_juarez::CaptureDropRetainsBowSafety()){
+        std::cerr<<"capture backpressure cancelled physical bow or bypassed native/tracking safety\n";return 1;
+    }
+    if(!cojvr::games::call_of_juarez::InputRestoresNativeRenderContext()) {
+        std::cerr<<"injected input lost native render level or changed native action ownership\n";return 1;
+    }
     if(!cojvr::games::call_of_juarez::PassScopes() ||
        !cojvr::games::call_of_juarez::EyeResourceScopes() ||
        !cojvr::games::call_of_juarez::PendingQueryAndNaturalFallback() ||

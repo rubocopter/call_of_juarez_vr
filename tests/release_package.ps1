@@ -93,7 +93,7 @@ try {
         'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_settings.ps1','coj_resolution_session.ps1',
         'coj_resolution_profiles.py','cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe','openvr_api.dll','patch_coj_weapon_consumers.py',
         'inspect_java_bytecode.py', 'coj_reload_wait_probe.py', 'coj_manual_reload.py',
-        'coj_physical_punch.py', 'coj_native_settings.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
+        'coj_physical_punch.py', 'coj_native_settings.py', 'coj_movie_subtitles.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
     $ActualTools = @(Get-ChildItem -LiteralPath (Join-Path $Root 'tools') -File -Recurse | ForEach-Object { $_.Name })
     Assert-True (@(Compare-Object $ExpectedTools $ActualTools).Count -eq 0) 'Release tools differ from the explicit allowlist.'
     foreach ($Item in $Manifest.files) {

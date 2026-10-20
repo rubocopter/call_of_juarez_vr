@@ -105,7 +105,7 @@ $Tools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_p
     'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_profiles.py',
     'coj_resolution_settings.ps1','coj_resolution_session.ps1','patch_coj_weapon_consumers.py',
     'inspect_java_bytecode.py', 'coj_reload_wait_probe.py', 'coj_manual_reload.py',
-    'coj_physical_punch.py', 'coj_native_settings.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
+    'coj_physical_punch.py', 'coj_native_settings.py', 'coj_movie_subtitles.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $Temporary = Join-Path $OutputDirectory ('.package-' + [Guid]::NewGuid().ToString('N'))
 $PackageRoot = Join-Path $Temporary 'player'

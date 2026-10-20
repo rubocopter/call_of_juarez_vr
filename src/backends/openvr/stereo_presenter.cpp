@@ -14,6 +14,7 @@
 #include "runtime/openvr_runtime.hpp"
 #include "runtime/gameplay_utility.hpp"
 #include "runtime/reload_haptics.hpp"
+#include "runtime/bow_draw_haptics.hpp"
 #include "runtime/vr_math.hpp"
 #include "backends/openvr/flat_menu_composition.hpp"
 
@@ -206,6 +207,7 @@ struct OpenVrStereoPresenter::Impl {
     d3d9::FrameMailbox mailbox;
     runtime::GameplayUiFeedbackContextMailbox feedback_context;
     std::atomic<std::uint64_t> reload_feedback_owner{0};
+    std::atomic<std::uint64_t> bow_feedback_owner{0};
     std::thread worker;
     std::atomic_bool stop_requested{false};
     std::atomic_bool running{false};
@@ -1009,6 +1011,7 @@ struct OpenVrStereoPresenter::Impl {
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
         runtime::EquipmentWheelHaptics wheel_haptics;
         runtime::ReloadInsertionHaptics reload_haptics;
+        runtime::BowDrawHaptics bow_haptics;
         std::uint64_t input_sample_sequence = 0;
         std::uint64_t last_input_log_sequence = 0;
         std::uint32_t last_raw_pressed = 0;
@@ -1769,6 +1772,9 @@ struct OpenVrStereoPresenter::Impl {
                 reload_haptics.UpdateContext(reload_haptic_context,gameplay_context_generation,
                     feedback_context.Snapshot(),std::chrono::steady_clock::now());
                 reload_haptics.UpdateOwner(reload_feedback_owner.load(std::memory_order_acquire));
+                bow_haptics.UpdateContext(reload_haptic_context,gameplay_context_generation,
+                    feedback_context.Snapshot(),std::chrono::steady_clock::now());
+                bow_haptics.UpdateOwner(bow_feedback_owner.load(std::memory_order_acquire));
                 d3d9::StereoCpuFrame frame{};
                 std::uint64_t incoming_fixed_authority_epoch = 0;
                 const bool have_new_frame = fixed_outputs
@@ -1792,6 +1798,8 @@ struct OpenVrStereoPresenter::Impl {
                           frame.device_id != active_device_id));
                     if (stale || stale_generation ||
                         (fixed_outputs && !fixed_frame_authority.Allows(incoming_fixed_authority_epoch))) {
+                        bow_haptics.UpdateContext(false,gameplay_context_generation,
+                            feedback_context.Snapshot(),std::chrono::steady_clock::now());
                         ++rejected_frames;
                         Log("native_stereo_presenter_frame: status=rejected reason=stale frame_sequence=" +
                             std::to_string(frame.capture_sequence));
@@ -1914,10 +1922,26 @@ struct OpenVrStereoPresenter::Impl {
                                         Log(feedback.str());
                                     });
                                 }
+                                const auto bow_now=std::chrono::steady_clock::now();
+                                bow_haptics.UpdateOwner(bow_feedback_owner.load(std::memory_order_acquire));
+                                bow_haptics.UpdateContext(reload_haptic_context,gameplay_context_generation,
+                                    feedback_context.Snapshot(),bow_now);
+                                const auto bow_pulse=bow_haptics.Observe(frame.hud_text.bow_feedback,
+                                    frame.capture_sequence,frame.generation,frame.device_id,
+                                    frame.capture_time,bow_now,frame.hud_text.feedback_context_token);
+                                if(bow_pulse){
+                                    const bool delivered=feedback_context.Matches(frame.hud_text.feedback_context_token)&&
+                                        bow_feedback_owner.load(std::memory_order_acquire)==frame.hud_text.bow_feedback.owner_token&&
+                                        runtime.SubmitUiHapticPulse(*bow_pulse);
+                                    if(!delivered)bow_haptics.UpdateContext(false,gameplay_context_generation,
+                                        feedback_context.Snapshot(),std::chrono::steady_clock::now());
+                                }
                             } else {
                                 wheel_haptics.UpdateContext(false,gameplay_context_generation,
                                     std::chrono::steady_clock::now());
                                 reload_haptics.UpdateContext(false,gameplay_context_generation,
+                                    feedback_context.Snapshot(),std::chrono::steady_clock::now());
+                                bow_haptics.UpdateContext(false,gameplay_context_generation,
                                     feedback_context.Snapshot(),std::chrono::steady_clock::now());
                             }
                             if (shared_frame) {
@@ -2113,6 +2137,8 @@ struct OpenVrStereoPresenter::Impl {
                         } else {
                             wheel_haptics.UpdateContext(false, gameplay_context_generation,
                                 std::chrono::steady_clock::now());
+                            bow_haptics.UpdateContext(false,gameplay_context_generation,
+                                feedback_context.Snapshot(),std::chrono::steady_clock::now());
                             if(fixed_outputs&&frame.presentation_mode==d3d9::FramePresentationMode::native_stereo&&
                                fixed_frame_authority.Allows(incoming_fixed_authority_epoch)){
                                 fixed_native_failed.store(true,std::memory_order_release);
@@ -2359,6 +2385,10 @@ void OpenVrStereoPresenter::PublishReloadFeedbackOwner(std::uint64_t token) noex
     impl_->reload_feedback_owner.store(token, std::memory_order_release);
 }
 
+void OpenVrStereoPresenter::PublishBowFeedbackOwner(std::uint64_t token) noexcept {
+    impl_->bow_feedback_owner.store(token, std::memory_order_release);
+}
+
 bool OpenVrStereoPresenter::Start(
     std::string action_manifest_path,
     const PresenterLogCallback log_callback,
@@ -2482,6 +2512,7 @@ void OpenVrStereoPresenter::Stop() noexcept {
     // Never reset to zero and accidentally reuse a previous capture token.
     impl_->feedback_context.Reset();
     impl_->reload_feedback_owner.store(0, std::memory_order_release);
+    impl_->bow_feedback_owner.store(0, std::memory_order_release);
     impl_->stop_requested.store(true, std::memory_order_release);
     impl_->mailbox.Stop();
     try {

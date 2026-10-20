@@ -288,4 +288,48 @@ bool ReadCoJHudText(void* env, void* player, runtime::HudTextSnapshot& out,CoJUi
     ControllerHint(out.interaction,language);
     return hud && subtitle;
 }
+bool ReadCoJMovieSubtitle(void* env, void* module, runtime::HudText& out) noexcept {
+    out={};
+    if(!env || !module || !*static_cast<void***>(env))return false;
+    constexpr std::size_t required[]{6,15,17,23,24,31,32,33,39,94,95,96,100,
+        113,116,144,145,164,165,166};
+    for(auto index:required)if(!(*static_cast<void***>(env))[index])return false;
+    Reader r{env};if(!r.Check())return false;
+    const auto same=[&](void* a,void* b) noexcept {
+        const bool matches=r.ok && Function<Same>(env,24)(env,a,b)!=0;
+        r.Check();return r.ok && matches;
+    };
+    auto game=r.Class("LawmanGame");
+    auto active=r.Get(game,"sm_cActiveGameModule","LLawmanModule;",true);
+    if(!r.ok || !same(active,module) || !r.Instance(module,"LawmanModuleSingle"))return false;
+    auto settings=r.Get(game,"sm_cSettings","LSettings;",true);
+    if(!r.Bool(settings,"bSubtitles"))return r.ok;
+    auto movie=r.Get(module,"m_cMoviePlaying","LMovie;");
+    auto cached_movie=r.Get(module,"cojvrMovieSubtitleMovie","LMovie;");
+    if(!r.ok)return false;
+    if(!movie.value || !same(movie,cached_movie))return r.ok;
+    const int id=r.Int(module,"iSubtitleNumber");
+    const int cached_id=r.Int(module,"cojvrMovieSubtitleId");
+    if(!r.ok)return false;
+    if(id<0 || id!=cached_id)return true;
+    auto key=r.Get(module,"cojvrMovieSubtitleKey","Ljava/lang/String;");
+    auto sprite=r.Get(module,"cSubtitle","LSprite;");
+    if(!key.value || !r.Visible(sprite,"IsVisible"))return r.ok;
+    runtime::HudText copied{};
+    r.LocalizedSubtitle(key,copied);
+    // Native localization/visibility are read-only, but publish only if the
+    // same active movie, writer and native subtitle remain current afterwards.
+    auto active_after=r.Get(game,"sm_cActiveGameModule","LLawmanModule;",true);
+    auto movie_after=r.Get(module,"m_cMoviePlaying","LMovie;");
+    auto cached_movie_after=r.Get(module,"cojvrMovieSubtitleMovie","LMovie;");
+    auto settings_after=r.Get(game,"sm_cSettings","LSettings;",true);
+    auto key_after=r.Get(module,"cojvrMovieSubtitleKey","Ljava/lang/String;");
+    auto sprite_after=r.Get(module,"cSubtitle","LSprite;");
+    if(!r.ok || !same(active_after,module) || !same(movie_after,movie) ||
+        !same(cached_movie_after,movie) || !same(settings_after,settings) ||
+        !same(key_after,key) || !same(sprite_after,sprite) ||
+        r.Int(module,"iSubtitleNumber")!=id || r.Int(module,"cojvrMovieSubtitleId")!=id ||
+        !r.Bool(settings,"bSubtitles") || !r.Visible(sprite,"IsVisible") || !r.ok)return false;
+    out=copied;return true;
+}
 }

@@ -60,6 +60,53 @@ def depth_sample(frame=2, eye='left', **extra):
 
 
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_rifle_reference_reports_sparse_motion_without_attachment_claim(self):
+        def sample(t, p, phase='ordinary_idle_tuple', **extra):
+            fields=dict(schema=1,player_generation=7,native_context=5,player_id=11,
+                weapon_id=42,weapon_class='WeaponRifleWinchester',sample_us=t,
+                sample_gap_us=0 if t==100000 else 50000,sample_index=1 if t==100000 else 2,
+                frame_sequence=t//1000,source='natural_pre_body',units='cm',read_only='true',
+                contact_admission='false',attachment_admission='false',cycle_qualified='false',
+                states_right='1,1,1,1' if phase=='ordinary_idle_tuple' else '30,30,30,30',
+                states_left='0,0,0,0',two_handed_right='true,true,true',
+                two_handed_left='false,false,false',phase=phase)
+            for name in ('root','holder','support','support_in_weapon'):
+                fields.update({name:p if name=='support_in_weapon' else '(0,0,0)',
+                               name+'_up':'(0,1,0)',name+'_forward':'(0,0,1)'})
+            fields.update(extra)
+            return event('rifle_support_reference',**fields)
+        report=self.evidence([sample(100000,'(1,2,3)'),
+                              sample(150000,'(4,6,3)','ordinary_fire_tuple')])
+        rows=report['rifle_support_observations']
+        self.assertEqual(len(rows),2)
+        self.assertEqual(report['summary']['rifle_support_samples'],2)
+        self.assertEqual(rows[1]['support_displacement_from_first_cm'],5)
+        self.assertEqual(rows[1]['observed_gap_us'],50000)
+        self.assertFalse(rows[1]['attachment_admitted'])
+        self.assertFalse(rows[1]['cycle_qualified'])
+        for change in ({'attachment_admission':'true'}, {'cycle_qualified':'true'},
+                       {'support_in_weapon':'(nan,0,0)'}, {'states_right':'129,1,1,1'},
+                       {'support_up':'(0,2,0)'}, {'two_handed_left':'true,false,false'},
+                       {'weapon_class':'WeaponRifleWinchesterScope'},
+                       {'sample_gap_us':1}, {'sample_us':100000}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.evidence([sample(100000,'(1,2,3)'),
+                               sample(150000,'(4,6,3)','ordinary_fire_tuple',**change)])
+        report=self.evidence([sample(100000,'(1,2,3)'),
+                              sample(150000,'(4,6,3)',weapon_id=43,sample_index=1,sample_gap_us=0)])
+        self.assertIsNone(report['rifle_support_observations'][1]['support_displacement_from_first_cm'])
+        with self.assertRaises(ValueError):
+            self.evidence([sample(150000,'(4,6,3)')])
+
+    def test_native_drum_phase_is_optional_bracketed_evidence_only(self):
+        self.assertIsNone(analysis.native_drum_phase({}))
+        self.assertEqual(analysis.native_drum_phase({'native_drum_phase_deg':'300.5',
+                         'native_phase_stable':'1'}),300.5)
+        for fields in ({'native_drum_phase_deg':'60'}, {'native_phase_stable':'1'},
+                       {'native_drum_phase_deg':'nan','native_phase_stable':'1'},
+                       {'native_drum_phase_deg':'60','native_phase_stable':'0'}):
+            with self.assertRaises(ValueError): analysis.native_drum_phase(fields)
+
     def test_depth_pair_requires_ordered_same_frame_device_and_generation(self):
         report = self.evidence([depth_sample(), depth_sample(eye='right')])
         pair = report['depth_eye_pairs'][0]
@@ -133,11 +180,14 @@ class ReloadAnalysisTests(unittest.TestCase):
                          root=root, root_up='0,1,0', root_forward='0,0,1',
                          barrel='0,0,1', barrel_up='0,1,0', barrel_forward='0,0,1',
                          drum='0,0,0', drum_up=drum_up, inward='0,0,1',
-                         gate=gate, gate_up=gate_up, gate_forward='0,0,1')
+                         gate=gate, gate_up=gate_up, gate_forward='0,0,1',
+                         native_drum_phase_deg=(frame-2)*60,native_phase_stable=1)
         report=self.evidence([trace(2),observed(2,'pre_native'),
                               trace(3),observed(3,'pre_native',gate_up='1,0,0'),
                               trace(4),observed(4,'post_overlay',gate_up='0,1,0')])
         baseline,hinge,overlay=report['mechanical_observations']
+        self.assertEqual([r['native_drum_phase_deg'] for r in (baseline,hinge,overlay)],[0,60,120])
+        self.assertFalse(any(r['chamber_occupancy_observed'] for r in (baseline,hinge,overlay)))
         self.assertTrue(baseline['native_motion_evidence_eligible'])
         self.assertAlmostEqual(hinge['gate_root_up_cosine_change_from_first'],-1)
         self.assertFalse(overlay['native_motion_evidence_eligible'])

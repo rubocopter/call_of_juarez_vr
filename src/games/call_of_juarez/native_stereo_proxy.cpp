@@ -2376,6 +2376,11 @@ void PublishReloadFeedbackOwner(void* context, std::uint64_t token) noexcept {
     if (state) state->presenter.PublishReloadFeedbackOwner(token);
 }
 
+void PublishBowFeedbackOwner(void* context, std::uint64_t token) noexcept {
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (state) state->presenter.PublishBowFeedbackOwner(token);
+}
+
 void ObserveReloadDepth(void* context,cojvr::runtime::Eye eye,std::uint64_t frame_sequence) noexcept {
     auto* state=static_cast<NativeStereoState*>(context);
     if(!state)return;
@@ -2805,6 +2810,7 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
                 stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
                 stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
+                stereo_callbacks.publish_bow_feedback_owner = &PublishBowFeedbackOwner;
                 stereo_callbacks.observe_reload_depth = &ObserveReloadDepth;
                 if (g_stereo.fixed_outputs.enabled) {
                     stereo_callbacks.begin_eye_render = &BeginIndependentEyeRender;

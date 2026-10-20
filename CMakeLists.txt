@@ -470,6 +470,8 @@ if(COJVR_BUILD_TESTS)
     )
     add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
     add_test(NAME physical_punch_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/physical_punch_native.py")
+    add_test(NAME bow_native_dispatch COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/bow_native_dispatch.py")
+    add_test(NAME bow_draw_patch COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/bow_draw_patch.py")
     add_test(NAME reload_wait_probe COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_wait_probe.py")
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
     add_test(NAME manual_reload_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_analysis.py")
@@ -800,6 +802,10 @@ if(COJVR_BUILD_TESTS)
         "${CMAKE_SOURCE_DIR}/tests/native_settings_archives.py")
     add_test(NAME native_settings_jvm COMMAND "${COJVR_PYTHON_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/native_settings_jvm.py")
+    add_test(NAME movie_subtitles_patch COMMAND "${COJVR_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/movie_subtitles_patch.py")
+    add_test(NAME movie_subtitles_jvm COMMAND "${COJVR_PYTHON_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/movie_subtitles_jvm.py")
     add_executable(cojvr_native_settings_bridge_test tests/native_settings_bridge.cpp)
     target_link_libraries(cojvr_native_settings_bridge_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_native_settings_bridge_test PRIVATE cxx_std_20)
@@ -1325,6 +1331,50 @@ if(COJVR_BUILD_TESTS)
     target_link_libraries(cojvr_two_hand_grip_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_two_hand_grip_test PRIVATE cxx_std_20)
     add_test(NAME two_hand_grip COMMAND cojvr_two_hand_grip_test)
+    add_executable(cojvr_long_gun_observer_test tests/long_gun_observer.cpp)
+    target_link_libraries(cojvr_long_gun_observer_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_long_gun_observer_test PRIVATE cxx_std_20)
+    add_test(NAME long_gun_observer COMMAND cojvr_long_gun_observer_test)
+
+    add_executable(cojvr_body_haptics_test tests/body_haptics.cpp)
+    target_link_libraries(cojvr_body_haptics_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_body_haptics_test PRIVATE cxx_std_20)
+    add_test(NAME body_haptics COMMAND cojvr_body_haptics_test)
+
+    add_executable(cojvr_bow_draw_test tests/bow_draw.cpp)
+    target_link_libraries(cojvr_bow_draw_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_bow_draw_test PRIVATE cxx_std_20)
+    add_test(NAME bow_draw COMMAND cojvr_bow_draw_test)
+
+    add_executable(cojvr_bow_draw_input_test tests/bow_draw_input.cpp)
+    target_link_libraries(cojvr_bow_draw_input_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_bow_draw_input_test PRIVATE cxx_std_20)
+    add_test(NAME bow_draw_input COMMAND cojvr_bow_draw_input_test)
+
+    add_executable(cojvr_bow_draw_native_test tests/bow_draw_native.cpp)
+    target_link_libraries(cojvr_bow_draw_native_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_bow_draw_native_test PRIVATE cxx_std_20)
+    add_test(NAME bow_draw_native COMMAND cojvr_bow_draw_native_test)
+
+    add_executable(cojvr_bow_draw_haptics_test tests/bow_draw_haptics.cpp)
+    target_link_libraries(cojvr_bow_draw_haptics_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_bow_draw_haptics_test PRIVATE cxx_std_20)
+    add_test(NAME bow_draw_haptics COMMAND cojvr_bow_draw_haptics_test)
+
+    add_executable(cojvr_bow_aim_test tests/bow_aim.cpp
+        src/games/call_of_juarez/body_adapter.cpp
+        src/games/call_of_juarez/hud_text_reader.cpp
+        src/games/call_of_juarez/gameplay_ui_reader.cpp
+        src/games/call_of_juarez/focus_zoom.cpp
+        src/games/call_of_juarez/motion_reload_owner.cpp)
+    target_link_libraries(cojvr_bow_aim_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_bow_aim_test PRIVATE src)
+    target_compile_features(cojvr_bow_aim_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_bow_aim_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    if(MSVC)
+        target_compile_options(cojvr_bow_aim_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME bow_aim COMMAND cojvr_bow_aim_test)
     add_executable(cojvr_duel_input_test tests/duel_input.cpp)
     target_include_directories(cojvr_duel_input_test PRIVATE src)
     target_compile_features(cojvr_duel_input_test PRIVATE cxx_std_20)

@@ -18,7 +18,8 @@ RENDER_FEEDBACK = re.compile(r'(manual_reload_depth|openvr_reload_haptic): (.*)$
 RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
-            'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference'}
+            'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference',
+            'rifle_support_reference'}
 
 
 def digest(path):
@@ -235,6 +236,19 @@ def geometry_metrics(fields):
     return metrics
 
 
+def native_drum_phase(fields):
+    """Optional stable native scalar, distinct from displayed geometry/chambers."""
+    keys=('native_drum_phase_deg','native_phase_stable')
+    if not any(key in fields for key in keys):
+        return None
+    if not all(key in fields for key in keys) or fields['native_phase_stable']!='1':
+        raise ValueError('Unqualified native drum phase')
+    value=float(fields['native_drum_phase_deg'])
+    if not math.isfinite(value):
+        raise ValueError('Non-finite native drum phase')
+    return value
+
+
 def port_pivot_probe(fields):
     """Interpret optional native pivot-distance telemetry without granting socket clearance.
 
@@ -394,10 +408,81 @@ def correlate_depth_eye_pairs(samples):
     return pairs
 
 
+def rifle_support_observations(events):
+    """Compare sparse same-owner natural support frames, never grant attachment."""
+    rows, owners = [], {}
+    for event in events:
+        if event['event'] != 'rifle_support_reference':
+            continue
+        f = event['fields']
+        fixed = dict(schema='1', source='natural_pre_body', units='cm', read_only='true',
+                     contact_admission='false', attachment_admission='false', cycle_qualified='false',
+                     states_left='0,0,0,0', two_handed_right='true,true,true',
+                     two_handed_left='false,false,false')
+        identity = tuple(integer(f,k) for k in
+                         ('player_generation','native_context','player_id','weapon_id'))
+        stamp, gap, index, frame = (integer(f,k) for k in
+                                   ('sample_us','sample_gap_us','sample_index','frame_sequence'))
+        if (event['result'] != 'observed' or any(f.get(k) != v for k,v in fixed.items()) or
+                f.get('weapon_class') not in ('WeaponRifleWinchester','WeaponRifleRemington',
+                                             'WeaponRifleRemingtonSawOff') or
+                any(v is None or v <= 0 for v in identity) or
+                any(v is None or v <= 0 for v in (stamp,index,frame)) or
+                gap is None or gap < 0 or index > 240 or
+                any(v >= 0xffffffff for v in identity[2:])):
+            raise ValueError('Invalid or overclaimed rifle support sample')
+        right = tuple(int(v) for v in f['states_right'].split(','))
+        firing = any(v != 1 for v in right)
+        if (len(right) != 4 or any(v != 1 and not 30 <= v <= 38 for v in right) or
+                f.get('phase') != ('ordinary_fire_tuple' if firing else 'ordinary_idle_tuple')):
+            raise ValueError('Unqualified rifle support phase')
+        def vector(key):
+            value=f[key]
+            if value.startswith('(') and value.endswith(')'):
+                value=value[1:-1]
+            result=tuple(float(v) for v in value.split(','))
+            if len(result)!=3 or not all(math.isfinite(v) for v in result):
+                raise ValueError('Invalid rifle support vector')
+            return result
+        for name in ('root','holder','support','support_in_weapon'):
+            position,up,forward=vector(name),vector(name+'_up'),vector(name+'_forward')
+            if (abs(sum(v*v for v in up)-1)>.002 or
+                    abs(sum(v*v for v in forward)-1)>.002 or
+                    abs(sum(a*b for a,b in zip(up,forward)))>.002):
+                raise ValueError('Non-rigid rifle support frame')
+        previous=owners.get(identity)
+        observed_gap=None
+        displacement=None
+        if previous and (stamp<=previous['stamp'] or frame<=previous['frame'] or
+                         f['weapon_class']!=previous['weapon_class']):
+            raise ValueError('Non-monotonic rifle support sample')
+        if index==1:
+            if gap!=0:
+                raise ValueError('Initial rifle sample has a stale gap')
+            baseline=position
+        else:
+            if not previous or index!=previous['index']+1 or gap!=stamp-previous['stamp']:
+                raise ValueError('Missing or inconsistent rifle sample history')
+            observed_gap=gap
+            baseline=previous['baseline']
+            displacement=math.dist(position,baseline)
+            if not math.isfinite(displacement):
+                raise ValueError('Non-finite rifle support displacement')
+        owners[identity]=dict(stamp=stamp,frame=frame,index=index,baseline=baseline,
+                              weapon_class=f['weapon_class'])
+        rows.append(dict(line=event['line'],owner=identity,weapon_class=f['weapon_class'],
+                         sample_us=stamp,observed_gap_us=observed_gap,phase=f['phase'],
+                         support_in_weapon_cm=position,
+                         support_displacement_from_first_cm=displacement,
+                         attachment_admitted=False,cycle_qualified=False))
+    return rows
+
+
 def analyze_evidence(directory):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
     events = read_events(paths['runtime/cojvr.log'], evidence)
+    rifle_samples = rifle_support_observations(events)
     manual = run.get('validation', {}).get('manualReloadInstalled') is True
     traces = [e for e in events if e['event'] == 'reload_trace']
     insertions, issues, mechanics = [], [], []
@@ -494,6 +579,8 @@ def analyze_evidence(directory):
             try:
                 metrics = geometry_metrics(f)
                 row.update(metrics)
+                row['native_drum_phase_deg']=native_drum_phase(f)
+                row['chamber_occupancy_observed']=False
                 port_probe = port_pivot_probe(f)
                 if port_probe is not None:
                     row['port_probe'] = port_probe
@@ -574,6 +661,7 @@ def analyze_evidence(directory):
                     zone_haptics_submitted=haptics['zone_entered'],
                     insertion_haptics_submitted=haptics['insert_accepted'],
                     depth_observation_samples=len(depth_samples),
+                    rifle_support_samples=len(rifle_samples),
                     depth_unavailable_samples=sum(not yes(r['fields'],'depth_valid') for r in depth_samples),
                     depth_layout_samples=sum(yes(r['fields'],'layout_matches') for r in depth_samples),
                     depth_correlated_pairs=sum(r['status']=='metadata_correlated' for r in depth_eye_pairs),
@@ -587,6 +675,7 @@ def analyze_evidence(directory):
                                                for r in mechanics),
                     ready_reference_samples=sum(r['ready_reference_eligible'] for r in mechanics),
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
+                rifle_support_observations=rifle_samples,
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
                 renderer_depth_observations=depth_samples,
                 depth_eye_pairs=depth_eye_pairs,
