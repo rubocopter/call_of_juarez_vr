@@ -434,7 +434,8 @@ public:
     // Call once at the normal pre-input boundary, with the original turn axes.
     // No global JNI references, retained Java input or gameplay-clock writes.
     [[nodiscard]] bool TryApplyDuelInput(const runtime::GameplayInputState& state,
-        std::uint64_t monotonic_us,std::string* error=nullptr) noexcept;
+        std::uint64_t monotonic_us,const runtime::Pose& right_aim,
+        std::uint64_t pose_sequence,std::string* error=nullptr) noexcept;
     void InvalidateDuelInput() noexcept { duel_input_state_.Invalidate(); }
     [[nodiscard]] bool TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept;
     // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers

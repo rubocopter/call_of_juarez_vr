@@ -16,10 +16,56 @@ class CoJDuelInputState {
 public:
     // Retain the consumed clock fence across faults/owner loss. Recovery must
     // observe a center; it cannot retry a partially delivered sample.
-    void Invalidate() noexcept { known_=false;armed_=false; }
+    void Invalidate() noexcept {
+        known_=false;armed_=false;physical_lowered_=false;
+        physical_empty_known_=false;
+    }
+    // Production VR entry. These pitch thresholds are gesture UX assumptions,
+    // not a measured holster/socket. Use the same tracked tip that owns aim:
+    // lower at least 45 degrees, center, then freshly pull down; physically
+    // return above -30 degrees before an upward stick can raise the native gun.
+    // Update below remains the exact native rate conversion, without posture.
+    CoJDuelMouseAxes UpdatePhysical(const runtime::GameplayInputState& input,CoJDuelInputOwner owner,
+        CoJDuelPadParameters pad,std::uint64_t monotonic_us,CoJDuelDrawParameters draw,
+        const runtime::Pose& aim,std::uint64_t pose_sequence) noexcept {
+        const auto& p=aim.position;const auto& q=aim.orientation;
+        const double norm=static_cast<double>(q.x)*q.x+static_cast<double>(q.y)*q.y+
+            static_cast<double>(q.z)*q.z+static_cast<double>(q.w)*q.w;
+        if(!aim.orientation_valid||!aim.position_valid||!pose_sequence||!monotonic_us||
+            !std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||
+            !std::isfinite(norm)||norm<1.e-12||!input.active||!input.turn_available||input.weapon_radial||
+            !std::isfinite(input.turn.x)||!std::isfinite(input.turn.y)||
+            std::fabs(input.turn.x)>1||std::fabs(input.turn.y)>1||
+            (physical_sample_known_&&(pose_sequence<physical_sequence_||monotonic_us<physical_time_us_))) {
+            Invalidate();return {};
+        }
+        if(physical_sample_known_&&monotonic_us-physical_time_us_>100000)Invalidate();
+        // A retained pose cannot authorize another native update or rearm after
+        // a tracking fault. Do not refresh its age from repeated observations.
+        if(physical_sample_known_&&pose_sequence==physical_sequence_)return {};
+        physical_sample_known_=true;physical_sequence_=pose_sequence;physical_time_us_=monotonic_us;
+        const bool new_owner=!known_||generation_!=owner.player_generation||
+            action_!=owner.action_identity||context_!=input.input_context_generation;
+        if(new_owner){physical_lowered_=physical_empty_known_=false;}
+        const double forward_y=2.0*(static_cast<double>(q.w)*q.x-static_cast<double>(q.y)*q.z)/norm;
+        auto filtered=input;
+        if(draw.hands_empty){
+            if(!physical_empty_known_||!physical_was_empty_)physical_lowered_=false;
+            const bool lowered=forward_y<=-0.7071067811865475;
+            if(!lowered)physical_lowered_=false;
+            else if(std::fabs(input.turn.x)<=.3F&&std::fabs(input.turn.y)<=.3F)physical_lowered_=true;
+            if(!physical_lowered_||input.turn.y>=0)filtered.turn.y=0;
+        }else if(input.turn.y>0&&forward_y<-.5)filtered.turn.y=0;
+        physical_empty_known_=true;physical_was_empty_=draw.hands_empty;
+        // Filtering a held axis to zero never observes a real release. This
+        // remains true when native occupancy changes or a draw completes after
+        // focus/tracking loss. Only the original axes may rearm the converter.
+        const bool raw_centered=std::fabs(input.turn.x)<=.3F&&std::fabs(input.turn.y)<=.3F;
+        return Update(filtered,owner,pad,monotonic_us,draw,raw_centered);
+    }
     CoJDuelMouseAxes Update(const runtime::GameplayInputState& input,CoJDuelInputOwner owner,
         CoJDuelPadParameters pad,std::uint64_t monotonic_us,
-        CoJDuelDrawParameters draw={}) noexcept {
+        CoJDuelDrawParameters draw={},bool may_rearm=true) noexcept {
         const auto finite_nonnegative=[](float value){return std::isfinite(value)&&value>=0;};
         if(!input.active||!input.turn_available||input.weapon_radial||!owner.player_generation||
             !owner.action_identity||owner.action_identity==0xffffffffU||!monotonic_us||
@@ -56,7 +102,7 @@ public:
         if(!std::isfinite(x)||!std::isfinite(y)){Invalidate();return {};}
         const float admitted_x=std::fabs(x)<pad.threshold_x?0.0F:x;
         float admitted_y=std::fabs(y)<pad.threshold_y?0.0F:y;
-        if(!armed_){if(shape(input.turn.x)==0&&shape(input.turn.y)==0)armed_=true;return {};}
+        if(!armed_){if(may_rearm&&shape(input.turn.x)==0&&shape(input.turn.y)==0)armed_=true;return {};}
         if(draw.hands_empty&&admitted_y<0) {
             if(!std::isfinite(draw.input_sensitivity)||draw.input_sensitivity<=0||
                 !std::isfinite(draw.mouse_sensitivity_y)||draw.mouse_sensitivity_y<=0||
@@ -90,5 +136,8 @@ private:
     std::uint32_t action_=0;
     float last_game_time_=0;
     bool known_=false,armed_=false,clock_known_=false;
+    std::uint64_t physical_sequence_=0,physical_time_us_=0;
+    bool physical_sample_known_=false,physical_lowered_=false;
+    bool physical_empty_known_=false,physical_was_empty_=false;
 };
 }

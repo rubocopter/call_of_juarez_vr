@@ -5729,7 +5729,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (void)g_java_player_bridge.TryObserveInteractionSelection(interaction_before);
     const auto input_time_us = MonotonicMicroseconds();
     const bool duel_input_ok = !duel_owner_known || !duel_active ||
-        g_java_player_bridge.TryApplyDuelInput(gameplay_input, input_time_us, &duel_error);
+        g_java_player_bridge.TryApplyDuelInput(gameplay_input, input_time_us,
+            relative_right_aim, sample.hmd_pose.sequence, &duel_error);
     auto ordinary_input = gameplay_input;
     if (!duel_owner_known || duel_active) {
         // Native RotateHorizontally becomes duel aim while prepared. It cannot

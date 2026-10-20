@@ -93,6 +93,14 @@ void __stdcall CallVoid(void*,void* owner,void* method,const JValue* args){
     events.emplace_back(args[0].i,args[1].f);
 }
 void Bind(JavaPlayerBridge& bridge){bridge.vm_=&vm;bridge.being_=P(player);bridge.being_generation_=1;}
+cojvr::runtime::Pose Aim(bool lowered){
+    cojvr::runtime::Pose pose;pose.position_valid=pose.orientation_valid=true;
+    if(lowered)pose.orientation={-.5F,0,0,.8660254F};return pose;
+}
+bool Apply(JavaPlayerBridge& bridge,const cojvr::runtime::GameplayInputState& input,
+    std::uint64_t time,std::string* error=nullptr){
+    return bridge.TryApplyDuelInput(input,time,Aim(empty_hands),time,error);
+}
 void Init(){
     functions[6]=reinterpret_cast<void*>(&Find);functions[15]=reinterpret_cast<void*>(&Exception);
     functions[17]=reinterpret_cast<void*>(&Clear);functions[23]=reinterpret_cast<void*>(&Delete);
@@ -124,33 +132,83 @@ int main(){
     }
     fail_step=-1;return_fault_ref=false;
     cojvr::runtime::GameplayInputState input;input.active=true;input.input_context_generation=7;
-    native_time=1;check(bridge.TryApplyDuelInput(input,10,&error)&&locals==0,"center failed");
+    native_time=1;check(Apply(bridge,input,10,&error)&&locals==0,"center failed");
     input.turn={1,-1};native_time=2;step=0;
-    check(bridge.TryApplyDuelInput(input,20,&error)&&events.size()==2&&events[0]==std::pair<int,float>{0,-10.0F}&&
+    check(Apply(bridge,input,20,&error)&&events.size()==2&&events[0]==std::pair<int,float>{0,-10.0F}&&
         events[1]==std::pair<int,float>{1,-10.0F}&&locals==0,"signed axes did not reach original mouse consumer");
-    check(bridge.TryApplyDuelInput(input,21)&&events.size()==2,"same native tick replayed input");
-    native_time=3;check(bridge.TryApplyDuelInput(input,30)&&events.size()==4,"next native tick lost equal input");
-    can_process=false;native_time=4;check(bridge.TryApplyDuelInput(input,40)&&events.size()==4,"native controller denial was bypassed");
-    can_process=true;native_time=5;check(bridge.TryApplyDuelInput(input,50)&&events.size()==4,"denial recovery replayed held input");
+    check(Apply(bridge,input,21)&&events.size()==2,"same native tick replayed input");
+    native_time=3;check(Apply(bridge,input,30)&&events.size()==4,"next native tick lost equal input");
+    can_process=false;native_time=4;check(Apply(bridge,input,40)&&events.size()==4,"native controller denial was bypassed");
+    can_process=true;native_time=5;check(Apply(bridge,input,50)&&events.size()==4,"denial recovery replayed held input");
     for(bool empty:{false,true}) {
       empty_hands=empty;
       JavaPlayerBridge baseline;Bind(baseline);input.turn={};native_time=98;
-      check(baseline.TryApplyDuelInput(input,980),"draw conversion baseline center failed");
+      check(Apply(baseline,input,980),"draw conversion baseline center failed");
       input.turn={1,-1};native_time=99;step=0;events.clear();
-      check(baseline.TryApplyDuelInput(input,990)&&events.size()==2&&locals==0,"draw conversion baseline delivery failed");
+      check(Apply(baseline,input,990)&&events.size()==2&&locals==0,"draw conversion baseline delivery failed");
       if(empty)check((events[1].second*.275F)*(1.0F/144.0F)<-.1F,
           "actual JNI empty-hand mouse output did not qualify as native draw");
       else check(events[1].second==-10.0F,"drawn weapon aiming gain changed");
       const int apply_steps=step;
       for(bool ref:{false,true})for(int fault=1;fault<=apply_steps;++fault){
         JavaPlayerBridge test;Bind(test);input.turn={};native_time=100;
-        fail_step=-1;check(test.TryApplyDuelInput(input,1000),"fault precondition center failed");
+        fail_step=-1;check(Apply(test,input,1000),"fault precondition center failed");
         events.clear();input.turn={1,-1};native_time=101;step=0;fail_step=fault;return_fault_ref=ref;
-        check(!test.TryApplyDuelInput(input,1010)&&!pending&&locals==0,"apply fault leaked a JNI exception/reference or reported success");
+        check(!Apply(test,input,1010)&&!pending&&locals==0,"apply fault leaked a JNI exception/reference or reported success");
         const auto before=events.size();fail_step=-1;
-        check(test.TryApplyDuelInput(input,1011)&&events.size()==before,"failed/partial sample replayed without a fresh center");
+        check(Apply(test,input,1011)&&events.size()==before,"failed/partial sample replayed without a fresh center");
       }
     }
     check(locals==0&&!pending,"final JNI ownership was not clean");
+    JavaPlayerBridge physical;Bind(physical);empty_hands=true;events.clear();input.turn={};
+    native_time=200;
+    check(physical.TryApplyDuelInput(input,2000,Aim(false),2000),"physical guard baseline failed");
+    input.turn.y=-1;native_time=201;
+    check(physical.TryApplyDuelInput(input,2010,Aim(false),2010)&&events.empty(),
+        "production JNI pre-aimed hand still drew using only the stick");
+    native_time=202;
+    check(physical.TryApplyDuelInput(input,2020,Aim(true),2020)&&events.empty(),
+        "production JNI lowering replayed a held stick");
+    input.turn={};native_time=203;
+    check(physical.TryApplyDuelInput(input,2030,Aim(true),2030),"physical center failed");
+    input.turn.y=-1;native_time=204;
+    check(physical.TryApplyDuelInput(input,2040,Aim(true),2040)&&events.size()==1&&events[0].first==1&&
+        (events[0].second*.275F)*(1.0F/144.0F)<-.1F,"physical draw lost native conversion");
+    empty_hands=false;input.turn.y=1;native_time=205;
+    check(physical.TryApplyDuelInput(input,2050,Aim(true),2050)&&events.size()==1,
+        "production JNI stick raised a physically lowered gun");
+    native_time=206;
+    check(physical.TryApplyDuelInput(input,2060,Aim(false),2060)&&events.size()==2&&events[1].second>0,
+        "production JNI physical raise lost native upward input");
+    check(locals==0&&!pending,"physical guard leaked JNI ownership");
+    // Suppression is not a physical stick release. An in-flight native draw
+    // becoming occupied cannot turn blocked held UP into an admitted new edge.
+    for(int boundary=0;boundary<8;++boundary){
+        JavaPlayerBridge recovering;Bind(recovering);events.clear();
+        input={};input.active=true;input.input_context_generation=7;empty_hands=true;
+        const auto poll=[&](int tick,bool empty,float y,bool tracked=true){
+            native_time=float(tick);empty_hands=empty;input.turn={0,y};auto pose=Aim(true);
+            pose.orientation_valid=tracked;
+            return recovering.TryApplyDuelInput(input,std::uint64_t(tick)*1000,pose,tick);
+        };
+        check(poll(300,true,0)&&poll(301,true,-1),"recovery draw baseline failed");
+        const auto before=events.size();
+        if(boundary==0)check(poll(302,true,1,false),"tracking loss failed");
+        if(boundary==1){can_process=false;check(poll(302,true,1),"denial failed");can_process=true;}
+        if(boundary==2){input.turn_available=false;check(poll(302,true,1),"axis loss failed");input.turn_available=true;}
+        if(boundary==3){++input.input_context_generation;check(poll(302,true,1),"context replacement failed");}
+        if(boundary==4){++recovering.being_generation_;check(poll(302,true,1),"player replacement failed");}
+        if(boundary==5){step=0;fail_step=1;check(!poll(302,true,1),"JNI fault did not fail");fail_step=-1;}
+        if(boundary==7)recovering.InvalidateDuelInput(); // Includes recenter admission.
+        const int next=boundary==6?403:303;
+        check(poll(next,true,1)&&poll(next+1,false,1)&&events.size()==before,
+            "filtered neutral rearmed held UP across an ownership/input boundary");
+        check(poll(next+2,false,0)&&poll(next+3,false,1)&&events.size()==before,
+            "real neutral after recovery bypassed physical raise pitch");
+        native_time=float(next+4);input.turn.y=1;
+        check(recovering.TryApplyDuelInput(input,std::uint64_t(next+4)*1000,Aim(false),next+4)&&
+            events.size()==before+1&&events.back().second>0,"physical raise after real neutral did not recover");
+        check(locals==0&&!pending,"recovery guard leaked JNI state");
+    }
     return failures?1:0;
 }

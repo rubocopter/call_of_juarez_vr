@@ -6431,7 +6431,8 @@ bool JavaPlayerBridge::TryObserveDuel(bool& duel_active,std::string* error) noex
 }
 
 bool JavaPlayerBridge::TryApplyDuelInput(const runtime::GameplayInputState& input,
-    const std::uint64_t monotonic_us,std::string* error) noexcept {
+    const std::uint64_t monotonic_us,const runtime::Pose& right_aim,
+    const std::uint64_t pose_sequence,std::string* error) noexcept {
     if(!input.active||!input.turn_available||input.weapon_radial){duel_input_state_.Invalidate();return true;}
     void* env=Environment(error);DuelJniRead read(env);
     const auto fail=[&](){duel_input_state_.Invalidate();return false;};
@@ -6488,7 +6489,8 @@ bool JavaPlayerBridge::TryApplyDuelInput(const runtime::GameplayInputState& inpu
         JValue delta_args[1]{};delta_args[0].f=game_delta;
         draw.real_dt=call_float(env,being_,real_delta,delta_args);if(!clean())return fail();
     }
-    const auto axes=duel_input_state_.Update(input,{being_generation_,read.action_identity,game_time},pad,monotonic_us,draw);
+    const auto axes=duel_input_state_.UpdatePhysical(input,
+        {being_generation_,read.action_identity,game_time},pad,monotonic_us,draw,right_aim,pose_sequence);
     if(!axes.dispatch){SetError(error,"");return true;}
     // Consume the clock fence before the first call. Partial failure is never
     // replayed; the original native method owns inversion/permissions/timing.
