@@ -52,6 +52,34 @@ expanded emitted-bytecode admission and typed reserve correlation/restoration.
 
 ## Native request and completion
 
+### Ammunition transfer and cylinder phase are distinct
+
+In the pinned archive, `PawnArmed.WeaponReload(LWeapon;)Z` owns the native
+capacity/reserve transaction. Non-whole-clip transfer is restricted to one unit
+at bytecode offsets 85-90; weapon count and reserve are written through their
+native Java owners at 130/143. The Peacemaker, Frontier, Walker and Cogswell
+classes inherit this route. `WeaponFireAmmo.SetAmmoCount(II)V` clamps/stores
+ammo0 and delegates to the base skin update; neither that path nor the
+ammo/no-ammo skin selection establishes an individual chamber or drum step.
+
+`ArmedPlayerBeing.OnHandStateFinished_Reload(IIZ)V` calls the transfer at 29
+and emits `_WEAPON_RELOADED` at 113. The separate
+`OnHandStateFinished_ReloadEnd(IIZ)V` calls `Weapon.ReloadRotate()` at 39,
+when a weapon exists and its third boolean argument is false. `ReloadRotate`
+adds `WpnVisual.m_fRotateReload` to `m_fRotate` and clamps the angle.
+Peacemaker/Frontier visual constructors select `ColtDrum`/`GunDrum`, local +Z
+and 60-degree attack/reload increments. `Weapon.OnPostUpdate()` applies the
+accumulated value through native `RotateElementWithAnim(ILVector;FZF)V` at 44.
+
+The persistent manual helper transfers directly while supervising body 21;
+successful unit insertion alone does not prove a per-round cylinder step.
+Adding `ReloadRotate` after each insertion would introduce a new mechanical
+policy. The emitted game event forwards through the hint manager, not the
+Java reload-end callback. These bytecode findings do not prove absence of
+native animation events or qualify native transform composition. A future
+mouth/clearance model must bind authored animation and observed displayed
+phase to the same exact weapon owner; ammo count is not chamber occupancy.
+
 `PlayerController.ExecuteInput(IFLjava/lang/Object;)V` action 31 calls
 `ApplyReloadWeapon()` on a positive input edge. Its controller eligibility and
 public `ArmedPlayerBeing.ReloadWeapon()` remain authoritative. The public method
@@ -481,6 +509,14 @@ preparation clear a pending token. Host regression fixtures demonstrate that
 the former direct-completion path could leak a continuation into a later
 opening; the corrected later session requires a waist pickup of its own.
 This is presentation/admission state, not a native ammunition refund or grant.
+Active grip carries also require continuous translation of both hands through
+held and release samples: at most 12 cm per fresh sample and 3 m/s. These shared
+gesture UX bounds do not establish a loading socket or constrain grip orientation.
+A discontinuous press loses presentation and insertion/entry-feedback intent but
+retains the original physical trigger claim until an available release. Duplicate
+observations do not advance the trajectory baseline. Host tests cover initial and
+continuing carries, either hand, release-only relocation and sampled normal paths;
+physical speed/comfort and tracking-relocation behavior remain unaccepted.
 The synchronous native result now resolves policy/output together before frame
 publication. A rejected call reports `native_insertion_rejected`; invocation
 failure reports `native_insertion_failed`. Both stop requested VR presentation
@@ -607,7 +643,12 @@ moves the measured Ray thumb pad about 1.45 mm left / 2.71 mm right, mostly acro
 the pad gap rather than along the cartridge tip. It grants no round, changes no
 animation clock and preserves scoped restoration and the native support-hand
 eligibility gate. Closing status suppresses the gesture. Owner/input/tracking
-loss or another pickup cancels it without replay. Runtime appearance is pending.
+loss or another pickup cancels it without replay. An unclaimed continuation
+token is not physical cartridge occupancy: it neither draws/pinches the round
+nor cancels the active thumb gesture. The production adapter's occupancy rule
+requires the matching support-hand claim and held trigger. Composed session and
+finger-feedback tests cover the 50/180 ms timeline for both hands, closing,
+interruption and immediate repickup. Runtime appearance is pending.
 
 Unresolved: measured mouth clearance, convincing cartridge contact/axis/occlusion,
 tracking/save/load/death/disable and held-input recovery, mirrored/Frontier use,

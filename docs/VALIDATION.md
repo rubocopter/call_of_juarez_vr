@@ -187,7 +187,7 @@ evidence. The already archived rejection is preserved.
 | --- | --- | --- |
 | Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
 | Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, immersive subtitle transport, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
-| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms the combined candidate's careful-movement corrections and default smooth turn in the exercised PS VR2 setup. | Other headset/controller gaze drift, prolonged comfort and mounted/campaign contexts remain open. The smooth/snap selector is planned. |
+| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms the combined candidate's careful-movement corrections and default smooth turn in the exercised PS VR2 setup. | Other headset/controller gaze drift, prolonged comfort and mounted/campaign contexts remain open. The new smooth/snap selector is host-tested; physical switching/recovery acceptance remains pending. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. Corrected free-left-hand fingers with a normally held long gun have scoped operator acceptance. | Firing/alternate/reload retain native fingers. Broader finger, weapon and recovery coverage remains open. Connected-arm IK is diagnostic. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. The combined candidate's dual reticles and Clyde draw/raise with tracked aim/fire have operator confirmation. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Long-gun manual reload is unimplemented; native automatic reload/animation remain. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
@@ -433,7 +433,30 @@ not a request to repeat the accepted settings/cinematic baseline for .2:
    session and confirm the chosen mode was retained. A displayed save failure
    means the selection applies only to the current session.
 
-Comfort options beyond cinematic presentation remain planned.
+Native Options > Game now includes cinematic and smooth/snap selectors using
+the original game's widgets/fonts and original main/pause routes. This is an
+implementation with host verification, not native rendering or headset acceptance.
+The shared preference store preserves version-1 cinematics, defaults turning to
+smooth and writes the strict version-2 pair. Invalid/unreadable startup files
+remain preserved; edits can apply for the session with visible save failure.
+Host fixtures cover editor conflicts, native OK request consumption/completion,
+Cancel/defaults, missing resources, failed saves, scoped JNI cleanup, per-Show
+recovery and the existing overlay sharing the same values.
+The shipped Java 1.4 verifier also accepts the transformed menu without class
+initialization and rejects a deliberately invalid helper. This is JVM bytecode
+verification, not native widget rendering or game execution. Fresh physical
+acceptance must check both callers, native text/font fit, selection by pointer,
+OK/Cancel/Defaults, persistence, switching turn modes and held-input recovery.
+The existing development panel's acceptance does not accept this new native UI.
+Resolution remains a launcher startup preference; no live size selector is added.
+
+The launcher reports known startup-resolution fallback causes and the latest
+identity-matched preparation outcome, separately from the saved next-session
+profile. Reporting fixtures do not observe effective raster dimensions or add
+headset/profile acceptance. Unsupported or unavailable requests still preserve
+the selected game resolution through the existing reversible transaction.
+
+Comfort options beyond cinematic presentation and turning remain planned.
 
 ## Current physical gate
 
@@ -527,14 +550,22 @@ gesture is implemented and host-tested, with no live/visor acceptance. It begins
 only after a qualified native unit transfer, flexes from .7 to .75 and returns to
 ordinary fingers by 180 ms while the cartridge stays hidden. Native closing
 retains priority, so an immediate final-round close can suppress this gesture.
+The adapter now distinguishes a continuation token from a physically held round;
+composed host tests retain the full thumb gesture while that token is unclaimed,
+and cancel it on a fresh pickup, owner/tracking loss or native finger rejection.
 Physical acceptance must judge its timing and appearance on both support hands,
 including interrupted insertion and immediate repickup; no replay or extra round
 is permitted.
 
 The active insertion zone is the existing approximately 14 cm grip-proximity
-zone. It is not an individual chamber or measured loading port. The read-only
-root/barrel/gate/drum observer has bounded live evidence of changed native gate
-pose and independent drum motion. The six-mouth pivot-ranking diagnostic has
+zone. It is not an individual chamber or measured loading port. The active
+grip carry now rejects adjacent translation exceeding 12 cm or 3 m/s for either
+hand, including release-only jumps. These are gesture UX bounds; sampled host
+paths at 90/120/144 Hz retain ordinary transfers and continuation. Physical
+fast/slow carry comfort and valid-pose tracking-relocation rejection join the
+same batch, with no haptic/insertion replay or lost physical release barrier.
+The read-only root/barrel/gate/drum observer has bounded live evidence of changed
+native gate pose and independent drum motion. The six-mouth pivot-ranking diagnostic has
 bounded live observations, but the gate element origin is an unverified pivot:
 `gate_open_confirmed=false` and `socket_admission=false` remain mandatory.
 No independent gate/drum writer, spent-case simulation or chamber occupancy is
@@ -754,7 +785,8 @@ strafe speed coefficients and body-follow behavior retain their existing owners.
 Continuous default turning is host-tested at multiple sample rates and across
 loss, duplicate-time, wheel and owner transitions. Ordinary smooth-turn behavior
 has scoped operator acceptance; prolonged comfort and adversarial recovery remain
-open. A settings selector is planned.
+open. The native smooth/snap selector is host-tested only; menu navigation,
+mode switching and held-input recovery still require headset acceptance.
 
 ## PC mechanics and gameplay HUD completeness
 
@@ -802,6 +834,15 @@ gate for broader cadence/ownership recovery. The operator subsequently confirms
 the Clyde draw/raise gesture and shooting with tracked-hand aiming worked in
 the headset. This closes that exercised progression blocker, not native early
 draw/retry recovery, countdown visibility or all-campaign duel support.
+
+The newer physical-posture guard is implemented/host-tested separately. A right
+aim tip already pointing forward cannot draw through stick-only down/up. Lower
+the physical tip at least 45 degrees and center the stick, then pull down; return
+above -30 degrees before upward stick can raise the native gun. These gesture
+thresholds are UX assumptions, not an anatomically qualified holster. Fresh-pose,
+owner/context, stale-input and JNI failure checks do not prove headset usability.
+Combine its natural draw/raise, denied early draw and held-input/tracking/retry
+recovery with the next substantial gameplay batch; prepare no separate duel run.
 
 The new wrist health meter and low-health text colors are implemented and
 host-tested, including 0/25/50/100 coverage, hidden/out-of-range cache fallback,

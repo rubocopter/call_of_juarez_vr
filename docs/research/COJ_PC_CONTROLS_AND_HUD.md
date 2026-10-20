@@ -450,8 +450,15 @@ contexts remain separate gates; dispatch alone does not validate them.
   game-time deduplication and centered recovery bound input. Ordinary smooth
   turning and body-yaw commits yield while a duel owns input; unknown ownership
   cannot issue actor yaw. Clyde draw/raise and tracked aim/fire have scoped
-  operator acceptance. Early draw, retry and precise special crosshair/weapon
-  agreement remain separate physical gates.
+  operator acceptance. A new host-tested physical posture guard requires the
+  right aim tip at least 45 degrees down with a centered stick before downward
+  draw input, and physical return above -30 degrees before upward raise input.
+  It rejects the reported pre-aimed-hand/stick-only shortcut. These are gesture
+  defaults, not a measured holster; no native time, permission or threshold is
+  changed. Missing/stale tracking, action/context changes and recenter revoke
+  posture authority until a fresh lowered/centered sample. That physical gesture,
+  early draw, retry and precise special crosshair/weapon agreement remain
+  separate physical gates.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player

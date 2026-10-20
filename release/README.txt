@@ -100,14 +100,15 @@ profile and the startup sequence. Custom SteamVR bindings may differ.
 Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
 Ordinary turning is smooth and proportional, up to 90 degrees/second in native
 normal-look mode. Center the stick after a menu, lost input or long frame gap.
-A smooth/snap selector in VR settings is not implemented yet. The exercised
-default has operator confirmation; prolonged comfort and other setups remain open.
+The .4 build has no smooth/snap selector; default smooth turning has scoped
+PS VR2 operator confirmation. Hold Pause/Options for the existing experimental
+VR settings panel to choose cinematic presentation.
 Experimental duel controls: center the right stick after entering the duel;
 pull it down to draw when the game allows, then up to raise the weapon. Left/
-right aims in the native duel; triggers retain native firing. Ordinary smooth
-turning yields during a duel. Clyde draw/raise and tracked aiming/fire have scoped
-operator confirmation; broader campaign/recovery remains open. Concentration
-outside duels keeps its original activation requirements described above.
+right stick aims in the native duel; triggers retain native firing. Ordinary
+turning yields during duels. Clyde draw/raise and tracked aim/fire have scoped
+operator confirmation. Broader duel/retry behavior remains unqualified.
+Concentration outside duels retains its original activation requirements.
 Crouch / Focus: L / R stick click; Touch/Index require a CENTER click.
 Vive uses L / R trackpad CENTER click. WMR uses stick clicks, not pad centers.
 L grip = interact; R grip = kick (Sense: L1 / R1). Triggers retain the game's

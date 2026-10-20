@@ -38,9 +38,10 @@ Whether native cloth world frames follow a temporary pelvis offset remains
 unresolved. Later operator feedback identifies excessive torso presence rather
 than the coat as the remaining discomfort and explicitly requests a small visual
 body setback while retaining this cloth partition.
-Only player mesh entries change, leaving NPCs and unrelated compressed records
-untouched. Native loading and the separated hand presentation are now live-tested
-for the observed player model;
+The player partition changes only player mesh entries, leaving NPCs and unrelated
+compressed records untouched. The native-settings script transformation is a
+separate member of the same Data0 transaction. Native loading and the separated
+hand presentation are now live-tested for the observed player model;
 the later holding-socket and wrist ownership follow-up has operator acceptance
 for exercised grip cohesion, wrist comfort and reload/movement recovery.
 
@@ -72,6 +73,18 @@ cohesion and side-on/rolled pistol shots have operator acceptance. Broader
 equipment/animation and sustained recovery remain separate gates.
 
 ## Native holding socket and child weapon
+
+The four inspected original long-gun assets (Winchester, WinchesterScope,
+Remington and RemingtonSawOff under `Data/Player/Equipment`) have `Holder` but
+no `HolderL`/`HolderR` or named foregrip. Remington's `BarrelL`/`BarrelR` are muzzle
+candidates, not support sockets. The fallback lookup below therefore does not
+establish a second physical grip. Proximity/grip support needs a qualified
+support-hand full frame relative to the weapon, including native fire/cycling
+ownership, before admission. A naturally animated left holding socket is a
+measurement candidate; the current idle-finger exception is not a retained
+attachment owner. Preserve one rigid weapon/hand/muzzle map and native reload
+when developing this interaction; do not infer support contact from a barrel
+or tune an arbitrary foregrip position.
 
 The exact `InvObject.GetOwnerElementID` chooses `Left_hand`/`Right_hand`, with
 `Bip01 L/R Hand` as fallback. The Ray/Billy meshes contain the lowercase holding

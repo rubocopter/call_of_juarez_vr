@@ -47,7 +47,7 @@ Profiles change native rendering at startup, including menu/theater sources, and
 
 These features have scoped headset validation in exercised scenes, not full campaign coverage:
 
-- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and default smooth turning. A smooth/snap selector is still planned.
+- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and default smooth turning. The published .4 build has no in-game smooth/snap selector.
 - Independent tracked hands/weapons with the original torso and legs; exercised pistol effects, whip use and physical Hands combat.
 - Controller menus, equipment wheel/haptics, wrist compass, encountered HUD/subtitles, pickup/carry, drawers and Focus.
 - Experimental manual revolver reload, enabled by default: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
@@ -72,7 +72,7 @@ Current PS VR2 Sense defaults:
 
 PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. For manual reload with an eligible revolver and empty support hand: **press Square to open → press/hold the free-hand trigger at your hip to grab a round → bring it to the gun and release → press Square to close**. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
 
-The VR settings panel is a **provisional development interface**, not the final settings experience; more comfort options are planned.
+The .4 VR settings panel is an **experimental interface** for cinematic presentation. Later native Options > Game and smooth/snap work is described in the [roadmap](docs/ROADMAP.md#parallel-engineering-tracks) and is not in the download.
 
 **Duels:** center the right stick on entry, pull down to draw when the game permits, then up to raise; aim with your tracked hand and use the triggers to fire. **Ray concentration:** holster both weapons and wait for native readiness, then make a fresh L2/R2 press. R3 is Focus/zoom; selecting fists is not holstering. With both pistols drawn, hold Triangle, highlight the right sector with the right stick and release to holster the right pistol; center and repeat left for the left pistol. Let both animations finish. **Blocking hints:** Cross dismisses; release before the next action. A PC Z prompt means Circle/alternate fire once gameplay resumes. Native tutorial windows still display PC keys.
 
@@ -85,10 +85,10 @@ PS VR2 with Sense through SteamVR is the only physically validated reference, li
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
 - Manual reload has scoped revolver acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. Long guns retain automatic native reload and its original animation. The latest hand-directed interaction also awaits physical acceptance.
-- Native tutorial windows still show PC keys. The smooth/snap preference is not available yet. The long-gun support-hand correction applies in normal weapon states; firing/alternate/reload/transitions can retain native fingers.
+- Native tutorial windows still show PC keys. The long-gun support-hand correction applies in normal weapon states; firing/alternate/reload/transitions can retain native fingers.
 - Community feedback confirms the retained .3 projection correction on Beyond and reports a good Quest view without specifying its model. Menu gaze alignment and broader headset/controller support remain unqualified. The rejected independent eye RT prototype and investigation probes remain off.
 
-The current release target is **v0.1.0-prealpha.4**, cumulative from .3, .2 and .1. See [release notes](release/RELEASE_NOTES.md) for the changes since .3 and [Validation](docs/VALIDATION.md) for acceptance limits. Archived packages and canonical verifier outcomes remain unchanged.
+The latest published release is **v0.1.0-prealpha.4**, cumulative from .3, .2 and .1. See [release notes](release/RELEASE_NOTES.md) for the changes since .3 and [Validation](docs/VALIDATION.md) for acceptance limits. Unpublished source changes have their own validation gates. Archived packages and canonical verifier outcomes remain unchanged.
 
 ## Feedback
 
@@ -118,7 +118,7 @@ ctest --preset release
 
 Physical candidates use `tools/vr_test.ps1 prepare` and `finish`; add `-BodyIkAtStart -LargeAddressAware -ManualReload` for the manual-reload candidate. The operator starts/closes SteamVR and the game. Read [AGENTS.md](AGENTS.md) and the [validation workflow](docs/VALIDATION.md#evidence-policy) before integration work.
 
-The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.3` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
+The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.4` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
 
 </details>
 

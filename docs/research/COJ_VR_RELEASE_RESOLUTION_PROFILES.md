@@ -267,5 +267,5 @@ both eyes, equal capture extents, distinct equal-size D3D11 outputs and successf
 matched-pose submissions. Then assess detail, menu/pointer layout, theater/movie
 transitions, loading memory peaks and sustained pacing without probe overhead.
 Source review or helper output cannot promote these physical gates. This design
-does not change [roadmap priorities](../ROADMAP.md#independent-resolution-and-native-settings-preparation)
+does not change [roadmap priorities](../ROADMAP.md#parallel-engineering-tracks)
 or promote any validation state.

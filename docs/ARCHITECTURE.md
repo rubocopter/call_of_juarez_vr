@@ -333,28 +333,36 @@ Stereo presentation state likewise discards partial eye confirmation across
 tracking, connection and lifecycle loss; this is state policy, not a claim about
 rendered image alignment or frame-pacing improvement.
 
-## Preferences and future native settings
+## Shared preferences and native settings
 
-`runtime/vr_settings` already separates bounded version-1 configuration I/O,
-safe cinematic defaults and atomic game-thread publication from panel rendering.
-The presenter currently coordinates load, panel selection, publication and save;
-the panel retains its own editable mode. This is sufficient for the single
-experimental surface, not a synchronized multi-UI preference owner. Preserve it
-until another editor or preference needs that boundary.
+`runtime/vr_settings` owns one synchronized preference store for cinematic mode
+and smooth/snap turning. The existing presenter panel and native Options > Game
+editor read versioned snapshots and submit values through that owner. An older
+editor cannot overwrite a newer edit. Runtime reads use atomic publication;
+native references remain on the game thread. Version 1 cinematic values migrate
+to version 2 with smooth turning. Missing/invalid files use theater/smooth;
+unrecognized or unreadable startup files are preserved, with session-only changes
+and explicit save-failure feedback. Atomic replacement preserves the previous
+file when persistence fails. The overlay cannot apply an invisible proposal.
 
-Before adding a native editor, move that coordination into one shared preference
-owner. Both interfaces submit value-only requests and read its current values;
-neither duplicates validation, filesystem access or runtime application. Keep
-theater as the missing/invalid-config default and preserve version-1 values with
-an explicit migration before extending the strict schema. Save failure must
-remain distinguishable from a session-applied value. Runtime eligibility and
-native ownership remain authoritative regardless of the selected preference.
+The hash-pinned native editor extends the existing `MenuOptionsGame` class and
+`OptionsGame.scr`, shared by main/pause Options, with two original-style selectors
+and a status label. It adds no UI index or class registry slot. Original native
+options, defaults, fonts, pointer processing and return behavior remain owned by
+the game. Highlighting and Cancel do not apply VR choices. OK queues one request;
+the bridge consumes it before publication/persistence and completes original OK
+only after a successful save. Failed saves retain the visible page and distinguish
+the session choice. A conflicting edit refreshes values and requires another OK.
 
-The provisional panel remains a development tool. Native settings need a distinct
-UI input owner: the panel's current capture flag blocks native pointer delivery
-and cannot simply be reused while editing a native page. Exact principal/pause
-routes, resource constraints and the proposed bridge are in
-[UI research](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary).
+Exact current UI type/visibility, native object identity and per-Show serial bind
+the editor. Modal replacement, focus/input loss and the development panel cancel
+its owner; reacquisition clears an old request before synchronization. Ordinary
+native menu input stays active; the overlay's exclusive input-capture flag is not
+reused for this editor. Existing pause/gameplay release barriers still apply.
+The two preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
+launcher resolution profiles retain their independent startup-only transaction.
+Native rendering/usability still require the physical gate in Validation.
+See [UI research](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary).
 
 ## Expanded campaign input
 
@@ -386,6 +394,14 @@ pad shaping and instance gains. The empty-hand downward gesture additionally
 requests one native minimum draw displacement using current native real delta
 and sensitivity conversion; default pad gain alone cannot draw at typical VR
 update rates. No native threshold, clock or equip state is modified.
+The VR entry additionally requires a fresh tracked right-hand aim tip: point
+at least 45 degrees down and center the stick before pulling down to draw.
+After an admitted draw, a positive stick cannot raise the native gun until the
+physical tip returns above -30 degrees. These are gesture UX thresholds, not a
+measured holster or body socket. Pre-aiming plus stick-only draw/raise is rejected.
+Pose/input/owner loss, stale or reversed samples and recenter require a fresh
+lowered/centered baseline. This guard is host-tested; the earlier Clyde acceptance
+does not qualify its new physical gesture.
 Native draw/raise/timing and trigger permissions
 remain final. A fresh centered sample is required on ownership/input loss and
 each native game clock receives at most one delivery, even if VR renders faster.
@@ -496,8 +512,9 @@ yaw: a 0.25 stick deadzone, proportional speed up to 90 degrees/second and
 monotonic elapsed time, mapped to the native yaw sign by the game adapter.
 Unavailable/context-changed input, regressing time or gaps over 100 ms reset
 authority until a fresh centered sample. Duplicate timestamps and later input
-phases never replay rotation. The native turn consumer retains its own mode
-coefficients/permissions. A VR settings smooth/snap selector remains planned.
+phases never replay rotation. The native settings selector can request smooth
+turning or one 45-degree snap per deliberate stick deflection. Mode changes also
+require a fresh centered sample; native sign/permissions stay in the adapter.
 
 Room-scale camera and controller targets share tracking-Z/yaw conventions.
 Only horizontal room-scale displacement enters the render-only pelvis overlay;
@@ -600,7 +617,11 @@ a measured axial insertion. Context/weapon/input-generation changes, tracking
 loss, recentering, sample regression/gap or renewed pickup cancel it without replay.
 The existing native empty-support-hand gate and scoped finger restoration still
 apply; closing status rejects the pose, including an immediate final-round close.
-The cartridge remains hidden after insertion. No delayed transfer or retry is added.
+The cartridge remains hidden after insertion. Availability of a continuation
+token does not cancel the thumb gesture; cancellation requires a physically held
+support-trigger claim. Composed session/feedback tests cover the 50 ms peak,
+180 ms recovery and fresh-pickup priority for both hands. No delayed transfer
+or retry is added.
 
 The manual cartridge uses one loose .357 node from a third-party CC0 glTF (83
 positions, 92 triangles), baked with source normals/UVs and a cropped 128x160
@@ -656,6 +677,15 @@ captured eye, contains rendered fingers or can be transported to the compositor.
 ## Weapon ownership
 
 Tracked grip anchors the authored holding socket; tip -Z supplies direction.
+`runtime/two_hand_grip` supplies a host-tested rigid support-span/roll solver and
+fresh-grip acquisition/cancellation policy. It takes measured metre-space frames
+and returns one rigid map with explicit support-spacing error; it never stretches
+the weapon or substitutes the hand-to-hand vector for the barrel axis. One policy
+instance owns the same physical support channels through interruption and release.
+It is not connected to native long guns yet: the exact adapter must qualify the
+support frame and fire/cycle lifetime, arbitrate interaction before dispatch and
+reuse one scoped map for both hands, weapon, muzzle and reticles. Existing
+idle-finger eligibility is not that attachment contract.
 The adapter rigidly maps all measured weapon elements through
 `FromUpForwardPosElementWorld`, preserving internal animation/socket-to-muzzle
 geometry. The general object setter is unsafe because it reaches recursive
@@ -692,6 +722,13 @@ A waist pickup, held journey and release near
 the grip requests one native round. Following an observed reload interval, ordinary
 eligible ownership must recover before the presentation-only solid token replenishes.
 Fresh trigger press/release can then request another round without returning to waist.
+Both initial and continuing grip carries reject discontinuous translations of
+either hand on fresh held or release samples. The current gesture UX bounds are
+12 cm per sample and 3 m/s, shared with explicit insertion's translation check;
+grip-only carries do not inherit socket-axis constraints. A rejected press hides
+its token and cannot insert or emit entry feedback, while its original physical
+claim remains consumed through an available release. Duplicate observations do
+not advance motion baselines. This policy is host-tested, not physically accepted.
 
 An explicitly selected archive probe can veto the owned native body-state exit
 before `Clear`, wait for a bounded native-clock deadline and close through native

@@ -26,10 +26,10 @@ prove native hover processing.
 
 ## Native VR settings integration boundary
 
-**Source/archive inspection; planned integration.** The provisional OpenVR panel
-is a development surface, not an extension of the native menu tree. The original
-recognized `code.pak` contains these existing routes (bytecode offsets are within
-the named method, not native RVAs):
+**Source/archive inspection and implemented native editor.** The provisional OpenVR
+panel remains a development surface. The native editor extends the existing Game
+page. The original recognized `code.pak` contains these existing routes
+(bytecode offsets are within the named method, not native RVAs):
 
 | Caller | Existing options route |
 | --- | --- |
@@ -54,32 +54,39 @@ no demonstrated open-ended page-registration API. A new page must qualify
 registry/capacity changes and every affected consumer; never reuse an apparently
 empty index without checking its other owners.
 
-The realistic route is a VR entry in both existing Options variants, reachable
-from main and pause, leading to one native editor that preserves the caller and
-back/modal behavior. Reuse native widgets and naturally scheduled sprite drawing;
-do not replay UI traversal for the second eye. Native menus retain their existing
-flat-theater presentation. Rendering, comfort/locomotion, controls/interaction
-and HUD/cinematics are future groups, not permission to expose unimplemented
-options. Initially only implemented preferences should appear.
+The implemented route adds cinematic and smooth/snap selectors to the existing
+`MenuOptionsGame`, shared by both Options variants. This avoids a new UI registry
+slot and retains original OK/Cancel/Defaults and return behavior. The recognized
+class SHA-256 is `2FE3AA28003AA2C3F9539071EEFA040E4FAEDBDD6868FBD8C179AB0230BA6DD8`;
+`Data/Menu/scr/OptionsGame.scr` is
+`995388EDB69798167E318189598E451319D31C351B230455D737679608772B1D`.
+The transformation clones the original selector resource at installation time,
+retaining `MenuSmall`/scale, original option rows and buttons. Native
+`UIOptionsControlSelect` supplies label, option data, selection, focus and tips.
+Only the decorative list frame grows to contain two additional rows and a
+noninteractive native status label. No original resource/class is redistributed.
+Native menus retain naturally scheduled flat-theater drawing; no second-eye UI
+traversal or new overlay is introduced. Other preference groups remain future work.
 
-`runtime/vr_settings` already supplies `CinematicsMode`, bounded validation,
-version-1 load/save and atomic publication. The remaining coordination is in
-`OpenVrStereoPresenter::Impl::Worker`: it initializes the panel's editable copy, checks panel
-publication, publishes a changed value and saves it. External calls to
-`PublishCinematicMode` or `SaveVrSettings` alone would not synchronize that copy.
-There is no current multi-editor failure because the presenter is the only
-coordinator. Preserve this working route now; extract one preference owner before
-introducing the second UI. A value-only request/result bridge and synchronized
-snapshot are a proposal, not existing JNI engine APIs.
+`runtime/vr_settings` now owns both preferences, configuration and atomic
+publication through one versioned store. The presenter panel refreshes its
+editable mode from that owner before input and submits only after successful
+overlay publication. The native bridge snapshots the same values once per Show.
+Native highlighting remains local; OK queues request 1, consumed as token 2
+before application/save. Accepted completion requires that token and clears it
+before original OK; Cancel/Back revoke readiness and pending requests. Failed
+saves keep the page visible with session-only feedback. Revision conflicts
+refresh the authoritative pair and require another deliberate OK. No native
+references cross threads; this protocol is authored by the mod, not an engine API.
 
-Preserve these application/persistence contracts during that extraction:
+The shared owner preserves these application and persistence contracts:
 
 - `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini` is independent of staging and
-  panel lifetime. Missing/invalid input defaults to theater; version 1 permits
-  only its recognized keys and rejects duplicates/unknown versions. There is
-  currently no migration. Extending the file requires explicit version-1
-  migration that retains saved cinematic values; do not silently add keys that
-  the strict old reader would reject or erase unknown future versions.
+  panel lifetime. Missing/invalid input defaults to theater/smooth. Version 1
+  retains its cinematic choice and supplies smooth turning; the next accepted
+  save writes strict version 2 with both values. Duplicate/unknown keys and
+  unknown versions reject. Invalid/unreadable startup files remain protected
+  for the session; an edit can publish but cannot overwrite them.
 - Atomic temporary-file replacement retains the previous file on failed save.
   A session-applied value and its persisted status are distinct. The existing
   panel rolls back an invisible failed proposal before publication/persistence;
@@ -88,7 +95,7 @@ Preserve these application/persistence contracts during that extraction:
 - Runtime movie admission remains game-owned: immersive selection does not
   bypass pause, death, mission-end or unknown-owner fallback.
 
-Native input requires an explicit owner split. The current
+Native input retains an explicit owner split. The current
 `SettingsInputCaptured()` suppresses both gameplay and injected native pointer
 delivery. Reusing it unchanged for a native page would block editing. Preserve
 gameplay suppression and available-release barriers while admitting pointer,
@@ -98,21 +105,18 @@ not identify a particular native page. JNI references stay on the game thread;
 the renderer receives only values. Closing, modal replacement and context loss
 must cancel pending requests without stale clicks or resumed held actions.
 
-This is larger than a safe script edit. `patch_coj_weapon_consumers.py` currently
-patches enumerated classes and verifies other archive members remain unchanged;
-it supplies no native-settings bridge. The deployment already journals exact
-`code.pak` and `Data0.pak` derivatives, so extend those verified transformations
-and hash/inventory/restoration tests instead of overwriting game resources or
-shipping original classes/scripts. Preserve their unrelated weapon/mesh patches.
+The canonical code patcher now includes the hash-pinned menu class. The Data0
+transformer adds its script through the same compressed-record-preserving
+transaction as player partitioning; native stereo without independent hands
+uses a menu-only derivative. The original code/Data0 hashes remain authoritative,
+and the existing journal restores both originals byte-for-byte. Unrelated
+weapon/mesh transformations remain included and independently checked.
 
-Incremental exits: first prove the shared preference owner with existing panel
-tests plus two-editor synchronization, version-1 migration and save-failure tests;
-then qualify the native command/registry/resource bridge with main/paused callers,
-modal/back, unknown-build rejection and byte-identical rollback fixtures. Only
-then add the native page and batch its controller navigation/held-input checks
-into a relevant canonical headset candidate. Keep the provisional panel usable
-throughout; no duplicate preference file, new overlay or placeholder setting is
-needed for this investigation.
+Host fixtures execute transformed menu bytecode, original OK/back dispatch and
+the JNI request bridge separately; they do not initialize the native widget
+renderer. Batch native navigation, layout, main/paused return, failure feedback,
+persistence and held-input recovery into a fresh canonical headset candidate.
+The provisional panel remains usable throughout.
 
 ## Native consumer and coordinates
 
