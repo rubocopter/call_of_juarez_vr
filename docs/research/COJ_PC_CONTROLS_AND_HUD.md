@@ -129,7 +129,7 @@ user-customized SteamVR bindings or physical controller behavior.
 | Right stick | proportional smooth turn; prepared duel uses native draw/raise/aim instead |
 | R3 | Focus toggle; XR magnification follows real native squint |
 | L2 | original LMB / left-hand action |
-| R2 | original RMB / right-hand action |
+| R2 | original RMB / right-hand action; exact left-held bow: approach string, grab, retract and release |
 | L1 | Action / contextual F from the left Sense aim ray; reference ring only while held |
 | R1 | fresh Kick press on foot; hold Horse run / gallop when mounted |
 | Square | Reload; opens/closes an admitted Peacemaker/Frontier session with `-ManualReload` |
@@ -235,8 +235,13 @@ or view comfort during a manual campaign run.
 R3 changes only native action 40. Optical magnification remains derived from
 the real cached m_fSquintFactor and m_fCurrentMaxSquintZoom, including native
 decay after Focus release; a rejected logical request cannot invent a zoom
-factor. There is no second R3-controlled magnification latch. Desired/current
-bows and scoped Winchester retain their existing special-zoom exclusion.
+factor. There is no second R3-controlled magnification latch. A stable actual/
+desired bow additionally combines cached squint with native module/BulletTime
+concentration using `squint + concentration - squint * concentration`, including
+concentration while Focus is released. The cache reader rechecks weapon/module
+identities and invokes no native zoom update or parameter factory. This extension
+is host-tested only. Scoped Winchester remains excluded: its camera-dependent
+zoom and separately updated scope mesh need distinct per-eye restoration.
 
 Default slow movement needs no synthesized Shift: the native float path preserves
 the shipped independent 0.04-per-axis deadzone and remapping to actions 4-7.
@@ -456,9 +461,18 @@ contexts remain separate gates; dispatch alone does not validate them.
   It rejects the reported pre-aimed-hand/stick-only shortcut. These are gesture
   defaults, not a measured holster; no native time, permission or threshold is
   changed. Missing/stale tracking, action/context changes and recenter revoke
-  posture authority until a fresh lowered/centered sample. That physical gesture,
-  early draw, retry and precise special crosshair/weapon agreement remain
-  separate physical gates.
+  posture authority until a fresh lowered/centered sample. One correct physical
+  hip-hand draw/raise has scoped operator acceptance. Wrong/early gestures, retry
+  and precise special crosshair/weapon agreement retain separate physical gates.
+  `InvObject.GetOwnerElementIDFromSlot` places inventory weapons at body
+  `HolsterR`/`HolsterL`; the weapon's own `Holster` frame is inverted before
+  attaching to that mount. These dummy nodes are attachment frames, not grasp
+  points. The usable authored grip is the weapon `Holder` transformed from its
+  `Holster` into the positively owned body mount; the inspected revolvers place
+  those origins roughly 10–13 cm apart. Ray has both mounts; Billy only the right.
+  Read-only natural pre-body mount diagnostics do not establish a current
+  holstered weapon, physical contact radius or alignment after the visual-body
+  offset. Keep contact admission disabled until those identities/frames agree.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player

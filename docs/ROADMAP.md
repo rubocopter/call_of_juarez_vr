@@ -29,25 +29,78 @@ Current unpublished work includes a shared version-2 preference owner and native
 Options > Game cinematic/turning selectors, a physical right-hand duel posture
 guard, reload thumb/continuity corrections, a neutral two-hand long-gun solver
 and improved launcher resolution reporting. These are implemented/host-tested,
-with native widget usability, duel gesture comfort, hand contact and sustained
-recovery awaiting headset evidence. The two-hand solver is not attached to
+with scoped operator acceptance of native option usability and one successful
+physical duel draw/raise. Incorrect gestures, hand contact and sustained
+recovery remain open. The two-hand solver is not attached to
 native rifles. The published .4 download does not contain these later changes.
 
-A chest/possible-scroll interaction crash remains unexplained; its preserved
-stack does not identify the faulting instruction. A bounded read-only
-render-fault reporter is host-tested for recurrence. Signed 32-bit native
-identity recovery has scoped functional acceptance, but actual high-address
+The offline batch additionally implements module-owned immersive subtitle text
+and native-cache bow concentration magnification, both host-tested only. Movie
+line timing/readability and bow alignment/comfort join the same naturally eligible
+campaign session. The reload observer correlates stable native drum phase with
+geometry; duel diagnostics observe original inventory holster sockets. Neither
+diagnostic enables chamber mechanics or physical holster contact.
+The read-only rifle support observer and evidence analysis are host-tested;
+natural idle/fire references join that same session before deciding attachment
+lifetime. No rigid support map is applied to a rifle yet.
+
+The latest operator bow feedback is substantially improved after separating
+renderer capture drops from the lifetime of a valid physical grab. Earlier trials
+with no arrows or frequent tension cuts remain rejected historical trials; they
+do not describe the current candidate. Sustained consistency, mesh/string/arrow/
+reticle agreement, haptics and interruption recovery remain physical gates.
+The exact WeaponBow-only root/+Z and DBowHolder correction, stable native hand
+owner, right-hand contact/R2/retraction/release policy, native channel supervision
+and controller vibration transport are implemented with host coverage. Slack or
+off-axis motion relaxes tension without dropping capture. The held draw guards
+only exact native concentration-expiry cancellation; original concentration
+duration, zoom/slomo, ballistic behavior and release remain native. Restoration
+failure, invalid ownership and tracking discontinuities still cancel the grab.
+bHaptics is deferred at the operator's request: no owned hardware and no urgency.
+Its existing foundation remains available without taking time from gameplay.
+The [official C/C++ SDK 2.7.1](https://github.com/bhaptics/tact-cpp2/releases/tag/v2.7.1)
+provides Windows x86 libraries; an optional provider must isolate blocking SDK
+calls and fail independently of OpenVR controller haptics. Begin with neutral
+event admission and a recording/fault sink, now host-tested with a QA intent only.
+No SDK provider or gameplay producer is connected. A current virtual-device procedure
+and native-confirmed gameplay event producers remain to qualify; Designer
+preview or virtual output cannot qualify physical vest feedback.
+
+A community secret-scroll report identifies a null ambient current level in
+native mesh rendering. Conditional preservation of the same still-active render
+level is implemented/host-tested; the exact clearing callback and campaign
+recovery remain unobserved. Continuous HMD body following also replaces the
+former 35-degree cone and has scoped operator headset acceptance. Physical
+walking/turning still shows static sliding legs; presentation animation is
+planned separately, preserving accepted body following and native movement. The
+bounded render-fault reporter retains original exception propagation. Signed
+32-bit native identity recovery has scoped functional acceptance, but actual high-address
 owners remain untested. Real OneDrive operation, other controllers/headsets,
 long-gun interactions, mounted play and campaign-specific mechanics retain
 independent gates.
+Mod-added DLC compatibility is deferred at the operator's request after an
+unsatisfactory VR trial. Mounting/dismounting a horse worked in that exercised
+context; mounted movement, camera/aim continuity and broader DLC behavior remain
+unqualified and join later campaign coverage.
+
+## Development backlog
+
+The ordered work below continues offline where its exact-game prerequisite is
+available. [Pending headset checks](VALIDATION.md#pending-headset-checks) owns the
+physical checklist; an unobserved scene does not block unrelated development.
 
 Immediate work, in order:
 
 1. **Remaining campaign continuity and ownership recovery.** Preserve accepted
    Hope/multi-cinematic recovery and hot switching. Broaden coverage only for
    unexercised campaign and ownership boundaries; accepted recovery needs no repeat.
-   Preserve the chest/possible-scroll fault diagnostic and record a recurrence without
-   inventing its cause. Batch focus/tracking/dashboard and held-control recovery;
+   Preserve the chest/scroll diagnostic and qualify the current-level correction
+   on the next naturally encountered scroll, including menu closure and resumed
+   control/stereo; the latest session did not exercise chests. Preserve accepted
+   continuous body following and investigate room-scale leg animation separately.
+   Preserve the bow's improved capture lifetime; use remaining alignment and
+   recovery evidence to choose its next correction. Basic firing is no longer
+   recorded as wholly untested. Batch focus/tracking/dashboard and held-control recovery;
    an accepted ordinary menu or quit does not close those gates.
 2. **Make the held cartridge convincing.** Preserve the accepted reload and
    textured CC0 .357. Its revised skin-derived anchor is host-tested and has
@@ -97,9 +150,22 @@ Immediate work, in order:
    red-cross visibility is low priority.
 
 No new test is required merely to reconfirm cartridge visibility, native unit
-loading or already accepted Square/menu/weapon behavior. Unavailable campaign
-actions and horse contexts remain pending/inconclusive; Ray's exercised on-foot
-kick does not override native permission restrictions elsewhere.
+loading or already accepted Square/menu/weapon behavior. Horse mounting and
+dismounting have scoped functional acceptance; mounted movement, gallop,
+camera/aim and HUD remain open. Unavailable campaign actions remain
+pending/inconclusive; Ray's exercised on-foot kick does not override native
+permission restrictions elsewhere.
+
+Additional implementation remains bounded by the following prerequisites:
+
+| Development | Current boundary and next prerequisite |
+| --- | --- |
+| Physical-walk/turn leg animation | Planned. Identify a scoped lower-body presentation boundary before animation; preserve accepted continuous body following and native movement/permissions. Artificial movement input is not evidence of a qualified presentation seam. |
+| Rifle two-hand attachment | Solver, ownership policy and read-only native reference observer are host-tested; attachment is disabled. Qualify support-hand placement and firing/cycling lifetime before one scoped hand/weapon/aim transaction. |
+| Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before contact enables drawing. |
+| Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
+| Remaining visual integration | Cartridge contact/occlusion and full graphical HUD follow G1/G3 below; existing visibility and text acceptance stand. |
+| Deferred work | Mod-added DLC VR adaptation and bHaptics provider/event producers are deferred by operator priority. OpenXR, D3D10 and additional games remain separate future tracks. |
 
 A pending visual/physical gate blocks promotion of that specific behavior only.
 Continue independent offline work on controls, UI, recovery and other qualified
@@ -184,15 +250,19 @@ or reload work:
   The [native bridge](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary)
   consumes requests before side effects, rejects stale editors and reports save
   failure without closing the page. Host behavior, shipped-JVM bytecode and package
-  inventory verification pass; native navigation, persistence and held-input
-  recovery still need one canonical physical candidate. The existing panel stays
+  inventory verification pass; native option usability has scoped operator
+  acceptance. Unspecified persistence and held-input recovery remain open. The existing panel stays
   usable during development.
 - **Physical duel draw:** the production mouse route now requires a fresh lowered
   right aim tip and centered stick before draw, then a physically raised tip
   before upward raise input. Host tests cover the pre-aimed-hand shortcut and
   tracking/owner recovery without changing native draw timing or permissions.
-  Gesture feel and broader native retry/early-draw behavior remain pending in
-  the consolidated batch; this is not yet a measured holster interaction.
+  One correct hand-at-hip draw/raise has operator acceptance. Wrong/early gestures
+  and broader native retry behavior remain pending in the consolidated batch;
+  this is not yet a measured holster interaction.
+  Original model/inventory evidence identifies `HolsterR` for Ray/Billy and
+  `HolsterL` for Ray. Natural pre-body frame diagnostics are available in the same
+  duel; qualify grasp placement and visual-body alignment before enabling contact.
 - **Two-hand long-gun support:** investigate a measured support-hand frame before
   proximity/grip attachment. A neutral rigid solver and fresh-grip ownership policy
   are implemented/host-tested, including off-axis support, authored roll, unequal
@@ -228,9 +298,10 @@ contents and hand coverage remain unqualified; no repeat port-visibility probe i
 Native loading-pose reuse is a
 measured research option, not an authorized animation-time writer. Loading sound,
 spent-case ejection, independent cylinder/gate control and chamber occupancy need
-their own exact-game contracts after port qualification. Bow/scoped optics and
-physical-walk animation remain planned integration beyond the accepted ordinary
-Focus and native locomotion seams. Backend/game expansion remains Milestone 5.
+their own exact-game contracts after port qualification. Bow concentration optics
+are implemented/host-tested, awaiting physical alignment/comfort acceptance;
+scoped Winchester optics and physical-walk animation remain planned integration.
+Backend/game expansion remains Milestone 5.
 
 ## Next acceptance gates for implemented changes
 
@@ -352,7 +423,8 @@ The latest published package is `v0.1.0-prealpha.4`, cumulative from .3/.2/.1.
 [Release notes](../release/RELEASE_NOTES.md) own its changes and controls;
 [Validation](VALIDATION.md#public-prerelease-policy) owns scoped PS VR2 acceptance,
 community observations and unresolved risks. Native settings, physical duel
-posture, reload feedback/continuity and two-hand solver work described above
+posture, reload feedback/continuity, two-hand solver, continuous body follow and
+ambient render-context preservation work described above
 remain unpublished and do not inherit the .4 acceptance.
 
 Future distributions must preserve exact-build rejection, reversible archive

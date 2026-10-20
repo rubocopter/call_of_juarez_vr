@@ -1,26 +1,71 @@
-# Call of Juarez VR
-
 <p align="center">
   <img alt="Call of Juarez VR" src="assets/CoJ-VR.png" width="100%">
+</p>
+
+<h1 align="center">Call of Juarez VR</h1>
+
+<p align="center">
+  <strong>Step into the Wild West.</strong><br>
+  Experience the original <em>Call of Juarez (2006)</em> from inside the world,<br>
+  with stereoscopic vision, head tracking, motion-controlled weapons and physical interactions.
 </p>
 
 <p align="center">
   <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square">
   <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square">
   <img alt="Runtime: SteamVR" src="https://img.shields.io/badge/runtime-SteamVR-1b2838?style=flat-square">
+  <a href="LICENSE"><img alt="License: GPLv3+" src="https://img.shields.io/badge/code-GPLv3%2B-3A6B52?style=flat-square"></a>
 </p>
 
-**A native PCVR conversion of Call of Juarez (2006), built around tracked head and hands.**
+<p align="center">
+  <a href="#the-experience">The experience</a> ·
+  <a href="#download-and-play">Download &amp; play</a> ·
+  <a href="#features-in-the-headset">Features</a> ·
+  <a href="#known-limitations">Limitations</a> ·
+  <a href="#documentation">Technical docs</a>
+</p>
 
-> **Experimental community-testing pre-alpha.** The campaign is not fully tested, crashes can block progress, and this is not a supported release. Physical validation is limited to exercised scenes with PS VR2 Sense through SteamVR; other packaged controller bindings are experimental.
+> [!IMPORTANT]
+> **Experimental pre-alpha, intended for community testing.** The full campaign is not verified; crashes may interrupt progress. PS VR2 Sense through SteamVR is the only physically tested reference, in specific scenes. Other headset and controller profiles remain experimental.
 
-**[Download v0.1.0-prealpha.4 — Windows player ZIP](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.4/CoJ-VR-0.1.0-prealpha.4-windows-x64.zip)** · [Release notes and checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.4)
+## The experience
 
-**New in .4:** native duel draw/raise controls, simultaneous reticles for both firearms, careful-movement corrections, smooth turning by default, improved free-hand fingers with a normally held long gun, and launcher reload on/off and controls/help menus. Updates retain the manual-reload choice. Recognized OneDrive/Cloud Files video-setting paths are admitted; live OneDrive operation still needs community confirmation.
+The goal is to make **Call of Juarez feel like a VR game** while keeping the original story, characters and world. Look around naturally, aim and fire with either hand, move through the levels at room scale, and interact with the world using motion controllers. Your in-game torso and legs remain visible beneath independent tracked hands.
 
-**Long-gun manual reload is not implemented.** Rifles/shotguns retain the original automatic reload and its native animation (Sense: Square). Manual cartridge loading remains limited to the admitted revolver profiles. The operator confirms the final candidate's exercised functions on PS VR2, including the corrected support-hand presentation and ordinary concentration activation. This is scoped functional acceptance, not full campaign or hardware support.
+| Experience | What it means |
+| --- | --- |
+| **A world with depth** | Two native game-rendered views, one per eye, with head tracking through SteamVR. |
+| **Weapons in your hands** | Independent aiming, dual-wielded pistols, holstering and experimental physical revolver reloads. |
+| **More than shooting** | Motion-based melee, whip, picking up objects, equipment selection, in-world HUD aids and controller-operated menus. |
+| **The original adventure** | The 2006 PC game, with its story, characters, cinematics and original body presentation. |
 
-## Quickstart
+The mod currently targets **only the first Call of Juarez (2006)**. It is a work in progress, with more interactions and campaign scenarios still being validated. See [what has been exercised](#features-in-the-headset) and [what remains unfinished](#known-limitations).
+
+## Download and play
+
+**[Download Call of Juarez VR v0.1.0-prealpha.4 for Windows](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.4/CoJ-VR-0.1.0-prealpha.4-windows-x64.zip)** · [Release notes & checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.4)
+
+You need the **original Steam PC game**, Windows 10/11 x64, SteamVR, and a PCVR headset. The mod does not include the game.
+
+1. Back up your saves, launch the original game in **Direct3D 9** once, then close it.
+2. Extract the **player ZIP** (not GitHub's automatic source ZIP) and open **`CoJ-VR.cmd`**.
+3. Choose **1 — Install/update**, point to the game directory and follow the prompts. Start SteamVR manually first if using an Auto or percentage resolution profile.
+4. Launch the game manually in **D3D9 mode**. For later sessions, run **6 — Prepare session** from the mod launcher before playing.
+
+No compiler or development tools are required. The launcher includes resolution profiles, controller help, diagnostics and recovery. Full instructions are below for those who need them.
+
+For the unpublished development candidate, see the [current acceptance table and consolidated headset checklist](docs/VALIDATION.md#pending-headset-checks) and [development backlog](docs/ROADMAP.md#development-backlog). Continuous body following, native option usability and one correct physical duel gesture have scoped operator acceptance; the latest bow trial reports substantial improvement. Remaining checks are listed separately from features still awaiting implementation, so accepted behavior is not repeatedly marked untested.
+
+<details>
+<summary><strong>Detailed installation, updates and resolution settings</strong></summary>
+
+<br>
+
+The latest public version is **v0.1.0-prealpha.4**. Its changes include tracked duel draw/raise controls, both firearm reticles, careful-movement corrections, default smooth turning, improved idle support-hand presentation for long guns, and additional launcher settings. Current local development work may go beyond this release; it is not included in the download.
+
+**Revolvers only:** long-gun manual reload is not available. Rifles and shotguns use the game's automatic reload animation.
+
+### Detailed quickstart
 
 You need **Windows 10/11 x64**, the **original Steam Call of Juarez (2006), D3D9 mode**, SteamVR and GPU/headset drivers. Unknown game builds are rejected. OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
 
@@ -43,7 +88,9 @@ To update, close the game, extract a newer player ZIP, start SteamVR manually fo
 
 Profiles change native rendering at startup, including menu/theater sources, and never resize a running game. There is no new upscaler. At **2804×2860**, the accepted main-menu GPU presentation preserves its angular reference, proportions and native pointer coordinates; this targeted correction is not enabled for other sizes. SteamVR's slider alone does not enlarge the game's native render targets.
 
-## What you can try
+</details>
+
+## Features in the headset
 
 These features have scoped headset validation in exercised scenes, not full campaign coverage:
 
@@ -55,7 +102,16 @@ These features have scoped headset validation in exercised scenes, not full camp
 
 Compared with prealpha.1, this release also improves Ray's body/coat presentation, including the accepted 8 cm horizontal visual setback. Stereo recovery after cinematics, including Hope, is fixed and headset-validated across multiple exercised sequences. The operator also accepted hot presentation-mode changes, different equipped weapons, recentering during sequences and continued gameplay; this is not complete campaign coverage.
 
-## Controller guide
+<details>
+<summary><strong>PS VR2 Sense controls, manual reload and special actions</strong></summary>
+
+<br>
+
+<p align="center">
+  <img alt="PS VR2 Sense controller control reference" src="assets/CoJ_sensevr.png" width="85%">
+</p>
+
+### Controller guide
 
 Current PS VR2 Sense defaults:
 
@@ -77,6 +133,8 @@ The .4 VR settings panel is an **experimental interface** for cinematic presenta
 **Duels:** center the right stick on entry, pull down to draw when the game permits, then up to raise; aim with your tracked hand and use the triggers to fire. **Ray concentration:** holster both weapons and wait for native readiness, then make a fresh L2/R2 press. R3 is Focus/zoom; selecting fists is not holstering. With both pistols drawn, hold Triangle, highlight the right sector with the right stick and release to holster the right pistol; center and repeat left for the left pistol. Let both animations finish. **Blocking hints:** Cross dismisses; release before the next action. A PC Z prompt means Circle/alternate fire once gameplay resumes. Native tutorial windows still display PC keys.
 
 PS VR2 with Sense through SteamVR is the only physically validated reference, limited to exercised scenes. Packaged Touch, Index, Vive wand and WMR bindings are experimental and do not establish support for another headset or PC. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls).
+
+</details>
 
 ## Known limitations
 
@@ -100,9 +158,11 @@ Logs are **optional**. **3 — Diagnostics** creates a local report for you to i
 
 ## Documentation
 
+[Installation and player package](release/README.txt) ·
 [Validation and limits](docs/VALIDATION.md) ·
 [Roadmap](docs/ROADMAP.md) ·
 [Architecture](docs/ARCHITECTURE.md) ·
+[Release history](release/RELEASE_NOTES.md) ·
 [Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
 
 <details>

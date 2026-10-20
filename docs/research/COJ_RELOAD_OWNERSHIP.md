@@ -830,6 +830,11 @@ scoped restoration hides the visual. Native centimetres and orientation convert
 through the current exact camera basis; the mesh centre meets the midpoint.
 Tests cover both hands, camera rotation, invalid basis and post-restore rejection.
 Runtime visibility/contact/comfort for this axis remain unobserved.
+The root/barrel/gate/drum reader also brackets its synchronous sample with the
+same weapon's finite `m_fRotate`; any change rejects the geometry. Native degrees
+travel beside the explicit pre-native/post-overlay source. This host-tested
+scalar correlation does not establish how `RotateElementWithAnim` composes the
+authored drum animation, per-round indexing or individual chamber occupancy.
 The revised finger-reference emitter also takes weapon/armed-hand/context from
 the current native reload snapshot, not the ordinary idle admission reader.
 This removes the source of the historical zero ID while waiting. Snapshot
@@ -858,3 +863,18 @@ context/input generation and weapon. Lost availability or ownership invalidates
 it. Fresh physical release still discharges an old claim after disabling manual
 reload so the conventional path can recover. Host tests reproduce held recovery
 boundaries; live/menu/disable coverage for this strengthening is pending.
+
+### Original reload audio boundary
+
+Peacemaker, Frontier, Walker and Cogswell ammo parameters select the original
+`Frontier_Ammo_Open` buffer. Native `OnHandStateStarted_Reload` calls
+`Weapon.Reload(ammoIndex,0)`, which starts this sound before the completion
+transfer. Direct `PawnArmed.WeaponReload` is a separate count/reserve transaction;
+its Boolean alone does not qualify an audible unit insertion. The native game
+event is also not an audio acknowledgement. A future optional sound must follow
+coherent same-owner loaded +1 / matching reserve -1 readback, use the original
+sound-only route once and preserve acceptance/closing even on an audio fault.
+No added sound is enabled: the existing clip's insertion-specific content and
+overlap with native entry/animation audio remain acoustically unqualified. Keep
+those checks within the ordinary combined reload session, without replaying a
+reload callback, cylinder rotation or a second fallback sound.

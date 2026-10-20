@@ -108,6 +108,78 @@ Exercised independent-hand grip/wrist comfort and side-on/rolled pistol coherenc
 have operator acceptance. Broader equipment, anatomy and recovery remain separate
 gates; this does not accept the legacy connected-arm solver.
 
+## Exact bow holding and aim boundary
+
+Original `Data/Player/Equipment/Bow/Bow.msh` SHA-256
+`d16928ae927620f567f8384c65c190459460d042ac4cf8b05e9e8eb3d2e27d53`
+has `Bow`, `DBowHolder`, its bone chain and `DArrow`, with no `Barrel` or `Holder`.
+`WpnLogicBow` does not replace the inherited `Barrel` name, so the native barrel
+element is absent. `Weapon.GetBarrelOrigin/GetBarrelDir` then use object position
+and forward (+Z); the firearm's negative barrel-X convention does not apply.
+`InvObject.GetElementID` has an explicit `DBowHolder` fallback.
+
+The earlier generic negative-barrel rejection excluded this bow from tracked
+weapon mapping and verified reticle publication. That explains an unadmitted VR
+pose, not every possible physical aiming defect. The exact-class exception must
+prove `WeaponBow`, its authored holder and one stable actual/desired native hand
+owner (normally left), including native two-hand flags. `GetActiveWeapon` can
+alias that same object in both slots and cannot assign the visual owner by loop
+order. The other alias gets no second weapon map or ray.
+
+Use one scoped rigid map for the native holder, bow root/+Z and verified ray;
+preserve controller pitch/roll, native attack semantics and native shot
+accuracy/trajectory. In original `ArmedPlayerBeing.Attack(IZ)`, hand 0's pressed
+input calls `TurnOnAlternateFire` and returns; hand 1's pressed input can attack
+only while `m_abAttackHandState[0]` is true and the bow hand is in an alternate
+state. The pressed=false branch performs no attack here. Thus the inherited
+right-trigger path alone is tension/alternate control, not a demonstrated
+release-to-shoot contract. This must not be described as verified firing from
+R2 release or a physical string gesture. The operator tried both triggers,
+including one held while pressing the other, without firing; these static gates
+alone do not identify the remaining failure in that session.
+Missing barrels on other weapons still reject. Mesh/arrow
+agreement, both-eye reticle alignment and campaign usability require eligible
+headset evidence; that pose correction alone implements no physical string draw
+or predicted arrow-impact marker.
+The later physical gesture uses the authored DArrow point only after strict root,
+holder and arrow frame reads and repeated exact left-owner proof. It freezes that
+point relative to the root for the grab, while the mapped root continues to follow
+the left hand. Physical right-hand retraction and current separation both bound
+draw progress; a moving left bow alone cannot manufacture tension. Capture and
+reach distances are ergonomic policy, not measured anatomical acceptance.
+After capture, continuous sideways/slack movement relaxes shot tension while
+keeping the physical R2 hold. An off-axis release cannot attack; hard ownership,
+tracking, timing and overreach guards retain cancellation semantics.
+`HumanBeing.GetAttackState(0)` observes the original held-right flag.
+`WeaponOperate.def` identifies ALT_START=131 and ALT_MOVE=129; only settled 129,
+native `CanAttack(1)` and the observed held-right prerequisite admit release.
+The adapter pulses the original left attack channel internally once, without a
+physical L2 requirement. Its native right hold remains until the original attack
+entry counter changes, or freshness/context failure or a bounded abort; that
+counter observes an attempt, not an arrow/hit. Native ALT_START animation has an
+authored 0.2-second duration. No normalized native tension field was demonstrated;
+the gesture does not write animation time, projectile speed or damage.
+Original `ArmedPlayerBeing.CheckBulletTime` independently turns off alternate
+fire when right is released, and also when BulletTime is absent/stopping while
+the bow is alternate and past ALT_START. Native right-held and alternate mode are
+separate flags, so settled ALT_MOVE can end with right still held. Unchanged
+digital VR input does not create another native Attack press. The narrow patch
+replaces only the latter expiry call with a private guard: a transient nullable
+`cojvrPhysicalBowDrawWeapon` must match repeated current actual/desired left bow
+reads, exact WeaponBow class, native bow hand/right-held and non-network play.
+Missing or changed ownership follows original TurnOffAlternateFire. The original
+right-release call and surrounding concentration lifecycle remain unchanged;
+the bridge clears admission on release/completion or any context failure.
+Wheel/conflicting actions and mapper trigger-rearm barriers cancel the gesture.
+Failed hand/weapon verification invalidates its owner through both eyes and clears
+captured controller feedback. Native scheduling, actual spawning and visual
+string/arrow agreement retain their separate evidence limits.
+`WeaponBow.ShowArrowMesh` separately attaches the visual arrow object to the
+player's right hand. The bow-root map does not introduce a writer for that
+separate object. Its presentation under independent tracked hands must be
+checked independently; a coherent root ray does not prove drawn-arrow visual
+alignment or physical string interaction.
+
 ## Shot visualization and emitter ownership
 
 Matching hand/weapon readbacks through both views and successful restoration

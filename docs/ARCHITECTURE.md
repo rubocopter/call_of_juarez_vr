@@ -246,12 +246,17 @@ change retires outstanding captures, and a newly queued fence cannot declare
 the previous mode's displayed image current. Flat recovery waits for a newly
 published complete pair. Sustained staleness falls back to native Present;
 death, pause, ownership loss and failed native restoration invalidate immediately.
-Immersive
-movie subtitle sprites are not yet transported by this camera-only route. The
-verified module/movie objects retain no subtitle string and `Sprite` exposes no
-text getter; ordinary actor-dialogue text is a different ownership path. The
-panel identifies this limitation when immersive is selected. Theater preserves
-the naturally rendered native subtitle pass; no script/sprite pass is replayed.
+Immersive movies copy subtitles from the exact module's naturally scheduled
+`OnShowSubtitle` writer. The hash-pinned archive transformation retains its
+normalized key, ID and current movie in transient fields. Wrong-ID hides preserve
+newer lines; accepted hides clear the cache, and movie start/end/destruction clear
+before original callbacks. Original native sprite/timing behavior stays intact.
+The game-thread reader requires the same active module, movie, native/cache IDs,
+visible subtitle parent and native subtitle setting. It localizes with `Text.Get`,
+rechecks ownership and copies bounded UTF-16 directly into that captured pair.
+No actor-dialogue fallback or gameplay text cache is used. Theater preserves the
+naturally rendered pass; no script/sprite traversal is replayed. This transport
+is host-tested; actual cinematic delivery and visor readability remain pending.
 
 VR settings run on the OpenVR presenter. A released short Options tap requests
 native pause; a one-second hold opens the panel. Right-stick left/right selects
@@ -425,6 +430,15 @@ hand, 12 ms, amplitude 0.18, 120 Hz, minimum 80 ms cadence and maximum 100 ms ca
 age. Initial/reacquired/context/resource baselines are silent; stale/centered
 captures and output failures never queue/retry. Per-hand output faults are isolated.
 
+`runtime/body_haptics` is a separate, host-tested admission foundation for optional
+body feedback. Value-only session/owner/input/availability epochs, monotonic
+event sequences and injected time provide silent acquisition, 100 ms freshness
+and consume-before-delivery behavior. The only pattern is a QA vest-test intent;
+recording/fault sinks exercise it without any SDK, device or gameplay producer.
+Commands are for immediate consumption; an asynchronous provider must add its
+own bounded freshness and lifecycle contract. This policy owns no OpenVR hand
+output, SDK loader, worker, vest model or physical-support state.
+
 ## Equipment wheel and wrist compass
 
 Read-only game-thread readers copy native inventory permissions, actual rotor
@@ -457,8 +471,14 @@ captured frame retains its own geometry, optics and resource identity.
 Ordinary Focus reads cached squint factor/maximum and applies
 `1 + (maximum - 1) * factor` to copied asymmetric render-eye tangents. Eye transforms,
 IPD, runtime and UI optics remain unchanged. It never calls CalculateZoom via
-GetBeingZoom. Invalid caches/context fall back to physical optics; bows and scoped
-Winchester remain excluded from this ordinary route.
+GetBeingZoom. Bow concentration combines squint with the existing module
+`BulletTime` current/target caches using the original clamped proportional rule
+and `squint + concentration - squint * concentration`. Actual/desired bow
+identities and module/BulletTime ownership must remain stable; no native update
+or parameter factory is called. Invalid caches/context fall back to physical
+optics. Scoped Winchester remains excluded: its separate camera-dependent optics
+and scope mesh need their own per-eye ownership/restoration contract. Bow cache
+composition is host-tested only.
 
 ## Essential gameplay text
 
@@ -505,9 +525,13 @@ Controller axes receive native shaping before residual HMD yaw rotates the
 result into the actor frame. Shaping after rotation erased small lateral
 components during careful gaze-directed movement. Native float dispatch uses
 a 0.00001 noise tolerance so slow gaze changes are not swallowed by its cache.
-Native speed coefficients and physics remain authoritative. Body yaw absorbs only excess
-outside the 35-degree free-look cone; that yaw is removed once from tracked camera,
-hand and weapon mapping. Ordinary controller turning defaults to continuous
+Native speed coefficients and physics remain authoritative. Normal gameplay body
+yaw follows every HMD yaw change, without the former 35-degree free-look cone.
+The previous committed actor yaw is removed once from tracked camera, hand and
+weapon mapping; the new target commits only after stereo restoration. Duel,
+movie, settings and native ownership guards still apply. This continuous-follow
+change has host coverage and scoped operator headset acceptance. Ordinary controller turning
+defaults to continuous
 yaw: a 0.25 stick deadzone, proportional speed up to 90 degrees/second and
 monotonic elapsed time, mapped to the native yaw sign by the game adapter.
 Unavailable/context-changed input, regressing time or gaps over 100 ms reset
@@ -686,11 +710,67 @@ It is not connected to native long guns yet: the exact adapter must qualify the
 support frame and fire/cycle lifetime, arbitrate interaction before dispatch and
 reuse one scoped map for both hands, weapon, muzzle and reticles. Existing
 idle-finger eligibility is not that attachment contract.
+An opt-in read-only observer admits the exact ordinary Winchester, Remington
+and sawed-off Remington classes with coherent right active/actual/desired
+ownership, empty left equipment, ordinary idle/fire states and native two-hand
+flags. It brackets naturally animated root/Holder/left_hand reads with repeated
+owner/state/identity checks, before scoped body/hand/weapon writes. Retained or
+faulted overlays reject observation. Sparse periodic references and bounded
+trigger-intent bursts record native centimetres, local support frames and actual
+sample gaps; neither trigger intent nor an idle return qualifies a complete
+native cycle, contact or attachment. The offline evidence analyzer preserves
+those limits and compares only coherent same-owner sample histories.
 The adapter rigidly maps all measured weapon elements through
 `FromUpForwardPosElementWorld`, preserving internal animation/socket-to-muzzle
 geometry. The general object setter is unsafe because it reaches recursive
 `+0x82F00` notification. Readback verifies the complete muzzle basis through both
 eyes before ray publication. Shared two-hand weapons have one visual owner.
+Exact `WeaponBow` has no Barrel; its authored grip is DBowHolder and its native
+fallback ray is root position/+Z. Only a stable actual/desired native hand owner
+with that exact class/holder gains this exception. An ActiveWeapon alias in the
+other slot gains no second map or ray. Bow pose, native per-hand shot cache and
+existing verified reticle use the same scoped map; pitch is not flattened.
+Other missing barrels fail closed.
+The bow owner proof is bound to the transaction's retained Java object and holder
+before its first commit write and during ray/eye verification. A different bow
+at the same pose cannot inherit that transaction; its retained preimage remains
+owned for restoration after rejection.
+
+Physical bow drawing qualifies only the native left-held exact bow. An available
+fresh right trigger near its authored DArrow point captures the string; current
+right-hand retraction admits release. DArrow's rest point is retained in bow-local
+space during the grab so authored animation cannot manufacture physical tension.
+Continuous slack/off-axis movement relaxes current shot tension without dropping
+the captured R2 hold. Invalid alignment cannot fire; hard owner/tracking/time or
+reach faults still cancel and retain release barriers.
+Game-neutral metre-space gesture policy owns continuity/release barriers; the
+CoJ adapter owns mapped geometry and native ALT_MOVE/CanAttack/GetAttackState
+admission. R2 release internally requests one original attack channel while
+preserving its native alternate prerequisite until the observed attack entry or
+a bounded abort. No physical L2 requirement, direct projectile creation, native
+ammunition/power writer or animation-time writer is introduced. Original authored
+tension animation and trajectory remain native. Admission additionally publishes
+a transient exact bow reference while drawing or awaiting the one scheduled
+native attack. Only that same current actual/desired left bow and native held
+right, outside network play, guard the original concentration-expiry call to
+turn off alternate fire. Original right-release cancellation and concentration
+duration/zoom/slomo remain native. Failed publication or cleanup invalidates the
+gesture; actor replacement retains the old owner until cleanup succeeds. Every
+external reset records its cause. Controller grab/tension/release
+feedback has its own owner epoch and captured-frame freshness gate, separate
+from manual reload and the deferred optional vest track. Host verification does
+not establish an arrow spawn, string/arrow alignment or physical usability.
+GPU capture readiness does not own the captured gesture. Ring backpressure can
+drop the left capture and skip the right eye while current input, tracking,
+weapon ownership and attempted native/resource restoration remain valid. That
+frame supplies no new captured feedback, but it does not release the string.
+Only attempted eyes participate in restoration checks; an unattempted right
+eye's false status is not a failed rollback. Pending resource quarantine and
+failed native/weapon verification still cancel, as do gameplay/tracking loss.
+The read-only evidence analyzer preserves bow requests, valid counter maxima and
+separate gesture/dispatch/reset reasons within the inventoried run interval.
+Neither a request nor native attack entry proves an arrow spawn; absent events
+remain unobserved and the analyzer cannot grant headset acceptance.
 
 Exact-class nullable per-instance vectors feed native ballistic/visual origin
 and direction consumers after current muzzle publication. Null caches, unknown
@@ -884,6 +964,15 @@ and process. Recollection preserves previous reports outside the current package
 before rebuilding its hash inventory; rejected/absent reports cannot leave an
 uninventoried ZIP member. An unstarted run needs no runtime folder. Ordinary
 collection, native failure and operator/visor acceptance remain separate facts.
+
+The exact adapter preserves the scheduler's ambient current-level binding around
+injected UI navigation and pre-shoulder gameplay dispatch. Before returning from
+that dispatch, a cleared binding can resume only the captured level under the same
+game singleton and fresh active-list membership. Foreign contexts, removed levels
+and failed checked writes reject before this frame's body/eye transactions; neither
+menu ownership nor inventory is changed. Native render continuations stay unchanged.
+The [camera research](research/COJ_CAMERA_PATH.md#ambient-current-level-context)
+records the native null-dereference boundary and host-only verification limits.
 
 Raw videos/logs/dumps and run metadata belong under ignored local evidence and may
 be removed once their durable conclusions are captured in source, tests and focused

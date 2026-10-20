@@ -187,11 +187,17 @@ evidence. The already archived rejection is preserved.
 | --- | --- | --- |
 | Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
 | Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, immersive subtitle transport, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
-| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms the combined candidate's careful-movement corrections and default smooth turn in the exercised PS VR2 setup. | Other headset/controller gaze drift, prolonged comfort and mounted/campaign contexts remain open. The new smooth/snap selector is host-tested; physical switching/recovery acceptance remains pending. |
+| Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms careful-movement corrections, default smooth turn and continuous HMD body follow without the former cone in the exercised PS VR2 setup. Native option usability is accepted where exercised. | The drift report concerns the older published package; the current continuous-follow correction is accepted in scope. Other headsets/controllers, prolonged comfort and mounted/campaign contexts remain open. Physical-walk/turn leg animation is planned. Specific mode/held-input recovery is not separately qualified by selector usability. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. Corrected free-left-hand fingers with a normally held long gun have scoped operator acceptance. | Firing/alternate/reload retain native fingers. Broader finger, weapon and recovery coverage remains open. Connected-arm IK is diagnostic. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. The combined candidate's dual reticles and Clyde draw/raise with tracked aim/fire have operator confirmation. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Long-gun manual reload is unimplemented; native automatic reload/animation remain. |
+| Physical bow | Exact owner/root ray, physical right-hand R2 grab/draw/release, native supervision, controller haptics and capture-drop separation are host-tested. Latest operator feedback confirms substantial improvement after earlier failed trials. | Sustained firing consistency, mesh/string/arrow/reticle agreement, haptic quality, concentration optics and interruption recovery are not separately accepted. This is scoped improvement, not general bow support. |
+| Physical duel posture | One correct hand-at-hip draw followed by physical raise has operator acceptance. The posture guard is implemented/host-tested and stick-only input is insufficient. | Incorrect/early gestures and native retry recovery remain open. Measured holster contact is not implemented. |
+| Two-hand rifles | Neutral solver/ownership policy and read-only exact native support reference are host-tested. | No rifle attachment is enabled. Native support motion through firing/cycling and grasp placement still need evidence before integration. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
+| Native VR options | Operator reports native options work well. Shared preferences and cinematic/turning selectors have host coverage and scoped physical usability acceptance. | Specific persistence, OK/Cancel/Defaults and held-input/recovery paths require separate evidence where not exercised. Ordinary menu usability is not pending again. |
+| Secret-scroll chests | Conditional preservation of the same still-active native render level is implemented/host-tested for the reported null-level crash. | No operator scroll pickup in the latest sessions. Next naturally encountered scroll must establish pickup, UI closure and continued control/stereo; the original callback cause is not fully observed. |
+| Mounted play and mod-added DLC | Horse mounting/dismounting worked in the exercised DLC context. | Mounted movement/gallop, camera/aim, horse HUD and general DLC compatibility remain unqualified. DLC adaptation is deferred by operator priority. |
 | HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped headset acceptance. Optional status rows accepted only where encountered. | Wrist health styling, concentration state glyphs and paired horse health/fatigue meters are host-tested only. Horse and special HUD contexts, newly translated prompts, scripted-movie comfort/subtitles and complete graphical HUD capture remain open. |
 | Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
 | Persistent manual reload | Fresh-install default with launcher opt-out and preserved upgrade choice; scoped PS VR2 headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers/restoration have correlated live evidence. | Beyond community feedback reports difficult insertion and no perceived haptics; other controller feedback remains unqualified. Insertion sound, precise geometry, interruption recovery and prolonged comfort remain open. |
@@ -203,10 +209,39 @@ evidence. The already archived rejection is preserved.
 | Persisted validation verdicts | Host-tested reporting and rejection policy; live-tested canonical rejection remains inventoried through collection and original restoration. | A failed telemetry profile remains failed alongside scoped operator acceptance. No automatic headset acceptance; successful full-profile workflow coverage remains separate. |
 | Protected-target warning | Red aiming-cross alternative implemented and host-tested. | Visor visibility/target transitions; original warning was absent in visor. |
 | Other platforms | OpenXR experimental; D3D10 and additional games planned. | No physical support claim outside the active D3D9/OpenVR target. |
+| Optional body feedback | Neutral QA-event admission and recording/fault-sink policy host-tested for freshness, duplicates, epoch changes, silent recovery and shutdown. | bHaptics provider, game event producers, software output and physical vest feedback remain deferred/unqualified at the operator's request. Controller haptics acceptance does not transfer to a vest. |
+
+## Pending headset checks
+
+Use one fresh canonical `prepare`/`finish` candidate when a useful set of eligible
+scenes is available. Skip unavailable scenes as unobserved; no dedicated session
+is requested for each row. Start and close the game/SteamVR manually. This list
+tracks acceptance, while [Development backlog](ROADMAP.md#development-backlog)
+tracks features that still need implementation.
+
+| When naturally available | Remaining check and acceptance evidence |
+| --- | --- |
+| Bow | Left hand holds/aims; approach the string with the right hand, freshly hold R2, pull back and release R2. L2 is not required. Check several deliberate releases yield one arrow each, short/slack releases do not shoot and a held draw does not repeat or cut out at concentration expiry. Judge arrow/mesh/reticle agreement at different pitches, vibration and Focus/concentration comfort separately. |
+| Bow interruption or a general recovery opportunity | Once, interrupt with wheel/pause or available tracking/focus/dashboard loss; release controls before resuming. Require no stale shot, click, round transfer or haptic replay and coherent resumed stereo. Recenter and save/load/death recovery remain distinct where naturally encountered. |
+| A secret-scroll chest | Pick up the scroll, close its UI and continue moving/aiming. Require no crash and continued control/stereo. Chests were not exercised in the latest operator feedback. |
+| An eligible single revolver with empty support hand | Check the changed cartridge tangent/contact, thumb gesture, zone-entry/insertion cues and tracking-jump rejection together. Keep the earlier native unit-loading acceptance; judge only new presentation/recovery behavior. Frontier/Walker/Cogswell and mirrored use remain eligible extensions when found. |
+| Another duel | Try an early/already-raised hand and stick-only shortcut, then a fresh correct hip-hand draw/raise after retry. Wrong posture must not bypass the guard; native timing and fresh retry must still work. One correct gesture is already accepted. |
+| Options or a loading transition | Specific unexercised save/reopen, Cancel/Defaults and held-control barriers; one fresh Cross/trigger loading continuation when encountered. Do not repeat ordinary selector/menu usability as a new gate. |
+| Interaction/HUD, a movie or horse | Left-Sense L1 reference independent of gaze; revised wrist/concentration indicators and immersive movie text timing/readability. Mounted movement/gallop, camera/aim and paired horse meters remain separate from accepted mount/dismount. Broader DLC testing is deferred. |
+| A rifle during ordinary play | Native idle/fire support references are read-only diagnostics collected with reload tracing. This does not enable a two-hand grasp; no separate probe session is needed. |
+
+Already accepted in scope: continuous body following, ordinary native options
+and menus, the correct duel gesture, prior native unit reload and cartridge
+visibility, physical Hands combat, exercised cinematic recovery/hot switching,
+and the established PS VR2 resolution. The bow's latest improvement and horse
+mount/dismount are recorded with their narrower limits above. None of these
+needs a repeat merely because a newer candidate is prepared. Canonical telemetry
+requirements and their recorded pass/fail/inconclusive verdicts remain separate
+from operator acceptance; a skipped gesture does not satisfy a verifier gate.
 
 ## Host verification boundary
 
-The latest combined candidate exposed a high-address identity rejection in
+An earlier combined candidate exposed a high-address identity rejection in
 otherwise enabled manual reload and physical Hands. The operator reports native
 reload even with one pistol and empty support, and full native body with Hands.
 Runtime observation confirms invalid weapon identity in an otherwise coherent
@@ -289,20 +324,29 @@ retroactively qualify that log, invent telemetry or change an archived verdict.
 The correction is not Quest-specific, and PS VR2 acceptance does not validate
 Quest recovery. Theater during the movie remains the intentional default.
 
-A new campaign crash was reported while interacting near a chest/possible scroll.
-Collected native evidence ends after interaction acquires blocking UI, with no
-normal runtime end. The native symbol-only callstack does not identify the fault
-instruction, so the cause and recovery remain unresolved. Original staging was
-restored; collection retains the canonical rejection rather than declaring this
-interrupted run successful. The next candidate records precise escaping render
-fault addresses without swallowing the native exception. Record any recurrence
-in the ordinary combined session; no separate immediate crash reproduction is
-required.
+A campaign crash was reported while interacting near a chest/possible scroll.
+The earlier canonical run remains interrupted/rejected and original staging was
+restored. A later community secret-scroll report now supplies a precise native
+fault: ChromeEngine3 `0x4609E` reads `current_level+0x378` with a null current
+level. Production stops on the interaction that acquires native UI. Static native
+inspection establishes the scheduler's ambient binding and its clearing on level
+removal; the exact nested callback that cleared it is not observed.
+The adapter now conditionally restores only the captured, still-active render
+level under the same singleton at the injected input dispatch boundary, before
+native continuation. Foreign/removed owners and unavailable write authority
+reject without revival. This correction
+is implemented/host-tested, including the production dispatch followed by native
+fallback and checked-memory lifetime cases; it is not a demonstrated campaign
+crash fix. Native secret credit,
+menu/timer ownership and exception propagation remain unchanged. Picking up a
+new scroll, viewing/closing its menu and resuming stereo/control remain a physical
+gate in the next relevant combined session, without a separate immediate run.
 The diagnostic source now also captures a bounded 16-byte window at the faulting
 EIP when readable, explicitly marks unavailable instruction memory, and restores
 the thread's Win32 last-error. Synthetic host tests confirm those properties and
-unchanged exception propagation. No new campaign fault has been observed and
-this additional diagnostic has no live or headset acceptance.
+unchanged exception propagation. The later community scroll report includes
+these faulting instruction bytes from an actual escaping native fault. This is
+diagnostic runtime evidence, without crash-recovery or headset acceptance.
 
 Physical straight, curved and ascending punches are implemented/host-tested for exact `WeaponHands`.
 An earlier operator trial showed independent Hands but no damage. A detector
@@ -394,10 +438,14 @@ confirms death presentation/recovery worked in the exercised boxing context;
 broader retry/exit and held-control transitions remain unaccepted.
 Theater remains the default. Opt-in immersive movies use camera-only stereo:
 gameplay/body/weapon mutation stays blocked, and invalid/dead/mission-end/frozen
-owners retain theater. Movie subtitle sprites are not yet transported in
-immersive; the settings panel discloses this limitation, and theater retains
-their naturally rendered native pass. Host tests and an observation of a cinema
-screen alone do not qualify immersive comfort, movie subtitles or recovery.
+owners retain theater. Immersive subtitle transport is now implemented/host-tested:
+the exact module writer caches its normalized key/ID/movie, and the reader checks
+active module, movie, native ID, visibility and subtitle setting before copying
+localized Unicode into the captured pair. Wrong-ID hides, lifecycle/reentrant
+callbacks, stale owners, JNI faults and the shipped JVM verifier have host coverage.
+Theater retains its naturally rendered native pass. Actual cinematic line delivery,
+readability and hide/skip/end behavior remain physically unobserved; host tests do
+not qualify immersive comfort or recovery.
 An earlier immersive trial reported intermittent wrong-image flashes lasting
 about a second. After the continuity corrections, the operator reports no problems
 while toggling cinematic presentation and entering movies, and no persistent flat
@@ -426,7 +474,9 @@ not a request to repeat the accepted settings/cinematic baseline for .2:
 3. **Movies:** set the mode before a naturally encountered scripted cinematic.
    Check theater and immersive when scenes are available, including native
    subtitles in theater, head tracking, coherent eyes and ordinary input after
-   the movie. Immersive subtitle transport remains a separate implementation gate.
+   the movie. For the new immersive text route, check localized lines appear and
+   clear at native hide/skip/end, obey the native subtitle setting and never retain
+   a previous movie's line. This is a new delivery gate; accepted recovery stands.
    Do not replay a long campaign segment merely to repeat an accepted baseline.
    Frozen/unverified owners retaining theater are the conservative fallback.
 4. **Persistence:** after normal quit, prepare a fresh candidate for any later
@@ -435,7 +485,9 @@ not a request to repeat the accepted settings/cinematic baseline for .2:
 
 Native Options > Game now includes cinematic and smooth/snap selectors using
 the original game's widgets/fonts and original main/pause routes. This is an
-implementation with host verification, not native rendering or headset acceptance.
+implementation with host verification and scoped operator headset acceptance:
+the native options work correctly in the exercised session. Individual widget
+paths not described by that report remain unobserved.
 The shared preference store preserves version-1 cinematics, defaults turning to
 smooth and writes the strict version-2 pair. Invalid/unreadable startup files
 remain preserved; edits can apply for the session with visible save failure.
@@ -444,10 +496,10 @@ Cancel/defaults, missing resources, failed saves, scoped JNI cleanup, per-Show
 recovery and the existing overlay sharing the same values.
 The shipped Java 1.4 verifier also accepts the transformed menu without class
 initialization and rejects a deliberately invalid helper. This is JVM bytecode
-verification, not native widget rendering or game execution. Fresh physical
-acceptance must check both callers, native text/font fit, selection by pointer,
-OK/Cancel/Defaults, persistence, switching turn modes and held-input recovery.
-The existing development panel's acceptance does not accept this new native UI.
+verification, not native widget rendering or game execution. The positive
+operator usability report does not separately establish both callers, native
+text/font fit, selection by pointer, OK/Cancel/Defaults, persistence, switching
+turn modes or held-input recovery unless specifically exercised.
 Resolution remains a launcher startup preference; no live size selector is added.
 
 The launcher reports known startup-resolution fallback causes and the latest
@@ -485,6 +537,12 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   transition coverage remains separate. Long-gun reload remains conventional
   Square/native animation, outside the manual whitelist; physical manual reload
   is not implemented or accepted.
+  A read-only exact-class rifle support observer has host coverage for native
+  high-bit identities, aliases, state/flag transitions, geometry and JNI failures.
+  It samples natural root/Holder/left_hand frames before scoped writes, with
+  bounded fire-intent bursts and measured gaps. The analyzer rejects overclaimed,
+  malformed or inconsistent histories. Live source timing, support movement
+  through fire/end and any attachment remain unqualified.
 - **Cartridge grip:** the current anchor has already been observed in runtime;
   repeating it solely to reconfirm visibility adds no evidence. After a material
   contact/axis/occlusion correction, combine empty-hand waiting, trigger pickup,
@@ -568,6 +626,11 @@ The read-only root/barrel/gate/drum observer has bounded live evidence of change
 native gate pose and independent drum motion. The six-mouth pivot-ranking diagnostic has
 bounded live observations, but the gate element origin is an unverified pivot:
 `gate_open_confirmed=false` and `socket_admission=false` remain mandatory.
+The geometry observer now brackets its reads with the same weapon's finite
+`m_fRotate` and rejects phase changes. It emits native degrees beside each source
+frame; the analyzer preserves this optional scalar separately from chamber or
+clearance claims. This correlation is host-tested only; native/displayed phase
+composition still needs a correlated physical sample in the same reload batch.
 No independent gate/drum writer, spent-case simulation or chamber occupancy is
 implemented. See [exact reload research](research/COJ_RELOAD_OWNERSHIP.md).
 
@@ -700,6 +763,57 @@ timing have scoped operator acceptance. Ray's Bible selection/use and on-foot
 kick are also operator-accepted in exercised gameplay. This does not qualify
 concentration, duels or campaign permission transitions. Mounted contexts,
 broader weapons and bow/scoped optics retain independent gates.
+Bow concentration magnification now has host coverage through its original
+module/BulletTime caches, including ordinary Focus combination, smoothing/decay,
+equip/replacement/fault rejection, asymmetric tangents and unchanged IPD. In a
+naturally eligible bow scene, check concentration with Focus off/on, both-eye
+alignment, comfort and return to physical optics after exit or interruption.
+This does not qualify physical string drawing or the separately excluded scope.
+The exact bow aiming correction additionally admits its missing-Barrel native
+root/+Z fallback on one stable actual/desired hand owner and its DBowHolder.
+Host tests cover vertical rigid maps, alias rejection and scoped ray publication;
+the community's pitch-lock/mixed-hand/crosshair report remains physically open.
+In the same bow scene, move the native holding hand up/down/rolled while keeping
+the other hand still, then reverse; verify mesh/arrow/reticle agreement in both
+eyes, physical right-trigger draw/release, equip/pause/recenter recovery and concentration.
+A straight aim marker is not a predicted arrow impact point.
+
+The latest operator report says the bow is substantially better after separating
+renderer capture drops from physical grab lifetime. Correlated diagnostics show
+native attack entries and retained grabs during renderer-only backpressure;
+attack entry alone does not count confirmed arrow spawns. This is scoped physical
+feedback of improvement. Sustained firing consistency, interruption recovery,
+visual alignment and haptic quality have not been separately confirmed.
+Earlier no-arrow and frequent-cut trials remain rejected historical evidence.
+The first aiming-only correction had no physical string-draw policy; a later
+physical implementation still lost grabs when capture-ring backpressure occurred
+despite successful attempted camera/resource restoration. That lifetime defect
+is corrected with host regression coverage, retaining independent captured
+feedback gating and cancellation on invalid gameplay, ownership or restoration.
+
+The current interaction is: left holds/aims, right approaches the authored string
+point, fresh R2 grabs, right retraction tensions, and R2 release requests one
+original native shot. L2 is not required. Gesture, exact owner/state/JNI admission,
+native channel supervision and captured controller haptics have host coverage.
+No repeat of accepted body/options is requested to investigate this gesture.
+Check one short/new draw does not fire, a deliberate pull/release fires once,
+holding R2 does not repeat, and returning toward the bow relaxes tension.
+Continuous sideways or slack movement must preserve the captured R2 hold while
+removing shot tension; release outside valid alignment must not fire. A normal
+held draw must survive the end of native concentration without extending its
+zoom/slomo lifecycle. Ownership, tracking and time discontinuities still cancel
+and require released input before another grab.
+In the same naturally available context, interrupt once with the wheel/pause and
+recover tracking/recenter with released input. Old release/haptics must not replay.
+Judge grab/tension/release vibration separately from actual arrow appearance.
+The original authored draw animation and ballistic speed/damage are retained;
+physical draw distance is not a newly qualified native power or animation clock.
+
+The operator also exercised mod-added DLC and considers it unprepared for VR;
+compatibility work is deferred at their request. Mounting and dismounting a horse
+worked in that exercised context, with native mounted gameplay observed. This
+is scoped functional feedback, not acceptance of mounted movement, gallop,
+camera/aim continuity, horse HUD or general DLC compatibility.
 
 ## Automatic menu-pointer acceptance
 
@@ -781,12 +895,24 @@ forward stick at 30 degrees, and a 0.005 dispatch tolerance suppresses small
 gaze changes. Shaping before yaw and a 0.00001 tolerance have regression coverage.
 The exercised PS VR2 candidate has operator confirmation; this does not prove
 the complete other-headset community drift report is resolved. Native forward/
-strafe speed coefficients and body-follow behavior retain their existing owners.
+strafe speed coefficients retain their existing owners. Follow-up community
+feedback reports remaining 20–30-degree drift and visible body/head separation.
+The explicit 35-degree free-look cone retained that separation. Its replacement
+tracks every HMD yaw change, keeping previous-commit camera/hand compensation and
+committing the actor only after stereo restoration. Small/reversing/wrapped turns,
+held-pose settling, world movement and fixed-hand continuity have host regressions.
+The operator accepts continuous HMD body following in the exercised PS VR2
+gameplay. Physical translation/rotation still leaves the legs static and visibly
+sliding; locomotion/turn-in-place animation is a separate planned presentation
+gate. This acceptance does not establish resolution of other-headset community
+drift or broader movement/recovery contexts. No repeat of ordinary body following
+is required solely to reconfirm this result.
 Continuous default turning is host-tested at multiple sample rates and across
 loss, duplicate-time, wheel and owner transitions. Ordinary smooth-turn behavior
 has scoped operator acceptance; prolonged comfort and adversarial recovery remain
-open. The native smooth/snap selector is host-tested only; menu navigation,
-mode switching and held-input recovery still require headset acceptance.
+open. The operator reports native options work correctly in the exercised
+session; unspecified menu paths, persistence and held-input recovery remain
+separate gates.
 
 ## PC mechanics and gameplay HUD completeness
 
@@ -841,6 +967,13 @@ the physical tip at least 45 degrees and center the stick, then pull down; retur
 above -30 degrees before upward stick can raise the native gun. These gesture
 thresholds are UX assumptions, not an anatomically qualified holster. Fresh-pose,
 owner/context, stale-input and JNI failure checks do not prove headset usability.
+The operator completed one physical draw/raise attempt successfully with the
+hand at the hip. That positive path has scoped headset acceptance; stick-only
+bypass, early/wrong gestures and recovery were not tested and remain pending.
+Original Ray/Billy `HolsterR` and Ray `HolsterL` are native inventory-placement
+sockets. Read-only natural pre-body frames now accompany throttled duel diagnostics;
+they grant no contact or draw permission. A mount origin alone does not establish
+a reachable physical grasp volume, especially with the scoped visual body offset.
 Combine its natural draw/raise, denied early draw and held-input/tracking/retry
 recovery with the next substantial gameplay batch; prepare no separate duel run.
 
@@ -974,6 +1107,13 @@ Use an output outside the evidence directory. The analyzer verifies inventoried
 hashes, deployment coverage and ordered native markers; it separates correlated
 unit readbacks from rejection/inconclusive observations. It never accepts a
 physical gate or replaces the canonical verifier.
+The same report includes read-only rifle support observations and bow diagnostics.
+`bow_draw_observations` separates reported shot requests, native attack-counter
+maximum, gesture/dispatch cancellation reasons and external reset reasons. Missing
+bow events remain unobserved. An attack-counter baseline is not an arrow count;
+confirmed spawns and headset acceptance remain unevaluated. Older logs without
+the newer optional counter fields remain readable. No extra visor run is needed
+to analyze already collected evidence.
 
 Version durable conclusions and acceptance limits, not run chronology. Keep only
 compact unresolved inputs and necessary local provenance under ignored `work/`.

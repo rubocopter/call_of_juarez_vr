@@ -105,3 +105,43 @@ death/retry/held-control recovery. The bounded coherence trace observes poses
 and both-eye bases; it does not rotate an actor or force render/FX updates.
 
 Do not reopen established camera offsets or stereo wrapper choices without contradictory physical/native evidence.
+
+## Ambient current-level context
+
+**Observed fault / static exact-build evidence:** a community secret-scroll pickup
+faults at ChromeEngine3 RVA `0x4609E`, `mov eax,[edx+0x378]`, with EDX zero and a
+read of `0x378`. The preceding instructions load the game singleton from RVA
+`0x542F58` and its current level at `+0x668`. This is mesh rendering, not an
+identified `GetSurfaceFlagName` call; the game's symbol-only crash text is not
+sufficient to name the actual failing function.
+
+The native scheduler binds `CGame+0x668` before level rendering (`0x1D1965`).
+The active-level vector spans `+0x65C` to `+0x660`; native level removal at
+`0x1D27D0` clears the ambient slot (`0x1D2838`). The full view wrapper is still
+`0x30FB0`, and its caller continues at `0x31073`. Original archive inspection
+connects `SecretItem.InvokeUseSecretItem` through `SecretsManager.OnSecretUsed`
+to `LawmanModule.ShowNewSecretMenu`, opening menu 47 synchronously. The report
+ends game-thread production on that interaction and its natural fallback, with
+no normal runtime end. It establishes the missing render context; it does not
+identify the exact nested callback that cleared it or prove broader lifetime
+safety during loading/unloading.
+
+**Implemented / host-tested:** injected pre-shoulder gameplay and UI Back/Select
+dispatches capture a nonnull current level equal to the native render owner before
+calling the original native action once. At the dispatch's return, the singleton
+and bounded active list are revalidated. A null current slot may be conditionally
+restored to that captured live level. An unchanged slot requires no write; nonnull
+foreign ownership, removed levels, invalid lists or failed write admission reject.
+Repair authority is single-use and lexical to that dispatch. The binding is never
+synthesized from a null entry, persisted across frames or copied to another singleton.
+
+Repair at the input boundary precedes later body/render consumers and leaves the
+full-eye, camera-only, natural fallback and restoration routes unchanged. A rejected
+dispatch invalidates the pair and yields before new body/eye transactions, without
+native cancellation against a lost owner. Native secret credit, menu creation,
+timer ownership and input permissions remain native. The precise fault reporter
+still propagates exceptions. Checked-memory regressions execute the production
+dispatch helper followed by native fallback, covering null repair, foreign/removed
+owners, replaced singleton, list reallocation/malformed bounds, read-only memory,
+single-use authority, nested dispatch and original action success/failure. They do
+not reproduce the complete campaign pickup or accept native menu/visor recovery.
