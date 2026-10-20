@@ -306,6 +306,8 @@ struct CameraStereoDiagnosticCounters {
     bool* input_consumed = nullptr) noexcept;
 // Positive existing global MenuMain observation on the game thread.
 [[nodiscard]] bool ObserveCameraMainMenuActive(std::uint32_t* owner = nullptr) noexcept;
+// Exact-build game-thread native options bridge; false input cancels its owner.
+void ProcessCameraNativeSettings(bool input_allowed) noexcept;
 // Read CoJ's logical menu cursor on the game thread, without delivering input.
 // Unavailable/failed observations clear position.
 [[nodiscard]] bool ObserveCameraUiPointerPosition(

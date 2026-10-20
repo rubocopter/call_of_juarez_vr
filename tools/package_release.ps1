@@ -105,7 +105,7 @@ $Tools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_p
     'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_profiles.py',
     'coj_resolution_settings.ps1','coj_resolution_session.ps1','patch_coj_weapon_consumers.py',
     'inspect_java_bytecode.py', 'coj_reload_wait_probe.py', 'coj_manual_reload.py',
-    'coj_physical_punch.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
+    'coj_physical_punch.py', 'coj_native_settings.py', 'split_coj_player_mesh.py', 'patch_coj_large_address.py')
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $Temporary = Join-Path $OutputDirectory ('.package-' + [Guid]::NewGuid().ToString('N'))
 $PackageRoot = Join-Path $Temporary 'player'
@@ -167,7 +167,7 @@ try {
     # isolated interpreter. -B keeps bytecode and local caches out of the ZIP.
     Push-Location $Temporary
     try {
-        & (Join-Path $PackageRoot 'dependencies/python/python.exe') -B -c 'import patch_coj_weapon_consumers, inspect_java_bytecode, coj_reload_wait_probe, coj_manual_reload, coj_physical_punch, split_coj_player_mesh, patch_coj_large_address'
+        & (Join-Path $PackageRoot 'dependencies/python/python.exe') -B -c 'import patch_coj_weapon_consumers, inspect_java_bytecode, coj_reload_wait_probe, coj_manual_reload, coj_physical_punch, coj_native_settings, split_coj_player_mesh, patch_coj_large_address'
         if ($LASTEXITCODE -ne 0) { throw 'Offline bundled patcher import check failed.' }
     } finally { Pop-Location }
     Assert-CleanSource

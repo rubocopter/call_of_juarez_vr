@@ -981,7 +981,8 @@ void JavaPlayerBridge::Reset() noexcept {
     last_gameplay_input_ = {};
     last_gameplay_action_values_ = {};
     gameplay_input_applied_ = false;
-    smooth_turn_state_ = {};
+    turn_state_ = {};
+    native_settings_bridge_.Invalidate();
     duel_input_state_ = {};
     last_turn_degrees_ = 0.0F;
     last_analog_transaction_applied_ = false;
@@ -3102,7 +3103,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     if (phase!=CoJInputDispatchPhase::fire && phase!=CoJInputDispatchPhase::shoulder) {
         last_turn_degrees_ = 0.0F;
         last_analog_transaction_applied_ = false;
-        turn_degrees = -smooth_turn_state_.Update(state, monotonic_us);
+        turn_degrees = -turn_state_.Update(state, monotonic_us,runtime::CurrentTurnMode());
     }
     if (!state.active && !gameplay_input_applied_) return true;
 
@@ -4061,6 +4062,26 @@ bool JavaPlayerBridge::TryResolveUiCursor(
     }
     cursor = resolved_cursor;
     return true;
+}
+
+bool JavaPlayerBridge::TryProcessNativeSettings(bool input_allowed,std::string* error) noexcept {
+    if(!input_allowed||runtime::SettingsInputCaptured()){
+        native_settings_bridge_.Invalidate();return true;
+    }
+    void* env=Environment(error);
+    if(!env){native_settings_bridge_.Invalidate();return false;}
+    void* ui=nullptr;CoJUiDispatchRoute route=CoJUiDispatchRoute::none;
+    const auto resolved=TryResolveCurrentGameUi(env,ui,route,error,false);
+    if(resolved!=CoJCurrentUiResolution::resolved){
+        DeleteLocal(env,ui);native_settings_bridge_.Invalidate();
+        return resolved!=CoJCurrentUiResolution::error;
+    }
+    auto& preferences=runtime::SharedVrPreferences();
+    (void)preferences.Initialize(runtime::DefaultVrSettingsPath());
+    const auto language=ui_language_==CoJUiLanguage::spanish?
+        runtime::SettingsLanguage::spanish:runtime::SettingsLanguage::english;
+    const bool result=native_settings_bridge_.Update(env,ui,language,preferences,error);
+    DeleteLocal(env,ui);return result;
 }
 
 bool JavaPlayerBridge::TryObserveMainMenu(bool& active, std::string* error, std::uint32_t* owner) noexcept {

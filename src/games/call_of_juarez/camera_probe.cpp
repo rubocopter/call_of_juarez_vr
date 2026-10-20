@@ -7123,6 +7123,17 @@ bool ObserveCameraMainMenuActive(std::uint32_t* owner) noexcept {
     return g_java_player_bridge.TryObserveMainMenu(active, nullptr, owner) && active;
 }
 
+void ProcessCameraNativeSettings(bool input_allowed) noexcept {
+    static std::string last_error;
+    if(!g_installed.load(std::memory_order_acquire)){
+        (void)g_java_player_bridge.TryProcessNativeSettings(false);return;
+    }
+    std::string error;
+    const bool ok=g_java_player_bridge.TryProcessNativeSettings(input_allowed,&error);
+    if(!ok&&error!=last_error)EmitEvent("native_vr_settings","failed",error);
+    last_error=ok?std::string{}:std::move(error);
+}
+
 bool ObserveCameraUiPointerPosition(
     CameraProbeVector& position,
     std::string* error,

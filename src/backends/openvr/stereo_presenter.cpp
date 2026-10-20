@@ -978,9 +978,9 @@ struct OpenVrStereoPresenter::Impl {
         bool settings_overlay_ready=false,settings_save_failed=false;
         std::uint32_t settings_save_error=0;
         const auto settings_path=runtime::DefaultVrSettingsPath();
-        const auto loaded_settings=runtime::LoadVrSettings(settings_path);
-        settings_menu.SetMode(loaded_settings.mode);
-        runtime::PublishCinematicMode(loaded_settings.mode);
+        auto& preference_store=runtime::SharedVrPreferences();
+        const auto loaded_settings=preference_store.Initialize(settings_path);
+        settings_menu.SetMode(loaded_settings.values.cinematics);
         runtime::PublishSettingsInputCapture(true);
         std::array<ComPtr<ID3D11Texture2D>, 2> textures{};
         std::uint32_t texture_width = 0;
@@ -1168,7 +1168,7 @@ struct OpenVrStereoPresenter::Impl {
             settings_overlay_ready=settings_overlay.Prepare(vr::VROverlay());
             Log(std::string("vr_settings: status=")+(settings_overlay_ready?"ready":"overlay_unavailable")+
                 ";activation=Options_hold_1000ms;pause=short_release;config_load="+
-                std::to_string(static_cast<int>(loaded_settings.status))+";error="+std::to_string(loaded_settings.error_code));
+                std::to_string(static_cast<int>(loaded_settings.load_status))+";error="+std::to_string(loaded_settings.load_error));
             const float initial_refresh = runtime.ReadDisplayFrequency();
             display_frequency_hz.store(
                 runtime::HmdFramePacer::ValidRefresh(initial_refresh) ? initial_refresh : 0.0F,
@@ -1441,6 +1441,10 @@ struct OpenVrStereoPresenter::Impl {
                     settings_input.auxiliary=actions.recenter_held;
                     settings_input.shoulder_left=actions.ui_pointer_left;settings_input.shoulder_right=actions.ui_pointer_right;
                     settings_input.gameplay=polled_gameplay;
+                    const auto preference_snapshot=preference_store.Read();
+                    settings_menu.SetMode(preference_snapshot.values.cinematics);
+                    settings_save_failed=preference_snapshot.save_failed;
+                    settings_save_error=preference_snapshot.save_error;
                     const auto previous_settings_mode=settings_menu.mode();
                     auto settings_result=settings_menu.Update(settings_input);
                     if(settings_result.active){
@@ -1457,13 +1461,16 @@ struct OpenVrStereoPresenter::Impl {
                     // by both texture submission and ShowOverlay. Failed draws
                     // roll back selection and retain only the release barrier.
                     if(settings_result.mode_changed){
-                        runtime::PublishCinematicMode(settings_result.requested_mode);
-                        const auto saved=runtime::SaveVrSettings(settings_path,settings_result.requested_mode);
-                        settings_save_failed=!saved.ok;
-                        settings_save_error=saved.error_code;
+                        const auto saved=preference_store.ApplyCinematics(settings_result.requested_mode,
+                            preference_snapshot.revision);
+                        settings_menu.SetMode(saved.snapshot.values.cinematics);
+                        settings_save_failed=saved.snapshot.save_failed;
+                        settings_save_error=saved.snapshot.save_error;
                         Log(std::string("vr_settings: status=changed;cinematics=")+
                             (settings_result.requested_mode==runtime::CinematicsMode::immersive?"immersive":"theater")+
-                            ";saved="+(saved.ok?"true":"false")+";error="+std::to_string(saved.error_code));
+                            ";saved="+(saved.saved?"true":"false")+
+                            ";accepted="+(saved.accepted?"true":"false")+
+                            ";conflict="+(saved.conflict?"true":"false")+";error="+std::to_string(saved.error_code));
                     }
                     runtime::PublishSettingsInputCapture(settings_result.input_captured);
                     const bool ui_actions_allowed=raw_ui_actions_allowed&&!settings_result.input_captured;

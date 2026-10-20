@@ -48,6 +48,22 @@ try {
     $Control = Get-Content -LiteralPath (Join-Path $Game 'cojvr-camera-control.json') -Raw | ConvertFrom-Json
     Assert-True ($Control.trackingEnabled -and $Control.bodyIkEnabled -and $Control.independentHandsEnabled) 'Public installation does not enable tracked head/body/independent hands.'
     Assert-True $Control.manualReloadInstalled 'Default installation omitted manual reload.'
+    $Python=Join-Path $PackageDirectory 'dependencies/python/python.exe'
+    $MenuVerifier=Join-Path $Root 'verify_native_options.py'
+    [IO.File]::WriteAllText($MenuVerifier, @'
+import sys, zipfile
+from pathlib import Path
+from coj_native_settings import MENU_CLASS_NAME, MENU_SCRIPT_NAME, patch_menu_class, patch_menu_script
+root = Path(sys.argv[1])
+for archive, entry, transform in (
+    ('code', MENU_CLASS_NAME, patch_menu_class),
+    ('Data0', MENU_SCRIPT_NAME, patch_menu_script),
+):
+    with zipfile.ZipFile(root / (archive + '.cojvr-backup.pak')) as old, zipfile.ZipFile(root / (archive + '.pak')) as new:
+        assert new.read(entry) == transform(old.read(entry))
+'@)
+    & $Python -B $MenuVerifier $Game
+    Assert-True ($LASTEXITCODE -eq 0) 'Installed native options class/resources differ from the exact transformations.'
     $RunBefore = Get-Content -LiteralPath (Join-Path $Game '.cojvr-run.json') -Raw | ConvertFrom-Json
     Assert-True ($RunBefore.validation.manualReloadInstalled -and $RunBefore.validation.handPresentation -eq 'independent_native_hands') 'Default session omitted the complete hands/reload feature set.'
     Assert-True ($RunBefore.validation.videoProfile.resolutionProfile -eq 'Auto') 'First installation did not select automatic headset resolution.'

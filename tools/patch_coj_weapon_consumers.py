@@ -775,6 +775,8 @@ def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_re
                    "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class")),
                    "LawmanModuleSingle.class":patch_save_module_class(original.read("LawmanModuleSingle.class")),
                    "WeaponWhip.class":patch_whip_class(original.read("WeaponWhip.class"))}
+        from coj_native_settings import MENU_CLASS_NAME, patch_menu_class
+        patched[MENU_CLASS_NAME] = patch_menu_class(original.read(MENU_CLASS_NAME))
         if reload_wait_probe or manual_reload:
             factory=patch_manual_reload_classes if manual_reload else patch_reload_probe_classes
             player, machine = factory(

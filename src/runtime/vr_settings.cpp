@@ -9,11 +9,23 @@
 #include <string>
 namespace cojvr::runtime {
 namespace {
-std::atomic<CinematicsMode> current_mode{CinematicsMode::theater};
+// One atomic publication prevents a mixed cinema/turn pair. Separate getter
+// calls may straddle an update; editors use the versioned Read snapshot.
+std::atomic<std::uint16_t> current_preferences{0};
+static_assert(decltype(current_preferences)::is_always_lock_free);
 std::atomic<bool> input_capture{false};
 std::atomic<unsigned> save_sequence{0};
 CinematicsMode SafeMode(CinematicsMode mode) noexcept {
     return mode==CinematicsMode::immersive ? mode : CinematicsMode::theater;
+}
+bool Valid(VrPreferences values) noexcept {
+    return (values.cinematics==CinematicsMode::theater||values.cinematics==CinematicsMode::immersive)&&
+        (values.turning==TurnMode::smooth||values.turning==TurnMode::snap);
+}
+void PublishPreferences(VrPreferences values) noexcept {
+    const auto packed=static_cast<std::uint16_t>(static_cast<unsigned>(values.cinematics)|
+        (static_cast<unsigned>(values.turning)<<8));
+    current_preferences.store(packed,std::memory_order_release);
 }
 struct File {
     HANDLE handle = INVALID_HANDLE_VALUE;
@@ -43,9 +55,21 @@ std::uint16_t PressedGlobals(const SettingsMenuInput& input) noexcept {
     return mask;
 }
 }
-CinematicsMode CurrentCinematicMode() noexcept { return current_mode.load(std::memory_order_acquire); }
+CinematicsMode CurrentCinematicMode() noexcept {
+    return static_cast<CinematicsMode>(current_preferences.load(std::memory_order_acquire)&0xFFU);
+}
+TurnMode CurrentTurnMode() noexcept {
+    return static_cast<TurnMode>(current_preferences.load(std::memory_order_acquire)>>8);
+}
 bool SettingsInputCaptured() noexcept { return input_capture.load(std::memory_order_acquire); }
-void PublishCinematicMode(CinematicsMode mode) noexcept { current_mode.store(SafeMode(mode),std::memory_order_release); }
+void PublishCinematicMode(CinematicsMode mode) noexcept {
+    // Compatibility publisher: preserve turning, including concurrent updates.
+    auto previous=current_preferences.load(std::memory_order_acquire);
+    std::uint16_t next;
+    do {
+        next=static_cast<std::uint16_t>((previous&0xFF00U)|static_cast<unsigned>(SafeMode(mode)));
+    }while(!current_preferences.compare_exchange_weak(previous,next,std::memory_order_acq_rel,std::memory_order_acquire));
+}
 void PublishSettingsInputCapture(bool captured) noexcept { input_capture.store(captured,std::memory_order_release); }
 std::filesystem::path DefaultVrSettingsPath() noexcept {
     try {
@@ -80,29 +104,40 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
             return result;
         }
         std::string_view text=buffer;
-        bool version=false,cinematics=false;CinematicsMode mode=CinematicsMode::theater;
+        unsigned version=0;
+        bool cinematics=false,turning=false;
+        VrPreferences values;
         while(!text.empty()){
             const auto end=text.find('\n');const auto line=Trim(text.substr(0,end));
             if(end==std::string_view::npos)text={};else text.remove_prefix(end+1);
             if(line.empty()||line.front()=='#')continue;
             const auto equals=line.find('=');if(equals==std::string_view::npos)return result;
             const auto key=Trim(line.substr(0,equals)),value=Trim(line.substr(equals+1));
-            if(key=="version"){if(version||value!="1")return result;version=true;}
+            if(key=="version"){
+                if(version||(value!="1"&&value!="2"))return result;
+                version=value=="1"?1U:2U;
+            }
             else if(key=="cinematics"){
                 if(cinematics||(value!="theater"&&value!="immersive"))return result;
-                cinematics=true;mode=value=="immersive"?CinematicsMode::immersive:CinematicsMode::theater;
+                cinematics=true;values.cinematics=value=="immersive"?CinematicsMode::immersive:CinematicsMode::theater;
+            }else if(key=="turning"){
+                if(turning||(value!="smooth"&&value!="snap"))return result;
+                turning=true;values.turning=value=="snap"?TurnMode::snap:TurnMode::smooth;
             }else return result;
         }
-        if(version&&cinematics){result.status=SettingsLoadStatus::loaded;result.mode=mode;}
+        if(cinematics&&((version==1&&!turning)||(version==2&&turning))){
+            result.status=SettingsLoadStatus::loaded;result.mode=values.cinematics;result.turning=values.turning;
+        }
     }catch(...){result.status=SettingsLoadStatus::io_error;result.error_code=ERROR_NOT_ENOUGH_MEMORY;}
     return result;
 }
-SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMode mode) noexcept {
+namespace {
+SettingsSaveResult WriteVrSettings(const std::filesystem::path& path,std::string_view content) noexcept {
     SettingsSaveResult result;
     std::filesystem::path temporary;
     bool temporary_owned=false;
     try {
-        if(path.empty()||(mode!=CinematicsMode::theater&&mode!=CinematicsMode::immersive)){
+        if(path.empty()){
             result.error_code=ERROR_INVALID_PARAMETER;return result;
         }
         std::error_code error;
@@ -115,8 +150,6 @@ SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMo
         File file{CreateFileW(temporary.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr)};
         if(file.handle==INVALID_HANDLE_VALUE){result.error_code=GetLastError();return result;}
         temporary_owned=true;
-        const std::string_view content=mode==CinematicsMode::immersive?
-            "version=1\ncinematics=immersive\n":"version=1\ncinematics=theater\n";
         DWORD written=0;
         if(!WriteFile(file.handle,content.data(),static_cast<DWORD>(content.size()),&written,nullptr)||written!=content.size()){
             result.error_code=GetLastError();if(!result.error_code)result.error_code=ERROR_WRITE_FAULT;
@@ -129,6 +162,85 @@ SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMo
     }catch(...){result.error_code=ERROR_NOT_ENOUGH_MEMORY;}
     if(!result.ok&&temporary_owned)DeleteFileW(temporary.c_str());
     return result;
+}
+}
+SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMode mode) noexcept {
+    if(mode!=CinematicsMode::theater&&mode!=CinematicsMode::immersive)return {false,ERROR_INVALID_PARAMETER};
+    return WriteVrSettings(path,mode==CinematicsMode::immersive?
+        "version=1\ncinematics=immersive\n":"version=1\ncinematics=theater\n");
+}
+SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,VrPreferences values) noexcept {
+    if(!Valid(values))return {false,ERROR_INVALID_PARAMETER};
+    const std::string_view content=values.cinematics==CinematicsMode::immersive?
+        (values.turning==TurnMode::snap?"version=2\ncinematics=immersive\nturning=snap\n":
+            "version=2\ncinematics=immersive\nturning=smooth\n"):
+        (values.turning==TurnMode::snap?"version=2\ncinematics=theater\nturning=snap\n":
+            "version=2\ncinematics=theater\nturning=smooth\n");
+    return WriteVrSettings(path,content);
+}
+VrPreferenceSnapshot VrPreferenceStore::Initialize(const std::filesystem::path& file) noexcept {
+    std::lock_guard lock(mutex_);
+    if(initialized_)return snapshot_;
+    try {
+        file_=file;
+        const auto loaded=LoadVrSettings(file_);
+        snapshot_.values={loaded.mode,loaded.turning};
+        snapshot_.load_status=loaded.status;
+        snapshot_.load_error=loaded.error_code;
+    }catch(...){
+        file_.clear();
+        snapshot_.values={};
+        snapshot_.load_status=SettingsLoadStatus::io_error;
+        snapshot_.load_error=ERROR_NOT_ENOUGH_MEMORY;
+    }
+    initialized_=true;
+    snapshot_.revision=1;
+    PublishPreferences(snapshot_.values);
+    return snapshot_;
+}
+VrPreferenceSnapshot VrPreferenceStore::Read() const noexcept {
+    std::lock_guard lock(mutex_);
+    return snapshot_;
+}
+VrPreferenceApplyResult VrPreferenceStore::ApplyLocked(VrPreferences values,std::uint64_t expected_revision) noexcept {
+    VrPreferenceApplyResult result;
+    if(!Valid(values))result.error_code=ERROR_INVALID_PARAMETER;
+    else if(!initialized_)result.error_code=ERROR_NOT_READY;
+    else if(expected_revision!=snapshot_.revision){
+        result.conflict=true;result.error_code=ERROR_REVISION_MISMATCH;
+    }else{
+        result.accepted=true;
+        snapshot_.values=values;
+        ++snapshot_.revision;
+        PublishPreferences(values);
+        // The editor lock remains held through replacement: an older save can
+        // never complete after a newer edit and overwrite its persisted choice.
+        // Never erase an unrecognized future schema, malformed data, or a file
+        // we could not read. Only loaded/missing startup states authorize I/O.
+        const auto saved=snapshot_.load_status==SettingsLoadStatus::invalid?
+            SettingsSaveResult{false,ERROR_INVALID_DATA}:
+            snapshot_.load_status==SettingsLoadStatus::io_error?
+                SettingsSaveResult{false,snapshot_.load_error?snapshot_.load_error:ERROR_READ_FAULT}:
+                SaveVrSettings(file_,values);
+        result.saved=saved.ok;result.error_code=saved.error_code;
+        snapshot_.save_failed=!saved.ok;snapshot_.save_error=saved.error_code;
+    }
+    result.snapshot=snapshot_;
+    return result;
+}
+VrPreferenceApplyResult VrPreferenceStore::Apply(VrPreferences values,std::uint64_t expected_revision) noexcept {
+    std::lock_guard lock(mutex_);
+    return ApplyLocked(values,expected_revision);
+}
+VrPreferenceApplyResult VrPreferenceStore::ApplyCinematics(CinematicsMode mode,std::uint64_t expected_revision) noexcept {
+    std::lock_guard lock(mutex_);
+    auto values=snapshot_.values;
+    values.cinematics=mode;
+    return ApplyLocked(values,expected_revision);
+}
+VrPreferenceStore& SharedVrPreferences() noexcept {
+    static VrPreferenceStore store;
+    return store;
 }
 void VrSettingsMenu::Invalidate() noexcept {
     active_=false;capture_=barrier_=true;

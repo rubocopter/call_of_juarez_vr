@@ -92,10 +92,11 @@ MESH_HASHES = {
     'Billy':'ce1e70dfab7ddae4f4036518820e34c84a18d9dc18ab48163815d4ac1dd15be7',
 }
 
-def patch_archive(source, output):
+def patch_archive(source, output, independent_hands=True, native_settings=False):
     source,output=Path(source),Path(output)
     if source.resolve()==output.resolve() or output.exists():raise ValueError('Output must be a new separate archive')
-    paths={f'Data/Player/{name}/{name}.msh':name for name in ('Ray','Billy')}
+    if not independent_hands and not native_settings:raise ValueError('No resource transformation selected')
+    paths={f'Data/Player/{name}/{name}.msh':name for name in ('Ray','Billy')} if independent_hands else {}
     with zipfile.ZipFile(source) as original:
         if len(original.namelist())!=len(set(original.namelist())):raise ValueError('Duplicate archive entries')
         changes={}
@@ -103,6 +104,9 @@ def patch_archive(source, output):
             data=original.read(path)
             if hashlib.sha256(data).hexdigest()!=MESH_HASHES.get(name):raise ValueError('Unknown player mesh SHA-256')
             changes[path]=split_player_mesh(data,name+'Body')[0]
+        if native_settings:
+            from coj_native_settings import MENU_SCRIPT_NAME,patch_menu_script
+            changes[MENU_SCRIPT_NAME]=patch_menu_script(original.read(MENU_SCRIPT_NAME))
         infos={i.filename:copy.copy(i) for i in original.infolist()}; order=original.namelist(); prefix=original.start_dir
     shutil.copyfile(source,output)
     try:
@@ -132,5 +136,9 @@ def patch_archive(source, output):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('source',type=Path);parser.add_argument('output',type=Path)
-    args=parser.parse_args();patch_archive(args.source,args.output)
-    print('Exact player arms and Ray free coat partitioned; other compressed archive records unchanged')
+    parser.add_argument('--native-settings',action='store_true')
+    parser.add_argument('--settings-only',action='store_true',help='Keep original player meshes; requires --native-settings')
+    args=parser.parse_args()
+    if args.settings_only and not args.native_settings:parser.error('--settings-only requires --native-settings')
+    patch_archive(args.source,args.output,not args.settings_only,args.native_settings)
+    print('Selected exact player/menu resources transformed; other compressed archive records unchanged')

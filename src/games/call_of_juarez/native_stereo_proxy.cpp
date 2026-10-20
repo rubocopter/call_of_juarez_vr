@@ -1322,6 +1322,7 @@ void ObserveNaturalFrame(void* context,bool complete) noexcept {
 
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (!device || !g_stereo.runtime_ready) {
+        cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
         InvalidateSourceAuthority(g_stereo);
         g_stereo.presenter.PublishGameplayFeedbackContext(false);
         return;
@@ -1409,6 +1410,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         cojvr::backends::openvr::OpenVrTrackingSample tracking{};
         if (!g_stereo.presenter.LatestTracking(tracking) ||
             !tracking.pose.orientation_valid || !tracking.pose.position_valid || tracking.sequence == 0) {
+            cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
             g_stereo.stereo_queue.Invalidate();
             g_stereo.presenter.PublishGameplayFeedbackContext(false);
             return;
@@ -1525,6 +1527,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             }
 
         }
+        cojvr::games::call_of_juarez::ProcessCameraNativeSettings(menu_dispatch_allowed);
         if(g_stereo.fixed_outputs.enabled&&g_stereo.natural_world_seen.load()){
             std::lock_guard lock(g_stereo.source_mutex);
             if(!g_stereo.natural_frame_ready.load()||g_stereo.natural_owner.load()!=g_stereo.source_owner||

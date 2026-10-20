@@ -1,12 +1,20 @@
 #pragma once
 #include "runtime/hud_text.hpp"
+#include <cstdint>
 #include <filesystem>
+#include <mutex>
 
 namespace cojvr::runtime {
 enum class CinematicsMode : std::uint8_t { theater, immersive };
+enum class TurnMode : std::uint8_t { smooth, snap };
+struct VrPreferences {
+    CinematicsMode cinematics = CinematicsMode::theater;
+    TurnMode turning = TurnMode::smooth;
+};
 enum class SettingsLanguage : std::uint8_t { english, spanish };
 // Game-thread reads never touch presenter-owned menu or filesystem objects.
 [[nodiscard]] CinematicsMode CurrentCinematicMode() noexcept;
+[[nodiscard]] TurnMode CurrentTurnMode() noexcept;
 [[nodiscard]] bool SettingsInputCaptured() noexcept;
 void PublishCinematicMode(CinematicsMode mode) noexcept;
 void PublishSettingsInputCapture(bool captured) noexcept;
@@ -16,11 +24,53 @@ struct SettingsLoadResult {
     CinematicsMode mode = CinematicsMode::theater;
     SettingsLoadStatus status = SettingsLoadStatus::missing;
     std::uint32_t error_code = 0;
+    TurnMode turning = TurnMode::smooth;
 };
 struct SettingsSaveResult { bool ok = false; std::uint32_t error_code = 0; };
 [[nodiscard]] std::filesystem::path DefaultVrSettingsPath() noexcept;
 [[nodiscard]] SettingsLoadResult LoadVrSettings(const std::filesystem::path& file) noexcept;
 [[nodiscard]] SettingsSaveResult SaveVrSettings(const std::filesystem::path& file, CinematicsMode mode) noexcept;
+[[nodiscard]] SettingsSaveResult SaveVrSettings(const std::filesystem::path& file, VrPreferences values) noexcept;
+
+struct VrPreferenceSnapshot {
+    VrPreferences values{};
+    std::uint64_t revision = 0;
+    bool save_failed = false;
+    std::uint32_t save_error = 0;
+    SettingsLoadStatus load_status = SettingsLoadStatus::missing;
+    std::uint32_t load_error = 0;
+};
+struct VrPreferenceApplyResult {
+    bool accepted = false;
+    bool saved = false;
+    bool conflict = false;
+    std::uint32_t error_code = 0;
+    VrPreferenceSnapshot snapshot{};
+};
+// Editors share this owner. Read returns a coherent pair/revision; direct
+// game-thread getters above only load atomics and never acquire this I/O lock.
+class VrPreferenceStore final {
+public:
+    // First call owns the path for this session, including missing/invalid I/O.
+    // Initialization reads/publishes but never rewrites the configuration.
+    [[nodiscard]] VrPreferenceSnapshot Initialize(const std::filesystem::path& file) noexcept;
+    [[nodiscard]] VrPreferenceSnapshot Read() const noexcept;
+    // Every accepted request advances revision, even an unchanged-value retry.
+    // Save failure retains the published session choice. load_status always
+    // describes initialization; load_error retains that read's Windows error.
+    // Invalid/unreadable initial files are protected for the whole session;
+    // edits apply in memory only until the file is repaired/removed and restart.
+    // save_failed/save_error describe the last persistence attempt.
+    [[nodiscard]] VrPreferenceApplyResult Apply(VrPreferences values, std::uint64_t expected_revision) noexcept;
+    [[nodiscard]] VrPreferenceApplyResult ApplyCinematics(CinematicsMode mode, std::uint64_t expected_revision) noexcept;
+private:
+    [[nodiscard]] VrPreferenceApplyResult ApplyLocked(VrPreferences values, std::uint64_t expected_revision) noexcept;
+    mutable std::mutex mutex_;
+    std::filesystem::path file_;
+    VrPreferenceSnapshot snapshot_{};
+    bool initialized_ = false;
+};
+[[nodiscard]] VrPreferenceStore& SharedVrPreferences() noexcept;
 
 struct SettingsMenuInput {
     bool available = false; // focus, tracking, polling and game context

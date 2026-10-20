@@ -114,6 +114,7 @@ $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
+$ManagePlayerArchive = $IsNativeStereo
 if ($IndependentHands -and -not $IsNativeStereo) { throw "Independent hands require the native-stereo candidate." }
 if ($ReloadWaitProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
     throw "ReloadWaitProbe requires native stereo with independent hands."
@@ -294,7 +295,7 @@ if ($IsNativeStereo) {
         throw "Unknown code.pak SHA-256; refusing game-specific shot mutation."
     }
 }
-if ($IndependentHands) {
+if ($ManagePlayerArchive) {
     if (Test-Path -LiteralPath $PlayerBackup) { throw "An original Data0.pak backup already exists; refusing to overwrite it." }
     $OriginalPlayerHash = Get-CojvrFileSha256 $PlayerArchive
     if ($OriginalPlayerHash -ne "5EB6EC4856E53226DFABAD929522706A21F02D428923A8C9C38804CC2CF11A94") {
@@ -420,10 +421,12 @@ if ($IsNativeStereo) {
     }
 }
 
-if ($IndependentHands) {
+if ($ManagePlayerArchive) {
     $PatchedPlayerSource = Join-Path ([System.IO.Path]::GetTempPath()) ("cojvr-player-" + [Guid]::NewGuid().ToString("N") + ".pak")
     try {
-        & $PythonExecutable -B (Join-Path $PSScriptRoot "split_coj_player_mesh.py") $PlayerArchive $PatchedPlayerSource
+        $PlayerArguments = @($PlayerArchive, $PatchedPlayerSource, '--native-settings')
+        if (-not $IndependentHands) { $PlayerArguments += '--settings-only' }
+        & $PythonExecutable -B (Join-Path $PSScriptRoot "split_coj_player_mesh.py") @PlayerArguments
         if ($LASTEXITCODE -ne 0) { throw "Exact player geometry split failed." }
         $PatchedPlayerHash = Get-CojvrFileSha256 $PatchedPlayerSource
     } catch {
@@ -482,7 +485,7 @@ if ($HadOriginal) {
 
     Install-CojvrVerifiedFile `
         $ProxyPath $Destination $ProxyTemporary $ProxyHash "stage_proxy_published"
-    if ($IndependentHands) {
+    if ($ManagePlayerArchive) {
         Move-Item -LiteralPath $PlayerArchive -Destination $PlayerBackup
         Invoke-CojvrDeploymentCheckpoint "stage_player_backup_created"
         Install-CojvrVerifiedFile $PatchedPlayerSource $PlayerArchive $PlayerTemporary $PatchedPlayerHash "stage_player_published"
@@ -571,9 +574,9 @@ if ($HadOriginal) {
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
         frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
         independentEyeResolution = $IndependentEyeResolution
-        playerArchiveManaged = $IndependentHands.IsPresent
-        originalPlayerSha256 = if ($IndependentHands) { $OriginalPlayerHash } else { $null }
-        stagedPlayerSha256 = if ($IndependentHands) { $PatchedPlayerHash } else { $null }
+        playerArchiveManaged = [bool]$ManagePlayerArchive
+        originalPlayerSha256 = if ($ManagePlayerArchive) { $OriginalPlayerHash } else { $null }
+        stagedPlayerSha256 = if ($ManagePlayerArchive) { $PatchedPlayerHash } else { $null }
         originalCodeSha256 = if ($IsNativeStereo) { $OriginalCodeHash } else { $null }
         stagedCodeSha256 = if ($IsNativeStereo) { $PatchedCodeHash } else { $null }
         hadOriginalOpenVrInput = $HadOriginalOpenVrInput
@@ -612,7 +615,7 @@ if ($HadOriginal) {
         $Deployment += [ordered]@{
             role = "game_weapon_consumers"; destination = "code.pak"; sha256 = $PatchedCodeHash
         }
-        if ($IndependentHands) {
+        if ($ManagePlayerArchive) {
             $Deployment += [ordered]@{
                 role = "game_player_geometry"; destination = "Data0.pak"; sha256 = $PatchedPlayerHash
             }

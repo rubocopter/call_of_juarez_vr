@@ -4,6 +4,7 @@
 
 #include "runtime/vr_types.hpp"
 #include "runtime/gameplay_utility.hpp"
+#include "runtime/turn_preference.hpp"
 #include "runtime/hud_text.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/gameplay_ui_reader.hpp"
@@ -14,6 +15,7 @@
 #include "games/call_of_juarez/interaction_selection.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
 #include "games/call_of_juarez/duel_input.hpp"
+#include "games/call_of_juarez/native_settings_bridge.hpp"
 
 #include <array>
 #include <cstdint>
@@ -494,6 +496,8 @@ public:
     // Read-only existing global MenuMain admission; no GetUI/LoadUI or input.
     [[nodiscard]] bool TryObserveMainMenu(bool& active, std::string* error = nullptr,
         std::uint32_t* owner = nullptr) noexcept;
+    [[nodiscard]] bool TryProcessNativeSettings(bool input_allowed,
+        std::string* error = nullptr) noexcept;
     // Observe the current UI's native GetMousePos (X/Z mapped to X/Y), falling
     // back to cursor sprite position only when no current UI exists. Call on
     // the game thread; failure clears all output.
@@ -770,7 +774,8 @@ private:
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     std::array<float,33> last_gameplay_action_values_{};
     bool gameplay_input_applied_ = false;
-    runtime::SmoothTurnState smooth_turn_state_{};
+    runtime::GameplayTurnState turn_state_{};
+    NativeSettingsBridge native_settings_bridge_{};
     float last_turn_degrees_ = 0.0F;
     bool last_analog_transaction_applied_ = false;
     CoJDuelInputState duel_input_state_{};
