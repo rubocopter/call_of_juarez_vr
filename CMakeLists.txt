@@ -1321,6 +1321,10 @@ endif()
 
 # Isolated exact-game duel input checks; no game or VR runtime is started.
 if(COJVR_BUILD_TESTS)
+    add_executable(cojvr_two_hand_grip_test tests/two_hand_grip.cpp)
+    target_link_libraries(cojvr_two_hand_grip_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_two_hand_grip_test PRIVATE cxx_std_20)
+    add_test(NAME two_hand_grip COMMAND cojvr_two_hand_grip_test)
     add_executable(cojvr_duel_input_test tests/duel_input.cpp)
     target_include_directories(cojvr_duel_input_test PRIVATE src)
     target_compile_features(cojvr_duel_input_test PRIVATE cxx_std_20)
