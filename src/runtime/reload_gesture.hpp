@@ -78,6 +78,9 @@ enum class MotionReloadGestureStage : std::uint8_t {
 };
 
 // Gesture radii/times are interaction UX defaults, not game physics.
+// Claimed grip carries, like explicit tip/socket travel, admit at most 12cm
+// translation per fresh sample and 3m/s. Grip-only carries impose no socket
+// orientation constraint. The pickup/claim sample establishes each baseline.
 // Keep this instance across eligibility/context loss; feed invalid samples
 // rather than reconstructing it and discarding a physical release barrier.
 class MotionReloadGesture {
@@ -113,7 +116,15 @@ public:
             input.trigger_available[1U - input.armed_hand];
         const bool insertion_mode_changed = claimed_hand_ < 2 &&
             explicit_insertion_ != input.insertion_target.has_value();
-        if (regression || gap || owner_changed || insertion_mode_changed || !usable || !free_available ||
+        const bool carrying = stage_ == MotionReloadGestureStage::carrying ||
+            stage_ == MotionReloadGestureStage::replenished_carrying;
+        // A duplicate may carry different geometry but is not another motion
+        // observation. Check both hands on fresh held AND release samples:
+        // teleporting the gun cannot substitute for carrying the cartridge.
+        const bool grip_discontinuity = fresh && !regression && !gap && usable && free_available &&
+            !owner_changed && !insertion_mode_changed && carrying && !explicit_insertion_ &&
+            !ObserveGripTranslation(input);
+        if (regression || gap || owner_changed || insertion_mode_changed || grip_discontinuity || !usable || !free_available ||
             ((stage_ == MotionReloadGestureStage::carrying ||
               stage_ == MotionReloadGestureStage::replenished_carrying) &&
              input.monotonic_ms >= started_ms_ && input.monotonic_ms - started_ms_ > 5000)) {
@@ -276,7 +287,28 @@ private:
         return {a.x-b.x, a.y-b.y, a.z-b.z};
     }
 
+    // Translation UX is shared by grip carries and explicit tip/socket travel;
+    // alignment/approach constraints belong only to the latter.
+    [[nodiscard]] static bool ContinuousTranslation(Vec3 current, Vec3 previous,
+        std::uint64_t elapsed_ms) noexcept {
+        const double bound = std::min(0.12, 0.003*static_cast<double>(elapsed_ms));
+        return DistanceSquared(current, previous) <= bound*bound;
+    }
+
+    [[nodiscard]] bool ObserveGripTranslation(const MotionReloadGestureInput& input) noexcept {
+        const auto elapsed = input.monotonic_ms - grip_ms_;
+        if (!ContinuousTranslation(input.left_grip.position, previous_left_, elapsed) ||
+            !ContinuousTranslation(input.right_grip.position, previous_right_, elapsed)) return false;
+        previous_left_ = input.left_grip.position;
+        previous_right_ = input.right_grip.position;
+        grip_ms_ = input.monotonic_ms;
+        return true;
+    }
+
     void BeginInsertion(const MotionReloadGestureInput& input) noexcept {
+        previous_left_ = input.left_grip.position;
+        previous_right_ = input.right_grip.position;
+        grip_ms_ = input.monotonic_ms;
         zone_notified_=false;
         explicit_insertion_ = input.insertion_target.has_value();
         approach_ = entered_ = trajectory_fault_ = false;
@@ -302,12 +334,11 @@ private:
         const bool inside = corridor && depth >= 0.0 && depth <= 0.04;
         insertion_inside_=inside;
         const auto elapsed = input.monotonic_ms - insertion_ms_;
-        const double bound = std::min(0.12, 0.003*static_cast<double>(elapsed));
         const Vec3 travel = Difference(tip.position, previous_tip_);
         const double previous_depth = Dot(Difference(previous_tip_, previous_target_), axis);
         if (depth < 0.0) entered_ = false;
-        if (DistanceSquared(tip.position, previous_tip_) > bound*bound ||
-            DistanceSquared(target.position, previous_target_) > bound*bound ||
+        if (!ContinuousTranslation(tip.position, previous_tip_, elapsed) ||
+            !ContinuousTranslation(target.position, previous_target_, elapsed) ||
             Dot(axis, previous_target_axis_) < 0.866025403784 ||
             Dot(Axis(tip), previous_tip_axis_) < 0.866025403784)
             trajectory_fault_ = true; // A discontinuity invalidates the entire press.
@@ -398,6 +429,8 @@ private:
     std::uint8_t armed_ = 0;
     std::uint8_t cartridge_hand_ = 2;
     std::uint64_t started_ms_ = 0;
+    Vec3 previous_left_{}, previous_right_{};
+    std::uint64_t grip_ms_ = 0;
     double inward_travel_ = 0.0;
     bool explicit_insertion_ = false;
     bool approach_ = false;

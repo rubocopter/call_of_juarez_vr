@@ -5986,9 +5986,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     insertion_pose.sequence=manual_input.sequence;insertion_pose.now=reload_now_ms;
     insertion_pose.insertion_event=manual_feedback.accepted?manual_feedback.event_sequence:0;
     insertion_pose.armed_hand=insertion_pose_native.armed_hand;
-    insertion_pose.cartridge_held=motion_reload.cartridge_held;
     insertion_pose.support_trigger_held=insertion_pose.armed_hand==0?raw_reload_input.fire_left:
         raw_reload_input.fire_right;
+    insertion_pose.cartridge_held=CoJReloadInsertionHasCartridge(
+        motion_reload,insertion_pose.armed_hand,insertion_pose.support_trigger_held);
     insertion_pose.left=relative_left_controller;insertion_pose.right=relative_right_controller;
     const int insertion_pose_hand=g_reload_insertion_pose.Apply(
         insertion_pose,visual_left_fingers,visual_right_fingers);

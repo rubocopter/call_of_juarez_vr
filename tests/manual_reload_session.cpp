@@ -23,7 +23,16 @@ struct Fixture{
         Check(Poll().tracked,"owned waiting must keep VR presentation");
         Check(session.phase()==CoJManualReloadPhase::manual_load,"opening -> manual");}
     void Claim(){s.raw.fire_left=false;(void)Poll();s.raw.fire_left=true;Check(Poll().gesture.cartridge_held,"waist trigger pickup");}
-    CoJManualReloadOutput Insert(){s.left=s.right;(void)Poll();s.raw.fire_left=false;return Poll();}
+    void Carry(Pose& support,const Pose& target){
+        const auto start=support.position,end=target.position;
+        for(int step=1;step<=8;++step){
+            const float t=static_cast<float>(step)/8.F;
+            support=At({start.x+(end.x-start.x)*t,start.y+(end.y-start.y)*t,start.z+(end.z-start.z)*t});
+            const auto out=Poll();
+            Check(out.gesture.cartridge_held&&!out.insert,"sampled held carry keeps its token without inserting");
+        }
+    }
+    CoJManualReloadOutput Insert(){Carry(s.left,s.right);s.raw.fire_left=false;return Poll();}
 };
 int main(){
     // Native completion may skip the observed closing sample (e.g. the last
@@ -130,9 +139,9 @@ int main(){
     mirrored.s.raw.reload=false;mirrored.s.admission={};mirrored.s.native.probe_status=2;
     mirrored.s.native.states[1]={21,21,21,21};(void)mirrored.Poll();
     mirrored.s.raw.fire_right=true;Check(mirrored.Poll().gesture.cartridge_held,"mirrored free trigger picks up");
-    mirrored.s.right=mirrored.s.left;(void)mirrored.Poll();mirrored.s.raw.fire_right=false;
+    mirrored.Carry(mirrored.s.right,mirrored.s.left);mirrored.s.raw.fire_right=false;
     Check(mirrored.Poll().insert&&!mirrored.mapped.reload,"mirrored release inserts without action31");
-    Fixture miss;miss.Open();miss.Claim();miss.s.left=At({-1,1.2F,0});(void)miss.Poll();miss.s.raw.fire_left=false;
+    Fixture miss;miss.Open();miss.Claim();miss.Carry(miss.s.left,At({-1,1.2F,0}));miss.s.raw.fire_left=false;
     Check(!miss.Poll().insert,"dropped cartridge is not inserted");
     Fixture full;full.Open();full.s.native.probe_status=3;full.s.native.states[0]={22,1,1,1};
     Check(full.Poll().tracked&&full.session.phase()==CoJManualReloadPhase::closing,"coherent native close keeps VR presentation");

@@ -336,7 +336,15 @@ void NativeReloadContinuationIntegration() {
     };
     Reset(); (void)poll(); raw.fire_left=true;
     Require(poll().consume_free_trigger,"integrated pickup must claim the empty hand");
-    left=right; (void)poll(); raw.fire_left=false;
+    const auto pickup_position=left.position;
+    for(int step=1;step<=8;++step){
+        const float t=static_cast<float>(step)/8.F;
+        left=pose({pickup_position.x+(right.position.x-pickup_position.x)*t,
+            pickup_position.y+(right.position.y-pickup_position.y)*t,
+            pickup_position.z+(right.position.z-pickup_position.z)*t});
+        (void)poll();
+    }
+    raw.fire_left=false;
     Require(poll().reload,"integrated insertion must request one native round");
     adapter.NoteSingleRoundDispatch(true);
     current[0]=20; destiny[0]=wanted[0]=actual_state[0]=21; reload=true;

@@ -1,9 +1,18 @@
 #pragma once
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
+#include "runtime/reload_gesture.hpp"
 #include <algorithm>
 #include <cstdint>
 
 namespace cojvr::games::call_of_juarez {
+
+[[nodiscard]] inline bool CoJReloadInsertionHasCartridge(
+    const runtime::MotionReloadGestureOutput& gesture,int armed_hand,bool trigger_held) noexcept {
+    // A replenished token is available for the next press, but neither drawn
+    // nor pinched until a fresh physical support-trigger claim owns it.
+    return (armed_hand==0||armed_hand==1)&&gesture.cartridge_held&&trigger_held&&
+        gesture.cartridge_hand==1-armed_hand&&gesture.claimed_hand==1-armed_hand;
+}
 
 // Presentation only: insertion_event is supplied solely after the native
 // one-round ammo/reserve transfer is observed. No mechanics or native calls.

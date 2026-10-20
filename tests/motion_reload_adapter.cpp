@@ -38,7 +38,17 @@ struct Fixture {
     void Start() { (void)Poll(false); const auto start=Poll(true);
         Require(start.consume_free_trigger && !(armed_hand==0 ? mapped.fire_left : mapped.fire_right) && !mapped.reload,
             "adapter must consume free trigger at source without early reload"); }
-    void Contact() { if (armed_hand==0) left=right; else right=left; (void)Poll(true); }
+    void Contact() {
+        auto& support=armed_hand==0?left:right;
+        const auto start=support.position,end=(armed_hand==0?right:left).position;
+        // Carry through sampled positions; an instantaneous endpoint change
+        // is deliberately rejected by the production tracking-continuity gate.
+        for(int step=1;step<=8;++step){
+            const float t=static_cast<float>(step)/8.F;
+            support=At({start.x+(end.x-start.x)*t,start.y+(end.y-start.y)*t,start.z+(end.z-start.z)*t});
+            (void)Poll(true);
+        }
+    }
     void RequestSingleRound() {
         owner.single_round_supported=true;
         Start(); Contact();
