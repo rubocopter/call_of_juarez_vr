@@ -116,6 +116,119 @@ function Assert-PublicNativeResolutionContext([string]$Game) {
         throw 'Resolution profiles require the recognized LAA executable and ordinary native stereo. Recover/install first.'
     }
 }
+function Get-PublicResolutionFallbackReason([object]$Decision) {
+    # Helper errors can contain local paths/exception text. Only known symbols
+    # select fixed, bounded messages; no helper or persisted error is echoed.
+    try {
+        if ($Decision.Status -eq 'preserve_adapter_unqualified') {
+            return 'The selected graphics adapter is not qualified for startup resolution.'
+        }
+        if ($null -ne $Decision.Limits) {
+            switch -CaseSensitive ($Decision.Limits.error) {
+                'texture_axis_limit_exceeded' {return 'Requested size exceeds the native texture dimension limit.'}
+                'texture_aspect_ratio_limit_exceeded' {return 'Requested aspect ratio exceeds the native texture limit.'}
+                'square_texture_required' {return 'The native adapter requires square textures.'}
+                'power_of_two_texture_required' {return 'The native adapter requires power-of-two texture dimensions.'}
+                'required_format_unsupported' {return 'A required native color or depth format is unsupported.'}
+                'implementation_axis_limit_exceeded' {return 'Requested size exceeds the startup dimension limit.'}
+                'menu_source_128mib_limit_exceeded' {return 'Requested size exceeds the menu source size limit.'}
+                'nominal_payload_reaches_x86_laa_ceiling' {return 'Requested size exceeds the startup address-space limit.'}
+            }
+            if ($Decision.Status -eq 'preserve_incompatible') {return 'Requested size is incompatible with native resolution limits.'}
+            return 'Native resolution limits are unavailable.'
+        }
+        $Proposal=$Decision.Proposal
+        if ($null -ne $Proposal -and $Proposal.PSObject.Properties['observation'] -and $null -ne $Proposal.observation) {
+            switch -CaseSensitive ($Proposal.observation.error) {
+                'runtime_not_installed' {return 'SteamVR is not installed.'}
+                'hmd_not_present' {return 'The headset was not detected by SteamVR.'}
+                'background_init_failed' {return 'SteamVR is unavailable for the headset query.'}
+                'system_unavailable' {return 'The SteamVR system interface is unavailable.'}
+                'invalid_recommended_dimensions' {return 'SteamVR returned an invalid recommended size.'}
+            }
+        }
+        if ($null -ne $Proposal) {
+            switch -Regex -CaseSensitive ($Proposal.reason) {
+                '\Aquery_helper_unavailable(?::|\z)' {return 'The headset query helper is unavailable.'}
+                '\Aquery_helper_failed\z' {return 'The headset query helper failed.'}
+                '\Aresolver_unavailable(?::|\z)' {return 'The startup resolution calculator is unavailable.'}
+                '\Aresolver_failed\z' {return 'The startup resolution calculator failed.'}
+                '\Afresh_recommendation_required\z' {return 'A fresh SteamVR recommendation is required.'}
+            }
+        }
+    } catch { } # Older or incomplete metadata receives the same safe fallback.
+    return 'The requested startup resolution is unavailable.'
+}
+function Show-PublicResolutionOutcome([object]$VideoProfile) {
+    try {
+        $Profile=$VideoProfile.resolutionProfile
+        $Decision=$VideoProfile.resolutionDecision
+        $Size=$VideoProfile.resolution
+        $Width=0;$Height=0
+        if ($Profile -isnot [string] -or @('Preserve','Auto','75%','100%','125%','Manual') -cnotcontains $Profile -or
+            $Size -isnot [string] -or $Size -cnotmatch '\A([1-9][0-9]{0,9})x([1-9][0-9]{0,9})\z' -or
+            -not [int]::TryParse($Matches[1],[ref]$Width) -or -not [int]::TryParse($Matches[2],[ref]$Height) -or
+            $Decision.Profile -isnot [string] -or $Decision.Profile -cne $Profile -or $Decision.Experimental -isnot [bool] -or
+            $VideoProfile.experimentalResolution -isnot [bool] -or $VideoProfile.experimentalResolution -ne $Decision.Experimental -or
+            $Decision.Status -isnot [string] -or
+            @('preserve','experimental_trial','preserve_unavailable','preserve_incompatible','preserve_adapter_unqualified') -cnotcontains $Decision.Status -or
+            (($Decision.Status -ceq 'experimental_trial') -ne $Decision.Experimental) -or
+            (($Decision.Status -ceq 'preserve') -ne ($Profile -ceq 'Preserve'))) {throw 'Invalid resolution outcome.'}
+    } catch {
+        Write-Host 'Latest preparation outcome: unavailable (invalid or missing resolution metadata).'
+        return
+    }
+    Write-Host "Prepared resolution: $Profile; configured startup request ${Width}x${Height}."
+    if ($Decision.Experimental) {
+        Write-Host 'Outcome: startup request written to game video settings.'
+    } elseif ($Profile -eq 'Preserve') {
+        Write-Host 'Outcome: selected game size retained (Preserve).'
+    } else {
+        Write-Host ('Outcome: selected game size retained. '+(Get-PublicResolutionFallbackReason $Decision))
+        Write-Host 'Retry with 6 - Prepare session while the game is closed; start SteamVR first for Auto/percentages. Use 7 - Resolution profiles to change the request.'
+    }
+    Write-Host 'Actual native raster: not observed by the launcher.'
+}
+function Show-PublicResolutionStatus([string]$Game,[object]$State) {
+    try {
+        if ($null -eq $State -or $State.phase -cne 'installed' -or $State.PSObject.Properties['pendingRunId']) {
+            throw 'No completed installation preparation.'
+        }
+        $Records=@{}
+        foreach ($Name in @('.cojvr-d3d9-stage.json','.cojvr-run.json')) {
+            $Path=Join-Path $Game $Name
+            Assert-CojvrNoReparse $Path
+            # Hold the read handle across the bound check and parse. Status never
+            # queries OpenVR or repairs incomplete/foreign preparation metadata.
+            $Stream=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+            try {
+                if ($Stream.Length -gt 65536) {throw 'Preparation metadata exceeds the reporting bound.'}
+                $Reader=[IO.StreamReader]::new($Stream,[Text.Encoding]::UTF8,$true)
+                try {$Records[$Name]=$Reader.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop}
+                finally {$Reader.Dispose()}
+            } finally {$Stream.Dispose()}
+        }
+        $Stage=$Records['.cojvr-d3d9-stage.json'];$Run=$Records['.cojvr-run.json']
+        foreach ($Record in @($State,$Stage,$Run)) {
+            if ($Record.runId -isnot [string] -or $Record.buildManifestId -isnot [string]) {
+                throw 'Invalid preparation identity types.'
+            }
+        }
+        if (($Stage.schemaVersion -isnot [int] -and $Stage.schemaVersion -isnot [long]) -or $Stage.schemaVersion -ne 2 -or
+            ($Run.schemaVersion -isnot [int] -and $Run.schemaVersion -isnot [long]) -or $Run.schemaVersion -ne 1 -or
+            $Stage.diagnosticMode -isnot [string] -or $Stage.diagnosticMode -cne 'd3d9_native_stereo' -or
+            $Stage.runId -cne $State.runId -or $Run.runId -cne $State.runId -or
+            $Stage.buildManifestId -cne $State.buildManifestId -or $Run.buildManifestId -cne $State.buildManifestId) {
+            throw 'Preparation identities do not match the installed session.'
+        }
+        $VideoProfile=$Run.validation.videoProfile
+    } catch {
+        Write-Host 'Latest preparation outcome: unavailable (missing, interrupted or mismatched preparation metadata).'
+        return
+    }
+    Write-Host 'Latest preparation outcome:'
+    Show-PublicResolutionOutcome $VideoProfile
+}
 function Update-PublicSessionVideo([string]$Game,[object]$Run) {
     Assert-PublicVideoRecoveryPaths $Game
     $Baseline=Get-Content -LiteralPath (Join-Path $Game '.cojvr-public-video.json') -Encoding UTF8 -Raw | ConvertFrom-Json
@@ -145,11 +258,7 @@ function Update-PublicSessionVideo([string]$Game,[object]$Run) {
         originalSha256=$Applied.originalSha256;appliedSha256=$Applied.appliedSha256;
         resolutionProfile=$Decision.Profile;experimentalResolution=$Decision.Experimental;resolutionDecision=$Decision
     }) -Force
-    Write-Host "Resolution: $($Decision.Profile); $($Decision.Status); native request $($Applied.resolution)."
-    if ($Decision.Profile -ne 'Preserve' -and -not $Decision.Experimental) {
-        Write-Host 'Headset resolution could not be applied; keeping the selected game resolution.'
-        Write-Host 'For Auto/percentage profiles, start SteamVR and choose 6 - Prepare session to retry. Use 7 - Resolution profiles for Manual.'
-    }
+    Show-PublicResolutionOutcome $Run.validation.videoProfile
 }
 function Show-PublicResolutionSelector {
     $Current=Read-PublicResolutionSettings
@@ -277,6 +386,8 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
         $Selected=Read-PublicResolutionSettings
         $Extent=if($Selected.profile -eq 'Manual'){" $($Selected.width)x$($Selected.height)"}else{''}
         Write-Host "Next session resolution: $($Selected.profile)$Extent"
+        Write-Host 'Changes to this saved choice require Install/update or 6 - Prepare session with the game closed.'
+        Show-PublicResolutionStatus $Game $State
         Write-Host "Package: $($Manifest.version)"
         Write-Host "Game: $Game"
         if ($null -eq $State) { Write-Host 'Public mod is not installed.' } else {

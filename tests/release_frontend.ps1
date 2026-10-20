@@ -96,6 +96,87 @@ try {
     Assert-True ($LASTEXITCODE -eq 0 -and (Get-Content $Preference -Raw | ConvertFrom-Json).width -eq 2804) 'Relocated selector did not persist the Manual choice.'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Package 'cojvr.ps1') -Action ConfigureResolution -ResolutionSettingsPath $Preference
     Assert-True ($LASTEXITCODE -eq 0 -and (Get-Content $Preference -Raw | ConvertFrom-Json).profile -eq 'Auto') 'Default selector action did not choose automatic headset resolution.'
+    # Run the relocated public Status action, with real persisted metadata but no
+    # native helper/device/game. Wrong identity admission or raw error echo must fail.
+    $StatusGame=Join-Path $Root 'status-only game'
+    New-Item -ItemType Directory -Path $StatusGame | Out-Null
+    $StatusStatePath=Join-Path $StatusGame '.cojvr-public-install.json'
+    $StatusStagePath=Join-Path $StatusGame '.cojvr-d3d9-stage.json'
+    $StatusRunPath=Join-Path $StatusGame '.cojvr-run.json'
+    $StatusState=@{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installed';
+        buildManifestId=('b'*64);sourceCommit=('c'*40);version='0.1.0-prealpha.1';runId='status-run';manualReload=$true}
+    $StatusStage=@{schemaVersion=2;diagnosticMode='d3d9_native_stereo';runId='status-run';buildManifestId=('b'*64)}
+    $StatusRun=@{schemaVersion=1;runId='status-run';buildManifestId=('b'*64);status='staged';validation=@{videoProfile=@{
+        resolution='1280x720';nativeResolution='preserve';originalResolution='1280x720';windowed=$false;fsaa=0;
+        originalSha256=('d'*64);appliedSha256=('e'*64);resolutionProfile='Auto';experimentalResolution=$false;
+        resolutionDecision=@{Profile='Auto';Status='preserve_incompatible';Width=0;Height=0;Experimental=$false;
+            Proposal=$null;Limits=@{error='texture_axis_limit_exceeded'}}}}}
+    function Reset-StatusFixture {
+        Write-CojvrPublicJson $StatusStatePath $StatusState
+        Write-CojvrPublicJson $StatusStagePath $StatusStage
+        Write-CojvrPublicJson $StatusRunPath $StatusRun
+    }
+    function Invoke-StatusFixture {
+        $Before=@(Get-ChildItem -LiteralPath $StatusGame -File | Sort-Object Name | ForEach-Object {(Get-FileHash -LiteralPath $_.FullName).Hash}) -join ','
+        $PreferenceBefore=(Get-FileHash -LiteralPath $Preference).Hash
+        $Output=(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Package 'cojvr.ps1') `
+            -Action Status -GameDirectory $StatusGame -ResolutionSettingsPath $Preference 2>&1 | Out-String)
+        Assert-True ($LASTEXITCODE -eq 0) "Read-only Status failed: $Output"
+        $After=@(Get-ChildItem -LiteralPath $StatusGame -File | Sort-Object Name | ForEach-Object {(Get-FileHash -LiteralPath $_.FullName).Hash}) -join ','
+        Assert-True ($Before -eq $After -and $PreferenceBefore -eq (Get-FileHash -LiteralPath $Preference).Hash) 'Status changed preparation or preference files'
+        return $Output
+    }
+    Reset-StatusFixture
+    $Output=Invoke-StatusFixture
+    Assert-True ($Output -match 'configured startup request 1280x720' -and $Output -match 'texture.*dimension.*limit') 'Status omitted the latest preserved preparation outcome'
+    Assert-True ($Output -match 'raster.*not observed') 'Status implied native raster execution'
+    # A new saved Manual choice is next-session intent, not the prepared size.
+    . (Join-Path $SourceDirectory 'tools/coj_resolution_settings.ps1')
+    [void](Write-CoJResolutionSettings -Path $Preference -Profile Manual -Width 2804 -Height 2860)
+    $Output=Invoke-StatusFixture
+    Assert-True ($Output -match 'Next session resolution: Manual 2804x2860' -and
+        $Output -match 'Prepared resolution: Auto' -and $Output -match 'Prepare session') 'Changed saved choice was confused with latest preparation'
+    $Prepared=$StatusRun.validation.videoProfile
+    $Prepared.resolution='2804x2860';$Prepared.experimentalResolution=$true
+    $Prepared.resolutionDecision.Status='experimental_trial';$Prepared.resolutionDecision.Experimental=$true
+    $Prepared.resolutionDecision.Width=2804;$Prepared.resolutionDecision.Height=2860
+    Reset-StatusFixture
+    $Output=Invoke-StatusFixture
+    Assert-True ($Output -match 'configured startup request 2804x2860' -and $Output -match 'raster.*not observed') 'Status lost successful startup request distinction'
+    foreach($Case in @('missing-install','missing-stage','run-mismatch','build-mismatch','stage-mismatch','boolean-run-identity','boolean-stage-identity','boolean-mode','boolean-schema','old-stage-schema','pending','installing','malformed','oversized','invalid-output','invalid-profile','invalid-status','boolean-decision-profile')) {
+        Reset-StatusFixture
+        switch($Case){
+            'missing-install' {Remove-Item -LiteralPath $StatusStagePath;Remove-Item -LiteralPath $StatusStatePath}
+            'missing-stage' {Remove-Item -LiteralPath $StatusStagePath}
+            'run-mismatch' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.runId='older-run';Write-CojvrPublicJson $StatusRunPath $r}
+            'build-mismatch' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.buildManifestId=('f'*64);Write-CojvrPublicJson $StatusRunPath $r}
+            'stage-mismatch' {$r=Get-Content $StatusStagePath -Raw | ConvertFrom-Json;$r.runId='older-run';Write-CojvrPublicJson $StatusStagePath $r}
+            'boolean-run-identity' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.runId=$true;$r.buildManifestId=$true;Write-CojvrPublicJson $StatusRunPath $r}
+            'boolean-stage-identity' {$r=Get-Content $StatusStagePath -Raw | ConvertFrom-Json;$r.runId=$true;$r.buildManifestId=$true;Write-CojvrPublicJson $StatusStagePath $r}
+            'boolean-mode' {$r=Get-Content $StatusStagePath -Raw | ConvertFrom-Json;$r.diagnosticMode=$true;Write-CojvrPublicJson $StatusStagePath $r}
+            'boolean-schema' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.schemaVersion=$true;Write-CojvrPublicJson $StatusRunPath $r}
+            'old-stage-schema' {$r=Get-Content $StatusStagePath -Raw | ConvertFrom-Json;$r.schemaVersion=1;Write-CojvrPublicJson $StatusStagePath $r}
+            'pending' {$r=Get-Content $StatusStatePath -Raw | ConvertFrom-Json;$r | Add-Member pendingRunId 'pending-run';Write-CojvrPublicJson $StatusStatePath $r}
+            'installing' {$r=Get-Content $StatusStatePath -Raw | ConvertFrom-Json;$r.phase='installing';Write-CojvrPublicJson $StatusStatePath $r}
+            'malformed' {[IO.File]::WriteAllText($StatusRunPath,'{"private-path":"C:/secret-fixture/hidden"')}
+            'oversized' {[IO.File]::WriteAllText($StatusRunPath,(' '*65537))}
+            'invalid-output' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.validation.videoProfile.resolution='C:/secret-fixture/hidden';Write-CojvrPublicJson $StatusRunPath $r}
+            'invalid-profile' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.validation.videoProfile.resolutionProfile='C:/secret-fixture/hidden';Write-CojvrPublicJson $StatusRunPath $r}
+            'invalid-status' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.validation.videoProfile.resolutionDecision.Status='C:/secret-fixture/hidden';Write-CojvrPublicJson $StatusRunPath $r}
+            'boolean-decision-profile' {$r=Get-Content $StatusRunPath -Raw | ConvertFrom-Json;$r.validation.videoProfile.resolutionDecision.Profile=$true;Write-CojvrPublicJson $StatusRunPath $r}
+        }
+        $Output=Invoke-StatusFixture
+        Assert-True ($Output -match 'preparation outcome: unavailable' -and $Output -notmatch 'configured startup request') "Stale/invalid preparation was reported as current: $Case"
+        Assert-True (-not $Output.Contains('C:/secret-fixture/hidden')) 'Status leaked untrusted metadata'
+    }
+    Reset-StatusFixture
+    $Prepared.resolutionDecision.Status='preserve_unavailable';$Prepared.experimentalResolution=$false
+    $Prepared.resolutionDecision.Experimental=$false
+    $Prepared.resolutionDecision.Limits=@{error='C:/secret-fixture/hidden'}
+    Write-CojvrPublicJson $StatusRunPath $StatusRun
+    $Output=Invoke-StatusFixture
+    Assert-True ($Output -match 'native.*limits.*unavailable' -and -not $Output.Contains('C:/secret-fixture/hidden')) 'Status echoed arbitrary helper error text'
+    Write-Host 'PASS read-only resolution Status: current outcome, pending choice, identity fences and safe errors.'
     . (Join-Path $SourceDirectory 'tools/deployment_transaction.ps1')
     $Public = @{schemaVersion=1;manifestType='cojvr-public-install';installId=('a'*32);phase='installing';buildManifestId=('b'*64);sourceCommit=('c'*40);version='0.1.0-prealpha.1';runId='public-recovery-test'}
     Write-CojvrPublicJson (Join-Path $Game '.cojvr-public-install.json') $Public
