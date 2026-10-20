@@ -19,7 +19,7 @@ RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
             'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference',
-            'rifle_support_reference'}
+            'rifle_support_reference', 'physical_bow_draw', 'physical_bow_reset'}
 
 
 def digest(path):
@@ -478,11 +478,57 @@ def rifle_support_observations(events):
     return rows
 
 
+def bow_draw_observations(events):
+    """Summarize reported bow input/cancellation; never infer an arrow spawn."""
+    samples, requests, counter_max = 0, 0, None
+    resets, gesture_cancels, dispatch_cancels = Counter(), Counter(), Counter()
+    for event in events:
+        if event['event'] not in ('physical_bow_draw', 'physical_bow_reset'):
+            continue
+        f = event['fields']
+        frame = integer(f, 'frame_sequence')
+        reason = f.get('reason')
+        if frame is None or frame <= 0 or not reason:
+            raise ValueError('Missing bow frame or diagnostic reason')
+        if event['event'] == 'physical_bow_reset':
+            if event['result'] != 'cancelled':
+                raise ValueError('Invalid bow reset result')
+            resets[reason] += 1
+            continue
+        if event['result'] not in ('idle', 'drawing', 'shot_requested', 'unavailable'):
+            raise ValueError('Invalid bow draw result')
+        for key in ('gesture_cancelled', 'dispatch_cancelled', 'counter_valid'):
+            if key in f and f[key] not in ('0', '1', 'false', 'true'):
+                raise ValueError('Invalid bow diagnostic flag')
+        if 'arrow_spawn_confirmed' in f and f['arrow_spawn_confirmed'] != 'false':
+            raise ValueError('Bow input telemetry cannot confirm an arrow spawn')
+        if yes(f, 'counter_valid'):
+            counter = integer(f, 'native_attack_entries')
+            if counter is None or counter < 0:
+                raise ValueError('Invalid bow native attack counter')
+            counter_max = counter if counter_max is None else max(counter_max, counter)
+        samples += 1
+        requests += event['result'] == 'shot_requested'
+        if yes(f, 'gesture_cancelled'):
+            gesture_cancels[reason] += 1
+        if yes(f, 'dispatch_cancelled'):
+            dispatch_cancels[reason] += 1
+    return dict(observed=bool(samples or resets), draw_samples=samples,
+                shot_requests=requests, native_attack_counter_max=counter_max,
+                reset_reasons=dict(resets), gesture_cancel_reasons=dict(gesture_cancels),
+                dispatch_cancel_reasons=dict(dispatch_cancels), arrow_spawns_confirmed=None,
+                headset_validated=False,
+                limits=['Sparse input events do not prove continuous draw or successful release.',
+                        'Counter maximum is an observed baseline, not a count of shots or arrows.',
+                        'Absent cancellation events do not establish recovery or physical acceptance.'])
+
+
 def analyze_evidence(directory):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
     events = read_events(paths['runtime/cojvr.log'], evidence)
     rifle_samples = rifle_support_observations(events)
+    bow = bow_draw_observations(events)
     manual = run.get('validation', {}).get('manualReloadInstalled') is True
     traces = [e for e in events if e['event'] == 'reload_trace']
     insertions, issues, mechanics = [], [], []
@@ -662,6 +708,9 @@ def analyze_evidence(directory):
                     insertion_haptics_submitted=haptics['insert_accepted'],
                     depth_observation_samples=len(depth_samples),
                     rifle_support_samples=len(rifle_samples),
+                    bow_draw_samples=bow['draw_samples'],
+                    bow_shot_requests=bow['shot_requests'],
+                    bow_resets=sum(bow['reset_reasons'].values()),
                     depth_unavailable_samples=sum(not yes(r['fields'],'depth_valid') for r in depth_samples),
                     depth_layout_samples=sum(yes(r['fields'],'layout_matches') for r in depth_samples),
                     depth_correlated_pairs=sum(r['status']=='metadata_correlated' for r in depth_eye_pairs),
@@ -676,6 +725,7 @@ def analyze_evidence(directory):
                     ready_reference_samples=sum(r['ready_reference_eligible'] for r in mechanics),
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 rifle_support_observations=rifle_samples,
+                bow_draw_observations=bow,
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
                 renderer_depth_observations=depth_samples,
                 depth_eye_pairs=depth_eye_pairs,

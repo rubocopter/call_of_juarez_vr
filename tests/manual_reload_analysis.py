@@ -60,6 +60,78 @@ def depth_sample(frame=2, eye='left', **extra):
 
 
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_bow_requests_counters_and_cancellations_are_not_arrow_spawns(self):
+        report = self.evidence([
+            event('physical_bow_draw', 'drawing', frame_sequence=2, weapon_id=42,
+                  reason='none', gesture_cancelled=0, dispatch_cancelled=0,
+                  native_attack_entries=9, counter_valid=1, arrow_spawn_confirmed='false'),
+            event('physical_bow_draw', 'shot_requested', frame_sequence=3, weapon_id=42,
+                  reason='none', native_attack_entries=9, counter_valid=1),
+            event('physical_bow_draw', 'idle', frame_sequence=4, weapon_id=42,
+                  reason='pose_stale', gesture_cancelled=1, dispatch_cancelled=0,
+                  native_attack_entries=10, counter_valid=1),
+            event('physical_bow_reset', 'cancelled', frame_sequence=5,
+                  owner_token=1, reason='gameplay_input_lost'),
+            event('physical_bow_draw', 'unavailable', frame_sequence=6, weapon_id=0,
+                  reason='owner_changed', dispatch_cancelled=1, counter_valid=0,
+                  native_attack_entries=999),
+            # A later counter baseline must not become a count of arrow spawns.
+            event('physical_bow_draw', 'idle', frame_sequence=7, weapon_id=43,
+                  reason='none', counter_valid=1, native_attack_entries=2),
+        ])
+        bow = report['bow_draw_observations']
+        self.assertTrue(bow['observed'])
+        self.assertEqual(bow['draw_samples'], 5)
+        self.assertEqual(bow['shot_requests'], 1)
+        self.assertEqual(bow['native_attack_counter_max'], 10)
+        self.assertEqual(bow['reset_reasons'], {'gameplay_input_lost': 1})
+        self.assertEqual(bow['gesture_cancel_reasons'], {'pose_stale': 1})
+        self.assertEqual(bow['dispatch_cancel_reasons'], {'owner_changed': 1})
+        self.assertIsNone(bow['arrow_spawns_confirmed'])
+        self.assertFalse(bow['headset_validated'])
+        self.assertFalse(report['headset_validated'])
+        self.assertEqual(report['summary']['bow_shot_requests'], 1)
+        self.assertEqual(report['summary']['bow_resets'], 1)
+
+    def test_absent_bow_or_counter_is_unobserved_and_legacy_remains_readable(self):
+        bow = self.evidence([])['bow_draw_observations']
+        self.assertFalse(bow['observed'])
+        self.assertEqual(bow['shot_requests'], 0)
+        self.assertIsNone(bow['native_attack_counter_max'])
+        self.assertIsNone(bow['arrow_spawns_confirmed'])
+        legacy = self.evidence([event('physical_bow_draw', 'drawing',
+                                     frame_sequence=2, reason='none')])
+        self.assertTrue(legacy['bow_draw_observations']['observed'])
+        self.assertIsNone(legacy['bow_draw_observations']['native_attack_counter_max'])
+
+    def test_bow_rejects_contradictory_or_malformed_observations(self):
+        for change in ({'arrow_spawn_confirmed': 'true'},
+                       {'counter_valid': 1},
+                       {'counter_valid': 1, 'native_attack_entries': -1},
+                       {'gesture_cancelled': 'perhaps'},
+                       {'dispatch_cancelled': '2'},
+                       {'frame_sequence': 0}, {'frame_sequence': 'nan'}):
+            fields = dict(frame_sequence=2, reason='none')
+            fields.update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.evidence([event('physical_bow_draw', 'idle', **fields)])
+        with self.assertRaises(ValueError):
+            self.evidence([event('physical_bow_reset', 'cancelled', frame_sequence=2)])
+
+    def test_bow_ignores_unrelated_detail_and_outside_run_records(self):
+        report = self.evidence([event('unrelated_error', detail=
+            'event=physical_bow_draw result=shot_requested detail=frame_sequence=2')])
+        self.assertFalse(report['bow_draw_observations']['observed'])
+        # read_events must not allow event-like error text or prior runs to add counts.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'cojvr.log'
+            bow = event('physical_bow_draw', 'shot_requested', frame_sequence=2, reason='none')
+            path.write_text('\n'.join([bow, f'run_start: run_id={RUN} build_manifest_id={BUILD}',
+                                       f'run_end: run_id={RUN}', bow]), encoding='utf-8')
+            events = analysis.read_events(path, dict(runId=RUN, buildManifestId=BUILD,
+                runtimeStarted=True, runtimeEnded=True, incomplete=False))
+        self.assertEqual(analysis.bow_draw_observations(events)['shot_requests'], 0)
+
     def test_rifle_reference_reports_sparse_motion_without_attachment_claim(self):
         def sample(t, p, phase='ordinary_idle_tuple', **extra):
             fields=dict(schema=1,player_generation=7,native_context=5,player_id=11,
