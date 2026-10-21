@@ -490,6 +490,15 @@ other-hand Action/Kick cancels selection, and an admitted slot edge cancels any
 older pending shoulder pulse before native delivery. Precise socket
 contact, model attachment and duel drawing remain separate contracts.
 
+A known zone press is reserved before conflict/freshness/arming admission, so a
+blocked holster attempt cannot fall through to a kick or Action, including after
+leaving the zone while held. Selection retains all original readiness checks.
+During a manual reload session the zone observer still consumes such grips but
+has no native selection readiness. Ammunition pickup/carry/release uses the free
+trigger (L2/R2), whereas holsters use grip (L1/R1); an empty support hand and an
+admitted weapon remain necessary. No model/socket attachment is inferred from
+either gesture. Guides report conflicting trigger/reload/wheel input as unavailable.
+
 The native comfort option enables colored holster guides, off by default. The
 adapter uses the same canonical centers/radii as grip admission and captures
 head-relative billboard corners with the gameplay pair. Available, hovered and
@@ -687,6 +696,14 @@ release barriers after cancellation. Duplicate tracking reads retain their first
 observation time; they cannot renew stale tracking. Prototype acquisition/separation
 bounds are ergonomic limits, not measured collision volumes or visor acceptance.
 Native right-trigger firing and automatic rifle reload remain authoritative.
+Separately, the final ordinary-fire phase observes exact right-only rifle
+ownership after non-fire equipment actions, without requiring support contact,
+an idle animation or natural geometry. It consumes physical L2 rather than
+letting native empty-hand Attack retry the right weapon. Failed ownership reads
+also withhold ordinary L2; R2 is unchanged. A consumed L2 hold survives owner,
+focus and source changes until a fresh available physical release. Raw input
+remains available to ammunition gestures, and bow shot synthesis runs afterward
+under its own native owner. This policy remains inside the CoJ adapter.
 An opt-in read-only exact-class Winchester observer records raw native reload
 states for both hands, two-hand flags, animation clocks and rifle ammo/reserve
 readback across Square. It can omit natural pose when scoped visuals are active;
@@ -801,6 +818,9 @@ the weapon or substitutes the hand-to-hand vector for the barrel axis. One polic
 instance owns the same physical support channels through interruption and release.
 The exact Winchester, Remington and SawOff adapter now connects the solver to
 scoped native rifle transactions, with host-tested ownership and restoration.
+Named `Holder` may resolve to element zero (observed on native Remington); zero
+is a valid root socket, while a negative result rejects. Keep exact-class,
+retained object, natural frame and hand-state checks even for a root holder.
 The adapter also rejects a support controller crossing the perpendicular plane
 through the dominant grip relative to the ordinary right-hand mapped native
 support socket. Equal hand spacing alone could otherwise admit a reversed rifle;

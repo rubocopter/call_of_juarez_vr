@@ -24,6 +24,21 @@ int main(){
     }
     s.inventory.available_mask=0;
     Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[0].state==2,"denied slot must not look selectable");
+    s.inventory.available_mask=0x27;s.raw.fire_left=true;
+    Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[0].state==2,
+        "trigger-owned hand advertised a selectable holster");
+    s.raw.fire_left=false;s.inventory.available_mask=0;
+    s.inventory.available_mask=0x27;s.raw.interact=true;s.grips[1].position={-.6F,1.4F,-.5F};
+    CoJVirtualHolsterState dispatch;auto mapped=s.raw;
+    (void)dispatch.Update(s,mapped);s.selection_blocked=dispatch.selection_blocked();
+    Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[1].state==2,
+        "ordinary other-hand Action advertised a selectable right holster");
+    s.raw.interact=false;s.grips[1].position={-.22F,1,0};
+    mapped=s.raw;mapped.equipment_select[2]=true;
+    (void)dispatch.Update(s,mapped);s.selection_blocked=dispatch.selection_blocked();
+    Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[1].state==2,
+        "mapped equipment conflict advertised a selectable holster");
+    mapped=s.raw;(void)dispatch.Update(s,mapped);s.selection_blocked=dispatch.selection_blocked();
     s.inventory.owned_mask=0;
     Check(!BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.count==0,"unowned weapons must not advertise zones");
     s.inventory.owned_mask=s.inventory.available_mask=0x27;

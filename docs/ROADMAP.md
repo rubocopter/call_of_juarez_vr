@@ -30,8 +30,8 @@ Options > Game cinematic/turning/holster-guide selectors, a physical right-hand 
 guard, reload thumb/continuity corrections, a two-hand rifle support prototype
 and improved launcher resolution reporting. These are implemented/host-tested,
 with scoped operator acceptance of native option usability and one successful
-physical duel draw/raise. Incorrect gestures, hand contact and sustained
-recovery remain open. The solver is now connected to exact Winchester, Remington
+physical duel draw/raise and rejection of tested incorrect/cheating postures.
+Hand contact and unreported timing/recovery remain open. The solver is now connected to exact Winchester, Remington
 and SawOff native rifle transactions, with host coverage and physical acceptance
 pending. The published .4 download does not contain these later changes.
 
@@ -48,8 +48,9 @@ retains that weapon-local reference through native fire/cycle, and cancels for
 reload, invalid geometry or changed ownership. Placement, stability and recovery
 join that same session; automatic native rifle reload is preserved.
 
-The latest operator bow feedback is substantially improved after separating
-renderer capture drops from the lifetime of a valid physical grab. Earlier trials
+The operator now reports the bow worked very well in exercised play, extending
+the earlier substantial improvement after separating renderer capture drops
+from the lifetime of a valid physical grab. Earlier trials
 with no arrows or frequent tension cuts remain rejected historical trials; they
 do not describe the current candidate. Sustained consistency, mesh/string/arrow/
 reticle agreement, haptics and interruption recovery remain physical gates.
@@ -106,6 +107,25 @@ preimage, including partial writes and translated retries. Recovery preserves
 unknown directory contents and journals; staging rejects an unrepresentable
 original directory before mutation. These repairs are not open implementation
 items and do not close the physical interruption gates.
+
+The subsequent physical attempt did not acquire Remington support and did not
+enter a manual pistol session. Live Remington `Holder` resolves to element zero;
+the support admission's positive-only check rejected this valid root socket.
+That filter is corrected with root-holder geometry/JNI regressions; physical
+retest is pending. The trace identifies an unsupported Derringer, not every
+pistol the operator tried. Existing dual/whole-clip/multiple-ammo exclusions
+remain: the current run cannot qualify cartridge fit or reload feedback.
+The operator also reports L2 firing the right-owned Remington. Native Attack's
+empty-hand fallback explains this independently of support acquisition. A
+host-tested ordinary-fire ownership filter now blocks that L2 route for exact
+right-only rifles and retains consumed holds until physical release. Physical
+absence of accidental shots, R2 firing and held-trigger recovery remain pending.
+Basic holsters have positive operator feedback with occasional unwanted kicks.
+Conflicting/stale zone presses are now consumed through release before native
+selection admission; manual reload owns ammunition before holsters. Host tests
+reproduce the earlier kick leakage; the corrected delivery still needs a retest.
+Optional guides expose available/near/unavailable zones, while an anatomical
+holstered weapon model and a distinct ammunition pickup cue remain future work.
 
 Immediate work, in order:
 
@@ -309,8 +329,9 @@ or reload work:
   right aim tip and centered stick before draw, then a physically raised tip
   before upward raise input. Host tests cover the pre-aimed-hand shortcut and
   tracking/owner recovery without changing native draw timing or permissions.
-  One correct hand-at-hip draw/raise has operator acceptance. Wrong/early gestures
-  and broader native retry behavior remain pending in the consolidated batch;
+  Correct hand-at-hip draw/raise and rejection of exercised wrong/cheating
+  positions have operator acceptance. Unreported early timing and broader native
+  retry behaviour remain pending in the consolidated batch;
   this is not yet a measured holster interaction.
   Original model/inventory evidence identifies `HolsterR` for Ray/Billy and
   `HolsterL` for Ray. Natural pre-body frame diagnostics are available in the same

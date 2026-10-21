@@ -13,7 +13,7 @@ struct CoJVirtualHolsterSample {
     runtime::Pose head{};
     std::array<runtime::Pose,2> grips{}; // right, left
     std::uint64_t player=0,context=0,sequence=0,now_us=0;
-    bool allowed=false,native_ready=false;
+    bool allowed=false,native_ready=false,selection_blocked=false;
 };
 struct CoJVirtualHolsterZone {
     runtime::Vec3 offset{};
@@ -62,10 +62,22 @@ inline int CoJVirtualHolsterZoneForHand(const runtime::Pose& head,const runtime:
     }
     return -1;
 }
+// Presentation and dispatch share the same conflict policy. A blocked zone
+// remains a holster intent, never permission to fall through to Action/Kick.
+inline bool CoJVirtualHolsterInputConflict(const runtime::GameplayInputState& raw,
+    const runtime::GameplayInputState& mapped) noexcept {
+    for(unsigned i=0;i<raw.equipment_select.size();++i)
+        if(raw.equipment_select[i]||mapped.equipment_select[i])return true;
+    return raw.weapon_radial||mapped.weapon_radial||raw.reload||
+        raw.fire_left||raw.fire_right||raw.quick_load||raw.quick_save||
+        raw.hands||raw.discard_weapon||raw.weapon_next||raw.weapon_previous||
+        raw.objectives||raw.logs||raw.alternate_fire;
+}
 class CoJVirtualHolsterState final {
 public:
     // Preserve consumed physical holds through loss, not just their old meaning.
     void Invalidate() noexcept {known_=false;armed_={};}
+    bool selection_blocked() const noexcept {return selection_blocked_;}
     int Update(const CoJVirtualHolsterSample& s,runtime::GameplayInputState& out) noexcept {
         const std::array<bool,2> held{s.raw.kick,s.raw.interact};
         const std::array<bool,2> mapped{out.kick,out.interact};
@@ -94,22 +106,21 @@ public:
             clock_known_=true;sequence_=s.sequence;time_=s.now_us;
         }
         known_=valid;player_=s.player;context_=s.context;input_=s.raw.input_context_generation;
-        const bool conflict=s.raw.weapon_radial||out.weapon_radial||s.raw.reload||
-            s.raw.fire_left||s.raw.fire_right||s.raw.quick_load||s.raw.quick_save||
-            s.raw.hands||s.raw.discard_weapon||s.raw.weapon_next||s.raw.weapon_previous||
-            s.raw.objectives||s.raw.logs||s.raw.alternate_fire||
-            AnyEquipment(s.raw)||AnyEquipment(out);
+        const bool conflict=CoJVirtualHolsterInputConflict(s.raw,out);
         int selected=-1;
         for(int h=0;h<2;++h){
             if(!available[h]||!CoJVirtualHolsterPoseValid(s.grips[h])){armed_[h]=false;continue;}
             if(valid&&fresh&&!conflict&&!held[h])armed_[h]=true;
             if(!edge[h])continue;
+            const int channel=valid?CoJVirtualHolsterZoneForHand(s.head,s.grips[h],h):-1;
+            // Reserve a geometrically known zone press even when input is
+            // stale, unarmed or busy. Selection still requires every proof
+            // below; cancellation/exit must not turn this hold into a kick.
+            if(channel>=0)claimed_[h]=true;
             const bool admitted=valid&&fresh&&same&&armed_[h]&&mapped[h]&&!conflict;
             armed_[h]=false;
             if(!admitted)continue;
-            const int channel=CoJVirtualHolsterZoneForHand(s.head,s.grips[h],h);
             if(channel<0)continue;
-            claimed_[h]=true;
             const unsigned bit=1U<<channel;
             if(selected<0&&s.native_ready&&s.inventory.valid&&(s.inventory.owned_mask&bit)&&
                 (s.inventory.available_mask&bit))selected=channel;
@@ -117,7 +128,8 @@ public:
         suppress();
         // An unclaimed other-hand Action/Kick keeps its ordinary meaning;
         // never combine it with inventory mutation in this dispatch.
-        if(out.interact||out.kick||out.run)selected=-1;
+        selection_blocked_=conflict||out.interact||out.kick||out.run;
+        if(selection_blocked_)selected=-1;
         if(selected>=0){
             // Also cancel an earlier failed/queued shoulder pulse on a left
             // holster selection before CaptureShoulder can merge it again.
@@ -127,12 +139,8 @@ public:
         return selected;
     }
 private:
-    static bool AnyEquipment(const runtime::GameplayInputState& input) noexcept {
-        for(bool pressed:input.equipment_select)if(pressed)return true;
-        return false;
-    }
     std::array<bool,2> armed_{},down_{},claimed_{};
-    bool known_=false,clock_known_=false;
+    bool known_=false,clock_known_=false,selection_blocked_=false;
     std::uint64_t player_=0,context_=0,input_=0,sequence_=0,time_=0;
 };
 }

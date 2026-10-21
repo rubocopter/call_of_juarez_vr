@@ -190,10 +190,11 @@ evidence. The already archived rejection is preserved.
 | Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms careful-movement corrections, default smooth turn and continuous HMD body follow without the former cone in the exercised PS VR2 setup. Native option usability is accepted where exercised. | The drift report concerns the older published package; the current continuous-follow correction is accepted in scope. Other headsets/controllers, prolonged comfort and mounted/campaign contexts remain open. Physical-walk/turn leg animation is planned. Specific mode/held-input recovery is not separately qualified by selector usability. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. Corrected free-left-hand fingers with a normally held long gun have scoped operator acceptance. | Firing/alternate/reload retain native fingers. Broader finger, weapon and recovery coverage remains open. Connected-arm IK is diagnostic. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. The combined candidate's dual reticles and Clyde draw/raise with tracked aim/fire have operator confirmation. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Long-gun manual reload is unimplemented; native automatic reload/animation remain. |
-| Physical bow | Exact owner/root ray, physical right-hand R2 grab/draw/release, native supervision, controller haptics and capture-drop separation are host-tested. Latest operator feedback confirms substantial improvement after earlier failed trials. | Sustained firing consistency, mesh/string/arrow/reticle agreement, haptic quality, concentration optics and interruption recovery are not separately accepted. This is scoped improvement, not general bow support. |
-| Physical duel posture | One correct hand-at-hip draw followed by physical raise has operator acceptance. The posture guard is implemented/host-tested and stick-only input is insufficient. | Incorrect/early gestures and native retry recovery remain open. Measured holster contact is not implemented. |
-| Basic virtual holsters | HMD-relative hip/shoulder zones for both pistols, right-shoulder rifle and left-shoulder bow, fresh grip claims, native slot permission and stable hand-state admission are implemented/host-tested, including actual JNI delivery. Optional colored guides share the admission geometry and have binocular raster coverage. | Physical reach/zone fit, guide comfort, equip/hide transitions and Action/Kick coexistence await headset acceptance. No attached weapon mesh or measured native socket contact; disabled during duels and mounted play. |
+| Physical bow | Exact owner/root ray, physical right-hand R2 grab/draw/release, native supervision, controller haptics and capture-drop separation are host-tested. Operator confirms the bow worked very well in the exercised session, extending the earlier improvement to scoped functional acceptance. | Mesh/string/arrow/reticle agreement, haptic quality, concentration optics and interruption recovery are not separately accepted. This does not qualify all scenes or sustained campaign support. |
+| Physical duel posture | Correct hand-at-hip draw/raise and rejection of exercised incorrect/cheating positions have operator acceptance: actions were permitted only in the correct position. | Native early-draw timing, retry/recenter and ownership recovery remain separate where not exercised. Measured holster contact is not implemented. |
+| Basic virtual holsters | Operator reports equip/stow gestures worked quite well in exercised play. Native slot permission/fresh grip policy, optional colored guides and binocular raster have host coverage. | Occasional unintended kicks reject clean Action/Kick coexistence. Zone fit/guide comfort remain open; denied/conflicting zone-press consumption is corrected with host regressions, awaiting physical retest. No attached weapon mesh or measured native socket contact; disabled during duels and mounted play. |
 | Two-hand rifles | Exact Winchester/Remington/SawOff support-grip prototype is implemented/host-tested, including real bridge capture, both hand maps, single weapon commit, muzzle/ray verification, original-object replacement rejection, failed-restore retention and crossed-support rejection during both update and render refresh. | Fresh L1 near the naturally animated support grip attaches the left hand; native right-trigger fire and Square automatic reload remain. Grasp placement, rigid aiming, firing/cycling continuity and interruption recovery need visor acceptance. Scope/other classes fail closed. |
+| Latest rifle/reload attempt | Operator could not acquire the available long gun, reports free-hand L2 firing the Remington, and observed native pistol reload. Collected native observations identify Remington `Holder=0` and an unsupported Derringer, with no manual-session/insertions observed. | Root-holder admission and ordinary L2 rifle ownership are corrected/host-tested, awaiting physical retest. Native empty-hand Attack fallback explains the cross-fire; independent pistol triggers and bow synthesis retain their own routes. The evidence does not identify every pistol tried. Derringer/two-slot/whole-clip and dual-equipped contexts retain native reload; current cartridge/contact feedback was not exercised and earlier scoped admitted-revolver acceptance is unchanged. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
 | Native VR options | Operator reports native options work well. Shared preferences and cinematic/turning selectors have host coverage and scoped physical usability acceptance. The new localized comfort/holster-guide selector and version-3 migration are host-tested. | New comfort-row readability/operation, specific persistence, OK/Cancel/Defaults and held-input/recovery paths require evidence where not exercised. Ordinary menu usability is not pending again. |
@@ -226,7 +227,7 @@ tracks features that still need implementation.
 | Bow interruption or a general recovery opportunity | Once, interrupt with wheel/pause or available tracking/focus/dashboard loss; release controls before resuming. Require no stale shot, click, round transfer or haptic replay and coherent resumed stereo. Recenter and save/load/death recovery remain distinct where naturally encountered. |
 | A secret-scroll chest | Pick up the scroll, close its UI and continue moving/aiming. Require no crash and continued control/stereo. Chests were not exercised in the latest operator feedback. |
 | An eligible single revolver with empty support hand | Check the changed cartridge tangent/contact, thumb gesture, zone-entry/insertion cues and tracking-jump rejection together. Keep the earlier native unit-loading acceptance; judge only new presentation/recovery behavior. Frontier/Walker/Cogswell and mirrored use remain eligible extensions when found. |
-| Another duel | Try an early/already-raised hand and stick-only shortcut, then a fresh correct hip-hand draw/raise after retry. Wrong posture must not bypass the guard; native timing and fresh retry must still work. One correct gesture is already accepted. |
+| Another duel | Only unexercised early timing, retry/recenter and ownership recovery remain. Correct posture and rejection of the tested incorrect/cheating positions are accepted and need no repeat merely for confirmation. |
 | Weapons available during ordinary on-foot play | Fresh R1 at the right hip toggles its pistol; L1 at the left hip toggles its pistol; R1 above/behind the right shoulder toggles the rifle; L1 above/behind the left shoulder toggles the bow. Release between attempts, including to stow a drawn weapon. Enable/disable holster guides in native VR comfort options and judge zone reach, alignment and visual comfort. Check no repeats while held, no Action/Kick on leaving zones, no unavailable-slot selection and normal L1/R1 elsewhere. Judge the updated wheel's readability during normal selection. Use the grouped interruption check; attached meshes are not required. |
 | Options or a loading transition | Specific unexercised save/reopen, Cancel/Defaults and held-control barriers; one fresh Cross/trigger loading continuation when encountered. Do not repeat ordinary selector/menu usability as a new gate. |
 | Interaction/HUD, a movie or horse | Left-Sense L1 reference independent of gaze; revised wrist/concentration indicators. For unreported movie modes, broaden subtitle timing/clearance/settings recovery when naturally available; appearance in exercised animations is accepted. Mounted movement/gallop, camera/aim and paired horse meters remain separate from accepted mount/dismount. Broader DLC testing is deferred. |
@@ -276,6 +277,19 @@ weapon/hand, action and visible symptom. Telemetry, host tests and absence of a
 crash cannot substitute for an operator observation. Individual run IDs, source
 range, deployment hashes, logs and the Spanish run checklist belong under
 ignored `work/`, linked to that candidate's manifests.
+
+For the follow-up to the rejected Remington/holster attempt, narrow this further:
+use the available Remington for L2 alone without support (no shot), one fresh L1
+acquire, aim/roll, L2 again (no shot), 2-3 R2 shots and Square native reload.
+The reported L2 cross-fire is rejected; the final ordinary-fire ownership filter
+has host coverage only. If another weapon is available, hold L2 through the
+switch, then release/repress: no delayed shot from the consumed hold, and normal
+independent pistol triggers after release. Then one allowed holster toggle and a zone press during a
+held trigger, leaving the zone without release (no unintended kick/Action).
+Optional colored guides should mark conflicting input unavailable. Test cartridge
+pickup only if an admitted revolver with empty support is actually available;
+Derringer/whole-clip or dual-equipped weapons retain native reload. Winchester
+observation, bow and duel posture need no separate trial solely for this fix.
 
 ## Host verification boundary
 
@@ -570,7 +584,7 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   raise followed by tracked-hand aiming and shooting. That exercised sequence
   is headset-validated and needs no repeat solely for confirmation. Native
   early-draw rejection, retry, recenter and return to ordinary turning remain
-  separate gates. Do not force weapon/countdown state to pass them.
+   separate gates. Do not force weapon/countdown state to pass them.
 - **Dual weapon reticles:** the combined operator confirmation accepts the
   exercised two-marker presentation. Exact ballistic agreement, protected-target
   warning appearance and stale-mark recovery under pause/tracking loss retain
@@ -870,11 +884,12 @@ the other hand still, then reverse; verify mesh/arrow/reticle agreement in both
 eyes, physical right-trigger draw/release, equip/pause/recenter recovery and concentration.
 A straight aim marker is not a predicted arrow impact point.
 
-The latest operator report says the bow is substantially better after separating
-renderer capture drops from physical grab lifetime. Correlated diagnostics show
+The operator confirms that the bow worked very well in the later exercised
+session after the earlier substantial improvement from separating renderer
+capture drops from physical grab lifetime. Correlated diagnostics show
 native attack entries and retained grabs during renderer-only backpressure;
 attack entry alone does not count confirmed arrow spawns. This is scoped physical
-feedback of improvement. Sustained firing consistency, interruption recovery,
+functional acceptance in the exercised use. Sustained campaign consistency, interruption recovery,
 visual alignment and haptic quality have not been separately confirmed.
 Earlier no-arrow and frequent-cut trials remain rejected historical evidence.
 The first aiming-only correction had no physical string-draw policy; a later
@@ -1059,9 +1074,11 @@ the physical tip at least 45 degrees and center the stick, then pull down; retur
 above -30 degrees before upward stick can raise the native gun. These gesture
 thresholds are UX assumptions, not an anatomically qualified holster. Fresh-pose,
 owner/context, stale-input and JNI failure checks do not prove headset usability.
-The operator completed one physical draw/raise attempt successfully with the
-hand at the hip. That positive path has scoped headset acceptance; stick-only
-bypass, early/wrong gestures and recovery were not tested and remain pending.
+The operator completed physical draw/raise with the hand at the hip and later
+explicitly tried incorrect/cheating positions: only the correct position allowed
+actions. Both the positive path and exercised posture rejection have scoped
+headset acceptance. Native early timing, retry/recenter and ownership recovery
+remain separate where not reported.
 Original Ray/Billy `HolsterR` and Ray `HolsterL` are native inventory-placement
 sockets. Read-only natural pre-body frames now accompany throttled duel diagnostics;
 they grant no contact or draw permission. A mount origin alone does not establish

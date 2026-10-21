@@ -102,6 +102,20 @@ Host JNI checks include this downstream conversion. Corrected right-pistol and
 empty-left-trigger ownership is operator-accepted; left/dual firing and native
 two-hand/tool contexts retain separate physical gates.
 
+The operator subsequently observed L2 firing a right-owned Remington with its
+left slot empty. That rifle is natively two-handed, so the one-hand CanAttack
+prefix deliberately does not reject the original opposite-hand retry. The CoJ
+adapter now filters ordinary L2 after non-fire equipment dispatch for stable
+right actual/desired/active exact Winchester, Remington and SawOff owners with
+empty left slots. This does not depend on acquiring physical support or on an
+idle/reload pose. Failed native ownership reads withhold ordinary L2 as well.
+R2 and the original CanAttack rules remain unchanged; unrelated weapon classes
+retain their native route. A consumed physical L2 hold stays consumed through
+weapon/input loss until a fresh available release. The separate bow consumer
+still synthesizes its native shot channel afterward from its own R2 gesture.
+These changes have host coverage; absence of accidental Remington shots and
+physical recovery still require the bounded visor retest.
+
 A standalone shipped-Java fixture executes the unchanged `ExecuteInput`,
 `ApplyAttack` and `ApplyAttackState` bytecode against inert engine/player stubs.
 The formerly inverted request fails the right-hand assertion; action 10 reaches

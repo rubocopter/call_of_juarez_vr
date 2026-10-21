@@ -26,7 +26,8 @@ inline bool BuildCoJHolsterGuides(const CoJVirtualHolsterSample& s,bool enabled,
         if(right.x*right.x+right.y*right.y+right.z*right.z<.5F)right=unit(cross({0,0,1},normal));
         const auto up=cross(normal,right);
         auto& surface=out.holster_guides.zones[out.holster_guides.count++];
-        const bool ready=s.native_ready&&(s.inventory.available_mask&bit)!=0;
+        const bool ready=s.native_ready&&(s.inventory.available_mask&bit)!=0&&
+            !s.selection_blocked&&!CoJVirtualHolsterInputConflict(s.raw,s.raw);
         surface.state=!ready?2:CoJVirtualHolsterZoneForHand(s.head,s.grips[zone.hand],zone.hand)==zone.channel?1:0;
         for(unsigned j=0;j<4;++j){const float x=(j&1)?zone.radius:-zone.radius,y=(j&2)?-zone.radius:zone.radius;
             surface.head_corners[j]={centre.x+x*right.x+y*up.x,centre.y+x*right.y+y*up.y,centre.z+x*right.z+y*up.z};}

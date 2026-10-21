@@ -411,6 +411,7 @@ public:
     [[nodiscard]] bool TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept;
     [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
     [[nodiscard]] bool TryObserveLongGunSupport(CoJLongGunSupportSnapshot& observation) noexcept;
+    [[nodiscard]] bool TryObserveLongGunFireOwnership(bool& right_only) noexcept;
     // Retire candidate/attachment identity independently of the per-eye element
     // overlays. Failed JNI cleanup keeps its reference for a later retry.
     [[nodiscard]] bool ClearLongGunGripOwner(std::string* error=nullptr) noexcept;

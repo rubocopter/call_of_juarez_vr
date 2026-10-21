@@ -37,6 +37,13 @@ multiple ammo types and network contexts reject the manual path.
 route. LeMat, Derringer, legacy `_Old` classes and unknown subclasses have no
 manual admission. LeMat's two-ammunition logic needs a separate contract.
 Square retains its native fallback in positively identified unsupported contexts.
+One later exercised session records an exact Derringer and support-occupied
+contexts, with no admitted manual session or insertion. The operator's report
+of conventional reload in that session does not qualify new cartridge visuals
+or invalidate earlier admitted-revolver acceptance; other unclassified pistols
+cannot be identified from that trace. Free-trigger L2/R2 ammunition pickup is
+distinct from grip L1/R1 holstering. The holder-zero Remington support correction
+does not admit any new weapon to manual reload.
 New profiles do not acquire measured loading-mouth geometry, a port writer,
 ejection, chamber occupancy or an exact-calibre cartridge model. The existing
 grip-zone presentation/gesture and scoped thumb feedback are reused only after

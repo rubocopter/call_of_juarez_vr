@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/java_player_bridge.hpp"
+#include "games/call_of_juarez/long_gun_fire.hpp"
 #include "games/call_of_juarez/revolver_profile.hpp"
 #include "games/call_of_juarez/hud_text_reader.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
@@ -1549,6 +1550,16 @@ bool JavaPlayerBridge::ClearLongGunGripOwner(std::string* error) noexcept {
     del(env,long_gun_grip_owner_);
     // DeleteGlobalRef does not throw. Keep no stale handle after deletion.
     long_gun_grip_owner_=nullptr;return true;
+}
+
+bool JavaPlayerBridge::TryObserveLongGunFireOwnership(bool& right_only) noexcept {
+    right_only=false;
+    if(!being_||independent_hand_faulted_||weapon_overlay_faulted_)return false;
+    const auto generation=being_generation_;void* const player=being_;
+    bool observed=false;
+    if(!ReadCoJLongGunFireOwnership(Environment(nullptr),player,observed)||
+        being_!=player||being_generation_!=generation)return false;
+    right_only=observed;return true;
 }
 
 bool JavaPlayerBridge::TryObserveLongGunSupport(CoJLongGunSupportSnapshot& out) noexcept {

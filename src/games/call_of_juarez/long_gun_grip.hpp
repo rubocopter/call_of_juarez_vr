@@ -44,7 +44,7 @@ inline int Kind(const char* name) noexcept {
 }
 inline bool Qualified(const CoJLongGunSupportSnapshot& n) noexcept {
     if(!n.valid||!n.object_epoch||!Kind(n.weapon_class)||!long_gun_observer_detail::ValidId(n.player_id)||
-        !long_gun_observer_detail::ValidId(n.weapon_id)||n.holder_element<=0||n.support_element<=0)return false;
+        !long_gun_observer_detail::ValidId(n.weapon_id)||n.holder_element<0||n.support_element<=0)return false;
     bool fire=false;
     for(int h=0;h<2;++h){
         for(int state:n.states[h]){

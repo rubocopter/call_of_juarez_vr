@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/long_gun_observer.hpp"
+#include "games/call_of_juarez/long_gun_fire.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -11,7 +12,7 @@ void Require(bool v,const char* message){if(!v){std::cerr<<message<<'\n';std::ex
 void* P(int n){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(n));}
 constexpr int player=100,weapon=101,alias=102,foreign=103,player_class=110,subclass=114;
 void* table[224]{};void** env=table;std::map<void*,int> refs;
-int steps=0,fail_step=-1,frames=0,kind=0,change=0,invalid_frame=-1;
+int steps=0,fail_step=-1,frames=0,kind=0,change=0,invalid_frame=-1,object_reads=0,owner_change_at=-1;
 bool pending=false,dead=false,carrying=false,reloading=false,alias_desired=false;
 std::uint32_t player_id=0x8f120001,weapon_id=0xf1234001;
 void* weapons[2][3]{};int states[2][4]{};bool two[2][3]{};
@@ -45,6 +46,7 @@ void* __stdcall Lookup(void*,void* cls,const char* n,const char* signature){if(!
     Require(false,"factory/setter or unknown getter requested");return nullptr;
 }
 void* __stdcall Object(void*,void* obj,void* method,const Value* args){if(!Step())return nullptr;
+    if(++object_reads==owner_change_at)for(int i=0;i<3;++i)weapons[0][i]=P(foreign);
     const auto i=static_cast<int>(reinterpret_cast<std::uintptr_t>(method))-1;
     Require(obj==P(player)&&i>=0&&i<3&&args&&args->integer>=0&&args->integer<2,"bad object query");
     auto value=weapons[args->integer][i];
@@ -88,6 +90,7 @@ bool Frame(void* context,void* object,int element,ElementWorldBasisTarget& out) 
     return Step(); // also exercise pending JNI exception from the adapter callback
 }
 void Reset(){steps=frames=0;fail_step=-1;kind=change=0;invalid_frame=-1;pending=dead=carrying=reloading=alias_desired=false;
+    object_reads=0;owner_change_at=-1;
     player_id=0x8f120001;weapon_id=0xf1234001;
     for(int h=0;h<2;++h){for(int i=0;i<3;++i){weapons[h][i]=h?nullptr:P(weapon);two[h][i]=h==0;}for(int i=0;i<4;++i)states[h][i]=h?0:1;}
     Require(refs.empty(),"leaked locals before reset");}
@@ -107,6 +110,32 @@ int main(){
     Set(6,Find);Set(15,Exception);Set(17,Clear);Set(23,Delete);Set(24,Same);Set(31,Class);
     Set(33,Lookup);Set(36,Object);Set(39,Boolean);Set(51,Integer);Set(167,String);
     Reset();CoJLongGunSupportSnapshot out{};
+    bool right_only=false;
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&right_only,
+        "right-only rifle native fire ownership not recognized without a grip");
+    Require(refs.empty()&&!pending&&frames==0,"fire ownership read leaked JNI or sampled geometry");
+    const int fire_steps=steps;
+    for(int k=0;k<3;++k){Reset();kind=k;reloading=true;states[0][0]=21;
+        Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&right_only,
+            "known rifle trigger ownership incorrectly depends on reload/idle pose");}
+    Reset();kind=3;
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,"unknown weapon inherited rifle policy");
+    Reset();for(int i=0;i<3;++i)weapons[1][i]=P(foreign);
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,"occupied left hand blocked as free");
+    Reset();alias_desired=true;
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&right_only,"fire owner used raw JNI alias equality");
+    for(int h=0;h<2;++h)for(int slot=0;slot<3;++slot){
+        Reset();weapons[h][slot]=h?P(foreign):nullptr;
+        Require(!ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,
+            "partial weapon tuple admitted native other-hand attack fallback");
+    }
+    Reset();owner_change_at=7;
+    Require(!ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,
+        "changing fire ownership tuple returned a known-safe route");
+    for(int i=1;i<=fire_steps;++i){Reset();fail_step=i;right_only=true;
+        Require(!ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only&&refs.empty()&&!pending,
+            "failed fire ownership observation leaked locals/exception/stale verdict");}
+    Reset();
     Require(Read(out),"idle exact rifle observation unavailable");const int total=steps;
     Require(frames==3&&out.player_id==player_id&&out.weapon_id==weapon_id&&!out.firing,"baseline identity/phase lost");
     Require(out.support_in_weapon.valid&&std::abs(out.support_in_weapon.position.x-30)<.001F&&

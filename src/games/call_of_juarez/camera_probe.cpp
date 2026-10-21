@@ -14,6 +14,7 @@
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/long_gun_grip.hpp"
+#include "games/call_of_juarez/long_gun_fire.hpp"
 #include "games/call_of_juarez/winchester_reload_probe.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
@@ -169,6 +170,7 @@ CoJWinchesterReloadProbe g_winchester_reload_probe;
 CoJLongGunGripState g_long_gun_grip;
 CoJLongGunGripSampleClock g_long_gun_sample_clock;
 CoJLongGunGripOutput g_long_gun_claim{};
+CoJLongGunFreeTrigger g_long_gun_free_trigger;
 bool g_long_gun_quarantined=false;
 std::uint64_t g_long_gun_failed_sequence=0;
 std::uint64_t g_long_gun_expected_sequence=0;
@@ -5990,14 +5992,17 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         snapshot.command.independent_hands_enabled && snapshot.command.vr_gameplay_input_enabled &&
         game_timer_valid && !game_timer_frozen && mounted_available && !mounted &&
         duel_owner_known && !duel_active && !recentered && !loading_ui_input.suppress_gameplay &&
-        !g_arm_rotation_faulted && !g_room_scale_body_offset.faulted &&
-        g_manual_reload.phase()==CoJManualReloadPhase::ready && !g_bow_draw_session.active();
+        !g_arm_rotation_faulted && !g_room_scale_body_offset.faulted && !g_bow_draw_session.active();
     // Only a possible press needs synchronous native life/carry/reload/state
     // proof. No JNI mutation or new persistent inventory replica is introduced.
     const bool holster_guides_enabled=runtime::CurrentHolsterGuidesEnabled();
-    if(holster_sample.allowed && (raw_reload_input.kick||raw_reload_input.interact||holster_guides_enabled))
+    // A manual session owns ammunition before holsters. Still reserve a grip
+    // pressed in a holster zone so a denied attempt cannot become Action/Kick.
+    if(holster_sample.allowed && g_manual_reload.phase()==CoJManualReloadPhase::ready &&
+        (raw_reload_input.kick||raw_reload_input.interact||holster_guides_enabled))
         holster_sample.native_ready=g_java_player_bridge.TryObserveVirtualHolsterReady();
     const int holster_channel=g_virtual_holsters.Update(holster_sample,gameplay_input);
+    holster_sample.selection_blocked=g_virtual_holsters.selection_blocked();
     if(holster_channel>=0)try{
         EmitEvent("virtual_holster","requested","frame_sequence="+std::to_string(frame_sequence)+
             ";channel="+std::to_string(holster_channel)+";pose_sequence="+
@@ -6726,6 +6731,15 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (snapshot.command.vr_gameplay_input_enabled) {
         auto fire_input=gameplay_input;
         if (!gameplay_input_ok) fire_input={};
+        // Read after non-fire equipment actions, so a same-frame switch cannot
+        // send L2 to a newly selected right-only rifle via native Attack's
+        // empty-hand fallback. Grip/pose/reload eligibility is independent.
+        // Keep raw input intact for ammunition and the bow's later synthesis.
+        bool right_only_long_gun=false;
+        const bool fire_owner_known=fire_input.active&&
+            g_java_player_bridge.TryObserveLongGunFireOwnership(right_only_long_gun);
+        g_long_gun_free_trigger.Filter(raw_reload_input,sample.hmd_pose.sequence,
+            fire_input.active&&(!fire_owner_known||right_only_long_gun),fire_input);
         FilterCoJLongGunGripInput(g_long_gun_claim.claim,fire_input);
         if(g_long_gun_failed_sequence==frame_sequence||g_long_gun_quarantined){
             fire_input.fire_left=fire_input.fire_right=false;
@@ -8763,6 +8777,7 @@ void ShutdownCameraProbe() noexcept {
     g_reload_insertion_pose_last_applied=false;
     g_manual_reload_geometry_logging_enabled=false;
     g_long_gun_probe={};
+    g_long_gun_free_trigger={};
     g_winchester_reload_probe={};
     g_reload_pinch_last_hand=-1;g_reload_pinch_last_applied=false;
     g_reload_ready_geometry_reference={};

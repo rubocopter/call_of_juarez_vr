@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/long_gun_grip.hpp"
+#include "games/call_of_juarez/long_gun_fire.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -46,6 +47,20 @@ void GeometryAndSinglePlan(){
     g.support_grip_cm={480,520,640};out=BuildCoJLongGunGripFrame(g);
     Check(out.valid&&out.support_error_m>.4F,"unequal spacing hidden");
     Check(std::abs(out.solution.source_span_m-std::sqrt(.21F))<.0001F,"cm/metre conversion incorrect");
+}
+void NativeRootHolderIsValid(){
+    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
+        auto g=Geometry();g.native.weapon_class=cls;
+        // Live Remington resolves the named Holder to native element zero.
+        // A root socket is valid; only a missing (-1) element is invalid.
+        g.native.holder_element=0;g.native.holder=g.native.root;
+        g.dominant_socket_cm=g.native.root.position;g.support_grip_cm={430,510,560};
+        const auto frame=BuildCoJLongGunGripFrame(g);
+        Check(frame.valid&&IsCoJLongGunGripFrameAdmitted(frame),"native root Holder rejected rifle support");
+        Check(Near(frame.mapped_support_frame.position,g.support_grip_cm),"root Holder moved measured support");
+        g.native.holder_element=-1;
+        Check(!BuildCoJLongGunGripFrame(g).valid,"missing Holder admitted a rifle map");
+    }
 }
 struct Fixture {
     CoJLongGunGripState state;CoJLongGunGripGeometry g=Geometry();CoJLongGunGripInput in{};
@@ -125,6 +140,32 @@ void RejectionsAndRefresh(){
     Fixture q;(void)q.Attach();q.state.Cancel();Check(!q.state.attached(),"cancel kept attachment");
     auto o=q.Step();Check(o.claim.consume_grip&&!o.attached,"cancel forgot physical hold");
 }
+void UnattachedFreeTrigger(){
+    CoJLongGunFreeTrigger state;
+    GameplayInputState raw{};raw.active=true;raw.input_context_generation=1;
+    raw.fire_left=raw.fire_right=true;
+    auto mapped=raw;state.Filter(raw,1,true,mapped);
+    Check(!mapped.fire_left&&mapped.fire_right&&!(mapped.digital_available&1U),
+        "unattached rifle free trigger reached native other-hand attack fallback");
+    mapped=raw;state.Filter(raw,2,false,mapped);
+    Check(!mapped.fire_left&&mapped.fire_right,"changing weapon leaked consumed L2 hold");
+    raw.active=false;raw.fire_left=false;mapped=raw;state.Filter(raw,3,false,mapped);
+    raw.active=true;raw.fire_left=true;mapped=raw;state.Filter(raw,4,false,mapped);
+    Check(!mapped.fire_left,"inactive input counted as physical release");
+    raw.digital_available&=~1U;raw.fire_left=false;mapped=raw;state.Filter(raw,5,false,mapped);
+    raw.digital_available|=1U;raw.fire_left=true;++raw.input_context_generation;
+    mapped=raw;state.Filter(raw,1,false,mapped);
+    Check(!mapped.fire_left,"missing sample or source replacement released held trigger");
+    raw.fire_left=false;mapped=raw;state.Filter(raw,1,false,mapped);
+    raw.fire_left=true;mapped=raw;state.Filter(raw,2,false,mapped);
+    Check(!mapped.fire_left,"duplicate sequence counted as release");
+    raw.fire_left=false;mapped=raw;state.Filter(raw,3,false,mapped);
+    Check(!(mapped.digital_available&1U),"consumed release escaped its owner");
+    raw.fire_left=true;mapped=raw;state.Filter(raw,4,false,mapped);
+    Check(mapped.fire_left&&mapped.fire_right,"fresh pistol triggers did not recover independently");
+    CoJLongGunFreeTrigger ordinary; mapped=raw;ordinary.Filter(raw,4,false,mapped);
+    Check(mapped.fire_left&&mapped.fire_right,"ordinary dual pistol trigger was blocked");
+}
 void RepeatedRenderSamples(){
     Fixture f;CoJLongGunGripSampleClock clock;
     f.in.controls.sample_time_ms=clock.Observe(7,f.in.controls.sequence,f.in.controls.now_ms);
@@ -141,5 +182,5 @@ void RepeatedRenderSamples(){
     Check(clock.Observe(8,1,2000)==2000,"replacement source failed to restart dating");
 }
 }
-int main(){GeometryAndSinglePlan();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();RepeatedRenderSamples();
+int main(){GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

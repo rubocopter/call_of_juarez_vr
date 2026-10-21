@@ -68,8 +68,11 @@ int main(){
         case 2:f.s.raw.fire_right=true;break;case 3:f.s.raw.fire_left=true;break;
         case 4:f.s.raw.equipment_select[5]=true;break;}
         Check(f.Step()==-1,"conflicting action allowed holster selection");
+        Check(!f.out.kick&&!f.out.run,"conflicting holster-zone grip leaked a kick");
+        f.s.grips[0]=Pose({1,1.7F,-1});
         f.s.raw.weapon_radial=f.s.raw.reload=f.s.raw.fire_right=f.s.raw.fire_left=false;
         f.s.raw.equipment_select={};Check(f.Step()==-1,"cleared conflict replayed held grip");
+        Check(!f.out.kick,"denied holster hold changed into Kick after leaving the zone");
     }
     {
         Fixture f;f.s.raw.kick=true;Check(f.Step()==-1,"held startup grip selected a weapon");
@@ -85,6 +88,7 @@ int main(){
     {
         Fixture f;f.Step();f.s.raw.kick=true;
         f.out=f.s.raw;Check(f.gate.Update(f.s,f.out)==-1,"duplicate pose selected a weapon");
+        Check(!f.out.kick,"duplicate-pose holster attempt leaked a kick");
         Check(f.Step()==-1,"duplicate pose button was deferred to a new frame");
     }
     {

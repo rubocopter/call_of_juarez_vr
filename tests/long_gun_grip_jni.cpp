@@ -22,6 +22,8 @@ struct Vector{float x=0,y=0,z=0;};
 struct Weapon{std::array<ElementWorldBasisTarget,3> f{};} a,b;
 int player,pc,wc,vc,other,exception;
 Weapon* current=&a;
+const char* rifle_class="WeaponRifleWinchester";
+int holder_element=1;
 std::array<ElementWorldBasisTarget,40> hands{};
 std::array<Vector,16000> vectors{};int allocated=0;
 void* table[224]{};void** env=table;void* vtable[8]{};void** vm=vtable;
@@ -36,7 +38,7 @@ void* __stdcall Ex(void*){return pending?Local(&exception):nullptr;}
 void __stdcall Clear(void*){pending=false;}
 int __stdcall Env(void*,void** out,int){*out=&env;return 0;}
 void* __stdcall Class(void*,void* p){return Local(p==&player?&pc:&wc);}
-void* __stdcall Find(void*,const char* name){return Local(!std::strcmp(name,"WeaponRifleWinchester")?&wc:&other);}
+void* __stdcall Find(void*,const char* name){return Local(!std::strcmp(name,rifle_class)?&wc:&other);}
 unsigned char __stdcall Same(void*,void* x,void* y){return x==y;}
 unsigned char __stdcall Instance(void*,void*,void*){return 0;}
 unsigned char __stdcall BoolField(void*,void*,void*){Check(false,"unexpected boolean field");return 0;}
@@ -55,7 +57,7 @@ int __stdcall Int(void*,void* p,void* m,const JValue* args){
     if(Name(m,"GetElementsNumber"))return 3;
     if(Name(m,"GetElementID")){
         const auto* n=static_cast<char*>(args[0].l);
-        if(p!=&player){Check(!std::strcmp(n,"Holder"),"unknown weapon holder");return 1;}
+        if(p!=&player){Check(!std::strcmp(n,"Holder"),"unknown weapon holder");return holder_element;}
         if(!std::strcmp(n,"left_hand"))return 39;
         if(!std::strcmp(n,"right_hand"))return 19;
         if(!std::strcmp(n,"CoJVRHiddenArms"))return 40;
@@ -134,7 +136,12 @@ void Bind(JavaPlayerBridge& bridge){
 }
 }
 int main(int argc,char** argv){
+    const std::string mode=argc>1?argv[1]:"normal";
+    if(mode=="root-holder"){rifle_class="WeaponRifleRemington";holder_element=0;}
     JavaPlayerBridge bridge;Bind(bridge);const auto natural=a.f;const auto original_hands=hands;
+    bool right_only=false;
+    Check(bridge.TryObserveLongGunFireOwnership(right_only)&&right_only,
+        "bridge lost right-only rifle trigger ownership before grip acquisition");
     CoJLongGunGripGeometry g{};std::string error;
     Check(bridge.TryObserveLongGunSupport(g.native),"real rifle observation failed");
     g.dominant_socket_cm=hands[19].position;g.muzzle_cm=a.f[2].position;g.muzzle_direction={-1,0,0};
@@ -150,12 +157,13 @@ int main(int argc,char** argv){
     Check(bridge.TryApplyIndependentHand(0,original_hands[3],right,&error)&&
         bridge.TryApplyIndependentHand(1,original_hands[23],left,&error),"real paired hand mapping failed");
     JavaPlayerPosition origin{},direction{};bool active=false;
-    const std::string mode=argc>1?argv[1]:"normal";
     if(mode=="commit"){
         b.f=a.f;current=&b;const int before=writes;
         Check(!bridge.ApplyPreparedTrackedWeapon(0,origin,&error)&&before==writes,"replacement accepted before first write");
     }else{
         Check(bridge.ApplyPreparedTrackedWeapon(0,origin,&error),"real rifle commit failed");
+        Check(bridge.TryObserveLongGunFireOwnership(right_only)&&right_only,
+            "scoped weapon/hand map hid native rifle trigger ownership");
         Check(bridge.VerifyTrackedWeapon(0,active,&error)&&active,"paired rifle verification failed");
         Check(bridge.TryGetWeaponBarrel(0,origin,direction,&error)&&bridge.TryPublishWeaponRay(0,origin,direction,true,&error),"real rifle ray failed");
         if(mode=="replace"){
