@@ -295,6 +295,13 @@ or reload work:
   retained restoration. L1/L2 claims suppress competing consumers until release.
   Test grasp fit, fire/cycle coherence and interruption recovery together in visor.
   Scope variants and physical manual long-gun loading remain unimplemented.
+  Original-archive reload research identifies Winchester's single-round rifle
+  path as the first candidate for a separate manual session. Remington and
+  SawOff use two-slot whole-clip native transfers, so they need indexed shell
+  ownership before individual insertions. Volcanic is also unit-paced;
+  Derringer and Lemant need distinct multi-slot/mixed-ammo handling.
+  [Exact reload ownership](research/COJ_RELOAD_OWNERSHIP.md) records the
+  evidence and prerequisites. No new weapon is manually admitted.
 - **Automatic startup resolution:** preserve the current native startup requests
   and explicit saved profiles. The launcher now explains known fallback causes
   and reports the last identity-matched preparation separately from next-session

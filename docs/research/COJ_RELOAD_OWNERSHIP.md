@@ -42,6 +42,42 @@ ejection, chamber occupancy or an exact-calibre cartridge model. The existing
 grip-zone presentation/gesture and scoped thumb feedback are reused only after
 native-confirmed unit loading.
 
+### Unimplemented families: original-archive reload contracts
+
+Read-only inspection of the pinned original `code.pak` (2026-10-21) establishes
+the following exact constructor and ammunition boundaries. These are **static
+findings**, not headset acceptance or permission to enable manual loading.
+`PawnArmed.WeaponReload(LWeapon;)Z` iterates **all** ammo indices: non-whole-clip
+weapons receive up to one unit **per index**, while whole-clip weapons receive
+up to the remaining capacity **per index**. One native call is not necessarily
+one physical cartridge.
+
+| Exact weapon | Native contract | Manual integration requirement |
+| --- | --- | --- |
+| `WeaponRifleWinchester` | Whole-clip **false**; index 0 `WpnAmmoRifleWinchester`, 12 rounds from rifle reserve; authored reload begin/loop/end. | First long-gun candidate for single-round transfer. Requires own state/hand admission, release of support grip, qualified loading port/animation and native count/readback. |
+| `WeaponRifleWinchesterScope` | Inherits Winchester's per-round logic; own `WpnAmmoRifleWinchesterScope` index 0. | Separate exact class and optics/hand ownership; excluded by current support prototype. |
+| `WeaponRifleRemington` | Whole-clip **true**, `WeaponRifleDoubleAmmo` storage; indices 0/1 both use `WpnAmmoShotgunRemington`, capacity 1 per barrel (shotgun reserve). | One native call may fill both barrels. Per-shell insertion needs a demonstrated index-specific transaction and callback/animation ownership. |
+| `WeaponRifleRemingtonSawOff` | Inherits Remington's two ammo indices and slot storage; own logic sets whole-clip **true**, with single-hand/other-hand flags. | Same possible two-barrel transfer, plus either-hand ownership/recovery. |
+| `WeaponPistolVolcanic` | Whole-clip **false**; index 0 `WpnAmmoPistolVolcanic`, capacity 8 (pistol reserve). | Single-round accounting is plausible, but loading mechanism, pose, hand interaction and animation need separate qualification. |
+| `WeaponPistolDerringer` | Whole-clip **true**, `WeaponPistolDoubleAmmo`; indices 0/1 use `WpnAmmoPistolDerringer`, capacity 1 each. | One call may refill both chambers; require per-chamber loading/ejection ownership. |
+| `WeaponPistolLemant` | Exact archive spelling is **Lemant**; whole-clip **false** but `WeaponPistolDoubleAmmo` has rifle index 0 (capacity 1) and pistol index 1 (capacity 8). | A native call may load one unit into **both distinct reserve pools**. Needs selective index transfer, mode readback and two loading gestures. |
+| `WeaponPistolSchofield` / `_A` / `_B` | Whole-clip **true**, capacity 6 (pistol reserve). | Keep native/hybrid reload until a full-clip gesture and readback can be qualified. |
+
+The double-ammo classes store slot 1 in `m_iAmmo1Count`; observing only
+`GetAmmoCount(0)` misses its occupancy. The existing emitted
+`cojvrManualReloadValid()` requires `!IsReloadWholeClipAtOnce()` and
+`GetAmmoTypeCount()==1`. Consequently, none of these two-index or whole-clip
+classes can enter the current paced transfer, even if a gesture is detected.
+
+For Winchester, the next step is **read-only live observation** of reload
+begin/body/end, free support hand, loaded/reserve delta and natural weapon pose.
+Then establish loading-port geometry and restoration of two-hand support after
+Square, firing and interruption. A dedicated long-gun manual session can reuse
+the reversible native unit-transfer policy only after these gates. For
+Remington/SawOff/Derringer, solve per-slot transfer first; for Lemant, solve
+ammunition-index and mixed-reserve ownership first. Leave native Square
+fallback and exact-build fail-closed behavior unchanged.
+
 Readback telemetry now names `reserve_kind` and `reserve_count` before/after.
 Legacy `pistol_reserve` fields retain pistol meaning and emit `n/a` for rifle
 profiles. Offline analysis correlates typed pools, rejects mixed/unknown pools
