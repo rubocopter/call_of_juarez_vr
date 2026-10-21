@@ -953,6 +953,17 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       if(skin_gap_cm)*skin_gap_cm=gap;
       return true;
   }
+float CoJReloadCartridgeTransverseSpanCm() noexcept {
+    float lower=std::numeric_limits<float>::infinity();
+    float upper=-std::numeric_limits<float>::infinity();
+    for(const auto& vertex:runtime::textured_reload_mesh::vertices){
+        if(!std::isfinite(vertex.y))return 0.F;
+        lower=std::min(lower,vertex.y);
+        upper=std::max(upper,vertex.y);
+    }
+    const float span=(upper-lower)*100.F; // Textured mesh metres -> CoJ cm.
+    return std::isfinite(span)&&span>0.F?span:0.F;
+}
 runtime::Pose BuildCoJReloadCartridgePose(const ElementWorldBasisTarget& pinch,
     const runtime::Pose& grip,const runtime::Vec3 native_grip,runtime::Vec3 camera_right,
     runtime::Vec3 camera_up,runtime::Vec3 camera_forward) noexcept {

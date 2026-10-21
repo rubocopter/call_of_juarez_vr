@@ -63,7 +63,8 @@ def finger_reference(frame=2, result='observed', **extra):
     fields = dict(frame_sequence=frame, hand=1, weapon_id=42, armed_hand=0,
                   native_context=5, player_generation=7, owner_snapshot_valid=1,
                   units='cm', basis='each_hand_local', sampling='pre_restore_verified',
-                  mutation='false', finger_pad_contact='false', skin_pad_gap_cm=1.14)
+                  mutation='false', finger_pad_contact='false', skin_pad_gap_cm=1.14,
+                  case_span_cm=1.200042)
     for digit in ('thumb', 'index'):
         for phase in ('native', 'displayed'):
             prefix = f'{digit}_{phase}'
@@ -92,20 +93,36 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(row['index_rotation_from_native_deg'], 90)
         self.assertAlmostEqual(row['thumb_rotation_from_native_deg'], 0)
         self.assertAlmostEqual(row['displayed_skin_pad_gap_cm'], 1.14)
+        self.assertAlmostEqual(row['displayed_case_transverse_span_cm'], 1.200042)
+        self.assertAlmostEqual(row['pad_minus_case_span_cm'], -.060042)
         self.assertFalse(row['skin_pad_contact_measured'])
         self.assertEqual(report['summary']['finger_reference_samples'], 1)
         self.assertEqual(report['summary']['finger_reference_correlated_samples'], 1)
         self.assertFalse(report['headset_validated'])
 
     def test_legacy_finger_reference_without_skin_gap_remains_readable(self):
-        legacy = finger_reference().replace(';skin_pad_gap_cm=1.14', '')
+        legacy = finger_reference().replace(';skin_pad_gap_cm=1.14', '').replace(';case_span_cm=1.200042', '')
         report = self.evidence([trace(2), legacy])
         row = report['finger_joint_observations'][0]
         self.assertEqual(row['status'], 'observed')
         self.assertEqual(row['trace_correlation'], 'same_frame_owner')
         self.assertAlmostEqual(row['displayed_joint_gap_cm'], 1)
         self.assertNotIn('displayed_skin_pad_gap_cm', row)
+        self.assertNotIn('pad_minus_case_span_cm', row)
         self.assertFalse(report['headset_validated'])
+
+    def test_skin_gap_without_new_case_span_remains_readable(self):
+        legacy = finger_reference().replace(';case_span_cm=1.200042', '')
+        report = self.evidence([trace(2), legacy])
+        row = report['finger_joint_observations'][0]
+        self.assertAlmostEqual(row['displayed_skin_pad_gap_cm'], 1.14)
+        self.assertNotIn('pad_minus_case_span_cm', row)
+
+    def test_case_span_without_same_snapshot_gap_is_unqualified(self):
+        incomplete = finger_reference().replace(';skin_pad_gap_cm=1.14', '')
+        report = self.evidence([trace(2), incomplete])
+        self.assertEqual(report['summary']['finger_reference_samples'], 0)
+        self.assertEqual(report['issues'][0]['kind'], 'invalid_finger_reference')
 
     def test_finger_reference_owner_loss_and_invalid_geometry_cannot_qualify_contact(self):
         unrelated = self.evidence([
@@ -124,7 +141,8 @@ class ReloadAnalysisTests(unittest.TestCase):
                        {'thumb_native_position': '(nan,0,0)'},
                        {'index_native_forward': '(0,1,0)'},
                        {'hand': 2}, {'finger_pad_contact': 'true'},
-                       {'skin_pad_gap_cm': 'nan'}, {'skin_pad_gap_cm': 9}):
+                       {'skin_pad_gap_cm': 'nan'}, {'skin_pad_gap_cm': 9},
+                       {'case_span_cm': 'nan'}, {'case_span_cm': 9}):
             with self.subTest(change=change):
                 report = self.evidence([finger_reference(**change)])
                 self.assertEqual(report['issues'][0]['kind'], 'invalid_finger_reference')

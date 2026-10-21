@@ -672,6 +672,9 @@ The new optional `skin_pad_gap_cm` samples verified displayed skin-pad separatio
 before restoration; host analysis rejects nonfinite/out-of-range values and
 correlates snapshots conservatively. Whether the .357 visually fits between the
 fingers remains pending headset observation.
+The optional `case_span_cm` measures the displayed CC0 mesh's full local +Y
+transverse envelope (centimetres). The offline signed gap-minus-envelope margin
+is a geometry comparison, not an intersection test or headset contact verdict.
 
 ## Consolidated candidate batch — host-tested, awaiting runtime and visor
 

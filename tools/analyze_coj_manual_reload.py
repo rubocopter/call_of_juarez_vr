@@ -296,6 +296,16 @@ def finger_joint_metrics(fields):
         if not math.isfinite(skin_gap) or not .6 <= skin_gap <= 1.8:
             raise ValueError('Unqualified displayed skin-pad gap')
         metrics['displayed_skin_pad_gap_cm'] = skin_gap
+    if 'case_span_cm' in fields:
+        if 'skin_pad_gap_cm' not in fields:
+            raise ValueError('Case span without same-snapshot skin gap')
+        span = float(fields['case_span_cm'])
+        if not math.isfinite(span) or not .6 <= span <= 1.8:
+            raise ValueError('Unqualified displayed case envelope')
+        metrics['displayed_case_transverse_span_cm'] = span
+        # Signed nominal margin only: a mesh envelope over all axial stations
+        # does not prove actual finger-surface contact or scene occlusion.
+        metrics['pad_minus_case_span_cm'] = metrics['displayed_skin_pad_gap_cm']-span
     if not all(math.isfinite(value) for value in metrics.values()):
         raise ValueError('Non-finite finger-frame measurement')
     return metrics
@@ -864,7 +874,7 @@ def analyze_evidence(directory):
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
                         'Ordered same-frame/device/generation depth metadata does not prove capture, eye/hand content or occlusion.',
                         'A zone cue grants no ammunition; submitted haptics and cartridge visibility do not validate physical grip.',
-                        'Finger-frame deltas are distal joint origins; the optional displayed skin-pad gap does not measure pad/case clearance or qualify visual contact.',
+                        'Finger-frame deltas are distal joint origins; skin-pad gap minus whole-mesh transverse span is only a nominal envelope margin, not a pad/case intersection or visual-contact measurement.',
                         'Inventory hashes verify internal consistency, not external authentication.'])
 
 

@@ -94,6 +94,10 @@ bool FingerChecks(){
         const int writes_before_gap=f.writes;
         if(!overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm)||
             skin_gap_cm<.6F||skin_gap_cm>1.8F||f.writes!=writes_before_gap)return false;
+        // The textured mesh is drawn at its imported metre scale. Its full
+        // transverse envelope is measured from the actual displayed vertices.
+        const float case_span_cm=CoJReloadCartridgeTransverseSpanCm();
+        if(std::fabs(case_span_cm-1.2000422F)>.001F||f.writes!=writes_before_gap)return false;
         const auto pinch_local=TransformWeaponElementFrame(f.frames[3].frame,local_identity,pinch);
         const cojvr::runtime::Vec3 measured_tip=hand==1?
             cojvr::runtime::Vec3{-.0529222F,.9951689F,.0826924F}:

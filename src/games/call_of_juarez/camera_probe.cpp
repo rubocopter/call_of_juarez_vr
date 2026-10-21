@@ -7399,9 +7399,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     }
                 }
                 if(fingers.valid&&g_reload_finger_observation_sequence==frame_sequence&&
-                    g_reload_skin_pad_gaps_cm[motion_reload.cartridge_hand]>.0F)
+                    g_reload_skin_pad_gaps_cm[motion_reload.cartridge_hand]>.0F){
                     detail+=";skin_pad_gap_cm="+
                         std::to_string(g_reload_skin_pad_gaps_cm[motion_reload.cartridge_hand]);
+                    const float span_cm=CoJReloadCartridgeTransverseSpanCm();
+                    if(span_cm>0.F)detail+=";case_span_cm="+std::to_string(span_cm);
+                }
                 EmitEvent("manual_reload_finger_reference",fingers.valid?"observed":"unavailable",detail);
             }
         }

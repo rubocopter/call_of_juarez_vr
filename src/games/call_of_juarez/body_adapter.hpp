@@ -522,6 +522,10 @@ struct CoJReloadFingerObservation {
     cojvr::runtime::Vec3 native_grip,cojvr::runtime::Vec3 camera_right,
     cojvr::runtime::Vec3 camera_up,cojvr::runtime::Vec3 camera_forward) noexcept;
 
+// Read-only maximal transverse (+Y) envelope of the currently displayed
+// cartridge mesh in centimetres. This span is not proof of finger contact.
+[[nodiscard]] float CoJReloadCartridgeTransverseSpanCm() noexcept;
+
 // Isolated hand geometry permits a rigid controller rotation without twisting
 // the connected arm mesh. All lower skin contributors and fingers share a map.
 class CoJHandOverlay final {
