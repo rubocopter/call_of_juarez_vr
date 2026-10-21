@@ -682,6 +682,11 @@ release barriers after cancellation. Duplicate tracking reads retain their first
 observation time; they cannot renew stale tracking. Prototype acquisition/separation
 bounds are ergonomic limits, not measured collision volumes or visor acceptance.
 Native right-trigger firing and automatic rifle reload remain authoritative.
+An opt-in read-only exact-class Winchester observer records raw native reload
+states for both hands, two-hand flags, animation clocks and rifle ammo/reserve
+readback across Square. It can omit natural pose when scoped visuals are active;
+no manual Winchester contract is admitted from those observations. The native
+ammo getter is diagnostic rather than a proven effective clip count.
 Failed restoration blocks the current transaction. After entry cleanup verifies,
 ordinary controls recover through the existing release/press barrier; the bridge
 can still disable new tracked mutations after a native fault. A grip fault must

@@ -1559,6 +1559,27 @@ bool JavaPlayerBridge::TryObserveLongGunSupport(CoJLongGunSupportSnapshot& out) 
     return true;
 }
 
+bool JavaPlayerBridge::TryObserveWinchesterReload(CoJWinchesterReloadSnapshot& out) noexcept {
+    out={};
+    if(!being_ || independent_hand_faulted_ || weapon_overlay_faulted_)return false;
+    const auto generation=being_generation_;
+    void* const player=being_;
+    void* env=Environment(nullptr);if(!env)return false;
+    bool natural=true;
+    for(const auto& hand:hand_overlays_)if(hand.object)natural=false;
+    for(const auto& weapon:weapon_overlays_)
+        if(weapon.weapon||weapon.active||weapon.applied)natural=false;
+    const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& target) noexcept {
+        auto& bridge=*static_cast<JavaPlayerBridge*>(context);
+        JavaPlayerPosition p{},u{},f{};target={};
+        if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
+        target={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
+    };
+    const bool read=ReadCoJWinchesterReload(env,player,out,natural?frame:nullptr,this);
+    if(!read||being_!=player||being_generation_!=generation){out={};return false;}
+    return true;
+}
+
 bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
     CoJMotionReloadDiagnostic* diagnostic) noexcept {
     owner={};

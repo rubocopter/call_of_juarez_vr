@@ -12,6 +12,7 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_geometry.hpp"
 #include "games/call_of_juarez/long_gun_observer.hpp"
+#include "games/call_of_juarez/winchester_reload_observer.hpp"
 #include "games/call_of_juarez/bow_aim.hpp"
 #include "games/call_of_juarez/bow_draw_native.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
@@ -410,6 +411,7 @@ public:
     [[nodiscard]] bool TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept;
     [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
     [[nodiscard]] bool TryObserveLongGunSupport(CoJLongGunSupportSnapshot& observation) noexcept;
+    [[nodiscard]] bool TryObserveWinchesterReload(CoJWinchesterReloadSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,

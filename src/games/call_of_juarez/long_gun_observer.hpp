@@ -51,6 +51,9 @@ using Exception=void*(COJ_LONG_GUN_JNICALL*)(void*);
 using Clear=void(COJ_LONG_GUN_JNICALL*)(void*);
 using Delete=void(COJ_LONG_GUN_JNICALL*)(void*,void*);
 using String=void*(COJ_LONG_GUN_JNICALL*)(void*,const char*);
+using FieldObject=void*(COJ_LONG_GUN_JNICALL*)(void*,void*,void*);
+using FieldInt=std::int32_t(COJ_LONG_GUN_JNICALL*)(void*,void*,void*);
+using FieldFloat=float(COJ_LONG_GUN_JNICALL*)(void*,void*,void*);
 #undef COJ_LONG_GUN_JNICALL
 struct Reader {
     void* env;
@@ -97,6 +100,21 @@ struct Reader {
     }
     bool Bool(void* obj,void* method,const Value* args=nullptr) noexcept {
         const bool v=ok&&Fn<Boolean>(39)(env,obj,method,args)!=0;Check();return v;
+    }
+    void* Field(void* cls,const char* name,const char* descriptor) noexcept {
+        void* f=ok?Fn<Lookup>(94)(env,cls,name,descriptor):nullptr;
+        Check();if(!f)ok=false;return f;
+    }
+    Local ObjectField(void* obj,void* field) noexcept {
+        void* v=ok?Fn<FieldObject>(95)(env,obj,field):nullptr;
+        Check();return {*this,v};
+    }
+    int IntField(void* obj,void* field) noexcept {
+        const int v=ok?Fn<FieldInt>(100)(env,obj,field):-1;Check();return v;
+    }
+    float FloatField(void* obj,void* field) noexcept {
+        const float v=ok?Fn<FieldFloat>(102)(env,obj,field):0.F;
+        Check();if(!std::isfinite(v))ok=false;return v;
     }
 };
 inline constexpr const char* Classes[]{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"};

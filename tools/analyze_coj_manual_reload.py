@@ -19,7 +19,8 @@ RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
             'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference',
-            'rifle_support_reference', 'physical_bow_draw', 'physical_bow_reset'}
+            'rifle_support_reference', 'winchester_native_reload',
+            'physical_bow_draw', 'physical_bow_reset'}
 
 
 def digest(path):
@@ -630,6 +631,142 @@ def rifle_support_observations(events):
     return rows
 
 
+def winchester_reload_observations(events):
+    """Validate sparse native Winchester witnesses without inferring a loading port.
+
+    The raw GetAmmoCount(0) readback may be a base-class stub. Reserve and
+    reported deltas are diagnostics, never evidence of effective clip occupancy.
+    """
+    rows, previous, baseline = [], None, None
+
+    def triple_or_quad(f, key, size, boolean=False):
+        parts = f[key].split(',')
+        if len(parts) != size:
+            raise ValueError('Invalid Winchester hand tuple')
+        if boolean and any(part not in ('0', '1') for part in parts):
+            raise ValueError('Invalid Winchester hand flag')
+        values = tuple(int(part) for part in parts)
+        if not boolean and any(not 0 <= value <= 1024 for value in values):
+            raise ValueError('Invalid Winchester native state')
+        return values
+
+    def vector(f, name):
+        value = f[name]
+        if value.startswith('(') and value.endswith(')'):
+            value = value[1:-1]
+        values = tuple(float(v) for v in value.split(','))
+        if len(values) != 3 or not all(math.isfinite(v) for v in values):
+            raise ValueError('Invalid Winchester pose vector')
+        return values
+
+    for e in events:
+        if e['event'] != 'winchester_native_reload':
+            continue
+        f = e['fields']
+        frame = integer(f, 'frame_sequence')
+        if frame is None or frame <= 0 or f.get('manual_admission') != 'false':
+            raise ValueError('Invalid Winchester event authority')
+        if e['result'] == 'unavailable':
+            if f.get('owner_or_phase_unavailable') != 'true' or any(
+                    integer(f, key) is None or integer(f, key) <= 0
+                    for key in ('player_generation', 'native_context')):
+                raise ValueError('Invalid Winchester unavailable event')
+            rows.append(dict(line=e['line'], frame=frame, status='unavailable',
+                             manual_admitted=False, native_phase_qualified=False))
+            previous, baseline = None, None
+            continue
+        if e['result'] != 'observed' or any(f.get(key) != value for key, value in dict(
+                schema='1', weapon_class='WeaponRifleWinchester',
+                source='native_read_only', units='cm', phase='unclassified').items()):
+            raise ValueError('Invalid Winchester observation schema')
+        identity = tuple(integer(f, key) for key in (
+            'player_generation', 'native_context', 'player_id', 'weapon_id'))
+        stamp, gap, index = (integer(f, key) for key in
+                             ('sample_us', 'sample_gap_us', 'sample_index'))
+        if (any(v is None or v <= 0 for v in identity) or
+                any(v is None or v <= 0 for v in (stamp, index)) or
+                gap is None or gap < 0 or index > 220 or
+                any(v >= 0xffffffff for v in identity[2:])):
+            raise ValueError('Invalid Winchester owner or sample clock')
+        right, left = (triple_or_quad(f, 'states_'+hand, 4)
+                       for hand in ('right', 'left'))
+        weapons = tuple(triple_or_quad(f, 'weapons_'+hand, 3, True)
+                        for hand in ('right', 'left'))
+        flags = tuple(triple_or_quad(f, 'two_handed_'+hand, 3, True)
+                      for hand in ('right', 'left'))
+        if not any(weapons[0]):
+            raise ValueError('Winchester right-hand owner absent')
+        native_flags = {}
+        for key in ('native_reloading', 'carrying', 'dead', 'pose_valid'):
+            if f.get(key) not in ('0', '1'):
+                raise ValueError('Invalid Winchester native flag')
+            native_flags[key] = yes(f, key)
+        animation = []
+        for hand in ('right', 'left'):
+            anim_id = integer(f, 'anim_'+hand)
+            time = float(f['anim_time_'+hand])
+            duration = float(f['anim_duration_'+hand])
+            if anim_id is None or not all(map(math.isfinite, (time, duration))):
+                raise ValueError('Invalid Winchester native animation clock')
+            animation.append(dict(id=anim_id, time=time, duration=duration))
+        ammo, reserve, ammo_delta, reserve_delta = (integer(f, key) for key in (
+            'ammo_readback', 'rifle_reserve', 'ammo_readback_delta', 'reserve_delta'))
+        if ammo is None or not 0 <= ammo <= 12 or reserve is None or reserve < 0 or (
+                ammo_delta is None or reserve_delta is None):
+            raise ValueError('Invalid Winchester ammunition observation')
+        if previous and identity == previous['identity'] and (
+                stamp <= previous['stamp'] or frame <= previous['frame']):
+            raise ValueError('Non-monotonic Winchester observation')
+        if index == 1:
+            if gap or ammo_delta or reserve_delta:
+                raise ValueError('Winchester initial sample retains stale deltas')
+            baseline = None
+        elif (not previous or identity != previous['identity'] or
+              index != previous['index']+1 or gap != stamp-previous['stamp'] or
+              ammo_delta != ammo-previous['ammo'] or
+              reserve_delta != reserve-previous['reserve']):
+            raise ValueError('Missing or inconsistent Winchester sample history')
+        position, displacement = None, None
+        if native_flags['pose_valid']:
+            if any(integer(f, key) is None or integer(f, key) < 0 for key in
+                   ('holder_element', 'support_element')):
+                raise ValueError('Invalid Winchester authored element')
+            for name in ('root', 'holder', 'support', 'support_in_weapon'):
+                vector(f, name)
+                up, forward = vector(f, name+'_up'), vector(f, name+'_forward')
+                if (abs(sum(v*v for v in up)-1) > .002 or
+                        abs(sum(v*v for v in forward)-1) > .002 or
+                        abs(sum(a*b for a, b in zip(up, forward))) > .002):
+                    raise ValueError('Non-rigid Winchester frame')
+            position = vector(f, 'support_in_weapon')
+            if baseline is None:
+                baseline = position
+            displacement = math.dist(position, baseline)
+            if not math.isfinite(displacement):
+                raise ValueError('Non-finite Winchester support displacement')
+        elif any(k in f for name in ('root', 'holder', 'support', 'support_in_weapon')
+                 for k in (name, name+'_up', name+'_forward')) or any(
+                     k in f for k in ('holder_element', 'support_element')):
+            raise ValueError('Unqualified Winchester frame published')
+        previous = dict(identity=identity, stamp=stamp, frame=frame, index=index,
+                        ammo=ammo, reserve=reserve)
+        rows.append(dict(line=e['line'], frame=frame, status='observed',
+                         owner=identity, sample_index=index, sample_us=stamp,
+                         observed_gap_us=gap if index > 1 else None,
+                         states_right=right, states_left=left,
+                         weapon_slots=weapons, two_handed=flags, animation=animation,
+                         native_reloading=native_flags['native_reloading'],
+                         carrying=native_flags['carrying'], dead=native_flags['dead'],
+                         ammo_readback=ammo, rifle_reserve=reserve,
+                         ammo_readback_delta=ammo_delta, reserve_delta=reserve_delta,
+                         pose_valid=native_flags['pose_valid'],
+                         support_in_weapon_cm=position,
+                         support_displacement_from_first_cm=displacement,
+                         ammo_clip_qualified=False, native_phase_qualified=False,
+                         manual_admitted=False))
+    return rows
+
+
 def bow_draw_observations(events):
     """Summarize reported bow input/cancellation; never infer an arrow spawn."""
     samples, requests, counter_max = 0, 0, None
@@ -681,6 +818,7 @@ def analyze_evidence(directory):
     events = read_events(paths['runtime/cojvr.log'], evidence)
     finger_observations, finger_issues = finger_reference_observations(events)
     rifle_samples = rifle_support_observations(events)
+    winchester_samples = winchester_reload_observations(events)
     bow = bow_draw_observations(events)
     manual = run.get('validation', {}).get('manualReloadInstalled') is True
     traces = [e for e in events if e['event'] == 'reload_trace']
@@ -865,6 +1003,8 @@ def analyze_evidence(directory):
                     insertion_haptics_submitted=haptics['insert_accepted'],
                     depth_observation_samples=len(depth_samples),
                     rifle_support_samples=len(rifle_samples),
+                    winchester_reload_samples=sum(r['status'] == 'observed' for r in winchester_samples),
+                    winchester_reload_unavailable=sum(r['status'] == 'unavailable' for r in winchester_samples),
                     bow_draw_samples=bow['draw_samples'],
                     bow_shot_requests=bow['shot_requests'],
                     bow_resets=sum(bow['reset_reasons'].values()),
@@ -882,6 +1022,7 @@ def analyze_evidence(directory):
                     ready_reference_samples=sum(r['ready_reference_eligible'] for r in mechanics),
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 rifle_support_observations=rifle_samples,
+                winchester_reload_observations=winchester_samples,
                 bow_draw_observations=bow,
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
                 finger_joint_observations=finger_observations,
@@ -895,6 +1036,7 @@ def analyze_evidence(directory):
                         'Mechanical metrics do not prove an open gate or a safe independent writer.',
                         'Only same-frame coherent traces bind geometry to native status; missing transition traces remain inconclusive.',
                         'Relative mechanical changes compare sparse samples of one owner/session, not continuous animation.',
+                        'Winchester sample continuity and rifle reserve changes do not validate native rounds, reload phase or a manual loading port.',
                         'Full-frame relative rotation angles measure pose differences, not a hinge axis or usable loading-port clearance.',
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
                         'Ordered same-frame/device/generation depth metadata does not prove capture, eye/hand content or occlusion.',

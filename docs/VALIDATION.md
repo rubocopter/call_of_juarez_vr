@@ -548,6 +548,18 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   transition coverage remains separate. Long-gun reload remains conventional
   Square/native animation, outside the manual whitelist; physical manual reload
   is not implemented or accepted.
+  A separate host-tested Winchester-only read-only reload observer now records
+  native hand states, flags, animation ID/time, rifle reserve, raw ammo readback
+  and optional natural support pose. Its opt-in diagnostic is
+  `winchester_native_reload` when `reloadTraceEnabled=true`. It tolerates
+  unmeasurable natural pose without admitting or writing one and rejects changed
+  owner/class/JNI reads. Readback is not independently proven clip occupancy.
+  **Physical gate still pending:** use a fresh `vr_test.ps1 prepare`/`finish`
+  run, enable trace via `tools/set_hmd_camera_control.ps1 -Mode reload-trace-enable`
+  with the staged `-GameDirectory`, manually run SteamVR/game, then exercise
+  an ordinary Winchester idle, fire, Square reload and interruption. Correlate
+  recorded left/right state tuples, reserve/readback, support-hand movement and
+  native animation before designing a rifle loading port or manual input.
   A read-only exact-class rifle support observer has host coverage for native
   high-bit identities, aliases, state/flag transitions, geometry and JNI failures.
   It samples natural root/Holder/left_hand frames before scoped writes, with
@@ -1146,7 +1158,13 @@ Use an output outside the evidence directory. The analyzer verifies inventoried
 hashes, deployment coverage and ordered native markers; it separates correlated
 unit readbacks from rejection/inconclusive observations. It never accepts a
 physical gate or replaces the canonical verifier.
-The same report includes read-only rifle support observations and bow diagnostics.
+The same report includes read-only rifle support observations,
+`winchester_reload_observations` (bounded exact-class native hand/animation/owner
+and reserve/readback witness with clock and identity validation), and bow diagnostics.
+Winchester `unavailable` rows delimit observation loss; a new Square burst may
+restart the sample index. The report never treats `GetAmmoCount(0)` as verified
+clip occupancy, observed reserve changes as native transfer proof, optional
+support poses as a loading port, or sparse animation clocks as a validated phase.
 `bow_draw_observations` separates reported shot requests, native attack-counter
 maximum, gesture/dispatch cancellation reasons and external reset reasons. Missing
 bow events remain unobserved. An attack-counter baseline is not an arrow count;

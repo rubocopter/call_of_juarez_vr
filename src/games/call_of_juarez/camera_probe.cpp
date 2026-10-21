@@ -164,6 +164,14 @@ struct LongGunProbeState {
     bool fire_down=false,known_rifle=false;
 };
 LongGunProbeState g_long_gun_probe;
+struct WinchesterReloadProbeState {
+    std::uint64_t generation=0,context=0,last_attempt_us=0,last_sample_us=0,burst_until_us=0;
+    std::uint32_t weapon=0;
+    int last_ammo_readback=0,last_reserve=0;
+    unsigned samples=0,idle_samples=0;
+    bool square_down=false,known_rifle=false;
+};
+WinchesterReloadProbeState g_winchester_reload_probe;
 CoJLongGunGripState g_long_gun_grip;
 CoJLongGunGripSampleClock g_long_gun_sample_clock;
 CoJLongGunGripOutput g_long_gun_claim{};
@@ -5755,6 +5763,109 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             } else if(!burst)probe.known_rifle=false;
         }
     }
+    // Winchester uses native rifle reload phases; observe them without applying
+    // the pistol 20/21/22 admission rules or changing Square's native dispatch.
+    // Intent opens a bounded burst, while a confirmed native reload maintains
+    // sampling through its animation. All events are opt-in and value-only.
+    const bool winchester_reload_allowed=snapshot.command.reload_trace_enabled &&
+        gameplay_input.active && duel_owner_known && !duel_active &&
+        mounted_available && !mounted && !recentered &&
+        sample.native_gameplay_context_token!=0;
+    if(!winchester_reload_allowed)g_winchester_reload_probe={};
+    else {
+        auto& probe=g_winchester_reload_probe;
+        const auto generation=g_java_player_bridge.being_generation();
+        const auto context=sample.native_gameplay_context_token;
+        const auto now=MonotonicMicroseconds();
+        if(probe.generation!=generation||probe.context!=context||now<probe.last_attempt_us){
+            probe={};probe.generation=generation;probe.context=context;
+        }
+        const bool square=raw_reload_input.active&&raw_reload_input.reload;
+        if(square&&!probe.square_down&&now){
+            probe.burst_until_us=now+12000000;
+            probe.samples=probe.idle_samples=0;probe.last_sample_us=0;
+        }
+        probe.square_down=square;
+        const bool burst=now<probe.burst_until_us;
+        const auto interval=burst?50000ULL:350000ULL;
+        if(now&&(!probe.last_attempt_us||now-probe.last_attempt_us>=interval)&&probe.samples<220){
+            probe.last_attempt_us=now;
+            CoJWinchesterReloadSnapshot observed{};
+            const bool read=g_java_player_bridge.TryObserveWinchesterReload(observed);
+            if(read&&generation==g_java_player_bridge.being_generation()){
+                if(probe.weapon!=observed.weapon_id){
+                    probe.weapon=observed.weapon_id;probe.samples=probe.idle_samples=0;
+                    probe.last_sample_us=0;
+                }
+                probe.known_rifle=true;
+                if(observed.native_reloading)probe.burst_until_us=now+2000000;
+                const bool active=now<probe.burst_until_us;
+                if(active||probe.idle_samples<4){
+                    const auto gap=probe.last_sample_us?now-probe.last_sample_us:0;
+                    const int ammo_delta=probe.last_sample_us?
+                        observed.ammo_readback-probe.last_ammo_readback:0;
+                    const int reserve_delta=probe.last_sample_us?observed.rifle_reserve-probe.last_reserve:0;
+                    ++probe.samples;
+                    if(!active)++probe.idle_samples;
+                    probe.last_sample_us=now;
+                    probe.last_ammo_readback=observed.ammo_readback;
+                    probe.last_reserve=observed.rifle_reserve;
+                    try {
+                        const auto four=[](const auto& v){return std::to_string(v[0])+","+
+                            std::to_string(v[1])+","+std::to_string(v[2])+","+std::to_string(v[3]);};
+                        const auto three=[](const auto& v){return std::to_string(v[0])+","+
+                            std::to_string(v[1])+","+std::to_string(v[2]);};
+                        std::string detail="schema=1;frame_sequence="+std::to_string(frame_sequence)+
+                            ";player_generation="+std::to_string(generation)+";native_context="+std::to_string(context)+
+                            ";player_id="+std::to_string(observed.player_id)+";weapon_id="+std::to_string(observed.weapon_id)+
+                            ";weapon_class=WeaponRifleWinchester;sample_us="+std::to_string(now)+
+                            ";sample_gap_us="+std::to_string(gap)+";sample_index="+std::to_string(probe.samples)+
+                            ";states_right="+four(observed.states[0])+";states_left="+four(observed.states[1])+
+                            ";weapons_right="+three(observed.weapon_present[0])+";weapons_left="+three(observed.weapon_present[1])+
+                            ";two_handed_right="+three(observed.two_handed[0])+
+                            ";two_handed_left="+three(observed.two_handed[1])+
+                            ";anim_right="+std::to_string(observed.animation_id[0])+
+                            ";anim_left="+std::to_string(observed.animation_id[1])+
+                            ";anim_time_right="+std::to_string(observed.animation_time[0])+
+                            ";anim_time_left="+std::to_string(observed.animation_time[1])+
+                            ";anim_duration_right="+std::to_string(observed.animation_duration[0])+
+                            ";anim_duration_left="+std::to_string(observed.animation_duration[1])+
+                            ";native_reloading="+std::to_string(observed.native_reloading)+
+                            ";carrying="+std::to_string(observed.carrying)+
+                            ";dead="+std::to_string(observed.dead)+
+                            ";ammo_readback="+std::to_string(observed.ammo_readback)+
+                            ";rifle_reserve="+std::to_string(observed.rifle_reserve)+
+                            ";ammo_readback_delta="+std::to_string(ammo_delta)+
+                            ";reserve_delta="+std::to_string(reserve_delta)+
+                            ";pose_valid="+std::to_string(observed.pose_valid);
+                        if(observed.pose_valid){
+                            detail+=";holder_element="+std::to_string(observed.holder_element)+
+                                ";support_element="+std::to_string(observed.support_element);
+                            const auto append=[&](const char* name,const auto& basis){
+                                detail+=";"+std::string(name)+"="+RuntimeVectorText(basis.position)+
+                                    ";"+name+"_up="+RuntimeVectorText(basis.up)+
+                                    ";"+name+"_forward="+RuntimeVectorText(basis.forward);
+                            };
+                            append("root",observed.root);
+                            append("holder",observed.holder);
+                            append("support",observed.support);
+                            append("support_in_weapon",observed.support_in_weapon);
+                        }
+                        detail+=";source=native_read_only;units=cm;manual_admission=false;phase=unclassified";
+                        EmitEvent("winchester_native_reload","observed",detail);
+                    }catch(...){}
+                }
+            } else if(probe.known_rifle){
+                probe.known_rifle=false;
+                probe.weapon=0;probe.last_sample_us=0;
+                try{EmitEvent("winchester_native_reload","unavailable",
+                    "frame_sequence="+std::to_string(frame_sequence)+
+                    ";player_generation="+std::to_string(generation)+
+                    ";native_context="+std::to_string(context)+
+                    ";owner_or_phase_unavailable=true;manual_admission=false");}catch(...){}
+            }
+        }
+    }
     const bool on_foot_crouch_owner = mounted_available && !mounted;
     const bool physical_crouch = g_physical_crouch_state.Update(
         sample.gameplay.active && relative_head_pose.position_valid && on_foot_crouch_owner,
@@ -8652,6 +8763,7 @@ void ShutdownCameraProbe() noexcept {
     g_reload_insertion_pose_last_applied=false;
     g_manual_reload_geometry_logging_enabled=false;
     g_long_gun_probe={};
+    g_winchester_reload_probe={};
     g_reload_pinch_last_hand=-1;g_reload_pinch_last_applied=false;
     g_reload_ready_geometry_reference={};
     g_reload_trace_events.Reset();

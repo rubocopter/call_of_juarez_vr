@@ -43,6 +43,25 @@ def insertion(frame=3, result='accepted', **extra):
     return event('manual_reload_insertion', result, **fields)
 
 
+def winchester_sample(index=1, **changes):
+    timestamp = 100000 + (index-1)*50000
+    fields = dict(schema=1, frame_sequence=index+10, player_generation=7,
+                  native_context=5, player_id=0x80000011, weapon_id=0x80000042,
+                  weapon_class='WeaponRifleWinchester', sample_us=timestamp,
+                  sample_gap_us=0 if index == 1 else 50000, sample_index=index,
+                  states_right='1,1,1,1', states_left='0,0,0,0',
+                  weapons_right='1,1,1', weapons_left='0,0,0',
+                  two_handed_right='1,1,1', two_handed_left='0,0,0',
+                  anim_right=31, anim_left=0, anim_time_right=0.2,
+                  anim_time_left=0, anim_duration_right=1.5, anim_duration_left=0,
+                  native_reloading=0, carrying=0, dead=0, ammo_readback=3,
+                  rifle_reserve=14, ammo_readback_delta=0, reserve_delta=0,
+                  pose_valid=0, source='native_read_only', units='cm',
+                  manual_admission='false', phase='unclassified')
+    fields.update(changes)
+    return event('winchester_native_reload', **fields)
+
+
 def depth_sample(frame=2, eye='left', **extra):
     matrix = ','.join('1' if index in (0, 5, 10, 15) else '0' for index in range(16))
     fields = dict(frame_sequence=frame, eye=eye, generation=3, device='0x1234',
@@ -307,6 +326,72 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertIsNone(report['rifle_support_observations'][1]['support_displacement_from_first_cm'])
         with self.assertRaises(ValueError):
             self.evidence([sample(150000,'(4,6,3)')])
+
+    def test_winchester_native_samples_preserve_both_hands_and_raw_readback_only(self):
+        rows = [winchester_sample(), winchester_sample(2, states_right='21,21,21,21',
+                 states_left='22,22,22,22', weapons_left='1,0,0',
+                 native_reloading=1, anim_time_right=.55, rifle_reserve=13,
+                 reserve_delta=-1)]
+        report = self.evidence(rows)
+        result = report['winchester_reload_observations']
+        self.assertEqual(report['summary']['winchester_reload_samples'], 2)
+        self.assertEqual(result[1]['states_left'], (22,22,22,22))
+        self.assertEqual(result[1]['weapon_slots'][1], (1,0,0))
+        self.assertEqual(result[1]['observed_gap_us'], 50000)
+        self.assertEqual(result[1]['reserve_delta'], -1)
+        self.assertEqual(result[1]['ammo_readback_delta'], 0)
+        self.assertFalse(result[1]['ammo_clip_qualified'])
+        self.assertFalse(result[1]['native_phase_qualified'])
+        self.assertFalse(result[1]['manual_admitted'])
+        self.assertFalse(report['headset_validated'])
+
+    def test_winchester_clock_resets_on_new_square_or_unavailable(self):
+        unavailable = event('winchester_native_reload', 'unavailable', frame_sequence=13,
+                            player_generation=7, native_context=5,
+                            owner_or_phase_unavailable='true', manual_admission='false')
+        reset = winchester_sample(frame_sequence=14, sample_us=200000)
+        report = self.evidence([winchester_sample(), winchester_sample(2),
+                                unavailable, reset])
+        self.assertEqual(report['summary']['winchester_reload_unavailable'], 1)
+        self.assertEqual(report['winchester_reload_observations'][-1]['sample_index'], 1)
+        self.assertIsNone(report['winchester_reload_observations'][-1]['observed_gap_us'])
+        report = self.evidence([winchester_sample(), winchester_sample(
+            frame_sequence=12, sample_us=200000)])
+        self.assertEqual(report['summary']['winchester_reload_samples'], 2)
+
+    def test_winchester_optional_pose_tracks_local_displacement_without_port_claim(self):
+        def pose(index, at):
+            frames = {'pose_valid':1, 'holder_element':3, 'support_element':4}
+            for name in ('root', 'holder', 'support', 'support_in_weapon'):
+                frames[name] = at if name == 'support_in_weapon' else '(0,0,0)'
+                frames[name+'_up'] = '(0,1,0)'
+                frames[name+'_forward'] = '(0,0,1)'
+            return winchester_sample(index, **frames)
+        report = self.evidence([pose(1,'(1,2,3)'),pose(2,'(4,6,3)')])
+        self.assertEqual(report['winchester_reload_observations'][1]
+                         ['support_displacement_from_first_cm'], 5)
+        self.assertFalse(report['winchester_reload_observations'][1]['native_phase_qualified'])
+        for altered in (pose(2,'(4,6,3)').replace('pose_valid=1', 'pose_valid=0'),
+                        pose(2,'(4,6,3)').replace('root=(0,0,0)', 'root=(nan,0,0)'),
+                        pose(2,'(4,6,3)').replace('root_up=(0,1,0)', 'root_up=(0,2,0)')):
+            with self.subTest(altered=altered), self.assertRaises(ValueError):
+                self.evidence([pose(1,'(1,2,3)'), altered])
+
+    def test_winchester_rejects_inconsistent_native_ownership_clocks_and_claims(self):
+        invalid = (dict(weapon_class='WeaponRifleWinchesterScope'),
+                   dict(manual_admission='true'), dict(source='post_overlay'),
+                   dict(player_id=0xffffffff), dict(weapon_id=0),
+                   dict(weapons_right='0,0,0'), dict(two_handed_left='2,0,0'),
+                   dict(states_left='-1,1,1,1'), dict(anim_time_right='nan'),
+                   dict(sample_gap_us=1), dict(sample_index=3),
+                   dict(ammo_readback_delta=1), dict(reserve_delta=-1),
+                   dict(sample_us=100000), dict(frame_sequence=11),
+                   dict(root_up='(0,1,0)'))
+        for altered in invalid:
+            with self.subTest(altered=altered), self.assertRaises(ValueError):
+                self.evidence([winchester_sample(), winchester_sample(2, **altered)])
+        with self.assertRaises(ValueError):
+            self.evidence([winchester_sample(2)])
 
     def test_native_drum_phase_is_optional_bracketed_evidence_only(self):
         self.assertIsNone(analysis.native_drum_phase({}))

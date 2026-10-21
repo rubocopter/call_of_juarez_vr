@@ -78,6 +78,31 @@ Remington/SawOff/Derringer, solve per-slot transfer first; for Lemant, solve
 ammunition-index and mixed-reserve ownership first. Leave native Square
 fallback and exact-build fail-closed behavior unchanged.
 
+The exact `WeaponRifleWinchester` read-only probe is implemented and host-tested.
+With `reloadTraceEnabled` it emits `winchester_native_reload` values before body
+overlays: both hands' four raw state IDs, active/actual/desired occupancy and
+three two-hand flags, native reload/carry/dead status, state-machine animation
+ID/current time/duration, `GetAmmoCount(0)` readback and `nAmmoRifle` reserve.
+An optional natural root/Holder/left_hand basis is recorded in centimetres; a
+missing or overridden natural pose is explicitly `pose_valid=false` while state
+observation may continue. A 350 ms idle discovery and bounded ~20 Hz window
+around a fresh Square press/native reload supply sample gaps and raw deltas.
+Readback is diagnostic: the base `Weapon.GetAmmoCount` can return zero, so a
+readback change does not independently establish effective occupancy/transfer.
+The observer checks concrete class, native owner, signed/high-bit IDs, same
+weapon in all nonempty hand slots and a stable read on both sides. Foreign
+weapons, change during the callback, JNI errors and missing native fields fail
+closed; scoped visual maps are never interpreted as natural geometry. Unknown
+reload state numbers remain unclassified until live evidence arrives. Neither
+Square dispatch, tracked rifle grip nor manual admission has changed.
+
+Next physical gate: enable the trace for one fresh reversible headset run,
+equip an ordinary Winchester (not Scope), observe idle/fire/Square reload from
+partially loaded and nearly empty conditions, inspect support-hand release and
+reacquisition, interrupt by changing weapon or returning to a menu, then finish
+and correlate emitted states, ammo readback and rifle reserve with the game's
+visible ammunition/animation. A host pass does not qualify any of these phases.
+
 Readback telemetry now names `reserve_kind` and `reserve_count` before/after.
 Legacy `pistol_reserve` fields retain pistol meaning and emit `n/a` for rifle
 profiles. Offline analysis correlates typed pools, rejects mixed/unknown pools
