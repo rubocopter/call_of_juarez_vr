@@ -1,6 +1,7 @@
 #include "games/call_of_juarez/bow_draw_input.hpp"
 #include "games/call_of_juarez/bow_draw_geometry.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
+#include "runtime/gameplay_utility.hpp"
 #include <cstdlib>
 #include <iostream>
 using namespace cojvr::games::call_of_juarez;
@@ -15,7 +16,154 @@ struct Fixture {
         s.alternate_ready=s.can_attack=s.native_right_held=true;}
     CoJBowDrawDispatch Release(){s.drawing=false;s.release_fire=true;return Step();}
 };
+struct SessionFixture {
+    CoJBowDrawSession session;
+    cojvr::runtime::GameplayControlMapper mapper;
+    cojvr::runtime::GameplayInputState raw{},fire{};
+    CoJBowDrawSessionInput s{};
+    SessionFixture(){
+        raw.active=true;raw.input_context_generation=4;
+        s.selected=s.allowed=s.counter_valid=true;s.player=2;s.context=3;
+        s.native.valid=true;s.native.weapon_id=5;s.native.current_state=1;
+        s.native.root.valid=s.native.arrow.valid=s.native.holder.valid=true;
+        s.head_world_m={0,1.6F,0};s.left_world_m={-.05F,1.3F,-.4F};s.right_world_m={0,1.3F,-.4F};
+        s.native.root.position=s.native.arrow.position={0,130,-40};
+        s.native.root.forward={0,0,-1};s.native.root.right={-1,0,0};
+    }
+    CoJBowDrawSessionOutput Tick(bool fresh=true){
+        if(fresh){++s.sequence;s.now_ms+=20;}
+        fire=mapper.Update(raw);
+        s.input_generation=raw.input_context_generation;
+        s.right_available=raw.active&&(raw.digital_available&2U)!=0;s.right_held=raw.fire_right;
+        auto input=s;input.allowed&=CoJBowDrawControlsAvailable(raw,fire);
+        const auto out=session.Update(input);
+        // Actual camera caller: begin with mapped gameplay fire, replacing it
+        // only while the bow session claims the native channels.
+        if(out.dispatch.claimed){fire.fire_right=out.dispatch.right;fire.fire_left=out.dispatch.left;}
+        return out;
+    }
+    void Grab(){
+        Tick();raw.fire_right=true;
+        Check(Tick().gesture.grab&&fire.fire_right,"composed session must begin a fresh physical grab");
+    }
+};
 int main(){
+    for(int boundary=0;boundary<4;++boundary){
+        SessionFixture f;f.Grab();f.s.selected=false;f.s.sequence=500;f.Tick();
+        const auto old_context=f.s.context,old_player=f.s.player,old_generation=f.raw.input_context_generation;
+        if(boundary==0)++f.raw.input_context_generation;
+        if(boundary==1)f.s.context+=2;
+        if(boundary==2){ // Presenter Stop/Start advances native context and restarts both counters.
+            f.s.context+=2;f.raw.input_context_generation=1;f.mapper={};f.session.Reset();
+        }
+        if(boundary==3)++f.s.player;
+        f.s.sequence=0;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"new source baseline relinquished held R2");
+        const auto current_context=f.s.context,current_player=f.s.player,current_generation=f.raw.input_context_generation;
+        // A returned retired source is not an available release from the current source.
+        f.s.context=old_context;f.s.player=old_player;f.raw.input_context_generation=old_generation;
+        f.raw.fire_right=false;f.s.sequence=900;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"retired source sample must fail closed");
+        f.s.context=current_context;f.s.player=current_player;f.raw.input_context_generation=current_generation;
+        f.s.sequence=1;f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"retired source release discharged current R2 claim");
+        // A duplicate cannot release, or move the watermark's time so a later
+        // genuinely fresh sample would be rejected against the duplicate's clock.
+        const auto time=f.s.now_ms;
+        f.raw.fire_right=false;f.s.now_ms+=10000;
+        Check(f.Tick(false).dispatch.claimed,"duplicate source sample discharged physical claim");
+        f.s.now_ms=time;f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"duplicate timestamp renewed the release watermark");
+        f.raw.digital_available&=~2U;f.raw.fire_right=false;f.Tick();
+        f.raw.digital_available|=2U;f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"new source unavailable false discharged claim");
+        f.raw.fire_right=false;const auto released=f.Tick();
+        Check(released.dispatch.claimed&&!f.fire.fire_right&&!released.dispatch.shot_requested,
+            "fresh new source release sample must itself remain consumed");
+        Check(!f.Tick().dispatch.claimed,"restarted source could not release below old sequence watermark");
+        f.raw.fire_right=true;
+        Check(!f.Tick().dispatch.claimed&&f.fire.fire_right,"new source fresh press failed to recover ordinary fire");
+        // A retired source also cannot reacquire native bow dispatch after release.
+        f.s.context=old_context;f.s.player=old_player;f.raw.input_context_generation=old_generation;
+        f.s.selected=true;f.s.sequence=1000;f.raw.fire_right=false;f.Tick();f.raw.fire_right=true;
+        const auto stale=f.Tick();
+        Check(stale.dispatch.claimed&&!stale.gesture.grab&&!f.fire.fire_right&&!stale.owner_token,
+            "retired source returned to live bow dispatch");
+    }
+    {
+        SessionFixture f;f.Grab();f.s.selected=false;f.Tick();
+        ++f.raw.input_context_generation;f.raw.fire_right=false;
+        const auto baseline=f.Tick();
+        Check(baseline.dispatch.claimed,"new source baseline release must stay consumed");
+        f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"source transition borrowed old source release");
+        f.raw.fire_right=false;f.Tick();
+        Check(!f.Tick().dispatch.claimed,"new source fresh release did not recover");
+    }
+    {
+        SessionFixture f;f.Grab();
+        ++f.raw.input_context_generation;f.s.sequence=0;f.raw.fire_right=false;
+        const auto baseline=f.Tick();
+        Check(baseline.dispatch.claimed&&!baseline.dispatch.shot_requested,
+            "new bow source baseline cannot release old draw");
+        f.raw.fire_right=true;
+        Check(!f.Tick().gesture.grab&&!f.fire.fire_right,
+            "new bow source borrowed baseline release to reacquire consumed R2");
+        f.raw.fire_right=false;f.Tick();f.raw.fire_right=true;
+        Check(f.Tick().gesture.grab&&f.fire.fire_right,
+            "fresh release after source baseline must rearm physical grab");
+    }
+    for(int fault=0;fault<4;++fault){
+        SessionFixture f;f.Grab();
+        if(fault==0)f.s.selected=false; // Failed owner proof and nonbow share this result.
+        if(fault==1){f.s.selected=false;f.session.Reset();}
+        if(fault==2){f.s.selected=false;++f.s.player;f.s.context+=2;}
+        if(fault==3){f.s.allowed=false;f.Tick();f.s.selected=false;}
+        for(int i=0;i<3;++i){const auto cancelled=f.Tick();
+            Check(cancelled.dispatch.claimed&&!f.fire.fire_right&&!f.fire.fire_left&&
+                !cancelled.dispatch.shot_requested&&!cancelled.owner_token,
+                "repeated owner proof loss must retain consumed R2 through caller fallback");}
+        f.s.allowed=true;
+        // An unavailable/neutralized trigger cannot discharge a physical claim.
+        f.raw.digital_available&=~2U;f.raw.fire_right=false;f.Tick();
+        f.raw.digital_available|=2U;f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"unavailable release lost the bow's consumed hold");
+        // Neither an inactive nor a duplicated sample is an observed release.
+        f.raw.active=false;f.raw.fire_right=false;f.Tick();
+        f.raw.active=true;f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"inactive release lost the bow's consumed hold");
+        f.raw.fire_right=false;f.Tick(false);f.raw.fire_right=true;
+        Check(f.Tick().dispatch.claimed&&!f.fire.fire_right,"duplicate release lost the bow's consumed hold");
+        f.raw.fire_right=false;const auto release=f.Tick();
+        Check(!f.fire.fire_right&&!release.dispatch.left&&!release.dispatch.shot_requested,
+            "releasing cancelled bow hold must not shoot");
+        Check(!f.Tick().dispatch.claimed,"available nonbow release must retire retained claim");
+        f.raw.fire_right=true;
+        Check(!f.Tick().dispatch.claimed&&f.fire.fire_right,"fresh nonbow press must preserve ordinary fire");
+    }
+    {
+        SessionFixture f;f.Grab();f.s.selected=false;f.Tick();f.Tick();
+        f.s.selected=true;f.s.native.weapon_id++;
+        Check(!f.Tick().gesture.grab&&!f.fire.fire_right,"replacement bow cannot inherit held grab");
+        f.raw.fire_right=false;
+        Check(!f.Tick().dispatch.shot_requested,"reacquired bow cannot fire old cancelled release");
+        f.raw.fire_right=true;
+        Check(f.Tick().gesture.grab&&f.fire.fire_right,"available release must permit a fresh reacquired bow grab");
+        f.s.native.current_state=129;f.s.native.can_attack=f.s.native.held_right=f.s.native.release_ready=true;
+        f.s.right_world_m.z+=.2F;f.Tick();f.raw.fire_right=false;
+        const auto shot=f.Tick();
+        Check(shot.dispatch.shot_requested&&f.fire.fire_left&&f.fire.fire_right,
+            "normal qualified bow release must still request its native shot");
+        Check(!f.Tick().dispatch.left,"normal release cannot repeat native shot");
+    }
+    {
+        SessionFixture f;f.s.selected=false;f.Tick();f.raw.fire_right=true;
+        Check(!f.Tick().dispatch.claimed&&f.fire.fire_right,"startup nonbow input must not be claimed");
+        f.s.selected=true;
+        Check(!f.Tick().gesture.grab&&!f.fire.fire_right,"startup held bow R2 still needs a release");
+        f.raw.fire_right=false;f.Tick();f.raw.fire_right=true;
+        Check(f.Tick().gesture.grab,"startup release and fresh contact must still grab");
+    }
     {
         cojvr::runtime::GameplayInputState raw{},filtered{};raw.active=filtered.active=true;
         Check(CoJBowDrawControlsAvailable(raw,filtered),"ordinary available bow input remains eligible");

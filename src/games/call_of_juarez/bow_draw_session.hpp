@@ -33,9 +33,22 @@ class CoJBowDrawSession final {
 public:
     CoJBowDrawSessionOutput Update(const CoJBowDrawSessionInput& s) noexcept {
         CoJBowDrawSessionOutput out{};
-        if(!s.selected||!s.allowed||!s.native.valid||!s.player||!s.context||!s.input_generation||s.recentered){
-            out.dispatch.claimed=s.selected||selected_;out.dispatch.cancelled=policy_.drawing()||dispatch_.pending();
-            out.reason=!s.selected?"bow_deselected":!s.allowed?"adapter_gate":!s.native.valid?
+        // Physical R2 ownership outlives native bow proof and explicit session
+        // cancellation. An unknown owner must not turn a consumed hold into
+        // ordinary fire on this or a replacement weapon.
+        const bool prior_claim=right_claimed_;
+        const auto trigger=ObserveTriggerSource(s);
+        if(s.right_available&&trigger!=TriggerSample::retired){
+            if(s.right_held&&(s.selected||selected_))right_claimed_=true;
+            else if(!s.right_held&&trigger==TriggerSample::fresh)
+                right_claimed_=release_required_=false;
+        }
+        if(trigger==TriggerSample::retired||!s.selected||!s.allowed||!s.native.valid||
+            !s.player||!s.context||!s.input_generation||s.recentered){
+            out.dispatch.claimed=trigger==TriggerSample::retired||s.selected||selected_||prior_claim||right_claimed_;
+            out.dispatch.cancelled=policy_.drawing()||dispatch_.pending();
+            out.reason=trigger==TriggerSample::retired?"retired_trigger_source":
+                !s.selected?"bow_deselected":!s.allowed?"adapter_gate":!s.native.valid?
                 "native_observation":s.recentered?"recentered":"session_identity";
             Reset();return out;
         }
@@ -48,7 +61,7 @@ public:
         runtime::Vec3 nock_cm{};
         const bool geometry=nock_.Observe(s.native,s.player,s.context,policy_.drawing()||dispatch_.pending(),nock_cm);
         runtime::BowDrawInput input{};
-        input.eligible=geometry&&!dispatch_.pending()&&(policy_.drawing()||s.native.current_state==1);
+        input.eligible=geometry&&!release_required_&&!dispatch_.pending()&&(policy_.drawing()||s.native.current_state==1);
         input.right_trigger_available=s.right_available;input.right_trigger_held=s.right_held;
         input.owner=s.native.weapon_id;input.player=s.player;input.native_context=s.context;
         input.input_generation=s.input_generation;input.sequence=s.sequence;input.now_ms=s.now_ms;
@@ -57,7 +70,7 @@ public:
         input.aim_forward={s.native.root.forward[0],s.native.root.forward[1],s.native.root.forward[2]};
         out.gesture=policy_.Update(input);
         CoJBowDrawDispatchSample native{};
-        native.selected=true;native.eligible=geometry&&s.right_available;
+        native.selected=true;native.eligible=geometry&&s.right_available&&!release_required_;
         native.drawing=out.gesture.drawing;native.release_fire=out.gesture.fire;
         native.alternate_ready=s.native.release_ready;native.can_attack=s.native.can_attack;
         native.native_right_held=s.native.held_right;native.counter_valid=s.counter_valid;
@@ -78,15 +91,36 @@ public:
     void Reset() noexcept {
         policy_.Reset();dispatch_.Reset();nock_.Reset();
         owner_=player_=context_=input_=0;weapon_=0;selected_=false;
+        release_required_=right_claimed_;
+        // right_claimed_ is released only by a fresh, available physical R2
+        // release in Update, including while the native owner is unknown.
     }
     std::uint64_t owner_token() const noexcept {return owner_;}
     bool active() const noexcept {return policy_.drawing()||dispatch_.pending();}
 private:
+    enum class TriggerSample { unavailable,baseline,fresh,duplicate,retired };
+    TriggerSample ObserveTriggerSource(const CoJBowDrawSessionInput& s) noexcept {
+        if(!s.context||!s.input_generation||!s.player||!s.sequence||!s.now_ms)return TriggerSample::unavailable;
+        // Exact caller epochs: native feedback context advances across presenter
+        // Stop/Start; input generation advances within it. Player generations
+        // advance on native replacement. Pose numbering is local to this tuple.
+        const std::array<std::uint64_t,3> source{s.context,s.input_generation,s.player};
+        if(source<trigger_source_)return TriggerSample::retired;
+        if(source!=trigger_source_){
+            trigger_source_=source;trigger_sequence_=s.sequence;trigger_ms_=s.now_ms;
+            return TriggerSample::baseline; // A new source cannot discharge an old hold.
+        }
+        if(s.sequence<=trigger_sequence_||s.now_ms<=trigger_ms_)return TriggerSample::duplicate;
+        trigger_sequence_=s.sequence;trigger_ms_=s.now_ms;
+        return TriggerSample::fresh;
+    }
     runtime::BowDrawPolicy policy_;
     CoJBowDrawInput dispatch_;
     CoJBowNockReference nock_;
     std::uint64_t epoch_=0,owner_=0,player_=0,context_=0,input_=0;
+    std::uint64_t trigger_sequence_=0,trigger_ms_=0;
+    std::array<std::uint64_t,3> trigger_source_{};
     std::uint32_t weapon_=0;
-    bool selected_=false;
+    bool selected_=false,right_claimed_=false,release_required_=false;
 };
 }
