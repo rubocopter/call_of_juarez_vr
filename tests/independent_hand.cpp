@@ -90,7 +90,10 @@ bool FingerChecks(){
         // A controller axis can run through both pads. The model axis must
         // instead be tangent to their measured gap and rotate with the hand.
         ElementWorldBasisTarget pinch{};
-        if(!overlay.ReadPinchFrame(pinch,&f,Fixture::Read))return false;
+        float skin_gap_cm=-1.F;
+        const int writes_before_gap=f.writes;
+        if(!overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm)||
+            skin_gap_cm<.6F||skin_gap_cm>1.8F||f.writes!=writes_before_gap)return false;
         const auto pinch_local=TransformWeaponElementFrame(f.frames[3].frame,local_identity,pinch);
         const cojvr::runtime::Vec3 measured_tip=hand==1?
             cojvr::runtime::Vec3{-.0529222F,.9951689F,.0826924F}:
@@ -140,13 +143,17 @@ bool FingerChecks(){
         const auto prior=f.frames[6].frame;
         f.frames[6].frame.position.x+=1;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
-        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read)||pinch.valid)return false;
+        skin_gap_cm=-1.F;
+        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm)||pinch.valid||
+            skin_gap_cm!=0.F)return false;
         if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid||
            contact.native[0].valid||contact.displayed[0].valid)return false;
         f.frames[6].frame=prior;
         if(!overlay.Restore({15,0,0},&f,Fixture::Read,Fixture::Write)||overlay.fingers_active())return false;
         if(overlay.ReadPinchAnchor(anchor,&f,Fixture::Read))return false;
-        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read)||pinch.valid)return false;
+        skin_gap_cm=-1.F;
+        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm)||pinch.valid||
+            skin_gap_cm!=0.F)return false;
         if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid)return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=5;if(!FrameClose(f.frames[i].frame,expected))return false;}
         for(int fail:{5,10,18,20}){f.frames=rest;f.writes=0;f.fail_at=fail;CoJHandOverlay partial;

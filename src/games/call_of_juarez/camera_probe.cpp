@@ -144,6 +144,7 @@ int g_reload_pinch_last_hand=-1;
 bool g_reload_pinch_last_applied=false;
 std::array<runtime::Pose,2> g_reload_cartridge_anchors{};
 std::array<CoJReloadFingerObservation,2> g_reload_finger_observations{};
+std::array<float,2> g_reload_skin_pad_gaps_cm{};
 std::uint64_t g_reload_finger_observation_sequence=0;
 bool g_reload_cartridge_last_visible=false;
 unsigned g_reload_depth_observation_budget=0;
@@ -4021,6 +4022,7 @@ bool ApplyTrackedWeapons(
     const bool publish_gameplay_rays=true) noexcept {
     g_reload_cartridge_anchors={};
     g_reload_finger_observations={};
+    g_reload_skin_pad_gaps_cm={};
     g_reload_finger_observation_sequence=frame_sequence;
     if(g_long_gun_grip.attached()&&publish_gameplay_rays){
         if(!independent_hands||manual_presentation){g_long_gun_grip.Cancel();return false;}
@@ -4202,7 +4204,9 @@ bool ApplyTrackedWeapons(
                 hand,natural_hand,hand_target,&error,left?&left_fingers:&right_fingers);
             if(manual_presentation&&hand_applied){
                 ElementWorldBasisTarget anchor{};
-                if(g_java_player_bridge.TryReadReloadPinchFrame(hand,anchor)){
+                float skin_gap_cm=0.F;
+                if(g_java_player_bridge.TryReadReloadPinchFrame(hand,anchor,&skin_gap_cm)){
+                    g_reload_skin_pad_gaps_cm[hand]=skin_gap_cm;
                     g_reload_cartridge_anchors[hand]=BuildCoJReloadCartridgePose(anchor,grip,grip_world,
                         {basis.right.x,basis.right.y,basis.right.z},
                         {basis.up.x,basis.up.y,basis.up.z},{basis.forward.x,basis.forward.y,basis.forward.z});
@@ -7394,6 +7398,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                             prefix+"_forward="+RuntimeVectorText(frame.forward);
                     }
                 }
+                if(fingers.valid&&g_reload_finger_observation_sequence==frame_sequence&&
+                    g_reload_skin_pad_gaps_cm[motion_reload.cartridge_hand]>.0F)
+                    detail+=";skin_pad_gap_cm="+
+                        std::to_string(g_reload_skin_pad_gaps_cm[motion_reload.cartridge_hand]);
                 EmitEvent("manual_reload_finger_reference",fingers.valid?"observed":"unavailable",detail);
             }
         }

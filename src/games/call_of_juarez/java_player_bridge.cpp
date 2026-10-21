@@ -3100,13 +3100,15 @@ bool JavaPlayerBridge::TryReadReloadPinchAnchor(int hand,runtime::Vec3& world) n
     world=frame.position;return true;
 }
 
-bool JavaPlayerBridge::TryReadReloadPinchFrame(int hand,ElementWorldBasisTarget& world) noexcept {
+bool JavaPlayerBridge::TryReadReloadPinchFrame(int hand,ElementWorldBasisTarget& world,
+    float* skin_gap_cm) noexcept {
     world={};
+    if(skin_gap_cm)*skin_gap_cm=0.F;
     if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
     auto& overlay=hand_overlays_[hand];
     if(!overlay.object||!TryCanAnimateEmptyHand(hand))return false;
     HandIoContext io{this,overlay.object,nullptr};
-    return overlay.frames.ReadPinchFrame(world,&io,ReadHandFrame);
+    return overlay.frames.ReadPinchFrame(world,&io,ReadHandFrame,skin_gap_cm);
 }
 
 bool JavaPlayerBridge::TryReadReloadFingerObservation(int hand,CoJReloadFingerObservation& out) noexcept {

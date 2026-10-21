@@ -236,6 +236,123 @@ def geometry_metrics(fields):
     return metrics
 
 
+def finger_joint_metrics(fields):
+    """Compare distal-joint frames in native hand-local cm, not skin contacts.
+
+    The logged frames come from the same verified overlay and are already in
+    each hand's local basis. Cartridge position/axis are XR-space, so mixing
+    them with these centimetre-space frames would invent a contact measurement.
+    """
+    if (integer(fields, 'frame_sequence') is None or integer(fields, 'frame_sequence') <= 0 or
+            integer(fields, 'hand') not in (0, 1) or
+            integer(fields, 'armed_hand') != 1-integer(fields, 'hand') or
+            any(integer(fields, key) in (None, 0, -1)
+                for key in ('player_generation', 'native_context', 'weapon_id')) or
+            not yes(fields, 'owner_snapshot_valid') or
+            fields.get('units') != 'cm' or fields.get('basis') != 'each_hand_local' or
+            fields.get('sampling') != 'pre_restore_verified' or
+            fields.get('mutation') != 'false' or fields.get('finger_pad_contact') != 'false'):
+        raise ValueError('Unqualified finger-frame evidence')
+
+    def vec(key):
+        raw = fields[key]
+        if raw.startswith('(') and raw.endswith(')'):
+            raw = raw[1:-1]
+        values = tuple(float(v) for v in raw.split(','))
+        if len(values) != 3 or not all(math.isfinite(v) for v in values):
+            raise ValueError('Non-finite finger-frame component')
+        return values
+
+    def dot(a, b):
+        return sum(x*y for x, y in zip(a, b))
+
+    def frame(prefix):
+        pos, up, forward = (vec(prefix+'_'+key) for key in ('position', 'up', 'forward'))
+        if (abs(dot(up, up)-1) > .002 or abs(dot(forward, forward)-1) > .002 or
+                abs(dot(up, forward)) > .002):
+            raise ValueError('Non-rigid finger frame')
+        right = (up[1]*forward[2]-up[2]*forward[1],
+                 up[2]*forward[0]-up[0]*forward[2],
+                 up[0]*forward[1]-up[1]*forward[0])
+        return pos, (right, up, forward)
+
+    frames = {(digit, phase): frame(f'{digit}_{phase}')
+              for digit in ('thumb', 'index') for phase in ('native', 'displayed')}
+    gaps = {phase: math.dist(frames['thumb', phase][0], frames['index', phase][0])
+            for phase in ('native', 'displayed')}
+    metrics = dict(native_joint_gap_cm=gaps['native'],
+                   displayed_joint_gap_cm=gaps['displayed'],
+                   joint_gap_change_cm=gaps['displayed']-gaps['native'])
+    for digit in ('thumb', 'index'):
+        native, displayed = frames[digit, 'native'], frames[digit, 'displayed']
+        metrics[digit+'_joint_translation_cm'] = math.dist(native[0], displayed[0])
+        cosine = (sum(dot(a, b) for a, b in zip(native[1], displayed[1]))-1)/2
+        metrics[digit+'_rotation_from_native_deg'] = math.degrees(
+            math.acos(max(-1., min(1., cosine))))
+    # Optional in new traces; earlier events contained only distal-joint origins.
+    # This measured gap is between derived skin-pad points, not contact proof.
+    if 'skin_pad_gap_cm' in fields:
+        skin_gap = float(fields['skin_pad_gap_cm'])
+        if not math.isfinite(skin_gap) or not .6 <= skin_gap <= 1.8:
+            raise ValueError('Unqualified displayed skin-pad gap')
+        metrics['displayed_skin_pad_gap_cm'] = skin_gap
+    if not all(math.isfinite(value) for value in metrics.values()):
+        raise ValueError('Non-finite finger-frame measurement')
+    return metrics
+
+
+def finger_reference_observations(events):
+    """Report sparse on-pickup joint geometry without claiming visual contact."""
+    rows, issues, seen = [], [], set()
+    for index, sample in enumerate(events):
+        if sample['event'] != 'manual_reload_finger_reference':
+            continue
+        fields = sample['fields']
+        frame, hand = integer(fields, 'frame_sequence'), integer(fields, 'hand')
+        row = dict(line=sample['line'], frame=frame, hand=hand,
+                   status=sample['result'], skin_pad_contact_measured=False,
+                   trace_correlation='unverified', cartridge_correlated=False)
+        if sample['result'] == 'unavailable':
+            rows.append(row)
+            continue
+        if sample['result'] != 'observed' or (frame, hand) in seen:
+            issues.append(dict(line=sample['line'], kind='invalid_finger_reference'))
+            row['status'] = 'invalid'
+            rows.append(row)
+            continue
+        seen.add((frame, hand))
+        try:
+            row.update(finger_joint_metrics(fields))
+        except (KeyError, ValueError, OverflowError):
+            issues.append(dict(line=sample['line'], kind='invalid_finger_reference'))
+            row['status'] = 'invalid'
+            rows.append(row)
+            continue
+        trace = next((e for e in reversed(events[:index])
+                      if e['event'] == 'reload_trace'), None)
+        if trace is None or integer(trace['fields'], 'frame_sequence') != frame:
+            row['trace_correlation'] = 'missing_same_frame_trace'
+        elif owner(trace['fields']) != owner(fields):
+            row['trace_correlation'] = 'owner_mismatch'
+        elif not (coherent_trace(trace['fields']) and
+                  yes(trace['fields'], 'manual_session_enabled') and
+                  integer(trace['fields'], 'wait_probe_status_after') in (1, 2, 3)):
+            row['trace_correlation'] = 'native_state_unverified'
+        else:
+            row['trace_correlation'] = 'same_frame_owner'
+        cartridge = next((e for e in reversed(events[:index])
+                          if e['event'] == 'manual_reload_cartridge'), None)
+        row['cartridge_correlated'] = bool(
+            row['trace_correlation'] == 'same_frame_owner' and cartridge and
+            cartridge['result'] == 'visible' and
+            integer(cartridge['fields'], 'frame_sequence') == frame and
+            integer(cartridge['fields'], 'hand') == hand and
+            yes(cartridge['fields'], 'anchor_valid') and
+            yes(cartridge['fields'], 'physical_claim'))
+        rows.append(row)
+    return rows, issues
+
+
 def native_drum_phase(fields):
     """Optional stable native scalar, distinct from displayed geometry/chambers."""
     keys=('native_drum_phase_deg','native_phase_stable')
@@ -527,11 +644,12 @@ def analyze_evidence(directory):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
     events = read_events(paths['runtime/cojvr.log'], evidence)
+    finger_observations, finger_issues = finger_reference_observations(events)
     rifle_samples = rifle_support_observations(events)
     bow = bow_draw_observations(events)
     manual = run.get('validation', {}).get('manualReloadInstalled') is True
     traces = [e for e in events if e['event'] == 'reload_trace']
-    insertions, issues, mechanics = [], [], []
+    insertions, issues, mechanics = [], list(finger_issues), []
     mechanical_baselines = {}
     ready_references = {}
     reported = Counter((e['event'], e['result']) for e in events)
@@ -704,6 +822,10 @@ def analyze_evidence(directory):
                     zone_entries=reported['manual_reload_zone','entered'],
                     zone_exits=reported['manual_reload_zone','exited'],
                     cartridge_visible_events=reported['manual_reload_cartridge','visible'],
+                    finger_reference_samples=sum(r['status']=='observed'
+                                                 for r in finger_observations),
+                    finger_reference_correlated_samples=sum(r['cartridge_correlated']
+                                                            for r in finger_observations),
                     zone_haptics_submitted=haptics['zone_entered'],
                     insertion_haptics_submitted=haptics['insert_accepted'],
                     depth_observation_samples=len(depth_samples),
@@ -727,6 +849,7 @@ def analyze_evidence(directory):
                 rifle_support_observations=rifle_samples,
                 bow_draw_observations=bow,
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
+                finger_joint_observations=finger_observations,
                 renderer_depth_observations=depth_samples,
                 depth_eye_pairs=depth_eye_pairs,
                 timeline=events,
@@ -741,6 +864,7 @@ def analyze_evidence(directory):
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
                         'Ordered same-frame/device/generation depth metadata does not prove capture, eye/hand content or occlusion.',
                         'A zone cue grants no ammunition; submitted haptics and cartridge visibility do not validate physical grip.',
+                        'Finger-frame deltas are distal joint origins; the optional displayed skin-pad gap does not measure pad/case clearance or qualify visual contact.',
                         'Inventory hashes verify internal consistency, not external authentication.'])
 
 

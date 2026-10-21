@@ -542,7 +542,7 @@ public:
     [[nodiscard]] bool ReadPinchAnchor(cojvr::runtime::Vec3& world,void* context,
         CoJElementRead read) const noexcept;
     [[nodiscard]] bool ReadPinchFrame(ElementWorldBasisTarget& world,void* context,
-        CoJElementRead read) const noexcept;
+        CoJElementRead read,float* skin_gap_cm=nullptr) const noexcept;
     [[nodiscard]] bool ReadReloadFingerObservation(CoJReloadFingerObservation& out,
         void* context, CoJElementRead read) const noexcept;
 private:

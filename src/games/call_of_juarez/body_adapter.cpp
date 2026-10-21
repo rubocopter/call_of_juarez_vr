@@ -915,8 +915,9 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       world=frame.position;return true;
   }
   bool CoJHandOverlay::ReadPinchFrame(ElementWorldBasisTarget& world,void* context,
-      CoJElementRead read) const noexcept {
+      CoJElementRead read,float* skin_gap_cm) const noexcept {
       world={};
+      if(skin_gap_cm)*skin_gap_cm=0.F;
       if(faulted_||!fingers_active()||!Verify(context,read))return false;
       if(finger_hand_<0||finger_hand_>1)return false;
       // Finger2 and Finger12 are distal bone origins, not skin. These two
@@ -948,7 +949,9 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       if(!Finite(tangent)||Length(tangent)<.2F)return false;
       const auto forward=Scale(Normalize(tangent),-1.F); // Mesh projectile is -Z.
       world={Scale(Add(thumb,index),.5F),up,forward,true};
-      return Finite(world.position);
+      if(!Finite(world.position)){world={};return false;}
+      if(skin_gap_cm)*skin_gap_cm=gap;
+      return true;
   }
 runtime::Pose BuildCoJReloadCartridgePose(const ElementWorldBasisTarget& pinch,
     const runtime::Pose& grip,const runtime::Vec3 native_grip,runtime::Vec3 camera_right,

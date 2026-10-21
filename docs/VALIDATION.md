@@ -668,6 +668,10 @@ ordinary admission (which is unavailable while waiting), with explicit snapshot
 validity, armed hand and context. New correlation remains pending runtime.
 Joint observations do not measure skin contact. The current compositor lacks
 scene-depth occlusion; improved anchor position alone does not qualify the grip.
+The new optional `skin_pad_gap_cm` samples verified displayed skin-pad separation
+before restoration; host analysis rejects nonfinite/out-of-range values and
+correlates snapshots conservatively. Whether the .357 visually fits between the
+fingers remains pending headset observation.
 
 ## Consolidated candidate batch — host-tested, awaiting runtime and visor
 

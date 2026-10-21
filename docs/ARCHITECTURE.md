@@ -781,10 +781,10 @@ fresh-grip acquisition/cancellation policy. It takes measured metre-space frames
 and returns one rigid map with explicit support-spacing error; it never stretches
 the weapon or substitutes the hand-to-hand vector for the barrel axis. One policy
 instance owns the same physical support channels through interruption and release.
-It is not connected to native long guns yet: the exact adapter must qualify the
-support frame and fire/cycle lifetime, arbitrate interaction before dispatch and
-reuse one scoped map for both hands, weapon, muzzle and reticles. Existing
-idle-finger eligibility is not that attachment contract.
+The exact Winchester, Remington and SawOff adapter now connects the solver to
+scoped native rifle transactions, with host-tested ownership and restoration.
+The complete fire/cycle lifetime, physical contact and visual grip remain open
+headset gates. Existing idle-finger eligibility alone does not qualify contact.
 An opt-in read-only observer admits the exact ordinary Winchester, Remington
 and sawed-off Remington classes with coherent right active/actual/desired
 ownership, empty left equipment, ordinary idle/fire states and native two-hand

@@ -59,7 +59,77 @@ def depth_sample(frame=2, eye='left', **extra):
     return 'manual_reload_depth: ' + ';'.join(f'{key}={value}' for key, value in fields.items())
 
 
+def finger_reference(frame=2, result='observed', **extra):
+    fields = dict(frame_sequence=frame, hand=1, weapon_id=42, armed_hand=0,
+                  native_context=5, player_generation=7, owner_snapshot_valid=1,
+                  units='cm', basis='each_hand_local', sampling='pre_restore_verified',
+                  mutation='false', finger_pad_contact='false', skin_pad_gap_cm=1.14)
+    for digit in ('thumb', 'index'):
+        for phase in ('native', 'displayed'):
+            prefix = f'{digit}_{phase}'
+            fields[prefix+'_position'] = '(0,0,0)' if digit == 'thumb' else (
+                '(0,3,0)' if phase == 'native' else '(0,1,0)')
+            fields[prefix+'_up'] = '(0,1,0)'
+            fields[prefix+'_forward'] = '(0,0,1)'
+    fields.update(extra)
+    return event('manual_reload_finger_reference', result, **fields)
+
+
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_finger_reference_quantifies_displayed_joint_change_only_with_owner_correlation(self):
+        report = self.evidence([
+            trace(2),
+            event('manual_reload_cartridge', 'visible', frame_sequence=2, hand=1,
+                  anchor_valid=1, physical_claim=1),
+            finger_reference(index_displayed_up='(1,0,0)'),
+        ])
+        row = report['finger_joint_observations'][0]
+        self.assertEqual(row['trace_correlation'], 'same_frame_owner')
+        self.assertTrue(row['cartridge_correlated'])
+        self.assertAlmostEqual(row['native_joint_gap_cm'], 3)
+        self.assertAlmostEqual(row['displayed_joint_gap_cm'], 1)
+        self.assertAlmostEqual(row['joint_gap_change_cm'], -2)
+        self.assertAlmostEqual(row['index_rotation_from_native_deg'], 90)
+        self.assertAlmostEqual(row['thumb_rotation_from_native_deg'], 0)
+        self.assertAlmostEqual(row['displayed_skin_pad_gap_cm'], 1.14)
+        self.assertFalse(row['skin_pad_contact_measured'])
+        self.assertEqual(report['summary']['finger_reference_samples'], 1)
+        self.assertEqual(report['summary']['finger_reference_correlated_samples'], 1)
+        self.assertFalse(report['headset_validated'])
+
+    def test_legacy_finger_reference_without_skin_gap_remains_readable(self):
+        legacy = finger_reference().replace(';skin_pad_gap_cm=1.14', '')
+        report = self.evidence([trace(2), legacy])
+        row = report['finger_joint_observations'][0]
+        self.assertEqual(row['status'], 'observed')
+        self.assertEqual(row['trace_correlation'], 'same_frame_owner')
+        self.assertAlmostEqual(row['displayed_joint_gap_cm'], 1)
+        self.assertNotIn('displayed_skin_pad_gap_cm', row)
+        self.assertFalse(report['headset_validated'])
+
+    def test_finger_reference_owner_loss_and_invalid_geometry_cannot_qualify_contact(self):
+        unrelated = self.evidence([
+            trace(3), event('manual_reload_cartridge', 'visible', frame_sequence=2,
+                            hand=0, anchor_valid=1, physical_claim=1),
+            finger_reference(),
+            finger_reference(frame=4, result='unavailable'),
+        ])
+        self.assertEqual(unrelated['finger_joint_observations'][0]['trace_correlation'],
+                         'missing_same_frame_trace')
+        self.assertFalse(unrelated['finger_joint_observations'][0]['cartridge_correlated'])
+        self.assertEqual(unrelated['summary']['finger_reference_correlated_samples'], 0)
+        self.assertEqual(len(unrelated['finger_joint_observations']), 2)
+        self.assertNotIn('displayed_joint_gap_cm', unrelated['finger_joint_observations'][1])
+        for change in ({'index_displayed_up': '(0,2,0)'},
+                       {'thumb_native_position': '(nan,0,0)'},
+                       {'index_native_forward': '(0,1,0)'},
+                       {'hand': 2}, {'finger_pad_contact': 'true'},
+                       {'skin_pad_gap_cm': 'nan'}, {'skin_pad_gap_cm': 9}):
+            with self.subTest(change=change):
+                report = self.evidence([finger_reference(**change)])
+                self.assertEqual(report['issues'][0]['kind'], 'invalid_finger_reference')
+                self.assertEqual(report['summary']['finger_reference_samples'], 0)
+
     def test_bow_requests_counters_and_cancellations_are_not_arrow_spawns(self):
         report = self.evidence([
             event('physical_bow_draw', 'drawing', frame_sequence=2, weapon_id=42,
