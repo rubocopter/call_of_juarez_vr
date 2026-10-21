@@ -312,6 +312,8 @@ public:
         std::string* error = nullptr) noexcept;
     [[nodiscard]] bool ApplyPreparedTrackedWeapon(int hand, JavaPlayerPosition& muzzle,
         std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool BindPreparedLongGunSupport(const CoJLongGunSupportSnapshot& natural,
+        const ElementWorldBasisTarget& mapped_support,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool VerifyTrackedWeapon(int hand, bool& active,
         std::string* error = nullptr) noexcept;
     [[nodiscard]] bool RestoreTrackedHands(std::string* error = nullptr) noexcept;
@@ -573,6 +575,10 @@ public:
 
     [[nodiscard]] bool player_available() const noexcept { return being_ != nullptr; }
     [[nodiscard]] std::uint64_t being_generation() const noexcept { return being_generation_; }
+    // Game-thread camera/body transactions retain this bridge's actor GlobalRef.
+    // Replacement/clear/reset are quarantined until every verified restore releases.
+    [[nodiscard]] bool RetainBodyRestoreOwner(std::uint64_t generation) noexcept;
+    [[nodiscard]] bool ReleaseBodyRestoreOwner(std::uint64_t generation) noexcept;
     [[nodiscard]] bool single_player_fallback_used() const noexcept {
         return single_player_fallback_used_;
     }
@@ -653,10 +659,14 @@ private:
         // Nonnegative only for the qualified exact-bow root fallback. Retain
         // its authored holder identity alongside the captured Java object.
         int bow_holder_element = -1;
+        CoJLongGunSupportSnapshot long_gun_owner{};
+        ElementWorldBasisTarget long_gun_support{};
+        std::uint64_t long_gun_generation=0;
         bool active = false;
         bool applied = false;
     };
     bool ValidateTrackedBowOwner(int hand, std::string* error) noexcept;
+    bool ValidateTrackedLongGunOwner(int hand,bool mapped_support,std::string* error) noexcept;
     bool CaptureTrackedWeapon(int hand, cojvr::runtime::Vec3 wrist, cojvr::runtime::Vec3 grip,
         cojvr::runtime::Vec3 direction, cojvr::runtime::Vec3 up, std::string* error,
         const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand,
@@ -701,6 +711,7 @@ private:
     void* active_game_module_field_ = nullptr;
     void* is_timer_freezed_method_ = nullptr;
     void* being_ = nullptr;
+    unsigned body_restore_owner_count_ = 0; // pelvis and the two diagnostic arms
     std::array<void*,2> interaction_ray_fields_{};
     void* get_mesh_element_method_ = nullptr;
     void* get_element_id_method_ = nullptr;

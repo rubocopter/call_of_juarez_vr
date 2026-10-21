@@ -836,7 +836,22 @@ bool JavaPlayerBridge::EnsureVm(std::string* error) noexcept {
     return true;
 }
 
+bool JavaPlayerBridge::RetainBodyRestoreOwner(const std::uint64_t generation) noexcept {
+    if (!being_ || !generation || generation != being_generation_ || body_restore_owner_count_ >= 3)
+        return false;
+    ++body_restore_owner_count_;
+    return true;
+}
+
+bool JavaPlayerBridge::ReleaseBodyRestoreOwner(const std::uint64_t generation) noexcept {
+    if (!being_ || !generation || generation != being_generation_ || !body_restore_owner_count_)
+        return false;
+    --body_restore_owner_count_;
+    return true;
+}
+
 void JavaPlayerBridge::Reset() noexcept {
+    if (body_restore_owner_count_) return;
     fist_skin_generation_=0;fist_skin_model_=-1;
     if (!TryPublishBowDrawHold(false)) return;
     if (!CancelManualReload()) return;
@@ -2121,6 +2136,9 @@ bool JavaPlayerBridge::TryPublishWeaponRay(
     const int hand, const JavaPlayerPosition& origin, const JavaPlayerPosition& direction,
     const bool valid, std::string* error) noexcept {
     if (hand < 0 || hand > 1 || !being_) return false;
+    if(valid&&!ValidateTrackedLongGunOwner(hand,true,error)){
+        (void)TryPublishWeaponRay(hand,{}, {},false,error);return false;
+    }
     const bool whip_cleared = valid || hand != 0 || ClearTrackedWhip(false, error);
     if (valid && (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z) ||
         !std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z))) return false;
@@ -2603,6 +2621,48 @@ bool JavaPlayerBridge::ValidateTrackedBowOwner(const int hand,std::string* error
     return false;
 }
 
+bool JavaPlayerBridge::BindPreparedLongGunSupport(const CoJLongGunSupportSnapshot& natural,
+    const ElementWorldBasisTarget& mapped_support,std::string* error) noexcept {
+    auto& overlay=weapon_overlays_[0];
+    if(!natural.valid||!mapped_support.valid||!overlay.weapon||!overlay.active||overlay.applied||
+        !overlay.plan.valid||weapon_overlays_[1].weapon||overlay.natural.empty())return false;
+    CoJReloadLocalFrame checked{};
+    if(!BuildCoJReloadLocalFrame(natural.root,mapped_support,checked))return false;
+    const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float e){return std::abs(a.x-b.x)<e&&
+        std::abs(a.y-b.y)<e&&std::abs(a.z-b.z)<e;};
+    if(!close(overlay.natural[0].position,natural.root.position,.1F)||
+        !close(overlay.natural[0].up,natural.root.up,.02F)||!close(overlay.natural[0].forward,natural.root.forward,.02F))return false;
+    overlay.long_gun_owner=natural;overlay.long_gun_support=mapped_support;
+    overlay.long_gun_generation=being_generation_;
+    return ValidateTrackedLongGunOwner(0,false,error);
+}
+
+bool JavaPlayerBridge::ValidateTrackedLongGunOwner(const int hand,const bool mapped_support,std::string* error) noexcept {
+    const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
+    if(!overlay.long_gun_owner.valid)return true;
+    if(hand!=0||overlay.long_gun_generation!=being_generation_||weapon_overlay_faulted_||
+        independent_hand_faulted_||weapon_overlays_[1].weapon)return false;
+    const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& out) noexcept {
+        auto& bridge=*static_cast<JavaPlayerBridge*>(context);JavaPlayerPosition p{},u{},f{};out={};
+        if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
+        out={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
+    };
+    CoJLongGunSupportSnapshot now{};
+    if(!ReadCoJLongGunSupport(Environment(error),being_,now,frame,this,overlay.weapon))return false;
+    const auto& expected=overlay.long_gun_owner;
+    if(now.player_id!=expected.player_id||now.weapon_id!=expected.weapon_id||
+        now.holder_element!=expected.holder_element||now.support_element!=expected.support_element||
+        std::strcmp(now.weapon_class,expected.weapon_class))return false;
+    if(mapped_support){
+        const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float e){return std::abs(a.x-b.x)<=e&&
+            std::abs(a.y-b.y)<=e&&std::abs(a.z-b.z)<=e;};
+        if(!close(now.support.position,overlay.long_gun_support.position,.1F)||
+            !close(now.support.up,overlay.long_gun_support.up,.02F)||
+            !close(now.support.forward,overlay.long_gun_support.forward,.02F))return false;
+    }
+    return true;
+}
+
 bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::string* error) noexcept {
     active=false;
     if (hand<0 || hand>1) return false;
@@ -2610,6 +2670,7 @@ bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::st
     active=overlay.applied;
     if (!active) return true;
     if (!ValidateTrackedBowOwner(hand,error)) return false;
+    if (!ValidateTrackedLongGunOwner(hand,true,error)) return false;
     JavaPlayerPosition actual{},direction{};
     const auto close=[](JavaPlayerPosition a, cojvr::runtime::Vec3 b, float tolerance) {
         return std::fabs(a.x-b.x)<=tolerance && std::fabs(a.y-b.y)<=tolerance && std::fabs(a.z-b.z)<=tolerance;
@@ -2621,8 +2682,15 @@ bool JavaPlayerBridge::VerifyTrackedWeapon(const int hand, bool& active, std::st
         close(actual,overlay.plan.muzzle_origin,0.1F) && close(direction,overlay.plan.muzzle_direction,0.02F) &&
         close({frame.up.x,frame.up.y,frame.up.z},overlay.targets[overlay.barrel_element].up,0.02F) &&
         close({frame.forward.x,frame.forward.y,frame.forward.z},overlay.targets[overlay.barrel_element].forward,0.02F);
-    if (!matched) SetError(error,"weapon barrel changed after parent/socket pose");
-    return matched;
+    bool root_matched=true;
+    if(matched&&overlay.long_gun_owner.valid){
+        JavaPlayerPosition p{},u{},f{};
+        root_matched=ReadObjectElementFrame(overlay.weapon,0,p,u,f,error,true)&&
+            close(p,overlay.plan.root.position,.1F)&&close(u,overlay.plan.root.up,.02F)&&
+            close(f,overlay.plan.root.forward,.02F);
+    }
+    if (!matched||!root_matched) SetError(error,"weapon root/barrel changed after parent/socket pose");
+    return matched&&root_matched;
 }
 
 bool JavaPlayerBridge::ApplyPreparedTrackedWeapon(const int hand, JavaPlayerPosition& muzzle,
@@ -2635,6 +2703,7 @@ bool JavaPlayerBridge::ApplyPreparedTrackedWeapon(const int hand, JavaPlayerPosi
     // Revalidate against the retained object before the first target write;
     // keep its preimage/reference owned even when admission has been lost.
     if (!ValidateTrackedBowOwner(hand,error)) return false;
+    if (!ValidateTrackedLongGunOwner(hand,true,error)) return false;
     const auto j=[](cojvr::runtime::Vec3 v) { return JavaPlayerPosition{v.x,v.y,v.z}; };
     for (std::size_t i=0;i<overlay.targets.size();++i) {
         const auto& target=overlay.targets[i];
@@ -3194,7 +3263,7 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
     if (!being_ && !Refresh(error)) return false;
     void* env = Environment(error);
     if (!env || !being_ || !EnsureVectorAccess(env, error)) return false;
-    if (!ValidateTrackedBowOwner(hand,error)) return false;
+    if (!ValidateTrackedBowOwner(hand,error)||!ValidateTrackedLongGunOwner(hand,true,error)) return false;
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
@@ -3301,9 +3370,12 @@ bool JavaPlayerBridge::TryGetWeaponBarrel(
     DeleteLocal(env, weapon);
     const float length_squared = direction.x * direction.x + direction.y * direction.y +
         direction.z * direction.z;
-    if (!ok || !std::isfinite(length_squared) || length_squared < 1.0e-8F) {
+    if (!ok || !std::isfinite(length_squared) || length_squared < 1.0e-8F ||
+        !ValidateTrackedLongGunOwner(hand,true,error)) {
         origin = {};
         direction = {};
+        if(attack_origins)*attack_origins={};
+        if(barrel_frame)*barrel_frame={};
         return false;
     }
     return true;
@@ -5113,6 +5185,7 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    if (body_restore_owner_count_) return;
     if (single_round_reload_pending_ && !ClearSingleRoundReloadField(env, nullptr)) return;
     gameplay_ui_cache_ = {};
     gameplay_ui_player_generation_ = 0;
@@ -5249,6 +5322,10 @@ bool JavaPlayerBridge::EnsureMovementObservationAccess(
 
 bool JavaPlayerBridge::ResolveBeingMethods(
     void* env, void* local_being, std::string* error) noexcept {
+    if (body_restore_owner_count_) {
+        SetError(error, "captured body actor restoration remains pending");
+        return false;
+    }
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto new_global = EnvFunction<NewGlobalRefFn>(env, kNewGlobalRef);
@@ -6325,7 +6402,8 @@ bool JavaPlayerBridge::TryGetPosition(
     }
 
     void* vector = call(env, being_, get_position_vector_method_, nullptr);
-    if (!vector || ClearException(env, error, "GetPositionVectorVolatile call failed")) {
+    const bool position_failed=ClearException(env, error, "GetPositionVectorVolatile call failed");
+    if (!vector || position_failed) {
         DeleteLocal(env, vector);
         return false;
     }

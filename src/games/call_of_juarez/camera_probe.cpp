@@ -13,6 +13,7 @@
 #include "games/call_of_juarez/bow_draw_session.hpp"
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
+#include "games/call_of_juarez/long_gun_grip.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
@@ -161,6 +162,11 @@ struct LongGunProbeState {
     bool fire_down=false,known_rifle=false;
 };
 LongGunProbeState g_long_gun_probe;
+CoJLongGunGripState g_long_gun_grip;
+CoJLongGunGripSampleClock g_long_gun_sample_clock;
+CoJLongGunGripOutput g_long_gun_claim{};
+bool g_long_gun_quarantined=false;
+std::uint64_t g_long_gun_failed_sequence=0;
 CoJInteractionActionGate g_interaction_action_gate;
 CoJMotionReloadRejectReason g_motion_reload_last_reject = CoJMotionReloadRejectReason::none;
 std::uint64_t g_motion_reload_last_diagnostic_ms = 0;
@@ -238,6 +244,8 @@ struct HandOrientationCalibrationState {
 HandOrientationCalibrationState g_left_hand_orientation{};
 HandOrientationCalibrationState g_right_hand_orientation{};
 struct AppliedArmElementRotation {
+    std::uint64_t being_generation = 0;
+    std::array<int,4> elements{{-1,-1,-1,-1}};
     ArmBoneRotationPlan rotations{};
     BoneRotationDelta forearm_twist{};
     BoneRotationDelta hand_rotation{};
@@ -267,6 +275,7 @@ struct AppliedRoomScaleBodyOffset {
     std::uint64_t being_generation = 0;
     int pelvis_element = -1;
     JavaPlayerPosition natural_position{};
+    JavaPlayerPosition actor_at_capture{};
     JavaPlayerPosition natural_up{};
     JavaPlayerPosition natural_forward{};
     cojvr::runtime::Vec3 applied_world_offset{};
@@ -2414,12 +2423,32 @@ bool RestoreRoomScaleBodyOffset(
     const char* reason) noexcept {
     if (!g_room_scale_body_offset.active) return true;
     std::string error;
-    const bool restored = g_java_player_bridge.TrySetElementWorldBasis(
+    const bool owner_matches = g_room_scale_body_offset.being_generation != 0 &&
+        g_room_scale_body_offset.being_generation == g_java_player_bridge.being_generation();
+    JavaPlayerPosition actor{};
+    const bool actor_read = owner_matches && g_java_player_bridge.TryGetPosition(actor,&error);
+    const auto& tx=g_room_scale_body_offset;
+    const JavaPlayerPosition target{tx.natural_position.x+actor.x-tx.actor_at_capture.x,
+        tx.natural_position.y+actor.y-tx.actor_at_capture.y,
+        tx.natural_position.z+actor.z-tx.actor_at_capture.z};
+    bool restored = actor_read && g_java_player_bridge.TrySetElementWorldBasis(
         g_room_scale_body_offset.pelvis_element,
         g_room_scale_body_offset.natural_up,
         g_room_scale_body_offset.natural_forward,
-        g_room_scale_body_offset.natural_position,
+        target,
         &error);
+    JavaPlayerPosition position{},up{},forward{};
+    const auto close=[](JavaPlayerPosition a,JavaPlayerPosition b,float tolerance) noexcept {
+        return std::isfinite(a.x)&&std::isfinite(a.y)&&std::isfinite(a.z)&&
+            std::fabs(a.x-b.x)<=tolerance&&std::fabs(a.y-b.y)<=tolerance&&std::fabs(a.z-b.z)<=tolerance;
+    };
+    restored = restored && g_java_player_bridge.TryGetElementWorldBasis(
+        g_room_scale_body_offset.pelvis_element,position,up,forward,&error) &&
+        close(position,target,.1F) &&
+        close(up,g_room_scale_body_offset.natural_up,.02F) &&
+        close(forward,g_room_scale_body_offset.natural_forward,.02F);
+    restored = restored && g_java_player_bridge.ReleaseBodyRestoreOwner(
+        g_room_scale_body_offset.being_generation);
     if (!restored) g_room_scale_body_offset.faulted = true;
     else g_java_player_bridge.OnVisualBodyOffsetRestored(g_room_scale_body_offset.applied_world_offset);
     if (!restored || ShouldObserveBodyFrame(frame_sequence)) {
@@ -2524,6 +2553,8 @@ bool ApplyRoomScaleBodyOffset(
         world_offset.z+=setback.z;
     }
 
+    JavaPlayerPosition actor_at_capture{};
+    if(!g_java_player_bridge.TryGetPosition(actor_at_capture,error))return false;
     JavaPlayerPosition position{};
     JavaPlayerPosition up{};
     JavaPlayerPosition forward{};
@@ -2537,17 +2568,21 @@ bool ApplyRoomScaleBodyOffset(
         position.y + world_offset.y,
         position.z + world_offset.z,
     };
-    if (!g_java_player_bridge.TrySetElementWorldBasis(
-            g_room_scale_body_offset.pelvis_element,
-            up, forward, shifted, error)) {
-        return false;
-    }
-
+    if (!g_java_player_bridge.RetainBodyRestoreOwner(generation)) return false;
+    // Own the actor and preimage before the first write: JNI failure can follow
+    // a partial native mutation. Only verified restoration releases this lease.
     g_room_scale_body_offset.natural_position = position;
+    g_room_scale_body_offset.actor_at_capture = actor_at_capture;
     g_room_scale_body_offset.natural_up = up;
     g_room_scale_body_offset.natural_forward = forward;
     g_room_scale_body_offset.applied_world_offset = world_offset;
     g_room_scale_body_offset.active = true;
+    if (!g_java_player_bridge.TrySetElementWorldBasis(
+            g_room_scale_body_offset.pelvis_element,
+            up, forward, shifted, error)) {
+        (void)RestoreRoomScaleBodyOffset(frame_sequence,"apply_failure");
+        return false;
+    }
     if (ShouldObserveBodyFrame(frame_sequence)) {
         try {
             std::ostringstream detail;
@@ -2693,9 +2728,14 @@ void ObserveIndependentHandRenderState(const std::uint64_t frame_sequence, const
     const bool observe=ShouldObserveBodyFrame(frame_sequence);
     for (int hand=0;hand<2;++hand) {
         std::string error;
-        if (observe || g_bow_draw_session.owner_token()!=0 || (hand==0 && right_whip_verified)) {
+        if (observe || g_long_gun_grip.attached() || g_bow_draw_session.owner_token()!=0 || (hand==0 && right_whip_verified)) {
             bool active=false;
             const bool matched=g_java_player_bridge.VerifyTrackedHand(hand,active,&error);
+            if(active&&!matched&&g_long_gun_grip.attached()){
+                g_long_gun_grip.Cancel();g_long_gun_failed_sequence=frame_sequence;
+                (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
+                right_muzzle_verified=right_origin_valid=false;
+            }
             if(active&&!matched){g_bow_verification_failed_sequence=frame_sequence;ResetPhysicalBowDraw("hand_verification");}
             if (hand==0 && right_whip_verified) {
                 bool whip_active=false;
@@ -2715,6 +2755,9 @@ void ObserveIndependentHandRenderState(const std::uint64_t frame_sequence, const
         bool weapon_active=false;
         const bool weapon_matched=g_java_player_bridge.VerifyTrackedWeapon(hand,weapon_active,&error);
         if (weapon_active && !weapon_matched) {
+            if(hand==0&&g_long_gun_grip.attached()){
+                g_long_gun_grip.Cancel();g_long_gun_failed_sequence=frame_sequence;
+            }
             if(hand==1){g_bow_verification_failed_sequence=frame_sequence;ResetPhysicalBowDraw("weapon_verification");}
             (void)g_java_player_bridge.TryPublishWeaponRay(hand,{}, {},false);
             (hand==1 ? left_origin_valid : right_origin_valid)=false;
@@ -2832,7 +2875,8 @@ bool ReadLegGeometry(
 bool RestoreNaturalArmElementFrames(
     bool left,
     const ArmGeometrySample& natural,
-    std::string* error) noexcept;
+    std::string* error,
+    const std::array<int,4>* retained_elements = nullptr) noexcept;
 
 bool ApplyArmPlan(
     const bool left,
@@ -2971,17 +3015,18 @@ bool ApplyArmPlan(
 bool RestoreNaturalArmElementFrames(
     const bool left,
     const ArmGeometrySample& natural,
-    std::string* error) noexcept {
-    const int upper = left
+    std::string* error,
+    const std::array<int,4>* retained_elements) noexcept {
+    const int upper = retained_elements ? (*retained_elements)[0] : left
         ? g_arm_element_cache.left_upper_arm
         : g_arm_element_cache.right_upper_arm;
-    const int forearm = left
+    const int forearm = retained_elements ? (*retained_elements)[1] : left
         ? g_arm_element_cache.left_forearm
         : g_arm_element_cache.right_forearm;
-    const int foretwist = left
+    const int foretwist = retained_elements ? (*retained_elements)[2] : left
         ? g_arm_element_cache.left_foretwist
         : g_arm_element_cache.right_foretwist;
-    const int hand = left
+    const int hand = retained_elements ? (*retained_elements)[3] : left
         ? g_arm_element_cache.left_hand
         : g_arm_element_cache.right_hand;
     std::string upper_error;
@@ -3035,7 +3080,9 @@ bool RestoreAppliedArmRotation(
     if (!applied.active) return true;
     JavaPlayerPosition current_actor_position{};
     std::string actor_position_error;
-    const bool actor_position_read = g_java_player_bridge.TryGetPosition(
+    const bool owner_matches = applied.being_generation != 0 &&
+        applied.being_generation == g_java_player_bridge.being_generation();
+    const bool actor_position_read = owner_matches && g_java_player_bridge.TryGetPosition(
         current_actor_position, &actor_position_error);
     const ArmGeometrySample restore_geometry = actor_position_read
         ? RebaseArmGeometryForActorTranslation(
@@ -3044,8 +3091,8 @@ bool RestoreAppliedArmRotation(
               RuntimeVector(current_actor_position))
         : applied.natural_geometry;
     std::string exact_restore_error;
-    const bool exact_restore_ok = RestoreNaturalArmElementFrames(
-        left, restore_geometry, &exact_restore_error);
+    const bool exact_restore_ok = actor_position_read && RestoreNaturalArmElementFrames(
+        left, restore_geometry, &exact_restore_error, &applied.elements);
     ArmGeometrySample restored_geometry{};
     std::string geometry_error;
     const bool geometry_read = exact_restore_ok &&
@@ -3056,8 +3103,9 @@ bool RestoreAppliedArmRotation(
             restore_geometry, restored_geometry);
     }
     const bool geometry_restored = geometry_read && restore_check.matches;
-    const bool restored = actor_position_read && geometry_restored;
-    applied.active = false;
+    const bool restored = actor_position_read && geometry_restored &&
+        g_java_player_bridge.ReleaseBodyRestoreOwner(applied.being_generation);
+    applied.active = !restored;
     if (!restored) g_arm_rotation_faulted = true;
 
     const bool emit_restore_telemetry =
@@ -3516,7 +3564,20 @@ void UpdatePlayerArmTracking(
                 !g_arm_rotation_faulted && ShouldApplyCoJArmIk(plan) &&
                 ShouldApplyCoJArmRotationPlan(rotation_plan) && hand_target.valid;
             if (body_ik_enabled && write_allowed && elements_ready && plan.valid) {
-                write_ok = ApplyArmPlan(
+                auto& applied = left ? g_left_arm_rotation : g_right_arm_rotation;
+                const bool retained = !applied.active &&
+                    g_java_player_bridge.RetainBodyRestoreOwner(generation);
+                if (retained) {
+                    applied.being_generation = generation;
+                    applied.elements = left ? std::array<int,4>{g_arm_element_cache.left_upper_arm,
+                        g_arm_element_cache.left_forearm,g_arm_element_cache.left_foretwist,g_arm_element_cache.left_hand} :
+                        std::array<int,4>{g_arm_element_cache.right_upper_arm,g_arm_element_cache.right_forearm,
+                        g_arm_element_cache.right_foretwist,g_arm_element_cache.right_hand};
+                    applied.natural_geometry = geometry;
+                    applied.actor_position_at_capture = actor_position;
+                    applied.active = true;
+                }
+                write_ok = retained && ApplyArmPlan(
                     left,
                     plan,
                     rotation_plan,
@@ -3532,16 +3593,17 @@ void UpdatePlayerArmTracking(
                     rollback_attempted,
                     rollback_ok,
                     &write_error);
+                if (!write_ok && retained) {
+                    rollback_attempted = true;
+                    rollback_ok = RestoreAppliedArmRotation(left,applied,frame_sequence,"apply_failure");
+                    if (!rollback_ok) g_arm_rotation_faulted = true;
+                }
                 if (write_ok) {
-                    auto& applied = left ? g_left_arm_rotation : g_right_arm_rotation;
                     applied.rotations = applied_rotations;
                     applied.forearm_twist = applied_forearm_twist;
                     applied.hand_rotation = applied_hand_rotation;
                     applied.hand_target = hand_target;
-                    applied.natural_geometry = geometry;
-                    applied.actor_position_at_capture = actor_position;
                     applied.post_write_geometry = {};
-                    applied.active = true;
                     std::string post_write_error;
                     applied.post_write_geometry_valid = ReadArmGeometry(
                         left,
@@ -3860,6 +3922,87 @@ struct ControllerAimFrameObservation {
     bool right_whip_aim_verified = false;
 };
 
+bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const float height,
+    const runtime::Pose& head,const runtime::Pose& left,const runtime::Pose& right,
+    const runtime::Pose& right_tip,CoJLongGunGripGeometry& geometry) noexcept {
+    geometry={};CameraProbeBasis basis{};CameraProbeVector camera{};
+    if(!head.position_valid||!head.orientation_valid||!left.position_valid||!left.orientation_valid||
+        !right.position_valid||!right.orientation_valid||!right_tip.orientation_valid||
+        !ReadNaturalCameraFrame(natural,basis,camera))return false;
+    basis=BuildTrackingReferenceBasis(basis.forward,basis.up,g_body_owned_yaw_degrees);
+    if(!IsCameraProbeBasisRigidRightHanded(basis))return false;
+    const runtime::Vec3 x{basis.right.x,basis.right.y,basis.right.z},
+        u{basis.up.x,basis.up.y,basis.up.z},f{basis.forward.x,basis.forward.y,basis.forward.z};
+    bool valid=false;
+    geometry.dominant_grip_cm=BuildTrackedAimOrigin({camera.x,camera.y,camera.z},x,u,f,
+        head.position,right.position,height,kGameUnitsPerMeter,valid);if(!valid)return false;
+    geometry.support_grip_cm=BuildTrackedAimOrigin({camera.x,camera.y,camera.z},x,u,f,
+        head.position,left.position,height,kGameUnitsPerMeter,valid);if(!valid)return false;
+    geometry.direction=BuildTrackedAimDirection(right_tip.orientation,x,u,f,valid);if(!valid)return false;
+    const auto up=runtime::RotateVector(right_tip.orientation,{0,1,0});
+    geometry.up={x.x*up.x+u.x*up.y+f.x*up.z,x.y*up.x+u.y*up.y+f.y*up.z,x.z*up.x+u.z*up.y+f.z*up.z};
+    ElementWorldBasisTarget socket{};JavaPlayerPosition muzzle{},direction{};
+    const auto generation=g_java_player_bridge.being_generation();
+    if(!g_java_player_bridge.TryObserveLongGunSupport(geometry.native)||
+        !g_java_player_bridge.TryReadHandAttachment(0,socket)||
+        !g_java_player_bridge.TryGetWeaponBarrel(0,muzzle,direction)||
+        generation!=g_java_player_bridge.being_generation())return false;
+    geometry.dominant_socket_cm=socket.position;geometry.muzzle_cm=RuntimeVector(muzzle);
+    geometry.muzzle_direction=RuntimeVector(direction);return true;
+}
+
+bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float height,
+    const runtime::Pose& head,const runtime::Pose& left,const runtime::Pose& right,
+    const runtime::Pose& right_tip,const std::uint64_t frame_sequence,const std::uint64_t context,
+    ControllerAimFrameObservation& aim) noexcept {
+    CoJLongGunGripGeometry geometry{};CoJLongGunGripFrame frame{};std::string error;
+    const auto fail=[&]() noexcept {
+        g_long_gun_grip.Cancel();g_long_gun_failed_sequence=frame_sequence;
+        const bool hands=g_java_player_bridge.RestoreTrackedHands(&error);
+        const bool weapon=hands&&g_java_player_bridge.RestoreTrackedWeapons(&error);
+        g_long_gun_quarantined|=!hands||!weapon;
+        (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
+        (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
+        aim.left_origin_valid=aim.right_origin_valid=aim.left_muzzle_verified=aim.right_muzzle_verified=false;
+        try{EmitEvent("long_gun_grip","cancelled","frame_sequence="+std::to_string(frame_sequence)+
+            ";restore_ok="+std::to_string(hands&&weapon)+";detail="+error);}catch(...){}
+        return false;
+    };
+    if(g_long_gun_quarantined||!ReadLongGunGripGeometry(natural,height,head,left,right,right_tip,geometry))return fail();
+    frame=g_long_gun_grip.Refresh(g_java_player_bridge.being_generation(),context,geometry);
+    if(!frame.valid)return fail();
+    ArmGeometrySample right_arm{},left_arm{};
+    if(!ResolveArmElements(g_java_player_bridge.being_generation(),&error)||
+        !ReadArmGeometry(false,right_arm,&error)||!ReadArmGeometry(true,left_arm,&error))return fail();
+    const ElementWorldBasisTarget natural_right{right_arm.hand_element_position,right_arm.hand_element_up,right_arm.hand_element_forward,true};
+    const ElementWorldBasisTarget natural_left{left_arm.hand_element_position,left_arm.hand_element_up,left_arm.hand_element_forward,true};
+    ElementWorldBasisTarget tracked_right{};bool unarmed=false;
+    if(!g_java_player_bridge.TryPrepareTrackedWeapon(0,geometry.dominant_socket_cm,geometry.dominant_grip_cm,
+        frame.plan.muzzle_direction,frame.plan.root.up,natural_right,tracked_right,unarmed,&error)||
+        !g_java_player_bridge.BindPreparedLongGunSupport(geometry.native,frame.mapped_support_frame,&error))return fail();
+    // The idle-acquired socket remains fixed on the weapon during native cycle
+    // animation. Preserve the current hand-to-socket anatomy at that full frame.
+    const auto tracked_left=TransformWeaponElementFrame(geometry.native.support,frame.mapped_support_frame,natural_left);
+    if(!tracked_left.valid||!g_java_player_bridge.TryApplyIndependentHand(0,natural_right,tracked_right,&error)||
+        !g_java_player_bridge.TryApplyIndependentHand(1,natural_left,tracked_left,&error))return fail();
+    JavaPlayerPosition muzzle{},direction{};bool active=false;
+    // Both parent sockets are final before the single child-weapon commit.
+    if(!g_java_player_bridge.ApplyPreparedTrackedWeapon(0,muzzle,&error)||
+        !g_java_player_bridge.VerifyTrackedWeapon(0,active,&error)||!active||
+        !g_java_player_bridge.TryGetWeaponBarrel(0,muzzle,direction,&error)||
+        !g_java_player_bridge.TryPublishWeaponRay(0,muzzle,direction,true,&error))return fail();
+    (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
+    aim.right_origin=RuntimeVector(muzzle);aim.right_direction=RuntimeVector(direction);
+    aim.right_origin_valid=aim.right_direction_valid=aim.right_muzzle_verified=true;
+    aim.left_origin_valid=aim.left_muzzle_verified=false;
+    (void)g_java_player_bridge.TrySetPerHandAimOrigin(0,muzzle);
+    if(ShouldObserveBodyFrame(frame_sequence))try{EmitEvent("long_gun_grip","applied",
+        "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(geometry.native.weapon_id)+
+        ";support_error_m="+std::to_string(frame.support_error_m)+
+        ";source=idle_native_left_hand;native_reload=true;physical_acceptance=unverified");}catch(...){}
+    return true;
+}
+
 bool ApplyTrackedWeapons(
     const CameraRenderStateSnapshot& natural,
     const float height_correction,
@@ -3879,6 +4022,11 @@ bool ApplyTrackedWeapons(
     g_reload_cartridge_anchors={};
     g_reload_finger_observations={};
     g_reload_finger_observation_sequence=frame_sequence;
+    if(g_long_gun_grip.attached()&&publish_gameplay_rays){
+        if(!independent_hands||manual_presentation){g_long_gun_grip.Cancel();return false;}
+        return ApplySupportedLongGun(natural,height_correction,head,left_grip,right_grip,right_tip,
+            frame_sequence,native_context,aim);
+    }
     CameraProbeBasis basis{};
     CameraProbeVector camera{};
     if (!ReadNaturalCameraFrame(natural, basis, camera)) return false;
@@ -4684,6 +4832,10 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
                 ";detail=" + visual_body_error);
         }
 
+        // A partial pelvis mutation with failed rollback owns the actor now.
+        // Do not begin an inner arm transaction in this same invocation.
+        if(g_room_scale_body_offset.active&&g_room_scale_body_offset.faulted)return result;
+
         const auto arm_command = CurrentCommand().command;
         const bool body_ik_enabled = arm_command.body_ik_enabled && !arm_command.independent_hands_enabled;
         const bool measure_arm_timing = body_ik_enabled || arm_command.movement_trace_enabled;
@@ -5139,11 +5291,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // D3D resource rollback is pending. Retry with its retained eye/frame first.
     (void)RestorePendingEyeRenderResources();
     if(EyeRenderRestorationPending()){
+        g_long_gun_grip.Cancel();
         ResetPhysicalBowDraw("eye_resource_quarantine");g_virtual_holsters.Invalidate();return;
     }
 
     const CommandSnapshot snapshot = CurrentCommand();
     const auto cancel_gameplay=[&](const char* reason="render_context_lost") noexcept {
+        g_long_gun_grip.Cancel();
         g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw(reason);
         g_java_player_bridge.InvalidateDuelInput();
@@ -5171,6 +5325,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             g_gameplay_owner_release_pending=false;
     };
     const auto reject_render_input_context=[&]() noexcept {
+        g_long_gun_grip.Cancel();
         g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw("render_input_context");
         // These dispatches precede this frame's body/hand/eye transactions.
@@ -5191,6 +5346,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     (void)g_java_player_bridge.TryPublishWeaponRay(0, {}, {}, false);
     (void)g_java_player_bridge.TryPublishWeaponRay(1, {}, {}, false);
     (void)g_java_player_bridge.TryPublishInteractionRay({}, {}, false);
+    // Camera-owned actor leases must retire before any Refresh, natural render,
+    // or tracking-disabled exit can replace/advance the captured native owner.
+    RestoreAppliedArmRotations(g_stereo_frame_sequence.load(std::memory_order_acquire),"pending_entry");
+    if (g_left_arm_rotation.active || g_right_arm_rotation.active) {
+        InvalidateStereoEyePair();
+        return;
+    }
     std::string stale_weapon_error;
     if (!g_java_player_bridge.RestoreTrackedHands(&stale_weapon_error)) {
         cancel_gameplay();
@@ -5203,6 +5365,19 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         EmitEvent("controller_weapon_restore", "failed", stale_weapon_error);
         if(!EyeRenderCallbacksEnabled())ForwardNaturalRender(original,owner,view);
         return;
+    }
+    if (!RestoreRoomScaleBodyOffset(g_stereo_frame_sequence.load(std::memory_order_acquire),"pending_entry")) {
+        InvalidateStereoEyePair();
+        return;
+    }
+    if(g_long_gun_quarantined){
+        // The native fault still disables new tracked mutations in the bridge,
+        // but verified cleanup must not disable ordinary fire forever. Start
+        // the existing physical release barrier before any resumed consumer.
+        g_long_gun_quarantined=false;
+        g_long_gun_grip.Cancel();
+        g_gameplay_controls={};g_gameplay_commands={};
+        g_gameplay_owner_release_pending=true;
     }
     if (g_stereo_callbacks.set_capture_readback_enabled) {
         g_stereo_callbacks.set_capture_readback_enabled(
@@ -5607,6 +5782,58 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         gameplay_input.fire_left = false;
         gameplay_input.fire_right = false;
     }
+    // Long-gun claims precede every Action, holster and fire consumer. Keep
+    // feeding real physical samples through loss so L1/L2 releases cannot leak.
+    CoJLongGunGripInput long_gun_input{};CoJLongGunGripGeometry long_gun_geometry{};
+    long_gun_input.player_generation=g_java_player_bridge.being_generation();
+    long_gun_input.context=sample.native_gameplay_context_token;
+    auto& grip_controls=long_gun_input.controls;
+    grip_controls.input_generation=raw_reload_input.input_context_generation;
+    grip_controls.sequence=sample.hmd_pose.sequence;
+    grip_controls.now_ms=MonotonicMicroseconds()/1000;
+    grip_controls.sample_time_ms=g_long_gun_sample_clock.Observe(
+        grip_controls.input_generation,grip_controls.sequence,grip_controls.now_ms);
+    grip_controls.enabled=snapshot.command.body_ik_enabled&&snapshot.command.independent_hands_enabled&&
+        snapshot.command.vr_gameplay_input_enabled;
+    grip_controls.grip_available=raw_reload_input.active&&(raw_reload_input.digital_available&(1U<<6))!=0;
+    grip_controls.grip_held=raw_reload_input.interact;
+    grip_controls.support_trigger_available=raw_reload_input.active&&(raw_reload_input.digital_available&1U)!=0;
+    grip_controls.support_trigger_held=raw_reload_input.fire_left;
+    grip_controls.recentered=recentered;
+    // Capture radius/mismatch are prototype ergonomics; they establish no
+    // physical fit or native collision volume. The point is measured each owner.
+    grip_controls.acquisition_radius_m=.10F;
+    bool long_gun_equipment=false;
+    for(bool selected:gameplay_input.equipment_select)long_gun_equipment|=selected;
+    grip_controls.eligible=gameplay_input.active&&game_timer_valid&&!game_timer_frozen&&
+        mounted_available&&!mounted&&duel_owner_known&&!duel_active&&!loading_ui_input.suppress_gameplay&&
+        !g_arm_rotation_faulted&&!g_room_scale_body_offset.faulted&&!g_long_gun_quarantined&&
+        g_manual_reload.phase()==CoJManualReloadPhase::ready&&!g_bow_draw_session.active()&&
+        !gameplay_input.weapon_radial&&!raw_reload_input.weapon_radial&&!raw_reload_input.reload&&
+        !gameplay_input.reload&&!long_gun_equipment&&!gameplay_input.hands&&!gameplay_input.discard_weapon&&
+        !gameplay_input.weapon_next&&!gameplay_input.weapon_previous&&!gameplay_input.quick_load&&
+        !gameplay_input.quick_save&&(!raw_reload_input.fire_right||g_long_gun_grip.attached());
+    if(grip_controls.eligible&&!g_long_gun_grip.attached()){
+        CoJInteractionSelection selection{};
+        grip_controls.eligible=g_java_player_bridge.TryObserveInteractionSelection(selection)&&selection.valid&&
+            selection.executing_id==0;
+    }
+    grip_controls.tracking_valid=grip_controls.eligible&&ReadLongGunGripGeometry(natural_render_state,
+        physical_view_correction,relative_head_pose,relative_left_controller,relative_right_controller,
+        relative_right_aim,long_gun_geometry);
+    g_long_gun_claim=g_long_gun_grip.Update(long_gun_input,long_gun_geometry);
+    FilterCoJLongGunGripInput(g_long_gun_claim.claim,gameplay_input);
+    if(g_long_gun_claim.claim.consume_grip){
+        g_interaction_action_gate.Cancel();
+        // Match holster arbitration: retire a failed shoulder pulse before it
+        // can merge into a frame now owned by a different physical grip intent.
+        gameplay_input.digital_available&=~(1U<<9);
+    }
+    if(g_long_gun_claim.claim.acquired||g_long_gun_claim.claim.cancelled||g_long_gun_claim.claim.released)
+        try{EmitEvent("long_gun_grip",g_long_gun_claim.claim.acquired?"acquired":
+            g_long_gun_claim.claim.released?"released":"cancelled",
+            "frame_sequence="+std::to_string(frame_sequence)+";input_generation="+
+            std::to_string(grip_controls.input_generation)+";native_reload=true;physical_acceptance=unverified");}catch(...){}
     g_gameplay_commands.CaptureAndMerge(gameplay_input);
     CoJGameplayUiSnapshot native_gameplay_ui{};
     if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
@@ -5618,6 +5845,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     g_wheel_selection_gate.Update(gameplay_input, native_gameplay_ui.inventory);
     CoJVirtualHolsterSample holster_sample{};
     holster_sample.raw=raw_reload_input;
+    FilterCoJLongGunGripInput(g_long_gun_claim.claim,holster_sample.raw);
     holster_sample.inventory=native_gameplay_ui.inventory;
     holster_sample.head=relative_head_pose;
     holster_sample.grips={relative_right_controller,relative_left_controller};
@@ -5672,7 +5900,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     CameraProbeBasis interaction_basis{};
     CameraProbeVector interaction_position{};
     JavaPlayerPosition interaction_actor{};
-    if (gameplay_input.active && g_java_player_bridge.Refresh(nullptr) &&
+    if (gameplay_input.active && !g_long_gun_claim.claim.consume_grip && g_java_player_bridge.Refresh(nullptr) &&
         g_java_player_bridge.TryGetPosition(interaction_actor, nullptr) &&
         ReadNaturalCameraFrame(natural_render_state, interaction_basis, interaction_position)) {
         auto interaction_pose = relative_head_pose;
@@ -5698,7 +5926,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         interaction_ray.valid, &interaction_error);
     gameplay_input.interact=g_interaction_action_gate.Update(
         gameplay_input.active && interaction_ray.valid && interaction_published,
-        raw_reload_input.active && (raw_reload_input.digital_available & (1U<<6))!=0,
+        raw_reload_input.active && !g_long_gun_claim.claim.consume_grip && (raw_reload_input.digital_available & (1U<<6))!=0,
         raw_reload_input.interact,gameplay_input.interact);
     if (gameplay_input.interact || ShouldObserveBodyFrame(frame_sequence)) {
         try {
@@ -6250,6 +6478,18 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             recentered,
             frame_sequence);
     }
+    if((g_room_scale_body_offset.active&&g_room_scale_body_offset.faulted)||
+        (g_arm_rotation_faulted&&(g_left_arm_rotation.active||g_right_arm_rotation.active))){
+        // Preserve every retained preimage. Cancellation callbacks may themselves
+        // mutate native pose, so defer them to the quarantined entry retry.
+        g_long_gun_grip.Cancel();
+        g_gameplay_owner_release_pending=true;
+        (void)PublishReloadFeedbackOwner(0,0,{});
+        (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
+        (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
+        InvalidateStereoEyePair();
+        return;
+    }
     bool bow_pose_pair_mapped=false;
     auto visual_left_fingers=sample.left_fingers;
     auto visual_right_fingers=sample.right_fingers;
@@ -6353,6 +6593,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (snapshot.command.vr_gameplay_input_enabled) {
         auto fire_input=gameplay_input;
         if (!gameplay_input_ok) fire_input={};
+        FilterCoJLongGunGripInput(g_long_gun_claim.claim,fire_input);
+        if(g_long_gun_failed_sequence==frame_sequence||g_long_gun_quarantined){
+            fire_input.fire_left=fire_input.fire_right=false;
+        }
         bool boxing_selected=false;
         std::uint32_t boxing_owner=0;
         std::string boxing_error;
@@ -6974,7 +7218,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (observe_body_actor) {
         body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "arm_restore");
     }
-    if (visual_body_offset_applied &&
+    if (visual_body_offset_applied && !g_left_arm_rotation.active && !g_right_arm_rotation.active &&
         !RestoreRoomScaleBodyOffset(frame_sequence, "stereo_complete")) {
         g_arm_rotation_faulted = true;
     }
@@ -6983,6 +7227,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     }
 
     const bool eye_resources_restored=left_resources_restored && right_resources_restored;
+    if(g_long_gun_grip.attached()&&(!hands_restored||!weapon_restored||
+        g_long_gun_failed_sequence==frame_sequence)){
+        g_long_gun_grip.Cancel();g_long_gun_quarantined|=!hands_restored||!weapon_restored;
+    }
     const bool native_paths_restored=left_state_restored && (!right_eye_attempted || right_state_restored) &&
         hands_restored && weapon_restored && !g_arm_rotation_faulted &&
         !g_left_arm_rotation.active && !g_right_arm_rotation.active && !g_room_scale_body_offset.active;
@@ -8303,6 +8551,19 @@ CameraProbeHookState InspectCameraProbe() noexcept {
 }
 
 void ShutdownCameraProbe() noexcept {
+    // Do not remove hooks, actor bindings or preimages while a camera-owned
+    // native body transaction still needs its original owner for restoration.
+    if (g_left_arm_rotation.active || g_right_arm_rotation.active || g_room_scale_body_offset.active) {
+        const auto sequence=g_stereo_frame_sequence.load(std::memory_order_acquire);
+        RestoreAppliedArmRotations(sequence,"shutdown");
+        if (g_left_arm_rotation.active || g_right_arm_rotation.active ||
+            !g_java_player_bridge.RestoreTrackedHands() ||
+            !g_java_player_bridge.RestoreTrackedWeapons() ||
+            !RestoreRoomScaleBodyOffset(sequence,"shutdown")) {
+            EmitEvent("camera_body_restore","incomplete","shutdown_retains_actor_and_preimage=true");
+            return;
+        }
+    }
     ResetPhysicalBowDraw("shutdown");
     CoJReloadTraceSample trace{};
     trace.sequence=g_stereo_frame_sequence.load(std::memory_order_acquire);

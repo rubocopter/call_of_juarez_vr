@@ -132,7 +132,7 @@ inline bool ValidId(std::uint32_t id) noexcept {return id!=0&&id!=0xffffffffu;}
 } // namespace long_gun_observer_detail
 
 inline bool ReadCoJLongGunSupport(void* env,void* player,CoJLongGunSupportSnapshot& out,
-    CoJLongGunReadFrame read_frame,void* context) noexcept {
+    CoJLongGunReadFrame read_frame,void* context,void* expected_weapon=nullptr) noexcept {
     using namespace long_gun_observer_detail;
     out={};
     if(!env||!player||!read_frame||!*static_cast<void***>(env))return false;
@@ -145,6 +145,7 @@ inline bool ReadCoJLongGunSupport(void* env,void* player,CoJLongGunSupportSnapsh
     }
     // Retain exactly one weapon local across the caller's native frame reads.
     auto weapon=r.Get(player,methods[0],0);if(!r.ok||!weapon.value)return false;
+    if(expected_weapon&&!r.Equal(weapon,expected_weapon))return false;
     auto weapon_class=r.Class(weapon);if(!r.ok)return false;
     CoJLongGunSupportSnapshot sample{};
     for(const char* name:Classes){
