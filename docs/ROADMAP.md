@@ -27,12 +27,13 @@ Already accepted Hope and ordinary reload/menu behavior need no repeat test.
 
 Current unpublished work includes a shared version-3 preference owner and native
 Options > Game cinematic/turning/holster-guide selectors, a physical right-hand duel posture
-guard, reload thumb/continuity corrections, a neutral two-hand long-gun solver
+guard, reload thumb/continuity corrections, a two-hand rifle support prototype
 and improved launcher resolution reporting. These are implemented/host-tested,
 with scoped operator acceptance of native option usability and one successful
 physical duel draw/raise. Incorrect gestures, hand contact and sustained
-recovery remain open. The two-hand solver is not attached to
-native rifles. The published .4 download does not contain these later changes.
+recovery remain open. The solver is now connected to exact Winchester, Remington
+and SawOff native rifle transactions, with host coverage and physical acceptance
+pending. The published .4 download does not contain these later changes.
 
 The offline batch additionally implements module-owned immersive subtitle text
 and native-cache bow concentration magnification, both host-tested only. The
@@ -41,9 +42,11 @@ mode unspecified. Unreported movie timing/modes and bow alignment/comfort join t
 campaign session. The reload observer correlates stable native drum phase with
 geometry; duel diagnostics observe original inventory holster sockets. Neither
 diagnostic enables chamber mechanics or physical holster contact.
-The read-only rifle support observer and evidence analysis are host-tested;
-natural idle/fire references join that same session before deciding attachment
-lifetime. No rigid support map is applied to a rifle yet.
+The read-only rifle support observer and evidence analysis are host-tested.
+The prototype acquires its natural idle support socket on a fresh nearby L1,
+retains that weapon-local reference through native fire/cycle, and cancels for
+reload, invalid geometry or changed ownership. Placement, stability and recovery
+join that same session; automatic native rifle reload is preserved.
 
 The latest operator bow feedback is substantially improved after separating
 renderer capture drops from the lifetime of a valid physical grab. Earlier trials
@@ -89,6 +92,14 @@ unqualified and join later campaign coverage.
 The ordered work below continues offline where its exact-game prerequisite is
 available. [Pending headset checks](VALIDATION.md#pending-headset-checks) owns the
 physical checklist; an unobserved scene does not block unrelated development.
+
+The audit's actor-replacement pelvis corruption, lost diagnostic-arm restore,
+hidden-file recovery deletion and consumed-bow-trigger loss are corrected with
+host regressions. Body transactions retain their original actor and verified
+preimage, including partial writes and translated retries. Recovery preserves
+unknown directory contents and journals; staging rejects an unrepresentable
+original directory before mutation. These repairs are not open implementation
+items and do not close the physical interruption gates.
 
 Immediate work, in order:
 
@@ -161,8 +172,8 @@ Additional implementation remains bounded by the following prerequisites:
 
 | Development | Current boundary and next prerequisite |
 | --- | --- |
-| Physical-walk/turn leg animation | Planned. Identify a scoped lower-body presentation boundary before animation; preserve accepted continuous body following and native movement/permissions. Artificial movement input is not evidence of a qualified presentation seam. |
-| Rifle two-hand attachment | Solver, ownership policy and read-only native reference observer are host-tested; attachment is disabled. Qualify support-hand placement and firing/cycling lifetime before one scoped hand/weapon/aim transaction. |
+| Physical-walk/turn leg animation | Planned. The inspected native root/SetFrame routes also advance child animation and notifications, including footsteps/MakeNoise; they cannot serve as a simple legs-only writer. Qualify an event-free sampler or complete reversible lower-body transaction for both models, preserving accepted continuous follow and native movement/permissions. |
+| Rifle two-hand attachment | Exact Winchester/Remington/SawOff attachment is implemented/host-tested through one scoped paired-hand/weapon/aim transaction, acquired from the natural idle support socket. Physical placement, firing/cycling stability and interruption recovery remain pending; native automatic reload is preserved. |
 | Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before socket-based contact enables drawing. Basic gesture zones below are independent of this geometry. |
 | Basic virtual holsters | Ergonomic HMD-relative hip zones for pistols, right shoulder for rifle and left shoulder for bow are implemented/host-tested independently of model sockets or attached meshes. Optional colored guides share their geometry, default off in native comfort options. Physical zone fit, guide comfort and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
 | Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
@@ -273,14 +284,17 @@ or reload work:
   Optional colored zone guides and procedural Western wheel styling have host
   coverage; fit and readability join normal equipment use in the same session.
   They are ordinary gameplay shortcuts and do not bypass duel timing/posture.
-- **Two-hand long-gun support:** investigate a measured support-hand frame before
-  proximity/grip attachment. A neutral rigid solver and fresh-grip ownership policy
-  are implemented/host-tested, including off-axis support, authored roll, unequal
-  spacing without scale and grip/trigger release barriers. Native rifle attachment
-  remains disabled. The four inspected Winchester/Remington meshes lack
-  named secondary holder sockets. Existing free-hand fingers do not establish a
-  foregrip or firing/cycling ownership. Preserve one scoped weapon/hand/aim map
-  and arbitrate the claimed grip against interaction before enabling attachment.
+- **Two-hand long-gun support:** the host-tested prototype uses the naturally
+  animated left holding socket relative to an exact right-owned Winchester,
+  Remington or SawOff. The meshes have no named secondary holder; no arbitrary
+  foregrip offset is introduced. Fresh nearby L1 acquires while idle; one rigid
+  map preserves authored roll and scale across both hands, weapon and muzzle.
+  Native fire/cycle retain the acquired local contact; reload/equip, changed
+  object, invalid tracking or excessive separation cancel. Real bridge fixtures
+  cover both-parent-before-child commit, same-ID replacement rejection and
+  retained restoration. L1/L2 claims suppress competing consumers until release.
+  Test grasp fit, fire/cycle coherence and interruption recovery together in visor.
+  Scope variants and physical manual long-gun loading remain unimplemented.
 - **Automatic startup resolution:** preserve the current native startup requests
   and explicit saved profiles. The launcher now explains known fallback causes
   and reports the last identity-matched preparation separately from next-session

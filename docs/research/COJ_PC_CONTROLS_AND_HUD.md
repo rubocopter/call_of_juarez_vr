@@ -130,7 +130,7 @@ user-customized SteamVR bindings or physical controller behavior.
 | R3 | Focus toggle; XR magnification follows real native squint |
 | L2 | original LMB / left-hand action |
 | R2 | original RMB / right-hand action; exact left-held bow: approach string, grab, retract and release |
-| L1 | Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol, above/behind the left shoulder toggles the bow during admitted ordinary gameplay |
+| L1 | Fresh nearby grip supports an admitted idle right rifle; hold to retain two-hand aim, release to detach. Else Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol, above/behind the left shoulder toggles the bow during admitted ordinary gameplay |
 | R1 | fresh Kick press on foot; fresh grip at the right virtual hip toggles its pistol, above/behind the right shoulder toggles the rifle; hold Horse run / gallop when mounted |
 | Square | Reload; opens/closes an admitted Peacemaker/Frontier session with `-ManualReload` |
 | Cross | Jump |
@@ -493,6 +493,13 @@ contexts remain separate gates; dispatch alone does not validate them.
   Optional colored guides use the same canonical zones and default off in the
   native VR comfort options. The option follows the game's startup locale;
   guides contain no text. Guide fit and comfort remain physically unqualified.
+  The exact Winchester/Remington/SawOff support-grip prototype arbitrates L1
+  before Action and holsters. Approach the naturally animated left support grip
+  while idle and freshly hold L1; R2 fires, release L1 detaches. L1 and L2 remain
+  consumed until their physical releases after cancellation. Native Square reload
+  cancels support and runs the automatic animation; release/regrip afterward.
+  Scope variants remain outside admission. Fit and firing/cycling continuity are
+  host-tested only, awaiting the combined physical gate in Validation.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player

@@ -36,6 +36,16 @@ without rewriting it. A foreign destination or incomplete memory-protection
 restoration still reports failure. Original targets remain available to in-flight
 callbacks after retirement. This cleanup case has deterministic host coverage.
 
+Camera-owned pelvis and diagnostic arm transactions also retain the bridge's
+original actor reference. Player replacement, clear and reset wait until every
+body restore verifies and releases its lease. A failed or partial write keeps its
+preimage and element indices for retry; entry restoration precedes Refresh and
+tracking-disabled exits. Generation mismatch never redirects a restore to the
+current replacement actor. Pelvis and arm restores rebase their captured world
+positions by the retained actor's translation. Failed pelvis rollback also stops
+inner hand/weapon writes, fire and eye rendering in the same invocation; the next
+entry retries restoration before forwarding native work.
+
 Exact-game object identities retain all 32 bits across JNI's signed `jint`,
 including LAA high-bit values; zero/all-ones remain invalid. Reload ticket and
 physical Hands ownership use equality and native context rather than signed
@@ -52,6 +62,12 @@ Collection preserves that rejection and cannot mark an invalid interval complete
 The operator starts and closes the game and SteamVR. Retained inventory and
 backup identities are checked before any recovery mutation; missing or damaged
 backups preserve the journal instead of permitting partial restoration.
+
+Directory recovery inventories hidden/system files and rejects unrecorded
+contents before deletion. File-only manifests authorize ancestor directories,
+not additional empty subdirectories. Fresh staging rejects an original directory
+that cannot be represented by this recovery inventory before moving any assets;
+existing ambiguous journals retain their originals and recovery evidence.
 
 The optional Large Address Aware derivative changes only the PE flag of the
 recognized x86 executable. Original and derivative hashes are pinned separately;
@@ -652,6 +668,25 @@ An outer pelvis restore subtracts its removed offset from any
 retained inner capture exactly once. The legacy connected-arm solver is diagnostic;
 its hierarchy/writer limits remain in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md).
 
+The two-hand rifle prototype admits exact Winchester, Remington and SawOff
+classes with a repeatedly stable right actual/desired/active owner and empty
+left native slot. A fresh left grip near the naturally animated left holding
+socket acquires support while idle. The acquired weapon-local socket stays fixed
+through admitted native firing/cycling states; reload/equip or ambiguity cancels.
+One rigid solver anchors the right socket and rotates the weapon, both hands,
+muzzle and ray together, without scaling the weapon. Both parent hand maps apply
+before the single child-weapon commit. Commit, verification and ray publication
+recheck the retained Java weapon object, generation and mapped support frame.
+L1/left trigger claims precede Action, holsters and native fire and retain physical
+release barriers after cancellation. Duplicate tracking reads retain their first
+observation time; they cannot renew stale tracking. Prototype acquisition/separation
+bounds are ergonomic limits, not measured collision volumes or visor acceptance.
+Native right-trigger firing and automatic rifle reload remain authoritative.
+Failed restoration blocks the current transaction. After entry cleanup verifies,
+ordinary controls recover through the existing release/press barrier; the bridge
+can still disable new tracked mutations after a native fault. A grip fault must
+not become a permanent global fire veto for unrelated weapons.
+
 Optional finger curls interpolate exact Ray/Billy authored relaxed-rest/fist
 local orientations while preserving translations/lengths and Hand/socket frames.
 All fifteen targets join the existing transaction. Empty-hand eligibility checks
@@ -807,6 +842,11 @@ frame supplies no new captured feedback, but it does not release the string.
 Only attempted eyes participate in restoration checks; an unattempted right
 eye's false status is not a failed rollback. Pending resource quarantine and
 failed native/weapon verification still cancel, as do gameplay/tracking loss.
+The consumed physical R2 hold survives cancellation and ambiguous bow-owner
+observations. Only a fresh available release from the current input source
+discharges it, and that release sample remains consumed. A replacement source
+establishes its own baseline; repeated or retired observations cannot resume
+ordinary native fire or release the old claim.
 The read-only evidence analyzer preserves bow requests, valid counter maxima and
 separate gesture/dispatch/reset reasons within the inventoried run interval.
 Neither a request nor native attack entry proves an arrow spawn; absent events

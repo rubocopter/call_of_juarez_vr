@@ -82,9 +82,25 @@ establish a second physical grip. Proximity/grip support needs a qualified
 support-hand full frame relative to the weapon, including native fire/cycling
 ownership, before admission. A naturally animated left holding socket is a
 measurement candidate; the current idle-finger exception is not a retained
-attachment owner. Preserve one rigid weapon/hand/muzzle map and native reload
-when developing this interaction; do not infer support contact from a barrel
-or tune an arbitrary foregrip position.
+attachment owner. The support-grip prototype now measures that naturally animated
+left holding socket relative to the exact weapon root at fresh idle acquisition.
+The socket remains fixed in weapon space through admitted native fire/cycle
+states 30..38; it is not reseeded from their animated hand motion. Exact
+Winchester, Remington and SawOff classes require repeated right active/actual/
+desired object equality, empty left slot, coherent four state getters and three
+two-hand flags per hand, alive/not carrying/not reloading. Scoped/unknown classes
+reject. This is host-tested admission, not measured physical grasp acceptance.
+
+The adapter's neutral solver receives metres and returns one rigid map without
+scale. Both hands/socket parents move before the child weapon commits; retained
+weapon object and mapped left support frame are rechecked before commit,
+verification and ray publication. Restore retains the original references and
+preimages until parent and child readback succeeds. A coherent same-ID replacement
+cannot acquire the old transaction or its cached ray. Fresh L1 within the 10 cm
+prototype acquisition zone claims support; collapsed spans below 5 cm or support
+spacing residual above 20 cm cancel. These ergonomic bounds need visor judgement;
+they do not establish a native contact volume. Native right fire and automatic
+reload retain their original timing and permissions.
 
 The exact `InvObject.GetOwnerElementID` chooses `Left_hand`/`Right_hand`, with
 `Bip01 L/R Hand` as fallback. The Ray/Billy meshes contain the lowercase holding
