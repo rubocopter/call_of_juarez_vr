@@ -136,10 +136,15 @@ bool EyeResourceScopes() {
     return true;
 }
 int natural_renders=0;
+std::uint64_t bow_source_sequence=0,bow_source_time_ms=0;
 struct BowCaptureFixture {
     CoJBowDrawSessionInput input{};
     BowCaptureFixture(){
         g_bow_draw_session.Reset();
+        // Reset cancels logical drawing, not ownership of an already consumed
+        // physical trigger. This fixture is the same controller source across
+        // cases: keep its watermark and supply the real release in Grab().
+        input.sequence=bow_source_sequence;input.now_ms=bow_source_time_ms;
         input.selected=input.allowed=input.right_available=input.counter_valid=true;
         input.player=2;input.context=3;input.input_generation=4;
         input.native.valid=true;input.native.weapon_id=5;input.native.current_state=1;
@@ -148,14 +153,15 @@ struct BowCaptureFixture {
         input.native.root.position=input.native.arrow.position={0,130,-40};
         input.native.root.forward={0,0,-1};input.native.root.right={-1,0,0};
     }
-    CoJBowDrawSessionOutput Tick(){++input.sequence;input.now_ms+=20;return g_bow_draw_session.Update(input);}
+    CoJBowDrawSessionOutput Tick(){input.sequence=++bow_source_sequence;input.now_ms+=20;
+        bow_source_time_ms=input.now_ms;return g_bow_draw_session.Update(input);}
     bool Grab(){Tick();input.right_held=true;return Tick().gesture.grab;}
     void Ready(){input.native.current_state=129;input.native.can_attack=input.native.held_right=input.native.release_ready=true;}
     ~BowCaptureFixture(){g_bow_draw_session.Reset();}
 };
 bool CaptureDropPreservesBow(){
     g_stereo_callbacks={};
-    BowCaptureFixture bow;if(!bow.Grab())return false;bow.Ready();
+    BowCaptureFixture bow;if(!bow.Grab()){std::cerr<<"capture fixture failed initial grab\n";return false;}bow.Ready();
     bow.input.right_world_m.z+=.2F;
     if(!bow.Tick().dispatch.right)return false;
     const auto owner=g_bow_draw_session.owner_token();
@@ -177,14 +183,14 @@ bool CaptureDropPreservesBow(){
 bool CaptureDropRetainsBowSafety(){
     g_stereo_callbacks={};
     for(int fault=0;fault<4;++fault){
-        BowCaptureFixture bow;if(!bow.Grab())return false;bow.Ready();
+        BowCaptureFixture bow;if(!bow.Grab()){std::cerr<<"safety fixture failed grab: "<<fault<<'\n';return false;}bow.Ready();
         if(CompletePhysicalBowFrame(true,fault!=0,fault!=1,fault!=2,fault!=3)||
             g_bow_draw_session.active()||g_bow_draw_session.owner_token())return false;
         if(bow.Tick().gesture.grab)return false;
         bow.input.right_held=false;
         if(bow.Tick().dispatch.shot_requested)return false;
     }
-    BowCaptureFixture bow;if(!bow.Grab())return false;bow.Ready();
+    BowCaptureFixture bow;if(!bow.Grab()){std::cerr<<"stale fixture failed grab\n";return false;}bow.Ready();
     bow.input.now_ms+=101;
     const auto stale=bow.Tick();
     if(stale.gesture.drawing||stale.dispatch.right||stale.dispatch.shot_requested)return false;
@@ -231,17 +237,8 @@ bool PendingQueryAndNaturalFallback() {
     // Pending can outlive the camera's local End record (e.g. failed mirror).
     g_eye_render_restore={};
     if(replay()||natural_renders!=1||RestorePendingEyeRenderResources())return false;
-    CoJBowDrawSessionInput bow{};
-    bow.selected=bow.allowed=bow.right_available=bow.counter_valid=true;
-    bow.player=2;bow.context=3;bow.input_generation=4;
-    bow.native.valid=true;bow.native.weapon_id=5;bow.native.current_state=1;
-    bow.native.root.valid=bow.native.arrow.valid=bow.native.holder.valid=true;
-    bow.head_world_m={0,1.6F,0};bow.left_world_m={-.05F,1.3F,-.4F};bow.right_world_m={0,1.3F,-.4F};
-    bow.native.root.position=bow.native.arrow.position={0,130,-40};
-    bow.native.root.forward={0,0,-1};bow.native.root.right={-1,0,0};
-    bow.sequence=1;bow.now_ms=20;(void)g_bow_draw_session.Update(bow);
-    bow.right_held=true;++bow.sequence;bow.now_ms+=20;
-    if(!g_bow_draw_session.Update(bow).gesture.grab)return false;
+    BowCaptureFixture bow;
+    if(!bow.Grab())return false;
     g_original_render_view=reinterpret_cast<RenderViewFn>(&NativeRender);
     HookRenderViewImpl(camera.data(),nullptr,view.data());
     if(g_bow_draw_session.active()||g_bow_draw_session.owner_token())return false;
@@ -377,10 +374,10 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
-    if(!cojvr::games::call_of_juarez::CaptureDropPreservesBow()||
-       !cojvr::games::call_of_juarez::CaptureDropRetainsBowSafety()){
-        std::cerr<<"capture backpressure cancelled physical bow or bypassed native/tracking safety\n";return 1;
-    }
+    if(!cojvr::games::call_of_juarez::CaptureDropPreservesBow()){
+        std::cerr<<"capture backpressure cancelled physical bow\n";return 1;}
+    if(!cojvr::games::call_of_juarez::CaptureDropRetainsBowSafety()){
+        std::cerr<<"capture drop bypassed native/tracking safety\n";return 1;}
     if(!cojvr::games::call_of_juarez::InputRestoresNativeRenderContext()) {
         std::cerr<<"injected input lost native render level or changed native action ownership\n";return 1;
     }
