@@ -1,5 +1,6 @@
 #include "games/call_of_juarez/long_gun_grip.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
+#include "games/call_of_juarez/long_gun_guide.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -8,6 +9,7 @@
 using namespace cojvr::games::call_of_juarez;
 using namespace cojvr::runtime;
 namespace {
+namespace runtime=cojvr::runtime;
 void Check(bool v,const char* message){if(!v){std::cerr<<message<<'\n';std::exit(1);}}
 bool Near(Vec3 a,Vec3 b){return std::abs(a.x-b.x)<.002F&&std::abs(a.y-b.y)<.002F&&std::abs(a.z-b.z)<.002F;}
 CoJLongGunSupportSnapshot Native(){
@@ -201,6 +203,46 @@ void ApproachAndPressFromReleasedGrip(){
     lost.in.controls.eligible=true;lost.in.controls.grip_held=true;
     Check(!lost.Step().attached,"hard context loss preserved a stale released baseline");
 }
+void CapturedGripGuide(){
+    Fixture f;runtime::StereoHudTextOverlay hud{};
+    runtime::Pose head{{0,1.7F,0},{},true,true},right{{.2F,1.2F,-.5F},{},true,true};
+    // Geometry fixture's contact is exactly the support controller. In identity
+    // tracking/world axes its captured head-relative delta is (20,10,-40) cm.
+    Check(AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud),"rifle contact guide was not captured");
+    Check(hud.holster_guides.count==1,"rifle guide did not append exactly one bounded surface");
+    auto guide=hud.holster_guides.zones[0];runtime::Vec3 centre{};
+    for(auto p:guide.head_corners){centre.x+=p.x*.25F;centre.y+=p.y*.25F;centre.z+=p.z*.25F;}
+    Check(Near(centre,{.4F,-.4F,-.9F}),"guide lost native cm/metre or captured head/right-grip registration");
+    Check(guide.state==1,"near released hand did not advertise the contact zone");
+    auto rotated=f.g;rotated.world_from_tracking={runtime::Vec3{0,0,-1},{0,1,0},{1,0,0}};
+    auto turned=head;turned.orientation={0,-.70710678F,0,.70710678F};hud={};
+    Check(AppendCoJLongGunGripGuide(f.in,rotated,turned,right,true,false,hud),"rotated capture lost rifle guide");
+    runtime::Vec3 turned_centre{};for(auto p:hud.holster_guides.zones[0].head_corners){
+        turned_centre.x+=p.x*.25F;turned_centre.y+=p.y*.25F;turned_centre.z+=p.z*.25F;}
+    Check(Near(turned_centre,{-.3F,-.4F,-.6F}),"game yaw and HMD yaw used different capture references");
+    f.g.support_grip_cm={480,520,640};hud={};
+    Check(AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud),"far hand lost its discovery guide");
+    const auto far=hud.holster_guides.zones[0];runtime::Vec3 far_centre{};
+    for(auto p:far.head_corners){far_centre.x+=p.x*.25F;far_centre.y+=p.y*.25F;far_centre.z+=p.z*.25F;}
+    Check(Near(centre,far_centre)&&far.state==0,"guide followed the solver/left hand instead of ordinary rifle contact");
+    f.g=Geometry();f.in.controls.grip_held=true;hud={};
+    Check(AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud)&&hud.holster_guides.zones[0].state==2,
+        "held outside attempt advertised a fresh grip without release");
+    f.in.controls.grip_held=false;
+    for(int why=0;why<7;++why){auto in=f.in;auto g=f.g;auto h=head;hud={};
+        if(why==0)in.controls.eligible=false;if(why==1)g.native.firing=true;
+        if(why==2)h.orientation_valid=false;if(why==3)in.controls.now_ms+=101;
+        if(why==4)g.native.valid=false;
+        Check(!AppendCoJLongGunGripGuide(in,g,h,right,why!=5,why==6,hud)&&hud.holster_guides.count==0,
+            "unavailable/attached/disabled rifle retained a guide");
+    }
+    hud.holster_guides.count=4;hud.holster_guides.zones[0].state=2;
+    Check(AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud)&&
+        hud.holster_guides.count==5&&hud.holster_guides.zones[0].state==2,
+        "rifle guide overwrote existing holster hints");
+    Check(!AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud)&&hud.holster_guides.count==5,
+        "guide capacity overrun changed existing surfaces");
 }
-int main(){GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();
+}
+int main(){GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

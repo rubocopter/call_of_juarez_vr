@@ -1562,6 +1562,28 @@ bool JavaPlayerBridge::TryObserveLongGunFireOwnership(bool& right_only) noexcept
     right_only=observed;return true;
 }
 
+bool JavaPlayerBridge::IsLongGunGripGuideOwnerCurrent(const CoJLongGunSupportSnapshot& expected) noexcept {
+    // Presentation must never retire/reseed the policy's retained owner. A
+    // failed optional observation hides this marker without changing rearming.
+    if(!expected.valid||!expected.object_epoch||expected.object_epoch!=long_gun_grip_epoch_||
+        !being_||!long_gun_grip_owner_||long_gun_grip_generation_!=being_generation_||
+        independent_hand_faulted_||weapon_overlay_faulted_)return false;
+    for(const auto& hand:hand_overlays_)if(hand.object)return false;
+    for(const auto& weapon:weapon_overlays_)if(weapon.weapon||weapon.active||weapon.applied)return false;
+    const auto generation=being_generation_;void* const player=being_;
+    const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& target) noexcept {
+        auto& bridge=*static_cast<JavaPlayerBridge*>(context);JavaPlayerPosition p{},u{},f{};target={};
+        if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
+        target={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
+    };
+    CoJLongGunSupportSnapshot now{};
+    return ReadCoJLongGunSupport(Environment(nullptr),player,now,frame,this,long_gun_grip_owner_)&&
+        being_==player&&being_generation_==generation&&!now.firing&&
+        now.player_id==expected.player_id&&now.weapon_id==expected.weapon_id&&
+        now.holder_element==expected.holder_element&&now.support_element==expected.support_element&&
+        expected.weapon_class&&!std::strcmp(now.weapon_class,expected.weapon_class);
+}
+
 bool JavaPlayerBridge::TryObserveLongGunSupport(CoJLongGunSupportSnapshot& out) noexcept {
     out={};
     const auto lost=[&]() noexcept {out={};(void)ClearLongGunGripOwner();return false;};

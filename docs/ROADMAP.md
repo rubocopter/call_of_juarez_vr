@@ -113,8 +113,8 @@ enter a manual pistol session. Live Remington `Holder` resolves to element zero;
 the support admission's positive-only check rejected this valid root socket.
 That filter is corrected with root-holder geometry/JNI regressions, but the
 operator still could not acquire bimanual Remington support in the follow-up.
-Native support reads exist without an acquired event; the remaining rejection
-is unresolved and must be identified before changing contact tolerances.
+Native support reads exist without an acquired event; later admission telemetry
+below identifies the distance gate while physical contact placement stays open.
 A separate host regression demonstrates that spatial rejection erased the L1
 release baseline before a fresh approach/press. The adapter now preserves that
 baseline while unattached under stable native ownership/tracking/context;
@@ -122,6 +122,14 @@ outside held presses remain unqueued and attached spatial failures still cancel.
 This has not been established as the cause of the operator's attempts. Bounded
 admission diagnostics now distinguish source-read, context, contact/span and
 release/sample rejection in the next eligible run; no tolerance was widened.
+The next exercised attempt still failed. Admission telemetry now identifies
+distance from the calculated contact as the active rejection while native
+ownership, tracking and idle eligibility are valid. The named left holding
+socket's agreement with the visible foregrip remains unqualified. At the
+operator's request an optional small L1 marker now exposes that exact ordinary
+contact, with near/release feedback and retained-owner/capture checks. It is
+host-tested presentation, not physical attachment acceptance or a new contact
+volume; the next check should locate the marker before judging acquisition.
 The earlier trace identifies an unsupported Derringer, not every
 pistol the operator tried. Existing dual/whole-clip/multiple-ammo exclusions
 remain: the current run cannot qualify cartridge fit or reload feedback.

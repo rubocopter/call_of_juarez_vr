@@ -144,6 +144,24 @@ int main(int argc,char** argv){
         "bridge lost right-only rifle trigger ownership before grip acquisition");
     CoJLongGunGripGeometry g{};std::string error;
     Check(bridge.TryObserveLongGunSupport(g.native),"real rifle observation failed");
+    const auto guide_epoch=g.native.object_epoch;const auto guide_ref=bridge.long_gun_grip_owner_;
+    Check(bridge.IsLongGunGripGuideOwnerCurrent(g.native),"read-only guide owner check rejected an idle rifle");
+    reloading=true;
+    Check(!bridge.IsLongGunGripGuideOwnerCurrent(g.native)&&bridge.long_gun_grip_epoch_==guide_epoch&&
+        bridge.long_gun_grip_owner_==guide_ref&&globals==1&&writes==0,
+        "guide-only read failure retired acquisition identity/release baseline");
+    reloading=false;
+    pending=true;
+    Check(!bridge.IsLongGunGripGuideOwnerCurrent(g.native)&&!pending&&locals.empty()&&
+        bridge.long_gun_grip_epoch_==guide_epoch&&bridge.long_gun_grip_owner_==guide_ref&&globals==1&&writes==0,
+        "optional guide exception leaked or changed acquisition ownership");
+    Check(bridge.TryObserveLongGunSupport(g.native)&&g.native.object_epoch==guide_epoch,
+        "guide visibility failure changed the next acquisition epoch");
+    b.f=a.f;current=&b;
+    Check(!bridge.IsLongGunGripGuideOwnerCurrent(g.native)&&bridge.long_gun_grip_epoch_==guide_epoch&&
+        bridge.long_gun_grip_owner_==guide_ref&&globals==1,
+        "guide accepted a same-ID replacement or changed retained acquisition ownership");
+    current=&a;
     g.dominant_socket_cm=hands[19].position;g.muzzle_cm=a.f[2].position;g.muzzle_direction={-1,0,0};
     g.dominant_grip_cm={119,100,100};g.direction={-1,0,0};g.up={0,1,0};g.support_grip_cm={100,120,70};
     const auto frame=BuildCoJLongGunGripFrame(g);Check(frame.valid,"real rifle geometry failed");

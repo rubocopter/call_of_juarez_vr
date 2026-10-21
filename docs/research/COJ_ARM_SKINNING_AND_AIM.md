@@ -102,6 +102,16 @@ spacing residual above 20 cm cancel. These ergonomic bounds need visor judgement
 they do not establish a native contact volume. Native right fire and automatic
 reload retain their original timing and permissions.
 
+Subsequent bounded admission observations identify contact-distance rejection
+despite valid idle native ownership, geometry and tracked input. The generic
+left holding socket is not thereby established as the visible foregrip's contact
+centre. Rest-mesh barrel-axis comparisons are diagnostic, not runtime surface
+clearance or justification for an offset. The optional L1 guide exposes the
+ordinary right-hand mapped socket used by admission, before the bimanual solver
+rotates toward the left controller. Presentation and distance now share that
+helper, with capture-space and retained-owner fences; no radius was widened.
+Marker alignment and physical placement remain unqualified until observed.
+
 The exact `InvObject.GetOwnerElementID` chooses `Left_hand`/`Right_hand`, with
 `Bip01 L/R Hand` as fallback. The Ray/Billy meshes contain the lowercase holding
 socket as a child of the corresponding hand bone. `InvObjectInLeftHand`/

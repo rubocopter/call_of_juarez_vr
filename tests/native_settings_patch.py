@@ -434,7 +434,7 @@ class NativeSettingsTests(unittest.TestCase):
                 vm = self.vm(); self.sync(vm, language=language, guides=guides)
                 row = vm.widgets["ID_VR_HOLSTER_GUIDES"]
                 self.assertEqual(vm.run("cojvrHolsterGuidesValue", "()I"), guides)
-                self.assertEqual(row["label"], "Comodidad RV: guías de fundas" if language else "VR Comfort: holster guides")
+                self.assertEqual(row["label"], "Comodidad RV: guías de armas" if language else "VR Comfort: weapon guides")
                 self.assertEqual([o["text"] for o in row["options"]], ["No", "Sí"] if language else ["Off", "On"])
                 self.assertTrue(row["cycle"]); self.assertTrue(row["tooltip"])
                 row["selected"] = row["options"][1-guides]

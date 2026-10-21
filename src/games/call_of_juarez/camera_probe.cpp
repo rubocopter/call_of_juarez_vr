@@ -14,6 +14,7 @@
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/long_gun_grip.hpp"
+#include "games/call_of_juarez/long_gun_guide.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
 #include "games/call_of_juarez/winchester_reload_probe.hpp"
 #include "runtime/reload_visual.hpp"
@@ -3965,6 +3966,7 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
     if(!IsCameraProbeBasisRigidRightHanded(basis))return fail("tracking_basis");
     const runtime::Vec3 x{basis.right.x,basis.right.y,basis.right.z},
         u{basis.up.x,basis.up.y,basis.up.z},f{basis.forward.x,basis.forward.y,basis.forward.z};
+    geometry.world_from_tracking={x,u,f};
     bool valid=false;
     geometry.dominant_grip_cm=BuildTrackedAimOrigin({camera.x,camera.y,camera.z},x,u,f,
         head.position,right.position,height,kGameUnitsPerMeter,valid);if(!valid)return fail("right_grip");
@@ -7622,8 +7624,22 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             // Same capture/reference as selection; presenter may hide queued
             // hints immediately after the preference is disabled.
             if(gameplay_input_ok&&eye_pair_ready&&!hud_text.ui.wheel.active&&
-                g_java_player_bridge.being_generation()==holster_sample.player)
+                g_java_player_bridge.being_generation()==holster_sample.player){
                 (void)BuildCoJHolsterGuides(holster_sample,holster_guides_enabled,hud_text);
+                const bool guide_candidate=holster_guides_enabled&&!g_long_gun_grip.attached()&&long_gun_geometry.native.valid&&
+                    grip_controls.eligible&&grip_controls.tracking_valid&&!long_gun_geometry.native.firing&&
+                    g_java_player_bridge.IsLongGunGripGuideOwnerCurrent(long_gun_geometry.native);
+                const bool guide_drawn=guide_candidate&&AppendCoJLongGunGripGuide(long_gun_input,long_gun_geometry,relative_head_pose,
+                        relative_right_controller,true,false,hud_text);
+                if(snapshot.command.reload_trace_enabled&&long_gun_geometry.native.valid&&ShouldObserveBodyFrame(frame_sequence))
+                    try{EmitEvent("long_gun_grip_guide",guide_drawn?"captured":"hidden",
+                        "frame_sequence="+std::to_string(frame_sequence)+";pose_sequence="+std::to_string(grip_controls.sequence)+
+                        ";source_epoch="+std::to_string(long_gun_geometry.native.object_epoch)+
+                        ";preference="+std::to_string(holster_guides_enabled)+
+                        ";owner_admitted="+std::to_string(guide_candidate)+";attached="+std::to_string(g_long_gun_grip.attached())+
+                        ";contact_distance_m="+std::to_string(g_long_gun_claim.diagnostic.contact_distance_m)+
+                        ";source=ordinary_acquisition_contact;physical_acceptance=unverified");}catch(...){}
+            }
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +

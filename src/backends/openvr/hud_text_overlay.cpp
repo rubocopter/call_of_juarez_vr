@@ -258,8 +258,8 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11DepthStencilState> depth;
     std::array<HudTextRaster, 5> raster;
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 15> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 15> images;
+    std::array<std::uint64_t, 18> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 18> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -414,7 +414,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const std::array<const runtime::HudText*, 5> texts{
             &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle,
             &overlay.mission_timer,&overlay.mission_notices};
-        std::array<HudPanelPlacement, 15> placement{{{1.15F, .48F, 1.5F},
+        std::array<HudPanelPlacement, 18> placement{{{1.15F, .48F, 1.5F},
             {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {},
             {.5F,.58F,1.5F},{1.15F,.68F,1.5F},{},{}}};
         placement[4].captured_quad=true;
@@ -462,11 +462,12 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             impl_->ui_raster.InteractionGaze() : empty_gaze;
         for (std::size_t part = 0; part < placement.size(); ++part) {
             const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
+            const bool support_guide=part>=15;
             if(guide&&!guide_data)continue;
             if(critical_text&&!critical_fits)continue;
             const auto text_index=critical_text?part-5:part;
             const auto& panel = (part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
-                guide?HolsterGuidePanels()[part-12]:threat?impl_->ui_raster.Threat(part==11):
+                guide?(support_guide?SupportGripGuidePanels()[part-15]:HolsterGuidePanels()[part-12]):threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
             const auto revision=(part<3||critical_text) ? impl_->raster[text_index].rebuilds() : (threat||guide)?1:
@@ -551,7 +552,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 auto surface_placement=placement[part];
                 if(guide){
                     const auto& zone=overlay.holster_guides.zones[surface];
-                    if(zone.state!=part-12)continue;
+                    if(zone.support_grip!=support_guide||zone.state!=(support_guide?part-15:part-12))continue;
                     surface_placement.captured_quad=true;surface_placement.head_corners=zone.head_corners;
                 }
                 if(threat){

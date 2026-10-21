@@ -7,6 +7,7 @@ struct CoJLongGunGripGeometry {
     CoJLongGunSupportSnapshot native{};
     runtime::Vec3 dominant_socket_cm{},muzzle_cm{},muzzle_direction{};
     runtime::Vec3 dominant_grip_cm{},direction{},up{},support_grip_cm{};
+    std::array<runtime::Vec3,3> world_from_tracking{{{1,0,0},{0,1,0},{0,0,1}}};
     const char* read_failure="not_requested"; // Static diagnostic literal, no JNI reference.
 };
 struct CoJLongGunGripFrame {
@@ -77,10 +78,13 @@ inline ElementWorldBasisTarget LocalWorld(const ElementWorldBasisTarget& root,co
         Direction(m,local.up),Direction(m,local.forward),local.valid};
 }
 }
-// All native values are cm. The neutral solver only receives metres. The
-// authored support socket is supplied by exact natural animation, never guessed
-// from a barrel axis, mesh bounds or a universal foregrip offset.
-inline CoJLongGunGripFrame BuildCoJLongGunGripFrame(const CoJLongGunGripGeometry& g,
+struct CoJLongGunAcquisitionFrame {
+    TrackedWeaponFramePlan ordinary{};
+    ElementWorldBasisTarget support{},contact{};
+};
+// Shared by actual distance admission and the visible hint. This is the
+// ordinary right-hand map, never the solver's contact that follows the left.
+inline CoJLongGunAcquisitionFrame BuildCoJLongGunAcquisitionFrame(const CoJLongGunGripGeometry& g,
     const CoJReloadLocalFrame* frozen=nullptr) noexcept {
     using namespace long_gun_grip_detail;
     if(!Qualified(g.native))return {};
@@ -91,6 +95,18 @@ inline CoJLongGunGripFrame BuildCoJLongGunGripFrame(const CoJLongGunGripGeometry
         g.muzzle_direction,g.dominant_grip_cm,g.direction,g.up);
     if(!ordinary.valid)return {};
     const auto contact=TransformWeaponElementFrame(g.native.root,ordinary.root,support);
+    return {ordinary,support,contact};
+}
+// All native values are cm. The neutral solver only receives metres. The
+// authored support socket is supplied by exact natural animation, never guessed
+// from a barrel axis, mesh bounds or a universal foregrip offset.
+inline CoJLongGunGripFrame BuildCoJLongGunGripFrame(const CoJLongGunGripGeometry& g,
+    const CoJReloadLocalFrame* frozen=nullptr) noexcept {
+    using namespace long_gun_grip_detail;
+    const auto acquisition=BuildCoJLongGunAcquisitionFrame(g,frozen);
+    const auto& support=acquisition.support;const auto& ordinary=acquisition.ordinary;
+    const auto& contact=acquisition.contact;
+    if(!ordinary.valid||!contact.valid)return {};
     const auto solution=runtime::SolveTwoHandGrip({Matrix(g.native.root,g.dominant_socket_cm),
         Matrix(ordinary.root,g.dominant_grip_cm),Scale(support.position,.01F),Scale(g.support_grip_cm,.01F)});
     if(!contact.valid||!solution.valid)return {};

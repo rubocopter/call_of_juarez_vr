@@ -167,8 +167,8 @@ def patch_menu_class(data: bytes) -> bytes:
          ("VR turning", "Smooth", "Snap", "Turn continuously or in fixed steps."),
          ("Giro RV", "Suave", "Por pasos", "Gira de forma continua o en pasos fijos.")),
         ("guides", "cojvrHolsterGuidesControl", 0x1d,
-         ("VR Comfort: holster guides", "Off", "On", "Show colored hip holster areas."),
-         ("Comodidad RV: guías de fundas", "No", "Sí", "Muestra zonas de color para las fundas de la cadera."))):
+         ("VR Comfort: weapon guides", "Off", "On", "Show holster areas and the rifle support grip."),
+         ("Comodidad RV: guías de armas", "No", "Sí", "Muestra las fundas y el punto de agarre del arma larga."))):
         c.emit(0x2a, 0x2a); c.ref(0xb4, fields[field])
         c.emit(0x15, 4); c.branch(0x9a, tag + "_es")
         for text in english: c.ref(0x13, string(text))

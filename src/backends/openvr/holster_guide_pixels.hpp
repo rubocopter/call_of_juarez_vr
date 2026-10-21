@@ -24,4 +24,20 @@ inline const std::array<HudTextPanel,3>& HolsterGuidePanels() {
     }();
     return panels;
 }
+inline const std::array<HudTextPanel,3>& SupportGripGuidePanels() {
+    static const auto panels=[] {
+        auto out=HolsterGuidePanels();
+        constexpr std::array<std::uint32_t,3> colors{0x68DAE8U,0x70DDA0U,0x9A8274U};
+        constexpr unsigned glyphs[2][7]{{16,16,16,16,16,16,31},{4,12,4,4,4,4,14}};
+        for(unsigned state=0;state<3;++state){
+            for(auto& pixel:out[state].pixels)pixel=(pixel&0xff000000U)|colors[state];
+            for(unsigned letter=0;letter<2;++letter)for(unsigned row=0;row<7;++row)
+                for(unsigned col=0;col<5;++col)if(glyphs[letter][row]&(1U<<(4-col)))
+                    for(unsigned y=0;y<3;++y)for(unsigned x=0;x<3;++x)
+                        out[state].pixels[(21+row*3+y)*64+16+letter*18+col*3+x]=0xe0000000U|colors[state];
+        }
+        return out;
+    }();
+    return panels;
+}
 }

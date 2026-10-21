@@ -81,9 +81,10 @@ struct BowDrawFeedback {
 struct HolsterGuideSurface {
     std::array<Vec3,4> head_corners{};
     std::uint8_t state=0;
+    bool support_grip=false; // Small L1 contact glyph instead of a plain holster ring.
 };
 struct HolsterGuides {
-    std::array<HolsterGuideSurface,4> zones{};
+    std::array<HolsterGuideSurface,5> zones{}; // Four holsters plus one support contact.
     std::uint32_t count=0;
 };
 

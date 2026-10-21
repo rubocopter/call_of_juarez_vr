@@ -278,9 +278,23 @@ int main(int argc, char** argv) {
     const auto guide_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
     Require(guide_left!=resized_world&&guide_left!=ReadEye(device.Get(),context.Get(),targets[1].Get())&&
         guide_left.front()==resized_world.front(),"holster guides need bounded real binocular pixels");
+    guide.support_grip=true;clear_world();
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=guide_left,
+        "support grip must show its own L1 glyph instead of a holster ring");
+    const auto support_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    if(argc>3){
+        BITMAPFILEHEADER file{};file.bfType=0x4D42;file.bfOffBits=sizeof(file)+sizeof(BITMAPINFOHEADER);
+        file.bfSize=file.bfOffBits+static_cast<DWORD>(support_left.size()*4);
+        BITMAPINFOHEADER header{};header.biSize=sizeof(header);header.biWidth=512;header.biHeight=-512;
+        header.biPlanes=1;header.biBitCount=32;
+        std::ofstream preview(argv[3],std::ios::binary);preview.write(reinterpret_cast<const char*>(&file),sizeof(file));
+        preview.write(reinterpret_cast<const char*>(&header),sizeof(header));
+        preview.write(reinterpret_cast<const char*>(support_left.data()),support_left.size()*4);
+    }
     guide.state=1;clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
-        ReadEye(device.Get(),context.Get(),targets[0].Get())!=guide_left,"near-hand guide must change its visible state");
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=support_left,"near-hand guide must change its visible state");
     clear_world();Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,false)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"disabled preference resurrected a captured guide");
     overlay.eyes[1].eye_to_head.position_valid=false;clear_world();

@@ -704,6 +704,22 @@ The optional reload trace records bounded admission attempts, source-read stage,
 individual context gates, owner epoch, sample age, contact/span/hemisphere values
 and the preceding observed physical release. Those observations are diagnostic;
 they neither admit a grip nor prove a policy baseline or physical contact.
+The saved optional weapon-guide choice also exposes the unattached rifle's
+ordinary acquisition contact as a small L1 marker. Admission and presentation
+share the same ordinary-map helper; the marker never follows the solver's
+left-hand target. Cyan locates it, green means within the existing radius and
+spatial gates with L1 released, and grey requests release of a held attempt.
+It uses the capture's tracking basis/head pose, hides for attachment, invalid
+tracking/context, native fire or changed retained weapon, and is suppressed by
+the same preference immediately in the presenter. The native row is now labelled
+weapon guides; the existing version-3 Boolean and migration/default remain.
+Late guide validation reads against the existing retained weapon without clearing
+or creating its epoch. A failed optional read hides the marker and cannot erase
+the acquisition policy's released-input baseline.
+One captured support surface joins the four holster surfaces. Renderer-owned
+immutable L1 glyphs add no native draw, contact writer, scene depth or wider
+grasp permission. The measured socket's agreement with the visible foregrip
+remains a physical gate, even when the marker accurately shows admission.
 Native right-trigger firing and automatic rifle reload remain authoritative.
 Separately, the final ordinary-fire phase observes exact right-only rifle
 ownership after non-fire equipment actions, without requiring support contact,
