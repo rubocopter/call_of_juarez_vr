@@ -145,6 +145,7 @@ bool g_reload_pinch_last_applied=false;
 std::array<runtime::Pose,2> g_reload_cartridge_anchors{};
 std::array<CoJReloadFingerObservation,2> g_reload_finger_observations{};
 std::array<float,2> g_reload_skin_pad_gaps_cm{};
+std::array<CoJReloadSkinMeshProximity,2> g_reload_skin_mesh_proximities{};
 std::uint64_t g_reload_finger_observation_sequence=0;
 bool g_reload_cartridge_last_visible=false;
 unsigned g_reload_depth_observation_budget=0;
@@ -4023,6 +4024,7 @@ bool ApplyTrackedWeapons(
     g_reload_cartridge_anchors={};
     g_reload_finger_observations={};
     g_reload_skin_pad_gaps_cm={};
+    g_reload_skin_mesh_proximities={};
     g_reload_finger_observation_sequence=frame_sequence;
     if(g_long_gun_grip.attached()&&publish_gameplay_rays){
         if(!independent_hands||manual_presentation){g_long_gun_grip.Cancel();return false;}
@@ -4205,8 +4207,13 @@ bool ApplyTrackedWeapons(
             if(manual_presentation&&hand_applied){
                 ElementWorldBasisTarget anchor{};
                 float skin_gap_cm=0.F;
-                if(g_java_player_bridge.TryReadReloadPinchFrame(hand,anchor,&skin_gap_cm)){
+                const bool sample_geometry=g_manual_reload_geometry_logging_enabled&&
+                    !g_reload_cartridge_last_visible;
+                CoJReloadSkinMeshProximity proximity{};
+                if(g_java_player_bridge.TryReadReloadPinchFrame(hand,anchor,&skin_gap_cm,
+                    sample_geometry?&proximity:nullptr)){
                     g_reload_skin_pad_gaps_cm[hand]=skin_gap_cm;
+                    if(sample_geometry)g_reload_skin_mesh_proximities[hand]=proximity;
                     g_reload_cartridge_anchors[hand]=BuildCoJReloadCartridgePose(anchor,grip,grip_world,
                         {basis.right.x,basis.right.y,basis.right.z},
                         {basis.up.x,basis.up.y,basis.up.z},{basis.forward.x,basis.forward.y,basis.forward.z});
@@ -7404,6 +7411,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                         std::to_string(g_reload_skin_pad_gaps_cm[motion_reload.cartridge_hand]);
                     const float span_cm=CoJReloadCartridgeTransverseSpanCm();
                     if(span_cm>0.F)detail+=";case_span_cm="+std::to_string(span_cm);
+                    const auto proximity=g_reload_skin_mesh_proximities[motion_reload.cartridge_hand];
+                    if(proximity.valid){
+                        detail+=";thumb_mesh_surface_distance_cm="+std::to_string(proximity.thumb_distance_cm)+
+                            ";index_mesh_surface_distance_cm="+std::to_string(proximity.index_distance_cm);
+                    }
                 }
                 EmitEvent("manual_reload_finger_reference",fingers.valid?"observed":"unavailable",detail);
             }

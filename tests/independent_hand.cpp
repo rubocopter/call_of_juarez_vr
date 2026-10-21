@@ -98,6 +98,46 @@ bool FingerChecks(){
         // transverse envelope is measured from the actual displayed vertices.
         const float case_span_cm=CoJReloadCartridgeTransverseSpanCm();
         if(std::fabs(case_span_cm-1.2000422F)>.001F||f.writes!=writes_before_gap)return false;
+        // Sparse read-only point-to-triangle measurements use the same
+        // displayed skin points and the mesh-centred pinch basis as the draw.
+        CoJReloadSkinMeshProximity proximity{};
+        if(!overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm,&proximity)||
+            !proximity.valid||!std::isfinite(proximity.thumb_distance_cm)||
+            !std::isfinite(proximity.index_distance_cm)||
+            proximity.thumb_distance_cm<0||proximity.index_distance_cm<0||
+            f.writes!=writes_before_gap)return false;
+        const auto mesh_point=[](const ElementWorldBasisTarget& frame,const cojvr::runtime::Vec3 v){
+            const auto cross=[](auto a,auto b){return cojvr::runtime::Vec3{
+                a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x};};
+            const auto right=cross(frame.up,frame.forward);
+            const float z=v.z-cojvr::runtime::textured_reload_mesh::centre_z;
+            return cojvr::runtime::Vec3{
+                frame.position.x+100*(v.x*right.x+v.y*frame.up.x+z*frame.forward.x),
+                frame.position.y+100*(v.x*right.y+v.y*frame.up.y+z*frame.forward.y),
+                frame.position.z+100*(v.x*right.z+v.y*frame.up.z+z*frame.forward.z)};
+        };
+        const auto& mesh=cojvr::runtime::textured_reload_mesh::vertices;
+        auto near_surface=MeasureCoJReloadSkinMeshProximity(pinch,
+            {mesh_point(pinch,mesh[0]),mesh_point(pinch,mesh[12])});
+        if(!near_surface.valid||near_surface.thumb_distance_cm>.0001F||
+            near_surface.index_distance_cm>.0001F)return false;
+        auto rotated=pinch;
+        rotated.position={11,23,31};rotated.up={-1,0,0};rotated.forward={0,0,1};
+        const cojvr::runtime::Vec3 local_thumb{.009F,.011F,-.02F};
+        const cojvr::runtime::Vec3 local_index{-.009F,-.009F,-.03F};
+        const auto first=MeasureCoJReloadSkinMeshProximity(pinch,
+            {mesh_point(pinch,local_thumb),mesh_point(pinch,local_index)});
+        const auto turned=MeasureCoJReloadSkinMeshProximity(rotated,
+            {mesh_point(rotated,local_thumb),mesh_point(rotated,local_index)});
+        if(!first.valid||!turned.valid||!Close(first.thumb_distance_cm,turned.thumb_distance_cm)||
+            !Close(first.index_distance_cm,turned.index_distance_cm))return false;
+        auto malformed=pinch;malformed.up=malformed.forward;
+        if(MeasureCoJReloadSkinMeshProximity(malformed,{pinch.position,pinch.position}).valid)return false;
+        malformed=pinch;malformed.position.x=std::numeric_limits<float>::quiet_NaN();
+        if(MeasureCoJReloadSkinMeshProximity(malformed,{pinch.position,pinch.position}).valid)return false;
+        const cojvr::runtime::Vec3 invalid_point{
+            std::numeric_limits<float>::quiet_NaN(),0,0};
+        if(MeasureCoJReloadSkinMeshProximity(pinch,{invalid_point,pinch.position}).valid)return false;
         const auto pinch_local=TransformWeaponElementFrame(f.frames[3].frame,local_identity,pinch);
         const cojvr::runtime::Vec3 measured_tip=hand==1?
             cojvr::runtime::Vec3{-.0529222F,.9951689F,.0826924F}:
@@ -150,6 +190,8 @@ bool FingerChecks(){
         skin_gap_cm=-1.F;
         if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm)||pinch.valid||
             skin_gap_cm!=0.F)return false;
+        proximity.valid=true;
+        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm,&proximity)||proximity.valid)return false;
         if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid||
            contact.native[0].valid||contact.displayed[0].valid)return false;
         f.frames[6].frame=prior;
@@ -158,6 +200,8 @@ bool FingerChecks(){
         skin_gap_cm=-1.F;
         if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm)||pinch.valid||
             skin_gap_cm!=0.F)return false;
+        proximity.valid=true;
+        if(overlay.ReadPinchFrame(pinch,&f,Fixture::Read,&skin_gap_cm,&proximity)||proximity.valid)return false;
         if(overlay.ReadReloadFingerObservation(contact,&f,Fixture::Read)||contact.valid)return false;
         for(int i=0;i<20;++i){auto expected=rest[i].frame;expected.position.x+=5;if(!FrameClose(f.frames[i].frame,expected))return false;}
         for(int fail:{5,10,18,20}){f.frames=rest;f.writes=0;f.fail_at=fail;CoJHandOverlay partial;

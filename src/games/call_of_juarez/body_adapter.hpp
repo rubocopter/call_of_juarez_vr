@@ -526,6 +526,17 @@ struct CoJReloadFingerObservation {
 // cartridge mesh in centimetres. This span is not proof of finger contact.
 [[nodiscard]] float CoJReloadCartridgeTransverseSpanCm() noexcept;
 
+// Observation only: distances from two sampled displayed skin-pad points to
+// the actual CC0 triangle surface at its rendered axial station. No signed
+// penetration, skin volume, scene occlusion or contact verdict is implied.
+struct CoJReloadSkinMeshProximity {
+    float thumb_distance_cm = 0.F, index_distance_cm = 0.F;
+    bool valid = false;
+};
+[[nodiscard]] CoJReloadSkinMeshProximity MeasureCoJReloadSkinMeshProximity(
+    const ElementWorldBasisTarget& pinch,
+    const std::array<cojvr::runtime::Vec3,2>& displayed_skin_points_cm) noexcept;
+
 // Isolated hand geometry permits a rigid controller rotation without twisting
 // the connected arm mesh. All lower skin contributors and fingers share a map.
 class CoJHandOverlay final {
@@ -546,7 +557,8 @@ public:
     [[nodiscard]] bool ReadPinchAnchor(cojvr::runtime::Vec3& world,void* context,
         CoJElementRead read) const noexcept;
     [[nodiscard]] bool ReadPinchFrame(ElementWorldBasisTarget& world,void* context,
-        CoJElementRead read,float* skin_gap_cm=nullptr) const noexcept;
+        CoJElementRead read,float* skin_gap_cm=nullptr,
+        CoJReloadSkinMeshProximity* proximity=nullptr) const noexcept;
     [[nodiscard]] bool ReadReloadFingerObservation(CoJReloadFingerObservation& out,
         void* context, CoJElementRead read) const noexcept;
 private:

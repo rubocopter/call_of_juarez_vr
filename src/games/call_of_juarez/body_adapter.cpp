@@ -915,9 +915,10 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       world=frame.position;return true;
   }
   bool CoJHandOverlay::ReadPinchFrame(ElementWorldBasisTarget& world,void* context,
-      CoJElementRead read,float* skin_gap_cm) const noexcept {
+      CoJElementRead read,float* skin_gap_cm,CoJReloadSkinMeshProximity* proximity) const noexcept {
       world={};
       if(skin_gap_cm)*skin_gap_cm=0.F;
+      if(proximity)*proximity={};
       if(faulted_||!fingers_active()||!Verify(context,read))return false;
       if(finger_hand_<0||finger_hand_>1)return false;
       // Finger2 and Finger12 are distal bone origins, not skin. These two
@@ -951,6 +952,9 @@ bool CoJHandOverlay::Apply(const CoJHandFrames& natural, const ElementWorldBasis
       world={Scale(Add(thumb,index),.5F),up,forward,true};
       if(!Finite(world.position)){world={};return false;}
       if(skin_gap_cm)*skin_gap_cm=gap;
+      // Closest-triangle search is only requested by the sparse pickup probe,
+      // never by the ordinary per-frame presentation path.
+      if(proximity)*proximity=MeasureCoJReloadSkinMeshProximity(world,{thumb,index});
       return true;
   }
 float CoJReloadCartridgeTransverseSpanCm() noexcept {
@@ -963,6 +967,63 @@ float CoJReloadCartridgeTransverseSpanCm() noexcept {
     }
     const float span=(upper-lower)*100.F; // Textured mesh metres -> CoJ cm.
     return std::isfinite(span)&&span>0.F?span:0.F;
+}
+CoJReloadSkinMeshProximity MeasureCoJReloadSkinMeshProximity(
+    const ElementWorldBasisTarget& pinch,
+    const std::array<runtime::Vec3,2>& skin_points_cm) noexcept {
+    if(!pinch.valid||!Finite(pinch.position)||!Finite(pinch.up)||!Finite(pinch.forward)||
+        !Finite(skin_points_cm[0])||!Finite(skin_points_cm[1])||
+        std::fabs(Dot(pinch.up,pinch.up)-1.F)>.002F||
+        std::fabs(Dot(pinch.forward,pinch.forward)-1.F)>.002F||
+        std::fabs(Dot(pinch.up,pinch.forward))>.002F)return {};
+    const auto right=Cross(pinch.up,pinch.forward);
+    const auto segment_distance_squared=[](const runtime::Vec3 p,
+        const runtime::Vec3 a,const runtime::Vec3 b) noexcept {
+        const auto ab=Subtract(b,a);
+        const float length_squared=Dot(ab,ab);
+        const float t=length_squared>1.e-24F?
+            std::clamp(Dot(Subtract(p,a),ab)/length_squared,0.F,1.F):0.F;
+        const auto difference=Subtract(p,Add(a,Scale(ab,t)));
+        return Dot(difference,difference);
+    };
+    const auto triangle_distance_squared=[&](const runtime::Vec3 p,
+        const runtime::Vec3 a,const runtime::Vec3 b,const runtime::Vec3 c) noexcept {
+        const auto ab=Subtract(b,a),ac=Subtract(c,a),ap=Subtract(p,a);
+        const float aa=Dot(ab,ab),bb=Dot(ac,ac),ab_ac=Dot(ab,ac);
+        const float det=aa*bb-ab_ac*ab_ac;
+        if(det>1.e-24F){
+            const float ap_ab=Dot(ap,ab),ap_ac=Dot(ap,ac);
+            const float u=(bb*ap_ab-ab_ac*ap_ac)/det;
+            const float v=(aa*ap_ac-ab_ac*ap_ab)/det;
+            if(u>=0.F&&v>=0.F&&u+v<=1.F){
+                const auto normal=Cross(ab,ac);
+                const float height=Dot(ap,normal);
+                return (height*height)/Dot(normal,normal);
+            }
+        }
+        // Edges also cover imported degenerate/coincident triangles.
+        return std::min({segment_distance_squared(p,a,b),
+            segment_distance_squared(p,b,c),segment_distance_squared(p,c,a)});
+    };
+    std::array<float,2> distances_cm{};
+    for(std::size_t digit=0;digit<2;++digit){
+        const auto offset=Subtract(skin_points_cm[digit],pinch.position);
+        const runtime::Vec3 local{Dot(offset,right)/100.F,Dot(offset,pinch.up)/100.F,
+            Dot(offset,pinch.forward)/100.F+runtime::textured_reload_mesh::centre_z};
+        if(!Finite(local))return {};
+        float nearest=std::numeric_limits<float>::infinity();
+        for(const auto& triangle:runtime::textured_reload_mesh::triangles){
+            const auto& mesh=runtime::textured_reload_mesh::vertices;
+            if(triangle[0]>=mesh.size()||triangle[1]>=mesh.size()||triangle[2]>=mesh.size())return {};
+            const auto a=mesh[triangle[0]],b=mesh[triangle[1]],c=mesh[triangle[2]];
+            if(!Finite(a)||!Finite(b)||!Finite(c))return {};
+            nearest=std::min(nearest,triangle_distance_squared(local,a,b,c));
+        }
+        if(!std::isfinite(nearest)||nearest<0.F)return {};
+        distances_cm[digit]=std::sqrt(nearest)*100.F;
+        if(!std::isfinite(distances_cm[digit]))return {};
+    }
+    return {distances_cm[0],distances_cm[1],true};
 }
 runtime::Pose BuildCoJReloadCartridgePose(const ElementWorldBasisTarget& pinch,
     const runtime::Pose& grip,const runtime::Vec3 native_grip,runtime::Vec3 camera_right,

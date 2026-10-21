@@ -118,6 +118,32 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(row['displayed_skin_pad_gap_cm'], 1.14)
         self.assertNotIn('pad_minus_case_span_cm', row)
 
+    def test_surface_proximity_reports_both_points_without_claiming_contact(self):
+        sample = finger_reference(thumb_mesh_surface_distance_cm=.08,
+                                  index_mesh_surface_distance_cm=.17)
+        report = self.evidence([trace(2), sample])
+        row = report['finger_joint_observations'][0]
+        self.assertEqual(row['status'], 'observed')
+        self.assertAlmostEqual(row['thumb_mesh_surface_distance_cm'], .08)
+        self.assertAlmostEqual(row['index_mesh_surface_distance_cm'], .17)
+        self.assertAlmostEqual(row['mesh_surface_distance_asymmetry_cm'], .09)
+        self.assertFalse(row['skin_pad_contact_measured'])
+        self.assertFalse(report['headset_validated'])
+
+    def test_incomplete_or_nonfinite_surface_proximity_rejected(self):
+        for change in ({'thumb_mesh_surface_distance_cm': .08},
+                       {'index_mesh_surface_distance_cm': .17},
+                       {'thumb_mesh_surface_distance_cm': 'nan',
+                        'index_mesh_surface_distance_cm': .17},
+                       {'thumb_mesh_surface_distance_cm': -1,
+                        'index_mesh_surface_distance_cm': .17},
+                       {'thumb_mesh_surface_distance_cm': 8,
+                        'index_mesh_surface_distance_cm': .17}):
+            with self.subTest(change=change):
+                report = self.evidence([finger_reference(**change)])
+                self.assertEqual(report['summary']['finger_reference_samples'], 0)
+                self.assertEqual(report['issues'][0]['kind'], 'invalid_finger_reference')
+
     def test_case_span_without_same_snapshot_gap_is_unqualified(self):
         incomplete = finger_reference().replace(';skin_pad_gap_cm=1.14', '')
         report = self.evidence([trace(2), incomplete])

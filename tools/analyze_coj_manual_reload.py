@@ -306,6 +306,18 @@ def finger_joint_metrics(fields):
         # Signed nominal margin only: a mesh envelope over all axial stations
         # does not prove actual finger-surface contact or scene occlusion.
         metrics['pad_minus_case_span_cm'] = metrics['displayed_skin_pad_gap_cm']-span
+    proximity_keys=('thumb_mesh_surface_distance_cm','index_mesh_surface_distance_cm')
+    if any(key in fields for key in proximity_keys):
+        if ('skin_pad_gap_cm' not in fields or
+                not all(key in fields for key in proximity_keys)):
+            raise ValueError('Incomplete same-snapshot triangle surface proximity')
+        for key in proximity_keys:
+            distance = float(fields[key])
+            if not math.isfinite(distance) or distance < 0 or distance > 5:
+                raise ValueError('Invalid triangle surface proximity')
+            metrics[key] = distance
+        metrics['mesh_surface_distance_asymmetry_cm'] = abs(
+            metrics[proximity_keys[0]]-metrics[proximity_keys[1]])
     if not all(math.isfinite(value) for value in metrics.values()):
         raise ValueError('Non-finite finger-frame measurement')
     return metrics

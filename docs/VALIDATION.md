@@ -675,6 +675,16 @@ fingers remains pending headset observation.
 The optional `case_span_cm` measures the displayed CC0 mesh's full local +Y
 transverse envelope (centimetres). The offline signed gap-minus-envelope margin
 is a geometry comparison, not an intersection test or headset contact verdict.
+An optional, sparse pickup-only triangle-surface probe now samples both verified
+displayed skin-pad points before hand restoration. The exact CoJ adapter maps
+them into the same mesh-centred local basis used by the rendered CC0 cartridge,
+including its axial centre offset, and measures each point's nearest unsigned
+distance to the imported triangles (`thumb_mesh_surface_distance_cm`,
+`index_mesh_surface_distance_cm`). The offline reader validates both together,
+preserves older snapshots and reports the unsigned distance asymmetry. This is
+sample-point proximity, not full finger skin/volume intersection, signed
+penetration, visible occlusion or a physical contact verdict. Live correlation,
+the visual grip and headset acceptance remain open; no anchor offset is tuned.
 
 ## Consolidated candidate batch — host-tested, awaiting runtime and visor
 
