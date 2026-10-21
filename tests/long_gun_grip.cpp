@@ -12,6 +12,10 @@ namespace {
 namespace runtime=cojvr::runtime;
 void Check(bool v,const char* message){if(!v){std::cerr<<message<<'\n';std::exit(1);}}
 bool Near(Vec3 a,Vec3 b){return std::abs(a.x-b.x)<.002F&&std::abs(a.y-b.y)<.002F&&std::abs(a.z-b.z)<.002F;}
+void ContactAt(CoJLongGunSupportSnapshot& n,Vec3 point){
+    const auto p=CoJLongGunContact(n.weapon_class).point_cm;
+    n.contact_element=8;n.contact_anchor={{point.x-p.x,point.y-p.y,point.z-p.z},{0,1,0},{0,0,1},true};
+}
 CoJLongGunSupportSnapshot Native(){
     CoJLongGunSupportSnapshot n{};n.valid=true;n.object_epoch=1;n.weapon_class="WeaponRifleWinchester";
     n.player_id=0x81234567;n.weapon_id=0xf1234567;n.holder_element=4;n.support_element=10;
@@ -19,6 +23,7 @@ CoJLongGunSupportSnapshot Native(){
     n.root={{100,200,300},{0,1,0},{0,0,1},true};
     n.holder={{110,200,300},{0,1,0},{0,0,1},true};
     n.support={{130,210,260},{0,1,0},{0,0,1},true};
+    ContactAt(n,n.support.position);
     Check(BuildCoJReloadLocalFrame(n.root,n.support,n.support_in_weapon),"fixture local");return n;
 }
 CoJLongGunGripGeometry Geometry(){
@@ -50,9 +55,48 @@ void GeometryAndSinglePlan(){
     Check(out.valid&&out.support_error_m>.4F,"unequal spacing hidden");
     Check(std::abs(out.solution.source_span_m-std::sqrt(.21F))<.0001F,"cm/metre conversion incorrect");
 }
+void PlayerAnimationCannotMoveWeaponContact(){
+    auto g=Geometry();
+    const auto before=BuildCoJLongGunAcquisitionFrame(g);
+    Check(before.contact.valid,"contact regression fixture invalid");
+    // The free native hand can be animated independently of the rifle mesh.
+    // Its anatomy is still read, but it must not author the fore-end position.
+    g.native.support.position.x+=50;
+    Check(BuildCoJReloadLocalFrame(g.native.root,g.native.support,g.native.support_in_weapon),"detached hand fixture");
+    const auto after=BuildCoJLongGunAcquisitionFrame(g);
+    Check(after.contact.valid&&Near(before.contact.position,after.contact.position),
+        "player left_hand moved the weapon contact away from its mesh");
+    g.native.contact_anchor.position.y+=20;
+    const auto moved=BuildCoJLongGunAcquisitionFrame(g);
+    Check(moved.contact.valid&&Near(moved.contact.position,{before.contact.position.x,before.contact.position.y+20,before.contact.position.z}),
+        "weapon element movement did not carry its mesh contact");
+}
+void MeshContactPlacementAndCancellation(){
+    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
+        auto g=Geometry();g.native.weapon_class=cls;ContactAt(g.native,{130,210,260});
+        // Rotate the sampled mesh element 90 degrees about Y. The authored
+        // point must follow the real child frame, not the player's socket.
+        g.native.contact_anchor.forward={1,0,0};
+        const auto p=CoJLongGunContact(cls).point_cm;
+        const auto anchor=g.native.contact_anchor.position;
+        const Vec3 expected{anchor.x+p.z,anchor.y+p.y,anchor.z-p.x};
+        const auto acquired=BuildCoJLongGunAcquisitionFrame(g);
+        Check(acquired.contact.valid&&Near(acquired.support.position,expected),"contact ignored mesh-element orientation");
+        g.native.support.position={999,888,777};
+        Check(BuildCoJReloadLocalFrame(g.native.root,g.native.support,g.native.support_in_weapon),"remote anatomical socket fixture");
+        g.support_grip_cm=acquired.contact.position;
+        const auto frame=BuildCoJLongGunGripFrame(g);
+        Check(frame.valid&&Near(frame.mapped_support_frame.position,g.support_grip_cm)&&frame.contact_distance_m<.00001F,
+            "actual mesh contact could not drive the rigid rifle solution");
+        g.native.contact_anchor.valid=false;
+        Check(!BuildCoJLongGunAcquisitionFrame(g).contact.valid&&!BuildCoJLongGunGripFrame(g).valid,
+            "missing mesh source fell back to remote anatomical socket");
+    }
+}
 void NativeRootHolderIsValid(){
     for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
         auto g=Geometry();g.native.weapon_class=cls;
+        ContactAt(g.native,g.native.support.position);
         // Live Remington resolves the named Holder to native element zero.
         // A root socket is valid; only a missing (-1) element is invalid.
         g.native.holder_element=0;g.native.holder=g.native.root;
@@ -109,6 +153,7 @@ void OwnershipAndRelease(){
     // Ordinary native cycling changes the live support pose, never the acquired contact.
     f.g.native.firing=true;f.g.native.states[0]={30,31,38,1};
     f.g.native.support.position={999,888,777};
+    f.g.native.contact_anchor.position={777,666,555};
     Check(BuildCoJReloadLocalFrame(f.g.native.root,f.g.native.support,f.g.native.support_in_weapon),"cycle fixture");
     o=f.Step();Check(o.attached&&Near(o.frame.mapped_support_frame.position,{420,510,560}),"cycle reseeded support contact");
     f.in.controls.support_trigger_held=true;f.g.native.valid=false;o=f.Step();
@@ -120,6 +165,14 @@ void OwnershipAndRelease(){
     Check(f.Step().claim.consume_support_trigger,"missing L2 counted as release");
     f.in.controls.support_trigger_available=true;Check(f.Step().claim.consume_support_trigger,"L2 release leaked");
     Check(!f.Step().claim.consume_support_trigger,"L2 failed to recover");
+}
+void ChangedMeshContactRetiresClaim(){
+    Fixture f;(void)f.Attach();++f.g.native.contact_element;
+    Check(!f.state.Refresh(f.in.player_generation,f.in.context,f.g).valid,
+        "changed mesh contact retained render authority");
+    const auto out=f.Step();
+    Check(!out.attached&&out.claim.cancelled&&out.claim.consume_grip,
+        "changed mesh contact did not cancel the physical claim");
 }
 void RejectionsAndRefresh(){
     for(int why=0;why<14;++why){Fixture f;(void)f.Attach();
@@ -244,5 +297,5 @@ void CapturedGripGuide(){
         "guide capacity overrun changed existing surfaces");
 }
 }
-int main(){GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
+int main(){PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

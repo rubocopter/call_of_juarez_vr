@@ -4015,8 +4015,8 @@ bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float 
     if(!g_java_player_bridge.TryPrepareTrackedWeapon(0,geometry.dominant_socket_cm,geometry.dominant_grip_cm,
         frame.plan.muzzle_direction,frame.plan.root.up,natural_right,tracked_right,unarmed,&error)||
         !g_java_player_bridge.BindPreparedLongGunSupport(geometry.native,frame.mapped_support_frame,&error))return fail();
-    // The idle-acquired socket remains fixed on the weapon during native cycle
-    // animation. Preserve the current hand-to-socket anatomy at that full frame.
+    // The idle-acquired mesh contact stays fixed during native cycling. Map
+    // the current native socket anatomy onto that independent contact frame.
     const auto tracked_left=TransformWeaponElementFrame(geometry.native.support,frame.mapped_support_frame,natural_left);
     if(!tracked_left.valid||!g_java_player_bridge.TryApplyIndependentHand(0,natural_right,tracked_right,&error)||
         !g_java_player_bridge.TryApplyIndependentHand(1,natural_left,tracked_left,&error))return fail();
@@ -4034,7 +4034,7 @@ bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float 
     if(ShouldObserveBodyFrame(frame_sequence))try{EmitEvent("long_gun_grip","applied",
         "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(geometry.native.weapon_id)+
         ";support_error_m="+std::to_string(frame.support_error_m)+
-        ";source=idle_native_left_hand;native_reload=true;physical_acceptance=unverified");}catch(...){}
+        ";source=mesh_foreend;native_reload=true;physical_acceptance=unverified");}catch(...){}
     return true;
 }
 
@@ -5982,6 +5982,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             (press||(!trace.last_us)||(now>=trace.last_us&&now-trace.last_us>=100000))){
             ++trace.samples;trace.last_us=now;
             try{std::ostringstream detail;
+                const auto contact=BuildCoJLongGunAcquisitionFrame(long_gun_geometry);
+                const auto profile=CoJLongGunContact(long_gun_geometry.native.weapon_class);
                 detail<<"schema=1;frame_sequence="<<frame_sequence<<";pose_sequence="<<grip_controls.sequence
                     <<";input_generation="<<grip_controls.input_generation<<";player_generation="<<long_gun_input.player_generation
                     <<";native_context="<<long_gun_input.context<<";object_epoch="<<long_gun_geometry.native.object_epoch
@@ -5990,6 +5992,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     <<";native_qualified="<<d.native_qualified<<";frame_valid="<<d.frame_valid
                     <<";spatially_admitted="<<d.spatially_admitted<<";support_on_original_side="<<d.support_on_original_side
                     <<";native_firing="<<long_gun_geometry.native.firing<<";contact_distance_m="<<d.contact_distance_m
+                    <<";contact_source=mesh_foreend;contact_element="<<long_gun_geometry.native.contact_element
+                    <<";contact_element_name="<<(profile.element?profile.element:"unavailable")
+                    <<";ordinary_contact_valid="<<contact.contact.valid
+                    <<";ordinary_contact_x_cm="<<contact.contact.position.x
+                    <<";ordinary_contact_y_cm="<<contact.contact.position.y
+                    <<";ordinary_contact_z_cm="<<contact.contact.position.z
                     <<";source_span_m="<<d.source_span_m<<";target_span_m="<<d.target_span_m
                     <<";support_error_m="<<d.support_error_m<<";radius_m="<<grip_controls.acquisition_radius_m
                     <<";grip_available="<<grip_controls.grip_available<<";grip_held="<<grip_controls.grip_held

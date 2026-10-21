@@ -19,7 +19,7 @@ using namespace cojvr::games::call_of_juarez;
 namespace rt=cojvr::runtime;
 void Check(bool ok,const char* why){if(!ok){std::cerr<<why<<'\n';std::exit(1);}}
 struct Vector{float x=0,y=0,z=0;};
-struct Weapon{std::array<ElementWorldBasisTarget,3> f{};} a,b;
+struct Weapon{std::array<ElementWorldBasisTarget,4> f{};} a,b;
 int player,pc,wc,vc,other,exception;
 Weapon* current=&a;
 const char* rifle_class="WeaponRifleWinchester";
@@ -54,10 +54,11 @@ void* __stdcall Object(void*,void* p,void* m,const JValue* args){
 int __stdcall Int(void*,void* p,void* m,const JValue* args){
     if(Name(m,"GetThisID"))return p==&player?100:200; // deliberately SAME ID for replacement B
     if(Name(m,"GetBarrelElement"))return 2;
-    if(Name(m,"GetElementsNumber"))return 3;
+    if(Name(m,"GetElementsNumber"))return 4;
     if(Name(m,"GetElementID")){
         const auto* n=static_cast<char*>(args[0].l);
-        if(p!=&player){Check(!std::strcmp(n,"Holder"),"unknown weapon holder");return holder_element;}
+        if(p!=&player){if(!std::strcmp(n,"Holder"))return holder_element;
+            Check(!std::strcmp(n,CoJLongGunContact(rifle_class).element),"unknown weapon contact");return 3;}
         if(!std::strcmp(n,"left_hand"))return 39;
         if(!std::strcmp(n,"right_hand"))return 19;
         if(!std::strcmp(n,"CoJVRHiddenArms"))return 40;
@@ -133,6 +134,8 @@ void Bind(JavaPlayerBridge& bridge){
     a.f={ElementWorldBasisTarget{{0,0,0},{0,1,0},{0,0,1},true},
         ElementWorldBasisTarget{{19,0,0},{0,1,0},{0,0,1},true},
         ElementWorldBasisTarget{{-40,0,0},{0,1,0},{0,0,1},true}};
+    const auto p=CoJLongGunContact(rifle_class).point_cm;
+    a.f[3]={{hands[39].position.x-p.x,hands[39].position.y-p.y,hands[39].position.z-p.z},{0,1,0},{0,0,1},true};
 }
 }
 int main(int argc,char** argv){
@@ -146,6 +149,9 @@ int main(int argc,char** argv){
     Check(bridge.TryObserveLongGunSupport(g.native),"real rifle observation failed");
     const auto guide_epoch=g.native.object_epoch;const auto guide_ref=bridge.long_gun_grip_owner_;
     Check(bridge.IsLongGunGripGuideOwnerCurrent(g.native),"read-only guide owner check rejected an idle rifle");
+    auto wrong_contact=g.native;++wrong_contact.contact_element;
+    Check(!bridge.IsLongGunGripGuideOwnerCurrent(wrong_contact)&&bridge.long_gun_grip_epoch_==guide_epoch&&writes==0,
+        "guide accepted a changed mesh contact or mutated its owner");
     reloading=true;
     Check(!bridge.IsLongGunGripGuideOwnerCurrent(g.native)&&bridge.long_gun_grip_epoch_==guide_epoch&&
         bridge.long_gun_grip_owner_==guide_ref&&globals==1&&writes==0,

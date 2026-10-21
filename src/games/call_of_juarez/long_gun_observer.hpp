@@ -1,5 +1,6 @@
 #pragma once
 #include "games/call_of_juarez/reload_geometry.hpp"
+#include "games/call_of_juarez/long_gun_contact.hpp"
 #include <array>
 #include <cstdint>
 
@@ -29,6 +30,8 @@ struct CoJLongGunSupportSnapshot {
     std::array<std::array<bool,3>,2> two_handed{};
     int holder_element=-1,support_element=-1; // Root is exact native element 0.
     ElementWorldBasisTarget root{},holder{},support{};
+    int contact_element=-1;
+    ElementWorldBasisTarget contact_anchor{}; // Weapon mesh, separate from player anatomy.
     CoJReloadLocalFrame support_in_weapon{};
     bool firing=false; // valid + false = ordinary idle; true = ordinary 30..38 transition.
 };
@@ -183,19 +186,24 @@ inline bool ReadCoJLongGunSupport(void* env,void* player,CoJLongGunSupportSnapsh
     if(!r.ok||!ValidId(sample.player_id)||!ValidId(sample.weapon_id))return false;
     auto holder_name=r.Text("Holder");if(!r.ok)return false;
     auto support_name=r.Text("left_hand");if(!r.ok)return false;
-    Value holder_arg{.object=holder_name},support_arg{.object=support_name};
+    const auto profile=CoJLongGunContact(sample.weapon_class);if(!profile.element)return false;
+    auto contact_name=r.Text(profile.element);if(!r.ok)return false;
+    Value holder_arg{.object=holder_name},support_arg{.object=support_name},contact_arg{.object=contact_name};
     sample.holder_element=r.Int(weapon,weapon_element,&holder_arg);
     sample.support_element=r.Int(player,methods[14],&support_arg);
-    if(!r.ok||sample.holder_element<0||sample.support_element<0)return false;
+    sample.contact_element=r.Int(weapon,weapon_element,&contact_arg);
+    if(!r.ok||sample.holder_element<0||sample.support_element<0||sample.contact_element<0)return false;
     const auto frame=[&](void* object,int element,ElementWorldBasisTarget& target) noexcept {
         const bool read=read_frame(context,object,element,target);
         return r.Check()&&read;
     };
     if(!frame(weapon,0,sample.root)||!frame(weapon,sample.holder_element,sample.holder)||
-        !frame(player,sample.support_element,sample.support))return false;
+        !frame(player,sample.support_element,sample.support)||
+        !frame(weapon,sample.contact_element,sample.contact_anchor))return false;
     CoJReloadLocalFrame holder_local{};
     if(!BuildCoJReloadLocalFrame(sample.root,sample.holder,holder_local)||
-        !BuildCoJReloadLocalFrame(sample.root,sample.support,sample.support_in_weapon))return false;
+        !BuildCoJReloadLocalFrame(sample.root,sample.support,sample.support_in_weapon)||
+        !BuildCoJReloadLocalFrame(sample.root,sample.contact_anchor,holder_local))return false;
     CoJLongGunSupportSnapshot after{};
     if(!ReadOwner(r,player,weapon,methods,after)||after.states!=sample.states||
         after.two_handed!=sample.two_handed)return false;
@@ -205,8 +213,10 @@ inline bool ReadCoJLongGunSupport(void* env,void* player,CoJLongGunSupportSnapsh
     const auto weapon_after=static_cast<std::uint32_t>(r.Int(weapon,weapon_id));
     const int holder_after=r.Int(weapon,weapon_element,&holder_arg);
     const int support_after=r.Int(player,methods[14],&support_arg);
+    const int contact_after=r.Int(weapon,weapon_element,&contact_arg);
     if(!r.ok||player_after!=sample.player_id||weapon_after!=sample.weapon_id||
-        holder_after!=sample.holder_element||support_after!=sample.support_element)return false;
+        holder_after!=sample.holder_element||support_after!=sample.support_element||
+        contact_after!=sample.contact_element)return false;
     sample.valid=true;out=sample;return true;
 }
 } // namespace cojvr::games::call_of_juarez

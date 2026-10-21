@@ -46,7 +46,8 @@ inline int Kind(const char* name) noexcept {
 }
 inline bool Qualified(const CoJLongGunSupportSnapshot& n) noexcept {
     if(!n.valid||!n.object_epoch||!Kind(n.weapon_class)||!long_gun_observer_detail::ValidId(n.player_id)||
-        !long_gun_observer_detail::ValidId(n.weapon_id)||n.holder_element<0||n.support_element<=0)return false;
+        !long_gun_observer_detail::ValidId(n.weapon_id)||n.holder_element<0||n.support_element<=0||
+        n.contact_element<0)return false;
     bool fire=false;
     for(int h=0;h<2;++h){
         for(int state:n.states[h]){
@@ -57,7 +58,8 @@ inline bool Qualified(const CoJLongGunSupportSnapshot& n) noexcept {
     }
     CoJReloadLocalFrame holder{},support{};
     return fire==n.firing&&BuildCoJReloadLocalFrame(n.root,n.holder,holder)&&
-        BuildCoJReloadLocalFrame(n.root,n.support,support)&&n.support_in_weapon.valid;
+        BuildCoJReloadLocalFrame(n.root,n.support,support)&&n.support_in_weapon.valid&&
+        BuildCoJReloadLocalFrame(n.root,n.contact_anchor,holder);
 }
 inline runtime::Vec3 Scale(runtime::Vec3 p,float s) noexcept{return {p.x*s,p.y*s,p.z*s};}
 inline std::array<float,12> Matrix(const ElementWorldBasisTarget& f,runtime::Vec3 anchor) noexcept {
@@ -77,6 +79,17 @@ inline ElementWorldBasisTarget LocalWorld(const ElementWorldBasisTarget& root,co
     return {{root.position.x+delta.x,root.position.y+delta.y,root.position.z+delta.z},
         Direction(m,local.up),Direction(m,local.forward),local.valid};
 }
+inline CoJReloadLocalFrame ContactLocal(const CoJLongGunSupportSnapshot& n) noexcept {
+    const auto profile=CoJLongGunContact(n.weapon_class);
+    if(!profile.element)return {};
+    // Preserve the current native socket's anatomical orientation, but derive
+    // its position exclusively from the actual weapon element and mesh island.
+    auto contact=n.support;
+    contact.position=Point(Matrix(n.contact_anchor,n.contact_anchor.position),profile.point_cm);
+    CoJReloadLocalFrame local{};
+    if(!BuildCoJReloadLocalFrame(n.root,contact,local))return {};
+    return local;
+}
 }
 struct CoJLongGunAcquisitionFrame {
     TrackedWeaponFramePlan ordinary{};
@@ -88,7 +101,7 @@ inline CoJLongGunAcquisitionFrame BuildCoJLongGunAcquisitionFrame(const CoJLongG
     const CoJReloadLocalFrame* frozen=nullptr) noexcept {
     using namespace long_gun_grip_detail;
     if(!Qualified(g.native))return {};
-    const auto support=LocalWorld(g.native.root,frozen?*frozen:g.native.support_in_weapon);
+    const auto support=LocalWorld(g.native.root,frozen?*frozen:ContactLocal(g.native));
     CoJReloadLocalFrame checked{};
     if(!BuildCoJReloadLocalFrame(g.native.root,support,checked))return {};
     const auto ordinary=BuildTrackedWeaponFrame(g.native.root,g.dominant_socket_cm,g.muzzle_cm,
@@ -98,8 +111,8 @@ inline CoJLongGunAcquisitionFrame BuildCoJLongGunAcquisitionFrame(const CoJLongG
     return {ordinary,support,contact};
 }
 // All native values are cm. The neutral solver only receives metres. The
-// authored support socket is supplied by exact natural animation, never guessed
-// from a barrel axis, mesh bounds or a universal foregrip offset.
+// contact position comes from the exact weapon's measured wooden fore-end;
+// the independent native left socket supplies anatomy, never contact position.
 inline CoJLongGunGripFrame BuildCoJLongGunGripFrame(const CoJLongGunGripGeometry& g,
     const CoJReloadLocalFrame* frozen=nullptr) noexcept {
     using namespace long_gun_grip_detail;
@@ -165,7 +178,7 @@ public:
             frame.valid?frame.solution.target_span_m:-1.F,
             frame.valid?frame.support_error_m:-1.F};
         attached_=out.claim.stage==runtime::TwoHandGripStage::attached;
-        if(out.claim.acquired)frozen_=g.native.support_in_weapon;
+        if(out.claim.acquired)frozen_=long_gun_grip_detail::ContactLocal(g.native);
         out.attached=attached_;
         if(attached_)out.frame=frame;
         return out;
@@ -185,7 +198,7 @@ private:
             owner_.player_id==n.player_id&&
             owner_.weapon_id==n.weapon_id&&owner_.holder_element==n.holder_element&&
             owner_.support_element==n.support_element&&long_gun_grip_detail::Kind(owner_.weapon_class)==
-            long_gun_grip_detail::Kind(n.weapon_class);
+            long_gun_grip_detail::Kind(n.weapon_class)&&owner_.contact_element==n.contact_element;
     }
     runtime::TwoHandGripPolicy policy_{};CoJReloadLocalFrame frozen_{};
     CoJLongGunSupportSnapshot owner_{};

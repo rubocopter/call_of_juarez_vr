@@ -193,7 +193,7 @@ evidence. The already archived rejection is preserved.
 | Physical bow | Exact owner/root ray, physical right-hand R2 grab/draw/release, native supervision, controller haptics and capture-drop separation are host-tested. Operator confirms the bow worked very well in the exercised session, extending the earlier improvement to scoped functional acceptance. | Mesh/string/arrow/reticle agreement, haptic quality, concentration optics and interruption recovery are not separately accepted. This does not qualify all scenes or sustained campaign support. |
 | Physical duel posture | Correct hand-at-hip draw/raise and rejection of exercised incorrect/cheating positions have operator acceptance: actions were permitted only in the correct position. | Native early-draw timing, retry/recenter and ownership recovery remain separate where not exercised. Measured holster contact is not implemented. |
 | Basic virtual holsters | Operator accepts exercised equip/stow gestures and the colored assistance after the zone-press consumption correction. Enabling/disabling the assistance works correctly in the exercised native options flow. | Earlier occasional kicks remain rejected history; broader conflicting/held-input and interruption recovery are unqualified. No attached weapon mesh or measured native socket contact; disabled during duels and mounted play. |
-| Two-hand rifles | Exact Winchester/Remington/SawOff support-grip prototype is implemented/host-tested, including real bridge capture, both hand maps, single weapon commit, muzzle/ray verification, original-object replacement rejection, failed-restore retention and crossed-support rejection during both update and render refresh. A separate approach/press rearming defect has host coverage. | The operator still could not acquire Remington support after root-holder and rearming corrections. Admission traces identify capture-distance rejection with valid idle owner/tracking; physical acquisition remains rejected. The optional L1 marker exposes that same calculated target, with host-tested binocular pixels and ownership checks only. Marker/foregrip agreement, physical attachment/stability/recovery and scope variants remain unqualified. R2 and Square native automatic reload remain authoritative. |
+| Two-hand rifles | Exact Winchester/Remington/SawOff support-grip prototype has host coverage for paired hands, one weapon commit, muzzle/ray verification, original-object replacement rejection, restoration and input/hemisphere guards. The operator confirms acquisition and movement at the previously floating Remington point; this is narrow exercised behavior with rejected placement. | Contact now comes from the measured original mesh fore-end and its live named element, with host regressions separating player anatomy from contact translation. The optional L1 guide shares that point. Corrected marker/mesh registration, hand fit, fire/cycle stability, interruption recovery and scope variants remain unqualified. R2 and Square native automatic reload remain authoritative. |
 | Latest rifle/reload attempt | Operator confirms the corrected Remington no longer fires from free-hand L2. Bimanual acquisition failed again after the rearming correction; admission traces show the hand outside the existing calculated capture radius. Earlier pistol evidence identifies an unsupported Derringer and no admitted manual session. | L2 suppression has scoped headset acceptance; broader R2/dual-hand/held-trigger recovery remains unreported in this follow-up. Physical contact placement remains unresolved: the requested L1 guide exposes the target without widening its radius. Successful native reads or host fixtures do not qualify it. The evidence does not identify every pistol tried. Derringer/two-slot/whole-clip and dual-equipped contexts retain native reload; current cartridge/contact feedback was not exercised and earlier scoped admitted-revolver acceptance is unchanged. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
@@ -280,24 +280,31 @@ ignored `work/`, linked to that candidate's manifests.
 
 The subsequent operator feedback accepts absence of Remington free-L2 fire,
 ordinary holsters, their colored assistance and assistance on/off. Do not repeat
-those accepted checks solely for confirmation. Bimanual acquisition still failed.
-The follow-up should use that same available Remington: release L1 with the hand
-away, approach the natural support and freshly press; aim/roll only if acquired,
-then release/regrip and check native R2/cycle and one Square reload. An outside
-held L1 must not attach later merely by moving inward. The host rearming fix is
-not physically accepted: the subsequent attempt still failed. Admission traces
-identify contact distance as the active rejection despite valid native owner,
-tracking and idle eligibility. The user-requested small L1 guide now exposes the
-same ordinary-map target used by acquisition; it is host-tested only. With weapon
-guides enabled, locate that marker, release L1, approach until green and press.
-It must disappear on attachment; grey denotes a held attempt needing release.
-Marker/visible-foregrip agreement, readability and actual acquisition remain
-unqualified. No wider radius or inferred mesh contact is admitted. The trace
-retains source/context, spatial and preceding observed release data.
-Broader trigger/holster interruption recovery can join naturally available play.
-Test cartridge pickup only if an admitted revolver with empty support is actually
-available; Derringer/whole-clip or dual-equipped weapons retain native reload.
-Winchester observation, bow and duel posture need no separate trial for this fix.
+those accepted checks solely for confirmation. The later video/operator report
+identifies a floating contact away from the Remington: grasping that point does
+acquire and move it, corroborated by native acquisition/application events. This
+accepts that limited functional observation while rejecting physical placement.
+The old generic player left_hand translation is replaced by an original-mesh
+fore-end point transformed by the same weapon's live named element. Geometry,
+guide/admission agreement and transactional behavior are host-tested only.
+
+The next focused check is the same available Remington, about 2–3 minutes:
+
+1. With weapon guides enabled, move/roll the one-handed gun. The L1 marker must
+   remain on its wooden fore-end. If it floats away, report that placement and
+   stop the grip check; do not hunt for another invisible contact.
+2. Release L1, approach that fore-end and press. Expect acquisition, the marker
+   hiding and both hands moving one coherent gun. Aim/roll, release and regrip.
+   Check hand/wood agreement separately from successful attachment.
+3. Fire 2–3 deliberate R2 shots while supported, then one Square reload. Expect
+   stable native cycling, support cancellation for reload, original automatic
+   loading and deliberate regrip after release. Note any jump or lost control.
+
+An outside held L1 must remain unqueued; owner/tracking loss must retain release
+barriers. Broader interruption checks can join natural play. No wider radius is
+introduced. The bounded trace retains contact element/source, ordinary contact,
+context, spatial and preceding release data. Revolvers, Winchester observation,
+bow, holsters and duel posture need no separate trial for this placement fix.
 
 ## Host verification boundary
 
@@ -624,7 +631,8 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   bounded fire-intent bursts and measured gaps. The analyzer rejects overclaimed,
   malformed or inconsistent histories. Live source timing, support movement
   through fire/end remain unqualified. The support-grip prototype now uses a
-  fresh idle left-socket reference, frozen in weapon space for native cycling.
+  measured mesh fore-end reference, frozen in weapon space for native cycling;
+  the native left socket retains only anatomical/verifier ownership.
   Paired real-bridge transactions, coherent same-ID replacement, restore retry,
   excessive separation and duplicate/stale samples have host regressions. These
   do not establish physical placement or stability; use the rifle row above.

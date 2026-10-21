@@ -684,8 +684,11 @@ its hierarchy/writer limits remain in [arm research](research/COJ_ARM_SKINNING_A
 
 The two-hand rifle prototype admits exact Winchester, Remington and SawOff
 classes with a repeatedly stable right actual/desired/active owner and empty
-left native slot. A fresh left grip near the naturally animated left holding
-socket acquires support while idle. The acquired weapon-local socket stays fixed
+left native slot. A fresh left grip near the measured wooden fore-end acquires
+support while idle. The exact mesh profile supplies a point in the currently
+sampled weapon's named GunBarrel (Remington/SawOff) or GunBody (Winchester).
+The player's left_hand supplies anatomical orientation and verified hand mapping,
+never contact translation. The acquired weapon-local contact stays fixed
 through admitted native firing/cycling states; reload/equip or ambiguity cancels.
 One rigid solver anchors the right socket and rotates the weapon, both hands,
 muzzle and ray together, without scaling the weapon. Both parent hand maps apply
@@ -718,8 +721,11 @@ or creating its epoch. A failed optional read hides the marker and cannot erase
 the acquisition policy's released-input baseline.
 One captured support surface joins the four holster surfaces. Renderer-owned
 immutable L1 glyphs add no native draw, contact writer, scene depth or wider
-grasp permission. The measured socket's agreement with the visible foregrip
-remains a physical gate, even when the marker accurately shows admission.
+grasp permission. The operator identified the previous native left_hand contact
+floating away from the Remington, and confirmed grasp/movement at that remote
+point. Mesh-derived placement replaces that rejected reference. Its visible
+registration, hand fit and stability remain physical gates; the original mesh
+measurements and ownership are in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md#measured-long-gun-contact).
 Native right-trigger firing and automatic rifle reload remain authoritative.
 Separately, the final ordinary-fire phase observes exact right-only rifle
 ownership after non-fire equipment actions, without requiring support contact,
@@ -847,8 +853,8 @@ Named `Holder` may resolve to element zero (observed on native Remington); zero
 is a valid root socket, while a negative result rejects. Keep exact-class,
 retained object, natural frame and hand-state checks even for a root holder.
 The adapter also rejects a support controller crossing the perpendicular plane
-through the dominant grip relative to the ordinary right-hand mapped native
-support socket. Equal hand spacing alone could otherwise admit a reversed rifle;
+through the dominant grip relative to the ordinary right-hand mapped mesh
+contact. Equal hand spacing alone could otherwise admit a reversed rifle;
 the same hemisphere gate applies at acquisition, retention and render refresh,
 with physical L1 release required before reacquisition.
 The complete fire/cycle lifetime, physical contact and visual grip remain open
@@ -865,7 +871,8 @@ still completes. Successful rollback cannot qualify images already invalidated.
 An opt-in read-only observer admits the exact ordinary Winchester, Remington
 and sawed-off Remington classes with coherent right active/actual/desired
 ownership, empty left equipment, ordinary idle/fire states and native two-hand
-flags. It brackets naturally animated root/Holder/left_hand reads with repeated
+flags. It brackets naturally animated root/Holder/left_hand and named mesh-anchor
+reads with repeated
 owner/state/identity checks, before scoped body/hand/weapon writes. Retained or
 faulted overlays reject observation. Sparse periodic references and bounded
 trigger-intent bursts record native centimetres, local support frames and actual

@@ -80,12 +80,15 @@ no `HolderL`/`HolderR` or named foregrip. Remington's `BarrelL`/`BarrelR` are mu
 candidates, not support sockets. The fallback lookup below therefore does not
 establish a second physical grip. Proximity/grip support needs a qualified
 support-hand full frame relative to the weapon, including native fire/cycling
-ownership, before admission. A naturally animated left holding socket is a
-measurement candidate; the current idle-finger exception is not a retained
-attachment owner. The support-grip prototype now measures that naturally animated
-left holding socket relative to the exact weapon root at fresh idle acquisition.
-The socket remains fixed in weapon space through admitted native fire/cycle
-states 30..38; it is not reseeded from their animated hand motion. Exact
+ownership, before admission. The player's naturally animated left holding socket
+was the prototype's initial reference. The operator identified it floating away
+from the Remington and confirmed that grasping that remote point acquires and
+moves the rifle. Native acquisition/application events corroborate the narrow
+behavior; this rejects the socket's translation as physical fore-end contact.
+The current prototype uses the measured mesh contact below, retaining the socket
+only for anatomical orientation and verified hand mapping. The acquired contact
+remains fixed in weapon space through admitted native fire/cycle states 30..38;
+it is not reseeded from their animated hand motion. Exact
 Winchester, Remington and SawOff classes require repeated right active/actual/
 desired object equality, empty left slot, coherent four state getters and three
 two-hand flags per hand, alive/not carrying/not reloading. Scoped/unknown classes
@@ -102,15 +105,39 @@ spacing residual above 20 cm cancel. These ergonomic bounds need visor judgement
 they do not establish a native contact volume. Native right fire and automatic
 reload retain their original timing and permissions.
 
-Subsequent bounded admission observations identify contact-distance rejection
-despite valid idle native ownership, geometry and tracked input. The generic
-left holding socket is not thereby established as the visible foregrip's contact
-centre. Rest-mesh barrel-axis comparisons are diagnostic, not runtime surface
-clearance or justification for an offset. The optional L1 guide exposes the
-ordinary right-hand mapped socket used by admission, before the bimanual solver
-rotates toward the left controller. Presentation and distance now share that
-helper, with capture-space and retained-owner fences; no radius was widened.
-Marker alignment and physical placement remain unqualified until observed.
+### Measured long-gun contact
+
+The original meshes contain separable wooden fore-end triangle islands. Packed
+positions decode as signed 16-bit XYZ times the serialized scale plus origin;
+decoded bounds agree with the node's serialized bounds. Welding seam vertices,
+connected-triangle inspection and original atlas colors identify the wood.
+Material ID alone cannot distinguish it from metal. Full node transforms use
+row-vector local times parent; diagnostic views do not redefine native axes.
+
+| Exact class | Original mesh SHA-256 | Owning element | Wood triangles | Local AABB centre, cm (X,Y,Z) |
+| --- | --- | --- | --- | --- |
+| WeaponRifleRemington | `d086f18770302d6dd176543d417dc3f929e9ad2ce5b772b89fcfe7e930e7e596` | GunBarrel | 122 | (0.001855, 0.731875, 10.743126) |
+| WeaponRifleRemingtonSawOff | `bb8ae35d14e9d34945b33477dc5ae6d226a2ebd7970730249f01dead9c5c2343` | GunBarrel | 122 | (0.002069, 0.732127, 10.742139) |
+| WeaponRifleWinchester | `be1f0508ea41e809a413256c295ba75b02eeaf7df935c3c1dfb6e623a8ee320e` | GunBody | 84 | (0.009580, -41.159535, -4.031803) |
+
+Assets are under `Data/Player/Equipment/<model>/<model>.msh`. Remington wood bounds
+in GunBarrel centimetres are (-1.456061,-0.661657,-0.489324) through
+(1.459770,2.125407,21.975575). The point is a geometry-derived interaction anchor,
+not a measured palm surface, native collider or ergonomic hand fit. No headset
+offset, barrel-axis approximation or larger capture radius follows from it.
+
+Read the named element on the retained exact weapon and recheck its identity
+alongside Holder, player socket, equipment and state reads. Transform the profile
+point by that full live element frame, then express it relative to weapon root.
+Preserve native left_hand orientation separately and map its current anatomy to
+the solved contact. A missing/invalid mesh frame rejects instead of falling back
+to the detached player socket. Contact element replacement cancels the claim.
+The optional L1 guide and distance admission share the ordinary right-hand map
+of this same point, before the solver rotates toward the left controller.
+Frozen weapon-local contact retains native-cycle continuity and restoration.
+Host regressions cover independent player-socket motion, child-element rotation/
+translation, missing/replaced mesh frames, frozen cycling and paired native
+transactions. Visible registration and physical fit remain unqualified.
 
 The exact `InvObject.GetOwnerElementID` chooses `Left_hand`/`Right_hand`, with
 `Bip01 L/R Hand` as fallback. The Ray/Billy meshes contain the lowercase holding

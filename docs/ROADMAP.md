@@ -43,7 +43,7 @@ campaign session. The reload observer correlates stable native drum phase with
 geometry; duel diagnostics observe original inventory holster sockets. Neither
 diagnostic enables chamber mechanics or physical holster contact.
 The read-only rifle support observer and evidence analysis are host-tested.
-The prototype acquires its natural idle support socket on a fresh nearby L1,
+The prototype acquires a measured mesh fore-end on a fresh nearby L1,
 retains that weapon-local reference through native fire/cycle, and cancels for
 reload, invalid geometry or changed ownership. Placement, stability and recovery
 join that same session; automatic native rifle reload is preserved.
@@ -124,12 +124,15 @@ admission diagnostics now distinguish source-read, context, contact/span and
 release/sample rejection in the next eligible run; no tolerance was widened.
 The next exercised attempt still failed. Admission telemetry now identifies
 distance from the calculated contact as the active rejection while native
-ownership, tracking and idle eligibility are valid. The named left holding
-socket's agreement with the visible foregrip remains unqualified. At the
-operator's request an optional small L1 marker now exposes that exact ordinary
-contact, with near/release feedback and retained-owner/capture checks. It is
-host-tested presentation, not physical attachment acceptance or a new contact
-volume; the next check should locate the marker before judging acquisition.
+ownership, tracking and idle eligibility are valid. The optional L1 marker then
+revealed a floating contact away from the Remington. The operator confirms
+acquiring/moving the gun at that remote point, rejecting its placement. The
+adapter now derives translation from measured wooden fore-end islands in the
+original Remington/SawOff/Winchester meshes and the owning live weapon element;
+left_hand retains anatomy only. Shared guide/admission mapping, mesh-frame
+rotation/translation, absent/replaced source and native-cycle freezing are
+host-tested. The next narrow check is marker/wood registration, grasp/roll and
+native fire/reload on the available Remington; correct physical fit remains open.
 The earlier trace identifies an unsupported Derringer, not every
 pistol the operator tried. Existing dual/whole-clip/multiple-ammo exclusions
 remain: the current run cannot qualify cartridge fit or reload feedback.
@@ -220,7 +223,7 @@ Additional implementation remains bounded by the following prerequisites:
 | Development | Current boundary and next prerequisite |
 | --- | --- |
 | Physical-walk/turn leg animation | Planned. The inspected native root/SetFrame routes also advance child animation and notifications, including footsteps/MakeNoise; they cannot serve as a simple legs-only writer. Qualify an event-free sampler or complete reversible lower-body transaction for both models, preserving accepted continuous follow and native movement/permissions. |
-| Rifle two-hand attachment | Exact Winchester/Remington/SawOff attachment is implemented/host-tested through one scoped paired-hand/weapon/aim transaction, acquired from the natural idle support socket. Physical placement, firing/cycling stability and interruption recovery remain pending; native automatic reload is preserved. |
+| Rifle two-hand attachment | Exact Winchester/Remington/SawOff attachment is implemented/host-tested through one scoped paired-hand/weapon/aim transaction. Contact now uses the measured mesh fore-end; the previous remote socket allowed acquisition/movement with rejected placement. Corrected physical registration, firing/cycling stability and interruption recovery remain pending; native automatic reload is preserved. |
 | Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before socket-based contact enables drawing. Basic gesture zones below are independent of this geometry. |
 | Basic virtual holsters | Ergonomic HMD-relative hip zones for pistols, right shoulder for rifle and left shoulder for bow are implemented/host-tested independently of model sockets or attached meshes. Optional colored guides share their geometry, default off in native comfort options. Physical zone fit, guide comfort and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
 | Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
@@ -364,10 +367,10 @@ or reload work:
   coverage and scoped physical acceptance of holsters/guides and assistance on/off;
   broader fit and held-input recovery remain open.
   They are ordinary gameplay shortcuts and do not bypass duel timing/posture.
-- **Two-hand long-gun support:** the host-tested prototype uses the naturally
-  animated left holding socket relative to an exact right-owned Winchester,
-  Remington or SawOff. The meshes have no named secondary holder; no arbitrary
-  foregrip offset is introduced. Fresh nearby L1 acquires while idle; one rigid
+- **Two-hand long-gun support:** the host-tested prototype uses measured wooden
+  fore-end geometry on the live named weapon element of an exact right-owned
+  Winchester, Remington or SawOff. The player socket supplies anatomical
+  orientation only; its detached translation is rejected. Fresh nearby L1 acquires while idle; one rigid
   map preserves authored roll and scale across both hands, weapon and muzzle.
   Native fire/cycle retain the acquired local contact; reload/equip, changed
   object, invalid tracking or excessive separation cancel. Real bridge fixtures

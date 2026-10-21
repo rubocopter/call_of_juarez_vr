@@ -1581,6 +1581,7 @@ bool JavaPlayerBridge::IsLongGunGripGuideOwnerCurrent(const CoJLongGunSupportSna
         being_==player&&being_generation_==generation&&!now.firing&&
         now.player_id==expected.player_id&&now.weapon_id==expected.weapon_id&&
         now.holder_element==expected.holder_element&&now.support_element==expected.support_element&&
+        now.contact_element==expected.contact_element&&
         expected.weapon_class&&!std::strcmp(now.weapon_class,expected.weapon_class);
 }
 
@@ -2756,6 +2757,7 @@ bool JavaPlayerBridge::ValidateTrackedLongGunOwner(const int hand,const bool map
     const auto& expected=overlay.long_gun_owner;
     if(now.player_id!=expected.player_id||now.weapon_id!=expected.weapon_id||
         now.holder_element!=expected.holder_element||now.support_element!=expected.support_element||
+        now.contact_element!=expected.contact_element||
         std::strcmp(now.weapon_class,expected.weapon_class))return false;
     if(mapped_support){
         const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float e){return std::abs(a.x-b.x)<=e&&

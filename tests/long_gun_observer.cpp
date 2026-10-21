@@ -13,6 +13,7 @@ void* P(int n){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(n));}
 constexpr int player=100,weapon=101,alias=102,foreign=103,player_class=110,subclass=114;
 void* table[224]{};void** env=table;std::map<void*,int> refs;
 int steps=0,fail_step=-1,frames=0,kind=0,change=0,invalid_frame=-1,object_reads=0,owner_change_at=-1;
+int contact_id=10;
 bool pending=false,dead=false,carrying=false,reloading=false,alias_desired=false;
 std::uint32_t player_id=0x8f120001,weapon_id=0xf1234001;
 void* weapons[2][3]{};int states[2][4]{};bool two[2][3]{};
@@ -56,8 +57,8 @@ void* __stdcall Object(void*,void* obj,void* method,const Value* args){if(!Step(
 std::int32_t __stdcall Integer(void*,void* obj,void* method,const Value* args){if(!Step())return -1;
     const auto i=static_cast<int>(reinterpret_cast<std::uintptr_t>(method))-1;
     if(i==13){Require(args==nullptr,"ID getter arguments");return static_cast<std::int32_t>(obj==P(player)?player_id:weapon_id);}
-    if(i==14){Require(args&&(args->object==P(120)||args->object==P(121)),"unknown element name");
-        Require((obj==P(player))==(args->object==P(121)),"element name belongs to wrong object");return args->object==P(120)?4:10;}
+    if(i==14){Require(args&&(args->object==P(120)||args->object==P(121)||args->object==P(122)),"unknown element name");
+        Require((obj==P(player))==(args->object==P(121)),"element name belongs to wrong object");return args->object==P(120)?4:args->object==P(121)?10:contact_id;}
     Require(obj==P(player)&&i>=3&&i<7&&args&&args->integer>=0&&args->integer<2,"bad state query");
     return states[args->integer][i-3];
 }
@@ -67,18 +68,19 @@ unsigned char __stdcall Boolean(void*,void* obj,void* method,const Value* args){
     Require(i>=7&&i<10&&args&&args->integer>=0&&args->integer<2,"bad two-hand query");return two[args->integer][i-7];
 }
 void* __stdcall String(void*,const char* name){if(!Step())return nullptr;
-    Require(!std::strcmp(name,"Holder")||!std::strcmp(name,"left_hand"),"guessed support/foregrip name");
-    return Local(P(!std::strcmp(name,"Holder")?120:121));}
+    Require(!std::strcmp(name,"Holder")||!std::strcmp(name,"left_hand")||
+        !std::strcmp(name,kind==0?"GunBody":"GunBarrel"),"unknown mesh contact name");
+    return Local(P(!std::strcmp(name,"Holder")?120:!std::strcmp(name,"left_hand")?121:122));}
 bool Frame(void* context,void* object,int element,ElementWorldBasisTarget& out) noexcept {
     Require(context==P(500),"callback context lost");
     Require(refs[P(weapon)]==1,"weapon local not retained exactly once through frame callback");
     const int index=frames++;
-    Require(index<3&&((index<2&&object==P(weapon))||(index==2&&object==P(player))),"wrong frame object/order");
+    Require(index<4&&((index!=2&&object==P(weapon))||(index==2&&object==P(player))),"wrong frame object/order");
     Require(element==(index==0?0:index==1?4:10),"wrong native element");
     out={index==0?cojvr::runtime::Vec3{100,200,300}:index==1?cojvr::runtime::Vec3{105,205,290}:cojvr::runtime::Vec3{120,210,270},
          {0,1,0},{1,0,0},true};
     if(index==invalid_frame)out.forward=out.up;
-    if(index==2){
+    if(index==3){
         if(change==1)weapons[0][2]=P(foreign);
         if(change==2)states[0][1]=30;
         if(change==3)two[0][1]=false;
@@ -86,10 +88,12 @@ bool Frame(void* context,void* object,int element,ElementWorldBasisTarget& out) 
         if(change==5)kind=1;
         if(change==6)dead=true;
         if(change==7)++player_id;
+        if(change==8)++contact_id;
     }
     return Step(); // also exercise pending JNI exception from the adapter callback
 }
 void Reset(){steps=frames=0;fail_step=-1;kind=change=0;invalid_frame=-1;pending=dead=carrying=reloading=alias_desired=false;
+    contact_id=10;
     object_reads=0;owner_change_at=-1;
     player_id=0x8f120001;weapon_id=0xf1234001;
     for(int h=0;h<2;++h){for(int i=0;i<3;++i){weapons[h][i]=h?nullptr:P(weapon);two[h][i]=h==0;}for(int i=0;i<4;++i)states[h][i]=h?0:1;}
@@ -137,7 +141,7 @@ int main(){
             "failed fire ownership observation leaked locals/exception/stale verdict");}
     Reset();
     Require(Read(out),"idle exact rifle observation unavailable");const int total=steps;
-    Require(frames==3&&out.player_id==player_id&&out.weapon_id==weapon_id&&!out.firing,"baseline identity/phase lost");
+    Require(frames==4&&out.contact_element==10&&out.contact_anchor.valid&&out.player_id==player_id&&out.weapon_id==weapon_id&&!out.firing,"baseline identity/phase/contact lost");
     Require(out.support_in_weapon.valid&&std::abs(out.support_in_weapon.position.x-30)<.001F&&
         std::abs(out.support_in_weapon.position.y-10)<.001F&&std::abs(out.support_in_weapon.position.z-20)<.001F,
         "translated/rotated full local frame incorrect");
@@ -152,8 +156,9 @@ int main(){
         for(int value=30;value<=38;++value){Reset();states[0][i]=value;Require(Read(out)&&out.firing,"ordinary firing transition rejected");}}
     for(auto flag:{&dead,&carrying,&reloading}){Reset();*flag=true;Reject();}
     for(auto identity:{&player_id,&weapon_id})for(auto value:{0u,0xffffffffu}){Reset();*identity=value;Reject();}
-    for(int i=0;i<3;++i){Reset();invalid_frame=i;Reject(true);}
-    for(int i=1;i<=7;++i){Reset();change=i;Reject(true);}
+    for(int i=0;i<4;++i){Reset();invalid_frame=i;Reject(true);}
+    Reset();contact_id=-1;Reject();
+    for(int i=1;i<=8;++i){Reset();change=i;Reject(true);}
     // Inject at every business JNI/callback operation from a successful traversal.
     for(int i=1;i<=total;++i){Reset();fail_step=i;Reject(true);}
     for(int index:{6,15,17,23,24,31,33,36,39,51,167}){Reset();auto saved=table[index];table[index]=nullptr;Reject();table[index]=saved;}
