@@ -16,6 +16,11 @@ until a second game independently demonstrates them. [VALIDATION.md](VALIDATION.
 owns acceptance state and unresolved physical gates; [ROADMAP.md](ROADMAP.md)
 owns development priorities.
 
+[Reference-project findings](research/COJ_VR_REFERENCE_PROJECTS.md) map external
+grip, reload, UI and rendering patterns to these boundaries. They guide hypotheses
+and priorities; they introduce no runtime dependency, native contract or headset
+acceptance. Source/deployment audit history and per-run checklists stay in `work/`.
+
 ## Layering
 
 | Layer | Owns | Must not own |
@@ -763,6 +768,14 @@ unavailable. The observer never changes finger policy or animation time. Joint
 origins remain distinct from skin contact; Validation owns the accepted visibility
 and unresolved grip fit.
 
+The same sparse verified snapshot can report pad separation, the displayed
+cartridge's transverse mesh envelope, each pad's unsigned closest-triangle
+distance and signed station along the cartridge axis from its rear base. These
+measurements use the actual displayed mesh transform, including its centre.
+Triangle searches are requested only for the sparse pickup diagnostic, not the
+ordinary per-frame presentation. Envelope overlap and point-to-triangle proximity
+do not measure skin volume, penetration or occlusion and never change the pose.
+
 Default-off diagnostics can additionally observe current D3D9 render target,
 depth surface descriptions, viewport, depth states and view/projection at full
 eye completion. At most six observations per manual opening accompany initial
@@ -795,6 +808,15 @@ the same hemisphere gate applies at acquisition, retention and render refresh,
 with physical L1 release required before reacquisition.
 The complete fire/cycle lifetime, physical contact and visual grip remain open
 headset gates. Existing idle-finger eligibility alone does not qualify contact.
+The bridge retains a Java object reference and opaque epoch independently of
+each restored hand/weapon transaction. A same-ID replacement between frames
+changes that epoch and cancels the physical claim until release/regrip. Missing
+JNI cleanup revokes authority but keeps the reference for a later cleanup retry;
+player clear/reset also retire it. Numeric IDs alone cannot retain support.
+An expected support transaction requires both hands and the right weapon at
+every eye and final verification. Failed or unexpectedly inactive maps veto
+later eye work, mirroring and publication of the entire pair, while restoration
+still completes. Successful rollback cannot qualify images already invalidated.
 An opt-in read-only observer admits the exact ordinary Winchester, Remington
 and sawed-off Remington classes with coherent right active/actual/desired
 ownership, empty left equipment, ordinary idle/fire states and native two-hand

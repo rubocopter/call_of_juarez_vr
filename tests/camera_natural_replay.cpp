@@ -136,6 +136,53 @@ bool EyeResourceScopes() {
     return true;
 }
 int natural_renders=0;
+bool RifleVerificationStopsLaterEyes(){
+    // A supported transaction expects both hands and its weapon to remain
+    // active. The real bridge reports inactive when those overlays disappear.
+    CoJLongGunGripGeometry geometry{};
+    auto& n=geometry.native;n.valid=true;n.object_epoch=1;n.weapon_class="WeaponRifleWinchester";
+    n.player_id=10;n.weapon_id=20;n.holder_element=4;n.support_element=10;
+    n.states[0]={1,1,1,1};n.two_handed[0]={true,true,true};
+    n.root={{0,0,0},{0,1,0},{0,0,1},true};n.holder=n.root;
+    n.support={{0,0,-30},{0,1,0},{0,0,1},true};
+    if(!BuildCoJReloadLocalFrame(n.root,n.support,n.support_in_weapon))return false;
+    geometry.muzzle_cm={0,0,-60};geometry.muzzle_direction=geometry.direction={0,0,-1};
+    geometry.up={0,1,0};geometry.support_grip_cm=n.support.position;
+    CoJLongGunGripInput input{};input.player_generation=7;input.context=9;
+    auto& controls=input.controls;
+    controls.enabled=controls.eligible=controls.tracking_valid=true;
+    controls.grip_available=controls.support_trigger_available=true;
+    controls.acquisition_radius_m=.1F;controls.sequence=1;
+    controls.sample_time_ms=controls.now_ms=1000;
+    g_long_gun_grip={};(void)g_long_gun_grip.Update(input,geometry);
+    controls.grip_held=true;++controls.sequence;controls.sample_time_ms=controls.now_ms=1010;
+    if(!g_long_gun_grip.Update(input,geometry).attached)return false;
+    EyeScopeProbe probe{};g_stereo_callbacks={};g_stereo_callbacks.context=&probe;
+    g_stereo_callbacks.begin_eye_render=&BeginEye;g_stereo_callbacks.end_eye_render=&EndEye;
+    g_stereo_callbacks.mirror_eye_pair=&MirrorPair;g_stereo_callbacks.invalidate_frame=&InvalidatePair;
+    bool lo=true,ro=true,lm=true,rm=true,whip=false;
+    ObserveIndependentHandRenderState(731,"left_eye_complete",lo,ro,lm,rm,whip);
+    if(g_long_gun_grip.attached()||g_long_gun_failed_sequence!=731||rm||ro){
+        std::cerr<<"inactive supported hand/weapon did not fail the frame\n";return false;}
+    {ScopedStereoEyeRender right(runtime::Eye::right,731);
+        if(right.begun()){std::cerr<<"failed rifle admitted another eye\n";return false;}}
+    if(MirrorStereoEyePair(731)||!probe.events.empty()){
+        std::cerr<<"failed rifle reached stereo mirror\n";return false;}
+    if(GameplayStereoPairReady(731,true,true,true,true,true,true)){
+        std::cerr<<"restoration laundered a failed rifle pair into publication\n";return false;}
+    // The legacy route without independent-eye callbacks must enforce the
+    // same supported native-path and frame-verification gates.
+    g_stereo_callbacks={};
+    if(GameplayStereoPairReady(731,true,true,true,true,true,true))return false;
+    g_long_gun_expected_sequence=732;
+    if(GameplayStereoPairReady(732,true,true,true,true,true,false)||
+        !GameplayStereoPairReady(732,true,true,true,true,true,true))return false;
+    // Final post-eye verification must still expect both hands after an
+    // earlier cancellation; inactive=false-success cannot discharge the latch.
+    ObserveIndependentHandRenderState(732,"stereo_complete",lo,ro,lm,rm,whip);
+    if(!LongGunFrameFailed(732)||GameplayStereoPairReady(732,true,true,true,true,true,true))return false;
+    g_long_gun_grip={};g_long_gun_expected_sequence=g_long_gun_failed_sequence=0;return true;
+}
 std::uint64_t bow_source_sequence=0,bow_source_time_ms=0;
 struct BowCaptureFixture {
     CoJBowDrawSessionInput input{};
@@ -374,6 +421,7 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
+    if(!cojvr::games::call_of_juarez::RifleVerificationStopsLaterEyes())return 1;
     if(!cojvr::games::call_of_juarez::CaptureDropPreservesBow()){
         std::cerr<<"capture backpressure cancelled physical bow\n";return 1;}
     if(!cojvr::games::call_of_juarez::CaptureDropRetainsBowSafety()){

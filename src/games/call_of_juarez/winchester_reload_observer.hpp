@@ -14,8 +14,9 @@ struct CoJWinchesterReloadSnapshot {
     std::array<std::array<bool,3>,2> weapon_present{},two_handed{};
     std::array<int,2> animation_id{};
     std::array<float,2> animation_time{},animation_duration{};
-    // GetAmmoCount(0) is a raw JNI diagnostic; the base class has a zero stub.
-    // It is not proof of effective chamber/clip occupancy or native transfer.
+    // Exact Winchester -> WeaponRifle -> WeaponFireAmmo.GetAmmoCount(0) reads
+    // m_iAmmo0Count. A sparse readback alone cannot prove a native transfer or
+    // physical chamber occupancy.
     int ammo_readback=0,rifle_reserve=0;
     int holder_element=-1,support_element=-1;
     ElementWorldBasisTarget root{},holder{},support{};

@@ -10,7 +10,7 @@ namespace {
 void Check(bool v,const char* message){if(!v){std::cerr<<message<<'\n';std::exit(1);}}
 bool Near(Vec3 a,Vec3 b){return std::abs(a.x-b.x)<.002F&&std::abs(a.y-b.y)<.002F&&std::abs(a.z-b.z)<.002F;}
 CoJLongGunSupportSnapshot Native(){
-    CoJLongGunSupportSnapshot n{};n.valid=true;n.weapon_class="WeaponRifleWinchester";
+    CoJLongGunSupportSnapshot n{};n.valid=true;n.object_epoch=1;n.weapon_class="WeaponRifleWinchester";
     n.player_id=0x81234567;n.weapon_id=0xf1234567;n.holder_element=4;n.support_element=10;
     n.states[0]={1,1,1,1};n.two_handed[0]={true,true,true};
     n.root={{100,200,300},{0,1,0},{0,0,1},true};

@@ -634,10 +634,10 @@ def rifle_support_observations(events):
 def winchester_reload_observations(events):
     """Validate sparse native Winchester witnesses without inferring a loading port.
 
-    The raw GetAmmoCount(0) readback may be a base-class stub. Reserve and
-    reported deltas are diagnostics, never evidence of effective clip occupancy.
+    Exact WeaponFireAmmo.GetAmmoCount(0) reads m_iAmmo0Count. Sparse reserve
+    and count deltas alone do not qualify a transfer or physical chamber state.
     """
-    rows, previous, baseline = [], None, None
+    rows, previous, baseline, last_observed = [], None, None, None
 
     def triple_or_quad(f, key, size, boolean=False):
         parts = f[key].split(',')
@@ -673,6 +673,30 @@ def winchester_reload_observations(events):
                 raise ValueError('Invalid Winchester unavailable event')
             rows.append(dict(line=e['line'], frame=frame, status='unavailable',
                              manual_admitted=False, native_phase_qualified=False))
+            previous, baseline = None, None
+            continue
+        if e['result'] == 'window_end':
+            reason = f.get('reason')
+            identity = tuple(integer(f, key) for key in (
+                'player_generation', 'native_context', 'weapon_id'))
+            stamp, last_stamp, index = (integer(f, key) for key in (
+                'sample_us', 'last_sample_us', 'sample_index'))
+            if (f.get('schema') != '1' or reason not in (
+                    'expired', 'exhausted', 'idle_limit', 'retriggered',
+                    'owner_changed', 'native_reload_started', 'context_changed',
+                    'clock_reset', 'disabled') or not previous or
+                    identity != (previous['identity'][0], previous['identity'][1],
+                                 previous['identity'][3]) or
+                    index != previous['index'] or last_stamp != previous['stamp'] or
+                    stamp is None or stamp < last_stamp or frame < previous['frame'] or
+                    (reason == 'exhausted' and index != 220) or
+                    (reason == 'idle_limit' and index != 4)):
+                raise ValueError('Invalid Winchester window end or sample history')
+            rows.append(dict(line=e['line'], frame=frame, status='window_end',
+                             reason=reason, sample_index=index, sample_us=stamp,
+                             last_sample_us=last_stamp, owner=identity,
+                             manual_admitted=False, native_phase_qualified=False,
+                             ammo_clip_qualified=False))
             previous, baseline = None, None
             continue
         if e['result'] != 'observed' or any(f.get(key) != value for key, value in dict(
@@ -714,8 +738,8 @@ def winchester_reload_observations(events):
         if ammo is None or not 0 <= ammo <= 12 or reserve is None or reserve < 0 or (
                 ammo_delta is None or reserve_delta is None):
             raise ValueError('Invalid Winchester ammunition observation')
-        if previous and identity == previous['identity'] and (
-                stamp <= previous['stamp'] or frame <= previous['frame']):
+        if last_observed and identity == last_observed['identity'] and (
+                stamp <= last_observed['stamp'] or frame <= last_observed['frame']):
             raise ValueError('Non-monotonic Winchester observation')
         if index == 1:
             if gap or ammo_delta or reserve_delta:
@@ -750,6 +774,7 @@ def winchester_reload_observations(events):
             raise ValueError('Unqualified Winchester frame published')
         previous = dict(identity=identity, stamp=stamp, frame=frame, index=index,
                         ammo=ammo, reserve=reserve)
+        last_observed = previous
         rows.append(dict(line=e['line'], frame=frame, status='observed',
                          owner=identity, sample_index=index, sample_us=stamp,
                          observed_gap_us=gap if index > 1 else None,
@@ -1005,6 +1030,7 @@ def analyze_evidence(directory):
                     rifle_support_samples=len(rifle_samples),
                     winchester_reload_samples=sum(r['status'] == 'observed' for r in winchester_samples),
                     winchester_reload_unavailable=sum(r['status'] == 'unavailable' for r in winchester_samples),
+                    winchester_reload_window_ends=sum(r['status'] == 'window_end' for r in winchester_samples),
                     bow_draw_samples=bow['draw_samples'],
                     bow_shot_requests=bow['shot_requests'],
                     bow_resets=sum(bow['reset_reasons'].values()),

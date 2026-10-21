@@ -86,9 +86,18 @@ ID/current time/duration, `GetAmmoCount(0)` readback and `nAmmoRifle` reserve.
 An optional natural root/Holder/left_hand basis is recorded in centimetres; a
 missing or overridden natural pose is explicitly `pose_valid=false` while state
 observation may continue. A 350 ms idle discovery and bounded ~20 Hz window
-around a fresh Square press/native reload supply sample gaps and raw deltas.
-Readback is diagnostic: the base `Weapon.GetAmmoCount` can return zero, so a
-readback change does not independently establish effective occupancy/transfer.
+around fresh fire/Square intent or a native reload transition supply sample
+gaps and raw deltas. Explicit `window_end` events close expired, exhausted,
+idle-limited or restarted histories; discovery remains active at 350 ms after
+the 220-sample emission cap. Holding fire/reload status does not renew an
+exhausted budget; a fresh intent, new observed weapon or new native reload
+transition can open another bounded window. These sampling policies and
+analyzer delimiters have host regressions, without physical acceptance.
+In the pinned archive Winchester inherits `WeaponRifle -> WeaponFireAmmo`;
+virtual `GetAmmoCount(0)` reads `WeaponFireAmmo.m_iAmmo0Count`, not the base
+`Weapon` zero stub. This establishes its static count source. Sparse readback
+and reserve deltas still require live HUD/callback correlation before claiming
+a native transfer or physical acceptance; count is not per-chamber occupancy.
 The observer checks concrete class, native owner, signed/high-bit IDs, same
 weapon in all nonempty hand slots and a stable read on both sides. Foreign
 weapons, change during the callback, JNI errors and missing native fields fail
@@ -412,7 +421,7 @@ performs no additional JNI reads. No hook, archive patch, animation clock write,
 ammunition write, sound replay or presentation ownership change is introduced.
 
 The exact-game reader admits coherent actual/active/desired identity for one
-Peacemaker/Frontier, empty support weapon references, positive weapon ID and
+Peacemaker/Frontier, empty support weapon references, valid opaque 32-bit weapon ID and
 native `cOwner` identity. It copies both current/destination/desired/actual state
 IDs, animation IDs, current/start/play/duration time, minimum/maximum advance,
 `m_fRotate`, pistol reserve and raw `GetAmmoCount(0)` readback. All JNI references
@@ -420,19 +429,21 @@ remain local; missing methods/fields, non-finite values, exceptions or replaceme
 discard the whole snapshot. The bridge rechecks player generation.
 
 `InventoryAmmoCounterPistol.GetAmount/SetInternalAmount` explicitly back reserve
-with `PawnInventory.nAmmoPistol`. In contrast, stock Java `Weapon.GetAmmoCount`
-is a zero-return stub and `SetAmmoCount` calls the skin update. Observing the
-native transfer *call boundary* does not establish the loaded runtime's final
-count implementation. The trace deliberately labels this value `ammo_readback`,
-never confirms transfer, and never treats a constant zero as an empty gun.
-Contrast it with the native HUD and reserve before claiming exactly-one-round
-runtime acceptance; authoritative runtime count storage still needs correlation.
+with `PawnInventory.nAmmoPistol`. The root `Weapon.GetAmmoCount` is a zero-return
+stub and its setter calls the skin update, but the admitted firing classes
+inherit `WeaponFireAmmo.GetAmmoCount(0)`, which reads `m_iAmmo0Count`; its setter
+clamps/stores that field before the base skin update. Resolve the concrete
+inheritance chain rather than interpreting the root stub as the live getter.
+The trace deliberately labels sampled values `ammo_readback`: observing the
+native call boundary alone cannot prove a completed runtime transfer. Correlate
+the same-owner before/after counts and matching reserve with native HUD/events
+before granting exactly-one-round runtime acceptance.
 
 Bounded right-hand Peacemaker observations establish useful virtual
 `GetAmmoCount(0)` values: admitted paced reloads change loaded +1/reserve -1,
 full-gun requests leave counts unchanged and conventional Square can load the
-remaining capacity. This does not locate final count storage or generalize to
-other weapon classes. Sampled begin/body/end play/duration is 0.3 native-clock
+remaining capacity. This does not establish per-chamber occupancy or generalize
+to other weapon classes. Sampled begin/body/end play/duration is 0.3 native-clock
 units, while transitions may traverse inside one update and reset the state
 start time. State IDs alone do not identify every callback or actual ANM frame.
 
@@ -900,6 +911,22 @@ The revised finger-reference emitter also takes weapon/armed-hand/context from
 the current native reload snapshot, not the ordinary idle admission reader.
 This removes the source of the historical zero ID while waiting. Snapshot
 validity is explicit; the changed emitter has no fresh live correlation yet.
+
+The newer sparse pickup diagnostic is **host-tested only**. With the same verified
+displayed finger snapshot it records skin-pad gap and whole-mesh transverse span,
+then each pad point's unsigned distance to the actual displayed cartridge
+triangles and its signed axial station from the rear-most mesh base toward the
+tip. Conversion includes the displayed mesh centre and CoJ centimetres. A negative
+station means behind the base; it is not negative penetration. Axial separation
+and distance asymmetry can expose a longitudinal mismatch that gap/envelope
+alone cannot describe. Edge-distance fallback covers degenerate triangles.
+The triangle search runs only on a requested sparse pickup measurement; normal
+frame presentation retains the existing pose. Invalid frames or incomplete/
+non-finite paired measurements remain unqualified. The offline analyzer preserves
+older logs without these optional fields. Neither an envelope overlap nor small
+point/surface distances prove pad/case contact, the historical floating report's
+cause, loading-port clearance or compositor depth. No extra position correction
+or occlusion path follows from these measurements.
 
 The renderer's read-only `manual_reload_depth` observer records target/depth
 surface identities/descriptions, viewport/depth states and available fixed-

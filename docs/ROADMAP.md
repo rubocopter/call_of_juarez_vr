@@ -93,6 +93,12 @@ The ordered work below continues offline where its exact-game prerequisite is
 available. [Pending headset checks](VALIDATION.md#pending-headset-checks) owns the
 physical checklist; an unobserved scene does not block unrelated development.
 
+The [reference-project assessment](research/COJ_VR_REFERENCE_PROJECTS.md) records
+the inspected sources, their concrete contribution and limits. Prioritize
+measured cartridge contact, rigid support grip and exact reload ownership before
+adding optional grip blending, virtual stock or device-aware contextual prompts.
+No third-party renderer or physics framework is added by that research.
+
 The audit's actor-replacement pelvis corruption, lost diagnostic-arm restore,
 hidden-file recovery deletion and consumed-bow-trigger loss are corrected with
 host regressions. Body transactions retain their original actor and verified
@@ -184,6 +190,37 @@ A pending visual/physical gate blocks promotion of that specific behavior only.
 Continue independent offline work on controls, UI, recovery and other qualified
 boundaries while waiting; accumulate relevant checks into one substantial
 candidate rather than requesting repeated small physical sessions.
+
+### Weapon implementation inventory
+
+This table separates existing behaviour from work that still needs code or
+research. Physical checklists remain in Validation. Exact constructor, capacity,
+reserve and callback facts have one owner: [reload research](research/COJ_RELOAD_OWNERSHIP.md).
+
+| Weapon/family | Existing implementation/evidence | Remaining development, in dependency order |
+| --- | --- | --- |
+| Peacemaker and admitted Frontier1878 | Persistent native unit-loading route with scoped acceptance. Changed cartridge tangent/thumb feedback and newer pad/mesh diagnostics have host coverage only where not previously exercised. | Resolve visible pinch/contact/occlusion; qualify real phase-bound loading mouth, chamber occupancy and spent-case/ejection ownership; insertion-specific sound requires an audited sound-only route. Do not duplicate native transfers. |
+| Frontier, Walker, Cogswell | Exact single-ammo manual extensions are host-tested; Cogswell uses rifle reserve. | Qualify per-model hand/port geometry, visual ammunition and interruption behaviour; current .357 visual is not evidence of correct calibre for every weapon. |
+| Winchester | Exact support grip and passive native reload observer are host-tested. Square still performs conventional automatic reload. | First observe native hand/animation/ammo/reserve through begin/loop/end; correlate the native ammo field with HUD and qualify a loading-port frame; then implement a separate supervised manual rifle session and deliberate regrip. Manual loading is not implemented. |
+| Scoped Winchester | Native fallback; deliberately excluded from the support and manual whitelist. | Qualify exact class, optic alignment/zoom, both-hand ownership and its own reload/support adapter before enabling either interaction. |
+| Remington and SawOff | Exact two-hand support prototype host-tested; native Square remains whole-clip/two-slot. | Demonstrate index-specific single-shell transfer and per-barrel readback/callback ownership before manual loading; separately qualify opening, port/ejection and either-hand SawOff recovery. |
+| Volcanic | Native fallback; static single-index/per-round contract identified. | Observe native loading states/pose, qualify hand/port and effective ammo/reserve transaction, then implement its own manual profile. |
+| Derringer | Native whole-clip/two-index fallback. | Establish per-chamber transaction, opening and ejection; one existing native call may fill both chambers, so it cannot represent one cartridge. |
+| Lemant (archive spelling; LeMat) | Native fallback with separate rifle/pistol indices and reserve pools. | Selective index transfer and mode ownership, distinct loading geometry/gestures and both reserves; existing unit helper must not load both types for one gesture. |
+| Schofield base/A/B | Native/hybrid whole-clip behaviour retained. | Qualify a deliberate full-clip gesture and readback, or establish selective transfer before a per-round design. Not part of the current manual session. |
+| Bow | Physical string grab/pull/release and native shot-cache alignment host-tested; operator reports improved capture lifetime. | Use remaining mesh/string/arrow/reticle and interruption evidence to choose corrections. Keep native concentration duration, trajectory and ammunition. No new bow physics is required for the rifle/reload run. |
+| Hands, Bible/whip, dynamite and mounted weapons | Physical Hands combat and Ray Bible/on-foot kick have scoped acceptance; conventional equipment/input routes exist. | Hands: volume/guard/AI anticipation. Whip/climbing, dynamite throws and cannon/mounted aim: discover exact native permissions/contact/ownership for physical interactions before adding gestures. An input binding alone is not implementation of a physical mechanic. |
+
+### Other implementation inventory
+
+| Area | Implemented boundary | Development still pending |
+| --- | --- | --- |
+| Hand visuals | Skin-derived pinch/tangent and optional proximity/axial measurements | Convincing contact and actual hand/scene occlusion; native loading-finger-pose reuse needs scoped ownership. |
+| Body | Accepted continuous HMD following with native torso/legs and independent hands | Event-free room-scale walk/turn leg animation; root/SetFrame currently advances callbacks/footstep noise. Connected-arm IK remains rejected. |
+| UI and controls | Native VR options, localized wheel, text HUD, optional holster guides and basic grip zones | Device/binding-aware transient glyphs; precise body/socket holsters; complete graphical HUD/sprite capture; unimplemented comfort options only after demonstrated need. |
+| Rendering/performance | Active D3D9/OpenVR stereo and existing timing/transport diagnostics | Qualify independent target ownership, effects, memory and retirement before resolution prototype promotion; attribute recording stalls before optimization. New diagnostic runs do not qualify performance. |
+| Campaign/recovery | Scoped accepted movement/menu/cinematic behaviour; owner/restore and input barriers have host coverage | Extend only unobserved tracking/focus/save/death/scroll/mounted boundaries. Use evidence to select fixes; unavailable scenes remain pending. |
+| Deferred tracks | Foundations documented | bHaptics provider/event producers and DLC adaptation deferred by operator priority; OpenXR/D3D10 and additional games remain separate future work. |
 
 ## Parallel engineering tracks
 
@@ -302,6 +339,10 @@ or reload work:
   Derringer and Lemant need distinct multi-slot/mixed-ammo handling.
   [Exact reload ownership](research/COJ_RELOAD_OWNERSHIP.md) records the
   evidence and prerequisites. No new weapon is manually admitted.
+  The exact Winchester read-only observer is now implemented/host-tested,
+  including offline same-owner clock/delta validation. Native phase,
+  clip-count/HUD agreement and support motion await live correlation; a sparse sample or
+  reserve decrement does not grant manual admission.
 - **Automatic startup resolution:** preserve the current native startup requests
   and explicit saved profiles. The launcher now explains known fallback causes
   and reports the last identity-matched preparation separately from next-session

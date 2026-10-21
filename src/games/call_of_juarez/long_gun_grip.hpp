@@ -43,7 +43,7 @@ inline int Kind(const char* name) noexcept {
     return 0;
 }
 inline bool Qualified(const CoJLongGunSupportSnapshot& n) noexcept {
-    if(!n.valid||!Kind(n.weapon_class)||!long_gun_observer_detail::ValidId(n.player_id)||
+    if(!n.valid||!n.object_epoch||!Kind(n.weapon_class)||!long_gun_observer_detail::ValidId(n.player_id)||
         !long_gun_observer_detail::ValidId(n.weapon_id)||n.holder_element<=0||n.support_element<=0)return false;
     bool fire=false;
     for(int h=0;h<2;++h){
@@ -149,7 +149,8 @@ public:
     bool attached() const noexcept{return attached_;}
 private:
     bool Same(std::uint64_t generation,std::uint64_t context,const CoJLongGunSupportSnapshot& n) const noexcept {
-        return generation_==generation&&context_==context&&owner_.player_id==n.player_id&&
+        return generation_==generation&&context_==context&&owner_.object_epoch==n.object_epoch&&
+            owner_.player_id==n.player_id&&
             owner_.weapon_id==n.weapon_id&&owner_.holder_element==n.holder_element&&
             owner_.support_element==n.support_element&&long_gun_grip_detail::Kind(owner_.weapon_class)==
             long_gun_grip_detail::Kind(n.weapon_class);

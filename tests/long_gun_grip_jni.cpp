@@ -29,6 +29,7 @@ std::map<void*,int> locals;
 std::array<void*,8> cache{};
 bool pending=false,fail_write=false,hidden=true,reloading=false;
 int writes=0,globals=0;
+std::array<int,4> right_states{1,1,1,1};
 void* Local(void* p){if(p)++locals[p];return p;}
 void __stdcall Drop(void*,void* p){Check(locals[p]>0,"local underflow");if(!--locals[p])locals.erase(p);}
 void* __stdcall Ex(void*){return pending?Local(&exception):nullptr;}
@@ -60,8 +61,9 @@ int __stdcall Int(void*,void* p,void* m,const JValue* args){
         if(!std::strcmp(n,"CoJVRHiddenArms"))return 40;
         Check(false,"unexpected mesh name");
     }
-    if(Name(m,"GetHandStateMashineState")||Name(m,"GetHandStateMashineDestinyState")||
-       Name(m,"GetActualWeaponState")||Name(m,"GetDesiredWeaponState"))return args[0].i?0:1;
+    const char* state_names[]{"GetHandStateMashineState","GetHandStateMashineDestinyState",
+        "GetActualWeaponState","GetDesiredWeaponState"};
+    for(int i=0;i<4;++i)if(Name(m,state_names[i]))return args[0].i?0:right_states[i];
     Check(false,"unknown integer getter");return -1;
 }
 rt::Vec3 X(const ElementWorldBasisTarget& f){return rt::two_hand_detail::Cross(f.up,f.forward);}
@@ -90,7 +92,10 @@ void* __stdcall Global(void*,void* p){++globals;return p;}
 void __stdcall DeleteGlobal(void*,void*){--globals;}
 const char* names[]{"cojvrRightOrigin","cojvrLeftOrigin","cojvrRightDirection","cojvrLeftDirection","cojvrRightFxUp","cojvrLeftFxUp","cojvrRightFxForward","cojvrLeftFxForward"};
 int Index(void* f){for(int i=0;i<8;++i)if(Name(f,names[i]))return i;Check(false,"unknown cache");return -1;}
-void* __stdcall Field(void*,void*,const char* n,const char*){return const_cast<char*>(n);}
+void* __stdcall Field(void*,void*,const char* n,const char*){
+    for(const auto* known:names)if(!std::strcmp(known,n))return const_cast<char*>(n);
+    return nullptr;
+}
 void* __stdcall Get(void*,void*,void* f){return Local(cache[Index(f)]);}
 void __stdcall Set(void*,void*,void* f,void* p){cache[Index(f)]=p;}
 void __stdcall Write(void*,void* p,void* m,const JValue* args){
@@ -158,7 +163,7 @@ int main(int argc,char** argv){
             Check(!bridge.VerifyTrackedWeapon(0,active,&error)&&active,"same-pose replacement verified");
             Check(!bridge.TryGetWeaponBarrel(0,origin,direction,&error),"replacement escaped barrel binding");
             Check(!bridge.TryPublishWeaponRay(0,origin,direction,true)&&!cache[0]&&!cache[2],"replacement retained old ray");
-        }else{
+        }else if(mode=="normal"){
             hands[39].position.x+=1;
             Check(!bridge.VerifyTrackedWeapon(0,active,&error),"detached support verified");hands[39].position.x-=1;
             fail_write=true;Check(!bridge.RestoreTrackedHands(&error)&&globals>=3,"failed parent restore lost globals");fail_write=false;
@@ -168,13 +173,67 @@ int main(int argc,char** argv){
     Check(bridge.RestoreTrackedHands(&error),"parent restore retry failed");
     if(mode=="normal"){
         fail_write=true;
-        Check(!bridge.RestoreTrackedWeapons(&error)&&bridge.weapon_overlays_[0].weapon==&a&&globals==1,
+        Check(!bridge.RestoreTrackedWeapons(&error)&&bridge.weapon_overlays_[0].weapon==&a&&globals==2,
             "failed child restore lost original weapon/global");
         fail_write=false;
     }
     Check(bridge.RestoreTrackedWeapons(&error),"child restore retry failed");
     for(int i=0;i<3;++i)Check(Equal(a.f[i],natural[i])&&Equal(b.f[i],saved_b[i]),"wrong weapon restored");
     for(int i=0;i<40;++i)Check(Equal(hands[i],original_hands[i]),"hand preimage lost");
+    Check(globals==1,"completed overlays did not retain exactly one rifle identity");
+    if(mode=="cross-frame"){
+        // The support claim outlives the completed/restored element overlay.
+        // A new Java object may reuse the exact native ID and all geometry.
+        CoJLongGunGripState grip;
+        CoJLongGunGripInput input{};input.player_generation=7;input.context=9;
+        auto& controls=input.controls;
+        controls.enabled=controls.eligible=controls.tracking_valid=true;
+        controls.grip_available=controls.support_trigger_available=true;
+        controls.input_generation=1;controls.acquisition_radius_m=.1F;
+        const auto step=[&]{++controls.sequence;controls.now_ms=controls.sample_time_ms=1000+controls.sequence*10;
+            return grip.Update(input,g);};
+        Check(bridge.TryObserveLongGunSupport(g.native),"completed-frame owner observation failed");
+        (void)step();controls.grip_held=true;
+        Check(step().attached,"cross-frame fixture did not acquire support");
+        Check(bridge.TryObserveLongGunSupport(g.native)&&step().attached,
+            "same Java object lost its completed-frame support claim");
+        const auto acquired_epoch=g.native.object_epoch;
+        right_states={30,31,38,1};
+        Check(bridge.TryObserveLongGunSupport(g.native)&&g.native.firing&&
+            g.native.object_epoch==acquired_epoch&&step().attached,
+            "native fire/cycle replaced the retained Java identity or support claim");
+        right_states={1,1,1,1};
+        b.f=a.f;current=&b;
+        Check(bridge.TryObserveLongGunSupport(g.native),"same-ID replacement observation failed");
+        const auto replaced=step();
+        Check(replaced.claim.cancelled&&!replaced.attached&&replaced.claim.consume_grip,
+            "same-ID Java replacement inherited support across completed frames");
+        Check(!step().attached,"held grip silently reacquired replacement");
+        controls.grip_held=false;Check(step().claim.consume_grip,"replacement release leaked");
+        controls.grip_held=true;Check(step().claim.acquired,"replacement fresh regrip failed");
+        const auto replacement_epoch=g.native.object_epoch;
+        // Cleanup failure revokes authority while retaining the exact global
+        // handle; a later observation must retry cleanup before replacing it.
+        table[22]=nullptr;
+        Check(!bridge.ClearLongGunGripOwner()&&globals==1,
+            "unavailable JNI cleanup lost the retained rifle reference");
+        Check(!bridge.TryObserveLongGunSupport(g.native)&&globals==1,
+            "failed cleanup admitted a new rifle identity");
+        table[22]=(void*)DeleteGlobal;
+        Check(bridge.TryObserveLongGunSupport(g.native)&&globals==1&&
+            g.native.object_epoch!=replacement_epoch&&!step().attached,
+            "cleanup retry reused retired authority or leaked an identity");
+    }
+    // Clear and Reset must retire cross-frame identity too. Bind() deliberately
+    // supplies borrowed player/vector fixture handles, so own the player before
+    // exercising ClearBeing and leave the borrowed vector out of Reset cleanup.
+    (void)Global(&env,&player);
+    bridge.ClearBeing(&env);
+    Check(!bridge.being_&&!globals,"ClearBeing leaked the persistent rifle/player owner");
+    bridge.vector_class_=nullptr;
+    bridge.long_gun_grip_owner_=Global(&env,&a);
+    bridge.long_gun_grip_epoch_=9;bridge.long_gun_grip_generation_=7;
+    bridge.Reset();
     Check(locals.empty()&&!globals&&!pending,"JNI reference/exception leak");
     bridge.being_=nullptr;bridge.vm_=nullptr;
     std::cout<<"paired rifle capture/commit/ray/restore and original-object guards passed: "<<mode<<'\n';

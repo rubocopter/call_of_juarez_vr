@@ -241,6 +241,42 @@ needs a repeat merely because a newer candidate is prepared. Canonical telemetry
 requirements and their recorded pass/fail/inconclusive verdicts remain separate
 from operator acceptance; a skipped gesture does not satisfy a verifier gate.
 
+### Focused rifle and reload candidate
+
+Use this subset when preparing a candidate after support-grip/contact/reload
+observer changes. The longer pending table remains the backlog, not a mandatory
+list for one run. No new headset acceptance is recorded until the operator
+reports these observations. Canonical full-profile telemetry is verified
+separately; a focused or skipped action never changes its verdict.
+
+Budget roughly 15-20 minutes in ordinary on-foot play with one unscoped
+Winchester and one admitted revolver with empty support, if available. Missing
+weapons remain unobserved; do not search the campaign or start extra sessions.
+Keep the accepted local resolution and native D3D9/OpenVR path, the independent
+eye bank off, and recording off. Enable reload tracing for the observation
+segment; diagnostic overhead excludes performance qualification. Start/close
+SteamVR and the game manually, with one fresh canonical prepare/finish identity.
+
+| Block | Actions and evidence to retain |
+| --- | --- |
+| 1. Rifle support, about 4 minutes | Fresh L1 near the natural left support grip; aim up/down, roll and fire 2-3 deliberate shots. Release/regrip once. Cross support behind the dominant grip once: require cancellation, no backwards flip, stretch, extra shot, Action or holster leak. Reacquire only after release. Note hand/mesh/reticle agreement and any jump. |
+| 2. Winchester native reload, about 3 minutes | With support held, press Square from a partially loaded weapon. Require support cancellation and original automatic reload; observe free-hand movement, native animation and visible ammo/reserve through its completion. Regrip after release. Repeat once with a menu/weapon interruption if safe. Correlate `winchester_native_reload` with these observations; raw states and `GetAmmoCount(0)` do not establish a valid phase or effective clip count. No physical rifle insertion is expected. |
+| 3. Revolver contact and recovery, about 5 minutes | Fresh Square with a single admitted revolver and empty support; pick up a round, inspect pinch and wrist roll, carry into the zone, release for one round and inspect the brief thumb motion. Make 2-3 insertions and one release away from the gun. Once, pause or change weapon during a carry and return with controls held: require no stale round, queued insertion or repeated cue; release and deliberately reopen/recover. Judge axis/contact separately from the known missing hand/scene occlusion. |
+| 4. Shared recovery and finish, about 3 minutes | Use the interruptions already in blocks 2/3 to check coherent resumed hands, controls and stereo; no extra recovery loop is required. Note any unavailable scene, naturally encountered loading continuation or new crash. Close normally and run canonical finish before analyzing the immutable evidence. |
+
+Only if immediately available in the same scene: one Remington/SawOff grasp/fire/
+native reload, or the opposite-hand revolver assignment. Bow, duels, scroll chest,
+horse, DLC, additional renderers, resolution experiments and exhaustive control
+coverage are not objectives of this focused candidate. Their separate pending
+states remain unchanged. Already accepted ordinary menus, unit loading, body
+following and resolution need no repeat solely to reconfirm them.
+
+Record each block as observed success, observed failure or unobserved, with the
+weapon/hand, action and visible symptom. Telemetry, host tests and absence of a
+crash cannot substitute for an operator observation. Individual run IDs, source
+range, deployment hashes, logs and the Spanish run checklist belong under
+ignored `work/`, linked to that candidate's manifests.
+
 ## Host verification boundary
 
 An earlier combined candidate exposed a high-address identity rejection in
@@ -570,6 +606,11 @@ checks into one meaningful candidate, recording unavailable cases as pending.
   Paired real-bridge transactions, coherent same-ID replacement, restore retry,
   excessive separation and duplicate/stale samples have host regressions. These
   do not establish physical placement or stability; use the rifle row above.
+  Additional host regressions cover same-numeric-ID Java replacement between
+  completed frames, retained object identity through native firing states,
+  failed cleanup/retry and clear/reset. Unexpectedly inactive or mismatched
+  supported maps invalidate the whole stereo pair, including final verification
+  and the legacy callback route; restoration cannot promote an invalid pair.
 - **Cartridge grip:** the current anchor has already been observed in runtime;
   repeating it solely to reconfirm visibility adds no evidence. After a material
   contact/axis/occlusion correction, combine empty-hand waiting, trigger pickup,
@@ -1161,8 +1202,11 @@ physical gate or replaces the canonical verifier.
 The same report includes read-only rifle support observations,
 `winchester_reload_observations` (bounded exact-class native hand/animation/owner
 and reserve/readback witness with clock and identity validation), and bow diagnostics.
-Winchester `unavailable` rows delimit observation loss; a new Square burst may
-restart the sample index. The report never treats `GetAmmoCount(0)` as verified
+Winchester `unavailable` rows delimit observation loss. `window_end` rows record
+exhaustion, expiry, idle limit or restart, and bind the final index/clock/owner
+to the preceding sample. Bounded fire/Square/native reload windows restart at
+index one; discovery continues at 350 ms even after the 220-sample emission cap.
+The report never treats `GetAmmoCount(0)` as verified
 clip occupancy, observed reserve changes as native transfer proof, optional
 support poses as a loading port, or sparse animation clocks as a validated phase.
 `bow_draw_observations` separates reported shot requests, native attack-counter

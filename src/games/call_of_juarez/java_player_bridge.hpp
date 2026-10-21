@@ -411,6 +411,9 @@ public:
     [[nodiscard]] bool TryObserveGameplayUi(CoJGameplayUiSnapshot& ui) noexcept;
     [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
     [[nodiscard]] bool TryObserveLongGunSupport(CoJLongGunSupportSnapshot& observation) noexcept;
+    // Retire candidate/attachment identity independently of the per-eye element
+    // overlays. Failed JNI cleanup keeps its reference for a later retry.
+    [[nodiscard]] bool ClearLongGunGripOwner(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveWinchesterReload(CoJWinchesterReloadSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
@@ -675,6 +678,8 @@ private:
         const ElementWorldBasisTarget* natural_hand, ElementWorldBasisTarget* tracked_hand,
         bool* unarmed_hand = nullptr) noexcept;
     std::array<WeaponOverlay, 2> weapon_overlays_{};
+    void* long_gun_grip_owner_=nullptr;
+    std::uint64_t long_gun_grip_generation_=0,long_gun_grip_epoch_=0,long_gun_grip_serial_=0;
     std::array<void*, 8> weapon_ray_fields_{};
     void* bow_draw_hold_field_=nullptr;
     bool bow_draw_hold_published_=false;

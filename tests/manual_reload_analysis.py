@@ -62,6 +62,16 @@ def winchester_sample(index=1, **changes):
     return event('winchester_native_reload', **fields)
 
 
+def winchester_end(index=1, reason='expired', **changes):
+    fields = dict(schema=1, frame_sequence=index+10, player_generation=7,
+                  native_context=5, weapon_id=0x80000042,
+                  sample_us=100000+(index-1)*50000,
+                  last_sample_us=100000+(index-1)*50000,
+                  sample_index=index, reason=reason, manual_admission='false')
+    fields.update(changes)
+    return event('winchester_native_reload', 'window_end', **fields)
+
+
 def depth_sample(frame=2, eye='left', **extra):
     matrix = ','.join('1' if index in (0, 5, 10, 15) else '0' for index in range(16))
     fields = dict(frame_sequence=frame, eye=eye, generation=3, device='0x1234',
@@ -344,6 +354,39 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertFalse(result[1]['native_phase_qualified'])
         self.assertFalse(result[1]['manual_admitted'])
         self.assertFalse(report['headset_validated'])
+
+    def test_winchester_window_end_delimits_history_and_restarts_at_one(self):
+        for reason in ('expired', 'exhausted', 'idle_limit', 'retriggered',
+                       'owner_changed', 'native_reload_started', 'context_changed',
+                       'clock_reset', 'disabled'):
+            index = 220 if reason == 'exhausted' else 4 if reason == 'idle_limit' else 2
+            with self.subTest(reason=reason):
+                report = self.evidence([
+                    *(winchester_sample(i) for i in range(1, index+1)),
+                    winchester_end(index, reason),
+                    winchester_sample(frame_sequence=index+11, sample_us=12000000),
+                ])
+                rows = report['winchester_reload_observations']
+                self.assertEqual(rows[-2]['status'], 'window_end')
+                self.assertEqual(rows[-2]['reason'], reason)
+                self.assertFalse(rows[-2]['native_phase_qualified'])
+                self.assertEqual(rows[-1]['sample_index'], 1)
+                self.assertIsNone(rows[-1]['observed_gap_us'])
+                self.assertEqual(report['summary']['winchester_reload_window_ends'], 1)
+
+    def test_winchester_window_end_rejects_stale_foreign_or_incomplete_history(self):
+        for change in (dict(weapon_id=43), dict(player_generation=8),
+                       dict(native_context=6), dict(last_sample_us=1),
+                       dict(sample_index=2), dict(sample_us=99999),
+                       dict(frame_sequence=10), dict(reason='complete'),
+                       dict(reason='exhausted'), dict(reason='idle_limit')):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.evidence([winchester_sample(), winchester_end(**change)])
+        for rows in ([winchester_end()],
+                     [winchester_sample(), winchester_end(), winchester_end()],
+                     [winchester_sample(), winchester_end(), winchester_sample(2)]):
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                self.evidence(rows)
 
     def test_winchester_clock_resets_on_new_square_or_unavailable(self):
         unavailable = event('winchester_native_reload', 'unavailable', frame_sequence=13,

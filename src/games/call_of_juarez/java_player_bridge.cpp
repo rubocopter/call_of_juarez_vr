@@ -851,6 +851,7 @@ bool JavaPlayerBridge::ReleaseBodyRestoreOwner(const std::uint64_t generation) n
 }
 
 void JavaPlayerBridge::Reset() noexcept {
+    if (!ClearLongGunGripOwner()) return;
     if (body_restore_owner_count_) return;
     fist_skin_generation_=0;fist_skin_model_=-1;
     if (!TryPublishBowDrawHold(false)) return;
@@ -1539,23 +1540,65 @@ bool JavaPlayerBridge::TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept {
     zoom={};return being_&&ReadCoJFocusZoom(Environment(nullptr),being_,zoom);
 }
 
+bool JavaPlayerBridge::ClearLongGunGripOwner(std::string* error) noexcept {
+    long_gun_grip_epoch_=0;long_gun_grip_generation_=0;
+    if(!long_gun_grip_owner_)return true;
+    void* env=Environment(error);
+    const auto del=env?EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef):nullptr;
+    if(!del)return false;
+    del(env,long_gun_grip_owner_);
+    // DeleteGlobalRef does not throw. Keep no stale handle after deletion.
+    long_gun_grip_owner_=nullptr;return true;
+}
+
 bool JavaPlayerBridge::TryObserveLongGunSupport(CoJLongGunSupportSnapshot& out) noexcept {
     out={};
-    if(!being_ || independent_hand_faulted_ || weapon_overlay_faulted_)return false;
+    const auto lost=[&]() noexcept {out={};(void)ClearLongGunGripOwner();return false;};
+    if(!being_ || independent_hand_faulted_ || weapon_overlay_faulted_)return lost();
     // The observer must see naturally animated source frames, including after
     // a restoration fault. Never mix a retained tracked weapon/hand map here.
     for(const auto& hand:hand_overlays_)if(hand.object)return false;
     for(const auto& weapon:weapon_overlays_)if(weapon.weapon || weapon.active || weapon.applied)return false;
     const auto generation=being_generation_;void* player=being_;
-    void* env=Environment(nullptr);if(!env)return false;
+    void* env=Environment(nullptr);if(!env)return lost();
+    const auto cls=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto object=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto global=EnvFunction<NewGlobalRefFn>(env,kNewGlobalRef);
+    const auto del=EnvFunction<DeleteGlobalRefFn>(env,kDeleteGlobalRef);
+    if(!cls||!method||!object||!same||!global||!del)return lost();
+    void* type=cls(env,player);
+    bool ok=!ClearException(env,nullptr,"rifle identity player class failed")&&type;
+    void* active=ok?method(env,type,"GetActiveWeapon","(I)LWeapon;"):nullptr;
+    ok=!ClearException(env,nullptr,"rifle identity active lookup failed")&&ok&&active;
+    DeleteLocal(env,type);
+    JValue args[1]{};args[0].i=0;
+    void* weapon=ok?object(env,player,active,args):nullptr;
+    ok=!ClearException(env,nullptr,"rifle identity active read failed")&&ok&&weapon;
     const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& target) noexcept {
         auto& bridge=*static_cast<JavaPlayerBridge*>(context);
         JavaPlayerPosition p{},u{},f{};target={};
         if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
         target={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
     };
-    const bool read=ReadCoJLongGunSupport(env,player,out,frame,this);
-    if(!read || being_!=player || being_generation_!=generation){out={};return false;}
+    const bool read=ok&&ReadCoJLongGunSupport(env,player,out,frame,this,weapon);
+    if(!read || being_!=player || being_generation_!=generation){DeleteLocal(env,weapon);return lost();}
+    bool retained=long_gun_grip_owner_&&long_gun_grip_epoch_&&long_gun_grip_generation_==generation&&
+        same(env,weapon,long_gun_grip_owner_)!=0;
+    if(ClearException(env,nullptr,"rifle retained identity comparison failed")){
+        DeleteLocal(env,weapon);return lost();
+    }
+    if(!retained){
+        if(!ClearLongGunGripOwner()){DeleteLocal(env,weapon);return lost();}
+        long_gun_grip_owner_=global(env,weapon);
+        if(ClearException(env,nullptr,"rifle identity retain failed")||!long_gun_grip_owner_){
+            DeleteLocal(env,weapon);return lost();
+        }
+        ++long_gun_grip_serial_;if(!long_gun_grip_serial_)++long_gun_grip_serial_;
+        long_gun_grip_epoch_=long_gun_grip_serial_;long_gun_grip_generation_=generation;
+    }
+    DeleteLocal(env,weapon);out.object_epoch=long_gun_grip_epoch_;
     return true;
 }
 
@@ -2645,7 +2688,8 @@ bool JavaPlayerBridge::ValidateTrackedBowOwner(const int hand,std::string* error
 bool JavaPlayerBridge::BindPreparedLongGunSupport(const CoJLongGunSupportSnapshot& natural,
     const ElementWorldBasisTarget& mapped_support,std::string* error) noexcept {
     auto& overlay=weapon_overlays_[0];
-    if(!natural.valid||!mapped_support.valid||!overlay.weapon||!overlay.active||overlay.applied||
+    if(!natural.valid||!natural.object_epoch||natural.object_epoch!=long_gun_grip_epoch_||
+        !mapped_support.valid||!overlay.weapon||!overlay.active||overlay.applied||
         !overlay.plan.valid||weapon_overlays_[1].weapon||overlay.natural.empty())return false;
     CoJReloadLocalFrame checked{};
     if(!BuildCoJReloadLocalFrame(natural.root,mapped_support,checked))return false;
@@ -2663,6 +2707,12 @@ bool JavaPlayerBridge::ValidateTrackedLongGunOwner(const int hand,const bool map
     if(!overlay.long_gun_owner.valid)return true;
     if(hand!=0||overlay.long_gun_generation!=being_generation_||weapon_overlay_faulted_||
         independent_hand_faulted_||weapon_overlays_[1].weapon)return false;
+    void* env=Environment(error);
+    const auto same=env?EnvFunction<IsSameObjectFn>(env,kIsSameObject):nullptr;
+    if(!same||!long_gun_grip_owner_||long_gun_grip_generation_!=being_generation_||
+        !long_gun_grip_epoch_||overlay.long_gun_owner.object_epoch!=long_gun_grip_epoch_)return false;
+    const bool retained=same(env,overlay.weapon,long_gun_grip_owner_)!=0;
+    if(ClearException(env,error,"rifle transaction identity comparison failed")||!retained)return false;
     const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& out) noexcept {
         auto& bridge=*static_cast<JavaPlayerBridge*>(context);JavaPlayerPosition p{},u{},f{};out={};
         if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
@@ -5209,6 +5259,7 @@ bool JavaPlayerBridge::TrySetPerHandAimOrigin(
 }
 
 void JavaPlayerBridge::ClearBeing(void* env) noexcept {
+    if (!ClearLongGunGripOwner()) return;
     if (body_restore_owner_count_) return;
     if (single_round_reload_pending_ && !ClearSingleRoundReloadField(env, nullptr)) return;
     gameplay_ui_cache_ = {};

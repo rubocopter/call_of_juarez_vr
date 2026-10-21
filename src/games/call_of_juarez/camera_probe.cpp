@@ -14,6 +14,7 @@
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/long_gun_grip.hpp"
+#include "games/call_of_juarez/winchester_reload_probe.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
@@ -164,19 +165,29 @@ struct LongGunProbeState {
     bool fire_down=false,known_rifle=false;
 };
 LongGunProbeState g_long_gun_probe;
-struct WinchesterReloadProbeState {
-    std::uint64_t generation=0,context=0,last_attempt_us=0,last_sample_us=0,burst_until_us=0;
-    std::uint32_t weapon=0;
-    int last_ammo_readback=0,last_reserve=0;
-    unsigned samples=0,idle_samples=0;
-    bool square_down=false,known_rifle=false;
-};
-WinchesterReloadProbeState g_winchester_reload_probe;
+CoJWinchesterReloadProbe g_winchester_reload_probe;
 CoJLongGunGripState g_long_gun_grip;
 CoJLongGunGripSampleClock g_long_gun_sample_clock;
 CoJLongGunGripOutput g_long_gun_claim{};
 bool g_long_gun_quarantined=false;
 std::uint64_t g_long_gun_failed_sequence=0;
+std::uint64_t g_long_gun_expected_sequence=0;
+bool LongGunFrameFailed(std::uint64_t frame) noexcept {
+    return frame&&g_long_gun_failed_sequence==frame;
+}
+bool LongGunFrameExpected(std::uint64_t frame) noexcept {
+    return frame&&g_long_gun_expected_sequence==frame;
+}
+void CancelLongGunGrip() noexcept {
+    g_long_gun_grip.Cancel();
+    (void)g_java_player_bridge.ClearLongGunGripOwner();
+}
+void FailLongGunFrame(std::uint64_t frame) noexcept {
+    g_long_gun_expected_sequence=g_long_gun_failed_sequence=frame;
+    CancelLongGunGrip();
+    (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
+    (void)g_java_player_bridge.TryPublishWeaponRay(1,{}, {},false);
+}
 CoJInteractionActionGate g_interaction_action_gate;
 CoJMotionReloadRejectReason g_motion_reload_last_reject = CoJMotionReloadRejectReason::none;
 std::uint64_t g_motion_reload_last_diagnostic_ms = 0;
@@ -2736,15 +2747,16 @@ void ObserveIndependentHandRenderState(const std::uint64_t frame_sequence, const
     bool& left_origin_valid, bool& right_origin_valid,
     bool& left_muzzle_verified, bool& right_muzzle_verified, bool& right_whip_verified) noexcept {
     const bool observe=ShouldObserveBodyFrame(frame_sequence);
+    const bool supported=LongGunFrameExpected(frame_sequence)||g_long_gun_grip.attached();
+    if(supported)g_long_gun_expected_sequence=frame_sequence;
     for (int hand=0;hand<2;++hand) {
         std::string error;
-        if (observe || g_long_gun_grip.attached() || g_bow_draw_session.owner_token()!=0 || (hand==0 && right_whip_verified)) {
+        if (observe || supported || g_bow_draw_session.owner_token()!=0 || (hand==0 && right_whip_verified)) {
             bool active=false;
             const bool matched=g_java_player_bridge.VerifyTrackedHand(hand,active,&error);
-            if(active&&!matched&&g_long_gun_grip.attached()){
-                g_long_gun_grip.Cancel();g_long_gun_failed_sequence=frame_sequence;
-                (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
-                right_muzzle_verified=right_origin_valid=false;
+            if(supported&&(!matched||!active)){
+                FailLongGunFrame(frame_sequence);
+                left_muzzle_verified=left_origin_valid=right_muzzle_verified=right_origin_valid=false;
             }
             if(active&&!matched){g_bow_verification_failed_sequence=frame_sequence;ResetPhysicalBowDraw("hand_verification");}
             if (hand==0 && right_whip_verified) {
@@ -2764,10 +2776,11 @@ void ObserveIndependentHandRenderState(const std::uint64_t frame_sequence, const
         }
         bool weapon_active=false;
         const bool weapon_matched=g_java_player_bridge.VerifyTrackedWeapon(hand,weapon_active,&error);
+        if(supported&&(hand==0?(!weapon_matched||!weapon_active):(!weapon_matched||weapon_active))){
+            FailLongGunFrame(frame_sequence);
+            left_muzzle_verified=left_origin_valid=right_muzzle_verified=right_origin_valid=false;
+        }
         if (weapon_active && !weapon_matched) {
-            if(hand==0&&g_long_gun_grip.attached()){
-                g_long_gun_grip.Cancel();g_long_gun_failed_sequence=frame_sequence;
-            }
             if(hand==1){g_bow_verification_failed_sequence=frame_sequence;ResetPhysicalBowDraw("weapon_verification");}
             (void)g_java_player_bridge.TryPublishWeaponRay(hand,{}, {},false);
             (hand==1 ? left_origin_valid : right_origin_valid)=false;
@@ -3966,8 +3979,9 @@ bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float 
     const runtime::Pose& right_tip,const std::uint64_t frame_sequence,const std::uint64_t context,
     ControllerAimFrameObservation& aim) noexcept {
     CoJLongGunGripGeometry geometry{};CoJLongGunGripFrame frame{};std::string error;
+    g_long_gun_expected_sequence=frame_sequence;
     const auto fail=[&]() noexcept {
-        g_long_gun_grip.Cancel();g_long_gun_failed_sequence=frame_sequence;
+        FailLongGunFrame(frame_sequence);
         const bool hands=g_java_player_bridge.RestoreTrackedHands(&error);
         const bool weapon=hands&&g_java_player_bridge.RestoreTrackedWeapons(&error);
         g_long_gun_quarantined|=!hands||!weapon;
@@ -4035,7 +4049,7 @@ bool ApplyTrackedWeapons(
     g_reload_skin_mesh_proximities={};
     g_reload_finger_observation_sequence=frame_sequence;
     if(g_long_gun_grip.attached()&&publish_gameplay_rays){
-        if(!independent_hands||manual_presentation){g_long_gun_grip.Cancel();return false;}
+        if(!independent_hands||manual_presentation){FailLongGunFrame(frame_sequence);return false;}
         return ApplySupportedLongGun(natural,height_correction,head,left_grip,right_grip,right_tip,
             frame_sequence,native_context,aim);
     }
@@ -5068,7 +5082,8 @@ bool EyeRenderCallbacksEnabled() noexcept {
 class ScopedStereoEyeRender {
 public:
     ScopedStereoEyeRender(runtime::Eye eye,std::uint64_t frame) noexcept {
-        if(EyeRenderRestorationPending()) {
+        frame_=frame;
+        if(LongGunFrameFailed(frame)||EyeRenderRestorationPending()) {
             InvalidateStereoEyePair();
             return;
         }
@@ -5088,7 +5103,7 @@ public:
     ScopedStereoEyeRender(const ScopedStereoEyeRender&)=delete;
     ScopedStereoEyeRender& operator=(const ScopedStereoEyeRender&)=delete;
     ~ScopedStereoEyeRender() { (void)Finish(); }
-    bool begun() const noexcept { return begun_; }
+    bool begun() const noexcept { return begun_&&!LongGunFrameFailed(frame_); }
     bool Finish() noexcept {
         if(!finished_) {
             restored_=owns_restore_ ? RestorePendingEyeRenderResources() : !EyeRenderRestorationPending();
@@ -5097,16 +5112,17 @@ public:
         return restored_;
     }
 private:
+    std::uint64_t frame_=0;
     bool begun_=false,owns_restore_=false,finished_=false,restored_=false;
 };
 
 bool MirrorStereoEyePair(std::uint64_t frame) noexcept {
-    if(EyeRenderRestorationPending()) {
+    if(LongGunFrameFailed(frame)||EyeRenderRestorationPending()) {
         InvalidateStereoEyePair();
         return false;
     }
     if(!g_stereo_callbacks.mirror_eye_pair)return true;
-    if(g_stereo_callbacks.mirror_eye_pair(g_stereo_callbacks.context,frame))return true;
+    if(g_stereo_callbacks.mirror_eye_pair(g_stereo_callbacks.context,frame)&&!LongGunFrameFailed(frame))return true;
     InvalidateStereoEyePair();
     // The mirror can fail while restoring its own graphics state. Prove that
     // rollback too; a failed end retains the same barrier as an eye failure.
@@ -5120,6 +5136,12 @@ bool MirrorStereoEyePair(std::uint64_t frame) noexcept {
 
 bool NaturalStereoReplayResourcesReady() noexcept {
     return !EyeRenderRestorationPending() && !g_camera_only_restore.camera;
+}
+
+bool GameplayStereoPairReady(std::uint64_t frame,bool left,bool right,bool left_restored,
+    bool right_restored,bool resources_restored,bool native_restored) noexcept {
+    return !LongGunFrameFailed(frame)&&left&&right&&left_restored&&right_restored&&resources_restored&&
+        ((!EyeRenderCallbacksEnabled()&&!LongGunFrameExpected(frame))||native_restored);
 }
 
 void ObserveNaturalRender(bool complete) noexcept {
@@ -5310,13 +5332,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // D3D resource rollback is pending. Retry with its retained eye/frame first.
     (void)RestorePendingEyeRenderResources();
     if(EyeRenderRestorationPending()){
-        g_long_gun_grip.Cancel();
+        CancelLongGunGrip();
         ResetPhysicalBowDraw("eye_resource_quarantine");g_virtual_holsters.Invalidate();return;
     }
 
     const CommandSnapshot snapshot = CurrentCommand();
     const auto cancel_gameplay=[&](const char* reason="render_context_lost") noexcept {
-        g_long_gun_grip.Cancel();
+        CancelLongGunGrip();
         g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw(reason);
         g_java_player_bridge.InvalidateDuelInput();
@@ -5344,7 +5366,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             g_gameplay_owner_release_pending=false;
     };
     const auto reject_render_input_context=[&]() noexcept {
-        g_long_gun_grip.Cancel();
+        CancelLongGunGrip();
         g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw("render_input_context");
         // These dispatches precede this frame's body/hand/eye transactions.
@@ -5394,7 +5416,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         // but verified cleanup must not disable ordinary fire forever. Start
         // the existing physical release barrier before any resumed consumer.
         g_long_gun_quarantined=false;
-        g_long_gun_grip.Cancel();
+        CancelLongGunGrip();
         g_gameplay_controls={};g_gameplay_commands={};
         g_gameplay_owner_release_pending=true;
     }
@@ -5771,45 +5793,35 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         gameplay_input.active && duel_owner_known && !duel_active &&
         mounted_available && !mounted && !recentered &&
         sample.native_gameplay_context_token!=0;
-    if(!winchester_reload_allowed)g_winchester_reload_probe={};
+    const auto end_winchester_window=[&](const CoJWinchesterProbeEnd& end) noexcept {
+        if(!end.reason)return;
+        try{EmitEvent("winchester_native_reload","window_end",
+            "schema=1;frame_sequence="+std::to_string(frame_sequence)+
+            ";player_generation="+std::to_string(end.generation)+
+            ";native_context="+std::to_string(end.context)+
+            ";weapon_id="+std::to_string(end.weapon_id)+
+            ";sample_us="+std::to_string(end.sample_us)+
+            ";last_sample_us="+std::to_string(end.last_sample_us)+
+            ";sample_index="+std::to_string(end.sample_index)+
+            ";reason="+end.reason+";manual_admission=false");}catch(...){}
+    };
+    if(!winchester_reload_allowed)end_winchester_window(g_winchester_reload_probe.Reset());
     else {
         auto& probe=g_winchester_reload_probe;
         const auto generation=g_java_player_bridge.being_generation();
         const auto context=sample.native_gameplay_context_token;
         const auto now=MonotonicMicroseconds();
-        if(probe.generation!=generation||probe.context!=context||now<probe.last_attempt_us){
-            probe={};probe.generation=generation;probe.context=context;
-        }
-        const bool square=raw_reload_input.active&&raw_reload_input.reload;
-        if(square&&!probe.square_down&&now){
-            probe.burst_until_us=now+12000000;
-            probe.samples=probe.idle_samples=0;probe.last_sample_us=0;
-        }
-        probe.square_down=square;
-        const bool burst=now<probe.burst_until_us;
-        const auto interval=burst?50000ULL:350000ULL;
-        if(now&&(!probe.last_attempt_us||now-probe.last_attempt_us>=interval)&&probe.samples<220){
-            probe.last_attempt_us=now;
+        const auto tick=probe.Begin({now,generation,context,
+            raw_reload_input.active&&raw_reload_input.reload,
+            raw_reload_input.active&&raw_reload_input.fire_right});
+        end_winchester_window(tick.end);
+        if(tick.poll){
             CoJWinchesterReloadSnapshot observed{};
             const bool read=g_java_player_bridge.TryObserveWinchesterReload(observed);
-            if(read&&generation==g_java_player_bridge.being_generation()){
-                if(probe.weapon!=observed.weapon_id){
-                    probe.weapon=observed.weapon_id;probe.samples=probe.idle_samples=0;
-                    probe.last_sample_us=0;
-                }
-                probe.known_rifle=true;
-                if(observed.native_reloading)probe.burst_until_us=now+2000000;
-                const bool active=now<probe.burst_until_us;
-                if(active||probe.idle_samples<4){
-                    const auto gap=probe.last_sample_us?now-probe.last_sample_us:0;
-                    const int ammo_delta=probe.last_sample_us?
-                        observed.ammo_readback-probe.last_ammo_readback:0;
-                    const int reserve_delta=probe.last_sample_us?observed.rifle_reserve-probe.last_reserve:0;
-                    ++probe.samples;
-                    if(!active)++probe.idle_samples;
-                    probe.last_sample_us=now;
-                    probe.last_ammo_readback=observed.ammo_readback;
-                    probe.last_reserve=observed.rifle_reserve;
+            const auto witness=probe.Record(read&&generation==g_java_player_bridge.being_generation(),
+                {observed.weapon_id,observed.native_reloading,observed.ammo_readback,observed.rifle_reserve});
+            end_winchester_window(witness.before);
+            if(witness.emit){
                     try {
                         const auto four=[](const auto& v){return std::to_string(v[0])+","+
                             std::to_string(v[1])+","+std::to_string(v[2])+","+std::to_string(v[3]);};
@@ -5819,7 +5831,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                             ";player_generation="+std::to_string(generation)+";native_context="+std::to_string(context)+
                             ";player_id="+std::to_string(observed.player_id)+";weapon_id="+std::to_string(observed.weapon_id)+
                             ";weapon_class=WeaponRifleWinchester;sample_us="+std::to_string(now)+
-                            ";sample_gap_us="+std::to_string(gap)+";sample_index="+std::to_string(probe.samples)+
+                            ";sample_gap_us="+std::to_string(witness.sample_gap_us)+";sample_index="+std::to_string(witness.sample_index)+
                             ";states_right="+four(observed.states[0])+";states_left="+four(observed.states[1])+
                             ";weapons_right="+three(observed.weapon_present[0])+";weapons_left="+three(observed.weapon_present[1])+
                             ";two_handed_right="+three(observed.two_handed[0])+
@@ -5835,8 +5847,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                             ";dead="+std::to_string(observed.dead)+
                             ";ammo_readback="+std::to_string(observed.ammo_readback)+
                             ";rifle_reserve="+std::to_string(observed.rifle_reserve)+
-                            ";ammo_readback_delta="+std::to_string(ammo_delta)+
-                            ";reserve_delta="+std::to_string(reserve_delta)+
+                            ";ammo_readback_delta="+std::to_string(witness.ammo_delta)+
+                            ";reserve_delta="+std::to_string(witness.reserve_delta)+
                             ";pose_valid="+std::to_string(observed.pose_valid);
                         if(observed.pose_valid){
                             detail+=";holder_element="+std::to_string(observed.holder_element)+
@@ -5854,16 +5866,14 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                         detail+=";source=native_read_only;units=cm;manual_admission=false;phase=unclassified";
                         EmitEvent("winchester_native_reload","observed",detail);
                     }catch(...){}
-                }
-            } else if(probe.known_rifle){
-                probe.known_rifle=false;
-                probe.weapon=0;probe.last_sample_us=0;
+            } else if(witness.unavailable){
                 try{EmitEvent("winchester_native_reload","unavailable",
                     "frame_sequence="+std::to_string(frame_sequence)+
                     ";player_generation="+std::to_string(generation)+
                     ";native_context="+std::to_string(context)+
                     ";owner_or_phase_unavailable=true;manual_admission=false");}catch(...){}
             }
+            end_winchester_window(witness.after);
         }
     }
     const bool on_foot_crouch_owner = mounted_available && !mounted;
@@ -5944,6 +5954,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         physical_view_correction,relative_head_pose,relative_left_controller,relative_right_controller,
         relative_right_aim,long_gun_geometry);
     g_long_gun_claim=g_long_gun_grip.Update(long_gun_input,long_gun_geometry);
+    if(g_long_gun_claim.claim.cancelled)(void)g_java_player_bridge.ClearLongGunGripOwner();
     FilterCoJLongGunGripInput(g_long_gun_claim.claim,gameplay_input);
     if(g_long_gun_claim.claim.consume_grip){
         g_interaction_action_gate.Cancel();
@@ -6604,7 +6615,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         (g_arm_rotation_faulted&&(g_left_arm_rotation.active||g_right_arm_rotation.active))){
         // Preserve every retained preimage. Cancellation callbacks may themselves
         // mutate native pose, so defer them to the quarantined entry retry.
-        g_long_gun_grip.Cancel();
+        CancelLongGunGrip();
         g_gameplay_owner_release_pending=true;
         (void)PublishReloadFeedbackOwner(0,0,{});
         (void)g_java_player_bridge.TryPublishWeaponRay(0,{}, {},false);
@@ -7173,6 +7184,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         manual_result.gesture.claimed_hand==manual_result.gesture.cartridge_hand&&
         (manual_result.gesture.cartridge_hand==0?raw_reload_input.fire_right:
          manual_result.gesture.cartridge_hand==1?raw_reload_input.fire_left:false);
+    ObserveIndependentHandRenderState(frame_sequence,"pre_eye",
+        aim_observation.left_origin_valid,aim_observation.right_origin_valid,
+        aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified,aim_observation.right_whip_aim_verified);
     ScopedStereoEyeRender left_eye_render(runtime::Eye::left,frame_sequence);
     if(left_eye_render.begun()) {
         ScopedRenderResourceObservation observation(runtime::Eye::left,frame_sequence,owner,"gameplay");
@@ -7272,24 +7286,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     if (observe_body_actor) {
         body_actor = ObserveBodyActorBoundary(body_actor, frame_sequence, "stereo_render");
     }
-    for (int hand=0;hand<2;++hand) {
-        bool active=false;
-        std::string error;
-        if (!g_java_player_bridge.VerifyTrackedWeapon(hand,active,&error) && active) {
-            if(hand==1){g_bow_verification_failed_sequence=frame_sequence;ResetPhysicalBowDraw("final_weapon_verification");}
-            (void)g_java_player_bridge.TryPublishWeaponRay(hand,{}, {},false);
-            if (hand==1) {
-                aim_observation.left_origin_valid=false;
-                aim_observation.left_muzzle_verified=false;
-            } else {
-                aim_observation.right_origin_valid=false;
-                aim_observation.right_muzzle_verified=false;
-            }
-            EmitEvent("controller_weapon_render_probe","failed",
-                "frame_sequence="+std::to_string(frame_sequence)+";side="+(hand==1 ? "left" : "right")+
-                ";phase=stereo_complete;parent_pose=final_hand_socket;detail="+error);
-        }
-    }
+    ObserveIndependentHandRenderState(frame_sequence,"stereo_complete",
+        aim_observation.left_origin_valid,aim_observation.right_origin_valid,
+        aim_observation.left_muzzle_verified,aim_observation.right_muzzle_verified,aim_observation.right_whip_aim_verified);
     // The element overlay is relative to the live animated render hierarchy.
     // Restore the complete arm overlay first, then its outer pelvis overlay.
     // Absolute arm frames themselves are restored parent before child because
@@ -7349,20 +7348,19 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     }
 
     const bool eye_resources_restored=left_resources_restored && right_resources_restored;
-    if(g_long_gun_grip.attached()&&(!hands_restored||!weapon_restored||
-        g_long_gun_failed_sequence==frame_sequence)){
-        g_long_gun_grip.Cancel();g_long_gun_quarantined|=!hands_restored||!weapon_restored;
+    if(LongGunFrameExpected(frame_sequence)&&(!hands_restored||!weapon_restored||
+        LongGunFrameFailed(frame_sequence))){
+        CancelLongGunGrip();g_long_gun_quarantined|=!hands_restored||!weapon_restored;
     }
     const bool native_paths_restored=left_state_restored && (!right_eye_attempted || right_state_restored) &&
         hands_restored && weapon_restored && !g_arm_rotation_faulted &&
         !g_left_arm_rotation.active && !g_right_arm_rotation.active && !g_room_scale_body_offset.active;
     // Keep legacy submission policy when callbacks are disabled. An independent
     // family can only be mirrored/published after every native overlay is back.
-    const bool eye_pair_ready=left_captured && right_captured &&
-        left_state_restored && right_state_restored && eye_resources_restored &&
-        (!EyeRenderCallbacksEnabled() || native_paths_restored);
+    const bool eye_pair_ready=GameplayStereoPairReady(frame_sequence,left_captured,right_captured,
+        left_state_restored,right_state_restored,eye_resources_restored,native_paths_restored);
     const bool mirror_ready=eye_pair_ready && MirrorStereoEyePair(frame_sequence);
-    if(EyeRenderCallbacksEnabled() && !native_paths_restored)InvalidateStereoEyePair();
+    if(LongGunFrameFailed(frame_sequence)||(EyeRenderCallbacksEnabled()&&!native_paths_restored))InvalidateStereoEyePair();
 
     if (!eye_pair_ready || !gameplay_input_ok) {
         (void)PublishReloadFeedbackOwner(0, 0, {});
@@ -7586,7 +7584,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         submitted = g_stereo_callbacks.submit_frame(
             g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle, hud_text);
     }
-    if (left_camera_applied && right_rendered &&
+    if (left_camera_applied && right_rendered && !LongGunFrameFailed(frame_sequence)&&
         (!EyeRenderCallbacksEnabled() || mirror_ready)) {
         g_diagnostic_stereo_pairs.fetch_add(1, std::memory_order_acq_rel);
     }
@@ -8753,6 +8751,8 @@ void ShutdownCameraProbe() noexcept {
     (void)RestoreRoomScaleBodyOffset(
         g_stereo_frame_sequence.load(std::memory_order_acquire),
         "shutdown");
+    CancelLongGunGrip();
+    g_long_gun_expected_sequence=g_long_gun_failed_sequence=0;
     g_java_player_bridge.Reset();
     g_gameplay_controls = {};
     g_contextual_shoulder = {};

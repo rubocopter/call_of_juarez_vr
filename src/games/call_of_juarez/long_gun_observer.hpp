@@ -20,6 +20,9 @@ struct CoJLongGunSupportSnapshot {
     bool valid=false;
     const char* weapon_class=nullptr; // Static exact-class literal, never a JNI reference.
     std::uint32_t player_id=0,weapon_id=0;
+    // Stamped only by the bridge's retained Java identity, never by the raw
+    // numeric-ID observer. Survives completed/restored element transactions.
+    std::uint64_t object_epoch=0;
     // Hand order: right/left. State order: current/destination/actual/desired.
     std::array<std::array<int,4>,2> states{};
     // Flag order: actual/desired/state machine.
