@@ -308,6 +308,11 @@ try {
     $InputBackup = Join-Path $DirectoryGame "cojvr_openvr_input.cojvr-backup"
     New-Item -ItemType Directory -Path (Join-Path $InputDirectory "bindings") -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $InputDirectory "custom.json") -Encoding UTF8 -Value "original"
+    # A valid file-only original inventory must include each directory through
+    # an owned file. Unknown empty directories now reject before staging; the
+    # dedicated recovery fixture covers that refusal. This case exercises a
+    # representable original and verifies its nested file survives recovery.
+    Set-Content -LiteralPath (Join-Path $InputDirectory "bindings/custom.json") -Encoding UTF8 -Value "original binding"
     $OriginalInputManifest = @(Get-CojvrDirectoryManifest $InputDirectory)
     $StagedActionBytes = [byte[]](20, 21, 22)
     $StagedBindingBytes = [byte[]](23, 24, 25)
@@ -331,6 +336,8 @@ try {
     [void](Complete-CojvrDeploymentRecovery $DirectoryGame)
     Assert-True (Test-CojvrDirectoryMatchesManifest $InputDirectory $OriginalInputManifest) `
         "Interrupted directory deployment did not restore the original OpenVR input directory."
+    Assert-True ((Get-Content -LiteralPath (Join-Path $InputDirectory "bindings/custom.json") -Raw).Trim() -eq "original binding") `
+        "Interrupted directory deployment lost the original nested binding."
 
     $TemporaryDirectoryGame = Join-Path $TransactionRoot "temporary-directory"
     $TemporaryInputDirectory = Join-Path $TemporaryDirectoryGame "cojvr_openvr_input.cojvr-installing"
