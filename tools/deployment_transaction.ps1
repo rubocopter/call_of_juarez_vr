@@ -17,7 +17,7 @@ function Get-CojvrDirectoryManifest([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return @() }
     $Root = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
     return @(
-        Get-ChildItem -LiteralPath $Root -File -Recurse | Sort-Object FullName | ForEach-Object {
+        Get-ChildItem -LiteralPath $Root -File -Recurse -Force -ErrorAction Stop | Sort-Object FullName | ForEach-Object {
             [ordered]@{
                 path = $_.FullName.Substring($Root.Length).TrimStart("\").Replace("\", "/")
                 sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -26,8 +26,30 @@ function Get-CojvrDirectoryManifest([string]$Path) {
     )
 }
 
+function Test-CojvrDirectoryLayout([string]$Path, [object[]]$Manifest) {
+    # File-only manifests authorize ancestor directories, never an unrecorded
+    # empty directory. Visibility flags do not establish deployment ownership.
+    $Allowed = @{}
+    foreach ($Entry in @($Manifest)) {
+        $Relative = [string]$Entry.path
+        $Slash = $Relative.LastIndexOf('/')
+        while ($Slash -ge 0) {
+            $Relative = $Relative.Substring(0, $Slash)
+            $Allowed[$Relative] = $true
+            $Slash = $Relative.LastIndexOf('/')
+        }
+    }
+    $Root = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+    foreach ($Directory in @(Get-ChildItem -LiteralPath $Root -Directory -Recurse -Force -ErrorAction Stop)) {
+        $Relative = $Directory.FullName.Substring($Root.Length).TrimStart('\').Replace('\', '/')
+        if (-not $Allowed.ContainsKey($Relative)) { return $false }
+    }
+    return $true
+}
+
 function Test-CojvrDirectoryMatchesManifest([string]$Path, [object[]]$Manifest) {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+    if (-not (Test-CojvrDirectoryLayout $Path $Manifest)) { return $false }
     $Actual = @(Get-CojvrDirectoryManifest $Path)
     $Expected = @($Manifest)
     if ($Actual.Count -ne $Expected.Count) { return $false }
@@ -43,6 +65,7 @@ function Test-CojvrDirectoryMatchesManifest([string]$Path, [object[]]$Manifest) 
 
 function Test-CojvrDirectoryIsKnownStagedSubset([string]$Path, [object[]]$Manifest) {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $true }
+    if (-not (Test-CojvrDirectoryLayout $Path $Manifest)) { return $false }
     $Expected = @{}
     foreach ($Entry in @($Manifest)) {
         $Expected[[string]$Entry.path] = ([string]$Entry.sha256).ToUpperInvariant()
@@ -110,6 +133,19 @@ function Write-CojvrDeploymentJournal(
     $JournalPath = Join-Path $GameDirectory ".cojvr-deployment-transaction.json"
     if (Test-Path -LiteralPath $JournalPath) {
         throw "Deployment transaction journal already exists at '$JournalPath'."
+    }
+    if ($Operation -eq 'stage') {
+        # This boundary precedes every stage mutation. Do not move an original
+        # directory into a transaction whose file-only identity cannot restore
+        # it (for example, one containing an unrecorded empty subdirectory).
+        foreach ($Asset in @($Assets)) {
+            if ([string]$Asset.kind -eq 'directory' -and [bool]$Asset.hadOriginal) {
+                $Original = Join-Path $GameDirectory ([string]$Asset.destination)
+                if (-not (Test-CojvrDirectoryMatchesManifest $Original @($Asset.originalManifest))) {
+                    throw "Original directory '$Original' cannot be fully represented by its recovery inventory; no staging mutation authorized."
+                }
+            }
+        }
     }
     $Journal = [ordered]@{
         schemaVersion = 1

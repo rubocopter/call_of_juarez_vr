@@ -85,6 +85,99 @@ try {
                 Assert-True (Test-CojvrDirectoryMatchesManifest $Game $Before) 'Recovery mutated earlier assets before rejecting later executable.'
             }
         }
+        # File-only inventories authorize files and their ancestor directories,
+        # regardless of Hidden/System visibility. Foreign content must stop the
+        # entire recovery before an earlier proxy or temporary is removed.
+        foreach ($Location in @('destination', 'temporary', 'backup')) {
+            foreach ($Shape in @('file', 'nested-file', 'empty-directory')) {
+                foreach ($Flags in @([IO.FileAttributes]::Hidden, [IO.FileAttributes]::System,
+                    ([IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System))) {
+                    Invoke-Case "recovery preserves foreign $Shape ($Flags) in $Location" {
+                        $Game = New-StagedFixture ('visibility-' + [guid]::NewGuid().ToString('N'))
+                        $Input = Join-Path $Game 'cojvr_openvr_input'
+                        $Backup = Join-Path $Game 'cojvr_openvr_input.cojvr-backup'
+                        $Temporary = Join-Path $Game 'cojvr_openvr_input.cojvr-installing'
+                        $Original = @(Get-CojvrDirectoryManifest $Backup)
+                        $Staged = @(Get-CojvrDirectoryManifest $Input)
+                        $Target = switch ($Location) {
+                            'destination' { $Input }
+                            'backup' { $Backup }
+                            'temporary' {
+                                [void][IO.Directory]::CreateDirectory($Temporary)
+                                [IO.File]::WriteAllText((Join-Path $Temporary 'actions.json'), 'staged-actions')
+                                $Temporary
+                            }
+                        }
+                        $Assets = @(
+                            @{role='proxy';kind='file';destination='d3d9.dll';hadOriginal=$false;
+                              stagedSha256=(Get-CojvrFileSha256 (Join-Path $Game 'd3d9.dll'))},
+                            @{role='openvr_input';kind='directory';destination='cojvr_openvr_input';
+                              backup='cojvr_openvr_input.cojvr-backup';temporary='cojvr_openvr_input.cojvr-installing';
+                              hadOriginal=$true;originalManifest=$Original;stagedManifest=$Staged}
+                        )
+                        [void](Write-CojvrDeploymentJournal $Game 'unstage' 'visibility-recovery' 'd3d9_native_stereo' $Assets)
+                        $Foreign = Join-Path $Target 'foreign.txt'
+                        if ($Shape -ne 'file') {
+                            $Directory = Join-Path $Target 'foreign-directory'
+                            [void][IO.Directory]::CreateDirectory($Directory)
+                            $Foreign = if ($Shape -eq 'nested-file') { Join-Path $Directory 'foreign.txt' } else { $Directory }
+                            [IO.File]::SetAttributes($Directory, ([IO.File]::GetAttributes($Directory) -bor $Flags))
+                        }
+                        if ($Shape -ne 'empty-directory') {
+                            [IO.File]::WriteAllText($Foreign, 'external content must survive')
+                            [IO.File]::SetAttributes($Foreign, ([IO.File]::GetAttributes($Foreign) -bor $Flags))
+                        }
+                        $Journal = Join-Path $Game '.cojvr-deployment-transaction.json'
+                        $JournalHash = Get-CojvrFileSha256 $Journal
+                        $ProxyHash = Get-CojvrFileSha256 (Join-Path $Game 'd3d9.dll')
+                        $ForeignAttributes = [IO.File]::GetAttributes($Foreign)
+                        $Rejected = $false
+                        try { [void](Complete-CojvrDeploymentRecovery $Game) } catch { $Rejected = $true }
+                        Assert-True $Rejected 'Recovery accepted foreign content omitted from its inventory.'
+                        Assert-True ((Get-CojvrFileSha256 $Journal) -eq $JournalHash) 'Rejection lost/changed the journal.'
+                        Assert-True ((Get-CojvrFileSha256 (Join-Path $Game 'd3d9.dll')) -eq $ProxyHash) 'Rejection removed an earlier asset.'
+                        Assert-True ([IO.File]::GetAttributes($Foreign) -eq $ForeignAttributes) 'Rejection changed foreign visibility/data.'
+                        if ($Shape -ne 'empty-directory') {
+                            Assert-True ([IO.File]::ReadAllText($Foreign) -eq 'external content must survive') 'Rejection lost external bytes.'
+                        }
+                        Assert-True ([IO.Directory]::Exists($Backup)) 'Rejection lost original directory backup.'
+                        if ($Location -eq 'temporary') {
+                            Assert-True ([IO.File]::ReadAllText((Join-Path $Temporary 'actions.json')) -eq 'staged-actions') 'Rejection removed temporary content.'
+                        }
+                    }
+                }
+            }
+        }
+        Invoke-Case 'known hidden/system nested originals are inventoried and restore' {
+            $Game = New-StagedFixture 'known-visibility'
+            $Backup = Join-Path $Game 'cojvr_openvr_input.cojvr-backup'
+            $HiddenDirectory = Join-Path $Backup 'private'
+            [void][IO.Directory]::CreateDirectory($HiddenDirectory)
+            $Known = Join-Path $HiddenDirectory 'settings.json'
+            [IO.File]::WriteAllText($Known, 'original hidden system settings')
+            $Flags = [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System
+            [IO.File]::SetAttributes($Known, $Flags)
+            [IO.File]::SetAttributes($HiddenDirectory, ([IO.File]::GetAttributes($HiddenDirectory) -bor $Flags))
+            $Original = @(Get-CojvrDirectoryManifest $Backup)
+            Assert-True (@($Original | Where-Object { $_.path -eq 'private/settings.json' }).Count -eq 1) 'Original inventory omitted hidden/system content.'
+            $State = Join-Path $Game '.cojvr-d3d9-stage.json'
+            $Stage = Get-Content $State -Raw | ConvertFrom-Json
+            $Stage.originalOpenVrInputManifest = $Original
+            Write-Json $State $Stage
+            & (Join-Path $SourceDirectory 'tools/unstage_d3d9_proxy.ps1') -GameDirectory $Game | Out-Null
+            $Restored = Join-Path $Game 'cojvr_openvr_input/private/settings.json'
+            Assert-True ([IO.File]::ReadAllText($Restored) -eq 'original hidden system settings') 'Known hidden/system original not restored.'
+            Assert-True (([IO.File]::GetAttributes($Restored) -band $Flags) -eq $Flags) 'Restore changed original visibility flags.'
+        }
+        Invoke-Case 'known staged hidden/system nested files remain removable' {
+            $Game = New-StagedFixture 'known-staged-visibility'
+            $Input = Join-Path $Game 'cojvr_openvr_input'
+            $Flags = [IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System
+            [IO.File]::SetAttributes((Join-Path $Input 'bindings'), ([IO.File]::GetAttributes((Join-Path $Input 'bindings')) -bor $Flags))
+            [IO.File]::SetAttributes((Join-Path $Input 'bindings/psvr2_sense.json'), $Flags)
+            & (Join-Path $SourceDirectory 'tools/unstage_d3d9_proxy.ps1') -GameDirectory $Game | Out-Null
+            Assert-True ([IO.File]::ReadAllText((Join-Path $Input 'custom.json')) -eq 'original-input') 'Known staged attributes prevented restoration.'
+        }
         # Exercise the real native-input preflight/publication/deployment blocks
         # with synthetic files; never bypass the executable SHA-256 game gate.
         $Tokens = $null; $Errors = $null
@@ -106,6 +199,65 @@ try {
             $Node.Extent.Text.Contains("destination = 'cojvr_openvr_input/'")
         }, $true)
         Assert-True ($Preflight -and $Publish -and $DeploymentBlock) 'Could not isolate real input deployment blocks.'
+        $OriginalInputBlock = $StageAst.Find({ param($Node)
+            $Node -is [Management.Automation.Language.IfStatementAst] -and
+            $Node.Extent.Text.StartsWith('if ($IsNativeStereo)') -and
+            $Node.Extent.Text.Contains('$OriginalInputManifest = @(if')
+        }, $true)
+        Assert-True ($null -ne $OriginalInputBlock) 'Could not isolate original input capture.'
+        foreach ($OriginalShape in @('files', 'empty-root', 'empty-visible', 'empty-hidden', 'empty-system', 'empty-hidden-system')) {
+            Invoke-Case "fresh stage original directory $OriginalShape remains recoverable or rejects before mutation" {
+                $Game = Join-Path $TestRoot ('fresh-original-' + $OriginalShape)
+                $OpenVrInputDestination = Join-Path $Game 'cojvr_openvr_input'
+                $OpenVrInputBackup = Join-Path $Game 'cojvr_openvr_input.cojvr-backup'
+                [void][IO.Directory]::CreateDirectory($OpenVrInputDestination)
+                $OriginalFile = Join-Path $OpenVrInputDestination 'original.json'
+                if ($OriginalShape -ne 'empty-root') { [IO.File]::WriteAllText($OriginalFile, 'original input data') }
+                $Unsupported = $OriginalShape.StartsWith('empty-') -and $OriginalShape -ne 'empty-root'
+                if ($Unsupported) {
+                    $EmptyDirectory = Join-Path $OpenVrInputDestination 'user/empty'
+                    [void][IO.Directory]::CreateDirectory($EmptyDirectory)
+                    $Flags = [IO.FileAttributes]::Directory
+                    if ($OriginalShape.Contains('hidden')) { $Flags = $Flags -bor [IO.FileAttributes]::Hidden }
+                    if ($OriginalShape.Contains('system')) { $Flags = $Flags -bor [IO.FileAttributes]::System }
+                    [IO.File]::SetAttributes($EmptyDirectory, $Flags)
+                }
+                # Execute the actual capture used by stage, then its journal
+                # boundary, which precedes executable/proxy/input mutation.
+                $IsNativeStereo = $true; $HadOriginalOpenVrInput = $true
+                $JournalAssets = @()
+                $Hash = [Security.Cryptography.SHA256]::Create()
+                try { $StagedHash = [BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes('new actions'))).Replace('-', '') }
+                finally { $Hash.Dispose() }
+                $StagedOpenVrInputManifest = @{files=@(@{path='actions.json';sha256=$StagedHash})}
+                Invoke-Expression $OriginalInputBlock.Extent.Text
+                $Rejected = $false
+                try { [void](Write-CojvrDeploymentJournal $Game 'stage' 'fresh-directory' 'd3d9_native_stereo' $JournalAssets) }
+                catch { $Rejected = $true }
+                $Journal = Join-Path $Game '.cojvr-deployment-transaction.json'
+                if ($Unsupported) {
+                    Assert-True $Rejected 'Fresh stage accepted an original empty subdirectory that its journal cannot restore.'
+                    Assert-True (-not [IO.File]::Exists($Journal)) 'Rejected fresh stage published an unrecoverable journal.'
+                    Assert-True (-not [IO.Directory]::Exists($OpenVrInputBackup)) 'Rejected fresh stage moved the original input.'
+                    Assert-True ([IO.Directory]::Exists($EmptyDirectory)) 'Rejected fresh stage lost the original empty directory.'
+                    Assert-True (([IO.File]::GetAttributes($EmptyDirectory) -band $Flags) -eq $Flags) 'Rejected fresh stage changed original directory flags.'
+                    Assert-True ([IO.File]::ReadAllText($OriginalFile) -eq 'original input data') 'Rejected fresh stage changed original input bytes.'
+                    return
+                }
+                Assert-True (-not $Rejected) 'Fresh stage rejected a representable original directory.'
+                Move-Item -LiteralPath $OpenVrInputDestination -Destination $OpenVrInputBackup
+                [void][IO.Directory]::CreateDirectory($OpenVrInputDestination)
+                [IO.File]::WriteAllText((Join-Path $OpenVrInputDestination 'actions.json'), 'new actions')
+                Assert-True (Complete-CojvrDeploymentRecovery $Game) 'Fresh directory transaction was not recoverable.'
+                Assert-True (-not [IO.File]::Exists($Journal) -and -not [IO.Directory]::Exists($OpenVrInputBackup)) 'Fresh directory recovery retained completed transaction state.'
+                Assert-True ([IO.Directory]::Exists($OpenVrInputDestination)) 'Recovery lost the original directory root.'
+                if ($OriginalShape -eq 'files') {
+                    Assert-True ([IO.File]::ReadAllText($OriginalFile) -eq 'original input data') 'Fresh recovery lost original input data.'
+                } else {
+                    Assert-True ([IO.Directory]::GetFileSystemEntries($OpenVrInputDestination).Count -eq 0) 'Fresh recovery failed to restore the empty original root.'
+                }
+            }
+        }
         $StageText = $StageAst.Extent.Text
         Assert-True (([regex]::Matches($StageText, '& \$PythonExecutable -B \(Join-Path')).Count -eq 3 -and
             -not $StageText.Contains('& python ')) 'Patchers must use the selected Python with -B.'
