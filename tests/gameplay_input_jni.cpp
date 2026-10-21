@@ -623,23 +623,23 @@ int main() {
     ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::shoulder)&&
         static_cast<int>(native_turns.size())==turn_count,"shoulder phase generated an extra snap turn");
     // Actual dispatcher receives ordinary slot actions from the physical zones.
-    for(int channel=0;channel<3;++channel){
+    for(int channel:{0,1,2,5}){
         JavaPlayerBridge holster_bridge;Bind(holster_bridge);
         CoJVirtualHolsterState holsters;CoJVirtualHolsterSample s;
         s.allowed=s.native_ready=true;s.player=7;s.context=9;s.sequence=1;s.now_us=10000;
         s.raw.active=true;s.raw.input_context_generation=1;
         s.head={{0,1.7F,0},{},true,true};
         s.grips={cojvr::runtime::Pose{{.22F,channel==2?1.62F:1.F,channel==2?.2F:0},{},true,true},
-                 cojvr::runtime::Pose{{-.22F,1,0},{},true,true}};
-        s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=7;
+                 cojvr::runtime::Pose{{-.22F,channel==5?1.62F:1.F,channel==5?.2F:0},{},true,true}};
+        s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=0x27;
         auto input=s.raw;(void)holsters.Update(s,input);
         CoJGameplayCommandQueue shoulder_commands;
         auto queued=s.raw;queued.kick=true;shoulder_commands.CaptureShoulder(queued);
-        constexpr int ids[]{23,22,21};const int before=accepted[ids[channel]];
+        constexpr int ids[]{23,22,21,24,25,26};const int before=accepted[ids[channel]];
         const int action_before=accepted[30],kick_before=accepted[39];
         for(int frame=0;frame<4;++frame){
             ++s.sequence;s.now_us+=10000;
-            if(channel==0)s.raw.interact=true;else s.raw.kick=true;
+            if(channel==0||channel==5)s.raw.interact=true;else s.raw.kick=true;
             input=s.raw;const int selected=holsters.Update(s,input);
             shoulder_commands.CaptureShoulder(input);
             ok &= Check(selected==(frame==0?channel:-1),"holster did not produce exactly one native slot edge");

@@ -31,6 +31,13 @@ using namespace cojvr::runtime;
 void Require(bool value, const char* message) {
     if (!value) { std::cerr << message << '\n'; std::exit(1); }
 }
+template<class Compositor> bool DrawGuideGate(Compositor& compositor,ID3D11Device* device,
+    ID3D11DeviceContext* context,const StereoHudTextOverlay& overlay,
+    const std::array<ID3D11Texture2D*,2>& targets,bool enabled){
+    if constexpr(requires{compositor.Draw(device,context,overlay,7,targets,enabled);})
+        return compositor.Draw(device,context,overlay,7,targets,enabled);
+    return compositor.Draw(device,context,overlay,7,targets);
+}
 HudText Text(std::u16string_view value) {
     HudText text{};
     text.length = static_cast<std::uint32_t>(value.size());
@@ -263,5 +270,27 @@ int main(int argc, char** argv) {
     HudPanelPlacement threat_place{};
     Require(!BuildThreatPanelPlacement({{1,0},1.1F,true},threat_place)&&
         !BuildThreatPanelPlacement({{0,0},1,true},threat_place),"invalid threat alpha/direction accepted");
+    overlay={};overlay.frame_sequence=7;overlay.eyes=valid_eyes;
+    overlay.holster_guides.count=1;
+    auto& guide=overlay.holster_guides.zones[0];
+    guide.head_corners={{{-.2F,.1F,-.6F},{.2F,.1F,-.6F},{-.2F,-.3F,-.6F},{.2F,-.3F,-.6F}}};
+    clear_world();Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true),"guide composition failed");
+    const auto guide_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(guide_left!=resized_world&&guide_left!=ReadEye(device.Get(),context.Get(),targets[1].Get())&&
+        guide_left.front()==resized_world.front(),"holster guides need bounded real binocular pixels");
+    guide.state=1;clear_world();
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=guide_left,"near-hand guide must change its visible state");
+    clear_world();Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,false)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"disabled preference resurrected a captured guide");
+    overlay.eyes[1].eye_to_head.position_valid=false;clear_world();
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"invalid second eye retained a monocular guide");
+    overlay.eyes=valid_eyes;guide.head_corners[0].x=std::numeric_limits<float>::quiet_NaN();clear_world();
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"invalid guide corner retained optional pixels");
+    overlay.text.hint=Text(u"Native hint");clear_world();
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,"bad optional guide starved essential HUD text");
     std::cout << "HUD Unicode raster, cache and stereo projection passed\n";
 }

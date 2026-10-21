@@ -9,7 +9,7 @@
 #include <string>
 namespace cojvr::runtime {
 namespace {
-// One atomic publication prevents a mixed cinema/turn pair. Separate getter
+// One atomic publication prevents a mixed preference snapshot. Separate getter
 // calls may straddle an update; editors use the versioned Read snapshot.
 std::atomic<std::uint16_t> current_preferences{0};
 static_assert(decltype(current_preferences)::is_always_lock_free);
@@ -24,7 +24,7 @@ bool Valid(VrPreferences values) noexcept {
 }
 void PublishPreferences(VrPreferences values) noexcept {
     const auto packed=static_cast<std::uint16_t>(static_cast<unsigned>(values.cinematics)|
-        (static_cast<unsigned>(values.turning)<<8));
+        (static_cast<unsigned>(values.turning)<<8)|(values.holster_guides?0x200U:0U));
     current_preferences.store(packed,std::memory_order_release);
 }
 struct File {
@@ -59,11 +59,14 @@ CinematicsMode CurrentCinematicMode() noexcept {
     return static_cast<CinematicsMode>(current_preferences.load(std::memory_order_acquire)&0xFFU);
 }
 TurnMode CurrentTurnMode() noexcept {
-    return static_cast<TurnMode>(current_preferences.load(std::memory_order_acquire)>>8);
+    return static_cast<TurnMode>((current_preferences.load(std::memory_order_acquire)>>8)&1U);
+}
+bool CurrentHolsterGuidesEnabled() noexcept {
+    return (current_preferences.load(std::memory_order_acquire)&0x200U)!=0;
 }
 bool SettingsInputCaptured() noexcept { return input_capture.load(std::memory_order_acquire); }
 void PublishCinematicMode(CinematicsMode mode) noexcept {
-    // Compatibility publisher: preserve turning, including concurrent updates.
+    // Compatibility publisher: preserve turning and guides, including concurrent updates.
     auto previous=current_preferences.load(std::memory_order_acquire);
     std::uint16_t next;
     do {
@@ -105,7 +108,7 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
         }
         std::string_view text=buffer;
         unsigned version=0;
-        bool cinematics=false,turning=false;
+        bool cinematics=false,turning=false,holster_guides=false;
         VrPreferences values;
         while(!text.empty()){
             const auto end=text.find('\n');const auto line=Trim(text.substr(0,end));
@@ -114,8 +117,8 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
             const auto equals=line.find('=');if(equals==std::string_view::npos)return result;
             const auto key=Trim(line.substr(0,equals)),value=Trim(line.substr(equals+1));
             if(key=="version"){
-                if(version||(value!="1"&&value!="2"))return result;
-                version=value=="1"?1U:2U;
+                if(version||(value!="1"&&value!="2"&&value!="3"))return result;
+                version=value=="1"?1U:value=="2"?2U:3U;
             }
             else if(key=="cinematics"){
                 if(cinematics||(value!="theater"&&value!="immersive"))return result;
@@ -123,10 +126,15 @@ SettingsLoadResult LoadVrSettings(const std::filesystem::path& path) noexcept {
             }else if(key=="turning"){
                 if(turning||(value!="smooth"&&value!="snap"))return result;
                 turning=true;values.turning=value=="snap"?TurnMode::snap:TurnMode::smooth;
+            }else if(key=="holster_guides"){
+                if(holster_guides||(value!="false"&&value!="true"))return result;
+                holster_guides=true;values.holster_guides=value=="true";
             }else return result;
         }
-        if(cinematics&&((version==1&&!turning)||(version==2&&turning))){
-            result.status=SettingsLoadStatus::loaded;result.mode=values.cinematics;result.turning=values.turning;
+        if(cinematics&&((version==1&&!turning&&!holster_guides)||(version==2&&turning&&!holster_guides)||
+            (version==3&&turning&&holster_guides))){
+            result.status=SettingsLoadStatus::loaded;result.mode=values.cinematics;
+            result.turning=values.turning;result.holster_guides=values.holster_guides;
         }
     }catch(...){result.status=SettingsLoadStatus::io_error;result.error_code=ERROR_NOT_ENOUGH_MEMORY;}
     return result;
@@ -166,17 +174,24 @@ SettingsSaveResult WriteVrSettings(const std::filesystem::path& path,std::string
 }
 SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMode mode) noexcept {
     if(mode!=CinematicsMode::theater&&mode!=CinematicsMode::immersive)return {false,ERROR_INVALID_PARAMETER};
-    return WriteVrSettings(path,mode==CinematicsMode::immersive?
-        "version=1\ncinematics=immersive\n":"version=1\ncinematics=theater\n");
+    // The legacy presenter edits cinema only. Read the persisted preferences
+    // before replacement so a cinema-only save cannot downgrade comfort values.
+    const auto loaded=LoadVrSettings(path);
+    if(loaded.status==SettingsLoadStatus::invalid)return {false,ERROR_INVALID_DATA};
+    if(loaded.status==SettingsLoadStatus::io_error)return {false,loaded.error_code?loaded.error_code:ERROR_READ_FAULT};
+    return SaveVrSettings(path,VrPreferences{mode,loaded.turning,loaded.holster_guides});
 }
 SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,VrPreferences values) noexcept {
     if(!Valid(values))return {false,ERROR_INVALID_PARAMETER};
-    const std::string_view content=values.cinematics==CinematicsMode::immersive?
-        (values.turning==TurnMode::snap?"version=2\ncinematics=immersive\nturning=snap\n":
-            "version=2\ncinematics=immersive\nturning=smooth\n"):
-        (values.turning==TurnMode::snap?"version=2\ncinematics=theater\nturning=snap\n":
-            "version=2\ncinematics=theater\nturning=smooth\n");
-    return WriteVrSettings(path,content);
+    try {
+        std::string content="version=3\ncinematics=";
+        content+=values.cinematics==CinematicsMode::immersive?"immersive":"theater";
+        content+="\nturning=";
+        content+=values.turning==TurnMode::snap?"snap":"smooth";
+        content+="\nholster_guides=";
+        content+=values.holster_guides?"true\n":"false\n";
+        return WriteVrSettings(path,content);
+    }catch(...){return {false,ERROR_NOT_ENOUGH_MEMORY};}
 }
 VrPreferenceSnapshot VrPreferenceStore::Initialize(const std::filesystem::path& file) noexcept {
     std::lock_guard lock(mutex_);
@@ -184,7 +199,7 @@ VrPreferenceSnapshot VrPreferenceStore::Initialize(const std::filesystem::path& 
     try {
         file_=file;
         const auto loaded=LoadVrSettings(file_);
-        snapshot_.values={loaded.mode,loaded.turning};
+        snapshot_.values={loaded.mode,loaded.turning,loaded.holster_guides};
         snapshot_.load_status=loaded.status;
         snapshot_.load_error=loaded.error_code;
     }catch(...){

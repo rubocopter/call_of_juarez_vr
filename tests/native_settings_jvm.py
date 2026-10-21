@@ -34,15 +34,28 @@ def verifier_class():
     loader = method('java/lang/ClassLoader', 'getSystemClassLoader', '()Ljava/lang/ClassLoader;')
     for_name = method('java/lang/Class', 'forName', '(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;')
     methods = method('java/lang/Class', 'getDeclaredMethods', '()[Ljava/lang/reflect/Method;')
+    get_method = method('java/lang/Class', 'getMethod', '(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;')
+    class_type = cls('java/lang/Class')
+    nt = add(b'\x0c' + u2(utf('TYPE')) + u2(utf('Ljava/lang/Class;')))
+    integer_type = add(b'\x09' + u2(cls('java/lang/Integer')) + u2(nt))
+    sync_name = add(b'\x08' + u2(utf('cojvrSyncSettings')))
+    guides_name = add(b'\x08' + u2(utf('cojvrHolsterGuidesValue')))
     c = Code()
     c.ref(0x13, name)
     c.emit(0x03)  # Class.forName initialize=false: no game static initializer/native call.
     c.ref(0xb8, loader)
     c.ref(0xb8, for_name)
+    c.emit(0x4c, 0x2b)  # retain verified Class for exact bridge reflection
     c.ref(0xb6, methods)
-    c.emit(0x57, 0xb1)
+    c.emit(0x57, 0x2b); c.ref(0x13, sync_name)
+    c.emit(0x07); c.ref(0xbd, class_type)  # four int parameters
+    for index in range(4):
+        c.emit(0x59, 0x03 + index); c.ref(0xb2, integer_type); c.emit(0x53)
+    c.ref(0xb6, get_method); c.emit(0x57, 0x2b); c.ref(0x13, guides_name)
+    c.emit(0x03); c.ref(0xbd, class_type)
+    c.ref(0xb6, get_method); c.emit(0x57, 0xb1)
     code = c.finish()
-    body = u2(3) + u2(1) + u4(len(code)) + code + u2(0) + u2(0)
+    body = u2(6) + u2(2) + u4(len(code)) + code + u2(0) + u2(0)
     return (bytes.fromhex('cafebabe0000002e') + u2(len(pool)+1) + b''.join(pool) +
             u2(0x21) + u2(this) + u2(parent) + u2(0) + u2(0) + u2(1) +
             u2(9) + u2(main) + u2(desc) + u2(1) + u2(attr) + u4(len(body)) + body + u2(0))

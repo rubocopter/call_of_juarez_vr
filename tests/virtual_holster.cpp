@@ -20,17 +20,18 @@ struct Fixture {
         s.player=7;s.context=9;s.allowed=true;
         NativeReady(s,true);
         s.head=Pose({0,1.7F,0});s.grips={Pose({.22F,1,0}),Pose({-.22F,1,0})};
-        s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=7;
+        s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=0x27;
     }
     int Step(){++s.sequence;s.now_us+=10000;out=s.raw;return gate.Update(s,out);}
     void Release(){s.raw.kick=s.raw.interact=false;Step();}
 };
 }
 int main(){
-    for(int channel=0;channel<3;++channel){
+    for(int channel:{0,1,2,5}){
         Fixture f;Check(f.Step()==-1,"neutral acquisition selected a weapon");
-        if(channel==0)f.s.raw.interact=true;else f.s.raw.kick=true;
+        if(channel==0||channel==5)f.s.raw.interact=true;else f.s.raw.kick=true;
         if(channel==2)f.s.grips[0]=Pose({.22F,1.62F,.20F});
+        if(channel==5)f.s.grips[1]=Pose({-.22F,1.62F,.20F});
         Check(f.Step()==channel&&f.out.equipment_select[channel],"zone did not request its native slot");
         Check(!f.out.interact&&!f.out.kick&&!f.out.run,"holster press leaked Action/Kick/Gallop");
         Check(f.Step()==-1,"held grip repeated selection");
@@ -38,7 +39,8 @@ int main(){
         Check(f.Step()==-1&&!f.out.interact&&!f.out.kick,"claimed hold changed meaning outside zone");
         f.Release();f.s.grips={Pose({.22F,1,0}),Pose({-.22F,1,0})};
         if(channel==2)f.s.grips[0]=Pose({.22F,1.62F,.20F});
-        if(channel==0)f.s.raw.interact=true;else f.s.raw.kick=true;
+        if(channel==5)f.s.grips[1]=Pose({-.22F,1.62F,.20F});
+        if(channel==0||channel==5)f.s.raw.interact=true;else f.s.raw.kick=true;
         Check(f.Step()==channel,"fresh grip did not issue native toggle again");
     }
     {

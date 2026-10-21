@@ -75,6 +75,88 @@ bool Direction(const runtime::Vec2 p) {
     const float norm=p.x*p.x+p.y*p.y;
     return std::isfinite(norm)&&norm>.9F&&norm<1.1F;
 }
+// Wheel-only art: keep the shared Canvas font and other HUD surfaces unchanged.
+void WheelLeather(Canvas& c,const runtime::EquipmentWheelSnapshot& state) {
+    const float angle=state.selected*kPi/4;
+    const float s=std::sin(angle),co=std::cos(angle);
+    for(int y=0;y<kExtent;++y)for(int x=0;x<kExtent;++x){
+        const int dx=x-kCenter,dy=y-kCenter,r2=dx*dx+dy*dy;
+        if(r2>=246*246)continue;
+        // Stable fine grain and faint tooling bands; no animated noise or assets.
+        const auto hash=static_cast<unsigned>(x)*374761393U^
+            static_cast<unsigned>(y)*668265263U;
+        const int grain=static_cast<int>((hash^(hash>>13))&7)-3;
+        const int tooling=(x+(y/7)%3)%31==0?-3:0;
+        const int shade=5-r2/(95*95)+grain+tooling;
+        int r=44+shade,g=30+shade,b=21+shade;
+        const float forward=dx*s-dy*co,side=dx*co+dy*s;
+        const bool selected=state.selected>=0&&forward>0&&
+            std::fabs(side)<forward*.41421356237F&&r2>88*88&&r2<222*222;
+        if(selected){
+            const bool allowed=(state.available_mask&(1U<<state.selected))!=0;
+            r+=allowed?34:14;g+=allowed?21:4;b+=allowed?7:3;
+            // A narrow outer arc reads as selection without flooding the dial.
+            if(r2>215*215&&r2<220*220){r=allowed?197:109;g=allowed?143:79;b=allowed?65:57;}
+        }
+        const int light=-(dx+dy)/22;
+        if(r2>=244*244){r=48;g=34;b=22;}
+        else if(r2>=238*238){r=157+light;g=119+light;b=65+light;}
+        else if(r2>=236*236){r=59;g=40;b=25;}
+        else if(r2>=233*233){r=107+light;g=78+light;b=42+light;}
+        else if(r2>=230*230){r=29;g=20;b=15;}
+        c.pixels[y*kExtent+x]=(static_cast<unsigned>(r)<<16)|
+            (static_cast<unsigned>(g)<<8)|static_cast<unsigned>(b);
+    }
+}
+POINT WheelPoint(float angle,int radius) {
+    return {kCenter+static_cast<LONG>(radius*std::sin(angle)),
+        kCenter-static_cast<LONG>(radius*std::cos(angle))};
+}
+void WheelLabel(Canvas& c,std::u16string_view text,int x,int y,COLORREF color) {
+    if(text.empty())return;
+    const std::wstring value(text.begin(),text.end());
+    constexpr UINT flags=DT_CENTER|DT_WORDBREAK|DT_NOPREFIX|DT_END_ELLIPSIS;
+    RECT measure{0,0,136,68};
+    DrawTextW(c.dc,value.data(),static_cast<int>(value.size()),&measure,flags|DT_CALCRECT);
+    const int height=std::min(68L,measure.bottom-measure.top);
+    RECT box{x-68,y-height/2,x+68,y-height/2+height};
+    SetTextColor(c.dc,color);
+    DrawTextW(c.dc,value.data(),static_cast<int>(value.size()),&box,flags);
+}
+void WheelTooling(Canvas& c) {
+    // Saddle stitching, engraved sector grooves and small brass rivets.
+    for(int i=0;i<80;++i){
+        const float angle=i*kPi/40;
+        const auto a=WheelPoint(angle-.007F,225),b=WheelPoint(angle+.007F,225);
+        c.Segment(a.x,a.y,b.x,b.y,1,RGB(124,95,59));
+    }
+    for(int i=0;i<8;++i){
+        const float angle=(i+.5F)*kPi/4;
+        const auto a=WheelPoint(angle,91),b=WheelPoint(angle,219);
+        c.Segment(a.x+1,a.y+1,b.x+1,b.y+1,3,RGB(24,17,13));
+        c.Segment(a.x,a.y,b.x,b.y,1,RGB(116,87,51));
+        const auto rivet=WheelPoint(angle,236);
+        c.Circle(rivet.x,rivet.y,4,RGB(51,35,21));
+        c.Circle(rivet.x,rivet.y,2,RGB(193,151,88));
+    }
+    // A tooled rosette frames the quiet center, away from the action text.
+    for(int i=0;i<16;++i){
+        const float angle=i*kPi/8;
+        c.Triangle(WheelPoint(angle-.055F,79),WheelPoint(angle,88),
+            WheelPoint(angle+.055F,79),RGB(108,78,43));
+    }
+    c.Circle(kCenter,kCenter,80,RGB(28,19,14));
+    c.Circle(kCenter,kCenter,77,RGB(151,112,61));
+    c.Circle(kCenter,kCenter,75,RGB(69,47,29));
+    c.Circle(kCenter,kCenter,71,RGB(33,24,18));
+    for(int sign:{-1,1}){
+        const int y=kCenter+sign*48;
+        c.Segment(kCenter-26,y,kCenter-8,y,1,RGB(144,106,60));
+        c.Segment(kCenter+8,y,kCenter+26,y,1,RGB(144,106,60));
+        c.Triangle({kCenter-4,y},{kCenter,y-4},{kCenter+4,y},RGB(178,135,75));
+        c.Triangle({kCenter-4,y},{kCenter,y+4},{kCenter+4,y},RGB(120,86,46));
+    }
+}
 }
 const HudTextPanel& GameplayUiRaster::Threat(bool damage) noexcept {
     auto& panel=threat_pixels_[damage?1:0];
@@ -147,17 +229,29 @@ const HudTextPanel& GameplayUiRaster::Wheel(const runtime::EquipmentWheelSnapsho
     if(!state.valid||!state.active||state.selected< -1||state.selected>=8)return wheel_pixels_;
     try {
         Canvas c;if(!c.pixels)return wheel_pixels_;
-        c.Circle(kCenter,kCenter,246,RGB(21,26,32));
+        WheelLeather(c,state);
+        WheelTooling(c);
         for(int i=0;i<8;++i){
             const float angle=i*kPi/4;
             const int x=kCenter+static_cast<int>(165*std::sin(angle));
             const int y=kCenter-static_cast<int>(165*std::cos(angle));
             const bool allowed=(state.available_mask&(1U<<i))!=0;
-            if(state.selected==i)c.Circle(x,y,65,allowed?RGB(132,88,24):RGB(65,40,40));
-            c.Text(state.labels[i].view(),x,y,allowed?RGB(245,235,205):RGB(100,105,110));
+            if(state.selected==i){
+                c.Triangle(WheelPoint(angle-.06F,94),WheelPoint(angle,104),
+                    WheelPoint(angle+.06F,94),allowed?RGB(226,179,100):RGB(139,105,79));
+            }
+            // Disabled text stays legible; a separate barred stamp avoids relying
+            // on color alone. Neither decoration changes native eligibility.
+            if(!allowed){
+                c.Circle(x,y+43,7,RGB(139,116,86));
+                c.Circle(x,y+43,5,RGB(43,31,23));
+                c.Segment(x-4,y+47,x+4,y+39,2,RGB(168,143,108));
+            }
+            WheelLabel(c,state.labels[i].view(),x,y,
+                allowed?RGB(245,229,197):RGB(169,151,125));
         }
-        c.Circle(kCenter,kCenter,72,RGB(38,45,53));
-        c.Text(state.selected<0?state.cancel_label.view():state.confirm_label.view(),kCenter,kCenter,RGB(245,235,205));
+        WheelLabel(c,state.selected<0?state.cancel_label.view():state.confirm_label.view(),
+            kCenter,kCenter,RGB(245,229,197));
         wheel_pixels_=c.Finish();
     }catch(...){wheel_pixels_={};}
     return wheel_pixels_;

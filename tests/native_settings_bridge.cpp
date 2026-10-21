@@ -12,11 +12,11 @@ void Check(bool value,const char* message) {
     if(!value){std::cerr<<message<<'\n';std::exit(1);}
 }
 struct Page { bool exact=true,visible=true,ready=false;std::int32_t id=0x81234567,
-    serial=1,request=0,cinematics=0,turning=0;int syncs=0,completions=0;std::string status; } page;
+    serial=1,request=0,cinematics=0,turning=0,guides=0;int syncs=0,completions=0;std::string status; } page;
 struct Object { int references=0; } klass,other_class,exception,text;
 bool pending=false,missing_marker=false,fail_complete=false;
 int writes=0,callbacks=0;
-enum Id { visible=1,identity,ready,serial,request,sync,cinematics,turning,complete };
+enum Id { visible=1,identity,ready,serial,request,sync,cinematics,turning,guides,complete };
 void* Token(int id){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(id));}
 int Number(void* id){return static_cast<int>(reinterpret_cast<std::uintptr_t>(id));}
 void* __stdcall Find(void*,const char* name){Check(std::string(name)=="MenuOptionsGame","unexpected class lookup");++klass.references;return &klass;}
@@ -33,13 +33,14 @@ void* __stdcall Field(void*,void*,const char* name,const char*) {
     if(n=="cojvrSettingsRequest")return Token(request);
     Check(false,"unexpected field");return nullptr;
 }
-void* __stdcall Method(void*,void*,const char* name,const char*) {
+void* __stdcall Method(void*,void*,const char* name,const char* descriptor) {
     const std::string n(name);
     if(n=="IsActuallyVisible")return Token(visible);
     if(n=="GetThisID")return Token(identity);
-    if(n=="cojvrSyncSettings")return Token(sync);
+    if(n=="cojvrSyncSettings"){Check(std::string(descriptor)=="(IIII)V","sync JNI descriptor mismatch");return Token(sync);}
     if(n=="cojvrCinematicsValue")return Token(cinematics);
     if(n=="cojvrTurningValue")return Token(turning);
+    if(n=="cojvrHolsterGuidesValue"){Check(std::string(descriptor)=="()I","guide JNI descriptor mismatch");return Token(guides);}
     if(n=="cojvrCompleteSettings")return Token(complete);
     Check(false,"unexpected method");return nullptr;
 }
@@ -48,6 +49,7 @@ std::uint8_t __stdcall ReadBool(void*,void*,void*){return page.ready;}
 std::int32_t __stdcall Int(void*,void*,void* method,const void*) {
     if(Number(method)==identity)return page.id;
     if(Number(method)==cinematics)return page.cinematics;
+    if(Number(method)==guides)return page.guides;
     Check(Number(method)==turning,"unexpected int method");return page.turning;
 }
 std::int32_t __stdcall ReadInt(void*,void*,void* field){return Number(field)==serial?page.serial:page.request;}
@@ -61,7 +63,8 @@ void* __stdcall String(void*,const char* value){page.status=value;++text.referen
 void __stdcall Void(void*,void*,void* method,const NativeSettingsJValue* values){
     ++callbacks;
     if(Number(method)==sync){
-        page.cinematics=values[0].i;page.turning=values[1].i;
+        page.cinematics=values[0].i;page.turning=values[1].i;page.guides=values[2].i;
+        Check(values[3].i==0||values[3].i==1,"invalid sync language");
         page.ready=true;page.request=0;page.status.clear();++page.syncs;return;
     }
     Check(Number(method)==complete,"unexpected callback");
@@ -92,29 +95,31 @@ int main(){
     page.visible=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error),"hidden page failed");
     Check(page.syncs==0,"hidden page acquired settings");Clean();page.visible=true;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.ready&&page.syncs==1,"fresh visible page not synchronized");Clean();
-    page.cinematics=1;page.turning=1;
+    page.cinematics=1;page.turning=1;page.guides=1;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.cinematics==1&&page.syncs==1,"unsaved native edits overwritten");
     Check(store.Read().values.cinematics==CinematicsMode::theater,"highlight applied before OK");
     page.request=1;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.completions==1,"accepted native OK did not complete");Clean();
     auto snapshot=store.Read();
-    Check(snapshot.values.cinematics==CinematicsMode::immersive&&snapshot.values.turning==TurnMode::snap,"native choices not published together");
-    Check(LoadVrSettings(path).turning==TurnMode::snap,"native choices not persisted");
+    Check(snapshot.values.cinematics==CinematicsMode::immersive&&snapshot.values.turning==TurnMode::snap&&snapshot.values.holster_guides&&CurrentHolsterGuidesEnabled(),"native choices not published together");
+    Check(LoadVrSettings(path).turning==TurnMode::snap&&LoadVrSettings(path).holster_guides,"native choices not persisted");
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.completions==1,"completed request replayed");
     page.visible=true;page.ready=false;++page.serial;
     Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.syncs==2,"reopened page did not rebase");
     auto other=store.ApplyCinematics(CinematicsMode::theater,snapshot.revision);
     Check(other.accepted,"other editor setup failed");page.request=1;
     Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.completions==1&&!page.status.empty(),"stale editor overwrote newer preferences or silently closed");
-    Check(store.Read().values.cinematics==CinematicsMode::theater&&page.cinematics==0,"conflict did not rebase to authoritative mode");Clean();
-    page.cinematics=99;page.request=1;
+    Check(store.Read().values.cinematics==CinematicsMode::theater&&page.cinematics==0&&page.guides==1,"conflict did not rebase to authoritative mode");Clean();
+    page.guides=2;page.request=1;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.request==0&&page.completions==1,"invalid guide committed");
+    page.guides=1;page.cinematics=99;page.request=1;
     Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.request==0&&page.completions==1,"invalid native option committed/retried");Clean();
-    page.cinematics=1;page.turning=0;page.request=1;
+    page.cinematics=1;page.turning=0;page.guides=0;page.request=1;
     HANDLE locked=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
     Check(locked!=INVALID_HANDLE_VALUE,"save denial setup failed");
     Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.visible&&page.completions==1&&!page.status.empty(),"failed persistence hid error or left page");
-    Check(store.Read().save_failed&&store.Read().values.cinematics==CinematicsMode::immersive,"save failure lost session value");
-    Check(LoadVrSettings(path).mode==CinematicsMode::theater,"failed native save destroyed previous file");CloseHandle(locked);Clean();
+    Check(store.Read().save_failed&&store.Read().values.cinematics==CinematicsMode::immersive&&!CurrentHolsterGuidesEnabled(),"save failure lost session value");
+    Check(LoadVrSettings(path).mode==CinematicsMode::theater&&LoadVrSettings(path).holster_guides,"failed native save destroyed previous file");CloseHandle(locked);Clean();
     page.request=1;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.completions==2,"fresh explicit save retry failed");Clean();
     page.visible=true;page.ready=false;++page.serial;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error),"partial callback setup failed");
     page.cinematics=0;page.request=1;fail_complete=true;

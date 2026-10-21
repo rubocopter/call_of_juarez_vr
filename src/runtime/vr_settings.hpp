@@ -10,11 +10,13 @@ enum class TurnMode : std::uint8_t { smooth, snap };
 struct VrPreferences {
     CinematicsMode cinematics = CinematicsMode::theater;
     TurnMode turning = TurnMode::smooth;
+    bool holster_guides = false; // Visual comfort only; never changes selection eligibility.
 };
 enum class SettingsLanguage : std::uint8_t { english, spanish };
 // Game-thread reads never touch presenter-owned menu or filesystem objects.
 [[nodiscard]] CinematicsMode CurrentCinematicMode() noexcept;
 [[nodiscard]] TurnMode CurrentTurnMode() noexcept;
+[[nodiscard]] bool CurrentHolsterGuidesEnabled() noexcept;
 [[nodiscard]] bool SettingsInputCaptured() noexcept;
 void PublishCinematicMode(CinematicsMode mode) noexcept;
 void PublishSettingsInputCapture(bool captured) noexcept;
@@ -25,9 +27,12 @@ struct SettingsLoadResult {
     SettingsLoadStatus status = SettingsLoadStatus::missing;
     std::uint32_t error_code = 0;
     TurnMode turning = TurnMode::smooth;
+    bool holster_guides = false;
 };
 struct SettingsSaveResult { bool ok = false; std::uint32_t error_code = 0; };
 [[nodiscard]] std::filesystem::path DefaultVrSettingsPath() noexcept;
+// Strict v3 writes; v1/v2 reads supply guides=false. Cinema-only saves preserve
+// the other persisted values and refuse malformed/unreadable files.
 [[nodiscard]] SettingsLoadResult LoadVrSettings(const std::filesystem::path& file) noexcept;
 [[nodiscard]] SettingsSaveResult SaveVrSettings(const std::filesystem::path& file, CinematicsMode mode) noexcept;
 [[nodiscard]] SettingsSaveResult SaveVrSettings(const std::filesystem::path& file, VrPreferences values) noexcept;
@@ -47,7 +52,7 @@ struct VrPreferenceApplyResult {
     std::uint32_t error_code = 0;
     VrPreferenceSnapshot snapshot{};
 };
-// Editors share this owner. Read returns a coherent pair/revision; direct
+// Editors share this owner. Read returns coherent values and revision; direct
 // game-thread getters above only load atomics and never acquire this I/O lock.
 class VrPreferenceStore final {
 public:

@@ -81,7 +81,8 @@ public:
     [[nodiscard]] bool Prepare(ID3D11Device* device) noexcept;
     [[nodiscard]] bool Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const runtime::StereoHudTextOverlay& overlay, std::uint64_t capture_sequence,
-        const std::array<ID3D11Texture2D*, 2>& targets) noexcept;
+        const std::array<ID3D11Texture2D*, 2>& targets,
+        bool show_holster_guides = true) noexcept;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

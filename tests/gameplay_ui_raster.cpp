@@ -6,6 +6,8 @@
 #include <limits>
 #include <fstream>
 #include <string>
+#include <cmath>
+#include <set>
 using namespace cojvr::runtime;
 using namespace cojvr::backends::openvr;
 void Require(bool ok,const char* why) { if(!ok){std::cerr<<why<<'\n';std::exit(1);} }
@@ -18,6 +20,114 @@ void Save(const HudTextPanel& panel,const char* path){
     out<<"P6\n"<<panel.width<<' '<<panel.height<<"\n255\n";
     for(const auto pixel:panel.pixels){const char rgb[]{static_cast<char>(pixel>>16),
         static_cast<char>(pixel>>8),static_cast<char>(pixel)};out.write(rgb,3);}
+}
+void WheelVisuals(GameplayUiRaster& raster,const EquipmentWheelSnapshot& source,const char* prefix){
+    auto wheel=source;
+    wheel.selected=-1;wheel.available_mask=255;
+    for(auto& label:wheel.labels)label={};
+    // Identical action text isolates the selection art from the native action label.
+    SetLabel(wheel.cancel_label,u"Confirm");wheel.confirm_label=wheel.cancel_label;
+    const auto neutral=raster.Wheel(wheel);
+    std::set<std::uint32_t> material;
+    std::size_t dark_warm=0,interior=0,rim_light=0,rim=0;
+    for(int y=0;y<512;++y)for(int x=0;x<512;++x){
+        const int dx=x-256,dy=y-256,r2=dx*dx+dy*dy;
+        const auto p=neutral.pixels[y*512+x];
+        Require(r2<246*246?(p>>24)==255:p==0,
+            "wheel must retain exact circular opaque coverage and transparent exterior");
+        const auto r=(p>>16)&255,g=(p>>8)&255,b=p&255;
+        if(r2>110*110&&r2<210*210){
+            material.insert(p);++interior;
+            dark_warm+=r>g&&g>b&&r<110;
+        }
+        if(r2>237*237&&r2<243*243){++rim;rim_light+=r>100&&r>g&&g>b;}
+    }
+    Require(dark_warm>interior*8/10&&material.size()>12,
+        "wheel needs a quiet warm leather material with procedural tonal variation");
+    Require(rim_light>rim*7/10,"wheel needs a continuous readable brass rim");
+    for(int slot=0;slot<8;++slot){
+        wheel.selected=slot;
+        const auto selected=raster.Wheel(wheel);
+        std::size_t changed=0,outside=0,amber=0;
+        for(int y=0;y<512;++y)for(int x=0;x<512;++x){
+            const int dx=x-256,dy=y-256,r2=dx*dx+dy*dy;
+            if(r2<95*95||r2>222*222)continue;
+            float angle=std::atan2(static_cast<float>(dx),static_cast<float>(-dy));
+            if(angle<0)angle+=6.28318530718F;
+            const int sector=static_cast<int>(angle/.78539816339F+.5F)%8;
+            const auto p=selected.pixels[y*512+x];
+            if(p!=neutral.pixels[y*512+x]){++changed;outside+=sector!=slot;}
+            amber+=((p>>16)&255)>150&&((p>>8)&255)>85&&(p&255)<110;
+        }
+        Require(changed>3000&&outside<changed/50,
+            "selection art must follow each native sector without lighting adjacent slots");
+        Require(amber>100&&amber<5000,"selection needs a restrained visible amber accent");
+    }
+    wheel.selected=-1;wheel.available_mask=254;
+    const auto unavailable=raster.Wheel(wheel);
+    std::size_t unavailable_mark=0;
+    for(std::size_t i=0;i<neutral.pixels.size();++i)unavailable_mark+=neutral.pixels[i]!=unavailable.pixels[i];
+    Require(unavailable_mark>30,"unavailable slots need a non-text cue even without a copied label");
+    const auto unavailable_revision=raster.wheel_revision();
+    wheel.available_mask=255;
+    Require(raster.Wheel(wheel).pixels==neutral.pixels&&raster.wheel_revision()==unavailable_revision+1,
+        "native availability alone must invalidate cache and restore the available presentation");
+    wheel.selected=0;const auto allowed_selection=raster.Wheel(wheel);
+    wheel.available_mask=254;const auto denied_selection=raster.Wheel(wheel);
+    std::size_t allowed_amber=0,denied_amber=0;
+    for(int y=0;y<512;++y)for(int x=0;x<512;++x){
+        const int dx=x-256,dy=y-256,r2=dx*dx+dy*dy;
+        if(r2<210*210||r2>222*222)continue;
+        const auto amber=[](std::uint32_t p){return ((p>>16)&255)>150&&((p>>8)&255)>85&&(p&255)<110;};
+        allowed_amber+=amber(allowed_selection.pixels[y*512+x]);
+        denied_amber+=amber(denied_selection.pixels[y*512+x]);
+    }
+    Require(allowed_amber>denied_amber+500,
+        "denied selection must not display the available slot's bright amber arc");
+    wheel.labels=source.labels;wheel.cancel_label=source.cancel_label;wheel.confirm_label=source.confirm_label;
+    wheel.available_mask=source.available_mask;wheel.selected=0;
+    const auto labelled=raster.Wheel(wheel);
+    auto no_labels=wheel;for(auto& label:no_labels.labels)label={};
+    const auto blank=raster.Wheel(no_labels);
+    for(int slot=0;slot<8;++slot){
+        const float angle=slot*3.14159265359F/4;
+        const int cx=256+static_cast<int>(165*std::sin(angle));
+        const int cy=256-static_cast<int>(165*std::cos(angle));
+        std::size_t glyphs=0;
+        for(int y=cy-34;y<cy+34;++y)for(int x=cx-68;x<cx+68;++x)
+            glyphs+=labelled.pixels[y*512+x]!=blank.pixels[y*512+x];
+        Require(glyphs>100,"every native slot label, including unavailable labels, must remain readable");
+    }
+    if(prefix){
+        const auto save=[&](const HudTextPanel& p,const char* name){Save(p,(std::string(prefix)+name+".ppm").c_str());};
+        save(labelled,"selected");
+        wheel.selected=2;save(raster.Wheel(wheel),"unavailable");
+        wheel.selected=-1;save(raster.Wheel(wheel),"cancel");
+        wheel.available_mask=255;wheel.selected=7;save(raster.Wheel(wheel),"all-available");
+        wheel.available_mask=0;save(raster.Wheel(wheel),"none-available");
+        const std::u16string_view spanish[]{u"Arma larga",u"Arco",u"Pistola derecha",u"Dinamita",
+            u"Manos",u"Soltar",u"Pistola izquierda",u"Látigo"};
+        for(int i=0;i<8;++i)SetLabel(wheel.labels[i],spanish[i]);
+        wheel.available_mask=255;SetLabel(wheel.confirm_label,u"Confirmar");SetLabel(wheel.cancel_label,u"Cancelar");
+        save(raster.Wheel(wheel),"spanish");
+        wheel.selected=-1;save(raster.Wheel(wheel),"spanish-cancel");
+        const std::u16string_view english[]{u"Long weapon",u"Bow",u"Right pistol",u"Dynamite",
+            u"Hands",u"Discard",u"Left pistol",u"Bible"};
+        for(int i=0;i<8;++i)SetLabel(wheel.labels[i],english[i]);
+        wheel.confirm_label=source.confirm_label;wheel.cancel_label=source.cancel_label;
+        wheel.selected=6;save(raster.Wheel(wheel),"english");
+    }
+    wheel=source;wheel.selected=0;
+    const auto original=raster.Wheel(wheel);
+    const auto revision=raster.wheel_revision();
+    SetLabel(wheel.labels[0],u"Rifle & acción");
+    Require(raster.Wheel(wheel).pixels!=original.pixels&&raster.wheel_revision()==revision+1,
+        "copied accented native labels must invalidate the wheel cache");
+    wheel=source;wheel.valid=false;
+    Require(raster.Wheel(wheel).pixels.empty(),"invalid native wheel must clear its decorated surface");
+    wheel.valid=true;
+    for(int invalid:{-2,8}){wheel.selected=invalid;
+        Require(raster.Wheel(wheel).pixels.empty(),"invalid selection must not resurrect decorated wheel pixels");}
 }
 int main(int argc,char** argv) {
     Require(NoShootReticlePixel(0,0)==0xFFFF4038U&&NoShootReticlePixel(6,-6)==0xFFFF4038U,"warning must be a red X at aim point");
@@ -53,6 +163,7 @@ int main(int argc,char** argv) {
     const auto rev=raster.wheel_revision();
     (void)raster.Wheel(wheel);
     Require(rev==raster.wheel_revision(),"unchanged wheel must reuse cached pixels");
+    WheelVisuals(raster,wheel,argc>7?argv[7]:nullptr);
     wheel.selected=-1;const auto english_cancel=raster.Wheel(wheel);
     const auto english_revision=raster.wheel_revision();
     SetLabel(wheel.cancel_label,u"Cancelar");const auto spanish_cancel=raster.Wheel(wheel);

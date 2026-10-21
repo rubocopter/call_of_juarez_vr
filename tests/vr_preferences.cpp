@@ -32,16 +32,17 @@ std::string Bytes(const std::filesystem::path& file) {
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 bool Equal(VrPreferences a, VrPreferences b) {
-    return a.cinematics == b.cinematics && a.turning == b.turning;
+    return a.cinematics == b.cinematics && a.turning == b.turning && a.holster_guides == b.holster_guides;
 }
 void Published(VrPreferences expected) {
-    Require(CurrentCinematicMode() == expected.cinematics && CurrentTurnMode() == expected.turning,
+    Require(CurrentCinematicMode() == expected.cinematics && CurrentTurnMode() == expected.turning &&
+        CurrentHolsterGuidesEnabled() == expected.holster_guides,
         "session choice was not published to atomic game-thread readers");
 }
 void Persisted(const std::filesystem::path& file, VrPreferences expected) {
     const auto loaded = LoadVrSettings(file);
     Require(loaded.status == SettingsLoadStatus::loaded && loaded.mode == expected.cinematics &&
-        loaded.turning == expected.turning, "disk values differ from the accepted preference pair");
+        loaded.turning == expected.turning && loaded.holster_guides == expected.holster_guides, "disk values differ from the accepted preferences");
 }
 struct TemporaryDirectory {
     std::filesystem::path path = std::filesystem::temp_directory_path() /
@@ -66,26 +67,40 @@ void StrictSchemas(const std::filesystem::path& root) {
     auto loaded = LoadVrSettings(file);
     Require(loaded.status == SettingsLoadStatus::loaded && loaded.mode == CinematicsMode::immersive,
         "strict v2 cinema + turning preferences must load");
-    Require(loaded.turning == TurnMode::snap, "v2 snap choice was discarded");
+    Require(loaded.turning == TurnMode::snap && !loaded.holster_guides, "v2 snap choice was discarded");
+    Require(SaveVrSettings(file, CinematicsMode::theater).ok, "legacy edit could not migrate v2");
+    Persisted(file, {CinematicsMode::theater, TurnMode::snap, false});
+    Require(Bytes(file) == "version=3\ncinematics=theater\nturning=snap\nholster_guides=false\n",
+        "legacy edit did not migrate v2 while preserving turning");
     Write(file, " # preference\r\n turning = smooth\r\ncinematics=theater\r\n version = 2 ");
     loaded = LoadVrSettings(file);
     Require(loaded.status == SettingsLoadStatus::loaded && loaded.mode == CinematicsMode::theater &&
         loaded.turning == TurnMode::smooth, "v2 key order/CRLF broke strict parsing");
     for (auto cinema : {CinematicsMode::theater, CinematicsMode::immersive}) {
-        Require(SaveVrSettings(file, cinema).ok, "legacy v1 saver failed");
-        Require(Bytes(file) == (cinema == CinematicsMode::theater ?
-            "version=1\ncinematics=theater\n" : "version=1\ncinematics=immersive\n"),
-            "legacy saver changed its v1 API semantics");
-        loaded = LoadVrSettings(file);
-        Require(loaded.status == SettingsLoadStatus::loaded && loaded.mode == cinema &&
-            loaded.turning == TurnMode::smooth, "v1 must migrate cinema with smooth turning");
+        Write(file, cinema == CinematicsMode::theater ?
+            "version=1\ncinematics=theater\n" : "version=1\ncinematics=immersive\n");
+        Persisted(file, {cinema, TurnMode::smooth, false});
         for (auto turning : {TurnMode::smooth, TurnMode::snap}) {
-            Require(SaveVrSettings(file, VrPreferences{cinema, turning}).ok, "v2 saver failed");
-            Persisted(file, {cinema, turning});
-            Require(Bytes(file).starts_with("version=2\n"), "new saver did not emit v2");
+            for (bool guides : {false, true}) {
+                Require(SaveVrSettings(file, VrPreferences{cinema, turning, guides}).ok, "v3 saver failed");
+                Persisted(file, {cinema, turning, guides});
+                Require(Bytes(file).starts_with("version=3\n"), "new saver did not emit v3");
+                Require(SaveVrSettings(file, cinema).ok, "legacy cinematic edit failed");
+                Persisted(file, {cinema, turning, guides});
+            }
         }
     }
+    Write(file, " holster_guides = true\r\nturning=snap\r\ncinematics=immersive\r\nversion=3 ");
+    Persisted(file, {CinematicsMode::immersive, TurnMode::snap, true});
     for (std::string_view invalid : {
+        "version=3\ncinematics=immersive\nturning=snap\nholster_guides=1\n",
+        "version=3\ncinematics=immersive\nturning=snap\nholster_guides=True\n",
+        "version=3\ncinematics=immersive\nturning=snap\nholster_guides=\n",
+        "version=3\ncinematics=immersive\nturning=snap\nholster_guides=true\nholster_guides=false\n",
+        "version=3\ncinematics=immersive\nholster_guides=true\n",
+        "version=3\nturning=snap\nholster_guides=true\n",
+        "version=2\ncinematics=immersive\nturning=snap\nholster_guides=false\n",
+        "version=1\ncinematics=immersive\nholster_guides=false\n",
         "", "version=0\ncinematics=immersive\n", "version=3\ncinematics=immersive\nturning=snap\n",
         "version=02\ncinematics=immersive\nturning=snap\n", "cinematics=immersive\nturning=snap\n",
         "version=2\nturning=snap\n", "version=2\ncinematics=immersive\n",
@@ -100,21 +115,21 @@ void StrictSchemas(const std::filesystem::path& root) {
         Write(file, invalid);
         loaded = LoadVrSettings(file);
         Require(loaded.status == SettingsLoadStatus::invalid && loaded.mode == CinematicsMode::theater &&
-            loaded.turning == TurnMode::smooth, "invalid schema admitted partial/unsafe preferences");
+            loaded.turning == TurnMode::smooth && !loaded.holster_guides, "invalid schema admitted partial/unsafe preferences");
     }
     Write(file, std::string(4097, 'x'));
     Require(LoadVrSettings(file).status == SettingsLoadStatus::invalid, "oversized settings admitted");
     Write(file, std::string("version=2\ncinematics=immersive\nturning=snap\n") + '\0');
     Require(LoadVrSettings(file).status == SettingsLoadStatus::invalid, "embedded NUL admitted");
-    Require(SaveVrSettings(file, VrPreferences{}).ok, "valid v2 baseline failed");
+    Require(SaveVrSettings(file, VrPreferences{}).ok, "valid v3 baseline failed");
     const auto before = Bytes(file);
     for (auto invalid : {VrPreferences{static_cast<CinematicsMode>(99), TurnMode::smooth},
         VrPreferences{CinematicsMode::immersive, static_cast<TurnMode>(99)}}) {
         const auto save = SaveVrSettings(file, invalid);
         Require(!save.ok && save.error_code != 0 && Bytes(file) == before,
-            "v2 saver admitted an invalid enum or damaged existing values");
+            "v3 saver admitted an invalid enum or damaged existing values");
     }
-    Require(!SaveVrSettings({}, VrPreferences{}).ok, "v2 saver accepted empty path");
+    Require(!SaveVrSettings({}, VrPreferences{}).ok, "v3 saver accepted empty path");
 }
 
 // An older runtime must never erase a newer schema, even after an explicit session edit/retry.
@@ -124,6 +139,8 @@ void PreserveUnrecognizedSettings(const std::filesystem::path& root) {
         "version=9\ncinematics=immersive\nturning=snap\nfuture=keep\n",
         "version=2\ncinematics=immersive\n"}) {
         Write(file, bytes);
+        Require(!SaveVrSettings(file, CinematicsMode::theater).ok && Bytes(file) == bytes,
+            "legacy saver erased an unrecognized file");
         VrPreferenceStore store;
         const auto initial = store.Initialize(file);
         Require(initial.load_status == SettingsLoadStatus::invalid, "unrecognized schema did not fail closed");
@@ -163,7 +180,7 @@ void Initialization(const std::filesystem::path& root) {
         uninitialized.Read().revision);
     Require(!refused.accepted && !refused.saved && !refused.conflict && refused.error_code != 0,
         "uninitialized store accepted an unowned persistence destination");
-    Require(SaveVrSettings(file, CinematicsMode::immersive).ok, "v1 fixture failed");
+    Write(file, "version=1\ncinematics=immersive\n");
     VrPreferenceStore store;
     const auto initial = store.Initialize(file);
     Require(Equal(initial.values, {CinematicsMode::immersive, TurnMode::smooth}) &&
@@ -174,8 +191,8 @@ void Initialization(const std::filesystem::path& root) {
     Require(Bytes(file) == "version=1\ncinematics=immersive\n", "initialize wrote a migration eagerly");
     const auto migrated = store.Apply(initial.values, initial.revision);
     Require(migrated.accepted && migrated.saved && !migrated.conflict && migrated.error_code == 0,
-        "unchanged v1 preference could not be persisted as v2");
-    Require(Bytes(file) == "version=2\ncinematics=immersive\nturning=smooth\n", "owner failed v1->v2 migration");
+        "unchanged v1 preference could not be persisted as v3");
+    Require(Bytes(file) == "version=3\ncinematics=immersive\nturning=smooth\nholster_guides=false\n", "owner failed v1->v3 migration");
     const auto ignored = root / "ignored.ini";
     Write(ignored, "version=2\ncinematics=theater\nturning=snap\n");
     const auto again = store.Initialize(ignored);
@@ -218,9 +235,13 @@ void EditorsAndRetry(const std::filesystem::path& root) {
     VrPreferenceStore store;
     const auto native = store.Initialize(file);
     const auto overlay = store.Read();
-    const auto selected = store.Apply({CinematicsMode::theater, TurnMode::snap}, native.revision);
+    const auto selected = store.Apply({CinematicsMode::theater, TurnMode::snap, true}, native.revision);
     Require(selected.accepted && selected.saved && !selected.conflict &&
         selected.snapshot.revision > native.revision, "native editor failed to save snap choice");
+    VrPreferenceStore restarted;
+    const auto restored = restarted.Initialize(file);
+    Require(Equal(restored.values, selected.snapshot.values), "v3 startup lost guides");
+    Published(restored.values);
     const auto before = Bytes(file);
     const auto stale = store.ApplyCinematics(CinematicsMode::immersive, overlay.revision);
     Require(!stale.accepted && !stale.saved && stale.conflict && stale.error_code != 0 &&
@@ -228,20 +249,20 @@ void EditorsAndRetry(const std::filesystem::path& root) {
         Bytes(file) == before, "stale overlay overwrote another editor's turn choice");
     Published(selected.snapshot.values);
     const auto fresh = store.ApplyCinematics(CinematicsMode::immersive, stale.snapshot.revision);
-    Require(fresh.saved && fresh.accepted && Equal(fresh.snapshot.values, {CinematicsMode::immersive, TurnMode::snap}),
-        "cinema-only overlay update reset turning");
+    Require(fresh.saved && fresh.accepted && Equal(fresh.snapshot.values, {CinematicsMode::immersive, TurnMode::snap, true}),
+        "cinema-only overlay update reset turning or guides");
     Persisted(file, fresh.snapshot.values);
     Published(fresh.snapshot.values);
     PublishCinematicMode(CinematicsMode::theater);
-    Published({CinematicsMode::theater, TurnMode::snap});
+    Published({CinematicsMode::theater, TurnMode::snap, true});
     PublishCinematicMode(static_cast<CinematicsMode>(99));
-    Published({CinematicsMode::theater, TurnMode::snap});
+    Published({CinematicsMode::theater, TurnMode::snap, true});
 
     const auto old_bytes = Bytes(file);
     VrPreferenceApplyResult failed;
     {
         ReadLock locked(file);
-        failed = store.Apply({CinematicsMode::theater, TurnMode::smooth}, fresh.snapshot.revision);
+        failed = store.Apply({CinematicsMode::theater, TurnMode::smooth, true}, fresh.snapshot.revision);
         Require(failed.accepted && !failed.saved && !failed.conflict && failed.error_code != 0 &&
             failed.snapshot.save_failed && failed.snapshot.save_error == failed.error_code &&
             failed.snapshot.revision > fresh.snapshot.revision, "save failure was not distinct from session application");

@@ -211,8 +211,14 @@ int main(int argc,char** argv) {
     Require(!saved.ok&&saved.error_code!=0,"save to directory falsely reported success");
     Require(!SaveVrSettings({},CinematicsMode::immersive).ok,"empty persistence path accepted");
     Require(!SaveVrSettings(file,static_cast<CinematicsMode>(9)).ok,"invalid enum serialized");
-    Require(SaveVrSettings(file,CinematicsMode::theater).ok,"replacement save failed");
+    Require(SaveVrSettings(file,VrPreferences{}).ok,"replacement save failed");
     Require(LoadVrSettings(file).mode==CinematicsMode::theater,"replacement failed to persist theater");
+    Require(SaveVrSettings(file,VrPreferences{CinematicsMode::immersive,TurnMode::snap,true}).ok,
+        "guide preservation fixture failed");
+    Require(SaveVrSettings(file,CinematicsMode::theater).ok,"legacy cinema edit failed");
+    loaded=LoadVrSettings(file);
+    Require(loaded.mode==CinematicsMode::theater&&loaded.turning==TurnMode::snap&&loaded.holster_guides,
+        "legacy cinema edit erased comfort preferences");
     HANDLE locked=CreateFileW(file.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
     Require(locked!=INVALID_HANDLE_VALUE,"settings write-denial fixture failed to lock destination");
     saved=SaveVrSettings(file,CinematicsMode::immersive);

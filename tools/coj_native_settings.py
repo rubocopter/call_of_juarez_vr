@@ -5,10 +5,11 @@ and game-thread/lifetime admission belong to the caller. No original game assets
 are embedded. This adds no UI registration or native/JNI implementation.
 
 Bridge: Show increments the instance serial and revokes readiness/request. Sync
-initializes once per Show; OnOK publishes request=1 only for a ready valid pair.
+initializes once per Show; OnOK publishes request=1 only for ready valid preferences.
 The bridge consumes 1->2 before any effects; accepted completion requires 2 and
 runs the retained original OnOK after clearing it. Back (including Cancel/Escape) revokes it. The caller must also reject stale
 serials/modal owners before completion and keep JNI calls on the game thread.
+Sync takes (cinematics, turning, holster guides, language), each bounded to 0/1.
 An intentional conflict/recovery refresh clears ready before calling Sync again.
 """
 from __future__ import annotations
@@ -27,8 +28,8 @@ SELECT = "UIOptionsControlSelect"
 OPTION = SELECT + "$OptionInfo"
 BRIDGE_FIELDS = (("cojvrSettingsReady", "Z"), ("cojvrSettingsRequest", "I"),
                  ("cojvrSettingsOpenSerial", "I"))
-BRIDGE_METHODS = (("cojvrSyncSettings", "(III)V"), ("cojvrCinematicsValue", "()I"),
-                  ("cojvrTurningValue", "()I"),
+BRIDGE_METHODS = (("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
+                  ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"),
                   ("cojvrCompleteSettings", "(ZLjava/lang/String;)V"))
 
 
@@ -57,6 +58,7 @@ def patch_menu_class(data: bytes) -> bytes:
         e.fields[-8:-6] = u2(0x0041)
     for name, desc in (("cojvrCinematicsControl", "L" + SELECT + ";"),
                        ("cojvrTurningControl", "L" + SELECT + ";"),
+                       ("cojvrHolsterGuidesControl", "L" + SELECT + ";"),
                        ("cojvrStatusControl", "LUIStatic;")):
         fields[name] = e.field(name, desc)
         # Internal cached widgets are private; only bridge state is volatile/public.
@@ -101,6 +103,7 @@ def patch_menu_class(data: bytes) -> bytes:
     revoke(c)
     for field, id_, type_ in (("cojvrCinematicsControl", "ID_VR_CINEMATICS", SELECT),
                                ("cojvrTurningControl", "ID_VR_TURNING", SELECT),
+                               ("cojvrHolsterGuidesControl", "ID_VR_HOLSTER_GUIDES", SELECT),
                                ("cojvrStatusControl", "ID_VR_STATUS", "UIStatic")):
         put(c, field, 0x01)
         c.emit(0x2a); c.ref(0x13, string(id_)); c.ref(0xb6, get_elem); c.emit(0x4c)
@@ -119,7 +122,8 @@ def patch_menu_class(data: bytes) -> bytes:
     c.label("invalid"); c.emit(0x02, 0xac)
     value = helper("cojvrSettingsValue", "(L" + SELECT + ";)I", c, 4)
     for name, field in (("cojvrCinematicsValue", "cojvrCinematicsControl"),
-                         ("cojvrTurningValue", "cojvrTurningControl")):
+                         ("cojvrTurningValue", "cojvrTurningControl"),
+                         ("cojvrHolsterGuidesValue", "cojvrHolsterGuidesControl")):
         c = Code(); c.emit(0x2a, 0x2a); c.ref(0xb4, fields[field]); c.ref(0xb6, value); c.emit(0xac)
         helper(name, "()I", c, 1)
 
@@ -149,10 +153,11 @@ def patch_menu_class(data: bytes) -> bytes:
     c.emit(0x2a); c.ref(0xb4, fields["cojvrSettingsReady"]); c.branch(0x9a, "done")
     put(c, "cojvrSettingsRequest", 0x03)
     c.emit(0x2a); c.ref(0x13, string("")); c.ref(0xb6, status)
-    for load in (0x1b, 0x1c, 0x1d):
-        c.emit(load); c.branch(0x9b, "done")
-        c.emit(load, 0x04); c.branch(0xa3, "done")
-    for field in ("cojvrCinematicsControl", "cojvrTurningControl"):
+    for load in ((0x1b,), (0x1c,), (0x1d,), (0x15, 4)):
+        # cinema, turning, guides, locale are independently bounded integers.
+        c.emit(*load); c.branch(0x9b, "done")
+        c.emit(*load, 0x04); c.branch(0xa3, "done")
+    for field in ("cojvrCinematicsControl", "cojvrTurningControl", "cojvrHolsterGuidesControl"):
         c.emit(0x2a); c.ref(0xb4, fields[field]); c.branch(0xc6, "done")
     for tag, field, selected_load, english, spanish in (
         ("cinema", "cojvrCinematicsControl", 0x1b,
@@ -160,21 +165,24 @@ def patch_menu_class(data: bytes) -> bytes:
          ("Cinemáticas RV", "Teatro", "Inmersivo", "Presentación de las cinemáticas del juego en RV.")),
         ("turning", "cojvrTurningControl", 0x1c,
          ("VR turning", "Smooth", "Snap", "Turn continuously or in fixed steps."),
-         ("Giro RV", "Suave", "Por pasos", "Gira de forma continua o en pasos fijos."))):
+         ("Giro RV", "Suave", "Por pasos", "Gira de forma continua o en pasos fijos.")),
+        ("guides", "cojvrHolsterGuidesControl", 0x1d,
+         ("VR Comfort: holster guides", "Off", "On", "Show colored hip holster areas."),
+         ("Comodidad RV: guías de fundas", "No", "Sí", "Muestra zonas de color para las fundas de la cadera."))):
         c.emit(0x2a, 0x2a); c.ref(0xb4, fields[field])
-        c.emit(0x1d); c.branch(0x9a, tag + "_es")
+        c.emit(0x15, 4); c.branch(0x9a, tag + "_es")
         for text in english: c.ref(0x13, string(text))
         c.branch(0xa7, tag + "_row")
         c.label(tag + "_es")
         for text in spanish: c.ref(0x13, string(text))
         c.label(tag + "_row"); c.emit(selected_load); c.ref(0xb6, row)
-    # Publish readiness last, after both configured values pass the same getters
+    # Publish readiness last, after all configured values pass the same getters
     # the bridge/OnOK use. A repeated sync cannot overwrite local edits.
-    for getter in ("cojvrCinematicsValue", "cojvrTurningValue"):
+    for getter in ("cojvrCinematicsValue", "cojvrTurningValue", "cojvrHolsterGuidesValue"):
         c.emit(0x2a); c.ref(0xb6, method(getter, "()I")); c.branch(0x9b, "done")
     put(c, "cojvrSettingsReady", 0x04)
     c.label("done"); c.emit(0xb1)
-    helper("cojvrSyncSettings", "(III)V", c, 4)
+    helper("cojvrSyncSettings", "(IIII)V", c, 5)
 
     # Keep byte-identical original code in named helpers. Changes affect only
     # enumerated entry bodies; ClassEdit copies every unrelated member/attribute.
@@ -207,7 +215,7 @@ def patch_menu_class(data: bytes) -> bytes:
     def defaults(c):
         put(c, "cojvrSettingsRequest", 0x03)
         c.emit(0x2a); c.ref(0x13, string("")); c.ref(0xb6, status)
-        for field in ("cojvrCinematicsControl", "cojvrTurningControl"):
+        for field in ("cojvrCinematicsControl", "cojvrTurningControl", "cojvrHolsterGuidesControl"):
             c.emit(0x2a); c.ref(0xb4, fields[field]); c.branch(0xc6, field)
             c.emit(0x2a); c.ref(0xb4, fields[field]); c.emit(0x03); c.ref(0xb6, set_selection)
             c.label(field)
@@ -215,7 +223,7 @@ def patch_menu_class(data: bytes) -> bytes:
 
     def ok(c, native):
         c.emit(0x2a); c.ref(0xb4, fields["cojvrSettingsReady"]); c.branch(0x99, "native")
-        for getter in ("cojvrCinematicsValue", "cojvrTurningValue"):
+        for getter in ("cojvrCinematicsValue", "cojvrTurningValue", "cojvrHolsterGuidesValue"):
             c.emit(0x2a); c.ref(0xb6, method(getter, "()I")); c.branch(0x9b, "native")
         # Preserve a queued/consumed token across duplicate native accept events.
         c.emit(0x2a); c.ref(0xb4, fields["cojvrSettingsRequest"]); c.branch(0x9a, "pending")
@@ -258,15 +266,16 @@ def patch_menu_script(data: bytes) -> bytes:
     # Clone at transformation time: no original resource text is redistributed.
     rows = []
     for id_, y in ((b"ID_VR_CINEMATICS", b"0.30681818"),
-                   (b"ID_VR_TURNING", b"0.37954545")):
+                   (b"ID_VR_TURNING", b"0.37954545"),
+                   (b"ID_VR_HOLSTER_GUIDES", b"0.45227273")):
         row = template.replace(b"ID_SUBTITLES", id_)
         if row.count(b"LogicPos(0.04411765,0.23409091)") != 1:
             raise ValueError("Unexpected native row geometry")
         rows.append(row.replace(b"0.23409091", y))
     # Existing rows use a .053333 screen-space pitch: positions reference the
     # .73333335-high ID_FRAME while sizes are screen-relative. Status follows
-    # the sixth row at y=.47, ending at .53. Grow only the decorative list frame
-    # from bottom .39333333 to .54666667; tooltip/buttons/main frame stay intact.
+    # the seventh row. Grow only the decorative list frame; existing tooltip,
+    # buttons and main frame keep their original placement.
     newline = b"\r\n"  # generated additions; original bytes/newlines are retained
     status_lines = (
         '        Static("UIStatic","ID_VR_STATUS","Specific")',
@@ -298,7 +307,7 @@ def patch_menu_script(data: bytes) -> bytes:
         '            ParentSizingY(0)',
         '            TextureAlpha(0.0)',
         '            LogicSize(0.465,0.06)',
-        '            LogicPos(0.04411765,0.45227273)',
+        '            LogicPos(0.04411765,0.525)',
         '        }// [UIStatic] ID_VR_STATUS',
     )
     additions = newline.join(rows + [newline.join(s.encode("ascii") for s in status_lines)])
@@ -306,5 +315,5 @@ def patch_menu_script(data: bytes) -> bytes:
     frame = data[list_start:list_end]
     if frame.count(b"LogicSize(0.5125,0.29166666)") != 1:
         raise ValueError("Unexpected native list frame geometry")
-    frame = frame.replace(b"LogicSize(0.5125,0.29166666)", b"LogicSize(0.5125,0.445)")
+    frame = frame.replace(b"LogicSize(0.5125,0.29166666)", b"LogicSize(0.5125,0.49833333)")
     return data[:list_start] + additions + newline + frame + data[list_end:]

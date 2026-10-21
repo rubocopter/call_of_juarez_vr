@@ -86,17 +86,18 @@ public:
             if(!clean())return fail("Native options readiness failed");
             const auto pending=read_int(env,ui,request);
             if(!clean())return fail("Native options request failed");
-            auto sync=method(env,type,"cojvrSyncSettings","(III)V");
+            auto sync=method(env,type,"cojvrSyncSettings","(IIII)V");
             if(!clean()||!sync)return fail("Native options synchronizer unavailable");
             auto complete=method(env,type,"cojvrCompleteSettings","(ZLjava/lang/String;)V");
             if(!clean()||!complete)return fail("Native options completion unavailable");
             const auto synchronize=[&](const runtime::VrPreferenceSnapshot& snapshot) {
                 write_bool(env,ui,ready,0);
                 if(!clean())return false;
-                NativeSettingsJValue args[3]{};
+                NativeSettingsJValue args[4]{};
                 args[0].i=static_cast<std::int32_t>(snapshot.values.cinematics);
                 args[1].i=static_cast<std::int32_t>(snapshot.values.turning);
-                args[2].i=language==runtime::SettingsLanguage::spanish?1:0;
+                args[2].i=snapshot.values.holster_guides?1:0;
+                args[3].i=language==runtime::SettingsLanguage::spanish?1:0;
                 call(env,ui,sync,args);
                 if(!clean())return false;
                 owner_=id;epoch_=epoch;revision_=snapshot.revision;known_=true;return true;
@@ -123,15 +124,19 @@ public:
             if(!clean()||!cinema)return fail("Native cinematic selection unavailable");
             auto turning=method(env,type,"cojvrTurningValue","()I");
             if(!clean()||!turning)return fail("Native turning selection unavailable");
+            auto guides=method(env,type,"cojvrHolsterGuidesValue","()I");
+            if(!clean()||!guides)return fail("Native holster guide selection unavailable");
             const auto cinematic_value=integer(env,ui,cinema,nullptr);
             if(!clean())return fail("Native cinematic selection failed");
             const auto turning_value=integer(env,ui,turning,nullptr);
             if(!clean())return fail("Native turning selection failed");
-            if(pending!=1||cinematic_value<0||cinematic_value>1||turning_value<0||turning_value>1){
+            const auto guides_value=integer(env,ui,guides,nullptr);
+            if(!clean())return fail("Native holster guide selection failed");
+            if(pending!=1||guides_value<0||guides_value>1||cinematic_value<0||cinematic_value>1||turning_value<0||turning_value>1){
                 return finish(false,es?"Seleccion VR no valida":"Invalid VR selection")||fail("Native options rejection failed");
             }
             const auto applied=store.Apply({static_cast<runtime::CinematicsMode>(cinematic_value),
-                static_cast<runtime::TurnMode>(turning_value)},revision_);
+                static_cast<runtime::TurnMode>(turning_value),guides_value!=0},revision_);
             revision_=applied.snapshot.revision;
             if(applied.conflict){
                 if(!synchronize(applied.snapshot))return fail("Native options conflict synchronization failed");

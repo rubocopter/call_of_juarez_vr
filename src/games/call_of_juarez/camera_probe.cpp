@@ -12,6 +12,7 @@
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
 #include "games/call_of_juarez/virtual_holster.hpp"
+#include "games/call_of_juarez/holster_guides.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
@@ -5632,7 +5633,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         g_manual_reload.phase()==CoJManualReloadPhase::ready && !g_bow_draw_session.active();
     // Only a possible press needs synchronous native life/carry/reload/state
     // proof. No JNI mutation or new persistent inventory replica is introduced.
-    if(holster_sample.allowed && (raw_reload_input.kick||raw_reload_input.interact))
+    const bool holster_guides_enabled=runtime::CurrentHolsterGuidesEnabled();
+    if(holster_sample.allowed && (raw_reload_input.kick||raw_reload_input.interact||holster_guides_enabled))
         holster_sample.native_ready=g_java_player_bridge.TryObserveVirtualHolsterReady();
     const int holster_channel=g_virtual_holsters.Update(holster_sample,gameplay_input);
     if(holster_channel>=0)try{
@@ -7164,6 +7166,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 gameplay_input.active && gameplay_input.interact &&
                 interaction_ray.valid && interaction_published && !hud_text.ui.wheel.active,
                 hud_text);
+            // Same capture/reference as selection; presenter may hide queued
+            // hints immediately after the preference is disabled.
+            if(gameplay_input_ok&&eye_pair_ready&&!hud_text.ui.wheel.active&&
+                g_java_player_bridge.being_generation()==holster_sample.player)
+                (void)BuildCoJHolsterGuides(holster_sample,holster_guides_enabled,hud_text);
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +

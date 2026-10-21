@@ -1,5 +1,6 @@
 #include "backends/openvr/hud_text_overlay.hpp"
 #include "backends/openvr/gameplay_ui_raster.hpp"
+#include "backends/openvr/holster_guide_pixels.hpp"
 #include "runtime/vr_math.hpp"
 #include <windows.h>
 #include <d3dcompiler.h>
@@ -257,8 +258,8 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11DepthStencilState> depth;
     std::array<HudTextRaster, 5> raster;
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 12> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 12> images;
+    std::array<std::uint64_t, 15> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 15> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -343,7 +344,7 @@ bool HudTextCompositor::Prepare(ID3D11Device* device) noexcept {
 
 bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     const runtime::StereoHudTextOverlay& overlay, const std::uint64_t capture_sequence,
-    const std::array<ID3D11Texture2D*, 2>& targets) noexcept {
+    const std::array<ID3D11Texture2D*, 2>& targets,const bool show_holster_guides) noexcept {
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
     // Cartridge geometry is optional. Reject it in BOTH eyes without starving
@@ -400,18 +401,20 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         }
         return true;
     }();
+    const bool guide_data=show_holster_guides&&overlay.holster_guides.count>0&&
+        overlay.holster_guides.count<=overlay.holster_guides.zones.size();
     if (overlay.text.hint.view().empty() && overlay.text.interaction.view().empty() &&
         overlay.text.subtitle.view().empty() && !overlay.ui.wheel.active &&
         !(overlay.ui.compass.active && overlay.compass_surface_valid) &&
         !(overlay.ui.status.active && overlay.status_surface_valid) &&
         !cartridge_visible && !interaction_gaze_visible && overlay.mission_timer.view().empty() &&
-        overlay.mission_notices.view().empty() && !overlay.threats.count) return true;
+        overlay.mission_notices.view().empty() && !overlay.threats.count && !guide_data) return true;
     try {
         if (!Prepare(device)) return false;
         const std::array<const runtime::HudText*, 5> texts{
             &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle,
             &overlay.mission_timer,&overlay.mission_notices};
-        std::array<HudPanelPlacement, 12> placement{{{1.15F, .48F, 1.5F},
+        std::array<HudPanelPlacement, 15> placement{{{1.15F, .48F, 1.5F},
             {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {},
             {.5F,.58F,1.5F},{1.15F,.68F,1.5F},{},{}}};
         placement[4].captured_quad=true;
@@ -458,14 +461,15 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const auto& gaze_panel = interaction_gaze_visible ?
             impl_->ui_raster.InteractionGaze() : empty_gaze;
         for (std::size_t part = 0; part < placement.size(); ++part) {
-            const bool critical_text=part==8||part==9,threat=part>=10;
+            const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
+            if(guide&&!guide_data)continue;
             if(critical_text&&!critical_fits)continue;
             const auto text_index=critical_text?part-5:part;
             const auto& panel = (part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
-                threat?impl_->ui_raster.Threat(part==11):
+                guide?HolsterGuidePanels()[part-12]:threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
-            const auto revision=(part<3||critical_text) ? impl_->raster[text_index].rebuilds() : threat?1:
+            const auto revision=(part<3||critical_text) ? impl_->raster[text_index].rebuilds() : (threat||guide)?1:
                 (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : (part==5 ? impl_->ui_raster.status_revision() : part==6&&overlay.reload_cartridge_textured?2:1)));
             // Retain the immutable cartridge GPU cache across gesture hiding.
             if(part==6&&!cartridge_visible)continue;
@@ -483,7 +487,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 impl_->images[part].Reset();
                 if (FAILED(device->CreateTexture2D(&td, &data, &texture)) ||
                     FAILED(device->CreateShaderResourceView(texture.Get(), nullptr, &impl_->images[part]))) {
-                    if (part==7) continue; // Optional feedback failure preserves essential HUD.
+                    if (part==7||guide) continue; // Optional feedback failure preserves essential HUD.
                     return false;
                 }
                 impl_->uploaded[part] = revision;
@@ -542,9 +546,14 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 }
                 continue;
             }
-            const std::size_t surface_count=threat?overlay.threats.count:cartridge_surfaces?overlay.reload_cartridge_surface_count:1;
+            const std::size_t surface_count=guide?overlay.holster_guides.count:threat?overlay.threats.count:cartridge_surfaces?overlay.reload_cartridge_surface_count:1;
             for(std::size_t surface=0;surface<surface_count;++surface){
                 auto surface_placement=placement[part];
+                if(guide){
+                    const auto& zone=overlay.holster_guides.zones[surface];
+                    if(zone.state!=part-12)continue;
+                    surface_placement.captured_quad=true;surface_placement.head_corners=zone.head_corners;
+                }
                 if(threat){
                     const auto& marker=overlay.threats.markers[surface];
                     if(marker.damage!=(part==11)||!BuildThreatPanelPlacement(marker,surface_placement))continue;

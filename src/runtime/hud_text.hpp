@@ -76,12 +76,24 @@ struct BowDrawFeedback {
     float tension = 0.F; // Normalized physical draw progress, not native animation time.
 };
 
+// Optional captured gesture hints. State: 0 available, 1 near hand, 2 unavailable.
+// Value-only presentation; these surfaces never grant selection or collision.
+struct HolsterGuideSurface {
+    std::array<Vec3,4> head_corners{};
+    std::uint8_t state=0;
+};
+struct HolsterGuides {
+    std::array<HolsterGuideSurface,4> zones{};
+    std::uint32_t count=0;
+};
+
 struct StereoHudTextOverlay {
     std::uint64_t frame_sequence = 0;
     // Capture-time game-owner availability/epoch, independent of textures.
     std::uint64_t feedback_context_token = 0;
     ReloadInsertionFeedback reload_feedback{};
     BowDrawFeedback bow_feedback{};
+    HolsterGuides holster_guides{};
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};
     GameplayUiSnapshot ui{};

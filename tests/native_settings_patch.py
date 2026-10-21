@@ -91,7 +91,7 @@ class VM:
             self.classes[name] = pool, {(m.name, m.descriptor): m for m in methods}
         self.widgets = {name: widget() for name in (
             "ID_AUTO_RELOAD", "ID_FULL_AKIMBO", "ID_SELECT_SPEECH", "ID_SUBTITLES",
-            "ID_VR_CINEMATICS", "ID_VR_TURNING")}
+            "ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES")}
         self.widgets["ID_VR_STATUS"] = widget("UIStatic")
         for name in missing:
             self.widgets.pop(name)
@@ -290,15 +290,15 @@ class NativeSettingsTests(unittest.TestCase):
         vm.run("OnInit"); vm.run("Show")
         return vm
 
-    def sync(self, vm, cinema=1, turn=1, language=0):
-        vm.run("cojvrSyncSettings", "(III)V", (cinema, turn, language))
+    def sync(self, vm, cinema=1, turn=1, language=0, guides=0):
+        vm.run("cojvrSyncSettings", "(IIII)V", (cinema, turn, guides, language))
 
     def test_initialized_ok_keeps_native_page_visible(self):
         vm = self.vm()
         # Supply a valid initialized native editor without requiring new helpers:
         # the unpatched OnOK must fail by saving/backing immediately.
         vm.menu["cojvrSettingsReady"] = 1
-        for key in ("ID_VR_CINEMATICS", "ID_VR_TURNING"):
+        for key in ("ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES"):
             vm.widgets[key]["options"] = [vm.option(0), vm.option(1)]
             vm.widgets[key]["selected"] = vm.widgets[key]["options"][1]
         vm.run("OnOK")
@@ -362,8 +362,8 @@ class NativeSettingsTests(unittest.TestCase):
         for key in (("cojvrSettingsReady", "Z"), ("cojvrSettingsRequest", "I"), ("cojvrSettingsOpenSerial", "I")):
             self.assertEqual(fields[key], 0x0041)  # public volatile, never static
         methods = {(m.name, m.descriptor): m.access for m in info.methods}
-        for key in (("cojvrSyncSettings", "(III)V"), ("cojvrCinematicsValue", "()I"),
-                    ("cojvrTurningValue", "()I"), ("cojvrCompleteSettings", "(ZLjava/lang/String;)V")):
+        for key in (("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
+                    ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"), ("cojvrCompleteSettings", "(ZLjava/lang/String;)V")):
             self.assertEqual(methods[key], 1)
 
     def test_unrelated_members_and_attributes_are_byte_identical(self):
@@ -428,6 +428,23 @@ class NativeSettingsTests(unittest.TestCase):
                         self.assertEqual(vm.run("cojvrCinematicsValue", "()I"), cinema)
                         self.assertEqual(len(cine["options"]), 2)
 
+    def test_holster_guides_localization_edits_reopen_and_cancel(self):
+        for language in (0, 1):
+            for guides in (0, 1):
+                vm = self.vm(); self.sync(vm, language=language, guides=guides)
+                row = vm.widgets["ID_VR_HOLSTER_GUIDES"]
+                self.assertEqual(vm.run("cojvrHolsterGuidesValue", "()I"), guides)
+                self.assertEqual(row["label"], "Comodidad RV: guías de fundas" if language else "VR Comfort: holster guides")
+                self.assertEqual([o["text"] for o in row["options"]], ["No", "Sí"] if language else ["Off", "On"])
+                self.assertTrue(row["cycle"]); self.assertTrue(row["tooltip"])
+                row["selected"] = row["options"][1-guides]
+                self.sync(vm, language=language, guides=guides)
+                self.assertEqual(vm.run("cojvrHolsterGuidesValue", "()I"), 1-guides)
+                vm.run("OnOK"); vm.run("OnCancel")
+                self.assertNotIn("save", vm.events)
+                vm.run("Show"); self.sync(vm, language=language, guides=guides)
+                self.assertEqual(vm.run("cojvrHolsterGuidesValue", "()I"), guides)
+
     def test_rejected_save_stays_visible_and_retry_commits_native_values(self):
         for paused in (False, True):
             with self.subTest(paused=paused):
@@ -465,7 +482,7 @@ class NativeSettingsTests(unittest.TestCase):
                     self.assertEqual(vm.events[-1], ("back", 6 if paused else 1))
 
     def test_defaults_are_local_theater_smooth_and_clear_status_request(self):
-        vm = self.vm(); self.sync(vm)
+        vm = self.vm(); self.sync(vm, guides=1)
         vm.run("OnOK")
         vm.widgets["ID_VR_STATUS"]["text"] = "old error"
         vm.run("OnDefault")
@@ -473,18 +490,19 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertEqual(vm.run("cojvrCinematicsValue", "()I"), 0)
         self.assertEqual(vm.run("cojvrTurningValue", "()I"), 0)
         self.assertEqual(vm.widgets["ID_VR_STATUS"]["text"], "")
+        self.assertEqual(vm.run("cojvrHolsterGuidesValue", "()I"), 0)
         self.assertEqual(vm.widgets["ID_AUTO_RELOAD"]["selected"]["m_cData"]["value"], 1)
         self.assertNotIn("save", vm.events)
 
     def test_missing_or_wrong_typed_dropdowns_fall_back_without_crash(self):
-        for id_ in ("ID_VR_CINEMATICS", "ID_VR_TURNING"):
+        for id_ in ("ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES"):
             for wrong_type in (False, True):
                 with self.subTest(id=id_, wrong_type=wrong_type):
                     vm = VM(self.transformed, self.option, missing=(id_,))
                     if wrong_type: vm.widgets[id_] = widget("UIStatic")
                     vm.run("OnInit"); vm.run("Show"); self.sync(vm)
                     self.assertEqual(vm.menu["cojvrSettingsReady"], 0)
-                    self.assertEqual(vm.run("cojvrCinematicsValue" if id_.endswith("CINEMATICS") else "cojvrTurningValue", "()I"), -1)
+                    self.assertEqual(vm.run("cojvrCinematicsValue" if id_.endswith("CINEMATICS") else "cojvrHolsterGuidesValue" if id_.endswith("GUIDES") else "cojvrTurningValue", "()I"), -1)
                     vm.run("OnDefault"); vm.run("OnOK")
                     self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
                     self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
@@ -503,7 +521,7 @@ class NativeSettingsTests(unittest.TestCase):
                 self.assertEqual(vm.events.count("save"), 1)
 
     def test_invalid_or_missing_selections_return_minus_one_and_native_fallback(self):
-        for id_, getter in (("ID_VR_CINEMATICS", "cojvrCinematicsValue"), ("ID_VR_TURNING", "cojvrTurningValue")):
+        for id_, getter in (("ID_VR_CINEMATICS", "cojvrCinematicsValue"), ("ID_VR_TURNING", "cojvrTurningValue"), ("ID_VR_HOLSTER_GUIDES", "cojvrHolsterGuidesValue")):
             for value in (None, -1, 2, 99, "not an integer"):
                 with self.subTest(id=id_, value=value):
                     vm = self.vm(); self.sync(vm)
@@ -516,7 +534,7 @@ class NativeSettingsTests(unittest.TestCase):
                     self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
 
     def test_invalid_sync_inputs_cannot_publish_ready(self):
-        for args in ((-1, 0, 0), (2, 0, 0), (0, -1, 0), (0, 2, 0), (0, 0, -1), (0, 0, 2)):
+        for args in ((-1, 0, 0), (2, 0, 0), (0, -1, 0), (0, 2, 0), (0, 0, -1), (0, 0, 2), (0, 0, 0, -1), (0, 0, 0, 2)):
             with self.subTest(args=args):
                 vm = self.vm(); self.sync(vm, *args)
                 self.assertEqual(vm.menu["cojvrSettingsReady"], 0)
@@ -558,7 +576,7 @@ class NativeSettingsTests(unittest.TestCase):
         for absent in (False, True):
             with self.subTest(absent=absent):
                 vm = VM(self.transformed, self.option,
-                        missing=("ID_VR_STATUS", "ID_VR_CINEMATICS", "ID_VR_TURNING") if absent else ())
+                        missing=("ID_VR_STATUS", "ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES") if absent else ())
                 if not absent: vm.widgets["ID_VR_STATUS"] = widget("UIWindow")
                 vm.run("OnInit"); vm.run("Show"); self.sync(vm)
                 vm.run("cojvrCompleteSettings", "(ZLjava/lang/String;)V", (0, "Save failed"))
@@ -579,7 +597,7 @@ class NativeSettingsTests(unittest.TestCase):
 
     def test_resource_augmentation_retains_every_original_byte_except_frame_height(self):
         out = patch.patch_menu_script(self.script)
-        for id_, y in ((b"ID_VR_CINEMATICS", b"0.30681818"), (b"ID_VR_TURNING", b"0.37954545")):
+        for id_, y in ((b"ID_VR_CINEMATICS", b"0.30681818"), (b"ID_VR_TURNING", b"0.37954545"), (b"ID_VR_HOLSTER_GUIDES", b"0.45227273")):
             self.assertEqual(out.count(b'"' + id_ + b'"'), 1)
             a, b = patch._block(out, b"MenuButton", id_)
             row = out[a:b].replace(id_, b"ID_SUBTITLES").replace(y, b"0.23409091")
@@ -593,16 +611,16 @@ class NativeSettingsTests(unittest.TestCase):
         insertion, _ = patch._block(self.script, b"Window", b"ID_LIST_FRAME")
         frame, _ = patch._block(out, b"Window", b"ID_LIST_FRAME")
         restored = out[:insertion] + out[frame:]
-        restored = restored.replace(b"LogicSize(0.5125,0.445)", b"LogicSize(0.5125,0.29166666)")
+        restored = restored.replace(b"LogicSize(0.5125,0.49833333)", b"LogicSize(0.5125,0.29166666)")
         self.assertEqual(restored, self.script)
         self.assertEqual(out.count(b"{"), out.count(b"}"))
         # Measured reference frame .13833334 + y*.73333335; absolute row height.
-        row_bottom = .13833334 + .37954545 * .73333335 + .05
-        status_top = .13833334 + .45227273 * .73333335
+        row_bottom = .13833334 + .45227273 * .73333335 + .05
+        status_top = .13833334 + .525 * .73333335
         status_bottom = status_top + .06
         self.assertLess(row_bottom, status_top)
-        self.assertLess(status_bottom, .10166667 + .445)
-        self.assertLess(.10166667 + .445, .87166667)
+        self.assertLess(status_bottom, .10166667 + .49833333)
+        self.assertLess(.10166667 + .49833333, .87166667)
 
 
 if __name__ == "__main__":

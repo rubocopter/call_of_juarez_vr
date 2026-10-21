@@ -32,6 +32,8 @@ class ArchiveTests(unittest.TestCase):
             consumers.patch_archive(self.code, output)
             with zipfile.ZipFile(output) as pak:
                 menu = parse_class(pak.read('MenuOptionsGame.class'))
+                self.assertIn(('cojvrHolsterGuidesValue', '()I'), {(m.name,m.descriptor) for m in menu.methods})
+                self.assertIn(('cojvrSyncSettings', '(IIII)V'), {(m.name,m.descriptor) for m in menu.methods})
                 self.assertIn(('cojvrSettingsReady', 'Z'),
                               {(f.name, f.descriptor) for f in menu.fields})
                 movie = parse_class(pak.read('LawmanModule.class'))
@@ -54,7 +56,7 @@ class ArchiveTests(unittest.TestCase):
                 self.assertEqual((a.CRC, a.header_offset, a.compress_size),
                                  (b.CRC, b.header_offset, b.compress_size))
                 self.assertEqual(original.read('untouched.bin'), patched.read('untouched.bin'))
-                self.assertIn(b'ID_VR_CINEMATICS', patched.read('Data/Menu/scr/OptionsGame.scr'))
+                self.assertIn(b'ID_VR_HOLSTER_GUIDES', patched.read('Data/Menu/scr/OptionsGame.scr'))
                 self.assertNotIn('Data/Player/Ray/Ray.msh', patched.namelist())
 
     def test_unknown_resource_is_rejected_before_output(self):
