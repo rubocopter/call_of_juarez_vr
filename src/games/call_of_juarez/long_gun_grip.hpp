@@ -7,6 +7,7 @@ struct CoJLongGunGripGeometry {
     CoJLongGunSupportSnapshot native{};
     runtime::Vec3 dominant_socket_cm{},muzzle_cm{},muzzle_direction{};
     runtime::Vec3 dominant_grip_cm{},direction{},up{},support_grip_cm{};
+    const char* read_failure="not_requested"; // Static diagnostic literal, no JNI reference.
 };
 struct CoJLongGunGripFrame {
     bool valid=false;TrackedWeaponFramePlan plan{};ElementWorldBasisTarget mapped_support_frame{};
@@ -115,7 +116,12 @@ inline CoJLongGunGripFrame BuildCoJLongGunGripFrame(const CoJLongGunGripGeometry
     out.solution=solution;out.support_error_m=solution.support_error_m;out.valid=true;return out;
 }
 struct CoJLongGunGripInput {std::uint64_t player_generation=0,context=0;runtime::TwoHandGripInput controls{};};
-struct CoJLongGunGripOutput {bool attached=false;CoJLongGunGripFrame frame{};runtime::TwoHandGripOutput claim{};};
+struct CoJLongGunGripDiagnostic {
+    bool native_qualified=false,frame_valid=false,spatially_admitted=false,support_on_original_side=false;
+    float contact_distance_m=-1,source_span_m=-1,target_span_m=-1,support_error_m=-1;
+};
+struct CoJLongGunGripOutput {bool attached=false;CoJLongGunGripFrame frame{};runtime::TwoHandGripOutput claim{};
+    CoJLongGunGripDiagnostic diagnostic{};};
 class CoJLongGunGripState {
 public:
     CoJLongGunGripOutput Update(const CoJLongGunGripInput& in,const CoJLongGunGripGeometry& g) noexcept {
@@ -127,11 +133,21 @@ public:
         }
         const auto frame=qualified?BuildCoJLongGunGripFrame(g,attached_&&same?&frozen_:nullptr):CoJLongGunGripFrame{};
         auto controls=in.controls;controls.owner=qualified?epoch_:0;
-        controls.eligible=controls.eligible&&qualified&&IsCoJLongGunGripFrameAdmitted(frame)&&
+        const bool spatial=IsCoJLongGunGripFrameAdmitted(frame);
+        // Spatial approach is not loss of player/item/tracking ownership. A
+        // released L1 outside contact must still arm a fresh press on arrival.
+        // Attached grips retain every spatial cancellation fence; an outside
+        // press remains unqueued because the policy clears its release baseline.
+        controls.eligible=controls.eligible&&qualified&&(!attached_||spatial)&&
             ((attached_&&same)||!g.native.firing);
-        controls.contact_qualified=frame.valid;
-        controls.contact_distance_m=frame.contact_distance_m;
+        controls.contact_qualified=!attached_||frame.valid;
+        controls.contact_distance_m=spatial?frame.contact_distance_m:std::numeric_limits<float>::infinity();
         CoJLongGunGripOutput out{};out.claim=policy_.Update(controls);
+        out.diagnostic={qualified,frame.valid,spatial,frame.support_on_original_side,
+            frame.valid?frame.contact_distance_m:-1.F,
+            frame.valid?frame.solution.source_span_m:-1.F,
+            frame.valid?frame.solution.target_span_m:-1.F,
+            frame.valid?frame.support_error_m:-1.F};
         attached_=out.claim.stage==runtime::TwoHandGripStage::attached;
         if(out.claim.acquired)frozen_=g.native.support_in_weapon;
         out.attached=attached_;

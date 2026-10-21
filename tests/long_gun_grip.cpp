@@ -181,6 +181,26 @@ void RepeatedRenderSamples(){
     Check(!f.state.Update(f.in,f.g).attached,"duplicate render renewed stale tracking");
     Check(clock.Observe(8,1,2000)==2000,"replacement source failed to restart dating");
 }
+void ApproachAndPressFromReleasedGrip(){
+    for(int why=0;why<3;++why){
+        Fixture f;
+        if(why==0)f.g.support_grip_cm={480,520,640}; // valid tracking, excessive separation
+        if(why==1)f.g.support_grip_cm={380,490,640}; // opposite hemisphere
+        if(why==2)f.g.support_grip_cm=f.g.dominant_grip_cm; // overlapping controllers
+        Check(!f.Step().attached,"outside neutral geometry acquired a rifle");
+        f.g=Geometry();f.in.controls.grip_held=true;
+        Check(f.Step().claim.acquired,"released grip outside contact could not acquire on approach/press");
+    }
+    Fixture held;held.g.support_grip_cm={480,520,640};(void)held.Step();
+    held.in.controls.grip_held=true;
+    Check(!held.Step().attached,"outside press acquired a rifle");
+    held.g=Geometry();Check(!held.Step().attached,"outside held press queued a later acquisition");
+    held.in.controls.grip_held=false;(void)held.Step();held.in.controls.grip_held=true;
+    Check(held.Step().claim.acquired,"release/repress failed after an outside press");
+    Fixture lost;(void)lost.Step();lost.in.controls.eligible=false;(void)lost.Step();
+    lost.in.controls.eligible=true;lost.in.controls.grip_held=true;
+    Check(!lost.Step().attached,"hard context loss preserved a stale released baseline");
 }
-int main(){GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();
+}
+int main(){GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

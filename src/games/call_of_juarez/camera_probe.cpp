@@ -171,6 +171,12 @@ CoJLongGunGripState g_long_gun_grip;
 CoJLongGunGripSampleClock g_long_gun_sample_clock;
 CoJLongGunGripOutput g_long_gun_claim{};
 CoJLongGunFreeTrigger g_long_gun_free_trigger;
+struct LongGunAdmissionTraceState {
+    unsigned samples=0;
+    std::uint64_t last_us=0,release_sequence=0,release_input=0,release_epoch=0,release_context=0;
+    bool held=false,release_eligible=false,release_spatial=false;
+};
+LongGunAdmissionTraceState g_long_gun_admission_trace;
 bool g_long_gun_quarantined=false;
 std::uint64_t g_long_gun_failed_sequence=0;
 std::uint64_t g_long_gun_expected_sequence=0;
@@ -3951,29 +3957,30 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
     const runtime::Pose& head,const runtime::Pose& left,const runtime::Pose& right,
     const runtime::Pose& right_tip,CoJLongGunGripGeometry& geometry) noexcept {
     geometry={};CameraProbeBasis basis{};CameraProbeVector camera{};
+    const auto fail=[&](const char* reason){geometry.read_failure=reason;return false;};
     if(!head.position_valid||!head.orientation_valid||!left.position_valid||!left.orientation_valid||
         !right.position_valid||!right.orientation_valid||!right_tip.orientation_valid||
-        !ReadNaturalCameraFrame(natural,basis,camera))return false;
+        !ReadNaturalCameraFrame(natural,basis,camera))return fail("tracking_or_camera");
     basis=BuildTrackingReferenceBasis(basis.forward,basis.up,g_body_owned_yaw_degrees);
-    if(!IsCameraProbeBasisRigidRightHanded(basis))return false;
+    if(!IsCameraProbeBasisRigidRightHanded(basis))return fail("tracking_basis");
     const runtime::Vec3 x{basis.right.x,basis.right.y,basis.right.z},
         u{basis.up.x,basis.up.y,basis.up.z},f{basis.forward.x,basis.forward.y,basis.forward.z};
     bool valid=false;
     geometry.dominant_grip_cm=BuildTrackedAimOrigin({camera.x,camera.y,camera.z},x,u,f,
-        head.position,right.position,height,kGameUnitsPerMeter,valid);if(!valid)return false;
+        head.position,right.position,height,kGameUnitsPerMeter,valid);if(!valid)return fail("right_grip");
     geometry.support_grip_cm=BuildTrackedAimOrigin({camera.x,camera.y,camera.z},x,u,f,
-        head.position,left.position,height,kGameUnitsPerMeter,valid);if(!valid)return false;
-    geometry.direction=BuildTrackedAimDirection(right_tip.orientation,x,u,f,valid);if(!valid)return false;
+        head.position,left.position,height,kGameUnitsPerMeter,valid);if(!valid)return fail("left_grip");
+    geometry.direction=BuildTrackedAimDirection(right_tip.orientation,x,u,f,valid);if(!valid)return fail("right_aim");
     const auto up=runtime::RotateVector(right_tip.orientation,{0,1,0});
     geometry.up={x.x*up.x+u.x*up.y+f.x*up.z,x.y*up.x+u.y*up.y+f.y*up.z,x.z*up.x+u.z*up.y+f.z*up.z};
     ElementWorldBasisTarget socket{};JavaPlayerPosition muzzle{},direction{};
     const auto generation=g_java_player_bridge.being_generation();
-    if(!g_java_player_bridge.TryObserveLongGunSupport(geometry.native)||
-        !g_java_player_bridge.TryReadHandAttachment(0,socket)||
-        !g_java_player_bridge.TryGetWeaponBarrel(0,muzzle,direction)||
-        generation!=g_java_player_bridge.being_generation())return false;
+    if(!g_java_player_bridge.TryObserveLongGunSupport(geometry.native))return fail("native_owner_or_source");
+    if(!g_java_player_bridge.TryReadHandAttachment(0,socket))return fail("dominant_socket");
+    if(!g_java_player_bridge.TryGetWeaponBarrel(0,muzzle,direction))return fail("barrel");
+    if(generation!=g_java_player_bridge.being_generation())return fail("player_changed");
     geometry.dominant_socket_cm=socket.position;geometry.muzzle_cm=RuntimeVector(muzzle);
-    geometry.muzzle_direction=RuntimeVector(direction);return true;
+    geometry.muzzle_direction=RuntimeVector(direction);geometry.read_failure="none";return true;
 }
 
 bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float height,
@@ -5956,6 +5963,56 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         physical_view_correction,relative_head_pose,relative_left_controller,relative_right_controller,
         relative_right_aim,long_gun_geometry);
     g_long_gun_claim=g_long_gun_grip.Update(long_gun_input,long_gun_geometry);
+    if(snapshot.command.reload_trace_enabled){
+        auto& trace=g_long_gun_admission_trace;const auto& d=g_long_gun_claim.diagnostic;
+        const bool press=grip_controls.grip_available&&grip_controls.grip_held&&!trace.held;
+        if(grip_controls.grip_available)trace.held=grip_controls.grip_held;
+        if(grip_controls.grip_available&&!grip_controls.grip_held){
+            trace.release_sequence=grip_controls.sequence;trace.release_input=grip_controls.input_generation;
+            trace.release_epoch=long_gun_geometry.native.object_epoch;trace.release_context=long_gun_input.context;
+            trace.release_eligible=grip_controls.eligible;trace.release_spatial=d.spatially_admitted;
+        }
+        const auto now=MonotonicMicroseconds();
+        const bool rifle=long_gun_geometry.native.valid||g_long_gun_probe.known_rifle;
+        // Read-only, at most 128 samples per process and 10 Hz during a hold.
+        // Capture the preceding observed release too, without admitting it.
+        if(rifle&&grip_controls.grip_available&&grip_controls.grip_held&&trace.samples<128&&
+            (press||(!trace.last_us)||(now>=trace.last_us&&now-trace.last_us>=100000))){
+            ++trace.samples;trace.last_us=now;
+            try{std::ostringstream detail;
+                detail<<"schema=1;frame_sequence="<<frame_sequence<<";pose_sequence="<<grip_controls.sequence
+                    <<";input_generation="<<grip_controls.input_generation<<";player_generation="<<long_gun_input.player_generation
+                    <<";native_context="<<long_gun_input.context<<";object_epoch="<<long_gun_geometry.native.object_epoch
+                    <<";enabled="<<grip_controls.enabled<<";eligible="<<grip_controls.eligible
+                    <<";tracking_valid="<<grip_controls.tracking_valid<<";read_stage="<<long_gun_geometry.read_failure
+                    <<";native_qualified="<<d.native_qualified<<";frame_valid="<<d.frame_valid
+                    <<";spatially_admitted="<<d.spatially_admitted<<";support_on_original_side="<<d.support_on_original_side
+                    <<";native_firing="<<long_gun_geometry.native.firing<<";contact_distance_m="<<d.contact_distance_m
+                    <<";source_span_m="<<d.source_span_m<<";target_span_m="<<d.target_span_m
+                    <<";support_error_m="<<d.support_error_m<<";radius_m="<<grip_controls.acquisition_radius_m
+                    <<";grip_available="<<grip_controls.grip_available<<";grip_held="<<grip_controls.grip_held
+                    <<";trigger_available="<<grip_controls.support_trigger_available
+                    <<";trigger_held="<<grip_controls.support_trigger_held<<";now_ms="<<grip_controls.now_ms
+                    <<";sample_time_ms="<<grip_controls.sample_time_ms<<";manual_phase="<<static_cast<int>(g_manual_reload.phase())
+                    <<";bow_active="<<g_bow_draw_session.active()<<";quarantined="<<g_long_gun_quarantined
+                    <<";gameplay_active="<<gameplay_input.active<<";timer_valid="<<game_timer_valid<<";timer_frozen="<<game_timer_frozen
+                    <<";mounted_available="<<mounted_available<<";mounted="<<mounted<<";duel_known="<<duel_owner_known
+                    <<";duel_active="<<duel_active<<";loading_suppressed="<<loading_ui_input.suppress_gameplay
+                    <<";arm_fault="<<g_arm_rotation_faulted<<";body_fault="<<g_room_scale_body_offset.faulted
+                    <<";recentered="<<recentered<<";radial="<<gameplay_input.weapon_radial<<";raw_radial="<<raw_reload_input.weapon_radial
+                    <<";reload="<<gameplay_input.reload<<";raw_reload="<<raw_reload_input.reload<<";equipment="<<long_gun_equipment
+                    <<";hands="<<gameplay_input.hands<<";discard="<<gameplay_input.discard_weapon
+                    <<";weapon_next="<<gameplay_input.weapon_next<<";weapon_previous="<<gameplay_input.weapon_previous
+                    <<";quick_load="<<gameplay_input.quick_load<<";quick_save="<<gameplay_input.quick_save
+                    <<";right_trigger_held="<<raw_reload_input.fire_right
+                    <<";stage="<<static_cast<int>(g_long_gun_claim.claim.stage)<<";acquired="<<g_long_gun_claim.claim.acquired
+                    <<";release_pose_sequence="<<trace.release_sequence<<";release_input_generation="<<trace.release_input
+                    <<";release_object_epoch="<<trace.release_epoch<<";release_context="<<trace.release_context
+                    <<";release_eligible="<<trace.release_eligible<<";release_spatial="<<trace.release_spatial
+                    <<";read_only=true;physical_acceptance=unverified";
+                EmitEvent("long_gun_grip_admission","observed",detail.str());}catch(...){}
+        }
+    }
     if(g_long_gun_claim.claim.cancelled)(void)g_java_player_bridge.ClearLongGunGripOwner();
     FilterCoJLongGunGripInput(g_long_gun_claim.claim,gameplay_input);
     if(g_long_gun_claim.claim.consume_grip){
@@ -8778,6 +8835,7 @@ void ShutdownCameraProbe() noexcept {
     g_manual_reload_geometry_logging_enabled=false;
     g_long_gun_probe={};
     g_long_gun_free_trigger={};
+    g_long_gun_admission_trace={};
     g_winchester_reload_probe={};
     g_reload_pinch_last_hand=-1;g_reload_pinch_last_applied=false;
     g_reload_ready_geometry_reference={};

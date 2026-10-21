@@ -695,6 +695,15 @@ L1/left trigger claims precede Action, holsters and native fire and retain physi
 release barriers after cancellation. Duplicate tracking reads retain their first
 observation time; they cannot renew stale tracking. Prototype acquisition/separation
 bounds are ergonomic limits, not measured collision volumes or visor acceptance.
+While unattached, spatial rejection alone does not erase an observed released
+L1 baseline from the same qualified native owner, tracking and context. A fresh
+press on reaching admissible contact can acquire; a press outside contact is
+never queued for later movement. Attached support still cancels on every spatial
+failure. Context/owner/input/tracking discontinuities retain their release fences.
+The optional reload trace records bounded admission attempts, source-read stage,
+individual context gates, owner epoch, sample age, contact/span/hemisphere values
+and the preceding observed physical release. Those observations are diagnostic;
+they neither admit a grip nor prove a policy baseline or physical contact.
 Native right-trigger firing and automatic rifle reload remain authoritative.
 Separately, the final ordinary-fire phase observes exact right-only rifle
 ownership after non-fire equipment actions, without requiring support contact,

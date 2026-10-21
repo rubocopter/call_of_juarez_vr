@@ -111,19 +111,32 @@ items and do not close the physical interruption gates.
 The subsequent physical attempt did not acquire Remington support and did not
 enter a manual pistol session. Live Remington `Holder` resolves to element zero;
 the support admission's positive-only check rejected this valid root socket.
-That filter is corrected with root-holder geometry/JNI regressions; physical
-retest is pending. The trace identifies an unsupported Derringer, not every
+That filter is corrected with root-holder geometry/JNI regressions, but the
+operator still could not acquire bimanual Remington support in the follow-up.
+Native support reads exist without an acquired event; the remaining rejection
+is unresolved and must be identified before changing contact tolerances.
+A separate host regression demonstrates that spatial rejection erased the L1
+release baseline before a fresh approach/press. The adapter now preserves that
+baseline while unattached under stable native ownership/tracking/context;
+outside held presses remain unqueued and attached spatial failures still cancel.
+This has not been established as the cause of the operator's attempts. Bounded
+admission diagnostics now distinguish source-read, context, contact/span and
+release/sample rejection in the next eligible run; no tolerance was widened.
+The earlier trace identifies an unsupported Derringer, not every
 pistol the operator tried. Existing dual/whole-clip/multiple-ammo exclusions
 remain: the current run cannot qualify cartridge fit or reload feedback.
 The operator also reports L2 firing the right-owned Remington. Native Attack's
 empty-hand fallback explains this independently of support acquisition. A
 host-tested ordinary-fire ownership filter now blocks that L2 route for exact
-right-only rifles and retains consumed holds until physical release. Physical
-absence of accidental shots, R2 firing and held-trigger recovery remain pending.
-Basic holsters have positive operator feedback with occasional unwanted kicks.
+right-only rifles and retains consumed holds until physical release. The operator
+confirms free-hand L2 no longer fires the Remington. Broader R2/dual firing and
+held-trigger recovery remain unreported in that follow-up.
+Basic holsters and their colored assistance have positive follow-up acceptance,
+including enabling/disabling the assistance. Earlier unwanted kicks remain
+rejected history rather than a claim about the corrected candidate.
 Conflicting/stale zone presses are now consumed through release before native
 selection admission; manual reload owns ammunition before holsters. Host tests
-reproduce the earlier kick leakage; the corrected delivery still needs a retest.
+reproduce the earlier kick leakage; broader conflict/held-input recovery remains open.
 Optional guides expose available/near/unavailable zones, while an anatomical
 holstered weapon model and a distinct ammunition pickup cue remain future work.
 
@@ -317,7 +330,7 @@ or reload work:
   in the existing Options > Game page are implemented, preserving original fonts,
   native OK/Cancel/Defaults and main/pause return routes. Cinematics and smooth/snap
   turning retain scoped acceptance. Optional holster guides default off; their new
-  comfort row is host-tested. Version 1/2 choices migrate to version 3 with guides
+  comfort row has scoped operator acceptance for assistance on/off. Version 1/2 choices migrate to version 3 with guides
   off. Labels follow the game's locale, including English/Spanish coverage.
   The [native bridge](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary)
   consumes requests before side effects, rejects stale editors and reports save
@@ -340,7 +353,8 @@ or reload work:
   weapons. Those now reuse native pistol/rifle/bow toggles at the corresponding
   hip or right/left shoulder, with host-tested grip claims and native permission guards.
   Optional colored zone guides and procedural Western wheel styling have host
-  coverage; fit and readability join normal equipment use in the same session.
+  coverage and scoped physical acceptance of holsters/guides and assistance on/off;
+  broader fit and held-input recovery remain open.
   They are ordinary gameplay shortcuts and do not bypass duel timing/posture.
 - **Two-hand long-gun support:** the host-tested prototype uses the naturally
   animated left holding socket relative to an exact right-owned Winchester,
