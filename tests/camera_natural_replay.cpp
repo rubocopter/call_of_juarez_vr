@@ -145,6 +145,9 @@ bool RifleVerificationStopsLaterEyes(){
     n.states[0]={1,1,1,1};n.two_handed[0]={true,true,true};
     n.root={{0,0,0},{0,1,0},{0,0,1},true};n.holder=n.root;
     n.support={{0,0,-30},{0,1,0},{0,0,1},true};
+    const auto contact=CoJLongGunContact(n.weapon_class).point_cm;
+    n.contact_element=8;
+    n.contact_anchor={{-contact.x,-contact.y,-30-contact.z},{0,1,0},{0,0,1},true};
     if(!BuildCoJReloadLocalFrame(n.root,n.support,n.support_in_weapon))return false;
     geometry.muzzle_cm={0,0,-60};geometry.muzzle_direction=geometry.direction={0,0,-1};
     geometry.up={0,1,0};geometry.support_grip_cm=n.support.position;
@@ -156,7 +159,8 @@ bool RifleVerificationStopsLaterEyes(){
     controls.sample_time_ms=controls.now_ms=1000;
     g_long_gun_grip={};(void)g_long_gun_grip.Update(input,geometry);
     controls.grip_held=true;++controls.sequence;controls.sample_time_ms=controls.now_ms=1010;
-    if(!g_long_gun_grip.Update(input,geometry).attached)return false;
+    if(!g_long_gun_grip.Update(input,geometry).attached){
+        std::cerr<<"supported stereo fixture failed initial mesh-contact acquisition\n";return false;}
     EyeScopeProbe probe{};g_stereo_callbacks={};g_stereo_callbacks.context=&probe;
     g_stereo_callbacks.begin_eye_render=&BeginEye;g_stereo_callbacks.end_eye_render=&EndEye;
     g_stereo_callbacks.mirror_eye_pair=&MirrorPair;g_stereo_callbacks.invalidate_frame=&InvalidatePair;
