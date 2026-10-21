@@ -32,7 +32,9 @@ void GeometryAndSinglePlan(){
     Check(out.contact_distance_m<.00001F,"ordinary contact map incorrect");
     // A different support direction rotates the WHOLE map about the right socket.
     g.support_grip_cm={440,510,620};out=BuildCoJLongGunGripFrame(g);
-    Check(out.valid&&Near(out.mapped_support_frame.position,g.support_grip_cm),"rotated support missed");
+    Check(out.valid&&IsCoJLongGunGripFrameAdmitted(out)&&
+        Near(out.mapped_support_frame.position,g.support_grip_cm),
+        "valid off-axis support was rejected or missed");
     auto replay=BuildTrackedWeaponFrame(g.native.root,g.dominant_socket_cm,g.muzzle_cm,
         g.muzzle_direction,g.dominant_grip_cm,out.plan.muzzle_direction,out.plan.root.up);
     Check(replay.valid&&Near(replay.root.position,out.plan.root.position)&&
@@ -57,6 +59,31 @@ struct Fixture {
     CoJLongGunGripOutput Attach(){(void)Step();in.controls.grip_held=true;auto o=Step();
         Check(o.claim.acquired&&o.attached&&o.frame.valid,"fresh idle support claim failed");return o;}
 };
+void CrossingSupportHandCannotFlipRifle(){
+    auto g=Geometry();
+    // The same measured grip separation can place the support controller on
+    // the opposite side of the right grip, forcing a 180-degree barrel flip.
+    g.support_grip_cm={380,490,640};
+    const auto crossed=BuildCoJLongGunGripFrame(g);
+    Check(crossed.valid&&crossed.support_error_m<.00001F,
+        "crossed hand fixture must remain a valid rigid transform");
+    Check(!IsCoJLongGunGripFrameAdmitted(crossed),
+        "crossed support hand admitted a backwards rifle");
+    Fixture f;
+    (void)f.Attach();
+    f.g.support_grip_cm=g.support_grip_cm;
+    Check(!f.state.Refresh(f.in.player_generation,f.in.context,f.g).valid,
+        "render refresh kept the inverted support pose");
+    const auto o=f.Step();
+    Check(!o.attached&&o.claim.cancelled&&o.claim.consume_grip,
+        "crossing while attached did not release the rifle support claim");
+    f.g=Geometry();
+    Check(!f.Step().attached,"returning across the grip plane silently reattached");
+    f.in.controls.grip_held=false;
+    Check(f.Step().claim.consume_grip,"release following a crossing was not consumed");
+    f.in.controls.grip_held=true;
+    Check(f.Step().claim.acquired,"fresh regrip after crossing failed");
+}
 void OwnershipAndRelease(){
     Fixture f;auto o=f.Attach();
     GameplayInputState mapped{};mapped.active=mapped.interact=mapped.fire_left=mapped.fire_right=true;
@@ -114,5 +141,5 @@ void RepeatedRenderSamples(){
     Check(clock.Observe(8,1,2000)==2000,"replacement source failed to restart dating");
 }
 }
-int main(){GeometryAndSinglePlan();OwnershipAndRelease();RejectionsAndRefresh();RepeatedRenderSamples();
+int main(){GeometryAndSinglePlan();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();RejectionsAndRefresh();RepeatedRenderSamples();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

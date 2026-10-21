@@ -783,6 +783,11 @@ the weapon or substitutes the hand-to-hand vector for the barrel axis. One polic
 instance owns the same physical support channels through interruption and release.
 The exact Winchester, Remington and SawOff adapter now connects the solver to
 scoped native rifle transactions, with host-tested ownership and restoration.
+The adapter also rejects a support controller crossing the perpendicular plane
+through the dominant grip relative to the ordinary right-hand mapped native
+support socket. Equal hand spacing alone could otherwise admit a reversed rifle;
+the same hemisphere gate applies at acquisition, retention and render refresh,
+with physical L1 release required before reacquisition.
 The complete fire/cycle lifetime, physical contact and visual grip remain open
 headset gates. Existing idle-finger eligibility alone does not qualify contact.
 An opt-in read-only observer admits the exact ordinary Winchester, Remington

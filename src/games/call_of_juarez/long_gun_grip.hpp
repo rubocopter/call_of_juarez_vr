@@ -11,6 +11,7 @@ struct CoJLongGunGripGeometry {
 struct CoJLongGunGripFrame {
     bool valid=false;TrackedWeaponFramePlan plan{};ElementWorldBasisTarget mapped_support_frame{};
     runtime::TwoHandGripSolution solution{};float contact_distance_m=0,support_error_m=0;
+    bool support_on_original_side=false;
 };
 // Ergonomic prototype limits, not a qualified native contact volume. Reject a
 // collapsed pair or >20 cm controller/contact mismatch rather than stretching
@@ -31,7 +32,8 @@ private:
     std::uint64_t generation_=0,sequence_=0,time_=0;
 };
 inline bool IsCoJLongGunGripFrameAdmitted(const CoJLongGunGripFrame& frame) noexcept {
-    return frame.valid&&frame.solution.source_span_m>=kCoJLongGunGripMinimumSpanM&&
+    return frame.valid&&frame.support_on_original_side&&
+        frame.solution.source_span_m>=kCoJLongGunGripMinimumSpanM&&
         frame.solution.target_span_m>=kCoJLongGunGripMinimumSpanM&&
         frame.support_error_m<=kCoJLongGunGripMaximumMismatchM;
 }
@@ -102,6 +104,14 @@ inline CoJLongGunGripFrame BuildCoJLongGunGripFrame(const CoJLongGunGripGeometry
     out.contact_distance_m=float(std::sqrt(runtime::two_hand_detail::Dot(d,d))*.01);
     if(!std::isfinite(out.contact_distance_m)||!runtime::two_hand_detail::Finite(out.plan.muzzle_origin)||
         !runtime::two_hand_detail::Finite(out.plan.muzzle_direction))return {};
+    // The tracked support must stay on the same side of the dominant grip as
+    // the authored grip in the ordinary right-hand map. Length alone admits a
+    // 180-degree inversion (left hand crossing through the right hand) that
+    // flips the barrel without changing the spacing error. No angle is tuned:
+    // crossing the perpendicular plane retires the claimed support instead.
+    const auto expected=runtime::two_hand_detail::Sub(contact.position,g.dominant_grip_cm);
+    const auto tracked=runtime::two_hand_detail::Sub(g.support_grip_cm,g.dominant_grip_cm);
+    out.support_on_original_side=runtime::two_hand_detail::Dot(expected,tracked)>0;
     out.solution=solution;out.support_error_m=solution.support_error_m;out.valid=true;return out;
 }
 struct CoJLongGunGripInput {std::uint64_t player_generation=0,context=0;runtime::TwoHandGripInput controls{};};
