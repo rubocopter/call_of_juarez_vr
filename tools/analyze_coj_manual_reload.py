@@ -318,6 +318,19 @@ def finger_joint_metrics(fields):
             metrics[key] = distance
         metrics['mesh_surface_distance_asymmetry_cm'] = abs(
             metrics[proximity_keys[0]]-metrics[proximity_keys[1]])
+    station_keys=('thumb_station_from_base_cm','index_station_from_base_cm')
+    if any(key in fields for key in station_keys):
+        if not all(key in fields for key in (*station_keys,*proximity_keys)):
+            raise ValueError('Incomplete same-snapshot mesh axial station')
+        for key in station_keys:
+            station = float(fields[key])
+            # Signed distance to the imported rear base; retain out-of-envelope
+            # readings instead of clipping them to the cartridge visual.
+            if not math.isfinite(station) or abs(station) > 15:
+                raise ValueError('Invalid mesh axial station')
+            metrics[key] = station
+        metrics['skin_pad_axial_separation_cm'] = abs(
+            metrics[station_keys[0]]-metrics[station_keys[1]])
     if not all(math.isfinite(value) for value in metrics.values()):
         raise ValueError('Non-finite finger-frame measurement')
     return metrics

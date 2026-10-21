@@ -1005,12 +1005,23 @@ CoJReloadSkinMeshProximity MeasureCoJReloadSkinMeshProximity(
         return std::min({segment_distance_squared(p,a,b),
             segment_distance_squared(p,b,c),segment_distance_squared(p,c,a)});
     };
-    std::array<float,2> distances_cm{};
+    // The rear-most imported vertex defines the visual base, including the
+    // mesh centre used by BuildCoJReloadCartridgePose. Report signed axial
+    // position without clamping, so pads beyond either end remain observable.
+    float rear_z=-std::numeric_limits<float>::infinity();
+    for(const auto& vertex:runtime::textured_reload_mesh::vertices){
+        if(!Finite(vertex))return {};
+        rear_z=std::max(rear_z,vertex.z);
+    }
+    if(!std::isfinite(rear_z))return {};
+    std::array<float,2> distances_cm{},stations_cm{};
     for(std::size_t digit=0;digit<2;++digit){
         const auto offset=Subtract(skin_points_cm[digit],pinch.position);
         const runtime::Vec3 local{Dot(offset,right)/100.F,Dot(offset,pinch.up)/100.F,
             Dot(offset,pinch.forward)/100.F+runtime::textured_reload_mesh::centre_z};
         if(!Finite(local))return {};
+        stations_cm[digit]=(rear_z-local.z)*100.F;
+        if(!std::isfinite(stations_cm[digit]))return {};
         float nearest=std::numeric_limits<float>::infinity();
         for(const auto& triangle:runtime::textured_reload_mesh::triangles){
             const auto& mesh=runtime::textured_reload_mesh::vertices;
@@ -1023,7 +1034,7 @@ CoJReloadSkinMeshProximity MeasureCoJReloadSkinMeshProximity(
         distances_cm[digit]=std::sqrt(nearest)*100.F;
         if(!std::isfinite(distances_cm[digit]))return {};
     }
-    return {distances_cm[0],distances_cm[1],true};
+    return {distances_cm[0],distances_cm[1],stations_cm[0],stations_cm[1],true};
 }
 runtime::Pose BuildCoJReloadCartridgePose(const ElementWorldBasisTarget& pinch,
     const runtime::Pose& grip,const runtime::Vec3 native_grip,runtime::Vec3 camera_right,

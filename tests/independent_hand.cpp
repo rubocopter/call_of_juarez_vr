@@ -2,6 +2,7 @@
 #include "finger_fixture.hpp"
 #include "runtime/vr_math.hpp"
 #include "runtime/textured_cartridge_mesh.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -121,6 +122,10 @@ bool FingerChecks(){
             {mesh_point(pinch,mesh[0]),mesh_point(pinch,mesh[12])});
         if(!near_surface.valid||near_surface.thumb_distance_cm>.0001F||
             near_surface.index_distance_cm>.0001F)return false;
+        const float mesh_base_z=std::max_element(mesh.begin(),mesh.end(),
+            [](const auto& a,const auto& b){return a.z<b.z;})->z;
+        if(!Close(near_surface.thumb_station_from_base_cm,(mesh_base_z-mesh[0].z)*100.F)||
+            !Close(near_surface.index_station_from_base_cm,(mesh_base_z-mesh[12].z)*100.F))return false;
         auto rotated=pinch;
         rotated.position={11,23,31};rotated.up={-1,0,0};rotated.forward={0,0,1};
         const cojvr::runtime::Vec3 local_thumb{.009F,.011F,-.02F};
@@ -130,7 +135,13 @@ bool FingerChecks(){
         const auto turned=MeasureCoJReloadSkinMeshProximity(rotated,
             {mesh_point(rotated,local_thumb),mesh_point(rotated,local_index)});
         if(!first.valid||!turned.valid||!Close(first.thumb_distance_cm,turned.thumb_distance_cm)||
-            !Close(first.index_distance_cm,turned.index_distance_cm))return false;
+            !Close(first.index_distance_cm,turned.index_distance_cm)||
+            !Close(first.thumb_station_from_base_cm,turned.thumb_station_from_base_cm)||
+            !Close(first.index_station_from_base_cm,turned.index_station_from_base_cm))return false;
+        const auto past_base=MeasureCoJReloadSkinMeshProximity(pinch,
+            {mesh_point(pinch,{0,0,mesh_base_z+.01F}),mesh_point(pinch,{0,0,mesh_base_z-.01F})});
+        if(!past_base.valid||!Close(past_base.thumb_station_from_base_cm,-1.F)||
+            !Close(past_base.index_station_from_base_cm,1.F))return false;
         auto malformed=pinch;malformed.up=malformed.forward;
         if(MeasureCoJReloadSkinMeshProximity(malformed,{pinch.position,pinch.position}).valid)return false;
         malformed=pinch;malformed.position.x=std::numeric_limits<float>::quiet_NaN();

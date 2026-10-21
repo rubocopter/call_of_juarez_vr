@@ -685,6 +685,13 @@ preserves older snapshots and reports the unsigned distance asymmetry. This is
 sample-point proximity, not full finger skin/volume intersection, signed
 penetration, visible occlusion or a physical contact verdict. Live correlation,
 the visual grip and headset acceptance remain open; no anchor offset is tuned.
+The same optional pickup sample now also reports each displayed skin-pad point's
+signed axial station in centimetres relative to the imported mesh's rear base
+(positive toward the tip), plus their longitudinal separation. These stations
+distinguish a grip displaced along the cartridge from a lateral surface gap;
+they do not establish casing contact or depth ordering. The offline analyzer
+rejects partial/nonfinite station pairs and still accepts legacy distance-only
+records. Physical interpretation remains pending a correlated headset sample.
 
 ## Consolidated candidate batch — host-tested, awaiting runtime and visor
 

@@ -120,13 +120,18 @@ class ReloadAnalysisTests(unittest.TestCase):
 
     def test_surface_proximity_reports_both_points_without_claiming_contact(self):
         sample = finger_reference(thumb_mesh_surface_distance_cm=.08,
-                                  index_mesh_surface_distance_cm=.17)
+                                  index_mesh_surface_distance_cm=.17,
+                                  thumb_station_from_base_cm=1.3,
+                                  index_station_from_base_cm=1.8)
         report = self.evidence([trace(2), sample])
         row = report['finger_joint_observations'][0]
         self.assertEqual(row['status'], 'observed')
         self.assertAlmostEqual(row['thumb_mesh_surface_distance_cm'], .08)
         self.assertAlmostEqual(row['index_mesh_surface_distance_cm'], .17)
         self.assertAlmostEqual(row['mesh_surface_distance_asymmetry_cm'], .09)
+        self.assertAlmostEqual(row['thumb_station_from_base_cm'], 1.3)
+        self.assertAlmostEqual(row['index_station_from_base_cm'], 1.8)
+        self.assertAlmostEqual(row['skin_pad_axial_separation_cm'], .5)
         self.assertFalse(row['skin_pad_contact_measured'])
         self.assertFalse(report['headset_validated'])
 
@@ -143,6 +148,25 @@ class ReloadAnalysisTests(unittest.TestCase):
                 report = self.evidence([finger_reference(**change)])
                 self.assertEqual(report['summary']['finger_reference_samples'], 0)
                 self.assertEqual(report['issues'][0]['kind'], 'invalid_finger_reference')
+
+    def test_axial_stations_require_paired_same_snapshot_surface_distances(self):
+        valid = dict(thumb_mesh_surface_distance_cm=.1,
+                     index_mesh_surface_distance_cm=.2)
+        for change in ({'thumb_station_from_base_cm': 1.2},
+                       {'index_station_from_base_cm': 1.6},
+                       {'thumb_station_from_base_cm': 'nan',
+                        'index_station_from_base_cm': 1.6},
+                       {'thumb_station_from_base_cm': -30,
+                        'index_station_from_base_cm': 1.6}):
+            with self.subTest(change=change):
+                report = self.evidence([finger_reference(**valid, **change)])
+                self.assertEqual(report['summary']['finger_reference_samples'], 0)
+                self.assertEqual(report['issues'][0]['kind'], 'invalid_finger_reference')
+        # Older proximity-only logs remain readable.
+        report = self.evidence([finger_reference(**valid)])
+        row = report['finger_joint_observations'][0]
+        self.assertEqual(row['status'], 'observed')
+        self.assertNotIn('skin_pad_axial_separation_cm', row)
 
     def test_case_span_without_same_snapshot_gap_is_unqualified(self):
         incomplete = finger_reference().replace(';skin_pad_gap_cm=1.14', '')

@@ -527,10 +527,13 @@ struct CoJReloadFingerObservation {
 [[nodiscard]] float CoJReloadCartridgeTransverseSpanCm() noexcept;
 
 // Observation only: distances from two sampled displayed skin-pad points to
-// the actual CC0 triangle surface at its rendered axial station. No signed
-// penetration, skin volume, scene occlusion or contact verdict is implied.
+// the actual CC0 triangle surface. Signed stations measure each sampled pad
+// along the mesh axis: zero at its rear base, positive toward the projectile
+// tip, negative behind the base. No signed penetration, skin volume, scene
+// occlusion or contact verdict is implied.
 struct CoJReloadSkinMeshProximity {
     float thumb_distance_cm = 0.F, index_distance_cm = 0.F;
+    float thumb_station_from_base_cm = 0.F, index_station_from_base_cm = 0.F;
     bool valid = false;
 };
 [[nodiscard]] CoJReloadSkinMeshProximity MeasureCoJReloadSkinMeshProximity(

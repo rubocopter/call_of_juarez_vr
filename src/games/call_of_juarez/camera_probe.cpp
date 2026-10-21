@@ -7414,7 +7414,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     const auto proximity=g_reload_skin_mesh_proximities[motion_reload.cartridge_hand];
                     if(proximity.valid){
                         detail+=";thumb_mesh_surface_distance_cm="+std::to_string(proximity.thumb_distance_cm)+
-                            ";index_mesh_surface_distance_cm="+std::to_string(proximity.index_distance_cm);
+                            ";index_mesh_surface_distance_cm="+std::to_string(proximity.index_distance_cm)+
+                            ";thumb_station_from_base_cm="+std::to_string(proximity.thumb_station_from_base_cm)+
+                            ";index_station_from_base_cm="+std::to_string(proximity.index_station_from_base_cm);
                     }
                 }
                 EmitEvent("manual_reload_finger_reference",fingers.valid?"observed":"unavailable",detail);
