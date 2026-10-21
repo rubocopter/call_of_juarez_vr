@@ -2020,6 +2020,56 @@ bool JavaPlayerBridge::TryObserveWeaponShotDiagnostics(
     return ok;
 }
 
+bool JavaPlayerBridge::TryObserveVirtualHolsterReady() noexcept {
+    if(!being_)return false;
+    void* env=Environment(nullptr);
+    constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
+        kGetObjectClass,kGetMethodId,kCallBooleanMethodA,kCallIntMethodA,kCallObjectMethodA};
+    for(auto slot:required)if(!EnvFunction<void*>(env,slot))return false;
+    if(ClearException(env,nullptr,"holster observation entry"))return false;
+    const auto player=being_;const auto generation=being_generation_;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto boolean=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto object=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    void* cls=cls_fn(env,player);
+    if(ClearException(env,nullptr,"holster player class")||!cls){DeleteLocal(env,cls);return false;}
+    constexpr const char* names[]{"IsNotAlive","IsCarrying","IsWeaponReloading",
+        "GetHandStateMashineState","GetHandStateMashineDestinyState","GetActualWeaponState","GetDesiredWeaponState",
+        "GetWeaponNearby"};
+    std::array<void*,8> methods{};
+    bool valid=true;
+    for(int i=0;i<8;++i){
+        methods[i]=lookup(env,cls,names[i],i<3?"()Z":i==7?"()LWeapon;":"(I)I");
+        if(ClearException(env,nullptr,"holster method lookup")||!methods[i]){valid=false;break;}
+    }
+    DeleteLocal(env,cls);if(!valid)return false;
+    std::array<std::array<int,4>,2> states{};
+    for(int pass=0;pass<2;++pass){
+        // Native equipment buttons try ReplaceWeapons before WeaponToggle.
+        // Reject that contextual path rather than swapping a world pickup.
+        void* nearby=object(env,player,methods[7],nullptr);
+        const bool nearby_failed=ClearException(env,nullptr,"holster nearby weapon");
+        const bool has_nearby=nearby!=nullptr;DeleteLocal(env,nearby);
+        if(nearby_failed||has_nearby)return false;
+        for(int i=0;i<3;++i){
+            const bool blocked=boolean(env,player,methods[i],nullptr)!=0;
+            if(ClearException(env,nullptr,"holster native gate")||blocked)return false;
+        }
+        for(int h=0;h<2;++h){
+            JValue arg{};arg.i=h;
+            for(int i=0;i<4;++i){
+                const int state=integer(env,player,methods[3+i],&arg);
+                if(ClearException(env,nullptr,"holster hand state")||(state!=0&&state!=1)||
+                    (i>0&&state!=states[h][0])||(pass>0&&state!=states[h][i]))return false;
+                states[h][i]=state;
+            }
+        }
+    }
+    return player==being_&&generation==being_generation_;
+}
+
 bool JavaPlayerBridge::TryGetWeaponReloading(
     bool& reloading,
     std::string* error) noexcept {

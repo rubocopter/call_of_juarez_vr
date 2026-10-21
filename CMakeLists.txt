@@ -1336,6 +1336,11 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_long_gun_observer_test PRIVATE cxx_std_20)
     add_test(NAME long_gun_observer COMMAND cojvr_long_gun_observer_test)
 
+    add_executable(cojvr_virtual_holster_test tests/virtual_holster.cpp)
+    target_link_libraries(cojvr_virtual_holster_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_virtual_holster_test PRIVATE cxx_std_20)
+    add_test(NAME virtual_holster COMMAND cojvr_virtual_holster_test)
+
     add_executable(cojvr_body_haptics_test tests/body_haptics.cpp)
     target_link_libraries(cojvr_body_haptics_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_body_haptics_test PRIVATE cxx_std_20)

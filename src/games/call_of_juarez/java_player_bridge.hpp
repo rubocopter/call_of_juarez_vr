@@ -438,6 +438,9 @@ public:
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;
+    // Read-only life/carry/reload and stable idle/empty hand-state proof.
+    // Caller additionally owns gameplay, duel, tracking and inventory admission.
+    [[nodiscard]] bool TryObserveVirtualHolsterReady() noexcept;
     // Read-only exact local duel ownership (including native fade/init phases).
     // Observation failure is unknown ownership: callers must also yield yaw.
     [[nodiscard]] bool TryObserveDuel(bool& duel_active, std::string* error=nullptr) noexcept;

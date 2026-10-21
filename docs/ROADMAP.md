@@ -162,7 +162,8 @@ Additional implementation remains bounded by the following prerequisites:
 | --- | --- |
 | Physical-walk/turn leg animation | Planned. Identify a scoped lower-body presentation boundary before animation; preserve accepted continuous body following and native movement/permissions. Artificial movement input is not evidence of a qualified presentation seam. |
 | Rifle two-hand attachment | Solver, ownership policy and read-only native reference observer are host-tested; attachment is disabled. Qualify support-hand placement and firing/cycling lifetime before one scoped hand/weapon/aim transaction. |
-| Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before contact enables drawing. |
+| Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before socket-based contact enables drawing. Basic gesture zones below are independent of this geometry. |
+| Basic virtual holsters | Ergonomic HMD-relative hip/shoulder grip zones are implemented/host-tested independently of model sockets or attached meshes. Native equipment toggles retain selection/hiding authority. Physical zone fit and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
 | Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
 | Remaining visual integration | Cartridge contact/occlusion and full graphical HUD follow G1/G3 below; existing visibility and text acceptance stand. |
 | Deferred work | Mod-added DLC VR adaptation and bHaptics provider/event producers are deferred by operator priority. OpenXR, D3D10 and additional games remain separate future tracks. |
@@ -263,6 +264,10 @@ or reload work:
   Original model/inventory evidence identifies `HolsterR` for Ray/Billy and
   `HolsterL` for Ray. Natural pre-body frame diagnostics are available in the same
   duel; qualify grasp placement and visual-body alignment before enabling contact.
+  The operator separately requested basic gesture zones without visible attached
+  weapons. Those now reuse native pistol/rifle toggles at the corresponding hip
+  or right shoulder, with host-tested grip claims and native permission guards.
+  They are ordinary gameplay shortcuts and do not bypass duel timing/posture.
 - **Two-hand long-gun support:** investigate a measured support-hand frame before
   proximity/grip attachment. A neutral rigid solver and fresh-grip ownership policy
   are implemented/host-tested, including off-axis support, authored roll, unequal

@@ -1,0 +1,121 @@
+#include "games/call_of_juarez/virtual_holster.hpp"
+#include "runtime/gameplay_utility.hpp"
+#include <cstdlib>
+#include <iostream>
+#include <limits>
+using namespace cojvr;
+using namespace games::call_of_juarez;
+namespace {
+void Check(bool value,const char* reason) {if(!value){std::cerr<<reason<<'\n';std::exit(1);}}
+runtime::Pose Pose(runtime::Vec3 p) {return {p,{},true,true};}
+template<class Sample> void NativeReady(Sample& s,bool ready){
+    if constexpr(requires{s.native_ready=ready;})s.native_ready=ready;
+}
+struct Fixture {
+    CoJVirtualHolsterState gate;
+    CoJVirtualHolsterSample s;
+    runtime::GameplayInputState out;
+    Fixture() {
+        s.raw.active=true;s.raw.input_context_generation=3;
+        s.player=7;s.context=9;s.allowed=true;
+        NativeReady(s,true);
+        s.head=Pose({0,1.7F,0});s.grips={Pose({.22F,1,0}),Pose({-.22F,1,0})};
+        s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=7;
+    }
+    int Step(){++s.sequence;s.now_us+=10000;out=s.raw;return gate.Update(s,out);}
+    void Release(){s.raw.kick=s.raw.interact=false;Step();}
+};
+}
+int main(){
+    for(int channel=0;channel<3;++channel){
+        Fixture f;Check(f.Step()==-1,"neutral acquisition selected a weapon");
+        if(channel==0)f.s.raw.interact=true;else f.s.raw.kick=true;
+        if(channel==2)f.s.grips[0]=Pose({.22F,1.62F,.20F});
+        Check(f.Step()==channel&&f.out.equipment_select[channel],"zone did not request its native slot");
+        Check(!f.out.interact&&!f.out.kick&&!f.out.run,"holster press leaked Action/Kick/Gallop");
+        Check(f.Step()==-1,"held grip repeated selection");
+        f.s.grips={Pose({1,1.7F,-1}),Pose({-1,1.7F,-1})};
+        Check(f.Step()==-1&&!f.out.interact&&!f.out.kick,"claimed hold changed meaning outside zone");
+        f.Release();f.s.grips={Pose({.22F,1,0}),Pose({-.22F,1,0})};
+        if(channel==2)f.s.grips[0]=Pose({.22F,1.62F,.20F});
+        if(channel==0)f.s.raw.interact=true;else f.s.raw.kick=true;
+        Check(f.Step()==channel,"fresh grip did not issue native toggle again");
+    }
+    {
+        Fixture f;f.s.grips[0]=Pose({.4F,1.6F,-.6F});f.Step();f.s.raw.kick=true;
+        Check(f.Step()==-1&&f.out.kick,"ordinary Kick outside zones was lost");
+        f.s.grips[0]=Pose({.22F,1,0});
+        Check(f.Step()==-1,"moving an already held grip into a zone equipped a weapon");
+    }
+    for(int fault=0;fault<9;++fault){
+        Fixture f;f.Step();f.s.raw.kick=true;Check(f.Step()==1,"fault fixture did not claim");
+        switch(fault){case 0:f.s.allowed=false;break;case 1:f.s.player++;break;
+        case 2:f.s.context++;break;case 3:f.s.raw.input_context_generation++;break;
+        case 4:f.s.grips[0].position_valid=false;break;case 5:f.s.head.orientation_valid=false;break;
+        case 6:f.s.now_us+=200000;break;case 7:f.s.raw.digital_available&=~(1U<<9);break;
+        case 8:f.s.head.position.x=std::numeric_limits<float>::quiet_NaN();break;}
+        Check(f.Step()==-1&&!f.out.kick,"fault replayed a claimed action");
+        f.s.allowed=true;f.s.grips[0]=Pose({.22F,1,0});f.s.head=Pose({0,1.7F,0});
+        f.s.raw.digital_available=0xffffffffU;
+        Check(f.Step()==-1&&!f.out.kick,"held recovery re-equipped or kicked");
+        f.Release();f.s.raw.kick=true;Check(f.Step()==1,"available release did not recover");
+    }
+    for(int conflict=0;conflict<5;++conflict){
+        Fixture f;f.Step();f.s.raw.kick=true;
+        switch(conflict){case 0:f.s.raw.weapon_radial=true;break;case 1:f.s.raw.reload=true;break;
+        case 2:f.s.raw.fire_right=true;break;case 3:f.s.raw.fire_left=true;break;
+        case 4:f.s.raw.equipment_select[5]=true;break;}
+        Check(f.Step()==-1,"conflicting action allowed holster selection");
+        f.s.raw.weapon_radial=f.s.raw.reload=f.s.raw.fire_right=f.s.raw.fire_left=false;
+        f.s.raw.equipment_select={};Check(f.Step()==-1,"cleared conflict replayed held grip");
+    }
+    {
+        Fixture f;f.s.raw.kick=true;Check(f.Step()==-1,"held startup grip selected a weapon");
+        f.Release();f.s.inventory.available_mask=0;f.s.raw.kick=true;
+        Check(f.Step()==-1&&!f.out.kick,"denied zone leaked a kick");
+        f.s.inventory.available_mask=7;Check(f.Step()==-1,"permission recovery replayed denial");
+    }
+    {
+        Fixture f;f.Step();NativeReady(f.s,false);f.s.raw.kick=true;
+        Check(f.Step()==-1&&!f.out.kick,"busy native holster attempt leaked selection or Kick");
+        NativeReady(f.s,true);Check(f.Step()==-1,"native readiness recovery replayed the held press");
+    }
+    {
+        Fixture f;f.Step();f.s.raw.kick=true;
+        f.out=f.s.raw;Check(f.gate.Update(f.s,f.out)==-1,"duplicate pose selected a weapon");
+        Check(f.Step()==-1,"duplicate pose button was deferred to a new frame");
+    }
+    {
+        Fixture f;f.Step();f.s.raw.interact=f.s.raw.kick=true;
+        Check(f.Step()==1&&!f.out.interact&&!f.out.kick,"simultaneous grips were not consumed/serialized");
+        Check(f.Step()==-1,"losing simultaneous selection was queued");
+    }
+    {
+        Fixture f;f.s.grips[1]=Pose({-.4F,1.5F,-.5F});f.Step();
+        f.s.raw.interact=f.s.raw.kick=true;
+        Check(f.Step()==-1&&f.out.interact&&!f.out.kick,
+            "holster selection conflicted with the other hand's ordinary Action");
+    }
+    {
+        Fixture f;f.s.head=Pose({3,1.7F,4});f.s.head.orientation={0,.70710678F,0,.70710678F};
+        // +90 yaw rotates tracking +X to -Z; use the same head-relative zone.
+        f.s.grips[0]=Pose({3,1,3.78F});f.Step();f.s.raw.kick=true;
+        Check(f.Step()==1,"translated/rotated head-relative hip failed");
+    }
+    {
+        Fixture f;f.s.head.orientation={-.70710678F,0,0,.70710678F};
+        f.Step();f.s.raw.kick=true;
+        Check(f.Step()==1,"looking straight down moved the hip zone");
+    }
+    {
+        Fixture f;runtime::GameplayControlMapper mapper;
+        auto mapped=[&]{++f.s.sequence;f.s.now_us+=10000;f.out=mapper.Update(f.s.raw);
+            return f.gate.Update(f.s,f.out);};
+        mapped();f.s.raw.weapon_radial=true;mapped();f.s.raw.kick=true;
+        Check(mapped()==-1,"wheel leaked a holster action");
+        f.s.raw.weapon_radial=false;Check(mapped()==-1,"wheel-close grip re-equipped");
+        f.s.raw.kick=false;mapped();f.s.raw.kick=true;
+        Check(mapped()==1,"mapper release barrier prevented fresh holster use");
+    }
+    std::cout<<"virtual hip/shoulder slots, one-shot claims and recovery passed\n";
+}

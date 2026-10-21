@@ -11,6 +11,7 @@
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
+#include "games/call_of_juarez/virtual_holster.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
@@ -205,6 +206,7 @@ std::uint64_t g_body_yaw_generation = 0;
 bool g_body_yaw_owned = false;
 std::uint32_t g_camera_pose_trace_frames_remaining = 0;
 CoJWheelSelectionGate g_wheel_selection_gate;
+CoJVirtualHolsterState g_virtual_holsters;
 
 void ResetBodyYawOwnership() noexcept {
     g_body_owned_yaw_degrees = 0.0F;
@@ -5136,11 +5138,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // D3D resource rollback is pending. Retry with its retained eye/frame first.
     (void)RestorePendingEyeRenderResources();
     if(EyeRenderRestorationPending()){
-        ResetPhysicalBowDraw("eye_resource_quarantine");return;
+        ResetPhysicalBowDraw("eye_resource_quarantine");g_virtual_holsters.Invalidate();return;
     }
 
     const CommandSnapshot snapshot = CurrentCommand();
     const auto cancel_gameplay=[&](const char* reason="render_context_lost") noexcept {
+        g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw(reason);
         g_java_player_bridge.InvalidateDuelInput();
         (void)PublishReloadFeedbackOwner(0, 0, {});
@@ -5167,6 +5170,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             g_gameplay_owner_release_pending=false;
     };
     const auto reject_render_input_context=[&]() noexcept {
+        g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw("render_input_context");
         // These dispatches precede this frame's body/hand/eye transactions.
         // Do not call native cancellation after the selected level was lost.
@@ -5462,6 +5466,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     bool mounted_available=sample.gameplay.active &&
         g_java_player_bridge.Refresh(nullptr) && g_java_player_bridge.TryObserveMounted(mounted);
     const auto reset_gameplay_owner=[&]() noexcept {
+        g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw("gameplay_owner_changed");
         g_physical_punch.Reset();
         (void)PublishReloadFeedbackOwner(0, 0, {});
@@ -5610,6 +5615,32 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // Keep a denied gesture visible, but deliver only owned/permitted sectors.
     auto wheel_input = gameplay_input;
     g_wheel_selection_gate.Update(gameplay_input, native_gameplay_ui.inventory);
+    CoJVirtualHolsterSample holster_sample{};
+    holster_sample.raw=raw_reload_input;
+    holster_sample.inventory=native_gameplay_ui.inventory;
+    holster_sample.head=relative_head_pose;
+    holster_sample.grips={relative_right_controller,relative_left_controller};
+    holster_sample.player=g_java_player_bridge.being_generation();
+    holster_sample.context=sample.native_gameplay_context_token;
+    holster_sample.sequence=sample.hmd_pose.sequence;
+    holster_sample.now_us=MonotonicMicroseconds();
+    holster_sample.allowed=gameplay_input.active && snapshot.command.body_ik_enabled &&
+        snapshot.command.independent_hands_enabled && snapshot.command.vr_gameplay_input_enabled &&
+        game_timer_valid && !game_timer_frozen && mounted_available && !mounted &&
+        duel_owner_known && !duel_active && !recentered && !loading_ui_input.suppress_gameplay &&
+        !g_arm_rotation_faulted && !g_room_scale_body_offset.faulted &&
+        g_manual_reload.phase()==CoJManualReloadPhase::ready && !g_bow_draw_session.active();
+    // Only a possible press needs synchronous native life/carry/reload/state
+    // proof. No JNI mutation or new persistent inventory replica is introduced.
+    if(holster_sample.allowed && (raw_reload_input.kick||raw_reload_input.interact))
+        holster_sample.native_ready=g_java_player_bridge.TryObserveVirtualHolsterReady();
+    const int holster_channel=g_virtual_holsters.Update(holster_sample,gameplay_input);
+    if(holster_channel>=0)try{
+        EmitEvent("virtual_holster","requested","frame_sequence="+std::to_string(frame_sequence)+
+            ";channel="+std::to_string(holster_channel)+";pose_sequence="+
+            std::to_string(holster_sample.sequence)+
+            ";source=head_relative_gesture;native_selection=true;socket_contact=false;success=unobserved");
+    }catch(...){}
     if (!gameplay_input.active || loading_ui_input.suppress_gameplay) {
         sample.left_fingers = {};
         sample.right_fingers = {};
@@ -8347,6 +8378,7 @@ void ShutdownCameraProbe() noexcept {
     g_arm_element_cache = {};
     g_camera_pose_trace_frames_remaining = 0;
     g_wheel_selection_gate = {};
+    g_virtual_holsters = {};
     g_left_hand_orientation = {};
     g_right_hand_orientation = {};
     g_left_arm_rotation = {};

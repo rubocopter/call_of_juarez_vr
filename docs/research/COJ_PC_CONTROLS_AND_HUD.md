@@ -130,8 +130,8 @@ user-customized SteamVR bindings or physical controller behavior.
 | R3 | Focus toggle; XR magnification follows real native squint |
 | L2 | original LMB / left-hand action |
 | R2 | original RMB / right-hand action; exact left-held bow: approach string, grab, retract and release |
-| L1 | Action / contextual F from the left Sense aim ray; reference ring only while held |
-| R1 | fresh Kick press on foot; hold Horse run / gallop when mounted |
+| L1 | Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol during admitted ordinary gameplay |
+| R1 | fresh Kick press on foot; fresh grip at the right virtual hip toggles its pistol, above/behind the right shoulder toggles the rifle; hold Horse run / gallop when mounted |
 | Square | Reload; opens/closes an admitted Peacemaker/Frontier session with `-ManualReload` |
 | Cross | Jump |
 | Circle | Toggle alternate fire |
@@ -473,6 +473,22 @@ contexts remain separate gates; dispatch alone does not validate them.
   Read-only natural pre-body mount diagnostics do not establish a current
   holstered weapon, physical contact radius or alignment after the visual-body
   offset. Keep contact admission disabled until those identities/frames agree.
+  Basic virtual holsters are a separate ergonomic shortcut: HMD-relative hip and
+  right-shoulder zones dispatch the original equipment actions 23/22/21 once per
+  fresh corresponding grip. Repeating after release uses the same native toggle
+  to hide/equip; no retained replica of the equipped weapon or mesh attachment is
+  introduced. A claimed hold suppresses Action/Kick/Gallop until physical release,
+  even outside the zone or after loss. Native carry/death/reload or transitioning
+  hands reject selection; inventory permissions, wheel/fire conflicts and known
+  non-duel/on-foot ownership remain gates. These zones are host-tested only and
+  do not qualify contact with the native sockets or alter duel draw authority.
+  The original `WeaponRightPistolToggle`, `WeaponLeftPistolToggle` and
+  `WeaponTwoHandedToggle` first try `ReplaceWeapons` using `GetWeaponNearby`,
+  then fall back to `WeaponToggle`. The holster readiness reader therefore
+  requires that cached nearby reference to be null in both observations, before
+  delivering actions 22/23/21. A nearby pickup rejects the gesture rather than
+  allowing an unintended swap/drop. This guard is independent of native socket
+  geometry and preserves the ordinary wheel/button route.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player

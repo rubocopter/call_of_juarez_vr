@@ -441,6 +441,25 @@ output, SDK loader, worker, vest model or physical-support state.
 
 ## Equipment wheel and wrist compass
 
+Basic virtual holsters reuse the existing native equipment toggles through
+`CoJVirtualHolsterState`: left hip/Action grip selects the left pistol, right
+hip/Kick grip the right pistol, and right shoulder/Kick grip the long weapon.
+These are ergonomic tracking-metre gesture zones relative to the HMD position
+and horizontal heading, independent of native body sockets or visible holstered
+meshes. Looking down does not pitch the zones. Their physical fit is unvalidated.
+The exact adapter requires ordinary on-foot gameplay, known non-duel ownership,
+stable idle/empty native hand tuples, no carry/death/reload or nearby world
+weapon, no manual reload or
+active bow draw, and current native slot ownership/permission. It issues one
+existing selection edge; native toggle/equip/hide and animation remain authoritative.
+Conflicting wheel/fire/equipment input rejects. A captured grip suppresses its
+Action/Kick/Gallop meaning and shoulder availability through physical release,
+including zone exit and context/tracking loss. Missing or unavailable input is
+not a release; failed selection is never queued for a later owner. An unclaimed
+other-hand Action/Kick cancels selection, and an admitted slot edge cancels any
+older pending shoulder pulse before native delivery. Precise socket
+contact, model attachment and duel drawing remain separate contracts.
+
 Read-only game-thread readers copy native inventory permissions, actual rotor
 IDs, visible waypoint/map orientation and owned HUD caches into bounded neutral
 snapshots. No eligibility factory, timer, HUD or gameplay update is invoked.

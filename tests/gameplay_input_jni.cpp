@@ -8,6 +8,7 @@
 #include "runtime/vr_types.hpp"
 #include "runtime/hud_text.hpp"
 #include "runtime/gameplay_utility.hpp"
+#include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #define private public
 #include "games/call_of_juarez/java_player_bridge.hpp"
@@ -41,6 +42,38 @@ int observed_weapon;
 bool shot_field_fault=false, shot_read_fault=false, shot_owner_fault=false;
 bool mounted_value=false, mounted_lookup_fault=false, mounted_call_fault=false;
 int mounted_calls=0;
+int holster_step=0,holster_fail=-1,holster_locals=0;
+bool holster_block[3]{},holster_change=false,holster_nearby=false;
+int holster_states[2][4]{{1,1,1,1},{0,0,0,0}},holster_state_reads=0;
+bool HolsterFault(){if(++holster_step==holster_fail){pending=true;return true;}return false;}
+void* __stdcall HolsterClass(void*,void*){HolsterFault();++holster_locals;return &game_type;}
+void __stdcall HolsterDelete(void*,void* ref){if(ref==&game_type||ref==&observed_weapon)--holster_locals;}
+void* __stdcall HolsterMethod(void*,void*,const char* name,const char*){
+    if(HolsterFault())return nullptr;
+    constexpr const char* names[]{"IsNotAlive","IsCarrying","IsWeaponReloading",
+        "GetHandStateMashineState","GetHandStateMashineDestinyState","GetActualWeaponState","GetDesiredWeaponState",
+        "GetWeaponNearby"};
+    for(int i=0;i<8;++i)if(!std::strcmp(name,names[i]))return Ptr(900+i);
+    pending=true;return nullptr;
+}
+std::uint8_t __stdcall HolsterBoolean(void*,void*,void* method,const JValue*){
+    if(HolsterFault())return 0;
+    return holster_block[reinterpret_cast<std::uintptr_t>(method)-900];
+}
+std::int32_t __stdcall HolsterInteger(void*,void*,void* method,const JValue* args){
+    if(HolsterFault())return 0;
+    const int column=static_cast<int>(reinterpret_cast<std::uintptr_t>(method)-903);
+    ++holster_state_reads;
+    return holster_change&&holster_state_reads>8?0:holster_states[args[0].i][column];
+}
+void* __stdcall HolsterObject(void*,void*,void*,const JValue*){
+    if(HolsterFault())return nullptr;
+    if(holster_nearby){++holster_locals;return &observed_weapon;}return nullptr;
+}
+template<class Bridge> bool HolsterReady(Bridge& bridge){
+    if constexpr(requires {bridge.TryObserveVirtualHolsterReady();})return bridge.TryObserveVirtualHolsterReady();
+    return false;
+}
 void* __stdcall MountedMethod(void*,void*,const char* name,const char* signature) {
     if (mounted_lookup_fault || std::strcmp(name,"IsRidingHorse") || std::strcmp(signature,"()Z")) {
         pending=true;return nullptr;
@@ -589,6 +622,78 @@ int main() {
     turn.turn.x=.9F;
     ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::shoulder)&&
         static_cast<int>(native_turns.size())==turn_count,"shoulder phase generated an extra snap turn");
+    // Actual dispatcher receives ordinary slot actions from the physical zones.
+    for(int channel=0;channel<3;++channel){
+        JavaPlayerBridge holster_bridge;Bind(holster_bridge);
+        CoJVirtualHolsterState holsters;CoJVirtualHolsterSample s;
+        s.allowed=s.native_ready=true;s.player=7;s.context=9;s.sequence=1;s.now_us=10000;
+        s.raw.active=true;s.raw.input_context_generation=1;
+        s.head={{0,1.7F,0},{},true,true};
+        s.grips={cojvr::runtime::Pose{{.22F,channel==2?1.62F:1.F,channel==2?.2F:0},{},true,true},
+                 cojvr::runtime::Pose{{-.22F,1,0},{},true,true}};
+        s.inventory.valid=true;s.inventory.owned_mask=s.inventory.available_mask=7;
+        auto input=s.raw;(void)holsters.Update(s,input);
+        CoJGameplayCommandQueue shoulder_commands;
+        auto queued=s.raw;queued.kick=true;shoulder_commands.CaptureShoulder(queued);
+        constexpr int ids[]{23,22,21};const int before=accepted[ids[channel]];
+        const int action_before=accepted[30],kick_before=accepted[39];
+        for(int frame=0;frame<4;++frame){
+            ++s.sequence;s.now_us+=10000;
+            if(channel==0)s.raw.interact=true;else s.raw.kick=true;
+            input=s.raw;const int selected=holsters.Update(s,input);
+            shoulder_commands.CaptureShoulder(input);
+            ok &= Check(selected==(frame==0?channel:-1),"holster did not produce exactly one native slot edge");
+            ok &= Check(holster_bridge.TryApplyGameplayInput(input,&error,CoJInputDispatchPhase::pre_shoulder),
+                "holster native equipment dispatch failed");
+            ok &= Check(holster_bridge.TryApplyGameplayInput(input,&error,CoJInputDispatchPhase::shoulder),
+                "holster shoulder dispatch failed");
+        }
+        ok &= Check(accepted[ids[channel]]==before+1&&accepted[30]==action_before&&
+            accepted[39]==kick_before,"physical holster leaked Action/Kick or repeated equipment");
+    }
+    {
+        std::array<void*,174> saved{};std::copy(std::begin(env_table),std::end(env_table),saved.begin());
+        env_table[23]=reinterpret_cast<void*>(&HolsterDelete);
+        env_table[31]=reinterpret_cast<void*>(&HolsterClass);
+        env_table[33]=reinterpret_cast<void*>(&HolsterMethod);
+        env_table[39]=reinterpret_cast<void*>(&HolsterBoolean);
+        env_table[36]=reinterpret_cast<void*>(&HolsterObject);
+        env_table[51]=reinterpret_cast<void*>(&HolsterInteger);
+        JavaPlayerBridge observation;Bind(observation);observation.being_=&player;
+        holster_step=holster_state_reads=0;
+        ok &= Check(HolsterReady(observation)&&!pending&&holster_locals==0,
+            "idle native holster readiness was not observed");
+        const int operations=holster_step;
+        for(int failure=1;failure<=operations;++failure){
+            holster_step=holster_state_reads=0;holster_fail=failure;
+            ok &= Check(!HolsterReady(observation)&&!pending&&holster_locals==0,
+                "holster readiness JNI failure leaked exception/reference or admitted selection");
+        }
+        holster_fail=-1;
+        for(int gate=0;gate<3;++gate){holster_block[gate]=true;
+            ok &= Check(!HolsterReady(observation),"dead/carry/reload owner admitted holster");
+            holster_block[gate]=false;}
+        for(int h=0;h<2;++h)for(int state=0;state<4;++state){
+            const int old=holster_states[h][state];holster_states[h][state]=20;
+            ok &= Check(!HolsterReady(observation),"transitioning native hand admitted holster");
+            holster_states[h][state]=old;
+        }
+        holster_state_reads=0;holster_change=true;
+        ok &= Check(!HolsterReady(observation),"changed native state snapshot admitted holster");
+        holster_change=false;
+        holster_nearby=true;
+        ok &= Check(!HolsterReady(observation),"holster admitted contextual world-weapon replacement");
+        holster_nearby=false;
+        for(int slot:{15,17,23,31,33,36,39,51}){
+            auto prior=env_table[slot];env_table[slot]=nullptr;
+            ok &= Check(!HolsterReady(observation),"missing JNI slot admitted holster");env_table[slot]=prior;
+        }
+        observation.being_=nullptr;
+        ok &= Check(!HolsterReady(observation),"missing player admitted holster");
+        observation.being_=&player;
+        ok &= Check(HolsterReady(observation)&&!pending&&holster_locals==0,"holster reader failed to recover");
+        std::copy(saved.begin(),saved.end(),std::begin(env_table));
+    }
     env_table[6]=reinterpret_cast<void*>(&CampaignFind);
     env_table[21]=reinterpret_cast<void*>(&CampaignGlobal);
     env_table[22]=reinterpret_cast<void*>(&CampaignDeleteGlobal);
