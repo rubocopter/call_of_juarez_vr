@@ -22,11 +22,11 @@ The operator has also accepted recovery after Hope and multiple exercised
 cinematics, including hot theater/immersive switches and resumed gameplay.
 The capture-ring reclamation that addressed the Hope report must be preserved.
 Neither that declaration nor successful normal quit qualifies all cinematics,
-immersive subtitle transport, focus/dashboard/tracking loss or device resets.
+unreported subtitle modes/timing, focus/dashboard/tracking loss or device resets.
 Already accepted Hope and ordinary reload/menu behavior need no repeat test.
 
-Current unpublished work includes a shared version-2 preference owner and native
-Options > Game cinematic/turning selectors, a physical right-hand duel posture
+Current unpublished work includes a shared version-3 preference owner and native
+Options > Game cinematic/turning/holster-guide selectors, a physical right-hand duel posture
 guard, reload thumb/continuity corrections, a neutral two-hand long-gun solver
 and improved launcher resolution reporting. These are implemented/host-tested,
 with scoped operator acceptance of native option usability and one successful
@@ -35,8 +35,9 @@ recovery remain open. The two-hand solver is not attached to
 native rifles. The published .4 download does not contain these later changes.
 
 The offline batch additionally implements module-owned immersive subtitle text
-and native-cache bow concentration magnification, both host-tested only. Movie
-line timing/readability and bow alignment/comfort join the same naturally eligible
+and native-cache bow concentration magnification, both host-tested only. The
+operator confirms subtitle appearance in exercised animations, with rendering
+mode unspecified. Unreported movie timing/modes and bow alignment/comfort join the same naturally eligible
 campaign session. The reload observer correlates stable native drum phase with
 geometry; duel diagnostics observe original inventory holster sockets. Neither
 diagnostic enables chamber mechanics or physical holster contact.
@@ -163,7 +164,7 @@ Additional implementation remains bounded by the following prerequisites:
 | Physical-walk/turn leg animation | Planned. Identify a scoped lower-body presentation boundary before animation; preserve accepted continuous body following and native movement/permissions. Artificial movement input is not evidence of a qualified presentation seam. |
 | Rifle two-hand attachment | Solver, ownership policy and read-only native reference observer are host-tested; attachment is disabled. Qualify support-hand placement and firing/cycling lifetime before one scoped hand/weapon/aim transaction. |
 | Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before socket-based contact enables drawing. Basic gesture zones below are independent of this geometry. |
-| Basic virtual holsters | Ergonomic HMD-relative hip/shoulder grip zones are implemented/host-tested independently of model sockets or attached meshes. Native equipment toggles retain selection/hiding authority. Physical zone fit and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
+| Basic virtual holsters | Ergonomic HMD-relative hip zones for pistols, right shoulder for rifle and left shoulder for bow are implemented/host-tested independently of model sockets or attached meshes. Optional colored guides share their geometry, default off in native comfort options. Physical zone fit, guide comfort and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
 | Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
 | Remaining visual integration | Cartridge contact/occlusion and full graphical HUD follow G1/G3 below; existing visibility and text acceptance stand. |
 | Deferred work | Mod-added DLC VR adaptation and bHaptics provider/event producers are deferred by operator priority. OpenXR, D3D10 and additional games remain separate future tracks. |
@@ -244,10 +245,12 @@ or reload work:
   and archived verifier verdicts remain unchanged. Next work follows
   unresolved campaign/profile gates; another Ray-fit or identical resolution
   candidate is not pending.
-- **Native VR settings:** a shared versioned preference owner and two selectors
+- **Native VR settings:** a shared versioned preference owner and three selectors
   in the existing Options > Game page are implemented, preserving original fonts,
   native OK/Cancel/Defaults and main/pause return routes. Cinematics and smooth/snap
-  turning are the first preferences; version-1 cinematic values migrate explicitly.
+  turning retain scoped acceptance. Optional holster guides default off; their new
+  comfort row is host-tested. Version 1/2 choices migrate to version 3 with guides
+  off. Labels follow the game's locale, including English/Spanish coverage.
   The [native bridge](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary)
   consumes requests before side effects, rejects stale editors and reports save
   failure without closing the page. Host behavior, shipped-JVM bytecode and package
@@ -265,8 +268,10 @@ or reload work:
   `HolsterL` for Ray. Natural pre-body frame diagnostics are available in the same
   duel; qualify grasp placement and visual-body alignment before enabling contact.
   The operator separately requested basic gesture zones without visible attached
-  weapons. Those now reuse native pistol/rifle toggles at the corresponding hip
-  or right shoulder, with host-tested grip claims and native permission guards.
+  weapons. Those now reuse native pistol/rifle/bow toggles at the corresponding
+  hip or right/left shoulder, with host-tested grip claims and native permission guards.
+  Optional colored zone guides and procedural Western wheel styling have host
+  coverage; fit and readability join normal equipment use in the same session.
   They are ordinary gameplay shortcuts and do not bypass duel timing/posture.
 - **Two-hand long-gun support:** investigate a measured support-hand frame before
   proximity/grip attachment. A neutral rigid solver and fresh-grip ownership policy

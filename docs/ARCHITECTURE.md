@@ -256,7 +256,8 @@ visible subtitle parent and native subtitle setting. It localizes with `Text.Get
 rechecks ownership and copies bounded UTF-16 directly into that captured pair.
 No actor-dialogue fallback or gameplay text cache is used. Theater preserves the
 naturally rendered pass; no script/sprite traversal is replayed. This transport
-is host-tested; actual cinematic delivery and visor readability remain pending.
+is host-tested. The operator confirms subtitle appearance in exercised animations,
+without specifying the rendering mode; broader timing and mode coverage remain open.
 
 VR settings run on the OpenVR presenter. A released short Options tap requests
 native pause; a one-second hold opens the panel. Right-stick left/right selects
@@ -279,7 +280,7 @@ or recenter hands on the next pose.
 The game adapter supplies value-only owner identity and startup language; the
 renderer owns the dedicated head-space panel. A bounded versioned user-local
 configuration defaults to theater, replaces atomically on changes and reports
-save failure in the panel. Comfort settings remain future additions.
+save failure in the panel. Native comfort preferences share this same owner.
 Its dedicated BGRA texture uses DEFAULT storage with shader/render-target and
 shared-resource flags; the presenter verifies a non-null legacy shared handle
 and flushes initial data before publication. Host tests open the resource on a
@@ -341,17 +342,20 @@ rendered image alignment or frame-pacing improvement.
 ## Shared preferences and native settings
 
 `runtime/vr_settings` owns one synchronized preference store for cinematic mode
-and smooth/snap turning. The existing presenter panel and native Options > Game
-editor read versioned snapshots and submit values through that owner. An older
+and smooth/snap turning, plus optional holster guides. The existing presenter
+panel and native Options > Game editor read versioned snapshots and submit values
+through that owner. An older
 editor cannot overwrite a newer edit. Runtime reads use atomic publication;
-native references remain on the game thread. Version 1 cinematic values migrate
-to version 2 with smooth turning. Missing/invalid files use theater/smooth;
+native references remain on the game thread. Version 1 retains its cinematic
+choice and supplies smooth turning; version 1/2 files default guides off.
+Accepted saves write version 3.
+Missing/invalid files use theater/smooth/guides off;
 unrecognized or unreadable startup files are preserved, with session-only changes
 and explicit save-failure feedback. Atomic replacement preserves the previous
 file when persistence fails. The overlay cannot apply an invisible proposal.
 
 The hash-pinned native editor extends the existing `MenuOptionsGame` class and
-`OptionsGame.scr`, shared by main/pause Options, with two original-style selectors
+`OptionsGame.scr`, shared by main/pause Options, with three original-style selectors
 and a status label. It adds no UI index or class registry slot. Original native
 options, defaults, fonts, pointer processing and return behavior remain owned by
 the game. Highlighting and Cancel do not apply VR choices. OK queues one request;
@@ -364,9 +368,13 @@ the editor. Modal replacement, focus/input loss and the development panel cancel
 its owner; reacquisition clears an old request before synchronization. Ordinary
 native menu input stays active; the overlay's exclusive input-capture flag is not
 reused for this editor. Existing pause/gameplay release barriers still apply.
-The two preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
-launcher resolution profiles retain their independent startup-only transaction.
-Native rendering/usability still require the physical gate in Validation.
+The three preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
+cinematic-only editor changes preserve turning and guide choices. Native labels
+follow the game's startup locale (English/Spanish, English fallback), without a
+separate VR language selector.
+Launcher resolution profiles retain their independent startup-only transaction.
+Existing native selectors have scoped physical usability acceptance; the new
+comfort row still requires the physical gate in Validation.
 See [UI research](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary).
 
 ## Expanded campaign input
@@ -443,7 +451,8 @@ output, SDK loader, worker, vest model or physical-support state.
 
 Basic virtual holsters reuse the existing native equipment toggles through
 `CoJVirtualHolsterState`: left hip/Action grip selects the left pistol, right
-hip/Kick grip the right pistol, and right shoulder/Kick grip the long weapon.
+hip/Kick grip the right pistol, right shoulder/Kick grip the long weapon, and
+left shoulder/Action grip the bow.
 These are ergonomic tracking-metre gesture zones relative to the HMD position
 and horizontal heading, independent of native body sockets or visible holstered
 meshes. Looking down does not pitch the zones. Their physical fit is unvalidated.
@@ -459,6 +468,18 @@ not a release; failed selection is never queued for a later owner. An unclaimed
 other-hand Action/Kick cancels selection, and an admitted slot edge cancels any
 older pending shoulder pulse before native delivery. Precise socket
 contact, model attachment and duel drawing remain separate contracts.
+
+The native comfort option enables colored holster guides, off by default. The
+adapter uses the same canonical centers/radii as grip admission and captures
+head-relative billboard corners with the gameplay pair. Available, hovered and
+unavailable states have distinct colors. The renderer uses bounded immutable
+translucent textures; invalid projection hides a zone in both eyes, and optional
+guide failures preserve essential HUD text. Blocking UI and wheel ownership hide
+the guides. These hints have no scene depth or native contact authority.
+
+The wheel uses procedural leather, brass, stitching and amber highlights while
+preserving native localized labels, sector order, permissions and input policy.
+Its new styling has host raster coverage; visor readability remains unqualified.
 
 Read-only game-thread readers copy native inventory permissions, actual rotor
 IDs, visible waypoint/map orientation and owned HUD caches into bounded neutral

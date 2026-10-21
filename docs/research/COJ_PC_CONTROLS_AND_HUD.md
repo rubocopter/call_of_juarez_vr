@@ -130,7 +130,7 @@ user-customized SteamVR bindings or physical controller behavior.
 | R3 | Focus toggle; XR magnification follows real native squint |
 | L2 | original LMB / left-hand action |
 | R2 | original RMB / right-hand action; exact left-held bow: approach string, grab, retract and release |
-| L1 | Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol during admitted ordinary gameplay |
+| L1 | Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol, above/behind the left shoulder toggles the bow during admitted ordinary gameplay |
 | R1 | fresh Kick press on foot; fresh grip at the right virtual hip toggles its pistol, above/behind the right shoulder toggles the rifle; hold Horse run / gallop when mounted |
 | Square | Reload; opens/closes an admitted Peacemaker/Frontier session with `-ManualReload` |
 | Cross | Jump |
@@ -474,7 +474,8 @@ contexts remain separate gates; dispatch alone does not validate them.
   holstered weapon, physical contact radius or alignment after the visual-body
   offset. Keep contact admission disabled until those identities/frames agree.
   Basic virtual holsters are a separate ergonomic shortcut: HMD-relative hip and
-  right-shoulder zones dispatch the original equipment actions 23/22/21 once per
+  shoulder zones dispatch the original equipment actions 23/22 (left/right hip),
+  21 (right shoulder rifle) and 26 (left shoulder bow) once per
   fresh corresponding grip. Repeating after release uses the same native toggle
   to hide/equip; no retained replica of the equipped weapon or mesh attachment is
   introduced. A claimed hold suppresses Action/Kick/Gallop until physical release,
@@ -486,9 +487,12 @@ contexts remain separate gates; dispatch alone does not validate them.
   `WeaponTwoHandedToggle` first try `ReplaceWeapons` using `GetWeaponNearby`,
   then fall back to `WeaponToggle`. The holster readiness reader therefore
   requires that cached nearby reference to be null in both observations, before
-  delivering actions 22/23/21. A nearby pickup rejects the gesture rather than
+  delivering actions 22/23/21/26. A nearby pickup rejects the gesture rather than
   allowing an unintended swap/drop. This guard is independent of native socket
   geometry and preserves the ordinary wheel/button route.
+  Optional colored guides use the same canonical zones and default off in the
+  native VR comfort options. The option follows the game's startup locale;
+  guides contain no text. Guide fit and comfort remain physically unqualified.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player
@@ -954,6 +958,10 @@ is replayed for the second eye. Runtime/visor comfort and text fit remain pendin
 The optional immersive cinematic route admits only a verified alive movie owner
 with no frozen timer or mission-end UI and renders camera-only stereo. Native
 movie `Sprite` exposes no text getter; the verified module/movie objects retain
-no subtitle string for the ordinary actor text reader. Immersive movie subtitle
-transport is therefore unresolved and disclosed by the settings panel. Theater
-remains the default route preserving the complete native subtitle pass.
+no subtitle string for the ordinary actor text reader. The implemented immersive
+route instead caches the exact module writer's normalized subtitle key/ID/movie,
+then validates native ownership, visibility and settings before copying localized
+text. That transport is host-tested; the operator confirms subtitle appearance
+in exercised animations without specifying the rendering mode. Broader
+mode-specific timing, clearance and recovery remain unqualified. Theater remains
+the default route preserving the complete native subtitle pass.

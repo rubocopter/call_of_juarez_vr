@@ -32,7 +32,7 @@ after the Hope cinematic is fixed and headset-validated on the exercised PS VR2
 setup. Declared physical evidence also covers multiple exercised cinematics,
 entry/exit, hot theater/immersive switches even mid-sequence, different weapons,
 headset recenter and continued gameplay. This closes the exercised Hope recovery
-gate; it does not qualify every campaign cinematic, immersive subtitle transport,
+gate; it does not qualify every campaign cinematic, unreported subtitle modes/timing,
 extreme device/tracking loss or other headsets. No repeat physical test is requested.
 Recommend save backups because crashes or blocked progression can lose progress.
 Users start/close the game and SteamVR manually. Community diagnostics are
@@ -186,20 +186,20 @@ evidence. The already archived rejection is preserved.
 | Boundary | Confirmed state | Remaining limits |
 | --- | --- | --- |
 | Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
-| Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, immersive subtitle transport, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
+| Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, mode-specific subtitle timing, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
 | Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms careful-movement corrections, default smooth turn and continuous HMD body follow without the former cone in the exercised PS VR2 setup. Native option usability is accepted where exercised. | The drift report concerns the older published package; the current continuous-follow correction is accepted in scope. Other headsets/controllers, prolonged comfort and mounted/campaign contexts remain open. Physical-walk/turn leg animation is planned. Specific mode/held-input recovery is not separately qualified by selector usability. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. Corrected free-left-hand fingers with a normally held long gun have scoped operator acceptance. | Firing/alternate/reload retain native fingers. Broader finger, weapon and recovery coverage remains open. Connected-arm IK is diagnostic. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. The combined candidate's dual reticles and Clyde draw/raise with tracked aim/fire have operator confirmation. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Long-gun manual reload is unimplemented; native automatic reload/animation remain. |
 | Physical bow | Exact owner/root ray, physical right-hand R2 grab/draw/release, native supervision, controller haptics and capture-drop separation are host-tested. Latest operator feedback confirms substantial improvement after earlier failed trials. | Sustained firing consistency, mesh/string/arrow/reticle agreement, haptic quality, concentration optics and interruption recovery are not separately accepted. This is scoped improvement, not general bow support. |
 | Physical duel posture | One correct hand-at-hip draw followed by physical raise has operator acceptance. The posture guard is implemented/host-tested and stick-only input is insufficient. | Incorrect/early gestures and native retry recovery remain open. Measured holster contact is not implemented. |
-| Basic virtual holsters | HMD-relative hip/shoulder zones, fresh grip claims, native slot permission and stable hand-state admission are implemented/host-tested, including actual JNI input delivery and observation faults. | Physical reach/zone fit, equip/hide transitions and Action/Kick coexistence await headset acceptance. No attached weapon mesh or measured native socket contact; disabled during duels and mounted play. |
+| Basic virtual holsters | HMD-relative hip/shoulder zones for both pistols, right-shoulder rifle and left-shoulder bow, fresh grip claims, native slot permission and stable hand-state admission are implemented/host-tested, including actual JNI delivery. Optional colored guides share the admission geometry and have binocular raster coverage. | Physical reach/zone fit, guide comfort, equip/hide transitions and Action/Kick coexistence await headset acceptance. No attached weapon mesh or measured native socket contact; disabled during duels and mounted play. |
 | Two-hand rifles | Neutral solver/ownership policy and read-only exact native support reference are host-tested. | No rifle attachment is enabled. Native support motion through firing/cycling and grasp placement still need evidence before integration. |
 | Physical melee | The current knuckle-contact route is headset-validated in an exercised fight: the operator reports defeating three enemies with Hands, and says the combat felt much more responsive. | Scoped to that fight and configuration; left/right parity, broader enemy/campaign contexts, and tracking/menu/recenter recovery remain unqualified. |
 | Menus and Sense controls | Automatic hand pointer, same-hand trigger selection, Cross/Circle, pause, confirmation dialogs and mouse coexistence accepted. Wheel selection/haptics, on-foot crouch, ordinary Focus and Create tap/hold accepted where exercised. Ray's Bible selection/use and on-foot kick have scoped headset acceptance. | Dashboard/loading/held-input recovery, mounted routing, campaign permission changes and unavailable mechanics. |
-| Native VR options | Operator reports native options work well. Shared preferences and cinematic/turning selectors have host coverage and scoped physical usability acceptance. | Specific persistence, OK/Cancel/Defaults and held-input/recovery paths require separate evidence where not exercised. Ordinary menu usability is not pending again. |
+| Native VR options | Operator reports native options work well. Shared preferences and cinematic/turning selectors have host coverage and scoped physical usability acceptance. The new localized comfort/holster-guide selector and version-3 migration are host-tested. | New comfort-row readability/operation, specific persistence, OK/Cancel/Defaults and held-input/recovery paths require evidence where not exercised. Ordinary menu usability is not pending again. |
 | Secret-scroll chests | Conditional preservation of the same still-active native render level is implemented/host-tested for the reported null-level crash. | No operator scroll pickup in the latest sessions. Next naturally encountered scroll must establish pickup, UI closure and continued control/stereo; the original callback cause is not fully observed. |
 | Mounted play and mod-added DLC | Horse mounting/dismounting worked in the exercised DLC context. | Mounted movement/gallop, camera/aim, horse HUD and general DLC compatibility remain unqualified. DLC adaptation is deferred by operator priority. |
-| HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped headset acceptance. Optional status rows accepted only where encountered. | Wrist health styling, concentration state glyphs and paired horse health/fatigue meters are host-tested only. Horse and special HUD contexts, newly translated prompts, scripted-movie comfort/subtitles and complete graphical HUD capture remain open. |
+| HUD and subtitles | Encountered native health/ammo text, compass, equipment wheel, essential text and subtitles accepted. The operator additionally confirms subtitles appeared in exercised animations; rendering mode was unspecified. Independent mission countdown, encountered objective/journal notices and corrected green direction/red damage marks have scoped acceptance. | New Western wheel styling, wrist health styling, concentration glyphs and horse meters are host-tested only. Unreported movie modes, subtitle timing/hide recovery, special HUD contexts and complete graphical HUD capture remain open. |
 | Interaction | Pickup/carry/put-down and drawers accepted through the previous HMD reference. | Latest left-Sense L1 ray and held-only cyan reference are host-tested, awaiting physical acceptance. The permanent HMD ring was rejected for comfort. |
 | Persistent manual reload | Fresh-install default with launcher opt-out and preserved upgrade choice; scoped PS VR2 headset-validated: Square opens/closes without auto-loading, hands stay tracked, successive free-trigger cartridges load, insertion-only haptics work, weapon/menu recovery works where exercised. Native unit transfers/restoration have correlated live evidence. | Beyond community feedback reports difficult insertion and no perceived haptics; other controller feedback remains unqualified. Insertion sound, precise geometry, interruption recovery and prolonged comfort remain open. |
 | Cartridge visual and pinch | Textured CC0 .357 visibility has scoped headset acceptance. Revised .7/.7 pinch and skin-derived anchor have host tests and bounded live delivery evidence. The later displayed-finger tangent is host-tested only. | The reviewed close-up predates that tangent and still appears superimposed rather than convincingly held. Contact, axis, scale, occlusion and comfort are unaccepted; scene depth and native lighting are unavailable. |
@@ -227,13 +227,13 @@ tracks features that still need implementation.
 | A secret-scroll chest | Pick up the scroll, close its UI and continue moving/aiming. Require no crash and continued control/stereo. Chests were not exercised in the latest operator feedback. |
 | An eligible single revolver with empty support hand | Check the changed cartridge tangent/contact, thumb gesture, zone-entry/insertion cues and tracking-jump rejection together. Keep the earlier native unit-loading acceptance; judge only new presentation/recovery behavior. Frontier/Walker/Cogswell and mirrored use remain eligible extensions when found. |
 | Another duel | Try an early/already-raised hand and stick-only shortcut, then a fresh correct hip-hand draw/raise after retry. Wrong posture must not bypass the guard; native timing and fresh retry must still work. One correct gesture is already accepted. |
-| Pistols/rifle available during ordinary on-foot play | Fresh R1 at the right hip toggles its pistol; L1 at the left hip toggles its pistol; R1 above/behind the right shoulder toggles the rifle. Release between attempts, including to stow an already drawn weapon. Check no repeated selection while held, no Action/Kick on leaving the zone, no selection for unavailable slots and normal L1/R1 away from zones. Include recovery with the existing grouped interruption check; visible holstered meshes are not required. |
+| Weapons available during ordinary on-foot play | Fresh R1 at the right hip toggles its pistol; L1 at the left hip toggles its pistol; R1 above/behind the right shoulder toggles the rifle; L1 above/behind the left shoulder toggles the bow. Release between attempts, including to stow a drawn weapon. Enable/disable holster guides in native VR comfort options and judge zone reach, alignment and visual comfort. Check no repeats while held, no Action/Kick on leaving zones, no unavailable-slot selection and normal L1/R1 elsewhere. Judge the updated wheel's readability during normal selection. Use the grouped interruption check; attached meshes are not required. |
 | Options or a loading transition | Specific unexercised save/reopen, Cancel/Defaults and held-control barriers; one fresh Cross/trigger loading continuation when encountered. Do not repeat ordinary selector/menu usability as a new gate. |
-| Interaction/HUD, a movie or horse | Left-Sense L1 reference independent of gaze; revised wrist/concentration indicators and immersive movie text timing/readability. Mounted movement/gallop, camera/aim and paired horse meters remain separate from accepted mount/dismount. Broader DLC testing is deferred. |
+| Interaction/HUD, a movie or horse | Left-Sense L1 reference independent of gaze; revised wrist/concentration indicators. For unreported movie modes, broaden subtitle timing/clearance/settings recovery when naturally available; appearance in exercised animations is accepted. Mounted movement/gallop, camera/aim and paired horse meters remain separate from accepted mount/dismount. Broader DLC testing is deferred. |
 | A rifle during ordinary play | Native idle/fire support references are read-only diagnostics collected with reload tracing. This does not enable a two-hand grasp; no separate probe session is needed. |
 
 Already accepted in scope: continuous body following, ordinary native options
-and menus, the correct duel gesture, prior native unit reload and cartridge
+and menus, subtitles appearing in exercised animations, the correct duel gesture, prior native unit reload and cartridge
 visibility, physical Hands combat, exercised cinematic recovery/hot switching,
 and the established PS VR2 resolution. The bow's latest improvement and horse
 mount/dismount are recorded with their narrower limits above. None of these
@@ -303,9 +303,10 @@ including the naturally rendered module subtitle sprite. The running timer alone
 previously admitted these movies as tracked stereo and omitted that subtitle path.
 The movie getter/owner-loss/end and JNI fault cases are host-tested. Exercised
 entry/exit and mode-switch recovery now have the declared operator headset
-acceptance below. Broad comfort, movie-subtitle visibility and adversarial
-held-control/loss cases remain separate; ordinary encountered dialogue acceptance
-does not accept movie subtitles.
+acceptance below. The operator separately confirms subtitle appearance in
+exercised animations, with rendering mode unspecified. Broad comfort, unreported
+movie modes/timing and adversarial held-control/loss cases remain separate;
+ordinary dialogue acceptance alone does not qualify these broader movie cases.
 
 Community feedback identifies failure to recover stereo after the cinematic on
 arrival in Hope, including a Quest 3 report. Reviewed community telemetry contains
@@ -445,9 +446,11 @@ the exact module writer caches its normalized key/ID/movie, and the reader check
 active module, movie, native ID, visibility and subtitle setting before copying
 localized Unicode into the captured pair. Wrong-ID hides, lifecycle/reentrant
 callbacks, stale owners, JNI faults and the shipped JVM verifier have host coverage.
-Theater retains its naturally rendered native pass. Actual cinematic line delivery,
-readability and hide/skip/end behavior remain physically unobserved; host tests do
-not qualify immersive comfort or recovery.
+Theater retains its naturally rendered native pass. The operator confirms
+subtitles appeared in exercised animations, without specifying the rendering
+mode. That appearance is accepted in scope; broader mode coverage, timing,
+readability and hide/skip/end behavior remain unqualified. Host tests do not
+qualify immersive comfort or recovery.
 An earlier immersive trial reported intermittent wrong-image flashes lasting
 about a second. After the continuity corrections, the operator reports no problems
 while toggling cinematic presentation and entering movies, and no persistent flat
@@ -457,7 +460,7 @@ entry/exit, hot theater/immersive switches even mid-sequence, different weapons,
 headset recenter and continued gameplay. This is declared operator physical
 evidence, not a newly collected telemetry result. It supersedes the earlier
 Hope-specific physical gate without changing archived rejections. All-campaign
-cinematics, immersive subtitle transport, full comfort coverage, extreme
+cinematics, unreported subtitle modes/timing, full comfort coverage, extreme
 device/tracking loss and other headsets remain open. Continued gameplay does not
 independently qualify every hand/reload interruption. No repeat physical tests
 are requested for these accepted cinematic checks.
@@ -476,9 +479,9 @@ not a request to repeat the accepted settings/cinematic baseline for .2:
 3. **Movies:** set the mode before a naturally encountered scripted cinematic.
    Check theater and immersive when scenes are available, including native
    subtitles in theater, head tracking, coherent eyes and ordinary input after
-   the movie. For the new immersive text route, check localized lines appear and
-   clear at native hide/skip/end, obey the native subtitle setting and never retain
-   a previous movie's line. This is a new delivery gate; accepted recovery stands.
+   the movie. In unreported modes, broaden localized text timing, clearing at
+   native hide/skip/end and subtitle-setting behavior; no previous movie's line
+   may remain. Basic appearance and accepted recovery are not repeat gates.
    Do not replay a long campaign segment merely to repeat an accepted baseline.
    Frozen/unverified owners retaining theater are the conservative fallback.
 4. **Persistence:** after normal quit, prepare a fresh candidate for any later
@@ -490,8 +493,12 @@ the original game's widgets/fonts and original main/pause routes. This is an
 implementation with host verification and scoped operator headset acceptance:
 the native options work correctly in the exercised session. Individual widget
 paths not described by that report remain unobserved.
+An additional localized VR comfort selector now controls holster guides, off by
+default; its native fit and usability remain physically unobserved. Labels follow
+the game's startup locale, with English/Spanish host coverage and English fallback.
 The shared preference store preserves version-1 cinematics, defaults turning to
-smooth and writes the strict version-2 pair. Invalid/unreadable startup files
+smooth, reads version-2 choices with guides off, and writes strict version 3.
+Cinematic-only changes preserve other choices. Invalid/unreadable startup files
 remain preserved; edits can apply for the session with visible save failure.
 Host fixtures cover editor conflicts, native OK request consumption/completion,
 Cancel/defaults, missing resources, failed saves, scoped JNI cleanup, per-Show
@@ -510,7 +517,9 @@ profile. Reporting fixtures do not observe effective raster dimensions or add
 headset/profile acceptance. Unsupported or unavailable requests still preserve
 the selected game resolution through the existing reversible transaction.
 
-Comfort options beyond cinematic presentation and turning remain planned.
+Comfort options beyond cinematic presentation, turning and optional holster
+guides remain planned. The new guide option is host-tested; physical comfort
+and native row fit remain open.
 
 ## Current physical gate
 

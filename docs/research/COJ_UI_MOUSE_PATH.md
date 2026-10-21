@@ -54,7 +54,7 @@ no demonstrated open-ended page-registration API. A new page must qualify
 registry/capacity changes and every affected consumer; never reuse an apparently
 empty index without checking its other owners.
 
-The implemented route adds cinematic and smooth/snap selectors to the existing
+The implemented route adds cinematic, smooth/snap and holster-guide selectors to the existing
 `MenuOptionsGame`, shared by both Options variants. This avoids a new UI registry
 slot and retains original OK/Cancel/Defaults and return behavior. The recognized
 class SHA-256 is `2FE3AA28003AA2C3F9539071EEFA040E4FAEDBDD6868FBD8C179AB0230BA6DD8`;
@@ -63,12 +63,12 @@ class SHA-256 is `2FE3AA28003AA2C3F9539071EEFA040E4FAEDBDD6868FBD8C179AB0230BA6D
 The transformation clones the original selector resource at installation time,
 retaining `MenuSmall`/scale, original option rows and buttons. Native
 `UIOptionsControlSelect` supplies label, option data, selection, focus and tips.
-Only the decorative list frame grows to contain two additional rows and a
+Only the decorative list frame grows to contain three additional rows and a
 noninteractive native status label. No original resource/class is redistributed.
 Native menus retain naturally scheduled flat-theater drawing; no second-eye UI
 traversal or new overlay is introduced. Other preference groups remain future work.
 
-`runtime/vr_settings` now owns both preferences, configuration and atomic
+`runtime/vr_settings` now owns all three preferences, configuration and atomic
 publication through one versioned store. The presenter panel refreshes its
 editable mode from that owner before input and submits only after successful
 overlay publication. The native bridge snapshots the same values once per Show.
@@ -76,17 +76,23 @@ Native highlighting remains local; OK queues request 1, consumed as token 2
 before application/save. Accepted completion requires that token and clears it
 before original OK; Cancel/Back revoke readiness and pending requests. Failed
 saves keep the page visible with session-only feedback. Revision conflicts
-refresh the authoritative pair and require another deliberate OK. No native
+refresh the authoritative choices and require another deliberate OK. No native
 references cross threads; this protocol is authored by the mod, not an engine API.
 
 The shared owner preserves these application and persistence contracts:
 
 - `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini` is independent of staging and
-  panel lifetime. Missing/invalid input defaults to theater/smooth. Version 1
-  retains its cinematic choice and supplies smooth turning; the next accepted
-  save writes strict version 2 with both values. Duplicate/unknown keys and
+  panel lifetime. Missing/invalid input defaults to theater/smooth/guides off.
+  Version 1 retains its cinematic choice and supplies smooth turning; version 2
+  retains both choices. Both default guides off. The next accepted save writes
+  strict version 3 with all values. Cinematic-only edits preserve other choices.
+  Duplicate/unknown keys and
   unknown versions reject. Invalid/unreadable startup files remain protected
   for the session; an edit can publish but cannot overwrite them.
+- Native synchronization uses `cojvrSyncSettings(IIII)V` for cinematic mode,
+  turning, guides and language; `cojvrHolsterGuidesValue()I` reads the local choice.
+  The comfort label and Off/On choices follow the game's startup `Game.ini`
+  locale (English/Spanish, English fallback), using original widget fonts.
 - Atomic temporary-file replacement retains the previous file on failed save.
   A session-applied value and its persisted status are distinct. The existing
   panel rolls back an invisible failed proposal before publication/persistence;
