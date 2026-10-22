@@ -293,7 +293,8 @@ void CapturedGripGuide(){
     Check(AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud)&&
         hud.holster_guides.count==5&&hud.holster_guides.zones[0].state==2,
         "rifle guide overwrote existing holster hints");
-    Check(!AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud)&&hud.holster_guides.count==5,
+    hud.holster_guides.count=static_cast<std::uint32_t>(hud.holster_guides.zones.size());
+    Check(!AppendCoJLongGunGripGuide(f.in,f.g,head,right,true,false,hud)&&hud.holster_guides.count==hud.holster_guides.zones.size(),
         "guide capacity overrun changed existing surfaces");
 }
 }

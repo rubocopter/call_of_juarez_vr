@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
     const auto guide_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
     Require(guide_left!=resized_world&&guide_left!=ReadEye(device.Get(),context.Get(),targets[1].Get())&&
         guide_left.front()==resized_world.front(),"holster guides need bounded real binocular pixels");
-    guide.support_grip=true;clear_world();
+    guide.kind=GestureGuideKind::support_grip;clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())!=guide_left,
         "support grip must show its own L1 glyph instead of a holster ring");
@@ -303,6 +303,34 @@ int main(int argc, char** argv) {
     overlay.eyes=valid_eyes;guide.head_corners[0].x=std::numeric_limits<float>::quiet_NaN();clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"invalid guide corner retained optional pixels");
+    // Ammunition has its own pixels and cannot survive a native owner change,
+    // a missing owner, disabled preference or invalid binocular geometry.
+    guide.head_corners={{{-.2F,.1F,-.6F},{.2F,.1F,-.6F},{-.2F,-.3F,-.6F},{.2F,-.3F,-.6F}}};
+    guide.kind=GestureGuideKind::ammunition_pickup;guide.state=0;
+    overlay.reload_feedback.owner_token=42;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42),"ammo composition failed");
+    const auto ammo_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(ammo_left!=resized_world&&ammo_left!=guide_left&&ammo_left!=support_left&&
+        ammo_left!=ReadEye(device.Get(),context.Get(),targets[1].Get()),"ammo needs distinct real binocular pixels");
+    guide.state=1;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=ammo_left,"ready ammo must change its pixels");
+    for(const auto token:{0ULL,43ULL}){clear_world();
+        Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,token)&&
+            ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"stale/absent owner replayed an ammo marker");}
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,false,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"disabled guides replayed ammo");
+    compositor.Reset();clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,"reset lost valid ammo pixels");
+    overlay.eyes[1].eye_to_head.position_valid=false;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world&&
+        ReadEye(device.Get(),context.Get(),targets[1].Get())==resized_world,"invalid second eye retained monocular ammo pixels");
+    overlay.eyes=valid_eyes;
+    guide.head_corners[0].x=std::numeric_limits<float>::quiet_NaN();clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"invalid ammo geometry retained optional pixels");
     overlay.text.hint=Text(u"Native hint");clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,"bad optional guide starved essential HUD text");

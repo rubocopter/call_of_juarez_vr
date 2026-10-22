@@ -78,13 +78,14 @@ struct BowDrawFeedback {
 
 // Optional captured gesture hints. State: 0 available, 1 near hand, 2 unavailable.
 // Value-only presentation; these surfaces never grant selection or collision.
+enum class GestureGuideKind : std::uint8_t { holster, support_grip, ammunition_pickup };
 struct HolsterGuideSurface {
     std::array<Vec3,4> head_corners{};
     std::uint8_t state=0;
-    bool support_grip=false; // Small L1 contact glyph instead of a plain holster ring.
+    GestureGuideKind kind=GestureGuideKind::holster;
 };
 struct HolsterGuides {
-    std::array<HolsterGuideSurface,5> zones{}; // Four holsters plus one support contact.
+    std::array<HolsterGuideSurface,6> zones{}; // Four holsters, support contact, ammunition source.
     std::uint32_t count=0;
 };
 

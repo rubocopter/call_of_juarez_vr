@@ -47,7 +47,15 @@ struct MotionReloadGestureInput {
     std::optional<Pose> cartridge_tip{};
 };
 
+// Presentation of the admitted pickup source, never ammunition or input authority.
+struct MotionReloadPickupHint {
+    Vec3 position{};
+    std::uint8_t hand=2;
+    bool visible=false,ready=false,in_range=false;
+};
+
 struct MotionReloadGestureOutput {
+    MotionReloadPickupHint pickup_hint{};
     bool reload = false; // One sample only; never queued for later delivery.
     bool consume_free_trigger = false; // True exactly when the mask is nonzero.
     // Bit 0 right, bit 1 left. Suppress this physical input, not the current
@@ -132,6 +140,7 @@ public:
                                       : MotionReloadGestureStage::awaiting_release;
             cartridge_hand_ = 2;
             replenished_press_ready_ = false;
+            pickup_hint_ = {};
         }
         if (fresh && !regression) {
             have_owner_ = true;
@@ -155,6 +164,8 @@ public:
             return output;
         }
         if (!fresh || regression || gap || !usable || !free_available) return CurrentOutput();
+
+        pickup_hint_ = {};
 
         const auto free_hand = static_cast<std::uint8_t>(1U - input.armed_hand);
         const bool held = input.trigger_held[free_hand];
@@ -208,14 +219,14 @@ public:
         }
         if (stage_ == MotionReloadGestureStage::awaiting_release) {
             if (!held) stage_ = MotionReloadGestureStage::ready;
-            return {};
+            UpdatePickupHint(input,source,support,held);
+            return CurrentOutput();
         }
         if (stage_ == MotionReloadGestureStage::ready) {
-            if (!held) return {};
+            if (!held) {UpdatePickupHint(input,source,support,held);return CurrentOutput();}
             // A press outside the zone must be released before entering it.
             stage_ = MotionReloadGestureStage::awaiting_release;
-            if (static_cast<double>(input.head.position.y) - support.y >= 0.30 &&
-                DistanceSquared(support, source) <= 0.20 * 0.20) {
+            if (AtPickupSource(input,source,support)) {
                 claimed_hand_ = free_hand;
                 cartridge_hand_ = free_hand;
                 source_ = source;
@@ -227,7 +238,8 @@ public:
                 stage_ = MotionReloadGestureStage::carrying;
                 return CurrentOutput();
             }
-            return {};
+            UpdatePickupHint(input,source,support,held);
+            return CurrentOutput();
         }
         left_source_ = left_source_ || DistanceSquared(support, source_) > 0.28 * 0.28;
         cartridge_position_ = support;
@@ -256,6 +268,14 @@ public:
     }
 
 private:
+    static bool AtPickupSource(const MotionReloadGestureInput& input,Vec3 source,Vec3 support) noexcept {
+        return static_cast<double>(input.head.position.y)-support.y>=0.30&&
+            DistanceSquared(support,source)<=0.20*0.20;
+    }
+    void UpdatePickupHint(const MotionReloadGestureInput& input,Vec3 source,Vec3 support,bool held) noexcept {
+        pickup_hint_={source,static_cast<std::uint8_t>(1U-input.armed_hand),true,
+            stage_==MotionReloadGestureStage::ready&&!held,AtPickupSource(input,source,support)};
+    }
     void QualifyInsertion(MotionReloadGestureOutput& output,const MotionReloadGestureInput& input,
         Vec3 support,Vec3 armed,bool qualified) noexcept {
         output.insertion_ready=qualified&&(explicit_insertion_?
@@ -401,6 +421,7 @@ private:
 
     [[nodiscard]] MotionReloadGestureOutput CurrentOutput() const noexcept {
         MotionReloadGestureOutput output{};
+        output.pickup_hint=pickup_hint_;
         if (claimed_hand_ < 2) {
             output.consume_free_trigger = true;
             output.consumed_trigger_mask = static_cast<std::uint8_t>(1U << claimed_hand_);
@@ -415,6 +436,7 @@ private:
     }
 
     MotionReloadGestureStage stage_ = MotionReloadGestureStage::awaiting_release;
+    MotionReloadPickupHint pickup_hint_{};
     std::uint8_t claimed_hand_ = 2;
     bool have_sample_ = false;
     bool have_owner_ = false;

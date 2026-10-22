@@ -523,7 +523,8 @@ struct OpenVrStereoPresenter::Impl {
             const std::array<ID3D11Texture2D*, 2> targets{textures[0].Get(), textures[1].Get()};
             if (!run_authorized([&]() noexcept {
                     return hud_text_compositor.Draw(d3d11.device(), d3d11.context(),
-                        frame.hud_text, frame.capture_sequence, targets,runtime::CurrentHolsterGuidesEnabled());
+                        frame.hud_text, frame.capture_sequence, targets,runtime::CurrentHolsterGuidesEnabled(),
+                        reload_feedback_owner.load(std::memory_order_acquire));
                 })) {
                 composition_ok = false;
                 if (frame.capture_sequence <= 8 || frame.capture_sequence % 127 == 0)

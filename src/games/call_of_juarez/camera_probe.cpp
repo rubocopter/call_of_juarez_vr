@@ -13,6 +13,7 @@
 #include "games/call_of_juarez/bow_draw_session.hpp"
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
+#include "games/call_of_juarez/ammunition_pickup_guide.hpp"
 #include "games/call_of_juarez/long_gun_grip.hpp"
 #include "games/call_of_juarez/long_gun_guide.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
@@ -7638,7 +7639,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             // hints immediately after the preference is disabled.
             if(gameplay_input_ok&&eye_pair_ready&&!hud_text.ui.wheel.active&&
                 g_java_player_bridge.being_generation()==holster_sample.player){
-                (void)BuildCoJHolsterGuides(holster_sample,holster_guides_enabled,hud_text);
+                // Ammunition owns the hands during a manual session. Avoid
+                // superimposing unavailable holster rings on its pickup marker.
+                if(!g_manual_reload_presentation)
+                    (void)BuildCoJHolsterGuides(holster_sample,holster_guides_enabled,hud_text);
                 const bool guide_candidate=holster_guides_enabled&&!g_long_gun_grip.attached()&&long_gun_geometry.native.valid&&
                     grip_controls.eligible&&grip_controls.tracking_valid&&!long_gun_geometry.native.firing&&
                     g_java_player_bridge.IsLongGunGripGuideOwnerCurrent(long_gun_geometry.native);
@@ -7653,6 +7657,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                         ";contact_distance_m="+std::to_string(g_long_gun_claim.diagnostic.contact_distance_m)+
                         ";source=ordinary_acquisition_contact;physical_acceptance=unverified");}catch(...){}
             }
+            if(gameplay_input_ok&&eye_pair_ready&&!hud_text.ui.wheel.active&&
+                hands_restored&&weapon_restored&&!g_arm_rotation_faulted&&g_manual_reload_presentation&&
+                g_java_player_bridge.being_generation()==manual_input.player)
+                (void)AppendCoJAmmunitionPickupGuide(manual_input,manual_result,holster_guides_enabled,hud_text);
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +

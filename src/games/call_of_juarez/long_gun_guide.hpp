@@ -26,7 +26,7 @@ inline bool AppendCoJLongGunGripGuide(const CoJLongGunGripInput& input,const CoJ
     const auto candidate=BuildCoJLongGunGripFrame(g);
     const bool near=IsCoJLongGunGripFrameAdmitted(candidate)&&std::isfinite(c.acquisition_radius_m)&&
         c.acquisition_radius_m>0&&candidate.contact_distance_m<=c.acquisition_radius_m;
-    runtime::HolsterGuideSurface guide{};guide.support_grip=true;
+    runtime::HolsterGuideSurface guide{};guide.kind=runtime::GestureGuideKind::support_grip;
     guide.state=c.grip_held?2:near?1:0;
     constexpr float half=.0225F; // 4.5 cm marker; the actual capture radius remains separate.
     for(unsigned j=0;j<4;++j)guide.head_corners[j]={centre.x+((j&1)?half:-half),

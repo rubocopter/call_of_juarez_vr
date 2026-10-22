@@ -162,8 +162,14 @@ rejected history rather than a claim about the corrected candidate.
 Conflicting/stale zone presses are now consumed through release before native
 selection admission; manual reload owns ammunition before holsters. Host tests
 reproduce the earlier kick leakage; broader conflict/held-input recovery remains open.
-Optional guides expose available/near/unavailable zones, while an anatomical
-holstered weapon model and a distinct ammunition pickup cue remain future work.
+Optional guides expose available/near/unavailable zones. Post-.5 source now adds
+a distinct cartridge pickup icon during an admitted manual revolver waiting
+phase, replacing the holster rings while the hands are owned. The existing
+gesture supplies the real source, proximity and fresh-release state; positive
+native reserve and the live reload epoch gate presentation. Policy/session and
+real D3D11 binocular/reset/invalid-data fixtures are host-tested. Marker fit and
+readability join the existing revolver check, without a new run. An anatomical
+holstered weapon model remains future work.
 
 Immediate work, in order:
 

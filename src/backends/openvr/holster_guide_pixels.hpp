@@ -40,4 +40,21 @@ inline const std::array<HudTextPanel,3>& SupportGripGuidePanels() {
     }();
     return panels;
 }
+inline const std::array<HudTextPanel,3>& AmmunitionPickupGuidePanels() {
+    static const auto panels=[] {
+        auto out=HolsterGuidePanels();
+        constexpr std::array<std::uint32_t,3> colors{0xF0C76AU,0x70DDA0U,0x9A8274U};
+        for(unsigned state=0;state<3;++state){
+            for(auto& pixel:out[state].pixels)pixel=(pixel&0xff000000U)|colors[state];
+            for(int y=10;y<51;++y)for(int x=20;x<44;++x){
+                const int half=y<25?3+(y-10)/2:9;
+                const bool body=std::abs(x-32)<=half;
+                const bool rim=y>=46&&y<50&&x>=21&&x<=43;
+                if(body||rim)out[state].pixels[y*64+x]=0xe0000000U|colors[state];
+            }
+        }
+        return out;
+    }();
+    return panels;
+}
 }

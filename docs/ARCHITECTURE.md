@@ -508,6 +508,22 @@ translucent textures; invalid projection hides a zone in both eyes, and optional
 guide failures preserve essential HUD text. Blocking UI and wheel ownership hide
 the guides. These hints have no scene depth or native contact authority.
 
+Post-.5 development adds a separate ammunition pickup marker to that same
+default-off preference. The reload gesture publishes its exact source and
+shared pickup predicate, including the fresh-trigger-release barrier; guide
+presentation cannot grant a cartridge or native reload request. Only a supervised,
+admitted manual waiting phase with positive native reserve advertises pickup.
+A small cartridge icon distinguishes ammunition from grip-based holsters:
+gold locates the source, green marks a nearby released hand and grey requests
+trigger release. Carry/replenishment, closing, cancellation, context/tracking loss
+and invalid geometry hide it. Manual sessions hide holster rings while their
+hands are owned, preserving the existing grip-consumption policy. The captured
+source is transformed into that frame's head space; no anatomical pouch is inferred.
+Queued ammunition markers additionally require the current reload-owner epoch
+at composition, valid projection in both eyes and the current guide preference.
+Distinct immutable textures remain optional and preserve essential HUD on failure.
+This has host coverage only; visual fit/readability remain in Validation.
+
 The wheel uses procedural leather, brass, stitching and amber highlights while
 preserving native localized labels, sector order, permissions and input policy.
 Its new styling has host raster coverage; visor readability remains unqualified.
