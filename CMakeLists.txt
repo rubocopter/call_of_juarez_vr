@@ -79,6 +79,7 @@ if(COJVR_ENABLE_OPENXR)
 endif()
 
 add_library(cojvr_runtime STATIC
+    src/runtime/action_prompts.cpp
     src/runtime/vr_settings.cpp
     src/runtime/gameplay_utility.cpp
     src/runtime/body_ik.cpp
@@ -1398,6 +1399,18 @@ if(COJVR_BUILD_TESTS)
     target_link_libraries(cojvr_ammunition_pickup_guide_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_ammunition_pickup_guide_test PRIVATE cxx_std_20)
     add_test(NAME ammunition_pickup_guide COMMAND cojvr_ammunition_pickup_guide_test)
+    add_executable(cojvr_action_prompts_test tests/action_prompts.cpp)
+    target_link_libraries(cojvr_action_prompts_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_action_prompts_test PRIVATE cxx_std_20)
+    add_test(NAME action_prompts COMMAND cojvr_action_prompts_test)
+    add_executable(cojvr_action_prompt_source_test tests/action_prompt_source.cpp)
+    target_link_libraries(cojvr_action_prompt_source_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_action_prompt_source_test PRIVATE cxx_std_20)
+    add_test(NAME action_prompt_source COMMAND cojvr_action_prompt_source_test)
+    add_executable(cojvr_reload_context_hints_test tests/reload_context_hints.cpp)
+    target_link_libraries(cojvr_reload_context_hints_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_reload_context_hints_test PRIVATE cxx_std_20)
+    add_test(NAME reload_context_hints COMMAND cojvr_reload_context_hints_test)
 
     add_executable(cojvr_body_haptics_test tests/body_haptics.cpp)
     target_link_libraries(cojvr_body_haptics_test PRIVATE cojvr_runtime)

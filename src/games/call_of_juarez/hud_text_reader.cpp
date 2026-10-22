@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/hud_text_reader.hpp"
+#include "runtime/action_prompts.hpp"
 #include <algorithm>
 #include <cstring>
 
@@ -8,32 +9,69 @@ namespace {
 // expanded UIStatic copies have no action identity: custom PC rebinding remains
 // ambiguous. Never change native strings or subtitle dialogue. New key labels
 // require explicit notation; bare letters/numbers are ordinary localized text.
-void ControllerHint(runtime::HudText& text,CoJUiLanguage language) noexcept {
+bool ControllerHint(runtime::HudText& text,CoJUiLanguage language,
+    const runtime::ActionPromptSnapshot& prompts) noexcept {
     const auto source=text.view();
     runtime::HudText translated{};
-    struct Label { std::u16string_view key, sense; bool explicit_only=true; };
+    using Action=runtime::PromptAction;
+    enum class Decorate {none,hold,tap,left,right,up,down_right,up_left,up_right,down,down_left};
+    struct Label { std::u16string_view key, sense; bool explicit_only=true;
+        Action action=Action::count;Decorate decorate=Decorate::none; };
     // Original InputSettings/Manual defaults and current default Sense routes.
     // Spanish names were independently observed through DIPROP_KEYNAME on this
     // host. Other locale names and custom-only/unmapped keys stay unchanged.
     const Label labels[]{
-        {u"SPACE BAR",u"Cross",false}, {u"SPACEBAR",u"Cross",false},
-        {u"LMB",u"L2",false}, {u"RMB",u"R2",false},
-        {u"Space Bar",u"Cross"}, {u"BARRA ESPACIADORA",u"Cross"},
-        {u"CTRL",u"L3"}, {u"Ctrl Left",u"L3"}, {u"CTRL LEFT",u"L3"},
-        {u"Caps Lock",CoJUiText(language,CoJUiPhrase::hold_r1)}, {u"CAPS LOCK",CoJUiText(language,CoJUiPhrase::hold_r1)},
-        {u"BLOQ MAYUS",CoJUiText(language,CoJUiPhrase::hold_r1)},
-        {u"Backspace",CoJUiText(language,CoJUiPhrase::radial_down_left)},
-        {u"BACKSPACE",CoJUiText(language,CoJUiPhrase::radial_down_left)},
-        {u"RETROCESO",CoJUiText(language,CoJUiPhrase::radial_down_left)},
-        {u"R",u"Square"}, {u"F",u"L1"}, {u"X",u"R3"},
-        {u"O",CoJUiText(language,CoJUiPhrase::create_tap)}, {u"Z",u"Circle"}, {u"C",u"R1"},
-        {u"0",CoJUiText(language,CoJUiPhrase::radial_down)},
-        {u"1",CoJUiText(language,CoJUiPhrase::radial_left)},
-        {u"2",CoJUiText(language,CoJUiPhrase::radial_right)},
-        {u"3",CoJUiText(language,CoJUiPhrase::radial_up)},
-        {u"4",CoJUiText(language,CoJUiPhrase::radial_down_right)},
-        {u"5",CoJUiText(language,CoJUiPhrase::radial_up_left)},
-        {u"6",CoJUiText(language,CoJUiPhrase::radial_up_right)},
+        {u"SPACE BAR",u"Cross",false,Action::jump}, {u"SPACEBAR",u"Cross",false,Action::jump},
+        {u"LMB",u"L2",false,Action::left_fire}, {u"RMB",u"R2",false,Action::right_fire},
+        {u"Space Bar",u"Cross",true,Action::jump}, {u"BARRA ESPACIADORA",u"Cross",true,Action::jump},
+        {u"CTRL",u"L3",true,Action::crouch}, {u"Ctrl Left",u"L3",true,Action::crouch}, {u"CTRL LEFT",u"L3",true,Action::crouch},
+        {u"Caps Lock",CoJUiText(language,CoJUiPhrase::hold_r1),true,Action::kick,Decorate::hold},
+        {u"CAPS LOCK",CoJUiText(language,CoJUiPhrase::hold_r1),true,Action::kick,Decorate::hold},
+        {u"BLOQ MAYUS",CoJUiText(language,CoJUiPhrase::hold_r1),true,Action::kick,Decorate::hold},
+        {u"Backspace",CoJUiText(language,CoJUiPhrase::radial_down_left),true,Action::weapon_radial,Decorate::down_left},
+        {u"BACKSPACE",CoJUiText(language,CoJUiPhrase::radial_down_left),true,Action::weapon_radial,Decorate::down_left},
+        {u"RETROCESO",CoJUiText(language,CoJUiPhrase::radial_down_left),true,Action::weapon_radial,Decorate::down_left},
+        {u"R",u"Square",true,Action::reload}, {u"F",u"L1",true,Action::interact}, {u"X",u"R3",true,Action::focus},
+        {u"O",CoJUiText(language,CoJUiPhrase::create_tap),true,Action::objectives,Decorate::tap},
+        {u"Z",u"Circle",true,Action::alternate_fire}, {u"C",u"R1",true,Action::kick},
+        {u"0",CoJUiText(language,CoJUiPhrase::radial_down),true,Action::weapon_radial,Decorate::down},
+        {u"1",CoJUiText(language,CoJUiPhrase::radial_left),true,Action::weapon_radial,Decorate::left},
+        {u"2",CoJUiText(language,CoJUiPhrase::radial_right),true,Action::weapon_radial,Decorate::right},
+        {u"3",CoJUiText(language,CoJUiPhrase::radial_up),true,Action::weapon_radial,Decorate::up},
+        {u"4",CoJUiText(language,CoJUiPhrase::radial_down_right),true,Action::weapon_radial,Decorate::down_right},
+        {u"5",CoJUiText(language,CoJUiPhrase::radial_up_left),true,Action::weapon_radial,Decorate::up_left},
+        {u"6",CoJUiText(language,CoJUiPhrase::radial_up_right),true,Action::weapon_radial,Decorate::up_right},
+    };
+    runtime::HudText replacement{};bool used_binding=false;
+    const auto bound_label=[&](const Label& label)->std::u16string_view {
+        if((!prompts.active&&!prompts.binding_generation)||label.action==Action::count)return label.sense;
+        replacement={};used_binding=true;
+        const bool es=language==CoJUiLanguage::spanish;
+        const auto add=[&](std::u16string_view part){
+            if(replacement.length+part.size()>=replacement.capacity)return;
+            for(auto c:part)replacement.characters[replacement.length++]=c;
+        };
+        const auto name=runtime::ResolveActionPrompt(prompts,label.action,es);
+        if(label.decorate==Decorate::hold){add(name);add(es?u" (mantener)":u" (hold)");}
+        else if(label.decorate==Decorate::tap){add(name);add(es?u" (pulsar)":u" tap");}
+        else if(label.decorate==Decorate::none)add(name);
+        else {
+            add(es?u"Mantener ":u"Hold ");add(name);add(u" / ");
+            add(runtime::ResolveActionPrompt(prompts,Action::turn,es));add(u" ");
+            switch(label.decorate){
+            case Decorate::left:add(es?u"Izquierda":u"Left");break;
+            case Decorate::right:add(es?u"Derecha":u"Right");break;
+            case Decorate::up:add(es?u"Arriba":u"Up");break;
+            case Decorate::down_right:add(es?u"Abajo-derecha":u"Down-right");break;
+            case Decorate::up_left:add(es?u"Arriba-izquierda":u"Up-left");break;
+            case Decorate::up_right:add(es?u"Arriba-derecha":u"Up-right");break;
+            case Decorate::down:add(es?u"Abajo":u"Down");break;
+            case Decorate::down_left:add(es?u"Abajo-izquierda":u"Down-left");break;
+            default:break;
+            }
+            add(es?u" / soltar":u" / release");
+        }
+        return replacement.view();
     };
     const auto word=[](char16_t c) {
         return (c>=u'A' && c<=u'Z') || (c>=u'a' && c<=u'z') ||
@@ -70,7 +108,7 @@ void ControllerHint(runtime::HudText& text,CoJUiLanguage language) noexcept {
                 (explicit_key(at,label.key.size()) || (!label.explicit_only &&
                 (at==0 || !word(source[at-1])) &&
                 (end==source.size() || !word(source[end]))))) {
-                before=label.key;after=label.sense;break;
+                before=label.key;after=bound_label(label);break;
             }
         }
         if (before.empty()) {
@@ -84,6 +122,7 @@ void ControllerHint(runtime::HudText& text,CoJUiLanguage language) noexcept {
         }
     }
     text=translated;
+    return used_binding;
 }
 // Stable JNI 1.4 subset. All class/field/index contracts below are specific to
 // the hash-pinned shipped code.pak; callers enter through the exact-build bridge.
@@ -284,8 +323,10 @@ bool ReadCoJHudText(void* env, void* player, runtime::HudTextSnapshot& out,CoJUi
     Reader entry{env}; if (!entry.Check()) return false;
     const bool hud = ReadComponents(env,player,out);
     const bool subtitle = ReadSubtitle(env,out.subtitle);
-    ControllerHint(out.hint,language);
-    ControllerHint(out.interaction,language);
+    const auto prompts=runtime::CurrentActionPrompts();
+    const bool hint_bound=ControllerHint(out.hint,language,prompts);
+    const bool interaction_bound=ControllerHint(out.interaction,language,prompts);
+    if(hint_bound||interaction_bound)out.controller_prompt_generation=prompts.binding_generation;
     return hud && subtitle;
 }
 bool ReadCoJMovieSubtitle(void* env, void* module, runtime::HudText& out) noexcept {

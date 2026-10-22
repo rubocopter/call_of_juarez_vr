@@ -1,6 +1,7 @@
 #include "backends/openvr/hud_text_overlay.hpp"
 #include "backends/openvr/gameplay_ui_raster.hpp"
 #include "backends/openvr/holster_guide_pixels.hpp"
+#include "runtime/action_prompts.hpp"
 #include "runtime/vr_math.hpp"
 #include <windows.h>
 #include <d3dcompiler.h>
@@ -263,11 +264,84 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
+    struct TextPatch {
+        ComPtr<ID3D11Texture2D> image;
+        D3D11_TEXTURE2D_DESC description{};
+        ProjectedHudPanel rectangle{};
+        bool saved=false;
+    };
+    // Two text parts, two eyes. Only these rectangles consume backing memory;
+    // never allocate whole-eye preimages in this x86 presenter.
+    std::array<TextPatch,4> text_patches;
+    ComPtr<ID3D11DeviceContext> text_context;
+    std::array<ComPtr<ID3D11Texture2D>,2> text_targets;
+    std::uint64_t text_generation=0,text_reload_owner=0,text_until_ms=0;
+    bool text_reload=false;
+    void DiscardText() noexcept {
+        for(auto& patch:text_patches){patch.saved=false;patch.rectangle={};}
+        text_context.Reset();text_targets={};
+        text_generation=text_reload_owner=text_until_ms=0;text_reload=false;
+    }
+    bool PrepareTextPatches(ID3D11Device* device,ID3D11DeviceContext* context,
+        const std::array<ID3D11Texture2D*,2>& outputs,std::size_t part,
+        const std::array<ProjectedHudPanel,2>& quads,
+        const std::array<D3D11_TEXTURE2D_DESC,2>& descriptions) noexcept {
+        if(context->GetType()!=D3D11_DEVICE_CONTEXT_IMMEDIATE||outputs[0]==outputs[1])return false;
+        ComPtr<ID3D11Device> context_owner;context->GetDevice(&context_owner);
+        if(context_owner.Get()!=device)return false;
+        std::array<D3D11_TEXTURE2D_DESC,2> needed{};
+        for(std::size_t eye=0;eye<2;++eye){
+            const auto& td=descriptions[eye];
+            ComPtr<ID3D11Device> target_owner;outputs[eye]->GetDevice(&target_owner);
+            if(target_owner.Get()!=device||td.SampleDesc.Count!=1||td.SampleDesc.Quality||
+                td.MipLevels!=1||td.ArraySize!=1||td.Usage!=D3D11_USAGE_DEFAULT||
+                !(td.BindFlags&D3D11_BIND_RENDER_TARGET)||
+                (td.Format!=DXGI_FORMAT_B8G8R8A8_UNORM&&td.Format!=DXGI_FORMAT_B8G8R8A8_UNORM_SRGB&&
+                 td.Format!=DXGI_FORMAT_B8G8R8X8_UNORM&&td.Format!=DXGI_FORMAT_B8G8R8X8_UNORM_SRGB&&
+                 td.Format!=DXGI_FORMAT_R8G8B8A8_UNORM&&td.Format!=DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))return false;
+            auto& desc=needed[eye];
+            desc.Width=quads[eye].width;desc.Height=quads[eye].height;
+            desc.Format=td.Format;desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
+            desc.Usage=D3D11_USAGE_DEFAULT; // Copy-only: no bind, CPU or misc flags.
+        }
+        constexpr std::uint64_t max_bytes=16ULL*1024*1024;
+        std::uint64_t total=0;
+        for(std::size_t slot=0;slot<text_patches.size();++slot){
+            const auto& patch=text_patches[slot];
+            if(slot/2==part)total+=std::uint64_t(needed[slot%2].Width)*needed[slot%2].Height*4;
+            else if(patch.image)total+=std::uint64_t(patch.description.Width)*patch.description.Height*4;
+        }
+        if(total>max_bytes)return false;
+        // Release replaced caches BEFORE allocating either successor so the
+        // cap also holds during resize, including retained other-part caches.
+        for(std::size_t eye=0;eye<2;++eye){
+            auto& patch=text_patches[2*part+eye];const auto& desc=needed[eye];
+            if(patch.image&&(patch.description.Width!=desc.Width||
+                patch.description.Height!=desc.Height||patch.description.Format!=desc.Format)){
+                patch.image.Reset();patch.description={};
+            }
+        }
+        for(std::size_t eye=0;eye<2;++eye){
+            auto& patch=text_patches[2*part+eye];
+            if(!patch.image){
+                if(FAILED(device->CreateTexture2D(&needed[eye],nullptr,&patch.image)))return false;
+                patch.description=needed[eye];
+            }
+            // RTVs are also preflighted for both eyes before saving/drawing.
+            if(targets[eye].Get()!=outputs[eye]){
+                target_views[eye].Reset();targets[eye]=outputs[eye];
+            }
+            if(!target_views[eye]&&
+                FAILED(device->CreateRenderTargetView(outputs[eye],nullptr,&target_views[eye])))return false;
+        }
+        return true;
+    }
     bool Initialize(ID3D11Device* device) {
         if (owner.Get() == device && vs && cartridge_vs && cartridge_ps && ps && constants && cartridge_constants && sampler && rasterizer && depth && blend) return true;
         owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset(); blend.Reset();
         cartridge_vs.Reset();cartridge_ps.Reset();cartridge_constants.Reset();
         images = {}; uploaded = {}; targets = {}; target_views = {};
+        DiscardText();text_patches={};
         constexpr char shader[] =
             "cbuffer Corners:register(b0){float4 corners[4];float4 material[4];};"
             "struct V{float4 p:SV_POSITION;float2 uv:TEXCOORD;float shade:TEXCOORD1;float alpha:TEXCOORD4;};"
@@ -334,6 +408,34 @@ struct HudTextCompositor::Impl {
 HudTextCompositor::HudTextCompositor() : impl_(std::make_unique<Impl>()) {}
 HudTextCompositor::~HudTextCompositor() = default;
 void HudTextCompositor::Reset() noexcept { impl_.reset(); }
+void HudTextCompositor::DiscardRepeatedText() noexcept {
+    if(impl_)impl_->DiscardText();
+}
+void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext* context,
+    const std::array<ID3D11Texture2D*,2>& targets,const bool show_holster_guides,
+    const std::uint64_t reload_owner_token) noexcept {
+    if(!impl_||!impl_->text_context)return;
+    if(!device||!context||impl_->owner.Get()!=device||impl_->text_context.Get()!=context||
+        impl_->text_targets[0].Get()!=targets[0]||impl_->text_targets[1].Get()!=targets[1]){
+        DiscardRepeatedText();return;
+    }
+    const bool stale_generation=impl_->text_generation&&
+        impl_->text_generation!=runtime::CurrentActionPrompts().binding_generation;
+    const bool stale_reload=impl_->text_reload&&(!show_holster_guides||!reload_owner_token||
+        reload_owner_token!=impl_->text_reload_owner||!impl_->text_until_ms||
+        GetTickCount64()>=impl_->text_until_ms);
+    if(!stale_generation&&!stale_reload)return;
+    // Retire the complete controlled stack if any layer expires. Reversing the
+    // draw order preserves preimages even when its text rectangles overlap.
+    for(std::size_t slot=impl_->text_patches.size();slot>0;--slot){
+        const auto& patch=impl_->text_patches[slot-1];
+        if(!patch.saved)continue;
+        const auto& r=patch.rectangle;
+        const D3D11_BOX box{0,0,0,r.width,r.height,1};
+        context->CopySubresourceRegion(targets[(slot-1)%2],0,r.left,r.top,0,patch.image.Get(),0,&box);
+    }
+    DiscardRepeatedText(); // Consume identity once, retain bounded GPU backing.
+}
 bool HudTextCompositor::Prepare(ID3D11Device* device) noexcept {
     if (!device) return false;
     try {
@@ -346,6 +448,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     const runtime::StereoHudTextOverlay& overlay, const std::uint64_t capture_sequence,
     const std::array<ID3D11Texture2D*, 2>& targets,const bool show_holster_guides,
     const std::uint64_t reload_owner_token) noexcept {
+    DiscardRepeatedText(); // World was freshly copied: never restore its predecessor.
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
     // Cartridge geometry is optional. Reject it in BOTH eyes without starving
@@ -412,8 +515,15 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         overlay.mission_notices.view().empty() && !overlay.threats.count && !guide_data) return true;
     try {
         if (!Prepare(device)) return false;
+        const runtime::HudText hidden_hint{};
+        const bool stale_bindings=overlay.text.controller_prompt_generation&&
+            overlay.text.controller_prompt_generation!=runtime::CurrentActionPrompts().binding_generation;
+        const bool stale_reload=overlay.reload_instruction&&(!show_holster_guides||!reload_owner_token||
+            reload_owner_token!=overlay.reload_feedback.owner_token||!overlay.reload_instruction_until_ms||
+            GetTickCount64()>=overlay.reload_instruction_until_ms);
         const std::array<const runtime::HudText*, 5> texts{
-            &overlay.text.hint, &overlay.text.interaction, &overlay.text.subtitle,
+            stale_bindings?&hidden_hint:&overlay.text.hint,
+            stale_bindings||stale_reload?&hidden_hint:&overlay.text.interaction, &overlay.text.subtitle,
             &overlay.mission_timer,&overlay.mission_notices};
         std::array<HudPanelPlacement, 21> placement{{{1.15F, .48F, 1.5F},
             {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {},
@@ -461,7 +571,13 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const HudTextPanel empty_gaze{};
         const auto& gaze_panel = interaction_gaze_visible ?
             impl_->ui_raster.InteractionGaze() : empty_gaze;
-        for (std::size_t part = 0; part < placement.size(); ++part) {
+        const std::array<bool,2> controlled{overlay.text.controller_prompt_generation!=0,
+            overlay.text.controller_prompt_generation!=0||overlay.reload_instruction};
+        // Keep ordinary native text order unchanged. Controlled hint/interaction
+        // alone move to the end, so their saved backgrounds include all HUD.
+        for (std::size_t order = 0; order < placement.size()+2; ++order) {
+            const auto part=order<placement.size()?order:order-placement.size();
+            if(part<2&&((order<placement.size())==controlled[part]))continue;
             const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
             const bool ammunition_guide=part>=18,support_guide=part>=15&&!ammunition_guide;
             const auto guide_kind=ammunition_guide?runtime::GestureGuideKind::ammunition_pickup:
@@ -496,7 +612,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 impl_->images[part].Reset();
                 if (FAILED(device->CreateTexture2D(&td, &data, &texture)) ||
                     FAILED(device->CreateShaderResourceView(texture.Get(), nullptr, &impl_->images[part]))) {
-                    if (part==7||guide) continue; // Optional feedback failure preserves essential HUD.
+                    if (part==7||guide||(part<2&&controlled[part])) continue; // Optional feedback failure preserves essential HUD.
                     return false;
                 }
                 impl_->uploaded[part] = revision;
@@ -581,6 +697,23 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     projected = eye_projected[eye] && projected;
                 }
                 if (!projected&&!cartridge_surfaces) continue;
+                const bool fenced_text=part<2&&controlled[part];
+                if(fenced_text){
+                    if(!impl_->PrepareTextPatches(device,context,targets,part,quads,descriptions))continue;
+                    impl_->text_context=context;
+                    for(std::size_t eye=0;eye<2;++eye)impl_->text_targets[eye]=targets[eye];
+                    impl_->text_generation=overlay.text.controller_prompt_generation;
+                    if(part==1&&overlay.reload_instruction){
+                        impl_->text_reload=true;impl_->text_reload_owner=overlay.reload_feedback.owner_token;
+                        impl_->text_until_ms=overlay.reload_instruction_until_ms;
+                    }
+                    for(std::size_t eye=0;eye<2;++eye){
+                        auto& patch=impl_->text_patches[2*part+eye];const auto& r=quads[eye];
+                        const D3D11_BOX box{r.left,r.top,0,r.left+r.width,r.top+r.height,1};
+                        context->CopySubresourceRegion(patch.image.Get(),0,0,0,0,targets[eye],0,&box);
+                        patch.rectangle=r;patch.saved=true;
+                    }
+                }
                 for (std::size_t eye = 0; eye < 2; ++eye) {
                     if(!eye_projected[eye])continue;
                     if(cartridge_surfaces){

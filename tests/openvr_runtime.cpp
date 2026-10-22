@@ -134,6 +134,39 @@ int main() {
     // Fault after some global actions have already been read. Every old edge,
     // including unread actions, must be cancelled and partial outputs discarded.
     cojvr::runtime::OpenVrRuntime::Impl input_owner;
+    {
+        cojvr::runtime::OpenVrRuntime::Impl replacement_owner;
+        const auto original=input_owner.prompt_generation.load();
+        const auto replacement=replacement_owner.prompt_generation.load();
+        input_owner.InvalidatePrompts();
+        if(!original||!replacement||original==replacement||
+            input_owner.prompt_generation.load()==replacement||input_owner.prompt_generation.load()==original){
+            std::cerr<<"runtime replacement reused a queued prompt generation\n";return 1;
+        }
+    }
+    {
+        cojvr::runtime::ActionPromptSnapshot prompts{};prompts.active=true;prompts.binding_generation=8;
+        (void)cojvr::runtime::SetActionPromptLabel(prompts,cojvr::runtime::PromptAction::reload,"Left X");
+        cojvr::runtime::PublishActionPrompts(prompts);
+        input_owner.owns_process_runtime=true;
+        const auto source_generation=input_owner.prompt_source_generation.load();
+        input_owner.ResetActionEdges(); // Pure policy: no SDK initialization or native call.
+        const auto invalidated=cojvr::runtime::CurrentActionPrompts();
+        if(invalidated.active||!invalidated.binding_generation||invalidated.binding_generation==8||
+            !invalidated.labels[static_cast<std::size_t>(cojvr::runtime::PromptAction::reload)].view().empty()){
+            std::cerr<<"input invalidation retained binding labels\n";return 1;}
+        if(input_owner.prompt_source_generation.load()!=source_generation){
+            std::cerr<<"routine edge reset forced native origin recollection\n";return 1;}
+        input_owner.ResetActionEdges(true);
+        if(input_owner.prompt_source_generation.load()==source_generation){
+            std::cerr<<"failed input did not invalidate native origin cache\n";return 1;}
+        const auto display_generation=input_owner.prompt_generation.load();
+        if(input_owner.PromptsCurrent(display_generation,source_generation)||
+            !input_owner.PromptsCurrent(display_generation,input_owner.prompt_source_generation.load())){
+            std::cerr<<"mixed invalidation epochs admitted an old native origin cache\n";return 1;}
+        input_owner.owns_process_runtime=false;
+        cojvr::runtime::ClearActionPrompts();
+    }
     const std::array<OpenVrDigitalActionEdge*,8> edges{
         &input_owner.recenter_edge,&input_owner.ui_select_left_edge,
         &input_owner.ui_select_right_edge,&input_owner.ui_accept_edge,

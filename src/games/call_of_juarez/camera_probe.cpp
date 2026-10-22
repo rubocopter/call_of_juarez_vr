@@ -14,6 +14,7 @@
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/ammunition_pickup_guide.hpp"
+#include "games/call_of_juarez/reload_context_hints.hpp"
 #include "games/call_of_juarez/long_gun_grip.hpp"
 #include "games/call_of_juarez/long_gun_guide.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
@@ -138,6 +139,7 @@ CoJGameplayOwnerState g_gameplay_owner;
 CoJGameplayCommandQueue g_gameplay_commands;
 CoJMotionReloadAdapter g_motion_reload;
 CoJManualReloadSession g_manual_reload;
+CoJReloadContextHints g_reload_context_hints;
 cojvr::runtime::MotionPunchContact g_physical_punch;
 CoJReloadInsertionPose g_reload_insertion_pose;
 int g_reload_insertion_pose_last_hand=-1;
@@ -7659,8 +7661,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             }
             if(gameplay_input_ok&&eye_pair_ready&&!hud_text.ui.wheel.active&&
                 hands_restored&&weapon_restored&&!g_arm_rotation_faulted&&g_manual_reload_presentation&&
-                g_java_player_bridge.being_generation()==manual_input.player)
+                g_java_player_bridge.being_generation()==manual_input.player){
                 (void)AppendCoJAmmunitionPickupGuide(manual_input,manual_result,holster_guides_enabled,hud_text);
+                (void)g_reload_context_hints.Append(manual_input,manual_result,manual_feedback.owner_token,
+                    runtime::CurrentActionPrompts(),g_java_player_bridge.GetUiLanguage(),holster_guides_enabled,hud_text);
+            }else g_reload_context_hints.Reset();
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +

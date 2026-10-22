@@ -79,6 +79,16 @@ public:
     ~HudTextCompositor();
     void Reset() noexcept;
     [[nodiscard]] bool Prepare(ID3D11Device* device) noexcept;
+    // Call when fresh world pixels replace the retained output, including
+    // non-HUD frames, before composition/retirement. Failed no-write uploads
+    // may retain identity. Drops identity without writes; backing stays cached.
+    void DiscardRepeatedText() noexcept;
+    // Call under presenter frame authority before every eye submission, even
+    // repeats without Draw. Mismatched identities discard without restoring.
+    void RetireStaleText(ID3D11Device* device, ID3D11DeviceContext* context,
+        const std::array<ID3D11Texture2D*, 2>& targets,
+        bool show_holster_guides, std::uint64_t reload_owner_token) noexcept;
+    // Draw is for a newly copied world frame, never a repeated submission.
     [[nodiscard]] bool Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const runtime::StereoHudTextOverlay& overlay, std::uint64_t capture_sequence,
         const std::array<ID3D11Texture2D*, 2>& targets,

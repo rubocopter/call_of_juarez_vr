@@ -498,6 +498,10 @@ struct OpenVrStereoPresenter::Impl {
         double& upload_ms,
         D3D9SharedTextureCopyTiming& shared_timing) noexcept {
         bool composition_ok = true;
+        bool old_text_discarded=false;
+        const auto discard_old_text=[&]() noexcept {
+            if(!old_text_discarded){hud_text_compositor.DiscardRepeatedText();old_text_discarded=true;}
+        };
         auto flat_ui_pointer = input_flat_ui_pointer;
         const auto authority_ok = [&]() noexcept {
             return !fixed_outputs || fixed_frame_authority.Allows(fixed_authority_epoch);
@@ -510,6 +514,9 @@ struct OpenVrStereoPresenter::Impl {
         const auto update_output = [&](std::size_t eye, const D3D11_BOX* box,
                                        const void* pixels, UINT row_pitch) noexcept {
             const bool updated = run_authorized([&]() noexcept {
+                // The first actual world write retires the preceding frame's
+                // preimage. A rejected no-write upload may still repeat it.
+                discard_old_text();
                 d3d11.context()->UpdateSubresource(textures[eye].Get(), 0, box, pixels, row_pitch, 0);
                 return true;
             });
@@ -659,6 +666,7 @@ struct OpenVrStereoPresenter::Impl {
                 return false;
             }
             upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
+            discard_old_text();
             draw_gameplay_reticle();
             draw_hud_text();
             return !fixed_outputs || (composition_ok && authority_ok());
@@ -717,6 +725,7 @@ struct OpenVrStereoPresenter::Impl {
                 float(flat_ui_pointer.beam_origin_valid?flat_ui_pointer.beam_origin_y:flat_ui_pointer.pixel_y)};
             if(valid && flat_menu_compositor.Draw(d3d11.device(),d3d11.context(),CpuEyeData(left),
                 left.width,left.height,left.stride,{textures[0].Get(),textures[1].Get()},rectangles,pointer,clear_flat_canvas)) {
+                discard_old_text();
                 upload_ms=MillisecondsBetween(upload_begin,std::chrono::steady_clock::now());
                 if(ShouldLogSequence(frame.capture_sequence)) {
                     std::ostringstream timing;
@@ -741,6 +750,7 @@ struct OpenVrStereoPresenter::Impl {
             for (unsigned eye=0;eye<2;++eye)
                 if (FAILED(d3d11.device()->CreateRenderTargetView(textures[eye].Get(),nullptr,&views[eye]))) return false;
             constexpr float black[4]={0,0,0,1};
+            discard_old_text();
             for (const auto& view:views) d3d11.context()->ClearRenderTargetView(view.Get(),black);
         }
         for (std::size_t eye = 0; eye < 2; ++eye) {
@@ -2200,6 +2210,17 @@ struct OpenVrStereoPresenter::Impl {
                     continue;
                 }
                 const PresentationContent pending_content = cadence.pending_content();
+                // Repeats reuse already-composited eye textures. Retire copied
+                // controls in place before submission even without a new frame.
+                const auto retire_text=[&]() noexcept {
+                    hud_text_compositor.RetireStaleText(d3d11.device(),d3d11.context(),
+                        {textures[0].Get(),textures[1].Get()},runtime::CurrentHolsterGuidesEnabled(),
+                        reload_feedback_owner.load(std::memory_order_acquire));
+                    return true;
+                };
+                const bool text_authorized=fixed_outputs?
+                    fixed_frame_authority.Execute(active_fixed_authority_epoch,retire_text):retire_text();
+                if(!text_authorized){cadence.Invalidate();continue;}
                 if (fixed_outputs) fixed_submission_attempted = true;
                 if (!SubmitEyes(
                         runtime, textures, submit_pose, active_fixed_authority_epoch,

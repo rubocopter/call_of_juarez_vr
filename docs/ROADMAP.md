@@ -8,6 +8,14 @@ D3D9 stereo through OpenVR/SteamVR. PS VR2 Sense is the development reference.
 Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`,
 `headset-validated`, `supported`. A working build does not imply visor support.
 
+Post-.5 offline development includes the ammunition pickup locator, binding-aware
+copied hints and optional brief manual-reload instructions under the existing
+default-off weapon-guide preference. Input metadata is bounded and invalidated;
+native text retains priority and queued instructions require current ownership
+and expiry. Binding labels and coaching are implemented/host-tested;
+native SteamVR metadata and physical presentation remain unqualified.
+These changes do not expand weapon admission or alter the published .5 package.
+
 ## Current gate
 
 The published `v0.1.0-prealpha.5` includes the earlier scoped PS VR2 Sense baseline
@@ -404,6 +412,13 @@ or reload work:
   SawOff use two-slot whole-clip native transfers, so they need indexed shell
   ownership before individual insertions. Volcanic is also unit-paced;
   Derringer and Lemant need distinct multi-slot/mixed-ammo handling.
+  Static indexed research now shows that Lemant's non-whole-clip native call
+  stops after its first successful index (rifle first, pistol only if rifle is
+  ineligible); it does not load both pools in one invocation. Before new manual
+  admission, implement a passive same-object two-index/typed-reserve observer and
+  vector-delta classifier. Shared reserves must be counted once; no native helper
+  currently proves an isolated selective shell transaction. Sound-only routing
+  is identified, but insertion content/overlap remains acoustically unqualified.
   [Exact reload ownership](research/COJ_RELOAD_OWNERSHIP.md) records the
   evidence and prerequisites. No new weapon is manually admitted.
   The exact Winchester read-only observer is now implemented/host-tested,

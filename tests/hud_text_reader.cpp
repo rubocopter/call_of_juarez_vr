@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/hud_text_reader.hpp"
+#include "runtime/action_prompts.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -190,6 +191,37 @@ int main() {
     Require(ReadCoJHudText(&holder,&player,text,CoJUiLanguage::spanish)&&
         text.hint.view()==u"Pulsa 'Mantener Triangle / stick derecho Izquierda / soltar', mantén 'R1 (mantener)'; 'Create (pulsar)'. Niño y acción.",
         "Spanish gesture wording must preserve native Unicode and key boundaries");Clean();
+    {
+        using namespace cojvr::runtime;
+        ActionPromptSnapshot bindings{};bindings.active=true;bindings.binding_generation=17;
+        Require(SetActionPromptLabel(bindings,PromptAction::reload,"Left X")&&
+            SetActionPromptLabel(bindings,PromptAction::weapon_radial,"Left Y")&&
+            SetActionPromptLabel(bindings,PromptAction::turn,"Right trackpad")&&
+            SetActionPromptLabel(bindings,PromptAction::objectives,"Left menu"),"reported controls must be accepted");
+        PublishActionPrompts(bindings);
+        hint_text.string=u"Press 'R'; select '1'; 'O'.";interaction_text.string=u"Use 'F'.";
+        Require(ReadCoJHudText(&holder,&player,text)&&text.hint.view()==
+            u"Press 'Left X'; select 'Hold Left Y / Right trackpad Left / release'; 'Left menu tap'."&&
+            text.interaction.view()==u"Use 'Interact'."&&text.controller_prompt_generation==17&&
+            text.subtitle.view()==localized_subtitle.string,"active bindings or semantic fallback corrupted native hints/dialogue");Clean();
+        bindings.binding_generation=18;(void)SetActionPromptLabel(bindings,PromptAction::reload,"Botón A");PublishActionPrompts(bindings);
+        hint_text.string=u"Pulsa 'R', usa 'F'.";
+        Require(ReadCoJHudText(&holder,&player,text,CoJUiLanguage::spanish)&&
+            text.hint.view()==u"Pulsa 'Botón A', usa 'Interactuar'."&&text.controller_prompt_generation==18,
+            "rebound Unicode names and Spanish fallback did not replace old controls");Clean();
+        ActionPromptSnapshot invalidated{};invalidated.binding_generation=19;
+        PublishActionPrompts(invalidated);
+        Require(ReadCoJHudText(&holder,&player,text)&&text.hint.view()==u"Pulsa 'Reload', usa 'Interact'."&&
+            text.controller_prompt_generation==19,
+            "invalidated runtime invented unfenced legacy Sense labels");Clean();
+        invalidated.binding_generation=20;PublishActionPrompts(invalidated);
+        Require(ReadCoJHudText(&holder,&player,text,CoJUiLanguage::spanish)&&
+            text.hint.view()==u"Pulsa 'Recargar', usa 'Interactuar'."&&text.controller_prompt_generation==20,
+            "invalidated Spanish runtime lost semantic fallback or its epoch");Clean();
+        ClearActionPrompts();
+        Require(ReadCoJHudText(&holder,&player,text)&&text.hint.view()==u"Pulsa 'Square', usa 'L1'."&&
+            !text.controller_prompt_generation,"absent metadata changed the existing default profile presentation");Clean();
+    }
     icon.visible=false; info.visible=false; settings.boolean=false;
     Require(ReadCoJHudText(&holder,&player,text) && text.interaction.view().empty() &&
         text.hint.view().empty() && text.subtitle.view().empty(),"hidden owners/settings must clear all text"); Clean();

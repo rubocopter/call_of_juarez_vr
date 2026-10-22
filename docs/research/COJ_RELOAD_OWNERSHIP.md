@@ -54,10 +54,13 @@ native-confirmed unit loading.
 Read-only inspection of the pinned original `code.pak` (2026-10-21) establishes
 the following exact constructor and ammunition boundaries. These are **static
 findings**, not headset acceptance or permission to enable manual loading.
-`PawnArmed.WeaponReload(LWeapon;)Z` iterates **all** ammo indices: non-whole-clip
-weapons receive up to one unit **per index**, while whole-clip weapons receive
-up to the remaining capacity **per index**. One native call is not necessarily
-one physical cartridge.
+`PawnArmed.WeaponReload(LWeapon;)Z` searches ammo indices in ascending order.
+Non-whole-clip weapons receive at most **one unit total**, exiting after the
+first successful index; whole-clip weapons continue through all indices and
+receive up to the remaining capacity **per index**. The decisive exit is at
+bytecode offsets 148–152, after the loaded/reserve writes. Thus one whole-clip
+call is not necessarily one physical cartridge, and a non-whole-clip call
+does not expose caller-selected index ownership.
 
 | Exact weapon | Native contract | Manual integration requirement |
 | --- | --- | --- |
@@ -67,7 +70,7 @@ one physical cartridge.
 | `WeaponRifleRemingtonSawOff` | Inherits Remington's two ammo indices and slot storage; own logic sets whole-clip **true**, with single-hand/other-hand flags. | Same possible two-barrel transfer, plus either-hand ownership/recovery. |
 | `WeaponPistolVolcanic` | Whole-clip **false**; index 0 `WpnAmmoPistolVolcanic`, capacity 8 (pistol reserve). | Single-round accounting is plausible, but loading mechanism, pose, hand interaction and animation need separate qualification. |
 | `WeaponPistolDerringer` | Whole-clip **true**, `WeaponPistolDoubleAmmo`; indices 0/1 use `WpnAmmoPistolDerringer`, capacity 1 each. | One call may refill both chambers; require per-chamber loading/ejection ownership. |
-| `WeaponPistolLemant` | Exact archive spelling is **Lemant**; whole-clip **false** but `WeaponPistolDoubleAmmo` has rifle index 0 (capacity 1) and pistol index 1 (capacity 8). | A native call may load one unit into **both distinct reserve pools**. Needs selective index transfer, mode readback and two loading gestures. |
+| `WeaponPistolLemant` | Exact archive spelling is **Lemant**; whole-clip **false**; rifle index 0 (capacity 1), pistol index 1 (capacity 8). Original transfer stops after the first successful index, preferring 0. | One call transfers at most one unit, but cannot explicitly select index 1 while index 0 remains reloadable. Needs index/reserve readback, mode ownership and distinct loading gestures. |
 | `WeaponPistolSchofield` / `_A` / `_B` | Whole-clip **true**, capacity 6 (pistol reserve). | Keep native/hybrid reload until a full-clip gesture and readback can be qualified. |
 
 The double-ammo classes store slot 1 in `m_iAmmo1Count`; observing only
@@ -75,6 +78,58 @@ The double-ammo classes store slot 1 in `m_iAmmo1Count`; observing only
 `cojvrManualReloadValid()` requires `!IsReloadWholeClipAtOnce()` and
 `GetAmmoTypeCount()==1`. Consequently, none of these two-index or whole-clip
 classes can enter the current paced transfer, even if a gesture is detected.
+
+### Indexed transfer boundary — static only
+
+The pinned original `PawnArmed.WeaponReload(LWeapon;)Z` is 163 bytecode bytes.
+After success, offset 148 loads the whole-clip flag; `149: ifne 155` advances
+the index only for whole-clip reload, whereas `152: goto 161` returns for
+non-whole-clip reload. Missing counter, full slot and empty reserve skip to
+155 without success. Lemant therefore loads rifle index 0 first if eligible;
+otherwise it can load pistol index 1. It does not debit both pools in one
+ordinary non-whole-clip invocation. This control flow supersedes the earlier
+per-index non-whole-clip interpretation.
+
+`PawnArmed.WeaponReload(I)Z` indexes `ActiveWeapon` and delegates to the weapon
+overload: its integer selects a **hand**, not an ammunition index. The examined
+exact weapon inheritance chains have no indexed reserve-aware reload override.
+`Weapon.Reload(index,amount)` / `ReloadInside` can change the chosen loaded
+count, but play body audio first and never debit reserve. `ReloadForce` also
+omits reserve; `ArmedPlayerBeing.ForceReloadWeapon` iterates all indices and
+does not cap its requested count by the available reserve. None is a proven
+indexed one-unit inventory transaction or an audio-only substitute.
+
+Both double-ammo setters clamp/store only slot 1 at offset 26 when index is 1,
+then delegate to their parent at 32. Slot 0 reaches
+`WeaponFireAmmo.SetAmmoCount` (store at 25); the other slot is not also written.
+Both paths ultimately call `Weapon.UpdateAmmoSkin` and native `SetSkin`.
+These indexed setters are real storage primitives, not reserve transactions
+or proof of event-free native skin/mechanical behavior.
+
+Restricted original transfers are statically predictable without changing
+parameters: Remington/SawOff/Derringer load one selected empty slot if the other
+slot is full and matching reserve is available. With both empty and one shared
+reserve unit, they load index 0 only; with at least two, they can load both.
+Lemant can load index 1 only when index 0 is not eligible. These are preconditions
+for future observation, not manual admission or a general index-selection API.
+
+Any future one-unit proof must retain the same player, actual/active/desired
+weapon object, armed hand, context and native owner on both sides, plus both
+loaded counts and every involved reserve pool. Require selected count +1,
+other count unchanged, selected typed reserve -1 and other distinct pools
+unchanged. Remington shares shotgun reserve across its two indices; Derringer
+shares pistol reserve; Lemant has separate rifle/pistol pools. Count a shared
+pool once. The current ammo0/single-reserve observer and pistol/rifle-only
+feedback predicate cannot qualify these transactions.
+
+The original method returns true without transfer for a non-owner at 13–14,
+does not itself verify `weapon.cOwner == caller`, and writes loaded count
+before reserve (130, 143). A Boolean is insufficient; an exception can leave a
+partial write. Never retry/refund or temporarily fill another slot, alter
+reserve, change whole-clip policy or replay a completion callback to force
+selection. The smallest next implementation is a separate read-only two-index,
+typed-reserve observer of ordinary native reload; arbitrary indexed transfer,
+native skin side effects and physical opening/port ownership remain unproven.
 
 For Winchester, the next step is **read-only live observation** of reload
 begin/body/end, free support hand, loaded/reserve delta and natural weapon pose.
@@ -973,3 +1028,23 @@ No added sound is enabled: the existing clip's insertion-specific content and
 overlap with native entry/animation audio remain acoustically unqualified. Keep
 those checks within the ordinary combined reload session, without replaying a
 reload callback, cylinder rotation or a second fallback sound.
+
+The two-index families have different original defaults. Remington and SawOff
+inherit `WpnAmmoShotgunRemington`: both indices have null body/end reload
+buffers, with `Data/Sounds/weapon/Schofield`, prefix `Schofield_Reload`, assigned
+to **begin**. Derringer and both Lemant ammo parameters instead assign
+`Frontier_Ammo_Open` to body, with null begin/end. The original
+`OnHandStateStarted_ReloadBegin` and `OnHandStateStarted_Reload` callbacks loop
+over every ammo index, even when the eventual non-whole-clip transfer stops
+after one success. Static call multiplicity is not proof of audible doubling.
+
+`Weapon.ExecSound(weapon.GetAmmoParams(index).m_cSBReload)` is the separate
+sound-only Java dispatch candidate: it respects native sound disabling, uses
+one-shot false and reaches the original owner-attached sound route without
+calling reload callbacks, ammo/reserve setters or `ReloadRotate`. For
+Remington/SawOff the body buffer is null, so this candidate is silent; replaying
+their begin sound is not a qualified insertion sound. For Derringer/Lemant the
+Frontier clip's content, existing entry audio and overlap remain unqualified.
+Use only a freshly proven same-owner indexed unit transfer for any future
+optional call, preserve final closing and accept audio failure silently without
+fallback or retry. Static routing alone enables no extra audio or weapon.

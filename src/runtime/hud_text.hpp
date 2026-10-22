@@ -24,6 +24,7 @@ struct HudTextSnapshot {
     HudText hint{};
     HudText interaction{};
     HudText subtitle{};
+    std::uint64_t controller_prompt_generation = 0; // Copied binding labels; 0 means no runtime-specific text.
 };
 
 // Native presentation observations only; no damage, deadline or fade clock.
@@ -95,6 +96,8 @@ struct StereoHudTextOverlay {
     std::uint64_t feedback_context_token = 0;
     ReloadInsertionFeedback reload_feedback{};
     BowDrawFeedback bow_feedback{};
+    bool reload_instruction = false; // Low-priority interaction text, bound to reload_feedback.owner_token.
+    std::uint64_t reload_instruction_until_ms = 0;
     HolsterGuides holster_guides{};
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};

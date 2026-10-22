@@ -584,9 +584,48 @@ Production and host targets compile UTF-8 sources consistently; test-only UTF-8
 previously masked corrupted authored accents in the production DLL.
 
 Copied prompts translate only explicitly delimited default campaign keys and
-observed aliases into Sense gestures. Native strings/dialogue/bare letters and
-digits remain unchanged; custom bindings and unobserved locale names are outside
-the mapping. Text/status recovery is separate from graphical native HUD capture.
+observed aliases. Native strings/dialogue/bare letters and digits remain unchanged;
+custom PC keybindings and unobserved locale names remain ambiguous. Post-.5 source
+can replace mapped gestures with the connected OpenVR origin's hand/component
+name. The input owner copies bounded UTF-8 names into owned UTF-16 snapshots;
+missing or multiple distinct origins use localized semantic action names rather
+than an arbitrary controller. Hold/tap and wheel direction/release remain explicit.
+Without a runtime metadata source, the existing Sense presentation is preserved.
+An invalidated source retains a nonzero epoch with empty labels and uses semantic
+fallback until fresh metadata arrives; it cannot create an unfenced Sense label.
+This does not describe arbitrary binding chords or replace graphical glyphs.
+
+Origin metadata is cached until binding/device/input invalidation; empty or failed
+lookups retry at most once per second without querying settled actions again.
+Optional name errors cannot fail an input poll.
+Routine focus/settings edge resets retire the presentation epoch without
+requerying settled binding metadata every frame; failed polls and actual
+binding/device changes also invalidate the source cache.
+Invalidation clears published names, and publication rechecks generation under
+the event lock. Generations remain distinct across runtime replacements within
+the process. Captured translated text carries its binding generation; the
+compositor hides stale control hints while preserving native subtitles. No native
+string, input binding or gameplay permission is changed. Text/status recovery is
+separate from graphical native HUD capture.
+
+The same default-off weapon-guide preference also enables short localized manual
+reload instructions. They follow the supervised session's pickup/release/carry/
+insertion/continuation state and correct support-hand action, never infer ammo or
+grant an insertion. Native hint/interaction text takes priority. Each stage lasts
+at most three seconds; stale samples, changed player/weapon/input/binding identity,
+closing or invalid tracking hide it. Queued instructions additionally require the
+current reload-owner epoch, unexpired deadline and enabled guide preference at
+composition. The presenter also retires expired controlled text before repeated
+eye submissions: at most four small renderer-owned background rectangles preserve
+the world and other HUD underneath. Their total backing is capped at 16 MiB,
+reused by extent/format and released on reset; whole-eye preimages are excluded.
+Controlled text is drawn last, after both eye backups are prepared; unavailable
+backup suppresses that controlled text rather than painting an unretirable label.
+Device/context/target mismatches discard identity without restoring elsewhere.
+A new successful world upload discards the previous preimage, while a rejected
+no-write upload keeps its retirement fence. Fixed-output writes retain frame
+authority. Physical readability, resource pressure and gesture fit remain separate
+validation gates.
 
 Critical alerts have independent captured head-space presentation: the visible
 owned countdown title/exclusive number and objective/journal notices do not

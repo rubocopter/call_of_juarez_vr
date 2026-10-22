@@ -1,8 +1,10 @@
 #include "runtime/openvr_runtime.hpp"
 #include "runtime/vr_math.hpp"
+#include "runtime/action_prompt_source.hpp"
 #include <openvr.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <string>
 #include <utility>
@@ -26,6 +28,13 @@ std::string InitializationError(const vr::EVRInitError error_code) {
 }
 
 OpenVrProcessOwnerGate g_openvr_owner_gate;
+std::atomic<std::uint64_t> g_prompt_generation{0};
+
+std::uint64_t NextPromptGeneration() noexcept {
+    auto generation=g_prompt_generation.fetch_add(1,std::memory_order_acq_rel)+1;
+    if(!generation)generation=g_prompt_generation.fetch_add(1,std::memory_order_acq_rel)+1;
+    return generation;
+}
 
 bool ClaimProcessOwner(void* owner) noexcept {
     return g_openvr_owner_gate.TryClaim(owner);
@@ -80,8 +89,85 @@ struct OpenVrRuntime::Impl {
     std::string last_error;
     std::int32_t last_result_code = 0;
     mutable std::mutex events_mutex; // Serializes ProcessEvents calls
+    // A replacement runtime must never reuse an old queued text identity.
+    std::atomic<std::uint64_t> prompt_generation{NextPromptGeneration()};
+    std::atomic<std::uint64_t> prompt_source_generation{prompt_generation.load()};
+    ActionPromptOriginCache prompt_cache;
+    std::uint64_t published_prompt_revision=0,published_prompt_generation=0;
 
-    void ResetActionEdges() noexcept {
+    bool PromptsCurrent(std::uint64_t display,std::uint64_t source) const noexcept {
+        return display==prompt_generation.load(std::memory_order_acquire)&&
+            source==prompt_source_generation.load(std::memory_order_acquire);
+    }
+
+    void InvalidatePrompts(bool source_changed=true) noexcept {
+        const auto generation=NextPromptGeneration();
+        prompt_generation.store(generation,std::memory_order_release);
+        if(source_changed)prompt_source_generation.store(generation,std::memory_order_release);
+        if(owns_process_runtime){
+            ActionPromptSnapshot invalidated{};invalidated.binding_generation=generation;
+            PublishActionPrompts(invalidated);
+        }
+    }
+    void RefreshPrompts() noexcept {
+        if(!input||!system||!owns_process_runtime)return;
+        const auto generation=prompt_generation.load(std::memory_order_acquire);
+        const auto source_generation=prompt_source_generation.load(std::memory_order_acquire);
+        ActionPromptSource source{};source.context=this;
+        source.origins=[](void* context,PromptAction action,std::array<std::uint64_t,16>& out) noexcept {
+            auto& self=*static_cast<Impl*>(context);
+            vr::VRActionHandle_t handle=vr::k_ulInvalidActionHandle;
+            auto set=self.gameplay_action_set;
+            switch(action){
+            case PromptAction::left_fire:handle=self.gameplay_actions[2];break;
+            case PromptAction::right_fire:handle=self.gameplay_actions[3];break;
+            case PromptAction::reload:handle=self.gameplay_actions[5];break;
+            case PromptAction::interact:handle=self.gameplay_actions[8];break;
+            case PromptAction::kick:handle=self.gameplay_actions[11];break;
+            case PromptAction::jump:handle=self.gameplay_actions[4];break;
+            case PromptAction::alternate_fire:handle=self.gameplay_actions[14];break;
+            case PromptAction::weapon_radial:handle=self.gameplay_actions[29];break;
+            case PromptAction::focus:handle=self.gameplay_actions[13];break;
+            case PromptAction::crouch:handle=self.gameplay_actions[7];break;
+            case PromptAction::turn:handle=self.gameplay_actions[1];break;
+            // Objectives is produced by the presenter's short recenter tap,
+            // not the otherwise optional gameplay objectives action binding.
+            case PromptAction::objectives:case PromptAction::recenter:
+                handle=self.recenter_action;set=self.global_action_set;break;
+            case PromptAction::pause:handle=self.pause_action;set=self.global_action_set;break;
+            default:return false;
+            }
+            if(handle==vr::k_ulInvalidActionHandle)return false;
+            std::array<vr::VRInputValueHandle_t,16> origins{};
+            if(self.input->GetActionOrigins(set,handle,origins.data(),static_cast<std::uint32_t>(origins.size()))!=vr::VRInputError_None)return false;
+            std::copy(origins.begin(),origins.end(),out.begin());return true;
+        };
+        source.name=[](void* context,std::uint64_t origin,std::array<char,256>& text) noexcept {
+            auto& self=*static_cast<Impl*>(context);vr::InputOriginInfo_t info{};
+            if(self.input->GetOriginTrackedDeviceInfo(origin,&info,sizeof(info))!=vr::VRInputError_None||
+                info.trackedDeviceIndex>=vr::k_unMaxTrackedDeviceCount||
+                !self.system->IsTrackedDeviceConnected(info.trackedDeviceIndex))return false;
+            return self.input->GetOriginLocalizedName(origin,text.data(),static_cast<std::uint32_t>(text.size()),
+                vr::VRInputString_Hand|vr::VRInputString_InputSource)==vr::VRInputError_None;
+        };
+        const auto& snapshot=prompt_cache.Update(source_generation,GetTickCount64(),source);
+        try {
+            // Event invalidation and final publication share this lock, so an
+            // in-flight metadata read cannot resurrect labels after rebinding.
+            std::lock_guard lock(events_mutex);
+            if(!PromptsCurrent(generation,source_generation))return;
+            if(published_prompt_revision!=prompt_cache.revision()||published_prompt_generation!=generation){
+                auto published=snapshot;published.binding_generation=generation;
+                PublishActionPrompts(published);published_prompt_revision=prompt_cache.revision();
+                published_prompt_generation=generation;
+            }
+        }catch(...){InvalidatePrompts();}
+    }
+
+    void ResetActionEdges(bool source_changed=false) noexcept {
+        // A repeated dashboard/settings edge reset retires captured labels but
+        // does not reread stable native binding metadata every frame.
+        InvalidatePrompts(source_changed);
         for (auto& edge : ui_pointer_edges) edge.Reset();
         recenter_edge.Reset();
         ui_select_left_edge.Reset(); ui_select_right_edge.Reset();
@@ -97,7 +183,7 @@ struct OpenVrRuntime::Impl {
         bool committed = false;
         ~InputPollTransaction() noexcept {
             if (committed) return;
-            owner.ResetActionEdges(); globals = {};
+            owner.ResetActionEdges(true); globals = {};
             if (gameplay) *gameplay = {};
             if (poses) *poses = {};
         }
@@ -202,6 +288,7 @@ bool OpenVrRuntime::Initialize(const std::string_view application_name) noexcept
             return false;
         }
         impl_->owns_process_runtime = true;
+        impl_->InvalidatePrompts();
 
         vr::EVRInitError init_error = vr::VRInitError_None;
         vr::IVRSystem* system = vr::VR_Init(
@@ -268,6 +355,7 @@ bool OpenVrRuntime::Initialize(const std::string_view application_name) noexcept
 
 void OpenVrRuntime::Shutdown() noexcept {
     if (!impl_) return;
+    if(impl_->owns_process_runtime)impl_->InvalidatePrompts();
     if (impl_->system != nullptr) impl_->state_tracker.ShutdownRequested();
     if (impl_->owns_process_runtime) vr::VR_Shutdown();
     if (impl_->owns_process_runtime) ReleaseProcessOwner(impl_.get());
@@ -450,14 +538,24 @@ bool OpenVrRuntime::ProcessEvents() noexcept {
             case vr::VREvent_TrackedDeviceActivated:
             case vr::VREvent_TrackedDeviceUpdated:
             case vr::VREvent_TrackedDeviceDeactivated:
+            case vr::VREvent_TrackedDeviceRoleChanged:
+                impl_->InvalidatePrompts();
                 if (event.trackedDeviceIndex == vr::k_unTrackedDeviceIndex_Hmd) {
                     impl_->state_tracker.ConnectionChanged(
                         impl_->system->IsTrackedDeviceConnected(vr::k_unTrackedDeviceIndex_Hmd));
                 }
                 break;
+            case vr::VREvent_Input_BindingLoadFailed:
+            case vr::VREvent_Input_BindingLoadSuccessful:
+            case vr::VREvent_Input_ActionManifestReloaded:
+            case vr::VREvent_Input_ActionManifestLoadFailed:
+            case vr::VREvent_Input_BindingsUpdated:
+            case vr::VREvent_Input_BindingSubscriptionChanged:
+                impl_->InvalidatePrompts();break;
             case vr::VREvent_Quit:
             case vr::VREvent_ProcessQuit:
             case vr::VREvent_DriverRequestedQuit:
+                impl_->InvalidatePrompts();
                 impl_->state_tracker.ShutdownRequested();
                 break;
             default:
@@ -747,6 +845,7 @@ bool OpenVrRuntime::InitializeGlobalActions(
         impl_->right_hand_aim_pose_action = right_hand_aim_pose_action;
         impl_->hand_skeleton_actions = hand_skeleton_actions;
         impl_->gameplay_actions = gameplay_actions;
+        impl_->InvalidatePrompts();
         // Optional per-hand vibration outputs, matching pinned SDK samples.
         // Resolution failure affects only feedback, after required input setup.
         constexpr const char* haptic_names[] = {
@@ -1101,6 +1200,7 @@ bool OpenVrRuntime::PollActions(
             return FailNoThrow(impl_.get(), "OpenVR gameplay action read failed");
         }
         gameplay_actions.active = true;
+        impl_->RefreshPrompts();
         poll.committed = true;
         return true;
     } catch (...) {

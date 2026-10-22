@@ -1,5 +1,6 @@
 #include "backends/openvr/hud_text_overlay.hpp"
 #include "runtime/vr_math.hpp"
+#include "runtime/action_prompts.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -334,5 +335,261 @@ int main(int argc, char** argv) {
     overlay.text.hint=Text(u"Native hint");clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,"bad optional guide starved essential HUD text");
+    // A queued control label must not survive its runtime binding generation.
+    overlay={};overlay.frame_sequence=7;overlay.eyes=valid_eyes;
+    overlay.text.hint=Text(u"Press left menu");
+    overlay.text.interaction=Text(u"Release right trigger");
+    overlay.text.controller_prompt_generation=17;
+    ActionPromptSnapshot prompts{};prompts.active=true;prompts.binding_generation=17;
+    PublishActionPrompts(prompts);clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,
+        "current generation control text was hidden");
+    prompts.binding_generation=18;PublishActionPrompts(prompts);clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world&&
+        ReadEye(device.Get(),context.Get(),targets[1].Get())==resized_world,
+        "binding replacement replayed queued control text");
+    overlay.text.subtitle=Text(u"Native dialogue");clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),"subtitle draw failed");
+    const auto subtitle_only=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(subtitle_only!=resized_world,"binding replacement hid native dialogue");
+    overlay.text.hint={};overlay.text.interaction={};overlay.text.controller_prompt_generation=0;
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==subtitle_only,
+        "stale bindings changed dialogue pixels");
+    overlay.text.subtitle={};overlay.text.interaction=Text(u"Bring the round to the gun");
+    overlay.reload_instruction=true;overlay.reload_feedback.owner_token=42;
+    overlay.reload_instruction_until_ms=GetTickCount64()+60000;
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,
+        "current reload instruction was hidden");
+    for(const auto token:{0ULL,43ULL}){clear_world();
+        Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,token)&&
+            ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+            "missing/replaced owner replayed a queued reload instruction");}
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,false,42)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+        "disabled guides replayed a queued reload instruction");
+    for(const auto until:{0ULL,1ULL}){
+        overlay.reload_instruction_until_ms=until;clear_world();
+        Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
+            ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+            "expired/unbounded reload instruction survived its deadline");}
+    overlay.reload_instruction=false;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,false,0)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,
+        "reload ownership gating hid ordinary native text");
+    // Repeat submissions never call Draw: retirement must undo only the text,
+    // preserving the world, subtitle and even an overlapping HUD surface.
+    overlay={};overlay.frame_sequence=7;overlay.eyes=valid_eyes;
+    overlay.text.subtitle=Text(u"Native dialogue survives retirement");
+    overlay.ui.status.active=true;overlay.ui.status.line_count=1;
+    overlay.ui.status.lines[0].length=static_cast<std::uint32_t>(status.size());
+    std::copy(status.begin(),status.end(),overlay.ui.status.lines[0].characters.begin());
+    overlay.status_surface_valid=true;
+    overlay.status_head_corners={{{-.7F,.8F,-1.5F},{.7F,.8F,-1.5F},
+        {-.7F,-.5F,-1.5F},{.7F,-.5F,-1.5F}}};
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),
+        "retirement background HUD failed");
+    const std::array<std::vector<std::uint32_t>,2> background{
+        ReadEye(device.Get(),context.Get(),targets[0].Get()),
+        ReadEye(device.Get(),context.Get(),targets[1].Get())};
+    const auto expect_pixels=[&](const auto& expected,const char* message){
+        for(unsigned eye=0;eye<2;++eye)
+            Require(ReadEye(device.Get(),context.Get(),targets[eye].Get())==expected[eye],message);
+    };
+    overlay.text.hint=Text(u"Press left menu");
+    overlay.text.interaction=Text(u"Release right trigger");
+    overlay.text.controller_prompt_generation=101;
+    prompts.active=true;prompts.binding_generation=101;PublishActionPrompts(prompts);
+    const auto draw_controlled=[&](){
+        clear_world();
+        Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42),
+            "controlled repeat fixture failed");
+        for(unsigned eye=0;eye<2;++eye)
+            Require(ReadEye(device.Get(),context.Get(),targets[eye].Get())!=background[eye],
+                "controlled repeat fixture drew no text");
+    };
+    draw_controlled();
+    const std::array<std::vector<std::uint32_t>,2> controlled{
+        ReadEye(device.Get(),context.Get(),targets[0].Get()),
+        ReadEye(device.Get(),context.Get(),targets[1].Get())};
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    expect_pixels(controlled,"valid repeated control text was retired");
+    prompts.binding_generation=102;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    expect_pixels(background,"repeat retirement damaged world/subtitle/overlapping HUD pixels");
+    // Once consumed, a preimage can never replay over subsequent output.
+    clear_world();compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    for(const auto& target:targets)Require(ReadEye(device.Get(),context.Get(),target.Get())==resized_world,
+        "repeat retirement replayed a consumed preimage");
+    // Inactive tombstones still carry a new epoch and invalidate old pixels.
+    prompts.binding_generation=101;PublishActionPrompts(prompts);draw_controlled();
+    prompts.active=false;prompts.binding_generation=103;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    expect_pixels(background,"inactive tombstone retained old control pixels");
+    // Swapping the pair, replacing one target or changing context/device must
+    // never copy a saved rectangle to a different output identity.
+    prompts.active=true;prompts.binding_generation=101;PublishActionPrompts(prompts);
+    ComPtr<ID3D11Texture2D> foreign;
+    Require(SUCCEEDED(device->CreateTexture2D(&desc,nullptr,&foreign)),"foreign eye allocation failed");
+    context->CopyResource(foreign.Get(),targets[0].Get());
+    const auto foreign_pixels=ReadEye(device.Get(),context.Get(),foreign.Get());
+    ComPtr<ID3D11DeviceContext> foreign_context;
+    Require(SUCCEEDED(device->CreateDeferredContext(0,&foreign_context)),"foreign context failed");
+    ComPtr<ID3D11Device> foreign_device;ComPtr<ID3D11DeviceContext> other_context;
+    Require(SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT,nullptr,0,D3D11_SDK_VERSION,
+        &foreign_device,nullptr,&other_context)),"foreign device failed");
+    for(unsigned mismatch=0;mismatch<4;++mismatch){
+        draw_controlled();prompts.binding_generation=102;PublishActionPrompts(prompts);
+        auto wrong=replaced;
+        if(mismatch==0)std::swap(wrong[0],wrong[1]);
+        if(mismatch==1)wrong[1]=foreign.Get();
+        compositor.RetireStaleText(mismatch==3?foreign_device.Get():device.Get(),
+            mismatch==2?foreign_context.Get():mismatch==3?other_context.Get():context.Get(),wrong,true,42);
+        expect_pixels(controlled,"mismatched identity wrote original targets");
+        Require(ReadEye(device.Get(),context.Get(),foreign.Get())==foreign_pixels,
+            "mismatched identity restored into a foreign target");
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+        expect_pixels(controlled,"mismatched identity retained a replayable preimage");
+        prompts.binding_generation=101;PublishActionPrompts(prompts);
+    }
+    draw_controlled();compositor.DiscardRepeatedText();
+    clear_world();prompts.binding_generation=102;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    for(const auto& target:targets)Require(ReadEye(device.Get(),context.Get(),target.Get())==resized_world,
+        "discard restored an old preimage over a fresh non-HUD frame");
+    prompts.binding_generation=101;PublishActionPrompts(prompts);draw_controlled();
+    auto fresh=overlay;fresh.text.hint={};fresh.text.interaction={};
+    fresh.text.controller_prompt_generation=0;
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),fresh,7,replaced),"fresh HUD failed");
+    prompts.binding_generation=102;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    expect_pixels(background,"fresh Draw retained the preceding frame's preimage");
+    // Rolled eyes make the two text bounding rectangles overlap. Restoring
+    // hint before interaction would put the saved hint pixels back on screen.
+    auto rolled=overlay;rolled.text.hint={};rolled.text.interaction={};
+    rolled.text.controller_prompt_generation=0;
+    for(auto& eye:rolled.eyes)eye.eye_to_head.orientation={0,0,.38268343F,.92387953F};
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),rolled,7,replaced),"rolled HUD failed");
+    const std::array<std::vector<std::uint32_t>,2> rolled_background{
+        ReadEye(device.Get(),context.Get(),targets[0].Get()),
+        ReadEye(device.Get(),context.Get(),targets[1].Get())};
+    std::u16string tall_label;
+    for(unsigned line=0;line<30;++line)tall_label+=u"Hold left grip\n";
+    rolled.text.hint=Text(tall_label);rolled.text.interaction=Text(tall_label);
+    rolled.text.controller_prompt_generation=101;
+    prompts.binding_generation=101;PublishActionPrompts(prompts);
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),rolled,7,replaced),"rolled controls failed");
+    Require(ReadEye(device.Get(),context.Get(),targets[0].Get())!=rolled_background[0],"rolled controls hidden");
+    prompts.binding_generation=102;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    expect_pixels(rolled_background,"overlapping patches were not restored in reverse order");
+    prompts.binding_generation=101;PublishActionPrompts(prompts);draw_controlled();
+    compositor.Reset();prompts.binding_generation=102;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+    expect_pixels(controlled,"Reset replayed a retired frame's preimage");
+    // A valid render target whose format the bounded backup does not support
+    // must suppress BOTH controlled eyes while still drawing essential HUD.
+    std::array<ComPtr<ID3D11Texture2D>,2> unfenced;
+    for(unsigned eye=0;eye<2;++eye){
+        auto fallback_desc=desc;
+        if(eye==1)fallback_desc.Format=DXGI_FORMAT_R10G10B10A2_UNORM;
+        Require(SUCCEEDED(device->CreateTexture2D(&fallback_desc,nullptr,&unfenced[eye])),
+            "unfenced target allocation failed");
+    }
+    const std::array<ID3D11Texture2D*,2> unfenced_raw{unfenced[0].Get(),unfenced[1].Get()};
+    const auto clear_unfenced=[&](){for(const auto& target:unfenced){
+        ComPtr<ID3D11RenderTargetView> rtv;
+        Require(SUCCEEDED(device->CreateRenderTargetView(target.Get(),nullptr,&rtv)),"unfenced RTV failed");
+        context->ClearRenderTargetView(rtv.Get(),world_color);
+    }};
+    clear_unfenced();Require(compositor.Draw(device.Get(),context.Get(),fresh,7,unfenced_raw),
+        "essential HUD failed on unfenced targets");
+    const std::array<std::vector<std::uint32_t>,2> unfenced_background{
+        ReadEye(device.Get(),context.Get(),unfenced[0].Get()),
+        ReadEye(device.Get(),context.Get(),unfenced[1].Get())};
+    prompts.binding_generation=101;PublishActionPrompts(prompts);
+    clear_unfenced();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,unfenced_raw),
+        "optional backup failure rejected the essential HUD");
+    for(unsigned eye=0;eye<2;++eye)Require(
+        ReadEye(device.Get(),context.Get(),unfenced[eye].Get())==unfenced_background[eye],
+        "failed second-eye backup drew unfenced control text");
+    auto native=overlay;native.text.controller_prompt_generation=0;
+    // Native text retains its original draw order, so the intentionally large
+    // overlapping status card would obscure it. Remove that card in BOTH the
+    // native baseline and assertion instead of mistaking occlusion for a veto.
+    native.status_surface_valid=false;
+    auto native_background=native;native_background.text.hint={};native_background.text.interaction={};
+    clear_unfenced();Require(compositor.Draw(device.Get(),context.Get(),native_background,7,unfenced_raw),
+        "native text baseline failed");
+    const std::array<std::vector<std::uint32_t>,2> native_background_pixels{
+        ReadEye(device.Get(),context.Get(),unfenced[0].Get()),
+        ReadEye(device.Get(),context.Get(),unfenced[1].Get())};
+    clear_unfenced();Require(compositor.Draw(device.Get(),context.Get(),native,7,unfenced_raw),
+        "backup restrictions affected native text");
+    for(unsigned eye=0;eye<2;++eye)Require(
+        ReadEye(device.Get(),context.Get(),unfenced[eye].Get())!=native_background_pixels[eye],
+        "ordinary native text incorrectly required backup resources");
+    // Production X8 targets and the other supported four-byte formats all
+    // need exact-format patch copies, including their SRGB variants.
+    for(const auto format:{DXGI_FORMAT_B8G8R8X8_UNORM,DXGI_FORMAT_B8G8R8X8_UNORM_SRGB,
+        DXGI_FORMAT_B8G8R8A8_UNORM,DXGI_FORMAT_B8G8R8A8_UNORM_SRGB,
+        DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_FORMAT_R8G8B8A8_UNORM_SRGB}){
+        compositor.DiscardRepeatedText();unfenced={};
+        auto supported_desc=desc;supported_desc.Format=format;
+        for(auto& target:unfenced)Require(SUCCEEDED(device->CreateTexture2D(&supported_desc,nullptr,&target)),
+            "supported target format allocation failed");
+        const std::array<ID3D11Texture2D*,2> supported{unfenced[0].Get(),unfenced[1].Get()};
+        clear_unfenced();Require(compositor.Draw(device.Get(),context.Get(),fresh,7,supported),
+            "supported format background failed");
+        const std::array<std::vector<std::uint32_t>,2> supported_background{
+            ReadEye(device.Get(),context.Get(),unfenced[0].Get()),
+            ReadEye(device.Get(),context.Get(),unfenced[1].Get())};
+        prompts.binding_generation=101;PublishActionPrompts(prompts);
+        clear_unfenced();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,supported),
+            "supported format controls failed");
+        for(unsigned eye=0;eye<2;++eye)Require(
+            ReadEye(device.Get(),context.Get(),unfenced[eye].Get())!=supported_background[eye],
+            "supported format suppressed controlled text");
+        prompts.binding_generation=102;PublishActionPrompts(prompts);
+        compositor.RetireStaleText(device.Get(),context.Get(),supported,true,42);
+        for(unsigned eye=0;eye<2;++eye)Require(
+            ReadEye(device.Get(),context.Get(),unfenced[eye].Get())==supported_background[eye],
+            "supported format patch restoration changed background bytes");
+    }
+    // Coaching has an independent owner/preference/deadline fence, even with
+    // generation zero (ordinary native text otherwise remains unchanged).
+    overlay.text.hint={};overlay.text.controller_prompt_generation=0;
+    overlay.text.interaction=Text(u"Bring the round to the gun");
+    overlay.reload_instruction=true;overlay.reload_feedback.owner_token=42;
+    for(unsigned cause=0;cause<4;++cause){
+        overlay.reload_instruction_until_ms=GetTickCount64()+60000;
+        draw_controlled();
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,cause!=2,
+            cause==0?0:cause==1?43:42);
+        if(cause<3)expect_pixels(background,"repeat coaching survived owner loss/replacement/guide disable");
+        else {
+            const auto now=GetTickCount64();
+            // Redraw with a short but initially valid deadline; no fresh draw
+            // or clear is allowed between the expiry and retirement.
+            overlay.reload_instruction_until_ms=now+2000;draw_controlled();
+            const auto after_draw=GetTickCount64();
+            if(after_draw<overlay.reload_instruction_until_ms)
+                Sleep(static_cast<DWORD>(overlay.reload_instruction_until_ms-after_draw+1));
+            compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+            expect_pixels(background,"repeat coaching survived its deadline");
+        }
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,false,0);
+        expect_pixels(background,"coaching retirement was not idempotent");
+    }
+    overlay.text.hint=Text(u"Press left menu");overlay.text.controller_prompt_generation=101;
+    overlay.reload_instruction_until_ms=GetTickCount64()+60000;
+    prompts.binding_generation=101;PublishActionPrompts(prompts);draw_controlled();
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,0);
+    expect_pixels(background,"reload invalidation left a partially restored controlled stack");
+    ClearActionPrompts();
     std::cout << "HUD Unicode raster, cache and stereo projection passed\n";
 }
