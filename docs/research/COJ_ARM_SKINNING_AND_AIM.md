@@ -164,6 +164,32 @@ Exercised independent-hand grip/wrist comfort and side-on/rolled pistol coherenc
 have operator acceptance. Broader equipment, anatomy and recovery remain separate
 gates; this does not accept the legacy connected-arm solver.
 
+### Native free-trigger fallback
+
+In the pinned original archive, `ArmedPlayerBeing.Attack(IZ)V` maps the requested
+hand to its opposite at offsets 6–32. After trying `Attack(requested,requested)`
+at 166–172, failure retries `Attack(opposite,requested)` at 175–178. The fallback
+is symmetric: an empty right hand can reach a left-owned SawOff just as an empty
+left hand can reach a right-owned Remington. Pistol/bow permissions and the
+protected two-argument attack method still govern the native result; a binding
+or this static branch alone does not demonstrate a shot.
+
+The exact-game ordinary-fire adapter therefore resolves separate left/right
+trigger-block flags after non-fire equipment dispatch. Every hand's retained
+active/actual/desired tuple must agree by JNI object identity, then all six slots
+are reread after exact-class resolution. A sole exact Winchester, Remington or
+SawOff blocks only the empty opposite hand; both occupied hands, no weapon and
+unrelated classes retain native routing. Failed/ambiguous reads withhold both
+ordinary triggers. Independent physical holds remain consumed across equipment,
+focus and source loss until each trigger's own fresh available release. Neither
+geometry nor an idle state is required. Host JNI/policy/bridge regressions cover
+both directions and late replacement; the new mirrored route has no physical
+acceptance and enables no new support grip, optic or manual loading contract.
+After a failed tracked restore, retained preimages still forbid classification.
+Once verified cleanup retires them, this read-only boundary can recover native
+fire even though sticky fault flags continue to quarantine all tracked writes.
+Recovery neither resets those flags nor bypasses physical trigger release.
+
 ## Exact bow holding and aim boundary
 
 Original `Data/Player/Equipment/Bow/Bow.msh` SHA-256

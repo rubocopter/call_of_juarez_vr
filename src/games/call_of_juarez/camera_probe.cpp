@@ -6849,14 +6849,15 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         auto fire_input=gameplay_input;
         if (!gameplay_input_ok) fire_input={};
         // Read after non-fire equipment actions, so a same-frame switch cannot
-        // send L2 to a newly selected right-only rifle via native Attack's
-        // empty-hand fallback. Grip/pose/reload eligibility is independent.
+        // send the free trigger to a newly selected rifle via native Attack's
+        // other-hand fallback. Grip/pose/reload eligibility is independent.
         // Keep raw input intact for ammunition and the bow's later synthesis.
-        bool right_only_long_gun=false;
+        CoJLongGunFireRouting rifle_fire{};
         const bool fire_owner_known=fire_input.active&&
-            g_java_player_bridge.TryObserveLongGunFireOwnership(right_only_long_gun);
+            g_java_player_bridge.TryObserveLongGunFireOwnership(rifle_fire);
+        if(fire_input.active&&!fire_owner_known)rifle_fire={true,true};
         g_long_gun_free_trigger.Filter(raw_reload_input,sample.hmd_pose.sequence,
-            fire_input.active&&(!fire_owner_known||right_only_long_gun),fire_input);
+            fire_input.active?rifle_fire:CoJLongGunFireRouting{},fire_input);
         FilterCoJLongGunGripInput(g_long_gun_claim.claim,fire_input);
         if(g_long_gun_failed_sequence==frame_sequence||g_long_gun_quarantined){
             fire_input.fire_left=fire_input.fire_right=false;

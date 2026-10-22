@@ -794,15 +794,23 @@ point. Mesh-derived placement replaces that rejected reference. The operator
 accepts the corrected Remington grasp; other model fit and unreported stability/
 recovery remain physical gates under [Validation](VALIDATION.md). The original mesh
 measurements and ownership are in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md#measured-long-gun-contact).
-Native right-trigger firing and automatic rifle reload remain authoritative.
-Separately, the final ordinary-fire phase observes exact right-only rifle
-ownership after non-fire equipment actions, without requiring support contact,
-an idle animation or natural geometry. It consumes physical L2 rather than
-letting native empty-hand Attack retry the right weapon. Failed ownership reads
-also withhold ordinary L2; R2 is unchanged. A consumed L2 hold survives owner,
-focus and source changes until a fresh available physical release. Raw input
-remains available to ammunition gestures, and bow shot synthesis runs afterward
-under its own native owner. This policy remains inside the CoJ adapter.
+Native armed-hand firing and automatic rifle reload remain authoritative.
+Separately, the final ordinary-fire phase observes exact Winchester/Remington/
+SawOff ownership after non-fire equipment actions, without requiring support
+contact, an idle animation or natural geometry. For a sole rifle in either hand,
+it consumes the empty hand's trigger instead of letting native Attack retry the
+armed hand. Both active/actual/desired tuples must agree and remain the same JNI
+objects after classification. Genuinely occupied hands and unrelated exact
+classes keep their native route. Failed ownership reads withhold both ordinary
+triggers. Each consumed hold survives owner, focus and source changes until that
+trigger has its own fresh available physical release; releasing the other hand
+cannot discharge it. Raw input remains available to ammunition gestures, and
+bow shot synthesis runs afterward under its own native owner. This policy stays
+inside the CoJ adapter and adds no left-handed support or reload admission.
+Sticky tracked-write fault flags do not prevent this read-only classifier after
+verified restoration has retired every hand/arm/weapon preimage. Retained failed
+restoration still rejects, and tracked-write quarantine is never cleared by
+ordinary-fire recovery.
 An opt-in read-only exact-class Winchester observer records raw native reload
 states for both hands, two-hand flags, animation clocks and rifle ammo/reserve
 readback across Square. It can omit natural pose when scoped visuals are active;
@@ -816,6 +824,11 @@ active/faulted overlays; opt-in tracing is bounded to 120 attempts and 32 sample
 at a 350 ms minimum interval per process. Sparse samples carry no transfer proof.
 The pure vector classifier additionally requires a caller-held synchronous
 identity lease/operation scope; matching numeric IDs alone cannot supply it.
+The offline evidence analyzer retains indexed samples only inside the inventoried
+run interval, rejects incomplete/invalid claims and unfinished runs, and copies
+both indices and distinct typed pools. Numeric owner/clock checks can reject
+repeated samples but never prove cross-poll object identity or a transfer. It
+emits no inferred insertion, native index choice or callback completion.
 The [reload ownership research](research/COJ_RELOAD_OWNERSHIP.md) owns exact
 storage/pool mappings and the remaining manual-loading boundaries.
 Failed restoration blocks the current transaction. After entry cleanup verifies,

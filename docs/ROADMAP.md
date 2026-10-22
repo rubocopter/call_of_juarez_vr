@@ -256,6 +256,7 @@ Additional implementation remains bounded by the following prerequisites:
 | --- | --- |
 | Physical-walk/turn leg animation | Planned. The inspected native root/SetFrame routes also advance child animation and notifications, including footsteps/MakeNoise; they cannot serve as a simple legs-only writer. Qualify an event-free sampler or complete reversible lower-body transaction for both models, preserving accepted continuous follow and native movement/permissions. |
 | Rifle two-hand attachment | Remington's corrected bimanual grasp is headset-validated in exercised play. Winchester/SawOff remain host-tested pending physical qualification. All use one scoped paired-hand/weapon/aim transaction and measured mesh contact. Detailed hand fit, sustained firing/cycling and unreported interruption recovery remain open; native automatic reload is preserved. |
+| Mirrored rifle trigger ownership | Ordinary free-trigger suppression now covers a sole exact rifle in either hand, including left-owned SawOff, with independent available-release claims and stable native tuples. Implemented/host-tested; physical left-SawOff/free-R2 behavior remains unobserved. This adds no support or manual-reload admission. |
 | Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before socket-based contact enables drawing. Basic gesture zones below are independent of this geometry. |
 | Basic virtual holsters | Ergonomic HMD-relative hip zones for pistols, right shoulder for rifle and left shoulder for bow are implemented/host-tested independently of model sockets or attached meshes. Optional colored guides share their geometry, default off in native comfort options. Physical zone fit, guide comfort and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
 | Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
@@ -420,7 +421,9 @@ or reload work:
   stops after its first successful index (rifle first, pistol only if rifle is
   ineligible); it does not load both pools in one invocation. Post-.5 source
   implements a passive same-object two-index/typed-reserve observer and separate
-  synchronous vector classifier, both host-tested;
+  synchronous vector classifier, both host-tested. Finished-evidence analysis
+  now retains/rejects indexed samples with exact capacities, typed pools and
+  numeric-clock checks, without inferring same-object identity or transfers;
   actual indexed native phase/transfer correlation remains unobserved. Shared
   reserves are counted once; no native helper
   currently proves an isolated selective shell transaction. Sound-only routing

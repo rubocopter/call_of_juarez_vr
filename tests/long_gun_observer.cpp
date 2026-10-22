@@ -15,6 +15,7 @@ void* table[224]{};void** env=table;std::map<void*,int> refs;
 int steps=0,fail_step=-1,frames=0,kind=0,change=0,invalid_frame=-1,object_reads=0,owner_change_at=-1;
 int contact_id=10;
 bool pending=false,dead=false,carrying=false,reloading=false,alias_desired=false;
+bool replace_on_weapon_class=false;
 std::uint32_t player_id=0x8f120001,weapon_id=0xf1234001;
 void* weapons[2][3]{};int states[2][4]{};bool two[2][3]{};
 const char* names[]{"GetActiveWeapon","GetActualWeaponNotEmpty","GetDesiredWeapon",
@@ -30,6 +31,7 @@ void* __stdcall Exception(void*){return pending?Local(P(999)):nullptr;}
 void __stdcall Clear(void*){pending=false;}
 void* __stdcall Class(void*,void* p){if(!Step())return nullptr;
     Require(p==P(player)||p==P(weapon)||p==P(alias)||p==P(foreign),"unexpected class owner");
+    if(p!=P(player)&&replace_on_weapon_class)for(int i=0;i<3;++i)weapons[0][i]=P(foreign);
     return Local(P(p==P(player)?player_class:(kind==3?subclass:111+kind)));}
 void* __stdcall Find(void*,const char* n){if(!Step())return nullptr;
     constexpr const char* classes[]{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"};
@@ -93,6 +95,7 @@ bool Frame(void* context,void* object,int element,ElementWorldBasisTarget& out) 
     return Step(); // also exercise pending JNI exception from the adapter callback
 }
 void Reset(){steps=frames=0;fail_step=-1;kind=change=0;invalid_frame=-1;pending=dead=carrying=reloading=alias_desired=false;
+    replace_on_weapon_class=false;
     contact_id=10;
     object_reads=0;owner_change_at=-1;
     player_id=0x8f120001;weapon_id=0xf1234001;
@@ -114,30 +117,58 @@ int main(){
     Set(6,Find);Set(15,Exception);Set(17,Clear);Set(23,Delete);Set(24,Same);Set(31,Class);
     Set(33,Lookup);Set(36,Object);Set(39,Boolean);Set(51,Integer);Set(167,String);
     Reset();CoJLongGunSupportSnapshot out{};
-    bool right_only=false;
-    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&right_only,
+    CoJLongGunFireRouting fire_routing{};
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
         "right-only rifle native fire ownership not recognized without a grip");
     Require(refs.empty()&&!pending&&frames==0,"fire ownership read leaked JNI or sampled geometry");
     const int fire_steps=steps;
+    for(int k=0;k<3;++k){
+        Reset();kind=k;
+        for(int i=0;i<3;++i){weapons[0][i]=nullptr;weapons[1][i]=P(weapon);}
+        CoJLongGunFireRouting routing{};
+        Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.block_left&&routing.block_right,
+            "left-only rifle did not protect its free right trigger");
+        Require(refs.empty()&&!pending&&frames==0,"left rifle fire read leaked or sampled geometry");
+        const int left_steps=steps;
+        for(int failed=1;failed<=left_steps;++failed){
+            Reset();kind=k;fail_step=failed;
+            for(int i=0;i<3;++i){weapons[0][i]=nullptr;weapons[1][i]=P(weapon);}
+            routing={true,true};
+            Require(!ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.block_left&&!routing.block_right&&
+                refs.empty()&&!pending,"left owner JNI fault retained stale fire routing or references");
+        }
+    }
     for(int k=0;k<3;++k){Reset();kind=k;reloading=true;states[0][0]=21;
-        Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&right_only,
+        Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
             "known rifle trigger ownership incorrectly depends on reload/idle pose");}
     Reset();kind=3;
-    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,"unknown weapon inherited rifle policy");
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,"unknown weapon inherited rifle policy");
     Reset();for(int i=0;i<3;++i)weapons[1][i]=P(foreign);
-    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,"occupied left hand blocked as free");
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,"occupied left hand blocked as free");
+    Reset();for(auto& hand:weapons)for(auto& slot:hand)slot=nullptr;
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+        "empty hands inherited a rifle trigger claim");
+    Reset();kind=3;for(int i=0;i<3;++i){weapons[0][i]=nullptr;weapons[1][i]=P(weapon);}
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+        "unknown left-hand weapon inherited a rifle trigger claim");
+    Reset();for(int i=0;i<3;++i)weapons[1][i]=P(weapon);
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+        "shared occupied weapon was mistaken for an empty hand");
     Reset();alias_desired=true;
-    Require(ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&right_only,"fire owner used raw JNI alias equality");
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,"fire owner used raw JNI alias equality");
     for(int h=0;h<2;++h)for(int slot=0;slot<3;++slot){
         Reset();weapons[h][slot]=h?P(foreign):nullptr;
-        Require(!ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,
+        Require(!ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
             "partial weapon tuple admitted native other-hand attack fallback");
     }
     Reset();owner_change_at=7;
-    Require(!ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only,
+    Require(!ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
         "changing fire ownership tuple returned a known-safe route");
-    for(int i=1;i<=fire_steps;++i){Reset();fail_step=i;right_only=true;
-        Require(!ReadCoJLongGunFireOwnership(&env,P(player),right_only)&&!right_only&&refs.empty()&&!pending,
+    Reset();replace_on_weapon_class=true;
+    Require(!ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+        "post-classification owner replacement escaped final tuple verification");
+    for(int i=1;i<=fire_steps;++i){Reset();fail_step=i;fire_routing={true,true};
+        Require(!ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right&&refs.empty()&&!pending,
             "failed fire ownership observation leaked locals/exception/stale verdict");}
     Reset();
     Require(Read(out),"idle exact rifle observation unavailable");const int total=steps;

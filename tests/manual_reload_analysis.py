@@ -72,6 +72,17 @@ def winchester_end(index=1, reason='expired', **changes):
     return event('winchester_native_reload', 'window_end', **fields)
 
 
+def indexed_sample(**changes):
+    fields = dict(schema=1, frame_sequence=11, player_generation=7,
+                  native_context=5, weapon_class='WeaponRifleRemington',
+                  player_id=0x80000011, weapon_id=0x80000042, armed_hand=0,
+                  loaded='0,1', reserve_pistol=0, reserve_rifle=0,
+                  reserve_shotgun=14, sample_ms=100000, synchronous_scope=0,
+                  transfer_proven='false', manual_admission='false')
+    fields.update(changes)
+    return event('indexed_native_reload', **fields)
+
+
 def depth_sample(frame=2, eye='left', **extra):
     matrix = ','.join('1' if index in (0, 5, 10, 15) else '0' for index in range(16))
     fields = dict(frame_sequence=frame, eye=eye, generation=3, device='0x1234',
@@ -106,6 +117,222 @@ def finger_reference(frame=2, result='observed', **extra):
 
 
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_indexed_previously_unregistered_event_reaches_analyzed_timeline(self):
+        report = self.evidence([indexed_sample()])
+        self.assertEqual([e['event'] for e in report['timeline']], ['indexed_native_reload'])
+        self.assertEqual(report['summary']['indexed_reload_samples'], 1)
+        self.assertEqual(report['summary']['indexed_reload_rejected_samples'], 0)
+        self.assertTrue(report['provenance']['verified'])
+        self.assertTrue(report['provenance']['runtime_complete'])
+
+    def test_indexed_exact_profiles_high_bit_ids_and_typed_pools(self):
+        profiles = [
+            ('WeaponRifleRemington', [1, 1], ['shotgun', 'shotgun'], dict(shotgun=14)),
+            ('WeaponRifleRemingtonSawOff', [1, 1], ['shotgun', 'shotgun'], dict(shotgun=14)),
+            ('WeaponPistolDerringer', [1, 1], ['pistol', 'pistol'], dict(pistol=14)),
+            ('WeaponPistolLemant', [1, 8], ['rifle', 'pistol'], dict(pistol=14, rifle=9)),
+        ]
+        for cls, capacities, pools, reserves in profiles:
+            with self.subTest(cls=cls):
+                reserve_fields = dict(reserve_shotgun=0)
+                reserve_fields.update({'reserve_'+k: v for k, v in reserves.items()})
+                report = self.evidence([indexed_sample(
+                    weapon_class=cls, armed_hand=1, loaded=','.join(map(str, capacities)),
+                    **reserve_fields)])
+                row = report['indexed_reload_observations'][0]
+                self.assertEqual(row['status'], 'observed')
+                self.assertEqual(row['player_id'], 0x80000011)
+                self.assertEqual(row['weapon_id'], 0x80000042)
+                self.assertEqual(row['armed_hand'], 1)
+                self.assertEqual(row['capacity_by_index'], capacities)
+                self.assertEqual(row['reserve_pool_by_index'], pools)
+                self.assertEqual(row['loaded'], capacities)
+                self.assertEqual(row['reserves'], dict(pistol=reserves.get('pistol', 0),
+                    rifle=reserves.get('rifle', 0), shotgun=reserves.get('shotgun', 0)))
+                # Each typed pool is copied once, even when both indices share it.
+                self.assertEqual(sum(row['reserves'].values()), sum(reserves.values()))
+
+    def test_indexed_sample_changes_never_infer_transfers_or_same_object(self):
+        report = self.evidence([
+            indexed_sample(loaded='0,0'),
+            indexed_sample(frame_sequence=12, sample_ms=100350, loaded='1,0', reserve_shotgun=13),
+            indexed_sample(frame_sequence=13, sample_ms=100700, loaded='1,1', reserve_shotgun=12),
+            indexed_sample(weapon_class='WeaponPistolLemant', loaded='0,0',
+                           reserve_shotgun=0, reserve_rifle=4, reserve_pistol=8),
+            indexed_sample(weapon_class='WeaponPistolLemant', frame_sequence=12,
+                           sample_ms=100350, loaded='1,1', reserve_shotgun=0,
+                           reserve_rifle=3, reserve_pistol=7),
+        ])
+        self.assertEqual(report['summary']['indexed_reload_samples'], 5)
+        self.assertEqual(report['summary']['unit_readbacks'], 0)
+        self.assertEqual(report['summary']['accepted_insertions'], 0)
+        self.assertEqual(report['insertions'], [])
+        for row in report['indexed_reload_observations']:
+            self.assertEqual(row['object_epoch'], 0)
+            self.assertEqual(row['synchronous_scope'], 0)
+            for claim in ('transfer_proven', 'manual_admitted', 'same_object_proven',
+                          'callback_completion_proven', 'native_index_choice_proven'):
+                self.assertIs(row[claim], False)
+            for inference in ('delta', 'units', 'selected_index', 'transfer_classification'):
+                self.assertNotIn(inference, row)
+        self.assertFalse(report['headset_validated'])
+
+    def test_indexed_rejects_missing_fields_forged_claims_and_malformed_payloads(self):
+        sample = indexed_sample()
+        fields = dict(pair.split('=', 1) for pair in sample.split(' detail=')[1].split(';'))
+        malformed = [sample.replace('result=observed', 'result=accepted'),
+                     sample+';schema=1', sample+';broken',
+                     sample+';object_epoch=1', sample+';native_call_completed=1',
+                     sample+';detail=opaque', sample.replace('loaded=0,1', 'loaded=0,1,0')]
+        for key, value in fields.items():
+            malformed.append(sample.replace(f'{key}={value}', f'{key}='))
+            malformed.append(event('indexed_native_reload', **{k: v for k, v in fields.items() if k != key}))
+        for key, value in [('schema', '2'), ('synchronous_scope', '1'),
+                           ('synchronous_scope', '00'), ('transfer_proven', 'true'),
+                           ('transfer_proven', '0'), ('manual_admission', 'true'),
+                           ('manual_admission', 'False')]:
+            malformed.append(indexed_sample(**{key: value}))
+        for line in malformed:
+            with self.subTest(line=line):
+                report = self.evidence([line])
+                row = report['indexed_reload_observations'][0]
+                self.assertEqual(row['status'], 'rejected')
+                self.assertTrue(row['issues'])
+                self.assertEqual(row['raw_detail'], line.split(' detail=', 1)[1])
+                self.assertEqual(report['summary']['indexed_reload_samples'], 0)
+                self.assertEqual(report['summary']['indexed_reload_rejected_samples'], 1)
+                self.assertEqual(report['summary']['issue_count'], 1)
+                self.assertEqual(report['issues'][0]['kind'], 'invalid_indexed_reload_sample')
+                self.assertEqual(report['issues'][0]['line'], row['line'])
+
+    def test_indexed_malformed_result_tokens_retained_as_rejected_samples(self):
+        for result in ('invalid-status', '', '?'):
+            with self.subTest(result=result):
+                line = indexed_sample().replace('result=observed', 'result='+result)
+                report = self.evidence([line])
+                self.assertEqual(len(report['timeline']), 1)
+                self.assertEqual(report['indexed_reload_observations'][0]['status'], 'rejected')
+                self.assertIn('invalid_result', report['indexed_reload_observations'][0]['issues'])
+
+    def test_indexed_strict_numeric_ranges_and_class_capacities(self):
+        changes = []
+        for key in ('player_id', 'weapon_id'):
+            changes.extend({key: v} for v in (0, -1, 0xffffffff, 0x100000000,
+                                            '-2147483648', '0x80000001', '+1', '1.0', ' 1', '１'))
+        for key in ('player_generation', 'native_context', 'frame_sequence', 'sample_ms'):
+            changes.extend({key: v} for v in (0, -1, 2**64, '1e2', 'nan', '+1'))
+        changes.extend({'armed_hand': v} for v in (-1, 2, 'right'))
+        for key in ('reserve_pistol', 'reserve_rifle', 'reserve_shotgun'):
+            changes.extend({key: v} for v in (-1, 2**31, 'nan', '1.5'))
+        changes.extend([
+            dict(player_id='9'*5000),
+            dict(weapon_class='WeaponRifleWinchester'), dict(weapon_class='WeaponPistolLeMat'),
+            dict(weapon_class='WeaponRifleRemington_Old'), dict(loaded='2,0'),
+            dict(loaded='0,2'), dict(loaded='-1,0'), dict(loaded='0, 1'),
+            dict(loaded='0,+1'), dict(loaded='0,1.0'), dict(reserve_pistol=1),
+            dict(reserve_rifle=1),
+            dict(weapon_class='WeaponPistolDerringer', reserve_shotgun=0, loaded='1,2'),
+            dict(weapon_class='WeaponPistolLemant', reserve_shotgun=0, loaded='1,9'),
+            dict(weapon_class='WeaponPistolLemant', reserve_shotgun=0, loaded='2,8'),
+            dict(weapon_class='WeaponPistolLemant', reserve_shotgun=1),
+        ])
+        for change in changes:
+            with self.subTest(change=change):
+                report = self.evidence([indexed_sample(**change)])
+                self.assertEqual(report['indexed_reload_observations'][0]['status'], 'rejected')
+                self.assertEqual(report['summary']['indexed_reload_samples'], 0)
+        report = self.evidence([indexed_sample(player_id=1, weapon_id=0xfffffffe,
+            frame_sequence=2**64-1, sample_ms=2**64-1, player_generation=2**64-1,
+            native_context=2**64-1, reserve_shotgun=2**31-1)])
+        self.assertEqual(report['indexed_reload_observations'][0]['status'], 'observed')
+
+    def test_indexed_duplicate_and_regressing_clocks_rejected_conservatively(self):
+        for change in (dict(frame_sequence=11, sample_ms=100350),
+                       dict(frame_sequence=11, sample_ms=100000),
+                       dict(frame_sequence=10, sample_ms=100350),
+                       dict(frame_sequence=12, sample_ms=100000),
+                       dict(frame_sequence=12, sample_ms=99999)):
+            with self.subTest(change=change):
+                report = self.evidence([indexed_sample(), indexed_sample(**change),
+                    indexed_sample(frame_sequence=13, sample_ms=100700)])
+                self.assertEqual([r['status'] for r in report['indexed_reload_observations']],
+                                 ['observed', 'rejected', 'observed'])
+                self.assertEqual(report['summary']['indexed_reload_samples'], 2)
+                self.assertIn('non_monotonic_numeric_owner_sample',
+                              report['indexed_reload_observations'][1]['issues'])
+
+    def test_indexed_rejected_payload_cannot_hide_duplicate_or_regressing_numeric_clocks(self):
+        for change in (dict(frame_sequence=12, sample_ms=100350),
+                       dict(frame_sequence=11, sample_ms=100700),
+                       dict(frame_sequence=13, sample_ms=100000)):
+            with self.subTest(change=change):
+                report = self.evidence([
+                    indexed_sample(frame_sequence=12, sample_ms=100350, transfer_proven='true'),
+                    indexed_sample(**change),
+                    indexed_sample(frame_sequence=14, sample_ms=101050),
+                ])
+                self.assertEqual([r['status'] for r in report['indexed_reload_observations']],
+                                 ['rejected', 'rejected', 'observed'])
+                self.assertIn('non_monotonic_numeric_owner_sample',
+                              report['indexed_reload_observations'][1]['issues'])
+
+    def test_indexed_owner_changes_discard_history_including_return_to_old_numeric_owner(self):
+        for change in (dict(player_id=99), dict(weapon_id=99), dict(armed_hand=1),
+                       dict(player_generation=8), dict(native_context=6),
+                       dict(weapon_class='WeaponRifleRemingtonSawOff')):
+            with self.subTest(change=change):
+                report = self.evidence([indexed_sample(), indexed_sample(**change),
+                                       indexed_sample()])
+                self.assertEqual(report['summary']['indexed_reload_samples'], 3)
+                self.assertEqual(report['summary']['indexed_reload_rejected_samples'], 0)
+        # An invalid/unknown owner also breaks continuity, even if numeric IDs return.
+        report = self.evidence([indexed_sample(), indexed_sample(weapon_id=0), indexed_sample()])
+        self.assertEqual([r['status'] for r in report['indexed_reload_observations']],
+                         ['observed', 'rejected', 'observed'])
+
+    def test_indexed_samples_require_finished_inventoried_run_and_matching_boundaries(self):
+        report = self.evidence([indexed_sample()], ended=False)
+        self.assertFalse(report['provenance']['runtime_complete'])
+        self.assertEqual(report['summary']['indexed_reload_samples'], 0)
+        self.assertIn('runtime_not_finished', report['indexed_reload_observations'][0]['issues'])
+        self.evidence([indexed_sample()])
+        log = (self.root / 'runtime/cojvr.log').read_text()
+        self.rewrite('runtime/cojvr.log', indexed_sample()+'\n'+log+indexed_sample()+'\n')
+        report = analysis.analyze_evidence(self.root)
+        self.assertEqual(report['summary']['indexed_reload_samples'], 1)
+        self.assertEqual(len(report['indexed_reload_observations']), 1)
+        self.rewrite('runtime/cojvr.log', log.replace(f'run_end: run_id={RUN}', 'run_end: run_id=foreign'))
+        with self.assertRaises(ValueError):
+            analysis.analyze_evidence(self.root)
+        self.evidence([indexed_sample()])
+        (self.root / 'runtime/cojvr.log').write_text(log+'tampered')
+        with self.assertRaises(ValueError):
+            analysis.analyze_evidence(self.root)
+        self.evidence([indexed_sample()])
+        manifest = json.loads((self.root / 'evidence-manifest.json').read_text())
+        manifest['files'] = [f for f in manifest['files'] if f['path'] != 'runtime/cojvr.log']
+        (self.root / 'evidence-manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaises(ValueError):
+            analysis.analyze_evidence(self.root)
+
+    def test_indexed_full_synthetic_finished_evidence_cli_report(self):
+        expected = self.evidence([indexed_sample(),
+            indexed_sample(frame_sequence=12, sample_ms=100350, loaded='1,1', reserve_shotgun=13),
+            indexed_sample(frame_sequence=13, sample_ms=100700, manual_admission='true')], manual=False)
+        output = self.root.parent / 'indexed-report.json'
+        process = subprocess.run([sys.executable, '-B', str(TOOL), str(self.root), '--output', str(output)],
+                                 capture_output=True, text=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        report = json.loads(output.read_text())
+        self.assertEqual(report, json.loads(json.dumps(expected)))
+        self.assertEqual(report['summary']['indexed_reload_samples'], 2)
+        self.assertEqual(report['summary']['indexed_reload_rejected_samples'], 1)
+        self.assertEqual(len(report['indexed_reload_observations']), 3)
+        self.assertEqual(report['summary']['unit_readbacks'], 0)
+        self.assertEqual(report['summary']['accepted_insertions'], 0)
+        self.assertFalse(report['manual_candidate'])
+        self.assertFalse(report['headset_validated'])
+
     def test_finger_reference_quantifies_displayed_joint_change_only_with_owner_correlation(self):
         report = self.evidence([
             trace(2),

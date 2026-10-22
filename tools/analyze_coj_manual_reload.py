@@ -12,6 +12,9 @@ from pathlib import Path, PureWindowsPath
 import re
 
 EVENT = re.compile(r'camera_probe_event: event=(\w+) result=(\w+) detail=(.*)$')
+# Retain malformed indexed results for rejection instead of silently filtering
+# them out with the legacy event grammar. Other telemetry keeps that grammar.
+INDEXED_EVENT = re.compile(r'camera_probe_event: event=(indexed_native_reload) result=(\S*) detail=(.*)$')
 IDENTITY = re.compile(r'run_start: run_id=(\S+) build_manifest_id=(\S+)(?:\s|$)')
 END = re.compile(r'run_end: run_id=(\S+)(?:\s|$)')
 RENDER_FEEDBACK = re.compile(r'(manual_reload_depth|openvr_reload_haptic): (.*)$')
@@ -19,7 +22,7 @@ RELEVANT = {'reload_trace', 'manual_reload_session', 'manual_reload_insertion',
             'manual_reload_presentation', 'manual_reload_geometry', 'body_hand_render_probe',
             'controller_weapon_render_probe', 'body_hand_restore', 'controller_weapon_restore',
             'manual_reload_zone', 'manual_reload_cartridge', 'manual_reload_finger_reference',
-            'rifle_support_reference', 'winchester_native_reload',
+            'rifle_support_reference', 'winchester_native_reload', 'indexed_native_reload',
             'physical_bow_draw', 'physical_bow_reset'}
 
 
@@ -149,23 +152,34 @@ def read_events(log, evidence):
                 raise ValueError('Foreign, repeated or out-of-order runtime end')
             ends.append(end[1])
             inside = False
-        match = EVENT.search(line)
+        match = INDEXED_EVENT.search(line) or EVENT.search(line)
         feedback = RENDER_FEEDBACK.search(line) if not match else None
         if inside and ((match and match[1] in RELEVANT) or feedback):
             # Error descriptions can contain semicolons/key-like text. Treat the
             # trailing opaque detail as data, never extra telemetry or instructions.
-            fields = {}
+            fields, parse_issues = {}, []
+            indexed = bool(match and match[1] == 'indexed_native_reload')
             for pair in (match[3] if match else feedback[2]).split(';'):
                 if '=' not in pair:
+                    if indexed:
+                        parse_issues.append('malformed_field')
                     continue
                 key, value = pair.split('=', 1)
                 if key == 'detail':
+                    if indexed:
+                        parse_issues.append('unexpected_detail_field')
                     break
                 if key in fields:
+                    if indexed:
+                        parse_issues.append('duplicate_field:'+key)
+                        continue
                     raise ValueError(f'Duplicate telemetry field on line {number}')
                 fields[key] = value
-            events.append(dict(line=number, event=match[1] if match else feedback[1],
-                               result=match[2] if match else fields.get('status','observed'), fields=fields))
+            entry = dict(line=number, event=match[1] if match else feedback[1],
+                         result=match[2] if match else fields.get('status','observed'), fields=fields)
+            if indexed:
+                entry.update(raw_detail=match[3], parse_issues=parse_issues)
+            events.append(entry)
     if starts != [(evidence['runId'], evidence['buildManifestId'])]:
         raise ValueError('Missing, foreign or reused runtime run/build identity')
     if ends not in ([], [evidence['runId']]):
@@ -792,6 +806,96 @@ def winchester_reload_observations(events):
     return rows
 
 
+def indexed_reload_observations(events, runtime_complete):
+    """Copy schema-1 passive samples, never classify their ammunition changes.
+
+    Profiles mirror indexed_reload_delta.hpp and COJ_RELOAD_OWNERSHIP.md.
+    Only numeric owner continuity is used to reject repeated/reversed clocks.
+    No cross-poll object lease/epoch is emitted, so equality cannot prove the
+    same Java object, a transfer, callback completion or native index choice.
+    """
+    profiles = {
+        'WeaponRifleRemington': ([1, 1], ['shotgun', 'shotgun']),
+        'WeaponRifleRemingtonSawOff': ([1, 1], ['shotgun', 'shotgun']),
+        'WeaponPistolDerringer': ([1, 1], ['pistol', 'pistol']),
+        'WeaponPistolLemant': ([1, 8], ['rifle', 'pistol']),
+    }
+    claims = dict(schema='1', synchronous_scope='0', transfer_proven='false',
+                  manual_admission='false')
+    owner_keys = ('player_generation', 'native_context', 'player_id', 'weapon_id', 'armed_hand')
+    numeric_ranges = dict.fromkeys(('player_generation', 'native_context', 'frame_sequence',
+                                   'sample_ms'), (1, 2**64-1))
+    numeric_ranges.update(player_id=(1, 0xfffffffe), weapon_id=(1, 0xfffffffe), armed_hand=(0, 1))
+    numeric_ranges.update({'reserve_'+pool: (0, 2**31-1) for pool in ('pistol', 'rifle', 'shotgun')})
+    required = set(claims) | set(numeric_ranges) | {'weapon_class', 'loaded'}
+    rows, issues, previous_owner, previous_clock = [], [], None, None
+    for e in events:
+        if e['event'] != 'indexed_native_reload':
+            continue
+        f = e['fields']
+        problems = list(e['parse_issues'])
+        if not runtime_complete:
+            problems.append('runtime_not_finished')
+        if e['result'] != 'observed':
+            problems.append('invalid_result')
+        problems.extend('missing_field:'+key for key in sorted(required-f.keys()))
+        problems.extend('unexpected_field:'+key for key in sorted(f.keys()-required))
+        problems.extend('invalid_claim:'+key for key, value in claims.items() if f.get(key) != value)
+        numbers = {}
+        for key, (low, high) in numeric_ranges.items():
+            # ASCII decimal only; length also bounds conversion of forged payloads.
+            raw = f.get(key, '')
+            value = int(raw) if re.fullmatch(r'[0-9]{1,20}', raw) else None
+            numbers[key] = value if value is not None and low <= value <= high else None
+            if numbers[key] is None:
+                problems.append('invalid_number:'+key)
+        cls = f.get('weapon_class')
+        profile = profiles.get(cls)
+        loaded = None
+        if not profile:
+            problems.append('unsupported_weapon_class')
+        else:
+            raw = f.get('loaded', '')
+            if re.fullmatch(r'[0-9]{1,10},[0-9]{1,10}', raw):
+                loaded = [int(part) for part in raw.split(',')]
+            if loaded is None or any(v > cap for v, cap in zip(loaded, profile[0])):
+                problems.append('invalid_loaded_counts')
+            for pool in ('pistol', 'rifle', 'shotgun'):
+                if pool not in profile[1] and numbers['reserve_'+pool] != 0:
+                    problems.append('irrelevant_reserve_nonzero:'+pool)
+
+        numeric_owner = tuple(numbers[key] for key in owner_keys) + (cls,)
+        if not profile or any(numbers[key] is None for key in owner_keys):
+            numeric_owner = None
+        if numeric_owner is None or numeric_owner != previous_owner:
+            previous_clock = None
+        previous_owner = numeric_owner
+        frame, stamp = numbers['frame_sequence'], numbers['sample_ms']
+        if previous_clock and frame is not None and stamp is not None and (
+                frame <= previous_clock[0] or stamp <= previous_clock[1]):
+            problems.append('non_monotonic_numeric_owner_sample')
+        # Keep numeric clock high-water marks even for a rejected payload. A
+        # forged claim or bad count must not hide a later duplicate/regression.
+        # This is only a rejection guard, never cross-poll object confidence.
+        if numeric_owner is not None and frame is not None and stamp is not None:
+            previous_clock = (max(frame, previous_clock[0]), max(stamp, previous_clock[1])) if (
+                previous_clock) else (frame, stamp)
+        row = dict(line=e['line'], status='rejected' if problems else 'observed',
+                   reported_result=e['result'], raw_detail=e['raw_detail'], raw_fields=dict(f), issues=problems,
+                   object_epoch=0, synchronous_scope=0, same_object_proven=False,
+                   transfer_proven=False, callback_completion_proven=False,
+                   native_index_choice_proven=False, manual_admitted=False)
+        if problems:
+            issues.append(dict(line=e['line'], kind='invalid_indexed_reload_sample', issues=problems))
+        else:
+            row.update({key: numbers[key] for key in owner_keys})
+            row.update(frame=frame, sample_ms=stamp, weapon_class=cls, loaded=loaded,
+                       capacity_by_index=profile[0], reserve_pool_by_index=profile[1],
+                       reserves={pool: numbers['reserve_'+pool] for pool in ('pistol', 'rifle', 'shotgun')})
+        rows.append(row)
+    return rows, issues
+
+
 def bow_draw_observations(events):
     """Summarize reported bow input/cancellation; never infer an arrow spawn."""
     samples, requests, counter_max = 0, 0, None
@@ -844,10 +948,11 @@ def analyze_evidence(directory):
     finger_observations, finger_issues = finger_reference_observations(events)
     rifle_samples = rifle_support_observations(events)
     winchester_samples = winchester_reload_observations(events)
+    indexed_samples, indexed_issues = indexed_reload_observations(events, evidence['runtimeEnded'])
     bow = bow_draw_observations(events)
     manual = run.get('validation', {}).get('manualReloadInstalled') is True
     traces = [e for e in events if e['event'] == 'reload_trace']
-    insertions, issues, mechanics = [], list(finger_issues), []
+    insertions, issues, mechanics = [], list(finger_issues) + indexed_issues, []
     mechanical_baselines = {}
     ready_references = {}
     reported = Counter((e['event'], e['result']) for e in events)
@@ -1031,6 +1136,8 @@ def analyze_evidence(directory):
                     winchester_reload_samples=sum(r['status'] == 'observed' for r in winchester_samples),
                     winchester_reload_unavailable=sum(r['status'] == 'unavailable' for r in winchester_samples),
                     winchester_reload_window_ends=sum(r['status'] == 'window_end' for r in winchester_samples),
+                    indexed_reload_samples=sum(r['status'] == 'observed' for r in indexed_samples),
+                    indexed_reload_rejected_samples=sum(r['status'] == 'rejected' for r in indexed_samples),
                     bow_draw_samples=bow['draw_samples'],
                     bow_shot_requests=bow['shot_requests'],
                     bow_resets=sum(bow['reset_reasons'].values()),
@@ -1049,6 +1156,7 @@ def analyze_evidence(directory):
                     ready_comparisons=sum(r['ready_reference_available'] for r in mechanics)),
                 rifle_support_observations=rifle_samples,
                 winchester_reload_observations=winchester_samples,
+                indexed_reload_observations=indexed_samples,
                 bow_draw_observations=bow,
                 insertions=insertions, issues=issues, mechanical_observations=mechanics,
                 finger_joint_observations=finger_observations,
@@ -1063,6 +1171,7 @@ def analyze_evidence(directory):
                         'Only same-frame coherent traces bind geometry to native status; missing transition traces remain inconclusive.',
                         'Relative mechanical changes compare sparse samples of one owner/session, not continuous animation.',
                         'Winchester sample continuity and rifle reserve changes do not validate native rounds, reload phase or a manual loading port.',
+                        'Indexed samples have no cross-poll object epoch or synchronous lease; numeric owner equality does not prove the same object, a transaction, unit insertion, callback completion or native index choice.',
                         'Full-frame relative rotation angles measure pose differences, not a hinge axis or usable loading-port clearance.',
                         'Port ranking measures mouth proximity to an unverified gate element pivot; it never qualifies a loading socket.',
                         'Ordered same-frame/device/generation depth metadata does not prove capture, eye/hand content or occlusion.',

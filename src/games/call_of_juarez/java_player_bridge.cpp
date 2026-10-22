@@ -1574,14 +1574,22 @@ bool JavaPlayerBridge::ClearLongGunGripOwner(std::string* error) noexcept {
     long_gun_grip_owner_=nullptr;return true;
 }
 
-bool JavaPlayerBridge::TryObserveLongGunFireOwnership(bool& right_only) noexcept {
-    right_only=false;
-    if(!being_||independent_hand_faulted_||weapon_overlay_faulted_)return false;
+bool JavaPlayerBridge::TryObserveLongGunFireOwnership(CoJLongGunFireRouting& routing) noexcept {
+    routing={};
+    if(!being_)return false;
+    // Fault flags permanently quarantine tracked writes, including after a
+    // successful restore retry. Read-only ordinary fire can recover once all
+    // retained preimages have retired; unresolved restoration still rejects.
+    if(independent_hand_faulted_||weapon_overlay_faulted_){
+        if(independent_arms_object_)return false;
+        for(const auto& hand:hand_overlays_)if(hand.object)return false;
+        for(const auto& weapon:weapon_overlays_)if(weapon.weapon||weapon.active||weapon.applied)return false;
+    }
     const auto generation=being_generation_;void* const player=being_;
-    bool observed=false;
+    CoJLongGunFireRouting observed{};
     if(!ReadCoJLongGunFireOwnership(Environment(nullptr),player,observed)||
         being_!=player||being_generation_!=generation)return false;
-    right_only=observed;return true;
+    routing=observed;return true;
 }
 
 bool JavaPlayerBridge::IsLongGunGripGuideOwnerCurrent(const CoJLongGunSupportSnapshot& expected) noexcept {

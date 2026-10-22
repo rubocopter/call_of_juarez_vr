@@ -24,6 +24,7 @@ int player,pc,wc,vc,other,exception;
 Weapon* current=&a;
 const char* rifle_class="WeaponRifleWinchester";
 int holder_element=1;
+int weapon_hand=0;
 std::array<ElementWorldBasisTarget,40> hands{};
 std::array<Vector,16000> vectors{};int allocated=0;
 void* table[224]{};void** env=table;void* vtable[8]{};void** vm=vtable;
@@ -49,7 +50,7 @@ void* __stdcall Object(void*,void* p,void* m,const JValue* args){
     if(Name(m,"GetPositionVectorVolatile")){vectors.back()={};return Local(&vectors.back());}
     Check(args&&args[0].i>=0&&args[0].i<2,"wrong hand query");
     Check(Name(m,"GetActiveWeapon")||Name(m,"GetActualWeaponNotEmpty")||Name(m,"GetDesiredWeapon"),"unknown object getter");
-    return args[0].i?nullptr:Local(current);
+    return args[0].i==weapon_hand?Local(current):nullptr;
 }
 int __stdcall Int(void*,void* p,void* m,const JValue* args){
     if(Name(m,"GetThisID"))return p==&player?100:200; // deliberately SAME ID for replacement B
@@ -142,9 +143,14 @@ int main(int argc,char** argv){
     const std::string mode=argc>1?argv[1]:"normal";
     if(mode=="root-holder"){rifle_class="WeaponRifleRemington";holder_element=0;}
     JavaPlayerBridge bridge;Bind(bridge);const auto natural=a.f;const auto original_hands=hands;
-    bool right_only=false;
-    Check(bridge.TryObserveLongGunFireOwnership(right_only)&&right_only,
+    CoJLongGunFireRouting fire_routing{};
+    Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
         "bridge lost right-only rifle trigger ownership before grip acquisition");
+    const auto original_class=rifle_class;
+    rifle_class="WeaponRifleRemingtonSawOff";weapon_hand=1;
+    Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&!fire_routing.block_left&&fire_routing.block_right,
+        "bridge lost left-owned SawOff trigger routing");
+    rifle_class=original_class;weapon_hand=0;
     CoJLongGunGripGeometry g{};std::string error;
     Check(bridge.TryObserveLongGunSupport(g.native),"real rifle observation failed");
     const auto guide_epoch=g.native.object_epoch;const auto guide_ref=bridge.long_gun_grip_owner_;
@@ -186,7 +192,7 @@ int main(int argc,char** argv){
         Check(!bridge.ApplyPreparedTrackedWeapon(0,origin,&error)&&before==writes,"replacement accepted before first write");
     }else{
         Check(bridge.ApplyPreparedTrackedWeapon(0,origin,&error),"real rifle commit failed");
-        Check(bridge.TryObserveLongGunFireOwnership(right_only)&&right_only,
+        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
             "scoped weapon/hand map hid native rifle trigger ownership");
         Check(bridge.VerifyTrackedWeapon(0,active,&error)&&active,"paired rifle verification failed");
         Check(bridge.TryGetWeaponBarrel(0,origin,direction,&error)&&bridge.TryPublishWeaponRay(0,origin,direction,true,&error),"real rifle ray failed");
@@ -198,7 +204,10 @@ int main(int argc,char** argv){
         }else if(mode=="normal"){
             hands[39].position.x+=1;
             Check(!bridge.VerifyTrackedWeapon(0,active,&error),"detached support verified");hands[39].position.x-=1;
-            fail_write=true;Check(!bridge.RestoreTrackedHands(&error)&&globals>=3,"failed parent restore lost globals");fail_write=false;
+            fail_write=true;Check(!bridge.RestoreTrackedHands(&error)&&globals>=3,"failed parent restore lost globals");
+            Check(!bridge.TryObserveLongGunFireOwnership(fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+                "unrestored parent preimage admitted fire ownership");
+            fail_write=false;
         }
     }
     const auto saved_b=b.f;
@@ -207,12 +216,35 @@ int main(int argc,char** argv){
         fail_write=true;
         Check(!bridge.RestoreTrackedWeapons(&error)&&bridge.weapon_overlays_[0].weapon==&a&&globals==2,
             "failed child restore lost original weapon/global");
+        fire_routing={true,true};
+        Check(!bridge.TryObserveLongGunFireOwnership(fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+            "unrestored child preimage admitted fire ownership");
         fail_write=false;
     }
     Check(bridge.RestoreTrackedWeapons(&error),"child restore retry failed");
     for(int i=0;i<3;++i)Check(Equal(a.f[i],natural[i])&&Equal(b.f[i],saved_b[i]),"wrong weapon restored");
     for(int i=0;i<40;++i)Check(Equal(hands[i],original_hands[i]),"hand preimage lost");
     Check(globals==1,"completed overlays did not retain exactly one rifle identity");
+    if(mode=="normal"){
+        Check(bridge.independent_hand_faulted_&&bridge.weapon_overlay_faulted_,"restore retry cleared mutation quarantine");
+        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
+            "verified restoration left ordinary rifle fire permanently unavailable");
+        const auto before=writes;
+        Check(!bridge.TryPrepareTrackedWeapon(0,g.dominant_socket_cm,g.dominant_grip_cm,frame.plan.muzzle_direction,
+            frame.plan.root.up,hands[3],right,unarmed,&error)&&writes==before,
+            "read-only fire recovery admitted quarantined tracked mutations");
+        rifle_class="WeaponPistolPeacemaker";
+        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
+            "recovered unrelated pistol inherited permanent rifle suppression");
+        CoJLongGunFreeTrigger release;
+        rt::GameplayInputState raw{};raw.active=true;raw.input_context_generation=1;
+        raw.fire_left=raw.fire_right=true;auto mapped=raw;
+        release.Filter(raw,1,{true,true},mapped);
+        raw.fire_left=raw.fire_right=false;mapped=raw;release.Filter(raw,2,fire_routing,mapped);
+        raw.fire_left=raw.fire_right=true;mapped=raw;release.Filter(raw,3,fire_routing,mapped);
+        Check(mapped.fire_left&&mapped.fire_right,"fresh pistol press failed after restored fault/release");
+        rifle_class=original_class;
+    }
     if(mode=="cross-frame"){
         // The support claim outlives the completed/restored element overlay.
         // A new Java object may reuse the exact native ID and all geometry.

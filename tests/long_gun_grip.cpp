@@ -199,27 +199,56 @@ void UnattachedFreeTrigger(){
     CoJLongGunFreeTrigger state;
     GameplayInputState raw{};raw.active=true;raw.input_context_generation=1;
     raw.fire_left=raw.fire_right=true;
-    auto mapped=raw;state.Filter(raw,1,true,mapped);
+    auto mapped=raw;state.Filter(raw,1,CoJLongGunFireRouting{true,false},mapped);
     Check(!mapped.fire_left&&mapped.fire_right&&!(mapped.digital_available&1U),
         "unattached rifle free trigger reached native other-hand attack fallback");
-    mapped=raw;state.Filter(raw,2,false,mapped);
+    mapped=raw;state.Filter(raw,2,CoJLongGunFireRouting{},mapped);
     Check(!mapped.fire_left&&mapped.fire_right,"changing weapon leaked consumed L2 hold");
-    raw.active=false;raw.fire_left=false;mapped=raw;state.Filter(raw,3,false,mapped);
-    raw.active=true;raw.fire_left=true;mapped=raw;state.Filter(raw,4,false,mapped);
+    raw.active=false;raw.fire_left=false;mapped=raw;state.Filter(raw,3,CoJLongGunFireRouting{},mapped);
+    raw.active=true;raw.fire_left=true;mapped=raw;state.Filter(raw,4,CoJLongGunFireRouting{},mapped);
     Check(!mapped.fire_left,"inactive input counted as physical release");
-    raw.digital_available&=~1U;raw.fire_left=false;mapped=raw;state.Filter(raw,5,false,mapped);
+    raw.digital_available&=~1U;raw.fire_left=false;mapped=raw;state.Filter(raw,5,CoJLongGunFireRouting{},mapped);
     raw.digital_available|=1U;raw.fire_left=true;++raw.input_context_generation;
-    mapped=raw;state.Filter(raw,1,false,mapped);
+    mapped=raw;state.Filter(raw,1,CoJLongGunFireRouting{},mapped);
     Check(!mapped.fire_left,"missing sample or source replacement released held trigger");
-    raw.fire_left=false;mapped=raw;state.Filter(raw,1,false,mapped);
-    raw.fire_left=true;mapped=raw;state.Filter(raw,2,false,mapped);
+    raw.fire_left=false;mapped=raw;state.Filter(raw,1,CoJLongGunFireRouting{},mapped);
+    raw.fire_left=true;mapped=raw;state.Filter(raw,2,CoJLongGunFireRouting{},mapped);
     Check(!mapped.fire_left,"duplicate sequence counted as release");
-    raw.fire_left=false;mapped=raw;state.Filter(raw,3,false,mapped);
+    raw.fire_left=false;mapped=raw;state.Filter(raw,3,CoJLongGunFireRouting{},mapped);
     Check(!(mapped.digital_available&1U),"consumed release escaped its owner");
-    raw.fire_left=true;mapped=raw;state.Filter(raw,4,false,mapped);
+    raw.fire_left=true;mapped=raw;state.Filter(raw,4,CoJLongGunFireRouting{},mapped);
     Check(mapped.fire_left&&mapped.fire_right,"fresh pistol triggers did not recover independently");
-    CoJLongGunFreeTrigger ordinary; mapped=raw;ordinary.Filter(raw,4,false,mapped);
+    CoJLongGunFreeTrigger ordinary; mapped=raw;ordinary.Filter(raw,4,CoJLongGunFireRouting{},mapped);
     Check(mapped.fire_left&&mapped.fire_right,"ordinary dual pistol trigger was blocked");
+}
+void LeftOwnedRifleFreeTrigger(){
+    CoJLongGunFreeTrigger state;
+    GameplayInputState raw{};raw.active=true;raw.input_context_generation=1;
+    raw.fire_left=raw.fire_right=true;
+    auto mapped=raw;
+    state.Filter(raw,1,CoJLongGunFireRouting{false,true},mapped);
+    Check(mapped.fire_left&&!mapped.fire_right&&!(mapped.digital_available&2U),
+        "left-owned rifle let the free right trigger reach native fallback");
+    mapped=raw;state.Filter(raw,2,CoJLongGunFireRouting{},mapped);
+    Check(mapped.fire_left&&!mapped.fire_right,"switching weapons leaked a consumed right trigger");
+    raw.fire_right=false;raw.digital_available&=~2U;
+    mapped=raw;state.Filter(raw,3,CoJLongGunFireRouting{},mapped);
+    raw.digital_available|=2U;raw.fire_right=true;
+    mapped=raw;state.Filter(raw,4,CoJLongGunFireRouting{},mapped);
+    Check(!mapped.fire_right,"missing right source counted as a physical release");
+    raw.fire_right=false;mapped=raw;state.Filter(raw,4,CoJLongGunFireRouting{},mapped);
+    raw.fire_right=true;mapped=raw;state.Filter(raw,5,CoJLongGunFireRouting{},mapped);
+    Check(!mapped.fire_right,"repeated sample released the right trigger claim");
+    raw.fire_right=false;mapped=raw;state.Filter(raw,6,CoJLongGunFireRouting{},mapped);
+    Check(mapped.fire_left&&!(mapped.digital_available&2U),"right release consumed the armed left trigger");
+    raw.fire_right=true;mapped=raw;state.Filter(raw,7,CoJLongGunFireRouting{},mapped);
+    Check(mapped.fire_left&&mapped.fire_right,"right trigger did not recover after available release");
+    mapped=raw;state.Filter(raw,8,CoJLongGunFireRouting{true,true},mapped);
+    Check(!mapped.fire_left&&!mapped.fire_right&&!(mapped.digital_available&3U),
+        "unknown owner failed to withhold both fallback routes");
+    raw.fire_left=false;mapped=raw;state.Filter(raw,9,CoJLongGunFireRouting{},mapped);
+    raw.fire_left=true;mapped=raw;state.Filter(raw,10,CoJLongGunFireRouting{},mapped);
+    Check(mapped.fire_left&&!mapped.fire_right,"one trigger release discharged the other hand's claim");
 }
 void RepeatedRenderSamples(){
     Fixture f;CoJLongGunGripSampleClock clock;
@@ -298,5 +327,5 @@ void CapturedGripGuide(){
         "guide capacity overrun changed existing surfaces");
 }
 }
-int main(){PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();UnattachedFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
+int main(){PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();UnattachedFreeTrigger();LeftOwnedRifleFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

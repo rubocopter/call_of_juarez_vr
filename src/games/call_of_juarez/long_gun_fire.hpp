@@ -3,12 +3,14 @@
 #include "runtime/vr_types.hpp"
 
 namespace cojvr::games::call_of_juarez {
-// Attack(1, pressed) retries hand 0 when hand 1 cannot attack. Suppress that
-// desktop fallback only for the exact right-owned rifles and an empty left
-// hand. This read needs no grip geometry, native idle state or ammo mutation.
-inline bool ReadCoJLongGunFireOwnership(void* env,void* player,bool& right_only) noexcept {
+struct CoJLongGunFireRouting {bool block_left=false,block_right=false;};
+// Attack(hand, pressed) retries the other hand when the requested one cannot
+// attack. An empty hand must not fire the sole exact rifle in the other hand.
+// This read needs no grip geometry, native idle state or ammo mutation, and
+// grants no support-grip, optic or manual-reload admission to either hand.
+inline bool ReadCoJLongGunFireOwnership(void* env,void* player,CoJLongGunFireRouting& routing) noexcept {
     using namespace long_gun_observer_detail;
-    right_only=false;
+    routing={};
     if(!env||!player||!*static_cast<void***>(env))return false;
     for(int i:{6,15,17,23,24,31,33,36})if(!(*static_cast<void***>(env))[i])return false;
     Reader r{env};if(!r.Check())return false;
@@ -24,40 +26,50 @@ inline bool ReadCoJLongGunFireOwnership(void* env,void* player,bool& right_only)
     if(!r.ok)return false;
     for(int h=0;h<2;++h){
         for(int i=1;i<3;++i)if(!r.Equal(owners[h*3],owners[h*3+i]))return false;
-        for(int i=0;i<3;++i){
-            auto again=r.Get(player,methods[i],h);
-            if(!r.ok||!r.Equal(again,owners[h*3+i]))return false;
+    }
+    bool rifle=false;
+    const bool right=owners[0].value!=nullptr,left=owners[3].value!=nullptr;
+    if(right!=left){
+        auto weapon_class=r.Class(owners[right?0:3]);if(!r.ok)return false;
+        for(const char* name:Classes){
+            auto exact=r.FindClass(name);if(!r.ok)return false;
+            if(r.Equal(weapon_class,exact)){rifle=true;break;}
+            if(!r.ok)return false;
         }
     }
-    if(!owners[0].value)return true;
-    auto weapon_class=r.Class(owners[0]);if(!r.ok)return false;
-    bool rifle=false;
-    for(const char* name:Classes){
-        auto exact=r.FindClass(name);if(!r.ok)return false;
-        if(r.Equal(weapon_class,exact)){rifle=true;break;}
-        if(!r.ok)return false;
+    // Classification may resolve classes; bracket its whole read with the
+    // retained tuples as well, including negative/occupied-hand verdicts.
+    for(int h=0;h<2;++h)for(int i=0;i<3;++i){
+        auto again=r.Get(player,methods[i],h);
+        if(!r.ok||!r.Equal(again,owners[h*3+i]))return false;
     }
-    if(!rifle)return true; // Pistols, bow and other native owners keep their route.
-    right_only=!owners[3].value;return true;
+    routing={rifle&&right,rifle&&left};return true;
 }
 class CoJLongGunFreeTrigger final {
 public:
-    // Feed physical input before any consumer clears L2. A consumed hold and
-    // its release belong here even after weapon/context loss. Repeated poses,
-    // unavailable input and focus loss cannot manufacture a physical release.
-    void Filter(const runtime::GameplayInputState& raw,std::uint64_t sequence,bool blocked,
+    // Feed both physical triggers before any consumer clears them. Claims and
+    // releases remain independent across weapon/context/source loss. Repeated
+    // poses, unavailable input and focus loss cannot manufacture a release.
+    void Filter(const runtime::GameplayInputState& raw,std::uint64_t sequence,CoJLongGunFireRouting blocked,
         runtime::GameplayInputState& mapped) noexcept {
         const bool fresh=raw.input_context_generation&&sequence&&
             (generation_!=raw.input_context_generation||sequence>sequence_);
         if(fresh){generation_=raw.input_context_generation;sequence_=sequence;}
-        const bool available=raw.active&&(raw.digital_available&1U)!=0;
-        if(blocked&&available&&raw.fire_left)consumed_=true;
-        const bool suppress=blocked||consumed_;
-        if(fresh&&available&&!raw.fire_left)consumed_=false;
-        if(suppress){mapped.fire_left=false;mapped.digital_available&=~1U;}
+        const bool blocks[]{blocked.block_left,blocked.block_right};
+        constexpr bool runtime::GameplayInputState::* triggers[]{
+            &runtime::GameplayInputState::fire_left,&runtime::GameplayInputState::fire_right};
+        for(unsigned i=0;i<2;++i){
+            const auto bit=1U<<i;
+            const bool available=raw.active&&(raw.digital_available&bit)!=0;
+            const bool held=raw.*triggers[i];
+            if(blocks[i]&&available&&held)consumed_[i]=true;
+            const bool suppress=blocks[i]||consumed_[i];
+            if(fresh&&available&&!held)consumed_[i]=false;
+            if(suppress){mapped.*triggers[i]=false;mapped.digital_available&=~bit;}
+        }
     }
 private:
-    bool consumed_=false;
+    std::array<bool,2> consumed_{};
     std::uint64_t generation_=0,sequence_=0;
 };
 }

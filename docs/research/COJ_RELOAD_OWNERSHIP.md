@@ -153,6 +153,19 @@ No native setter, reload callback, parameter factory, sound or gesture is enable
 by these policies. New manual integration still needs selective transaction,
 opening/port, support-hand and native phase qualification.
 
+`tools/analyze_coj_manual_reload.py` now includes these schema-1 indexed events
+in its inventoried finished-run report. It retains both loaded indices and each
+distinct reserve pool once, including Lemant's separate rifle/pistol mapping.
+Exact classes/capacities, unsigned high-bit IDs, required read-only claims and
+numeric clock ordering are checked; malformed/duplicate fields, foreign pools,
+invalid counts and unfinished runtime intervals remain rejected observations.
+Owner changes discard numeric history. Numeric ID equality cannot establish a
+cross-poll Java identity lease: every row keeps object epoch/synchronous scope
+zero and transfer, same-object, callback-completion, native-index-choice and
+manual-admission claims false. Even apparently matching +1/-1 samples produce
+no insertion or transfer classification. Synthetic inventoried-evidence and CLI
+fixtures are host tests, not native reload or physical acceptance.
+
 For Winchester, the next step is **read-only live observation** of reload
 begin/body/end, free support hand, loaded/reserve delta and natural weapon pose.
 Then establish loading-port geometry and restoration of two-hand support after

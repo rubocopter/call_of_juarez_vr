@@ -12,6 +12,7 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_geometry.hpp"
 #include "games/call_of_juarez/long_gun_observer.hpp"
+#include "games/call_of_juarez/long_gun_fire.hpp"
 #include "games/call_of_juarez/winchester_reload_observer.hpp"
 #include "games/call_of_juarez/indexed_reload_observer.hpp"
 #include "games/call_of_juarez/bow_aim.hpp"
@@ -414,7 +415,7 @@ public:
     [[nodiscard]] bool TryObserveFocusZoom(CoJFocusZoom& zoom) noexcept;
     [[nodiscard]] bool TryObserveLongGunSupport(CoJLongGunSupportSnapshot& observation) noexcept;
     [[nodiscard]] bool IsLongGunGripGuideOwnerCurrent(const CoJLongGunSupportSnapshot& expected) noexcept;
-    [[nodiscard]] bool TryObserveLongGunFireOwnership(bool& right_only) noexcept;
+    [[nodiscard]] bool TryObserveLongGunFireOwnership(CoJLongGunFireRouting& routing) noexcept;
     // Retire candidate/attachment identity independently of the per-eye element
     // overlays. Failed JNI cleanup keeps its reference for a later retry.
     [[nodiscard]] bool ClearLongGunGripOwner(std::string* error=nullptr) noexcept;
