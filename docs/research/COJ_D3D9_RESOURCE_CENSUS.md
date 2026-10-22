@@ -84,6 +84,13 @@ with the derivative. General native/JVM high-address compatibility and broader
 loading stability remain separate gates. Bounded production diagnostics
 sample total/free VA, largest free region and private commit without retrying,
 freeing or altering resource policy.
+Post-.5 production keeps successful texture-allocation/destruction census and
+periodic VA-map scans behind the resource-probe startup opt-in. Ordinary Ex
+compatibility installs no diagnostic per-resource Release tracker, omits success
+callbacks and still emits the original failed result plus its VA snapshot.
+Quiet/opted-in host fixtures preserve translation, locking, Reset,
+BeginStateBlock reacquisition and the native failure HRESULT. This removes
+diagnostic work without changing resource policy or proving a pacing/crash fix.
 Successful creation of preceding textures and bounded startup/Reset tests do
 not accept sustained loading or device-loss recovery. Preserve the failure and
 exact-build provenance; arbitrary per-size retries do not resolve this contract.

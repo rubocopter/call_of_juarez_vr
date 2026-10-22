@@ -7,8 +7,33 @@ namespace {
 int native_updates=0;
 int diagnostic_hud_calls=0;
 int diagnostic_skeleton_calls=0;
+int diagnostic_inactive_body_calls=0;
 void DiagnosticBodyEvent(const char* event,const char*,const char*) noexcept {
     if(!std::strcmp(event,"body_player_discovery"))++diagnostic_skeleton_calls;
+    if(!std::strcmp(event,"body_arm_tracking")||!std::strcmp(event,"body_lower_tracking"))
+        ++diagnostic_inactive_body_calls;
+}
+bool InactiveBodyDiagnosticsRespectTrace(){
+    const auto previous_callback=g_event_callback;
+    const auto previous_command=g_command;
+    const auto previous_poll=g_next_control_poll;
+    g_event_callback=&DiagnosticBodyEvent;g_command={};
+    g_next_control_poll=std::numeric_limits<ULONGLONG>::max();
+    const auto sample=[](bool write){
+        UpdatePlayerArmTracking({}, {},0,write,false,90);
+        if(!write)UpdatePlayerLowerBodyObservation({}, {},90);
+    };
+    diagnostic_inactive_body_calls=0;sample(false);
+    const bool disabled=diagnostic_inactive_body_calls==0;
+    g_command.movement_trace_enabled=true;sample(false);
+    const bool enabled=diagnostic_inactive_body_calls==2;
+    g_command.movement_trace_enabled=false;sample(false);
+    const bool revoked=diagnostic_inactive_body_calls==2;
+    sample(true);
+    const bool writer_preserved=diagnostic_inactive_body_calls==3;
+    g_event_callback=previous_callback;g_command=previous_command;
+    g_next_control_poll=previous_poll;
+    return disabled&&enabled&&revoked&&writer_preserved;
 }
 bool SkeletonDiscoveryRespectsTrace(){
     const auto previous_callback=g_event_callback;
@@ -470,6 +495,8 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
+    if(!cojvr::games::call_of_juarez::InactiveBodyDiagnosticsRespectTrace()){
+        std::cerr<<"inactive body diagnostics ignored trace opt-in or disabled the legacy writer\n";return 1;}
     if(!cojvr::games::call_of_juarez::SkeletonDiscoveryRespectsTrace()){
         std::cerr<<"retired skeleton discovery still polls in an ordinary session\n";return 1;}
     if(!cojvr::games::call_of_juarez::HudDiagnosticsRespectOptIn()){

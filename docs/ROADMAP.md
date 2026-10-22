@@ -117,14 +117,24 @@ measured cartridge contact, rigid support grip and exact reload ownership before
 adding optional grip blending, virtual stock or device-aware contextual prompts.
 No third-party renderer or physics framework is added by that research.
 
-Before the next release, retain the host-tested fix for the resource-probe
-opt-in also governing native HUD sprite/flush diagnostics. Community issue #5
-exposed this observer running in an ordinary session with probes disabled.
-Its report shows working native GPU sharing; CPU theater telemetry is not a
-gameplay fallback. The unwanted diagnostic work is corrected, while rhythmic
-Pico 4/Virtual Desktop movement stutters still need reporter confirmation and
-timing correlation. Do not close that issue or claim a measured pacing gain from
-the host regression alone; [Validation](VALIDATION.md) owns the report's limits.
+Preserve the .5 fix gating native HUD sprite/flush diagnostics. The newer
+community issue #5 reports expose two more diagnostic costs: successful texture
+creation/destruction census with resource tracing off, and periodic inactive
+connected-arm/read-only leg observations. Post-.5 source gates those costs by
+the relevant opt-in, preserving failure telemetry, native compatibility, active
+writers and restoration; host regressions pass. Native axial/diagonal turn
+phases and movement while yaw awaits a fresh centered stick have host coverage;
+no new input defect was reproduced and no safety threshold was loosened.
+Reports retain GPU sharing and LAA; CPU theater telemetry is not gameplay
+fallback. Pico 4/Virtual Desktop stutters and reported crashes still need affected
+setup confirmation and timing correlation. Direct OpenXR/VDXR remains outside
+the active backend. Do not close the issue or claim a measured pacing gain from
+host tests; [Validation](VALIDATION.md) owns those limits.
+
+Issue #2's scoped OneDrive/redirected-Documents admission is already implemented
+and passes current path/video restoration tests, including Windows PowerShell
+5.1. Actual cloud hydration/synchronization remains unqualified; no broader
+reparse-point admission or reporter-script substitution is needed.
 
 The audit's actor-replacement pelvis corruption, lost diagnostic-arm restore,
 hidden-file recovery deletion and consumed-bow-trigger loss are corrected with

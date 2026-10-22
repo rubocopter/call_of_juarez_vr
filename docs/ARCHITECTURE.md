@@ -90,6 +90,13 @@ compatibility, not generic MANAGED emulation. Successful BeginStateBlock returns
 immediately reacquire owned hook slots because the engine can rewrite its vtable.
 A periodic watchdog alone cannot protect the next engine call.
 
+Successful texture-allocation census callbacks, per-resource destruction hooks
+and periodic address-space scans require the startup resource-probe opt-in.
+Ordinary compatibility retains failed-result diagnostics and their address-space
+snapshot, while omitting the successful-event formatting, file writes and
+diagnostic resource registry. Translation, BeginStateBlock reacquisition and
+owned restoration are independent of that choice.
+
 The journaled `code.pak` patches target verified original classes only and retain
 native fallback paths. The `Data0.pak` player-mesh partition is similarly hash
 pinned. All original archives restore byte-for-byte. Optional quick/automatic
@@ -697,6 +704,12 @@ retain the existing scoped weapon/independent-hand maps during an admitted nativ
 reload session; its independent-hand presentation has scoped operator acceptance
 in the exercised manual context. Both eye draws
 verify frames and arm visibility.
+
+The inactive connected-arm solver's periodic geometry/calibration observation
+and read-only lower-body analysis require movement tracing. An explicitly active
+legacy arm writer retains its original update and observation path. Independent
+hand mapping, body following, native permissions and all pending restore retries
+remain functional work and are never gated by that diagnostic choice.
 
 Reload diagnostics are game-thread value snapshots of the exact owner, native
 states/animation advance, reserve and raw ammunition readback. They are off in

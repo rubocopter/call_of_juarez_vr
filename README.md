@@ -53,6 +53,9 @@ The mod currently targets **only the first Call of Juarez (2006)**. It is a work
 
 You need the **original Steam PC game**, Windows 10/11 x64, SteamVR, and a PCVR headset. The mod does not include the game.
 
+**Virtual Desktop:** use its SteamVR route for this OpenVR build. Selecting
+VDXR does not switch the mod's backend; a direct OpenXR/VDXR path is not implemented.
+
 1. Back up your saves, launch the original game in **Direct3D 9** once, then close it.
 2. Extract the **player ZIP** (not GitHub's automatic source ZIP) and open **`CoJ-VR.cmd`**.
 3. Choose **1 — Install/update**, point to the game directory and follow the prompts. Start SteamVR manually first if using an Auto or percentage resolution profile.

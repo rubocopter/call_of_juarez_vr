@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <iostream>
+#include <string_view>
 
 using Microsoft::WRL::ComPtr;
 
@@ -17,6 +18,8 @@ std::atomic_uint32_t g_enter_events{0};
 std::atomic_uint32_t g_result_events{0};
 std::atomic_uint32_t g_translated_results{0};
 std::atomic_uint32_t g_destroy_events{0};
+std::atomic_uint32_t g_failed_results{0};
+HRESULT g_last_failure = S_OK;
 
 void ObserveDestroy(void*, std::uintptr_t resource,
                     cojvr::games::call_of_juarez::LegacyTextureKind,
@@ -34,6 +37,10 @@ void ObserveEvent(
         g_enter_events.fetch_add(1, std::memory_order_relaxed);
     } else {
         g_result_events.fetch_add(1, std::memory_order_relaxed);
+        if(FAILED(event.result)){
+            g_failed_results.fetch_add(1,std::memory_order_relaxed);
+            g_last_failure=event.result;
+        }
         if (event.translated && SUCCEEDED(event.result) &&
             event.requested_pool == D3DPOOL_MANAGED &&
             event.effective_pool == D3DPOOL_DEFAULT &&
@@ -54,7 +61,8 @@ int Fail(const char* message, HRESULT hr = S_OK) {
 
 } // namespace
 
-int main() {
+int main(int argc,char** argv) {
+    const bool trace=argc<2||std::string_view(argv[1])!="quiet";
     const auto create_ex = cojvr::backends::d3d9::SystemDirect3DCreate9Ex();
     if (!create_ex) return Fail("System d3d9.dll has no Direct3DCreate9Ex");
 
@@ -89,7 +97,8 @@ int main() {
 
     const cojvr::games::call_of_juarez::LegacyTextureCompatibilityCallbacks callbacks{
         .event = &ObserveEvent,
-        .resource_destroy = &ObserveDestroy,
+        .resource_destroy = trace?&ObserveDestroy:nullptr,
+        .trace_successful_creates = trace,
     };
     if (!cojvr::games::call_of_juarez::InstallD3D9ExLegacyTextureCompatibility(
             device.Get(), callbacks)) {
@@ -183,11 +192,19 @@ int main() {
     volume.Reset();
     cube.Reset();
 
-    if (g_enter_events.load(std::memory_order_relaxed) != 3 ||
-        g_result_events.load(std::memory_order_relaxed) != 3 ||
-        g_translated_results.load(std::memory_order_relaxed) != 3 ||
-        g_destroy_events.load(std::memory_order_relaxed) != 3) {
-        return Fail("compatibility telemetry did not describe all translated texture calls");
+    // An invalid request must still return the original HRESULT and publish
+    // its failure in ordinary quiet mode, without enabling success telemetry.
+    ComPtr<IDirect3DTexture9> invalid;
+    const auto invalid_result=device->CreateTexture(0,0,1,0,D3DFMT_A8R8G8B8,
+        D3DPOOL_MANAGED,&invalid,nullptr);
+    if(SUCCEEDED(invalid_result)||invalid||g_failed_results.load()!=1||g_last_failure!=invalid_result)
+        return Fail("quiet compatibility lost the original allocation failure",invalid_result);
+
+    if (g_enter_events.load(std::memory_order_relaxed) != (trace?4U:0U) ||
+        g_result_events.load(std::memory_order_relaxed) != (trace?4U:1U) ||
+        g_translated_results.load(std::memory_order_relaxed) != (trace?3U:0U) ||
+        g_destroy_events.load(std::memory_order_relaxed) != (trace?3U:0U)) {
+        return Fail("compatibility telemetry ignored diagnostic opt-in or lost failures");
     }
     if (!cojvr::games::call_of_juarez::ReacquireD3D9ExLegacyTextureCompatibility(device.Get())) {
         return Fail("legacy texture compatibility hook did not remain reacquirable");

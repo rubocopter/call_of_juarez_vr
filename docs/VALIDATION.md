@@ -96,6 +96,32 @@ the reported rhythmic stutter resolved. Reporter testing, sustained performance
 and Pico controller/headset qualification remain open. The community tail is
 not a complete canonical run and cannot promote support or performance gates.
 
+The later .5 attachments again record native shared GPU transport, zero reported
+CPU fallback/open/copy failures and the known LAA executable. Their recorded
+teardown is normal; they do not establish the proposed OOM or stuck-theater
+cause. They reuse declared run metadata across different process/device
+identities, and one attachment is a truncated tail, so they cannot be merged as
+a canonical run. A failed startup/menu pointer route explicitly reports no
+desktop injection; it does not establish loss of gameplay steering ownership.
+
+Two additional unwanted-work boundaries are corrected and host-tested in
+post-.5 source: successful texture creation/destruction census and periodic
+address-space scans require resource tracing, and inactive connected-arm/
+read-only lower-body observations require movement tracing. Native allocation
+failures, functional compatibility, active legacy arm writes and all restoration
+checks remain. Host regressions cover quiet/opted-in texture callbacks, original
+allocation HRESULT, lock/reset/reacquisition, diagnostic revocation and retained
+body restores. These remove known diagnostic work; affected-device pacing and
+the reported crashes are still unconfirmed.
+
+Axial/diagonal native-turn phase tests preserve continuous yaw and movement
+delivery. A long gap deliberately disarms held yaw until a fresh centered stick;
+the .5 logs contain a compatible timing gap, but lack the complete input-clock
+history to prove its cause. No angle-dependent turn bug or desktop fallback was
+reproduced, and no freshness/neutral threshold was loosened. Turn telemetry now
+reports the selected smooth/snap mode. The active backend remains OpenVR:
+Virtual Desktop's VDXR selection cannot make it an OpenXR integration.
+
 Periodic FX-global/emitter walks and duplicate shot/barrel comparisons also
 require the resource-probe opt-in; skeleton element discovery requires movement
 tracing. These retired integration observations add no acceptance and are not

@@ -1309,6 +1309,8 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME d3d9ex_legacy_resource_compat COMMAND cojvr_d3d9ex_legacy_resource_compat_test)
     set_tests_properties(d3d9ex_legacy_resource_compat PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME d3d9ex_legacy_resource_compat_quiet COMMAND cojvr_d3d9ex_legacy_resource_compat_test quiet)
+    set_tests_properties(d3d9ex_legacy_resource_compat_quiet PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(cojvr_game_shutdown_hook_test
         tests/game_shutdown_hook.cpp

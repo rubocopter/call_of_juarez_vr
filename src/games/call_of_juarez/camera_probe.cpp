@@ -3279,7 +3279,8 @@ void UpdatePlayerArmTracking(
     const bool body_ik_enabled,
     const bool allow_write,
     const std::uint64_t frame_sequence) noexcept {
-    const bool observe = ShouldObserveBodyFrame(frame_sequence);
+    const bool observe = ShouldObserveBodyFrame(frame_sequence) &&
+        (body_ik_enabled || CurrentCommand().command.movement_trace_enabled);
     if (!observe && !body_ik_enabled) return;
 
     const auto& tracked_body = g_body_tracker.pose();
@@ -4605,7 +4606,7 @@ void UpdatePlayerLowerBodyObservation(
     const CameraRenderStateSnapshot& natural_render_state,
     const JavaPlayerPosition player_position,
     const std::uint64_t frame_sequence) noexcept {
-    if (!ShouldObserveBodyFrame(frame_sequence)) return;
+    if (!ShouldObserveBodyFrame(frame_sequence) || !CurrentCommand().command.movement_trace_enabled) return;
 
     try {
         CameraProbeBasis basis{};
@@ -6665,7 +6666,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     << ";analog_transaction=LockApplyControllerState+dispatch+UnlockApplyControllerState+ApplyControllerState";
             }
             gameplay_detail
-                            << ";turn_mode=smooth;turn_degrees="
+                            << ";turn_mode=" << (runtime::CurrentTurnMode()==runtime::TurnMode::snap?"snap":"smooth")
+                            << ";turn_degrees="
                             << g_java_player_bridge.last_turn_degrees()
                             << ";turn_route=PlayerBeing.RotateHorizontally";
             if (!gameplay_input_error.empty()) {
@@ -7796,7 +7798,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                    << ";camera=" << reinterpret_cast<std::uintptr_t>(camera)
                    << ";being_generation=" << body_position_update.actor_yaw_generation
                    << ";recentered=" << (recentered ? "true" : "false")
-                   << ";turn_mode=smooth;turn_degrees=" << turn_degrees
+                   << ";turn_mode=" << (runtime::CurrentTurnMode()==runtime::TurnMode::snap?"snap":"smooth")
+                   << ";turn_degrees=" << turn_degrees
                    << ";raw_orientation=(" << raw.x << ',' << raw.y << ',' << raw.z << ',' << raw.w << ')'
                    << ";relative_orientation=(" << relative.x << ',' << relative.y << ',' << relative.z << ',' << relative.w << ')'
                    << ";natural_valid=" << (natural_valid ? "true" : "false")

@@ -499,7 +499,15 @@ mounted behavior and broader recovery remain separate gates.
 ## Telemetry cost
 
 Routine arm telemetry is sampled; write failures, rollback and restoration faults
-remain unconditional. The classic stereo CPU readback/copy was a measured renderer
+remain unconditional. Inactive connected-arm solving/geometry/calibration and
+read-only lower-body observation now additionally require explicit movement
+tracing. They had continued at the 90-frame observation cadence in ordinary
+independent-hand play despite having no presentation writer. Active legacy IK
+updates and all independent-hand/body/restore ownership remain unchanged.
+An actual-hook host regression covers disabled, enabled and revoked observation
+plus entry to an explicitly active legacy writer; it does not measure pacing
+improvement on the community reporter's setup.
+The classic stereo CPU readback/copy was a measured renderer
 bottleneck and has been replaced by the shared GPU path. It must not be confused
 with arm-solving cost. Recursive arm notification also interfered with native
 locomotion despite low measured solver cost; restoration must avoid that boundary.

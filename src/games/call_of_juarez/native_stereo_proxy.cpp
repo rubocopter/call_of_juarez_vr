@@ -1927,8 +1927,14 @@ void AfterCreateDevice(
                 replacement,
                 cojvr::games::call_of_juarez::LegacyTextureCompatibilityCallbacks{
                     .event = &LegacyTextureEvent,
-                    .resource_destroy = &ResourceDestroyEvent,
+                    .resource_destroy = g_resource_probe_enabled.load(std::memory_order_acquire)
+                        ? &ResourceDestroyEvent : nullptr,
+                    .trace_successful_creates = g_resource_probe_enabled.load(std::memory_order_acquire),
                 });
+        LogLine(std::string("legacy_resource_diagnostics: successful_creates=")+
+            (g_resource_probe_enabled.load()?"true":"false")+
+            ";resource_destroy="+(g_resource_probe_enabled.load()?"true":"false")+
+            ";allocation_failures=true;compatibility=unchanged");
         const cojvr::backends::d3d9::DeviceHookCallbacks device_callbacks{
             .before_present = &BeforeDevicePresent,
             .after_present = &AfterDevicePresent,

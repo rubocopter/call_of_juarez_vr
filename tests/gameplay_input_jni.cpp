@@ -425,6 +425,63 @@ int main() {
     ok &= Check(snap_bridge.TryApplyGameplayInput(turn,&error,CoJInputDispatchPhase::non_fire,0,1030000)&&
         native_turns.size()==3 && std::fabs(native_turns.back()-0.9F)<0.00001F,
         "smooth left stick delivered wrong native yaw");
+    // Production sends one timed pre_shoulder sample, then untimed shoulder
+    // and fire phases. Those phases must neither consume the turn clock nor
+    // erase the applied yaw used by physical Hands' contact-continuity gate.
+    struct TurnCase { cojvr::runtime::Vec2 stick; float native_yaw; };
+    for (const auto& sample : {TurnCase{{1,0},-.9F},TurnCase{{-1,0},.9F},
+                              TurnCase{{-.95F,.31F},.84F},TurnCase{{.95F,-.31F},-.84F}}) {
+        JavaPlayerBridge phased_bridge; Bind(phased_bridge); phased_bridge.being_=&player;
+        phased_bridge.rotate_horizontally_method_=Ptr(rotate_method);
+        cojvr::runtime::GameplayInputState phased{};
+        phased.active=phased.turn_available=true;
+        ok &= Check(phased_bridge.TryApplyGameplayInput(phased,&error,
+            CoJInputDispatchPhase::pre_shoulder,0,1000000),"phased turn baseline failed");
+        phased.turn=sample.stick;
+        const auto before=native_turns.size();
+        for (const std::uint64_t time : {1010000ULL,1020000ULL}) {
+            ok &= Check(phased_bridge.TryApplyGameplayInput(phased,&error,
+                CoJInputDispatchPhase::pre_shoulder,0,time),"production turn phase failed");
+            const auto after_turn=native_turns.size();
+            ok &= Check(after_turn==before+(time==1010000 ? 1U : 2U) &&
+                std::fabs(phased_bridge.last_turn_degrees()-sample.native_yaw)<.00001F &&
+                !native_turns.empty() && std::fabs(native_turns.back()-sample.native_yaw)<.00001F,
+                "production turn phase dropped or doubled an axial/diagonal turn");
+            ok &= Check(phased_bridge.TryApplyGameplayInput(phased,&error,CoJInputDispatchPhase::shoulder) &&
+                phased_bridge.TryApplyGameplayInput(phased,&error,CoJInputDispatchPhase::fire) &&
+                native_turns.size()==after_turn &&
+                std::fabs(phased_bridge.last_turn_degrees()-sample.native_yaw)<.00001F,
+                "untimed shoulder/fire erased Hands' yaw discontinuity or consumed the turn clock");
+        }
+    }
+    // A long dispatch gap deliberately disarms held turning. It must not
+    // suppress native movement, and only a fresh neutral stick rearms yaw.
+    JavaPlayerBridge gap_bridge; Bind(gap_bridge); gap_bridge.being_=&player;
+    gap_bridge.rotate_horizontally_method_=Ptr(rotate_method);
+    cojvr::runtime::GameplayInputState gap{};
+    gap.active=gap.turn_available=true; gap.move={0,1};
+    ok &= Check(gap_bridge.TryApplyGameplayInput(gap,&error,CoJInputDispatchPhase::pre_shoulder,0,1000000),
+        "gap fixture baseline failed");
+    gap.turn={1,0};
+    ok &= Check(gap_bridge.TryApplyGameplayInput(gap,&error,CoJInputDispatchPhase::pre_shoulder,0,1010000),
+        "gap fixture initial turn failed");
+    const auto before_gap=native_turns.size();
+    gap.move={1,0};
+    ok &= Check(gap_bridge.TryApplyGameplayInput(gap,&error,CoJInputDispatchPhase::pre_shoulder,0,1200000) &&
+        native_turns.size()==before_gap && gap_bridge.last_turn_degrees()==0 &&
+        native_analog_values[4]==0 && native_analog_values[6]==1,
+        "gap must block catch-up yaw while delivering changed locomotion");
+    gap.move={0,-1};
+    ok &= Check(gap_bridge.TryApplyGameplayInput(gap,&error,CoJInputDispatchPhase::pre_shoulder,0,1210000) &&
+        native_turns.size()==before_gap && native_analog_values[5]==1 && native_analog_values[6]==0,
+        "held-turn neutral barrier blocked movement or resumed yaw without centering");
+    gap.turn={};
+    ok &= Check(gap_bridge.TryApplyGameplayInput(gap,&error,CoJInputDispatchPhase::pre_shoulder,0,1220000),
+        "gap fixture neutral recovery failed");
+    gap.turn={1,0};
+    ok &= Check(gap_bridge.TryApplyGameplayInput(gap,&error,CoJInputDispatchPhase::pre_shoulder,0,1230000) &&
+        native_turns.size()==before_gap+1 && std::fabs(gap_bridge.last_turn_degrees()+.9F)<.00001F,
+        "fresh centered sample failed to restore turning after a dispatch gap");
     // Failed native reload release must retain the held action history so a
     // subsequent unqueued gesture cannot mistake it for a fresh press.
     JavaPlayerBridge reload_history_bridge; Bind(reload_history_bridge);

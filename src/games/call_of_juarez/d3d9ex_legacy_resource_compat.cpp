@@ -77,7 +77,8 @@ HookState StateFor(void** vtable, IDirect3DDevice9* device) noexcept {
 void Notify(
     const HookState& state,
     const LegacyTextureCreateEvent& event) noexcept {
-    if (state.callbacks.event) {
+    if (state.callbacks.event && (state.callbacks.trace_successful_creates ||
+            (event.phase==LegacyTextureCreatePhase::result && FAILED(event.result)))) {
         state.callbacks.event(state.callbacks.context, event);
     }
 }

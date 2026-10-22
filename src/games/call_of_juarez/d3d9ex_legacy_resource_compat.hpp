@@ -46,6 +46,9 @@ struct LegacyTextureCompatibilityCallbacks {
     void (*resource_destroy)(
         void* context, std::uintptr_t resource, LegacyTextureKind kind,
         ULONG refcount) noexcept = nullptr;
+    // Ordinary compatibility needs no successful allocation census. Failed
+    // result events remain available even with this diagnostic opt-in off.
+    bool trace_successful_creates = false;
 };
 
 [[nodiscard]] bool InstallD3D9ExLegacyTextureCompatibility(

@@ -30,6 +30,10 @@ REQUIREMENTS
   You supply the game, SteamVR and drivers; they are not in this ZIP.
 - System Windows PowerShell 5.1. PowerShell 7 is not required.
 
+Virtual Desktop users must use the SteamVR route for this OpenVR build.
+Selecting VDXR does not change the mod's backend. Direct OpenXR/VDXR gameplay
+is not implemented; SteamVR initialization is expected.
+
 Python x64, OpenVR x86 and the VC++ x86 redistributable are bundled for offline
 installation. No compiler, Git or system Python is required. Read
 THIRD_PARTY_NOTICES.txt for dependency sources, licenses and notice locations,
