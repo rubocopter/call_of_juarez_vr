@@ -860,6 +860,7 @@ if(COJVR_BUILD_TESTS)
     endif()
     add_test(NAME body_restore_pelvis COMMAND cojvr_body_restore_ownership_test)
     add_test(NAME body_restore_arm COMMAND cojvr_body_restore_ownership_test arm)
+    add_test(NAME mounted_body_yaw COMMAND cojvr_body_restore_ownership_test yaw)
 
     add_executable(cojvr_independent_hand_test tests/independent_hand.cpp)
     target_link_libraries(cojvr_independent_hand_test PRIVATE cojvr_coj_camera_probe)

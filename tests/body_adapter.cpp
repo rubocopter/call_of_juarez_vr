@@ -275,6 +275,56 @@ int main() {
         return 1;
     }
 
+    // Mounted forward/backward stays in the horse's frame while HMD free look
+    // retains the committed reference shared by camera and hands. In native
+    // Horse.UpdateTurnSpeed even a small lateral sign selects a turn target.
+    for (const float previous : {0.0F, -30.0F, 170.0F}) {
+        for (const float physical_yaw : {-179.0F, -60.0F, -1.0F, 1.0F, 60.0F, 179.0F}) {
+            const auto head = HeadPoseAtPhysicalYaw(physical_yaw);
+            const auto mounted_yaw = BuildBodyYawOwnershipUpdate(head, previous, true, false, false);
+            if (!mounted_yaw.valid || mounted_yaw.actor_update_allowed ||
+                !Near(mounted_yaw.actor_target_degrees, previous) ||
+                !Near(mounted_yaw.actor_delta_degrees, 0) ||
+                !Near(mounted_yaw.camera_compensation_degrees, previous) ||
+                !Near(mounted_yaw.head_relative_move_yaw_degrees, 0)) {
+                std::cerr << "mounted/unknown owner consumed the frozen HMD yaw reference\n";
+                return 1;
+            }
+            for (const float forward : {-1.0F, 1.0F}) {
+                GameplayInputState riding{}; riding.active = true; riding.move = {0, forward};
+                const auto actions = BuildCoJGameplayActionValues(riding,
+                    mounted_yaw.head_relative_move_yaw_degrees);
+                for (const auto& action : actions) {
+                    if (((action.action == 6 || action.action == 7) && !Near(action.value, 0)) ||
+                        (action.action == (forward > 0 ? 4 : 5) && !Near(action.value, 1))) {
+                        std::cerr << "looking around injected native horse reins or lost forward/backward\n";
+                        return 1;
+                    }
+                }
+            }
+            GameplayInputState reins{}; reins.active = true; reins.move = {.5F, 1};
+            const auto steered = BuildCoJGameplayActionValues(reins, mounted_yaw.head_relative_move_yaw_degrees);
+            for (const auto& action : steered) {
+                if (action.action == 6 && !Near(action.value, (.5F - .04F) / .96F)) {
+                    std::cerr << "mounted policy suppressed explicit native reins\n"; return 1;
+                }
+            }
+            const auto dismounted = BuildBodyYawOwnershipUpdate(head, previous, true, false);
+            if (!dismounted.actor_update_allowed ||
+                !Near(dismounted.camera_compensation_degrees, mounted_yaw.camera_compensation_degrees) ||
+                !Near(dismounted.head_residual_degrees, mounted_yaw.head_residual_degrees) ||
+                !Near(dismounted.actor_delta_degrees, std::remainder(-physical_yaw - previous, 360.0F))) {
+                std::cerr << "dismount lost continuous HMD follow or changed the current camera reference\n";
+                return 1;
+            }
+        }
+    }
+    const auto mounted_recenter = BuildBodyYawOwnershipUpdate(right_turn_head, -30, true, true, false);
+    if (!mounted_recenter.valid || mounted_recenter.actor_update_allowed ||
+        !Near(mounted_recenter.camera_compensation_degrees, 0)) {
+        std::cerr << "mounted recenter retained an obsolete camera reference\n"; return 1;
+    }
+
     // Every half-degree step must reach the actor, including small turns,
     // reversals and HMD/owned-yaw +/-180 wrapping in both senses.
     if (!CheckGradualBodyYawFollow(0.0F, 0.0F, {60.0F, -60.0F, 0.0F}) ||

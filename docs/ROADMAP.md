@@ -104,6 +104,14 @@ Mod-added DLC compatibility is deferred at the operator's request after an
 unsatisfactory VR trial. Mounting/dismounting a horse worked in that exercised
 context; mounted movement, camera/aim continuity and broader DLC behavior remain
 unqualified and join later campaign coverage.
+Community feedback additionally reports zigzag steering while attempting to
+ride straight. Post-.5 source keeps mounted movement in the horse frame and
+suspends automatic HMD body following for mounted/unknown owners, preserving
+the committed camera/hand reference, native reins, right-stick rider free look
+and native squint compensation. Mapping and late mount/generation guards have
+offline host coverage; physical riding and transition continuity remain pending.
+Preserve accepted on-foot HMD follow; the less specific room-turning report does
+not yet establish another on-foot defect.
 
 ## Development backlog
 

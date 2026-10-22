@@ -34,6 +34,8 @@ bool pending=false,fail_write=false,fail_read=false,fail_position=false,wrong_re
 int writes=0,fail_write_at=-1;
 int failures=0;
 int natural_renders=0;
+bool mounted=false,mounted_fault=false,replace_during_mount_observation=false;
+int actor_turns=0;
 void __fastcall Natural(void*,void*,void*){++natural_renders;}
 void Check(bool ok,const char* why){if(!ok){std::cerr<<"FAIL "<<why<<'\n';++failures;}}
 void* Id(int i){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(i));}
@@ -52,6 +54,7 @@ void* __stdcall Method(void*,void*,const char* name,const char*){
     if(!std::strcmp(name,"GetElementLeftVector"))return Id(13);
     if(!std::strcmp(name,"GetElementUpVector"))return Id(14);
     if(!std::strcmp(name,"GetBoneJointPos"))return Id(15);
+    if(!std::strcmp(name,"IsRidingHorse"))return Id(16);
     return Id(99);
 }
 void* __stdcall New(void*,void*,void*,const void*){return new Vector;}
@@ -66,6 +69,11 @@ void* __stdcall CallObject(void*,void* obj,void*,const JArg*){
     const auto p=static_cast<Actor*>(obj)->position;return new Vector{{p.x,p.y,p.z}};
 }
 std::uint8_t __stdcall Boolean(void*,void* obj,void* method,const JArg* args){
+    if(method==Id(16)){
+        if(mounted_fault)pending=true;
+        if(replace_during_mount_observation)g_java_player_bridge.being_generation_=8;
+        return mounted?1:0;
+    }
     if(fail_read){pending=true;return 0;}
     auto& frame=static_cast<Actor*>(obj)->frames[args[0].i];
     auto v=frame.position;
@@ -80,6 +88,7 @@ std::uint8_t __stdcall Boolean(void*,void* obj,void* method,const JArg* args){
     auto* out=static_cast<Vector*>(args[1].l);*out={{v.x,v.y,v.z}};return 1;
 }
 void __stdcall CallVoid(void*,void* obj,void* method,const JArg* args){
+    if(method==Id(17)){++actor_turns;return;}
     if(method!=Id(11))return;
     if(fail_write||++writes==fail_write_at){pending=true;return;}
     auto& frame=static_cast<Actor*>(obj)->frames[args[0].i];
@@ -98,6 +107,35 @@ void Bind(){
     b.get_element_position_method_=Id(12);b.get_element_left_method_=Id(13);b.get_element_up_method_=Id(14);b.element_world_read_lookup_attempted_=true;
     b.get_bone_joint_method_=Id(15);b.get_bone_direction_method_=Id(13);b.get_bone_perpendicular_method_=Id(14);b.bone_read_lookup_attempted_=true;
     for(auto* actor:{&old_actor,&new_actor})for(auto& f:actor->frames)f={{0,0,0},{0,1,0},{0,0,1},true};
+}
+void MountedYaw(){
+    auto& b=g_java_player_bridge;b.rotate_horizontally_method_=Id(17);
+    PlayerBodyPositionUpdate update{};update.actor_yaw_update_valid=true;
+    update.actor_yaw_generation=7;update.pending_actor_yaw_delta_degrees=25;
+    update.pending_actor_yaw_target_degrees=35;
+    g_body_yaw_owned=true;g_body_yaw_generation=7;g_body_owned_yaw_degrees=10;
+    mounted=true;CommitBodyYawOwnership(update,1);
+    Check(actor_turns==0&&g_body_owned_yaw_degrees==10,
+        "late mount allowed HMD body-follow to rotate the rider or consume camera compensation");
+    mounted=false;mounted_fault=true;CommitBodyYawOwnership(update,2);
+    Check(actor_turns==0&&g_body_owned_yaw_degrees==10&&!pending,
+        "unknown mount owner allowed HMD actor yaw or leaked JNI exception");
+    mounted_fault=false;update.actor_yaw_generation=8;CommitBodyYawOwnership(update,3);
+    Check(actor_turns==0&&g_body_yaw_generation==7,
+        "body yaw mutated a replacement actor generation");
+    update.actor_yaw_generation=7;replace_during_mount_observation=true;
+    CommitBodyYawOwnership(update,4);
+    Check(actor_turns==0&&g_body_yaw_generation==7,
+        "actor replacement during mount observation escaped the commit guard");
+    replace_during_mount_observation=false;b.being_generation_=7;
+    update.actor_yaw_generation=7;CommitBodyYawOwnership(update,4);
+    Check(actor_turns==1&&g_body_owned_yaw_degrees==35,
+        "verified on-foot body-follow failed after dismount");
+    update.actor_yaw_update_valid=false;CommitBodyYawOwnership(update,5);
+    Check(actor_turns==1,"cancelled yaw update reached native rotation");
+    mounted=true;
+    Check(b.TryRotateHorizontally(5,nullptr)&&actor_turns==2,
+        "mounted HMD guard disabled the explicit rider-look/native callback route");
 }
 void Pelvis(){
     auto& b=g_java_player_bridge;auto& tx=g_room_scale_body_offset;
@@ -218,5 +256,5 @@ void Arm(){
     Check(b.ResolveBeingMethods(&env_holder,&new_actor,nullptr),"verified arm restore still blocked replacement");
 }
 }
-int main(int argc,char** argv){Bind();if(argc>1&&std::string(argv[1])=="arm")Arm();else {PelvisApply();Pelvis();}
+int main(int argc,char** argv){Bind();if(argc>1&&std::string(argv[1])=="yaw")MountedYaw();else if(argc>1&&std::string(argv[1])=="arm")Arm();else {PelvisApply();Pelvis();}
 std::cout<<(failures?"FAILED":"PASS")<<" body restoration production/JNI fixture\n";return failures?1:0;}

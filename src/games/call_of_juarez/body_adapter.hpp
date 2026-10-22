@@ -61,6 +61,8 @@ struct BodyYawOwnershipUpdate {
     float camera_compensation_degrees = 0.0F;
     float head_residual_degrees = 0.0F;
     float spine_residual_degrees = 0.0F;
+    float head_relative_move_yaw_degrees = 0.0F;
+    bool actor_update_allowed = false;
     bool valid = false;
 };
 
@@ -152,8 +154,8 @@ private:
 
 // Rotate the neutral runtime stick into the actor-local movement frame using
 // the current HMD yaw left over after body-yaw ownership. Positive head yaw is
-// a physical turn to the player's right; shaping/deadzone remains owned by the
-// exact-game InputAnalog path after this rotation.
+// a physical turn to the player's right; the exact-game InputAnalog shaping
+// must happen before this rotation. Mounted axes bypass the rotation.
 [[nodiscard]] cojvr::runtime::Vec2 RotateCoJMoveForHeadRelativeYaw(
     cojvr::runtime::Vec2 move,
     float head_yaw_degrees) noexcept;
@@ -700,11 +702,14 @@ private:
 // current frame therefore keeps only the yaw not already represented by the
 // actor, while the camera compensates the previously committed actor yaw.
 // Recenter promotes the actor's current orientation to the new baseline.
+// Mounted/unknown owners keep the committed camera reference and free look,
+// but neither HMD body following nor gaze-relative movement may steer a horse.
 [[nodiscard]] BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
     const cojvr::runtime::Pose& relative_head_pose,
     float previously_owned_degrees,
     bool previous_owned_valid,
-    bool recentered) noexcept;
+    bool recentered,
+    bool on_foot_owner_verified = true) noexcept;
 
 // Room-scale HMD translation is rendered by the camera. Directly writing the
 // Java actor position bypasses native collision/grounding and, in physical

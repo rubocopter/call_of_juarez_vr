@@ -436,6 +436,13 @@ unknown/changed owner requires release. F can mount synchronously, so mount/cont
 is rechecked before later shoulder/crouch/body/fire consumers. On-foot native
 action 16 merges manual and physical crouch; persistent toggle action 17 is unused.
 Mounted/unknown owners suppress synthetic crouch and its camera compensation.
+They also suppress gaze-relative locomotion and automatic HMD actor-yaw commits.
+Mounted forward/backward stays in the horse frame; lateral stick input remains
+native reins and the right stick remains rider free look. The last committed
+yaw reference stays shared by camera/hands while mounted or observation is
+unavailable; recenter adopts the current native heading. A queued on-foot yaw
+commit requires a fresh unmounted observation and the same player generation
+after stereo restoration. Native horse/squint callbacks are not intercepted.
 Create hold recenters once at 800 ms; a short released tap requests Objectives.
 [The controls document](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
 owns the sole default layout and exact action mappings.
@@ -669,7 +676,7 @@ Controller axes receive native shaping before residual HMD yaw rotates the
 result into the actor frame. Shaping after rotation erased small lateral
 components during careful gaze-directed movement. Native float dispatch uses
 a 0.00001 noise tolerance so slow gaze changes are not swallowed by its cache.
-Native speed coefficients and physics remain authoritative. Normal gameplay body
+Native speed coefficients and physics remain authoritative. Verified on-foot body
 yaw follows every HMD yaw change, without the former 35-degree free-look cone.
 The previous committed actor yaw is removed once from tracked camera, hand and
 weapon mapping; the new target commits only after stereo restoration. Duel,

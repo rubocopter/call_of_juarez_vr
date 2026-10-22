@@ -4751,6 +4751,7 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
     const cojvr::runtime::Pose& relative_head_pose,
     const float physical_view_correction,
     const bool recentered,
+    const std::uint64_t on_foot_owner_generation,
     const std::uint64_t frame_sequence) noexcept {
     PlayerBodyPositionUpdate result{};
     result.render_head_pose = SuppressPhysicalTrackingTranslation(relative_head_pose);
@@ -4806,14 +4807,15 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
             relative_head_pose,
             g_body_owned_yaw_degrees,
             previous_yaw_owned,
-            recentered);
+            recentered,
+            on_foot_owner_generation != 0 && on_foot_owner_generation == generation);
         if (body_yaw.valid) {
             result.camera_yaw_compensation_degrees =
                 body_yaw.camera_compensation_degrees;
             result.pending_actor_yaw_delta_degrees = body_yaw.actor_delta_degrees;
             result.pending_actor_yaw_target_degrees = body_yaw.actor_target_degrees;
             result.actor_yaw_generation = generation;
-            result.actor_yaw_update_valid = true;
+            result.actor_yaw_update_valid = body_yaw.actor_update_allowed;
             if (upper_body.valid) {
                 upper_body.head_horizontal_degrees = body_yaw.head_residual_degrees;
                 upper_body.spine_horizontal_degrees = body_yaw.spine_residual_degrees;
@@ -4959,6 +4961,15 @@ void CommitBodyYawOwnership(
     const PlayerBodyPositionUpdate& update,
     const std::uint64_t frame_sequence) noexcept {
     if (!update.actor_yaw_update_valid) return;
+
+    // Native callbacks can mount/dismount or replace the actor during either
+    // eye. Never deliver a queued on-foot HMD turn to that new owner. Keep the
+    // previously committed camera/hand reference until a valid update resumes.
+    bool mounted = false;
+    if (!update.actor_yaw_generation ||
+        update.actor_yaw_generation != g_java_player_bridge.being_generation() ||
+        !g_java_player_bridge.TryObserveMounted(mounted) || mounted ||
+        update.actor_yaw_generation != g_java_player_bridge.being_generation()) return;
 
     std::string error;
     const bool write_ok = g_java_player_bridge.TryRotateHorizontally(
@@ -5719,6 +5730,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     bool mounted=false;
     bool mounted_available=sample.gameplay.active &&
         g_java_player_bridge.Refresh(nullptr) && g_java_player_bridge.TryObserveMounted(mounted);
+    std::uint64_t mounted_generation = mounted_available ? g_java_player_bridge.being_generation() : 0;
     const auto reset_gameplay_owner=[&]() noexcept {
         g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw("gameplay_owner_changed");
@@ -5960,14 +5972,16 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             relative_head_pose,
             g_body_owned_yaw_degrees,
             locomotion_yaw_owned,
-            recentered);
+            recentered,
+            mounted_available && !mounted && mounted_generation != 0 &&
+                mounted_generation == g_java_player_bridge.being_generation());
         if (locomotion_body_yaw.valid) {
             // BodyYawOwnershipUpdate uses the game's yaw sign. Runtime stick
             // coordinates use +X right/+Y forward, so invert the residual to
             // obtain positive-right physical head yaw. The dispatcher shapes
             // the controller axes before rotating them into the actor frame.
-            head_relative_move_yaw_degrees = -locomotion_body_yaw.head_residual_degrees;
-            head_relative_move_valid = true;
+            head_relative_move_yaw_degrees = locomotion_body_yaw.head_relative_move_yaw_degrees;
+            head_relative_move_valid = locomotion_body_yaw.actor_update_allowed;
         }
     }
     if (loading_ui_input.suppress_gameplay) {
@@ -6578,6 +6592,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // owner after interaction/UI dispatch before delivering either shoulder action.
     mounted_available=gameplay_input.active && g_java_player_bridge.Refresh(nullptr) &&
         g_java_player_bridge.TryObserveMounted(mounted);
+    mounted_generation = mounted_available ? g_java_player_bridge.being_generation() : 0;
     if (g_gameplay_owner.Update(mounted_available,mounted,g_java_player_bridge.being_generation())) {
         reset_gameplay_owner(); gameplay_input={}; sample.gameplay={};
         if (g_java_player_bridge.TryApplyGameplayInput({},nullptr)) g_gameplay_owner_release_pending=false;
@@ -6733,6 +6748,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         body_position_update = UpdatePlayerBodyPosition(
             natural_render_state, relative_head_pose, physical_view_correction,
             recentered,
+            mounted_available && !mounted ? mounted_generation : 0,
             frame_sequence);
     }
     if((g_room_scale_body_offset.active&&g_room_scale_body_offset.faulted)||

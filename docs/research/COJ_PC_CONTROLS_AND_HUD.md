@@ -521,12 +521,57 @@ contexts remain separate gates; dispatch alone does not validate them.
 - **Horse:** F mounts by selecting the saddle; Caps Lock requests gallop.
   Strafe controls steer while mounted. Horse health/stamina are necessary
   feedback. Ordinary on-foot locomotion acceptance does not accept horse input.
+  See [mounted steering ownership](#mounted-steering-ownership) for the exact
+  distinction between reins and rider look.
 - **Focus:** `PlayerBeing.Squint`, `CanSquint` and `UpdateSquint` own state and
   smoothing. `CanRun` rejects running during focus; `GetBeingZoom` multiplies
   native zoom by squint zoom, and `BeingCamera.UpdateZoom` changes native FOV.
   A key injection alone cannot reproduce zoom through the independently owned
   asymmetric XR frusta. Native focus state and VR magnification require separate
   policies; do not silently replace the headset projection with flat-screen FOV.
+
+## Mounted steering ownership
+
+The pinned original archive separates horse heading from rider look. Decimal
+offsets below are bytecode PCs within the named method, not native addresses.
+`CreatureController.ExecuteInput` routes float actions 4/5 to forward/backward
+and 6/7 to right/left. `ApplyStrafe` calls `SetSideSpeed` at PC 43;
+`Horse.SetSideSpeed` delegates to `Creature.SetSideSpeed` at PC 10.
+`Horse.GetMoveStrafeSpeed` returns zero: lateral input is reins, not translation.
+`Horse.UpdateTurnSpeed` PCs 31–65 select the negative or positive gait turn-rate
+target from the **sign** of lateral speed, followed by native acceleration and
+deceleration. Its target is not scaled by lateral magnitude.
+
+The on-foot gaze transform maps centered forward to lateral
+`forward * sin(headYaw)`. Even a small residual can therefore command native
+horse turning, alternating its target as the head residual changes sign. This
+is a demonstrated source/bytecode coupling consistent with the zigzag report;
+it is not live reproduction or proof that obstacles/stick noise cannot also
+contribute. Mounted axes now retain native per-axis shaping without gaze
+rotation. Explicit lateral reins remain intact; no new steering deadzone is
+introduced.
+
+`PlayerBeing.RotateHorizontally` PC 16 reaches the inherited `Creature` path,
+which writes the **rider's** wanted-look vector at PC 158. It does not directly
+steer the horse. `Horse.IsNewPlayerControl` checks the control flag and mounted
+rider; it does not turn rider gaze into reins. `Horse.UpdateDirs` PC 72 itself
+calls rider `RotateHorizontally` to compensate horse heading changes while
+`GetHorseRotationFactor` is positive during native squint. Consequently the VR
+adapter suspends only its automatic HMD-to-rider yaw caller while mounted or
+observation is unavailable. It preserves explicit right-stick rider look and
+the native squint callback; it does not patch the native method globally.
+
+The last committed yaw compensation remains shared by camera and tracked
+hands until on-foot following resumes or recenter establishes a new baseline.
+The adapter reobserves mounting after F and checks mounted state and player
+generation again before committing a queued on-foot turn after stereo restore.
+Native mount copies horse direction into the rider and changes controllers;
+dismount/death can destroy those controllers. Do not retain a horse target or
+reuse a pre-interaction ownership boolean as authority for later writes.
+Offline tests cover axis mapping, frozen reference/recenter, resumed on-foot
+follow and rejected late mount/unknown/replaced-owner yaw commits. Camera/hand
+fit, native obstacle steering, free-look/squint continuity, gallop, dismount and
+save/death recovery remain physical gates in Validation.
 
 ## HUD presentation boundary
 

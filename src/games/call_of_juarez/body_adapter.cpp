@@ -565,7 +565,8 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
     const cojvr::runtime::Pose& relative_head_pose,
     const float previously_owned_degrees,
     const bool previous_owned_valid,
-    const bool recentered) noexcept {
+    const bool recentered,
+    const bool on_foot_owner_verified) noexcept {
     BodyYawOwnershipUpdate result{};
     if (!relative_head_pose.orientation_valid ||
         !std::isfinite(previously_owned_degrees)) {
@@ -574,6 +575,7 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
 
     if (recentered) {
         result.valid = true;
+        result.actor_update_allowed = on_foot_owner_verified;
         return result;
     }
 
@@ -596,16 +598,19 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
         : 0.0F;
     const float residual = std::remainder(game_yaw - previous_owned, 360.0F);
 
-    // Normal gameplay keeps the actor aligned with every HMD yaw change.
+    // Verified on-foot gameplay keeps the actor aligned with every HMD yaw change.
     // Commit only after stereo restoration: this frame's camera, hands and
     // movement still reference the previously committed actor orientation.
     // Keeping a free-look cone here leaves persistent forward/strafe mixing
     // in native locomotion even after the player stops turning their head.
-    result.actor_target_degrees = game_yaw;
-    result.actor_delta_degrees = residual;
+    result.actor_target_degrees = on_foot_owner_verified ? game_yaw : previous_owned;
+    result.actor_delta_degrees = on_foot_owner_verified ? residual : 0.0F;
     result.camera_compensation_degrees = previous_owned;
     result.head_residual_degrees = std::clamp(residual, -90.0F, 90.0F);
     result.spine_residual_degrees = result.head_residual_degrees * (2.0F / 3.0F);
+    result.head_relative_move_yaw_degrees = on_foot_owner_verified
+        ? -result.head_residual_degrees : 0.0F;
+    result.actor_update_allowed = on_foot_owner_verified;
     result.valid = true;
     return result;
 }
