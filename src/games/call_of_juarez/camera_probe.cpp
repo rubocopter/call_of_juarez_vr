@@ -257,6 +257,14 @@ void ResetBodyYawOwnership() noexcept {
     g_body_yaw_generation = 0;
     g_body_yaw_owned = false;
 }
+float BodyYawCompensationForCurrentPlayer() noexcept {
+    // A frozen mounted reference belongs to one native player generation.
+    // Camera, aim, hands and pelvis must all reject another player's scalar.
+    return g_body_yaw_owned && g_java_player_bridge.player_available() &&
+        g_body_yaw_generation != 0 &&
+        g_body_yaw_generation == g_java_player_bridge.being_generation()
+        ? g_body_owned_yaw_degrees : 0.0F;
+}
 struct ArmElementCache {
     std::uint64_t being_generation = 0;
     int left_upper_arm = -1;
@@ -2536,7 +2544,7 @@ bool ApplyRoomScaleBodyOffset(
         return false;
     }
     const CameraProbeBasis tracking_basis = BuildTrackingReferenceBasis(
-        natural_basis.forward, natural_basis.up, g_body_owned_yaw_degrees);
+        natural_basis.forward, natural_basis.up, BodyYawCompensationForCurrentPlayer());
     if (!IsCameraProbeBasisRigidRightHanded(tracking_basis)) {
         if (error) *error = "tracking basis invalid for visual body room scale";
         return false;
@@ -3297,7 +3305,7 @@ void UpdatePlayerArmTracking(
     }
     (void)camera_position;
     const CameraProbeBasis tracking_basis = BuildTrackingReferenceBasis(
-        basis.forward, basis.up, g_body_owned_yaw_degrees);
+        basis.forward, basis.up, BodyYawCompensationForCurrentPlayer());
     if (!IsCameraProbeBasisRigidRightHanded(tracking_basis)) {
         if (observe) {
             EmitEvent(
@@ -3973,7 +3981,7 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
     if(!head.position_valid||!head.orientation_valid||!left.position_valid||!left.orientation_valid||
         !right.position_valid||!right.orientation_valid||!right_tip.orientation_valid||
         !ReadNaturalCameraFrame(natural,basis,camera))return fail("tracking_or_camera");
-    basis=BuildTrackingReferenceBasis(basis.forward,basis.up,g_body_owned_yaw_degrees);
+    basis=BuildTrackingReferenceBasis(basis.forward,basis.up,BodyYawCompensationForCurrentPlayer());
     if(!IsCameraProbeBasisRigidRightHanded(basis))return fail("tracking_basis");
     const runtime::Vec3 x{basis.right.x,basis.right.y,basis.right.z},
         u{basis.up.x,basis.up.y,basis.up.z},f{basis.forward.x,basis.forward.y,basis.forward.z};
@@ -4078,7 +4086,7 @@ bool ApplyTrackedWeapons(
     CameraProbeBasis basis{};
     CameraProbeVector camera{};
     if (!ReadNaturalCameraFrame(natural, basis, camera)) return false;
-    basis = BuildTrackingReferenceBasis(basis.forward, basis.up, g_body_owned_yaw_degrees);
+    basis = BuildTrackingReferenceBasis(basis.forward, basis.up, BodyYawCompensationForCurrentPlayer());
     if (!IsCameraProbeBasisRigidRightHanded(basis)) return false;
     bool reloading = false;
     if (!g_java_player_bridge.TryGetWeaponReloading(reloading) || (reloading&&!manual_presentation)) return false;
@@ -4422,7 +4430,7 @@ void UpdateControllerAim(
             return;
         }
         const CameraProbeBasis leveled = BuildTrackingReferenceBasis(
-            basis.forward, basis.up, g_body_owned_yaw_degrees);
+            basis.forward, basis.up, BodyYawCompensationForCurrentPlayer());
         if (!IsCameraProbeBasisRigidRightHanded(leveled)) {
             return;
         }
@@ -4620,7 +4628,7 @@ void UpdatePlayerLowerBodyObservation(
         }
         (void)camera_position;
         const CameraProbeBasis tracking_basis = BuildTrackingReferenceBasis(
-            basis.forward, basis.up, g_body_owned_yaw_degrees);
+            basis.forward, basis.up, BodyYawCompensationForCurrentPlayer());
         if (!IsCameraProbeBasisRigidRightHanded(tracking_basis)) {
             EmitEvent(
                 "body_lower_tracking", "unavailable",
@@ -4805,7 +4813,7 @@ PlayerBodyPositionUpdate UpdatePlayerBodyPosition(
             g_body_yaw_generation == generation;
         const BodyYawOwnershipUpdate body_yaw = BuildBodyYawOwnershipUpdate(
             relative_head_pose,
-            g_body_owned_yaw_degrees,
+            BodyYawCompensationForCurrentPlayer(),
             previous_yaw_owned,
             recentered,
             on_foot_owner_generation != 0 && on_foot_owner_generation == generation);
@@ -5220,9 +5228,7 @@ void RenderCameraOnlyStereo(
     // Settings retain the already-owned actor yaw in the natural gameplay
     // camera, but never commit another actor rotation. Scripted cameras are
     // independent of the player and therefore receive no actor compensation.
-    const float yaw = !movie && g_body_yaw_owned &&
-        g_body_yaw_generation==g_java_player_bridge.being_generation()
-        ? g_body_owned_yaw_degrees : 0.0F;
+    const float yaw = !movie ? BodyYawCompensationForCurrentPlayer() : 0.0F;
     // Input capture does not transfer visual ownership back to native arms.
     // Reuse the established scoped rigid hand/weapon mapping, without any
     // ballistic/whip publication, native input dispatch or actor/body write.
@@ -5970,7 +5976,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             g_body_yaw_generation == g_java_player_bridge.being_generation();
         const BodyYawOwnershipUpdate locomotion_body_yaw = BuildBodyYawOwnershipUpdate(
             relative_head_pose,
-            g_body_owned_yaw_degrees,
+            BodyYawCompensationForCurrentPlayer(),
             locomotion_yaw_owned,
             recentered,
             mounted_available && !mounted && mounted_generation != 0 &&
@@ -6184,7 +6190,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         const bool yaw_owned = g_body_yaw_owned &&
             g_body_yaw_generation == g_java_player_bridge.being_generation();
         const auto yaw = BuildBodyYawOwnershipUpdate(relative_head_pose,
-            g_body_owned_yaw_degrees, yaw_owned, recentered);
+            BodyYawCompensationForCurrentPlayer(), yaw_owned, recentered);
         interaction_ray = BuildTrackedHandInteractionRay(interaction_position, interaction_basis,
             relative_head_pose,interaction_pose,relative_left_aim,
             yaw.valid ? yaw.camera_compensation_degrees : 0.0F);
@@ -6456,7 +6462,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         CameraProbeBasis natural_basis{};CameraProbeVector camera_position{};
         const bool camera_known=ReadNaturalCameraFrame(natural_render_state,natural_basis,camera_position);
         const auto tracking_basis=camera_known?BuildTrackingReferenceBasis(
-            natural_basis.forward,natural_basis.up,g_body_owned_yaw_degrees):CameraProbeBasis{};
+            natural_basis.forward,natural_basis.up,BodyYawCompensationForCurrentPlayer()):CameraProbeBasis{};
         bool grip_valid=false,offset_valid=false;
         runtime::Vec3 grip_world{},body_offset{};
         if(camera_known && IsCameraProbeBasisRigidRightHanded(tracking_basis) &&
@@ -6903,7 +6909,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         CameraProbeBasis fist_reference{};
         const bool fist_reference_valid=ReadNaturalCameraFrame(natural_render_state,fist_native_source,fist_native_position)&&
             IsCameraProbeBasisRigidRightHanded(fist_reference=BuildTrackingReferenceBasis(
-                fist_native_source.forward,fist_native_source.up,g_body_owned_yaw_degrees));
+                fist_native_source.forward,fist_native_source.up,BodyYawCompensationForCurrentPlayer()));
         struct FistSample {
             std::array<runtime::Vec3,4> points{};
             CoJFistContactIdentity identity{};
@@ -6938,7 +6944,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             std::string punch_error;
             const bool visual=g_java_player_bridge.TryReadFistContactGeometry(static_cast<int>(h),geometry,&punch_error);
             CoJFistContactIdentity identity{punch.sequence,punch.player_generation,boxing_owner,
-                punch.context,punch.input_generation,g_body_owned_yaw_degrees,fist_reference_valid};
+                punch.context,punch.input_generation,BodyYawCompensationForCurrentPlayer(),fist_reference_valid};
             identity.reference_basis={runtime::Vec3{fist_reference.right.x,fist_reference.right.y,fist_reference.right.z},
                 runtime::Vec3{fist_reference.up.x,fist_reference.up.y,fist_reference.up.z},
                 runtime::Vec3{fist_reference.forward.x,fist_reference.forward.y,fist_reference.forward.z}};
@@ -7032,7 +7038,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         CameraProbeBasis bow_basis{};CameraProbeVector bow_camera{};
         const bool bow_camera_valid=ReadNaturalCameraFrame(natural_render_state,bow_basis,bow_camera);
         if(bow_camera_valid)bow_basis=BuildTrackingReferenceBasis(
-            bow_basis.forward,bow_basis.up,g_body_owned_yaw_degrees);
+            bow_basis.forward,bow_basis.up,BodyYawCompensationForCurrentPlayer());
         const auto bow_world=[&](runtime::Vec3 point,bool& valid) noexcept {
             auto world=BuildTrackedAimOrigin({bow_camera.x,bow_camera.y,bow_camera.z},
                 {bow_basis.right.x,bow_basis.right.y,bow_basis.right.z},

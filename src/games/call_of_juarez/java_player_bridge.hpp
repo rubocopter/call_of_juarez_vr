@@ -826,6 +826,7 @@ private:
     cojvr::runtime::GameplayInputState last_gameplay_input_{};
     std::array<float,33> last_gameplay_action_values_{};
     bool gameplay_input_applied_ = false;
+    bool gameplay_analog_state_uncertain_ = false;
     runtime::GameplayTurnState turn_state_{};
     NativeSettingsBridge native_settings_bridge_{};
     float last_turn_degrees_ = 0.0F;

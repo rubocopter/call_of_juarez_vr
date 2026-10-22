@@ -110,6 +110,15 @@ suspends automatic HMD body following for mounted/unknown owners, preserving
 the committed camera/hand reference, native reins, right-stick rider free look
 and native squint compensation. Mapping and late mount/generation guards have
 offline host coverage; physical riding and transition continuity remain pending.
+Further offline audit reproduces retained tiny reins after centering and lost
+side deltas when forward updates acknowledged undelivered axes. Current source
+always delivers zero/nonzero analog edges and caches only delivered axes;
+native shaping and steering rates are preserved. Host regressions cover both
+directions, gradual changes and owner-loss release; physical riding is still open.
+Partial native analog failures now retain full-axis recovery until a complete
+batch succeeds. Generation-qualified yaw mapping also prevents a replacement
+player's camera/aim/pelvis from disagreeing while mounted or observation is lost.
+Both have production/JNI regression coverage; they add no physical acceptance.
 Preserve accepted on-foot HMD follow; the less specific room-turning report does
 not yet establish another on-foot defect.
 

@@ -676,12 +676,24 @@ Controller axes receive native shaping before residual HMD yaw rotates the
 result into the actor frame. Shaping after rotation erased small lateral
 components during careful gaze-directed movement. Native float dispatch uses
 a 0.00001 noise tolerance so slow gaze changes are not swallowed by its cache.
+Zero/nonzero transitions always dispatch, including sub-tolerance values:
+native horse reins interpret the sign as a full turn-rate target. A successful
+analog batch caches only the axes actually delivered; another axis's update
+cannot acknowledge a skipped delta or erase accumulated movement/release.
+A failed native analog batch leaves its state uncertain, since a callback can
+write before throwing. Recovery resends all four axes and remains pending until
+lock/delivery/unlock/apply complete; a fire/shoulder-only phase cannot acknowledge
+that recovery. Neutral cleanup must not trust the last acknowledged zero values
+to describe a partially mutated native controller.
 Native speed coefficients and physics remain authoritative. Verified on-foot body
 yaw follows every HMD yaw change, without the former 35-degree free-look cone.
 The previous committed actor yaw is removed once from tracked camera, hand and
 weapon mapping; the new target commits only after stereo restoration. Duel,
-movie, settings and native ownership guards still apply. This continuous-follow
-change has host coverage and scoped operator headset acceptance. Ordinary controller turning
+movie, settings and native ownership guards still apply. Every mapping consumer
+qualifies that committed reference against the available player and generation;
+a replacement cannot leave hands/pelvis using yaw already rejected by the camera.
+This continuous-follow change has host coverage and scoped operator headset
+acceptance. Ordinary controller turning
 defaults to continuous
 yaw: a 0.25 stick deadzone, proportional speed up to 90 degrees/second and
 monotonic elapsed time, mapped to the native yaw sign by the game adapter.

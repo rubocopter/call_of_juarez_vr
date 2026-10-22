@@ -1003,6 +1003,7 @@ void JavaPlayerBridge::Reset() noexcept {
     last_gameplay_input_ = {};
     last_gameplay_action_values_ = {};
     gameplay_input_applied_ = false;
+    gameplay_analog_state_uncertain_ = false;
     turn_state_ = {};
     native_settings_bridge_.Invalidate();
     duel_input_state_ = {};
@@ -3559,7 +3560,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         last_analog_transaction_applied_ = false;
         turn_degrees = -turn_state_.Update(state, monotonic_us,runtime::CurrentTurnMode());
     }
-    if (!state.active && !gameplay_input_applied_) return true;
+    if (!state.active && !gameplay_input_applied_ && !gameplay_analog_state_uncertain_) return true;
 
     if (turn_degrees != 0.0F) {
         if (!TryRotateHorizontally(turn_degrees, error)) return false;
@@ -3615,6 +3616,13 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     // A 0.005 action tolerance hid several degrees of gaze changes during a
     // careful step. Suppress numerical noise without quantizing that direction.
     constexpr float kAnalogDispatchEpsilon = 0.00001F;
+    const bool force_analog_update = !gameplay_input_applied_ || gameplay_analog_state_uncertain_;
+    const auto analog_update_needed = [&](const float current, const float previous) noexcept {
+        // Horse reins use the sign, not the magnitude. Never suppress entering
+        // or leaving zero, even when the shaped value is below the tolerance.
+        return force_analog_update || (current == 0.0F) != (previous == 0.0F) ||
+            std::fabs(current - previous) > kAnalogDispatchEpsilon;
+    };
     auto previous_values = BuildCoJGameplayActionValues({});
     for (std::size_t i=0;i<previous_values.size();++i)
         previous_values[i].value=last_gameplay_action_values_[i];
@@ -3622,8 +3630,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     for (std::size_t index = 0; index < values.size(); ++index) {
         if (ShouldDispatchCoJGameplayAction(phase,values[index].action) &&
             UseDirectAnalogCoJLocomotion(values[index].action) &&
-            (!gameplay_input_applied_ ||
-             std::fabs(values[index].value - previous_values[index].value) > kAnalogDispatchEpsilon)) {
+            analog_update_needed(values[index].value, previous_values[index].value)) {
             analog_transaction_needed = true;
             break;
         }
@@ -3633,6 +3640,10 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     controller_state_args[0].l = targets;
     bool analog_transaction_locked = false;
     if (analog_transaction_needed) {
+        // A JNI callback may mutate controller state before throwing. Until a
+        // complete batch succeeds, retry every axis rather than trusting the
+        // last acknowledged cache to describe that partial native state.
+        gameplay_analog_state_uncertain_ = true;
         call_void(env, controller, controller_lock_apply_method_, controller_state_args);
         if (ClearException(
                 env, error,
@@ -3664,8 +3675,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         const bool previous_pressed = previous_item.value > kDigitalThreshold;
         const bool needs_digital_update = !gameplay_input_applied_ ||
             current_pressed != previous_pressed;
-        const bool needs_analog_update = !gameplay_input_applied_ ||
-            std::fabs(item.value - previous_item.value) > kAnalogDispatchEpsilon;
+        const bool needs_analog_update = analog_update_needed(item.value, previous_item.value);
         const auto resolve_target_item = [&](void*& target_item) noexcept {
             target_item = nullptr;
             JValue target_type_args[1]{};
@@ -3864,10 +3874,15 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             ok = false;
         } else if (ok) {
             last_analog_transaction_applied_ = true;
+            // A batch can deliver forward without delivering a tiny side delta.
+            // Keep skipped axes at their last delivered values, otherwise each
+            // forward update hides that delta and can even swallow its release.
             for (std::size_t i=0;i<values.size();++i)
                 if (ShouldDispatchCoJGameplayAction(phase,values[i].action) &&
-                    UseDirectAnalogCoJLocomotion(values[i].action))
+                    UseDirectAnalogCoJLocomotion(values[i].action) &&
+                    analog_update_needed(values[i].value, previous_values[i].value))
                     last_gameplay_action_values_[i]=values[i].value;
+            gameplay_analog_state_uncertain_ = false;
             for (const auto value:last_gameplay_action_values_) gameplay_input_applied_|=value!=0.0F;
         }
     }
@@ -3896,6 +3911,10 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     last_gameplay_input_ = MergeCoJGameplayInputPhase(last_gameplay_input_,state,phase);
     gameplay_input_applied_ = state.active;
     for (const auto value:last_gameplay_action_values_) gameplay_input_applied_|=value!=0.0F;
+    if (gameplay_analog_state_uncertain_) {
+        SetError(error, "native locomotion requires a complete analog recovery batch");
+        return false;
+    }
     return true;
 }
 

@@ -137,6 +137,58 @@ void MountedYaw(){
     Check(b.TryRotateHorizontally(5,nullptr)&&actor_turns==2,
         "mounted HMD guard disabled the explicit rider-look/native callback route");
 }
+void MountedPlayerReference(){
+    auto& b=g_java_player_bridge;
+    g_body_yaw_owned=true;g_body_yaw_generation=7;g_body_owned_yaw_degrees=30;
+    CameraRenderStateSnapshot natural{};
+    const std::array<float,16> matrix{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+    std::memcpy(natural.source_world.data(),matrix.data(),sizeof(matrix));
+    cojvr::runtime::Pose head{{.2F,1.7F,.1F},{},true,true};
+    auto hand=head;hand.position={.4F,1.3F,-.3F};
+    const auto sample=[&](int frame){
+        bool riding=false;
+        const bool known=b.TryObserveMounted(riding);
+        const auto camera_yaw=BuildBodyYawOwnershipUpdate(head,g_body_owned_yaw_degrees,
+            g_body_yaw_owned&&g_body_yaw_generation==b.being_generation(),false,known&&!riding);
+        Check(camera_yaw.valid&&!camera_yaw.actor_update_allowed,
+            "mounted/unknown reference admitted automatic body yaw");
+        const auto basis=BuildTrackingReferenceBasis({0,0,1},{0,1,0},camera_yaw.camera_compensation_degrees);
+        const cojvr::runtime::Vec3 right{basis.right.x,basis.right.y,basis.right.z},
+            up{basis.up.x,basis.up.y,basis.up.z},forward{basis.forward.x,basis.forward.y,basis.forward.z};
+        bool origin_valid=false,offset_valid=false;
+        const auto expected_origin=BuildTrackedAimOrigin({},right,up,forward,
+            head.position,hand.position,0,100,origin_valid);
+        const auto expected_offset=BuildCoJVisualBodyOffset(head.position,right,forward,100,offset_valid);
+        ControllerAimFrameObservation aim{};
+        UpdateControllerAim(natural,head,0,hand,hand,hand,hand,true,frame,aim);
+        const auto near=[](cojvr::runtime::Vec3 a,cojvr::runtime::Vec3 c){
+            return std::fabs(a.x-c.x)<.001F&&std::fabs(a.y-c.y)<.001F&&std::fabs(a.z-c.z)<.001F;};
+        Check(origin_valid&&aim.right_origin_valid&&near(aim.right_origin,expected_origin),
+            "mounted replacement aim used a different yaw reference than the camera");
+        auto& tx=g_room_scale_body_offset;tx={};tx.being_generation=b.being_generation();
+        tx.pelvis_element=12;tx.model_observed=true;
+        Check(ApplyRoomScaleBodyOffset(natural,head,frame,nullptr)&&offset_valid&&
+            near(tx.applied_world_offset,expected_offset),
+            "mounted replacement pelvis used a different yaw reference than the camera");
+        Check(RestoreRoomScaleBodyOffset(frame,"reference_fixture"),"reference fixture pelvis restore failed");
+        PlayerBodyPositionUpdate update{};update.actor_yaw_update_valid=camera_yaw.actor_update_allowed;
+        update.actor_yaw_generation=b.being_generation();
+        update.pending_actor_yaw_delta_degrees=camera_yaw.actor_delta_degrees;
+        CommitBodyYawOwnership(update,frame);
+        Check(actor_turns==0,"mounted/unknown reference sample rotated the native actor");
+    };
+    mounted=true;sample(1); // A same-generation frozen reference must survive.
+    Check(b.ResolveBeingMethods(&env_holder,&new_actor,nullptr)&&b.being_generation()!=7,
+        "reference fixture did not replace the player through the production bridge");
+    // Rebind only the simulated native element access cleared by replacement.
+    b.set_element_world_basis_method_=Id(11);b.element_world_basis_lookup_attempted_=true;
+    b.get_element_position_method_=Id(12);b.get_element_left_method_=Id(13);b.get_element_up_method_=Id(14);
+    b.element_world_read_lookup_attempted_=true;
+    sample(2);sample(3);
+    mounted_fault=true;sample(4);sample(5);mounted_fault=false;
+    Check(g_body_owned_yaw_degrees==30&&g_body_yaw_generation==7,
+        "reference validation consumed another actor's yaw instead of rejecting it locally");
+}
 void Pelvis(){
     auto& b=g_java_player_bridge;auto& tx=g_room_scale_body_offset;
     tx={};tx.active=true;tx.being_generation=7;tx.pelvis_element=12;tx.natural_position={100,200,300};tx.natural_up={0,1,0};tx.natural_forward={0,0,1};
@@ -256,5 +308,5 @@ void Arm(){
     Check(b.ResolveBeingMethods(&env_holder,&new_actor,nullptr),"verified arm restore still blocked replacement");
 }
 }
-int main(int argc,char** argv){Bind();if(argc>1&&std::string(argv[1])=="yaw")MountedYaw();else if(argc>1&&std::string(argv[1])=="arm")Arm();else {PelvisApply();Pelvis();}
+int main(int argc,char** argv){Bind();if(argc>1&&std::string(argv[1])=="reference")MountedPlayerReference();else if(argc>1&&std::string(argv[1])=="yaw")MountedYaw();else if(argc>1&&std::string(argv[1])=="arm")Arm();else {PelvisApply();Pelvis();}
 std::cout<<(failures?"FAILED":"PASS")<<" body restoration production/JNI fixture\n";return failures?1:0;}

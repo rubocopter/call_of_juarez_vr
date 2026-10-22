@@ -406,6 +406,74 @@ int main() {
     const auto gaze_commits=commits;
     ok &= Check(careful_bridge.TryApplyGameplayInput(careful,&error,CoJInputDispatchPhase::non_fire,1) &&
         commits==gaze_commits, "unchanged careful locomotion caused another native transaction");
+    // Horse.UpdateTurnSpeed uses the sign of side speed, not its magnitude.
+    // Even a sub-epsilon side value must be released when the stick centers.
+    for (const float sign : {-1.0F,1.0F}) {
+        JavaPlayerBridge reins_bridge;Bind(reins_bridge);
+        auto riding=cojvr::runtime::GameplayInputState{};riding.active=true;
+        riding.move={sign*.040006F,.5F};
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder),
+            "tiny native reins setup failed");
+        const int side=sign>0?6:7;
+        ok &= Check(native_analog_values[side]>0&&native_analog_values[side]<.00001F,
+            "tiny native reins fixture did not reach the intended float range");
+        riding.move.x=0;
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder)&&
+            native_analog_values[6]==0&&native_analog_values[7]==0,
+            "centered stick retained sub-epsilon native horse steering");
+
+        riding.move={sign*.040012F,.5F};
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder),
+            "near-deadzone reins setup failed");
+        riding.move={sign*.040006F,.6F};
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder),
+            "forward-speed update with unchanged reins failed");
+        riding.move.x=0;
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder)&&
+            native_analog_values[6]==0&&native_analog_values[7]==0,
+            "another axis advanced the reins cache without delivering its value");
+        // Small deltas must accumulate against delivered native values even
+        // while another axis causes a transaction on every sample.
+        riding.move={sign*.2F,.4F};
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder),
+            "reins accumulation baseline failed");
+        const float baseline_side=native_analog_values[side];
+        for (int step=1;step<=4;++step) {
+            riding.move={sign*(.2F+step*.000004F),.4F+step*.01F};
+            ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder),
+                "gradual reins update failed");
+        }
+        ok &= Check(native_analog_values[side]>baseline_side+.00001F,
+            "gradual reins changes were lost while forward input changed");
+        ok &= Check(reins_bridge.TryApplyGameplayInput({},&error)&&
+            native_analog_values[4]==0&&native_analog_values[5]==0&&
+            native_analog_values[6]==0&&native_analog_values[7]==0,
+            "owner loss did not release native horse axes");
+        riding.move={sign*.040006F,.5F};
+        ok &= Check(reins_bridge.TryApplyGameplayInput(riding,&error,CoJInputDispatchPhase::pre_shoulder)&&
+            reins_bridge.TryApplyGameplayInput({},&error)&&native_analog_values[side]==0,
+            "owner loss retained sub-epsilon native reins");
+    }
+    // A native callback can write an axis and then throw. Neutral cleanup must
+    // repair that partial state even if the old acknowledged axis was zero.
+    JavaPlayerBridge partial_move_bridge;Bind(partial_move_bridge);
+    auto partial_move=cojvr::runtime::GameplayInputState{};partial_move.active=true;
+    ok &= Check(partial_move_bridge.TryApplyGameplayInput(partial_move,&error,CoJInputDispatchPhase::pre_shoulder),
+        "partial native movement baseline failed");
+    partial_move.move={0,1};fail_analog=true;
+    ok &= Check(!partial_move_bridge.TryApplyGameplayInput(partial_move,&error,CoJInputDispatchPhase::pre_shoulder)&&
+        !locked&&!pending&&native_analog_values[4]==1,
+        "native movement failure fixture did not apply before throwing");
+    ok &= Check(!partial_move_bridge.TryApplyGameplayInput({},&error,CoJInputDispatchPhase::fire)&&
+        native_analog_values[4]==1,
+        "fire-only cleanup acknowledged unresolved native movement");
+    fail_analog=true;
+    ok &= Check(!partial_move_bridge.TryApplyGameplayInput({},&error)&&!locked&&!pending,
+        "another failed analog cleanup retired recovery or left the native lock held");
+    ok &= Check(partial_move_bridge.TryApplyGameplayInput({},&error)&&
+        native_analog_values[4]==0&&native_analog_values[5]==0&&
+        native_analog_values[6]==0&&native_analog_values[7]==0,
+        "neutral cleanup acknowledged a partially failed native movement without releasing it");
     JavaPlayerBridge snap_bridge;Bind(snap_bridge);snap_bridge.being_=&player;
     snap_bridge.rotate_horizontally_method_=Ptr(rotate_method);
     cojvr::runtime::GameplayInputState turn{};turn.active=true;turn.turn_available=true;

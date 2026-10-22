@@ -551,6 +551,22 @@ contribute. Mounted axes now retain native per-axis shaping without gaze
 rotation. Explicit lateral reins remain intact; no new steering deadzone is
 introduced.
 
+The direct analog dispatch cache has the same sign-sensitive boundary: its
+0.00001 tolerance must never suppress a zero/nonzero transition. A tiny
+delivered side value can otherwise keep the horse turning after centering.
+Successful analog batches acknowledge only delivered axes. Caching a skipped
+side delta merely because forward changed loses gradual input and can hide the
+eventual zero release. Production/JNI regressions reproduce both failures and
+cover left/right near-deadzone release, simultaneous forward updates, gradual
+side changes and neutral delivery on owner loss. The native 0.04 axis shaping,
+steering gains and ordinary noise tolerance remain unchanged.
+If a native callback writes an axis and then raises an exception, even the last
+delivered cache is insufficient to describe current native state. Failed batches
+therefore retain an uncertainty flag and recover all four axes. Repeated failure
+keeps recovery pending; digital-only phases cannot report complete neutral
+cleanup. A production/JNI fault fixture covers partial forward mutation,
+fire-only cleanup rejection and a failed retry followed by successful neutral.
+
 `PlayerBeing.RotateHorizontally` PC 16 reaches the inherited `Creature` path,
 which writes the **rider's** wanted-look vector at PC 158. It does not directly
 steer the horse. `Horse.IsNewPlayerControl` checks the control flag and mounted
@@ -563,6 +579,13 @@ the native squint callback; it does not patch the native method globally.
 
 The last committed yaw compensation remains shared by camera and tracked
 hands until on-foot following resumes or recenter establishes a new baseline.
+This frozen reference is valid only for its original player generation. All
+camera, aim, hand, pelvis and weapon mappings reject a stale generation through
+the same adapter accessor. Otherwise direct player replacement could leave the
+camera using zero compensation while hands/pelvis still used the old scalar;
+mounted/unknown suppression could prolong that disagreement. The native bridge
+replacement plus actual aim/pelvis mapping has host regression coverage over
+consecutive mounted and unknown-owner frames, with a same-owner control.
 The adapter reobserves mounting after F and checks mounted state and player
 generation again before committing a queued on-foot turn after stereo restore.
 Native mount copies horse direction into the rider and changes controllers;
