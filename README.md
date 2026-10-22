@@ -2,7 +2,16 @@
   <img alt="Call of Juarez VR" src="assets/CoJ-VR.png" width="100%">
 </p>
 
-<h1 align="center">Call of Juarez VR</h1>
+<p align="center">
+  <a href="https://github.com/rubocopter/call_of_juarez_vr/releases"><img alt="Latest release, including pre-releases" src="https://img.shields.io/github/v/release/rubocopter/call_of_juarez_vr?include_prereleases&amp;style=flat-square&amp;label=release"></a>
+  <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square">
+  <img alt="VR runtime: SteamVR" src="https://img.shields.io/badge/VR-SteamVR-1a9fff?style=flat-square">
+  <a href="LICENSE"><img alt="License: GPL v3+" src="https://img.shields.io/badge/license-GPL%20v3%2B-blue?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="https://ko-fi.com/onitaku"><img alt="Support development on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
+</p>
 
 <p align="center">
   <strong>Step into the Wild West.</strong><br>
@@ -11,17 +20,14 @@
 </p>
 
 <p align="center">
-  <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange?style=flat-square">
-  <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square">
-  <img alt="Runtime: SteamVR" src="https://img.shields.io/badge/runtime-SteamVR-1b2838?style=flat-square">
-  <a href="LICENSE"><img alt="License: GPLv3+" src="https://img.shields.io/badge/code-GPLv3%2B-3A6B52?style=flat-square"></a>
-</p>
-
-<p align="center">
-  <a href="#the-experience">The experience</a> ·
-  <a href="#download-and-play">Download &amp; play</a> ·
-  <a href="#features-in-the-headset">Features</a> ·
-  <a href="#known-limitations">Limitations</a> ·
+  <a href="https://github.com/rubocopter/call_of_juarez_vr/releases"><strong>Download the VR mod →</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#download-and-play">Install</a>
+  &nbsp;·&nbsp;
+  <a href="docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls">Controls</a>
+  &nbsp;·&nbsp;
+  <a href="#known-limitations">Limitations</a>
+  &nbsp;·&nbsp;
   <a href="#documentation">Technical docs</a>
 </p>
 
@@ -192,11 +198,3 @@ The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File
 An unofficial community project, not affiliated with or endorsed by Techland, Ubisoft, Valve or Sony Interactive Entertainment. Game assets are not redistributed; the imported cartridge is [CC0](assets/models/README.md).
 
 Original project code is licensed under **[GPL-3.0-or-later](LICENSE)**. See [copyright, reuse and provenance](COPYRIGHT_AND_REUSE.md) for scope, attribution and third-party exclusions. Bundled Python, OpenVR and Microsoft VC++ runtime notices are listed in [THIRD_PARTY_NOTICES.txt](release/THIRD_PARTY_NOTICES.txt) and retain their own terms.
-
-## Support development
-
-If you would like to help fund development, [support the project on Ko-fi](https://ko-fi.com/onitaku).
-
-<p align="center">
-  <a href="https://ko-fi.com/onitaku"><img alt="Support me on Ko-fi" src="https://ko-fi.com/img/githubbutton_sm.svg"></a>
-</p>
