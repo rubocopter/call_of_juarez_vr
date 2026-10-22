@@ -34,7 +34,9 @@ decisions stand on their own evidence.
    measurements can distinguish longitudinal misalignment from spacing and
    occlusion. They do not establish skin contact or native depth coverage.
 2. **Keep the rifle rigid and acquire deliberately.** The exact native idle
-   socket is the starting reference. Preserve one map for hands/weapon/muzzle,
+   hand socket supplies anatomy; acquisition uses measured wood geometry on the
+   live weapon element, following the corrected Remington grasp. Preserve one map
+   for hands/weapon/muzzle,
    crossed-support rejection, cancellation and fresh regrip. Smooth engagement
    and virtual stock are later comfort options, contingent on physical evidence;
    do not hide ownership errors with damping or arbitrary offsets.

@@ -577,8 +577,10 @@ the original game's widgets/fonts and original main/pause routes. This is an
 implementation with host verification and scoped operator headset acceptance:
 the native options work correctly in the exercised session. Individual widget
 paths not described by that report remain unobserved.
-An additional localized VR comfort selector now controls holster guides, off by
-default; its native fit and usability remain physically unobserved. Labels follow
+An additional localized VR comfort selector controls holster guides, off by
+default; the operator accepts the exercised guides and assistance on/off.
+Unreported visual comfort, persistence and recovery remain separate gates. Labels
+follow
 the game's startup locale, with English/Spanish host coverage and English fallback.
 The shared preference store preserves version-1 cinematics, defaults turning to
 smooth, reads version-2 choices with guides off, and writes strict version 3.

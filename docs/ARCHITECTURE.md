@@ -394,8 +394,9 @@ cinematic-only editor changes preserve turning and guide choices. Native labels
 follow the game's startup locale (English/Spanish, English fallback), without a
 separate VR language selector.
 Launcher resolution profiles retain their independent startup-only transaction.
-Existing native selectors have scoped physical usability acceptance; the new
-comfort row still requires the physical gate in Validation.
+Native selector usability and exercised holster assistance on/off have scoped
+physical acceptance. Unreported comfort, persistence and interruption cases
+remain separate gates in Validation.
 See [UI research](research/COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary).
 
 ## Expanded campaign input
