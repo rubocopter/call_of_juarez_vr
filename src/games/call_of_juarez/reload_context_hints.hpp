@@ -13,7 +13,7 @@ public:
         if(!enabled||!s.enabled||!s.allowed||!s.raw.active||s.recentered||!s.player||!s.context||!s.sequence||
             !r.tracked||r.cancel||r.insert||!owner||
             out.reload_feedback.owner_token!=owner||!s.native.valid||!s.native.probe_valid||
-            s.native.probe_status!=2||s.native.reserve_readback<=0||s.native.armed_hand<0||s.native.armed_hand>1){Reset();return false;}
+            s.native.probe_status!=2||s.native.reserve_readback<0||s.native.armed_hand<0||s.native.armed_hand>1){Reset();return false;}
         const bool regression=have_&&(s.sequence<sequence_||s.now<now_);
         const bool gap=have_&&s.now>=fresh_at_&&s.now-fresh_at_>250;
         const bool changed=have_&&(owner!=owner_||prompts.binding_generation!=binding_||s.player!=player_||
@@ -37,6 +37,10 @@ public:
         const auto support=s.native.armed_hand==0?runtime::PromptAction::left_fire:runtime::PromptAction::right_fire;
         const auto label=runtime::ResolveActionPrompt(prompts,support,es);
         switch(instruction_){
+        case Instruction::empty_reserve:
+            add(es?u"Sin munición de reserva. Pulsa ":u"No reserve ammunition. Press ");
+            add(runtime::ResolveActionPrompt(prompts,runtime::PromptAction::reload,es));
+            add(es?u" para cerrar.":u" to close.");break;
         case Instruction::pickup:add(es?u"Pulsa ":u"Press ");add(label);add(es?u" junto a la cadera para coger un cartucho.":u" at your hip to take a round.");break;
         case Instruction::release_first:add(es?u"Suelta ":u"Release ");add(label);add(es?u" antes de coger otro cartucho.":u" before taking a round.");break;
         case Instruction::carry:add(es?u"Lleva el cartucho al arma; después suelta ":u"Bring the round to the gun, then release ");add(label);add(u".");break;
@@ -51,8 +55,9 @@ public:
     }
     void Reset() noexcept {have_=false;instruction_=Instruction::none;}
 private:
-    enum class Instruction {none,pickup,release_first,carry,insert,continuation};
+    enum class Instruction {none,pickup,release_first,carry,insert,continuation,empty_reserve};
     static Instruction InstructionFor(const CoJManualReloadInput& s,const CoJManualReloadOutput& r) noexcept {
+        if(s.native.reserve_readback==0)return Instruction::empty_reserve;
         const auto& g=r.gesture;
         if(g.pickup_hint.visible)return g.pickup_hint.ready?Instruction::pickup:Instruction::release_first;
         if(!g.cartridge_held||g.cartridge_hand!=1-s.native.armed_hand)return Instruction::none;

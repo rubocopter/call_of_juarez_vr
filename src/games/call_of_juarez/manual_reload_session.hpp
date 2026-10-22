@@ -112,7 +112,12 @@ public:
             (s.native.probe_status==1||s.native.probe_status==2||s.native.probe_status==3);
         out.supervise=out.tracked&&phase_!=CoJManualReloadPhase::closing;
         runtime::MotionReloadGestureInput gesture{};
-        gesture.valid=gesture.eligible=out.tracked&&phase_==CoJManualReloadPhase::manual_load;
+        // Reserve is a fresh native observation, never a VR ammunition replica.
+        // Keep the native waiting/close route supervised, but withdraw any
+        // cartridge offer/carry when no native round remains to transfer.
+        const bool round_available=s.native.valid&&s.native.reserve_readback>0;
+        if(!round_available)replenish_=false;
+        gesture.valid=gesture.eligible=out.tracked&&phase_==CoJManualReloadPhase::manual_load&&round_available;
         gesture.player_identity=player_;gesture.weapon_identity=weapon_;
         gesture.armed_hand=static_cast<std::uint8_t>(hand_);
         gesture.head=s.head;gesture.left_grip=s.left;gesture.right_grip=s.right;

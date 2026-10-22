@@ -18,6 +18,21 @@ struct Fixture {
 };
 }
 int main(){
+    Fixture empty;empty.s.native.reserve_readback=0;
+    (void)SetActionPromptLabel(empty.labels,PromptAction::reload,"Reload Button");
+    auto empty_out=empty.Frame();
+    Check(empty.Draw(empty_out)&&empty_out.reload_instruction&&
+        empty_out.text.interaction.view()==u"No reserve ammunition. Press Reload Button to close.",
+        "empty reserve needs a bounded instruction using the reload binding");
+    Check(!empty.r.insert&&!empty.r.cancel&&!empty.r.gesture.cartridge_held,
+        "empty reserve instruction changed native or gesture authority");
+    empty.Step();auto empty_es=empty.Frame();
+    Check(empty.hints.Append(empty.s,empty.r,17,empty.labels,CoJUiLanguage::spanish,true,empty_es)&&
+        empty_es.text.interaction.view()==u"Sin munición de reserva. Pulsa Reload Button para cerrar.",
+        "empty reserve closing instruction was not localized");
+    empty.s.native.reserve_readback=2;empty.Step();auto replenished=empty.Frame();
+    Check(empty.Draw(replenished)&&replenished.text.interaction.view().find(u"Left Trigger")!=std::u16string_view::npos,
+        "reserve recovery retained the empty closing instruction");
     Fixture f;auto out=f.Frame();Check(f.Draw(out)&&out.reload_instruction&&out.text.interaction.view().find(u"Left Trigger")!=std::u16string_view::npos,"pickup instruction needs actual reported support binding");
     Check(out.text.controller_prompt_generation==5&&!f.r.insert&&!f.r.gesture.cartridge_held,"instruction cannot grant a cartridge or insertion");
     for(int i=0;i<151;++i){f.Step();out=f.Frame();(void)f.Draw(out);}
@@ -29,7 +44,7 @@ int main(){
     f.s.raw.fire_left=true;f.Step();out=f.Frame();Check(f.Draw(out)&&out.text.interaction.view().find(u"Release")!=std::u16string_view::npos,"unreleased continuation must not suggest a fresh press");
     for(int reason=0;reason<9;++reason){Fixture x;out=x.Frame();
         if(reason==0)x.r.tracked=false;if(reason==1)x.r.cancel=true;if(reason==2)x.r.insert=true;
-        if(reason==3)x.s.native.probe_status=3;if(reason==4)x.s.native.reserve_readback=0;
+        if(reason==3)x.s.native.probe_status=3;if(reason==4)x.s.native.reserve_readback=-1;
         if(reason==5)out.reload_feedback.owner_token=18;
         if(reason==6){out.text.hint.length=1;out.text.hint.characters[0]=u'N';}
         if(reason==7){out.text.interaction.length=1;out.text.interaction.characters[0]=u'N';}

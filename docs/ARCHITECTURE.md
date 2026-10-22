@@ -757,6 +757,16 @@ generation and the observed weapon. Loss invalidates a prior released baseline;
 held Square cannot open a recovered session until a fresh available release.
 Discharging the existing physical claim remains possible after disabling manual
 reload, so the conventional path can recover. This strengthening is host-tested.
+Manual cartridge offers/carries additionally require a positive current native
+reserve observation. Empty/invalid reserve withdraws the gesture and continuation
+token while preserving native waiting/close supervision and physical release
+claims; reserve recovery cannot rearm an already-held pickup trigger. Native
+waiting at zero reserve can show a bounded EN/ES close instruction under the
+existing guide preference, using the current reload binding. Native text,
+owner/phase/binding invalidation and expiry keep their original priority.
+Native heartbeat/insertion helper results are published only if the original player
+and generation survive lookup/callback and no JNI exception remains. A Boolean
+success followed by owner loss or an exception grants no insertion feedback.
 Continuation cartridges belong to one manual session. Direct native completion
 to status 0/4, failed start and fresh preparation clear any pending continuation;
 a new session cannot inherit the previous session's token. A synchronous native

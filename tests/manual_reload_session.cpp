@@ -14,6 +14,7 @@ struct Fixture{
         s.admission={0,42,true,true};s.recovery=s.admission;
         s.head=At({0,1.6F,0});s.left=At({-.2F,1.05F,-.1F});s.right=At({.2F,1.35F,-.35F});
         s.native.valid=s.native.probe_valid=true;s.native.weapon_id=42;s.native.armed_hand=0;s.native.states[0]={1,1,1,1};
+        s.native.reserve_readback=10;
     }
     CoJManualReloadOutput Poll(){++s.sequence;s.now+=50;mapped=s.raw;return session.Update(mapped,s);}
     void Open(){(void)Poll();s.raw.reload=true;auto out=Poll();Check(out.start,"Square must prepare");
@@ -35,6 +36,26 @@ struct Fixture{
     CoJManualReloadOutput Insert(){Carry(s.left,s.right);s.raw.fire_left=false;return Poll();}
 };
 int main(){
+    // A visible round is an interaction offer, not inventory. Do not offer or
+    // insert one when the current native waiting snapshot has no reserve.
+    for(const int reserve:{0,-1}){
+        Fixture empty;empty.Open();empty.s.native.reserve_readback=reserve;
+        (void)empty.Poll();empty.s.raw.fire_left=true;
+        auto out=empty.Poll();
+        Check(out.tracked&&out.supervise&&!out.gesture.cartridge_held&&!out.insert&&
+            !out.gesture.pickup_hint.visible&&!empty.mapped.fire_left,
+            "empty reserve offered a physical cartridge or released the manual trigger claim");
+        empty.s.native.reserve_readback=2;
+        Check(!empty.Poll().gesture.cartridge_held,"reserve recovery rearmed a held pickup trigger");
+        empty.s.raw.fire_left=false;(void)empty.Poll();empty.s.raw.fire_left=true;
+        Check(empty.Poll().gesture.cartridge_held,"fresh pickup failed after native reserve recovery");
+        empty.s.native.reserve_readback=0;
+        out=empty.Poll();
+        Check(!out.gesture.cartridge_held&&!out.insert&&!empty.mapped.fire_left,
+            "reserve loss retained a carried cartridge or let its trigger fire");
+        empty.s.raw.fire_left=false;
+        Check(!empty.Poll().insert,"release after reserve loss requested a native insertion");
+    }
     // Native completion may skip the observed closing sample (e.g. the last
     // unit fills the gun). A continuation token belongs only to that session.
     for(const auto finished:{0,4}){

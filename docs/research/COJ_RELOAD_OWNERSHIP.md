@@ -48,6 +48,20 @@ New profiles do not acquire measured loading-mouth geometry, a port writer,
 ejection, chamber occupancy or an exact-calibre cartridge model. The existing
 grip-zone presentation/gesture and scoped thumb feedback are reused only after
 native-confirmed unit loading.
+Current native reserve must be positive before the persistent session offers or
+carries a cartridge. Reserve loss withdraws presentation and any continuation
+token; native waiting/close supervision and the original physical trigger claim
+remain active. A replenished native reserve does not authorize a held trigger:
+fresh release is still required. This consumes existing exact-profile readback,
+with no reserve replica, transfer, refund or automatic close added by VR.
+If native waiting continues at zero reserve, optional coaching explains how to
+close with the current reload action label. The existing three-second lifetime,
+guide opt-in, owner/binding checks and native-text priority remain authoritative.
+Negative/invalid readback cannot present that instruction.
+The bridge brackets native heartbeat/insertion helper lookup and execution with
+the same player and generation. It exposes success only after draining/checking
+JNI exceptions; a stale owner or success followed by an exception produces no
+accepted insertion. Fault injection qualifies host behavior only.
 
 ### Unimplemented families: original-archive reload contracts
 

@@ -27,6 +27,7 @@ struct Fixture {
         input.right=At(armed==0?Vec3{.2F,1.35F,-.35F}:Vec3{.2F,1.05F,-.1F});
         input.left=At(armed==1?Vec3{-.2F,1.35F,-.35F}:Vec3{-.2F,1.05F,-.1F});
         input.native.valid=input.native.probe_valid=true;input.native.weapon_id=42;
+        input.native.reserve_readback=10;
         input.native.armed_hand=armed;input.native.states[armed]={1,1,1,1};
     }
     bool& Trigger(){return input.native.armed_hand==0?input.raw.fire_left:input.raw.fire_right;}

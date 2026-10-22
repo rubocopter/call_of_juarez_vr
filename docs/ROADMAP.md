@@ -13,6 +13,8 @@ copied hints and optional brief manual-reload instructions under the existing
 default-off weapon-guide preference. Input metadata is bounded and invalidated;
 native text retains priority and queued instructions require current ownership
 and expiry. Binding labels and coaching are implemented/host-tested;
+zero-reserve native waiting additionally offers a brief localized close hint
+using the current reload binding, without authoring a close command.
 native SteamVR metadata and physical presentation remain unqualified.
 These changes do not expand weapon admission or alter the published .5 package.
 The held-Options quick cinematic editor is removed from current source; native
@@ -254,6 +256,13 @@ Immediate work, in order:
    ownership/availability loss and conventional recovery after disable are
    strengthened and host-tested. Qualified zone-entry feedback is host-tested;
    native insertion retains its stronger independently gated pulse.
+   Empty native reserve now withdraws offered/carried cartridges and continuation
+   tokens without changing native close or discarding release claims. Native
+   waiting at zero reserve also receives an optional localized close hint under
+   the same guide setting and existing owner/expiry gates. Native
+   heartbeat/insertion callbacks also reject replaced-player generations and
+   success values accompanied by JNI exceptions. Both have offline regressions;
+   they do not qualify new weapon profiles or physical presentation.
    Direct native completion/fresh opening clear old continuation tokens, and
    synchronous failed insertions yield presentation/supervision with accurate
    cancellation reasons; these corrections are implemented/host-tested.

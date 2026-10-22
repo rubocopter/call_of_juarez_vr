@@ -1739,6 +1739,12 @@ bool JavaPlayerBridge::TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
 bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error) noexcept {
     result=false;
     if(!being_)return false;
+    void* const player=being_;
+    const auto generation=being_generation_;
+    const auto same_owner=[&]() noexcept {
+        if(being_==player&&being_generation_==generation)return true;
+        SetError(error,"manual reload player changed during native helper");return false;
+    };
     void* env=Environment(error);
     constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
         kGetObjectClass,kGetMethodId,kCallBooleanMethodA};
@@ -1748,14 +1754,15 @@ bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std
     const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
     const auto lookup=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
     const auto call=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
-    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual reload entry"))return false;
-    void* cls=cls_fn(env,being_);
+    if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual reload entry")||!same_owner())return false;
+    void* cls=cls_fn(env,player);
     if(ClearException(env,error,"manual reload class")||!cls){DeleteLocal(env,cls);return false;}
     void* method=lookup(env,cls,name,"()Z");
     const bool failed=ClearException(env,error,"manual reload helper unavailable")||!method;
-    DeleteLocal(env,cls);if(failed)return false;
-    result=call(env,being_,method,nullptr)!=0;
-    return !ClearException(env,error,"manual reload helper failed");
+    DeleteLocal(env,cls);if(failed||!same_owner())return false;
+    const bool accepted=call(env,player,method,nullptr)!=0;
+    if(ClearException(env,error,"manual reload helper failed")||!same_owner())return false;
+    result=accepted;return true;
 }
 
 bool JavaPlayerBridge::TryKeepManualReloadAlive(std::string* error) noexcept {

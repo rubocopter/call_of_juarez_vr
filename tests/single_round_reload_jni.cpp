@@ -243,10 +243,13 @@ namespace {
 bool manual_result=true;
 int manual_calls=0, manual_cancels=0;
 JavaPlayerBridge* manual_scoped_owner=nullptr;
+JavaPlayerBridge* manual_fault_owner=nullptr;
+int manual_callback_fault=0;
 void* JNI_CALL ManualLookup(void* env,void* cls,const char* name,const char* signature){
     if(std::string_view(name).starts_with("cojvr")){
         if(Fail()||(fail_lookup&&!std::strcmp(name,fail_lookup))){pending=!null_failure;return nullptr;}
         Require(!std::strcmp(signature,!std::strcmp(name,"cojvrCancelReloadProbe")?"()V":"()Z"),"wrong manual descriptor");
+        if(manual_fault_owner&&manual_callback_fault==4)++manual_fault_owner->being_generation_;
         return const_cast<char*>(name);
     }
     return TicketLookup(env,cls,name,signature);
@@ -255,7 +258,11 @@ std::uint8_t JNI_CALL ManualBoolean(void* env,void* object,void* method,const Va
     if(!std::string_view(static_cast<char*>(method)).starts_with("cojvr"))return Boolean(env,object,method,args);
     Require(object==&player&&!args,"manual helper has wrong owner/arguments");
     if(Fail())return 0;
-    ++manual_calls;return manual_result;
+    ++manual_calls;
+    if(manual_fault_owner&&manual_callback_fault==1)manual_fault_owner->being_=&replacement;
+    if(manual_fault_owner&&manual_callback_fault==2)++manual_fault_owner->being_generation_;
+    if(manual_callback_fault==3)pending=true;
+    return manual_result;
 }
 void JNI_CALL ManualVoid(void*,void* object,void* method,const Value* args){
     Require(object==&player&&!args&&!std::strcmp(static_cast<char*>(method),"cojvrCancelReloadProbe"),"wrong manual cancel call");
@@ -266,6 +273,7 @@ void JNI_CALL ManualVoid(void*,void* object,void* method,const Value* args){
     }
 }
 void ManualReset(JavaPlayerBridge& bridge){TicketReset(bridge);bridge.manual_reload_owned_=false;
+    manual_fault_owner=nullptr;manual_callback_fault=0;
     manual_result=true;manual_calls=manual_cancels=0;Set(33,ManualLookup);Set(39,ManualBoolean);Set(63,ManualVoid);}
 void ManualReloadJniTests(JavaPlayerBridge& bridge){
     ManualReset(bridge);std::string error;
@@ -277,6 +285,16 @@ void ManualReloadJniTests(JavaPlayerBridge& bridge){
     Require(bridge.TryInsertManualRound(accepted)&&accepted&&bridge.manual_reload_owned_,"manual native result not propagated");
     manual_result=false;Require(bridge.TryInsertManualRound(accepted)&&!accepted,"native rejection reported as accepted");
     Require(bridge.TryApplyGameplayInput({})&&!bridge.manual_reload_owned_&&manual_cancels==1,"inactive input did not cancel manual owner");
+    for(int fault=1;fault<=4;++fault){
+        ManualReset(bridge);manual_fault_owner=&bridge;manual_callback_fault=fault;
+        Require(!bridge.TryKeepManualReloadAlive()&&!bridge.manual_reload_owned_&&refs==0&&!pending,
+            "manual heartbeat credited a replaced owner or an exception after native success");
+        if(fault==4)Require(manual_calls==0,"manual callback ran after its lookup changed the owner generation");
+        ManualReset(bridge);bridge.NoteManualReloadRequest();manual_fault_owner=&bridge;manual_callback_fault=fault;
+        accepted=true;
+        Require(!bridge.TryInsertManualRound(accepted)&&!accepted&&refs==0&&!pending,
+            "manual insertion credited a replaced owner or retained success after a JNI exception");
+    }
     for(int operation=1;operation<=operations;++operation){
         ManualReset(bridge);fail_step=operation;
         Require(!bridge.TryKeepManualReloadAlive()&&!bridge.manual_reload_owned_&&refs==0&&!pending,"manual heartbeat fault leaked/published ownership");

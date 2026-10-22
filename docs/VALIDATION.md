@@ -268,6 +268,17 @@ evidence. The already archived rejection is preserved.
 
 ## Pending headset checks
 
+The later manual-reload source batch host-tests empty/invalid native reserve
+withdrawal of cartridge offers/carries and retained trigger-release barriers.
+An optional brief EN/ES zero-reserve close hint uses the reported reload binding
+with the existing guide, owner, expiry and native-text priority guards; its
+physical readability remains unqualified.
+It also injects player/generation changes and post-success JNI exceptions in
+native heartbeat/insertion helpers; no stale Boolean success is credited.
+Native ammunition, close callbacks and profile admission stay authoritative.
+Physical presentation/recovery remains unqualified for these corrections; when
+reserve naturally runs out, check that no extra cartridge or shot is offered.
+
 The mounted offline audit also host-tests neutral recovery after a partial
 native analog exception and rejects digital-only acknowledgement of pending
 movement recovery. A direct player replacement regression compares actual aim
