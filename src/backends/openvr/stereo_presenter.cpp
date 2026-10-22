@@ -44,97 +44,6 @@ namespace {
 
 using Microsoft::WRL::ComPtr;
 
-// A separate, non-interactive OpenVR surface keeps settings legible in flat
-// menus and repeated scene frames without modifying game textures or UI rays.
-class SettingsOverlay final {
-public:
-    SettingsOverlay(PresenterLogCallback log=nullptr,void* context=nullptr) noexcept
-        : log_(log),log_context_(context) {}
-    bool Prepare(vr::IVROverlay* api) noexcept {
-        overlay_=api;
-        if(!overlay_)return Fail("VROverlay",vr::VROverlayError_None,E_POINTER);
-        char key[64]{};
-        std::snprintf(key,sizeof(key),"cojvr.settings.%lu",GetCurrentProcessId());
-        if(!Check("CreateOverlay",overlay_->CreateOverlay(key,"Call of Juarez VR Settings",&handle_)))return false;
-        vr::HmdMatrix34_t transform{};
-        transform.m[0][0]=transform.m[1][1]=transform.m[2][2]=1.F;
-        transform.m[2][3]=-1.5F;
-        if(!Check("SetOverlayTransformTrackedDeviceRelative",overlay_->SetOverlayTransformTrackedDeviceRelative(handle_,vr::k_unTrackedDeviceIndex_Hmd,&transform))||
-            !Check("SetOverlayWidthInMeters",overlay_->SetOverlayWidthInMeters(handle_,1.25F))||
-            !Check("SetOverlayInputMethod",overlay_->SetOverlayInputMethod(handle_,vr::VROverlayInputMethod_None))){Reset();return false;}
-        return true;
-    }
-    bool Draw(ID3D11Device* device,const runtime::HudText& text) noexcept {
-        if(!overlay_||handle_==vr::k_ulOverlayHandleInvalid||!device)
-            return Fail("Draw_owner",vr::VROverlayError_None,E_POINTER,device);
-        if(!image_.Update(device,text)){
-            const auto& status=image_.status();
-            return Fail(status.stage,vr::VROverlayError_None,status.hr,device);
-        }
-        if(!image_.texture())return Fail("empty_texture",vr::VROverlayError_None,E_INVALIDARG,device);
-        if(texture_.Get()!=image_.texture()){
-            const vr::Texture_t image{image_.texture(),vr::TextureType_DirectX,vr::ColorSpace_Auto};
-            if(!Check("SetOverlayTexture",overlay_->SetOverlayTexture(handle_,&image),device))return false;
-            // Retain the old submitted image until SetOverlayTexture accepts
-            // its successor. Never modify a compositor-owned image in place.
-            texture_=image_.texture();
-        }
-        if(!Check("ShowOverlay",overlay_->ShowOverlay(handle_),device))return false;
-        visible_=true;
-        return true;
-    }
-    void Hide() noexcept {
-        if(overlay_&&handle_!=vr::k_ulOverlayHandleInvalid&&(visible_||texture_)){
-            if(Check("HideOverlay",overlay_->HideOverlay(handle_)))visible_=false;
-            if(Check("ClearOverlayTexture",overlay_->ClearOverlayTexture(handle_))){
-                texture_.Reset();image_.Reset();
-            }
-        }
-    }
-    void Reset() noexcept {
-        Hide();
-        if(overlay_&&handle_!=vr::k_ulOverlayHandleInvalid)
-            (void)Check("DestroyOverlay",overlay_->DestroyOverlay(handle_));
-        handle_=vr::k_ulOverlayHandleInvalid;overlay_=nullptr;visible_=false;texture_.Reset();image_.Reset();
-    }
-private:
-    bool Check(const char* stage,vr::EVROverlayError error,ID3D11Device* device=nullptr) noexcept {
-        return error==vr::VROverlayError_None||Fail(stage,error,S_OK,device);
-    }
-    bool Fail(const char* stage,vr::EVROverlayError error,HRESULT hr,ID3D11Device* device=nullptr) noexcept {
-        // Bound all setup/draw/cleanup diagnostics per presenter session.
-        if(!log_||errors_>=8)return false;
-        ++errors_;
-        try {
-            auto desc=image_.status().description;
-            if(image_.texture())image_.texture()->GetDesc(&desc);
-            ComPtr<IDXGIDevice> dxgi;ComPtr<IDXGIAdapter> adapter;DXGI_ADAPTER_DESC identity{};
-            HRESULT adapter_hr=device?device->QueryInterface(IID_PPV_ARGS(&dxgi)):E_POINTER;
-            if(SUCCEEDED(adapter_hr))adapter_hr=dxgi->GetAdapter(&adapter);
-            if(SUCCEEDED(adapter_hr))adapter_hr=adapter->GetDesc(&identity);
-            const char* name=overlay_?overlay_->GetOverlayErrorNameFromEnum(error):"unavailable";
-            std::ostringstream line;
-            line<<"vr_settings_overlay: status=failed;stage="<<stage<<";openvr_error="<<static_cast<int>(error)
-                <<";openvr_name="<<(name?name:"unknown")<<";hresult=0x"<<std::hex<<static_cast<unsigned long>(hr)
-                <<";device="<<device<<";adapter_hresult=0x"<<static_cast<unsigned long>(adapter_hr)
-                <<";adapter_luid="<<static_cast<unsigned long>(identity.AdapterLuid.HighPart)<<":"<<identity.AdapterLuid.LowPart
-                <<";vendor=0x"<<identity.VendorId<<";device_id=0x"<<identity.DeviceId<<std::dec
-                <<";format="<<desc.Format<<";size="<<desc.Width<<"x"<<desc.Height
-                <<";usage="<<desc.Usage<<";bind="<<desc.BindFlags<<";misc="<<desc.MiscFlags;
-            log_(log_context_,line.str());
-        }catch(...){}
-        return false;
-    }
-    PresenterLogCallback log_=nullptr;
-    void* log_context_=nullptr;
-    unsigned errors_=0;
-    bool visible_=false;
-    vr::IVROverlay* overlay_=nullptr;
-    vr::VROverlayHandle_t handle_=vr::k_ulOverlayHandleInvalid;
-    SettingsTextTexture image_;
-    ComPtr<ID3D11Texture2D> texture_;
-};
-
 double MillisecondsBetween(
     const std::chrono::steady_clock::time_point begin,
     const std::chrono::steady_clock::time_point end) noexcept {
@@ -221,8 +130,8 @@ struct OpenVrStereoPresenter::Impl {
     std::array<runtime::EyeView, 2> eyes{};
     HudTextCompositor hud_text_compositor;
     std::atomic_uint64_t settings_context{0};
-    std::atomic<runtime::SettingsLanguage> settings_language{runtime::SettingsLanguage::english};
-    bool latest_settings_active=false,latest_settings_capture=true;
+    bool latest_settings_capture=true;
+    std::uint64_t latest_ui_context_token=0;
 
     mutable std::mutex tracking_mutex;
     runtime::Pose latest_pose{};
@@ -984,16 +893,10 @@ struct OpenVrStereoPresenter::Impl {
         runtime::OpenVrRuntime runtime;
         D3D11SessionBridge d3d11;
         D3D9SharedTextureBridge shared_bridge;
-        runtime::VrSettingsMenu settings_menu;
-        SettingsOverlay settings_overlay{[](void* owner,std::string_view line) noexcept {
-            static_cast<Impl*>(owner)->Log(line);
-        },this};
-        bool settings_overlay_ready=false,settings_save_failed=false;
-        std::uint32_t settings_save_error=0;
+        runtime::VrInputReleaseGate input_release_gate;
         const auto settings_path=runtime::DefaultVrSettingsPath();
         auto& preference_store=runtime::SharedVrPreferences();
         const auto loaded_settings=preference_store.Initialize(settings_path);
-        settings_menu.SetMode(loaded_settings.values.cinematics);
         runtime::PublishSettingsInputCapture(true);
         std::array<ComPtr<ID3D11Texture2D>, 2> textures{};
         std::uint32_t texture_width = 0;
@@ -1179,9 +1082,7 @@ struct OpenVrStereoPresenter::Impl {
             }
 
             running.store(true, std::memory_order_release);
-            settings_overlay_ready=settings_overlay.Prepare(vr::VROverlay());
-            Log(std::string("vr_settings: status=")+(settings_overlay_ready?"ready":"overlay_unavailable")+
-                ";activation=Options_hold_1000ms;pause=short_release;config_load="+
+            Log(std::string("vr_settings: editor=native_options;pause=fresh_press;config_load=")+
                 std::to_string(static_cast<int>(loaded_settings.load_status))+";error="+std::to_string(loaded_settings.load_error));
             const float initial_refresh = runtime.ReadDisplayFrequency();
             display_frequency_hz.store(
@@ -1322,7 +1223,7 @@ struct OpenVrStereoPresenter::Impl {
                                     d3d9::FramePresentationMode::native_stereo;
                             auxiliary_available = actions.recenter_active && runtime_state.focused &&
                                 !dashboard_visible && tracked_poses.hmd.orientation_valid &&
-                                tracked_poses.hmd.position_valid && !settings_menu.input_captured() && !actions.pause;
+                                tracked_poses.hmd.position_valid && !input_release_gate.input_captured() && !actions.pause;
                             const auto auxiliary=create_gesture.Update(
                                 auxiliary_available,
                                 actions.recenter_held, GetTickCount64(),
@@ -1442,7 +1343,7 @@ struct OpenVrStereoPresenter::Impl {
                     const bool raw_ui_actions_allowed = input_polled && runtime_state.focused &&
                         !dashboard_visible && tracked_poses.hmd.position_valid &&
                         tracked_poses.hmd.orientation_valid;
-                    runtime::SettingsMenuInput settings_input{};
+                    runtime::UiReleaseInput settings_input{};
                     settings_input.available=raw_ui_actions_allowed;
                     settings_input.global_available=static_cast<std::uint16_t>(
                         (actions.pause_active?1U:0U)|(actions.ui_accept_active?2U:0U)|(actions.ui_back_active?4U:0U)|
@@ -1455,41 +1356,11 @@ struct OpenVrStereoPresenter::Impl {
                     settings_input.auxiliary=actions.recenter_held;
                     settings_input.shoulder_left=actions.ui_pointer_left;settings_input.shoulder_right=actions.ui_pointer_right;
                     settings_input.gameplay=polled_gameplay;
-                    const auto preference_snapshot=preference_store.Read();
-                    settings_menu.SetMode(preference_snapshot.values.cinematics);
-                    settings_save_failed=preference_snapshot.save_failed;
-                    settings_save_error=preference_snapshot.save_error;
-                    const auto previous_settings_mode=settings_menu.mode();
-                    auto settings_result=settings_menu.Update(settings_input);
-                    if(settings_result.active){
-                        const auto text=runtime::BuildVrSettingsText(settings_menu.mode(),settings_language.load(std::memory_order_acquire),
-                            settings_save_failed,settings_menu.awaiting_release(),settings_save_error);
-                        if(!settings_overlay_ready||!settings_overlay.Draw(d3d11.device(),text)){
-                            settings_overlay.Hide();
-                            settings_menu.SetMode(previous_settings_mode);settings_menu.Invalidate();
-                            settings_result.active=false;settings_result.input_captured=true;settings_result.mode_changed=false;
-                            Log("vr_settings: status=closed;reason=overlay_failed");
-                        }
-                    }else settings_overlay.Hide();
-                    // Publish/persist only after the proposed panel was accepted
-                    // by both texture submission and ShowOverlay. Failed draws
-                    // roll back selection and retain only the release barrier.
-                    if(settings_result.mode_changed){
-                        const auto saved=preference_store.ApplyCinematics(settings_result.requested_mode,
-                            preference_snapshot.revision);
-                        settings_menu.SetMode(saved.snapshot.values.cinematics);
-                        settings_save_failed=saved.snapshot.save_failed;
-                        settings_save_error=saved.snapshot.save_error;
-                        Log(std::string("vr_settings: status=changed;cinematics=")+
-                            (settings_result.requested_mode==runtime::CinematicsMode::immersive?"immersive":"theater")+
-                            ";saved="+(saved.saved?"true":"false")+
-                            ";accepted="+(saved.accepted?"true":"false")+
-                            ";conflict="+(saved.conflict?"true":"false")+";error="+std::to_string(saved.error_code));
-                    }
+                    const auto settings_result=input_release_gate.Update(settings_input);
                     runtime::PublishSettingsInputCapture(settings_result.input_captured);
                     const bool ui_actions_allowed=raw_ui_actions_allowed&&!settings_result.input_captured;
-                    // Own every menu control, including Create, wheel and both
-                    // native-pointer triggers, from the initial Options press.
+                    // Only unavailable/changed input owns this release fence.
+                    // Options itself is forwarded immediately on a fresh press.
                     actions.pause_pressed=settings_result.native_pause;
                     if(settings_result.input_captured){
                         gameplay={};recenter=objectives=auxiliary_available=false;
@@ -1668,7 +1539,7 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     {
                         std::lock_guard lock(tracking_mutex);
-                        latest_settings_active=settings_result.active;
+                        latest_ui_context_token=settings_input.context_token;
                         latest_settings_capture=settings_result.input_captured;
                         if(settings_result.input_captured)recenter_pending=false;
                         latest_pose = tracked_poses.hmd;
@@ -1754,14 +1625,14 @@ struct OpenVrStereoPresenter::Impl {
                     }
                     ++pose_updates;
                 } else {
-                    settings_menu.Invalidate();settings_overlay.Hide();runtime::PublishSettingsInputCapture(true);
+                    input_release_gate.Invalidate();runtime::PublishSettingsInputCapture(true);
                     runtime.InvalidateActionEdges();
                     (void)create_gesture.Update(false,false,GetTickCount64());
                     pointer_ownership.Suspend();
                     flat_ui_pointer = {};
                     PublishFlatUiPointer(flat_ui_pointer);
                     std::lock_guard lock(tracking_mutex);
-                    latest_settings_active=false;latest_settings_capture=true;recenter_pending=false;
+                    latest_settings_capture=true;latest_ui_context_token=0;recenter_pending=false;
                     latest_gameplay = {};
                     objectives_pending.Observe(false,false,false);
                     latest_left_fingers = {};
@@ -2351,7 +2222,6 @@ struct OpenVrStereoPresenter::Impl {
             Log(summary.str());
         }
         for (auto& texture : textures) texture.Reset();
-        settings_overlay.Reset();
         runtime::PublishSettingsInputCapture(false);
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
         hud_text_compositor.Reset();
@@ -2390,9 +2260,6 @@ OpenVrStereoPresenter::~OpenVrStereoPresenter() { Stop(); }
 
 void OpenVrStereoPresenter::PublishSettingsContext(std::uint64_t token,bool available) noexcept {
     impl_->settings_context.store(available?token:0,std::memory_order_release);
-}
-void OpenVrStereoPresenter::PublishSettingsLanguage(runtime::SettingsLanguage language) noexcept {
-    impl_->settings_language.store(language,std::memory_order_release);
 }
 
 void OpenVrStereoPresenter::PublishGameplayFeedbackContext(bool available) noexcept {
@@ -2469,7 +2336,8 @@ bool OpenVrStereoPresenter::Start(
             impl_->latest_left_aim_active = false;
             impl_->latest_right_aim_active = false;
             impl_->latest_gameplay = {};
-            impl_->latest_settings_active=false;impl_->latest_settings_capture=true;
+            impl_->latest_settings_capture=true;
+            impl_->latest_ui_context_token=0;
             impl_->latest_left_fingers = {};
             impl_->latest_right_fingers = {};
             impl_->gameplay_context_generation = 0;
@@ -2606,7 +2474,7 @@ bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcep
         sample.ui_back_pressed = impl_->ui_back_pressed_pending;
         sample.pause_pressed = impl_->pause_pressed_pending;
         sample.ui_actions_allowed = impl_->latest_ui_actions_allowed;
-        sample.vr_settings_active=impl_->latest_settings_active;
+        sample.ui_context_token=impl_->latest_ui_context_token;
         sample.vr_settings_input_captured=impl_->latest_settings_capture;
         impl_->recenter_pending = false;
         impl_->ui_select_left_pressed_pending = false;

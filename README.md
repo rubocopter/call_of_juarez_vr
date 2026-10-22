@@ -131,11 +131,11 @@ Current PS VR2 Sense defaults:
 | Square / Cross / Circle | Reload / jump / alternate fire |
 | Hold Triangle | Equipment wheel; select with right stick and release to confirm |
 | Create tap / hold 800 ms | Objectives / recenter |
-| Options tap / hold 1 s | Pause on release / VR settings |
+| Options | Pause on a fresh press; native movie skip when permitted |
 
-PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. For manual reload with an eligible revolver and empty support hand: **press Square to open → press/hold the free-hand trigger at your hip to grab a round → bring it to the gun and release → press Square to close**. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
+PS VR2 Sense default bindings for current development source. The held-Options quick panel has been removed; the published prealpha.5 package retains its earlier tap/hold behavior. For manual reload with an eligible revolver and empty support hand: **press Square to open → press/hold the free-hand trigger at your hip to grab a round → bring it to the gun and release → press Square to close**. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
 
-**Options > Game** exposes cinematic presentation, smooth/snap turning and weapon guides. These settings share saved preferences with the held-Options VR panel; guides default off.
+**Options > Game** exposes cinematic presentation, smooth/snap turning and weapon guides, preserving saved preferences. Guides default off. Current source routes fresh Options/Circle/Cross or trigger selection to the game's own skip consumer during immersive cinematics; native skip restrictions remain authoritative and physical verification is pending.
 
 **Bow:** aim with the left hand, bring the right hand to the string, freshly hold R2, draw back and release R2 to shoot. **Bimanual long guns:** with an idle right-held Remington, Winchester or SawOff and an empty left hand, freshly hold L1 near the wooden fore-end; release L1 to detach. Enable guides to locate contact. Square cancels support for native reload. Scoped Winchester is excluded.
 

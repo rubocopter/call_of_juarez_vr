@@ -77,7 +77,7 @@ private:
 };
 [[nodiscard]] VrPreferenceStore& SharedVrPreferences() noexcept;
 
-struct SettingsMenuInput {
+struct UiReleaseInput {
     bool available = false; // focus, tracking, polling and game context
     // Bit order follows the held fields below. Missing bindings are distinct
     // from observed releases, and do not freeze an otherwise neutral baseline.
@@ -89,34 +89,19 @@ struct SettingsMenuInput {
     bool auxiliary = false, shoulder_left = false, shoulder_right = false;
     GameplayInputState gameplay{}; // raw, before wheel/native policy
 };
-struct SettingsMenuResult {
-    bool active = false, input_captured = false, native_pause = false;
-    bool mode_changed = false;
-    CinematicsMode requested_mode = CinematicsMode::theater;
-};
-// Presenter owner only. All other threads read the atomic API above.
-class VrSettingsMenu final {
+struct UiReleaseResult { bool input_captured=true,native_pause=false; };
+// Presenter-owned availability fence only. Options is a fresh press; holding
+// it never opens an editor or changes preferences. Native Options owns editing.
+class VrInputReleaseGate final {
 public:
-    [[nodiscard]] SettingsMenuResult Update(const SettingsMenuInput& input) noexcept;
+    [[nodiscard]] UiReleaseResult Update(const UiReleaseInput& input) noexcept;
     void Invalidate() noexcept;
-    void SetMode(CinematicsMode mode) noexcept {
-        mode_ = mode == CinematicsMode::immersive ? mode : CinematicsMode::theater;
-    }
-    [[nodiscard]] CinematicsMode mode() const noexcept { return mode_; }
-    [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] bool input_captured() const noexcept { return capture_; }
-    [[nodiscard]] bool awaiting_release() const noexcept { return barrier_; }
 private:
-    CinematicsMode mode_ = CinematicsMode::theater;
-    bool active_ = false, capture_ = true, barrier_ = true;
-    bool options_armed_ = false, options_down_ = false;
-    bool accept_down_ = false, back_down_ = false, stick_armed_ = false;
-    bool have_time_ = false;
-    std::uint64_t context_ = 0, last_ms_ = 0, started_ms_ = 0;
-    std::uint32_t digital_release_mask_ = 0;
-    std::uint16_t global_release_mask_ = 0,previous_global_available_ = 0;
+    bool capture_=true,barrier_=true,options_armed_=false,options_down_=false,have_time_=false;
+    std::uint64_t context_=0,last_ms_=0;
+    std::uint32_t digital_release_mask_=0;
+    std::uint16_t global_release_mask_=0,previous_global_available_=0;
     bool radial_release_required_=false,move_release_required_=false,turn_release_required_=false;
 };
-[[nodiscard]] HudText BuildVrSettingsText(CinematicsMode mode, SettingsLanguage language,
-    bool save_failed, bool awaiting_release, std::uint32_t save_error = 0) noexcept;
 }

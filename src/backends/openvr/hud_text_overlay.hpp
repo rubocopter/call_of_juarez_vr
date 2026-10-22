@@ -24,26 +24,6 @@ private:
     bool compact_ = false;
 };
 
-// Independent settings surface; never consumes a native HUD compositor slot.
-struct SettingsTextureStatus {
-    const char* stage = "idle";
-    HRESULT hr = S_OK;
-    D3D11_TEXTURE2D_DESC description{};
-};
-class SettingsTextTexture final {
-public:
-    SettingsTextTexture();
-    ~SettingsTextTexture();
-    [[nodiscard]] bool Update(ID3D11Device* device,const runtime::HudText& text) noexcept;
-    [[nodiscard]] ID3D11Texture2D* texture() const noexcept;
-    [[nodiscard]] const SettingsTextureStatus& status() const noexcept { return status_; }
-    void Reset() noexcept;
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-    SettingsTextureStatus status_{};
-};
-
 struct HudPanelPlacement {
     float width_m = 1.15F;
     float center_y_m = 0.0F;

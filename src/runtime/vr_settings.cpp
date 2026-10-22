@@ -47,7 +47,7 @@ std::uint32_t Pressed(const GameplayInputState& input) noexcept {
         if(input.equipment_select[i])mask|=1U<<(i+kGameplayDigitalMembers.size());
     return mask;
 }
-std::uint16_t PressedGlobals(const SettingsMenuInput& input) noexcept {
+std::uint16_t PressedGlobals(const UiReleaseInput& input) noexcept {
     const bool values[]{input.options,input.accept,input.back,input.select_left,input.select_right,
         input.auxiliary,input.shoulder_left,input.shoulder_right};
     std::uint16_t mask=0;
@@ -174,8 +174,8 @@ SettingsSaveResult WriteVrSettings(const std::filesystem::path& path,std::string
 }
 SettingsSaveResult SaveVrSettings(const std::filesystem::path& path,CinematicsMode mode) noexcept {
     if(mode!=CinematicsMode::theater&&mode!=CinematicsMode::immersive)return {false,ERROR_INVALID_PARAMETER};
-    // The legacy presenter edits cinema only. Read the persisted preferences
-    // before replacement so a cinema-only save cannot downgrade comfort values.
+    // Read persisted preferences before a cinema-only replacement so this
+    // compatibility overload cannot downgrade comfort values.
     const auto loaded=LoadVrSettings(path);
     if(loaded.status==SettingsLoadStatus::invalid)return {false,ERROR_INVALID_DATA};
     if(loaded.status==SettingsLoadStatus::io_error)return {false,loaded.error_code?loaded.error_code:ERROR_READ_FAULT};
@@ -257,12 +257,11 @@ VrPreferenceStore& SharedVrPreferences() noexcept {
     static VrPreferenceStore store;
     return store;
 }
-void VrSettingsMenu::Invalidate() noexcept {
-    active_=false;capture_=barrier_=true;
-    options_armed_=options_down_=accept_down_=back_down_=stick_armed_=false;
+void VrInputReleaseGate::Invalidate() noexcept {
+    capture_=barrier_=true;options_armed_=options_down_=false;
 }
-SettingsMenuResult VrSettingsMenu::Update(const SettingsMenuInput& input) noexcept {
-    SettingsMenuResult result{};
+UiReleaseResult VrInputReleaseGate::Update(const UiReleaseInput& input) noexcept {
+    UiReleaseResult result{};
     const auto pressed=Pressed(input.gameplay);
     const auto global_held=PressedGlobals(input);
     if(input.available){
@@ -271,96 +270,33 @@ SettingsMenuResult VrSettingsMenu::Update(const SettingsMenuInput& input) noexce
     }
     if(input.available&&input.gameplay.active){
         digital_release_mask_|=pressed;
-        // Failed polls/focus loss and inactive sources cannot clear history.
         digital_release_mask_&=~(input.gameplay.digital_available&~pressed);
         if(input.gameplay.radial_available)radial_release_required_=input.gameplay.weapon_radial;
         if(input.gameplay.move_available)move_release_required_=!Centered(input.gameplay.move);
         if(input.gameplay.turn_available)turn_release_required_=!Centered(input.gameplay.turn);
     }
-    constexpr auto essentials=SettingsMenuInput::options_bit|SettingsMenuInput::accept_bit|SettingsMenuInput::back_bit;
-    const bool can_open=(input.global_available&essentials)==essentials;
-    const bool source_lost=(previous_global_available_&~input.global_available)!=0;
-    const bool options_appeared_held=input.options&&
-        (input.global_available&SettingsMenuInput::options_bit)!=0&&
-        (previous_global_available_&SettingsMenuInput::options_bit)==0;
-    const bool lost=!input.available||!input.context_token||
-        options_appeared_held||((active_||options_down_)&&source_lost)||(active_&&!can_open)||
-        (context_&&context_!=input.context_token)||(have_time_&&input.monotonic_ms<last_ms_);
+    const bool options_available=(input.global_available&UiReleaseInput::options_bit)!=0;
+    const bool appeared_held=input.options&&options_available&&
+        !(previous_global_available_&UiReleaseInput::options_bit);
+    const bool lost=!input.available||!input.context_token||appeared_held||
+        (options_down_&&!options_available)||(context_&&context_!=input.context_token)||
+        (have_time_&&input.monotonic_ms<last_ms_);
     previous_global_available_=input.available?input.global_available:0;
     context_=input.context_token;last_ms_=input.monotonic_ms;have_time_=true;
     if(lost)Invalidate();
-    const auto finish=[&]() noexcept {
-        result.active=active_;result.input_captured=capture_;result.requested_mode=mode_;return result;
-    };
-    if(!input.available||!input.context_token)return finish();
+    if(!input.available||!input.context_token)return result;
     const bool neutral=!(global_held&input.global_available)&&!global_release_mask_&&!digital_release_mask_&&
         !radial_release_required_&&!move_release_required_&&!turn_release_required_;
     if(barrier_){
-        if(neutral){
-            barrier_=false;stick_armed_=true;
-            options_armed_=(input.global_available&SettingsMenuInput::options_bit)!=0;
-        }
-        return finish(); // The release baseline is itself consumed.
+        if(neutral){barrier_=false;options_armed_=options_available;}
+        return result; // Consume the baseline itself.
     }
-    if(active_){
-        capture_=true;
-        if(input.back&&!back_down_){Invalidate();return finish();}
-        const bool finite=input.gameplay.turn_available&&std::isfinite(input.gameplay.turn.x)&&std::isfinite(input.gameplay.turn.y);
-        if(finite&&Centered(input.gameplay.turn))stick_armed_=true;
-        else if(!finite)stick_armed_=false;
-        const bool left=finite&&stick_armed_&&input.gameplay.turn.x<=-.65F;
-        const bool right=finite&&stick_armed_&&input.gameplay.turn.x>=.65F;
-        if(left||right||(input.accept&&!accept_down_)){
-            const auto next=left?CinematicsMode::theater:right?CinematicsMode::immersive:
-                mode_==CinematicsMode::theater?CinematicsMode::immersive:CinematicsMode::theater;
-            result.mode_changed=next!=mode_;mode_=next;if(left||right)stick_armed_=false;
-        }
-        accept_down_=input.accept;back_down_=input.back;
-        return finish();
-    }
-    capture_=false;
-    if((input.global_available&SettingsMenuInput::options_bit)==0){options_armed_=options_down_=false;return finish();}
+    capture_=false;result.input_captured=false;
+    if(!options_available){options_armed_=options_down_=false;return result;}
     if(input.options){
-        if(options_armed_){
-            if(!options_down_){options_down_=true;started_ms_=input.monotonic_ms;}
-            capture_=true;
-            if(can_open&&input.monotonic_ms-started_ms_>=1000){active_=true;barrier_=true;options_down_=options_armed_=false;}
-        }
-    }else{
-        if(options_down_){
-            if(input.monotonic_ms-started_ms_>=1000){
-                if(can_open){active_=true;capture_=barrier_=true;}
-            }
-            else {result.native_pause=true;capture_=false;}
-        }
-        options_down_=false;options_armed_=true;
-    }
-    return finish();
-}
-HudText BuildVrSettingsText(CinematicsMode mode,SettingsLanguage language,bool save_failed,bool awaiting_release,std::uint32_t save_error) noexcept {
-    HudText text;
-    const bool es=language==SettingsLanguage::spanish;
-    const auto append=[&](std::u16string_view value){
-        const auto count=std::min(value.size(),text.characters.size()-1-text.length);
-        std::copy_n(value.data(),count,text.characters.data()+text.length);text.length+=static_cast<std::uint32_t>(count);
-    };
-    append(es?u"AJUSTES VR\nCinemáticas: ":u"VR SETTINGS\nCinematics: ");
-    append(mode==CinematicsMode::immersive?(es?u"Inmersivo (experimental)":u"Immersive (experimental)"):
-        (es?u"Cine (predeterminado)":u"Theater (default)"));
-    append(es?u"\nStick derecho: izq./der. · Cross: cambiar\nCircle: cerrar":u"\nRight stick: left/right · Cross: change\nCircle: close");
-    if(awaiting_release)append(es?u"\nSuelta botones y centra los sticks":u"\nPlease release buttons and center sticks");
-    else append(es?u"\nMantén Options 1 s para abrir":u"\nHold Options 1 s to open");
-    if(save_failed){
-        append(es?u"\nNo se pudo guardar":u"\nSave failed");
-        if(save_error){
-            append(u" (Windows ");
-            char16_t digits[10]{};std::size_t count=0;
-            do{digits[count++]=u'0'+save_error%10;save_error/=10;}while(save_error);
-            for(std::size_t i=count;i>0;--i)append(std::u16string_view(digits+i-1,1));
-            append(u")");
-        }
-        append(es?u"; solo esta sesión":u"; this session only");
-    }
-    return text;
+        result.native_pause=options_armed_&&!options_down_;
+        options_down_=true;options_armed_=false;
+    }else {options_down_=false;options_armed_=true;}
+    return result;
 }
 }

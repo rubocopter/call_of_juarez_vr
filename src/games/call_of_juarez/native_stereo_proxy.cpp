@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/movie_input.hpp"
 #include "runtime/native_render_fault.hpp"
 #include "games/call_of_juarez/d3d9ex_legacy_resource_compat.hpp"
 #include "games/call_of_juarez/game_shutdown_hook.hpp"
@@ -72,6 +73,7 @@ struct NativeStereoState {
     std::array<LumaChannel, 3> luma_channels;
     std::atomic_uint64_t luma_pose_sequence{0};
     std::atomic<std::uint64_t> frame_feedback_context_token{0};
+    cojvr::games::call_of_juarez::CoJPresentationInputEpoch input_owner;
     cojvr::backends::d3d9::D3D9StereoCapture capture;
     cojvr::backends::d3d9::D3D9StereoCapture flat_capture;
     cojvr::backends::openvr::OpenVrStereoPresenter presenter;
@@ -1275,15 +1277,16 @@ std::uint64_t PublishSettingsOwner(NativeStereoState& state,
     // Startup menus have no campaign module. They still need native UI input
     // and access to local VR settings; campaign mutation remains separately
     // fail-closed. The verified-owner bit fences transition into/out of play.
-    const std::uint64_t token=(player << 6U) | 1U |
+    const std::uint64_t shape=(player << 6U) | 1U |
         (owner.timer_frozen ? 2U : 0U) | (owner.player_alive ? 4U : 0U) |
         (owner.mission_end_visible ? 8U : 0U) | (owner.movie_playing ? 16U : 0U) |
         (observed && owner.valid ? 32U : 0U);
+    std::uint64_t token=0;
+    {
+        std::lock_guard lock(state.source_mutex);
+        token=state.input_owner.Observe(shape,owner.movie_input_epoch);
+    }
     state.presenter.PublishSettingsContext(token);
-    state.presenter.PublishSettingsLanguage(
-        cojvr::games::call_of_juarez::ObserveCameraUiLanguage()==
-            cojvr::games::call_of_juarez::CoJUiLanguage::spanish ?
-            cojvr::runtime::SettingsLanguage::spanish : cojvr::runtime::SettingsLanguage::english);
     return token;
 }
 
@@ -1419,7 +1422,22 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         const HWND ui_window = reinterpret_cast<HWND>(g_stereo.game_window.load(std::memory_order_acquire));
         HWND ui_root = ui_window ? GetAncestor(ui_window, GA_ROOT) : nullptr;
         if (!ui_root) ui_root = ui_window;
-        const bool menu_dispatch_allowed = !settings_captured && !tracking.vr_settings_input_captured &&
+        if(immersive_movie){
+            // A delayed immersive pair can temporarily use the natural theater
+            // source. Its buttons still belong to the strict movie consumer,
+            // never generic UI-back/pause or pointer retries.
+            const auto input_owner=PublishSettingsOwner(g_stereo,presentation,presentation_valid);
+            const bool skip=cojvr::games::call_of_juarez::CoJMovieSkipRequested(
+                true,tracking.ui_actions_allowed,settings_captured||tracking.vr_settings_input_captured,
+                input_owner,tracking.ui_context_token,tracking.pause_pressed,tracking.ui_back_pressed,
+                tracking.ui_accept_pressed,tracking.ui_select_left_pressed,tracking.ui_select_right_pressed);
+            if(skip&&ui_root&&GetForegroundWindow()==ui_root){
+                NeutralizeFlatUiPointer("immersive_movie_skip");
+                (void)cojvr::games::call_of_juarez::DispatchCameraMovieSkipPress(
+                    tracking.sequence,input_owner,presentation.movie_input_epoch);
+            }
+        }
+        const bool menu_dispatch_allowed = !immersive_movie && !settings_captured && !tracking.vr_settings_input_captured &&
             tracking.ui_actions_allowed && ui_root && GetForegroundWindow() == ui_root;
         if (!menu_dispatch_allowed) {
             g_stereo.flat_ui_select_retry = {};
@@ -2044,6 +2062,7 @@ bool BeginStereoFrame(
         presentation);
     const bool cinematic_immersive=presentation_valid && presentation.immersive_movie_allowed() &&
         cojvr::runtime::CurrentCinematicMode()==cojvr::runtime::CinematicsMode::immersive;
+    const auto input_owner=PublishSettingsOwner(*state,presentation,presentation_valid);
     const bool settings_captured=cojvr::runtime::SettingsInputCaptured();
     if (!presentation_valid || (presentation.blocked() && !cinematic_immersive)) {
         ObserveStereoOwner(*state, presentation, presentation_valid, settings_captured, cinematic_immersive);
@@ -2115,6 +2134,12 @@ bool BeginStereoFrame(
     sample.left_aim = tracking.left_aim;
     sample.right_aim = tracking.right_aim;
     sample.cinematic_immersive = cinematic_immersive;
+    sample.cinematic_movie_epoch=presentation.movie_input_epoch;
+    sample.cinematic_skip_requested=cojvr::games::call_of_juarez::CoJMovieSkipRequested(
+        cinematic_immersive,tracking.ui_actions_allowed,effective_settings,
+        input_owner,tracking.ui_context_token,
+        tracking.pause_pressed,tracking.ui_back_pressed,tracking.ui_accept_pressed,
+        tracking.ui_select_left_pressed,tracking.ui_select_right_pressed);
     sample.settings_input_captured = effective_settings;
     sample.gameplay = (cinematic_immersive || effective_settings) ?
         cojvr::runtime::GameplayInputState{} : tracking.gameplay;

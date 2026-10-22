@@ -15,6 +15,7 @@
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/ammunition_pickup_guide.hpp"
 #include "games/call_of_juarez/reload_context_hints.hpp"
+#include "games/call_of_juarez/movie_input.hpp"
 #include "games/call_of_juarez/long_gun_grip.hpp"
 #include "games/call_of_juarez/long_gun_guide.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
@@ -140,6 +141,9 @@ CoJGameplayCommandQueue g_gameplay_commands;
 CoJMotionReloadAdapter g_motion_reload;
 CoJManualReloadSession g_manual_reload;
 CoJReloadContextHints g_reload_context_hints;
+CoJMovieSkipDispatchGate g_movie_skip_dispatch;
+std::uint64_t g_indexed_reload_next_ms=0;
+unsigned g_indexed_reload_attempts=0,g_indexed_reload_events=0;
 cojvr::runtime::MotionPunchContact g_physical_punch;
 CoJReloadInsertionPose g_reload_insertion_pose;
 int g_reload_insertion_pose_last_hand=-1;
@@ -5568,6 +5572,21 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             ForwardNaturalRender(original,owner,view);
             return;
         }
+        if(sample.cinematic_immersive&&!sample.settings_input_captured&&sample.cinematic_skip_requested&&
+            sample.cinematic_movie_epoch&&sample.cinematic_movie_epoch==presentation.movie_input_epoch){
+            bool context_restored=false;
+            const bool delivered=DispatchWithRenderLevelContext(owner,[&]() noexcept {
+                return DispatchCameraMovieSkipPress(sample.hmd_pose.sequence,sample.native_gameplay_context_token,
+                    sample.cinematic_movie_epoch);
+            },context_restored);
+            if(!context_restored){reject_render_input_context();return;}
+            EmitEvent("immersive_movie_skip",delivered?"delivered":"not_delivered",
+                "frame_sequence="+std::to_string(frame_sequence)+";route=native_module_escape;gameplay=false");
+            // The original consumer can replace the movie/camera or start a
+            // fade synchronously. Never render another eye with its preimage.
+            ForwardNaturalRender(original,owner,view);
+            return;
+        }
         RenderCameraOnlyStereo(original,owner,view,camera,natural_render_state,
             sample,relative_head_pose,relative_left_controller,relative_right_controller,
             relative_left_aim,relative_right_aim,frame_sequence,snapshot.command.second_eye_render_enabled,
@@ -5891,6 +5910,31 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     ";owner_or_phase_unavailable=true;manual_admission=false");}catch(...){}
             }
             end_winchester_window(witness.after);
+        }
+    }
+    // New, unresolved indexed-ammunition boundary only. No ordinary-session
+    // polling, cross-poll delta inference or manual weapon admission follows.
+    if(winchester_reload_allowed&&g_indexed_reload_events<32&&g_indexed_reload_attempts<120){
+        const auto now=GetTickCount64();
+        if(now>=g_indexed_reload_next_ms){
+            g_indexed_reload_next_ms=now+350;++g_indexed_reload_attempts;
+            CoJIndexedReloadSnapshot indexed{};
+            if(g_java_player_bridge.TryObserveIndexedReload(sample.native_gameplay_context_token,indexed)){
+                ++g_indexed_reload_events;
+                try{EmitEvent("indexed_native_reload","observed",
+                    "schema=1;frame_sequence="+std::to_string(frame_sequence)+
+                    ";player_generation="+std::to_string(indexed.context.player_generation)+
+                    ";native_context="+std::to_string(indexed.context.native_context)+
+                    ";weapon_class="+indexed_reload_detail::GetProfile(indexed.weapon_class).name+
+                    ";player_id="+std::to_string(indexed.player_id)+";weapon_id="+std::to_string(indexed.weapon_id)+
+                    ";armed_hand="+std::to_string(indexed.armed_hand)+
+                    ";loaded="+std::to_string(indexed.loaded[0])+","+std::to_string(indexed.loaded[1])+
+                    ";reserve_pistol="+std::to_string(indexed.reserves[0])+
+                    ";reserve_rifle="+std::to_string(indexed.reserves[1])+
+                    ";reserve_shotgun="+std::to_string(indexed.reserves[2])+
+                    ";sample_ms="+std::to_string(now)+
+                    ";synchronous_scope=0;transfer_proven=false;manual_admission=false");}catch(...){}
+            }
         }
     }
     const bool on_foot_crouch_owner = mounted_available && !mounted;
@@ -8042,6 +8086,13 @@ bool DispatchCameraUiBackPress(
     std::string* error,
     CoJUiDispatchRoute* route) noexcept {
     return g_java_player_bridge.TryDispatchUiBackPress(error, route);
+}
+
+bool DispatchCameraMovieSkipPress(std::uint64_t tracking_sequence,std::uint64_t native_context,
+    std::uint64_t movie_epoch) noexcept {
+    if(!g_installed.load(std::memory_order_acquire)||
+        !g_movie_skip_dispatch.Consume(true,tracking_sequence,native_context))return false;
+    return g_java_player_bridge.TryDispatchMovieSkipPress(movie_epoch);
 }
 
 bool ObserveCameraGameTimerFrozen(

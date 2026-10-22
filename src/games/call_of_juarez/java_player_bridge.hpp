@@ -13,11 +13,13 @@
 #include "games/call_of_juarez/reload_geometry.hpp"
 #include "games/call_of_juarez/long_gun_observer.hpp"
 #include "games/call_of_juarez/winchester_reload_observer.hpp"
+#include "games/call_of_juarez/indexed_reload_observer.hpp"
 #include "games/call_of_juarez/bow_aim.hpp"
 #include "games/call_of_juarez/bow_draw_native.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
 #include "games/call_of_juarez/interaction_selection.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/movie_input_owner.hpp"
 #include "games/call_of_juarez/duel_input.hpp"
 #include "games/call_of_juarez/native_settings_bridge.hpp"
 
@@ -417,6 +419,8 @@ public:
     // overlays. Failed JNI cleanup keeps its reference for a later retry.
     [[nodiscard]] bool ClearLongGunGripOwner(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveWinchesterReload(CoJWinchesterReloadSnapshot& observation) noexcept;
+    [[nodiscard]] bool TryObserveIndexedReload(std::uint64_t native_context,
+        CoJIndexedReloadSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
@@ -507,6 +511,9 @@ public:
     [[nodiscard]] bool TryDispatchUiBackPress(
         std::string* error = nullptr,
         CoJUiDispatchRoute* route = nullptr) noexcept;
+    // Original Escape consumer only while the verified native movie permits
+    // skipping. Delivery is not proof that its fade/transition has completed.
+    [[nodiscard]] bool TryDispatchMovieSkipPress(std::uint64_t expected_movie_epoch) noexcept;
     // Deliver through the current UI's exact native sprite-tree mouse dispatcher
     // before moving its cursor sprite. A current UI requires that dispatcher;
     // cursor-only startup states remain distinguishable via input_consumed.
@@ -721,6 +728,8 @@ private:
     void* active_game_module_field_ = nullptr;
     void* is_timer_freezed_method_ = nullptr;
     void* being_ = nullptr;
+    CoJMovieInputOwnerEpoch movie_input_owner_;
+    void* movie_input_field_=nullptr;
     unsigned body_restore_owner_count_ = 0; // pelvis and the two diagnostic arms
     std::array<void*,2> interaction_ray_fields_{};
     void* get_mesh_element_method_ = nullptr;

@@ -209,10 +209,11 @@ evidence. The already archived rejection is preserved.
 | Boundary | Confirmed state | Remaining limits |
 | --- | --- | --- |
 | Native D3D9 stereo and head tracking | Headset-validated native per-eye rendering, 6DOF, recenter and room-scale movement in exercised scenes. Repeated Manual 2804x2860 clarity/stereo and no perceptible performance problems are operator-accepted on PS VR2, with prior actual raster/capture/output evidence. | Broad loading/device transitions, quantified sustained pacing and other headsets. |
-| Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. | All-campaign cinematics, mode-specific subtitle timing, broader comfort and extreme device/tracking-loss recovery remain open. No repeat of accepted checks is pending. |
+| Cinematic stereo recovery | Headset-validated by declared operator physical evidence: recovery after Hope, multiple exercised cinematics, entry/exit, hot theater/immersive switching including mid-sequence, different weapons, headset recenter and continued gameplay. The operator reconfirms these recovery checks work and are complete in exercised play. | Secret-scroll interaction was not tested and retains its own campaign gate. Subtitle timing, broader comfort and extreme device/tracking loss remain separate limits. The new immersive skip-input defect does not reopen stereo recovery. No repeat of accepted recovery is pending. |
 | Locomotion | Exercised native analog movement, jump parity, physical crouch and earlier snap turning accepted. The operator confirms careful-movement corrections, default smooth turn and continuous HMD body follow without the former cone in the exercised PS VR2 setup. Native option usability is accepted where exercised. | The drift report concerns the older published package; the current continuous-follow correction is accepted in scope. Other headsets/controllers, prolonged comfort and mounted/campaign contexts remain open. Physical-walk/turn leg animation is planned. Specific mode/held-input recovery is not separately qualified by selector usability. |
 | Body and hands | Independent tracked native hands/weapons with original torso/legs accepted in exercised contexts; head and connected arms hidden. Corrected free-left-hand fingers with a normally held long gun have scoped operator acceptance. | Firing/alternate/reload retain native fingers. Broader finger, weapon and recovery coverage remains open. Connected-arm IK is diagnostic. |
 | Weapons and whip | Right-hand pistol firing, muzzle/impact effects, water and destructible bottles accepted. Exercised whip use and approximate reticle alignment accepted. The combined candidate's dual reticles and Clyde draw/raise with tracked aim/fire have operator confirmation. | Broader weapons/duels, exact ballistic agreement, whip reach/climbing and special optics. Long-gun manual reload is unimplemented; native automatic reload/animation remain. |
+| Indexed reload groundwork (post-.5 source) | Implemented/host-tested for exact Remington/SawOff/Derringer/Lemant two-index observation, native object/owner/hand stability, typed reserves counted once, JNI failure/null/cleanup and LAA-safe identities. A separate pure classifier checks a retained synchronous pair; sparse opt-in samples cannot qualify a transfer. | Native indexed phase/HUD correlation, selective shell transaction, mechanism/port and physical gesture integration remain pending. No new weapon enters manual reload; no ammo/animation/sound writer is added. |
 | Physical bow | Exact owner/root ray, physical right-hand R2 grab/draw/release, native supervision, controller haptics and capture-drop separation are host-tested. Operator confirms the bow worked very well in the exercised session, extending the earlier improvement to scoped functional acceptance. | Mesh/string/arrow/reticle agreement, haptic quality, concentration optics and interruption recovery are not separately accepted. This does not qualify all scenes or sustained campaign support. |
 | Physical duel posture | Correct hand-at-hip draw/raise and rejection of exercised incorrect/cheating positions have operator acceptance: actions were permitted only in the correct position. | Native early-draw timing, retry/recenter and ownership recovery remain separate where not exercised. Measured holster contact is not implemented. |
 | Basic virtual holsters | Operator accepts exercised equip/stow gestures and the colored assistance after the zone-press consumption correction. Enabling/disabling the assistance works correctly in the exercised native options flow. | Earlier occasional kicks remain rejected history; broader conflicting/held-input and interruption recovery are unqualified. No attached weapon mesh or measured native socket contact; disabled during duels and mounted play. |
@@ -497,26 +498,31 @@ Dual pistol reload is unchanged.
 
 ## VR settings and cinematic choice
 
-The presenter settings panel, persistent theater/immersive preference, exclusive
-input capture and release barriers are host-tested. Tests cover short/held
-Options, held entry/exit controls, owner/focus/action loss, malformed configuration,
-save failure, Unicode text and actual host GPU image upload/readback/reuse.
-Never-bound optional actions and one-hand UI availability retain native input;
-previously held unavailable sources still require an available release.
-An earlier physical attempt rejected settings usability: holding Options caused
-flicker/native-arm reappearance and no visible panel. Runtime logged repeated
-overlay-publication failures; the earlier host image tests did not exercise
-cross-process overlay sharing. Physical menu visibility and recovery remain
-unaccepted for that earlier candidate. The latest corrected panel is visible
-and functional in the exercised headset session; it has scoped operator
-acceptance. This does not qualify every ownership/recovery transition.
-The corrected surface passes real second-device shared-resource open and pixel
-readback on host GPU/WARP. These tests do not identify the exact API that failed
-in the old run or establish visible SteamVR presentation. Scoped settings-hand
-rendering and natural-camera fallback now preserve the VR reference; the real
-camera-hook regression reproduces and prevents the former automatic rebase.
-Capture admission retains, rather than renews, the last successful pair's
-freshness; transient and sustained capture failure have host coverage.
+Post-.5 source retires the held-Options quick editor and its renderer resources.
+Native Options > Game owns cinematic/turning/weapon-guide edits and retains the
+existing saved version-3 preferences. Options acts on a fresh press, with no hold
+activation or release replay. Startup/focus/owner release barriers remain separate
+from editing. The retired overlay's earlier scoped acceptance is historical; it
+does not require retesting or establish acceptance of the changed press timing.
+
+The operator reports that buttons skip movies in theater but do nothing in
+immersive presentation. Source review identifies both the proxy's cleared UI
+edges and the camera-only early return. A separate skip intent now reaches the
+original native Escape consumer while gameplay stays blocked. This correction is
+implemented/host-tested for fresh input routing, one-sample consumption, native
+eligibility, module/movie identity and JNI fault cleanup. Physical acceptance
+remains pending; it must preserve
+native unskippable scenes and cannot claim a completed fade from delivery alone.
+Owner-stamped UI edges reject an earlier gameplay request on movie entry, and a
+temporary natural-output fallback retains strict movie dispatch instead of generic
+pause/navigation. No prior request is retried after a native rejection or fault.
+Movie-to-movie owner replacement additionally invalidates pending input even when
+presentation flags remain unchanged; its JNI identity epoch is tested separately.
+The neutral release gate and fresh-press Options timing have offline coverage for
+held startup/recovery, absent bindings, owner/time changes, unavailable trigger/
+wheel history and nonfinite sticks. Preference persistence, native menu patch,
+archive/JVM and bridge fixtures pass after quick-panel removal. These are host
+contracts; the changed press timing has no new physical acceptance.
 
 The boxing death report was an unresponsive native menu, not a demonstrated
 renderer/process deadlock: fresh frames and normal shutdown continued. Exact
@@ -554,10 +560,10 @@ are requested for these accepted cinematic checks.
 Retain the following protocol for later changes or unexercised contexts; it is
 not a request to repeat the accepted settings/cinematic baseline for .2:
 
-1. **Settings:** tap Options for native pause; hold it for one second to open
-   VR settings. Release buttons and center sticks, then use right-stick left/right
-   or Cross to change Cinematics; Circle closes. Check both native startup/pause
-   menus and gameplay remain usable, with no wheel, snap, shot or reload leaking.
+1. **Settings:** press Options once for native pause; native Options > Game
+   changes Cinematics. Holding Options must not open a second panel or replay a
+   pause on release. Preserve available-release barriers after owner/focus loss;
+   no wheel, shot or reload may leak through navigation.
 2. **Physical melee:** the current contact route has scoped visor acceptance after
    defeating three enemies with Hands. On a later naturally available fight,
    broaden left/right hand, punch-shape and tracking/menu/recenter recovery
@@ -569,7 +575,10 @@ not a request to repeat the accepted settings/cinematic baseline for .2:
    native hide/skip/end and subtitle-setting behavior; no previous movie's line
    may remain. Basic appearance and accepted recovery are not repeat gates.
    Do not replay a long campaign segment merely to repeat an accepted baseline.
-   Frozen/unverified owners retaining theater are the conservative fallback.
+   A fresh immersive Options/Circle/Cross/trigger selection should reach native
+   skip when the scene permits it; a held entry/repeated frame must not skip again,
+   fire or open pause after exit. This is a new input check, separate from accepted
+   recovery. Frozen/unverified owners retain theater as the conservative fallback.
 4. **Persistence:** after normal quit, prepare a fresh candidate for any later
    session and confirm the chosen mode was retained. A displayed save failure
    means the selection applies only to the current session.
@@ -590,7 +599,7 @@ Cinematic-only changes preserve other choices. Invalid/unreadable startup files
 remain preserved; edits can apply for the session with visible save failure.
 Host fixtures cover editor conflicts, native OK request consumption/completion,
 Cancel/defaults, missing resources, failed saves, scoped JNI cleanup, per-Show
-recovery and the existing overlay sharing the same values.
+recovery and preference preservation after quick-panel removal.
 The shipped Java 1.4 verifier also accepts the transformed menu without class
 initialization and rejects a deliberately invalid helper. This is JVM bytecode
 verification, not native widget rendering or game execution. The positive

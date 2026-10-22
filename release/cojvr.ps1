@@ -299,7 +299,7 @@ function Show-PublicLauncherHelp {
     Write-Host 'Valve Index          R thumbstick UP + click             R A / B'
     Write-Host 'HTC Vive wands       R application-menu button           R pad UP / DOWN click'
     Write-Host 'WMR                  R application-menu button           R pad UP / DOWN click'
-    Write-Host 'Tap and RELEASE to pause. Hold for 1 second to open VR settings instead. UP + click means keep the stick upward while pressing it; center sticks and release controls before resuming.'
+    Write-Host 'Press Pause once for the native menu. VR settings are in Options > Game; holding Pause does not open a quick panel. UP + click means keep the stick upward while pressing it; center sticks and release controls before resuming.'
     Write-Host 'Save/load: open the native pause menu, then select Save/Load when the campaign permits. Either hand trigger selects with its menu pointer; profile Accept/Back controls also work.'
     Write-Host 'Quick Save/Quick Load have no default controller binding. Optional actions can be assigned in SteamVR bindings. Custom bindings may differ from this table.'
     Write-Host 'Additional controller profiles are experimental. In-game prompts currently use Sense labels.'

@@ -9,6 +9,7 @@ struct CoJPresentationOwner {
     bool player_alive=false;
     bool mission_end_visible=false;
     bool movie_playing=false;
+    std::uint64_t movie_input_epoch=0; // Bridge-owned JNI object identity; never an engine ID.
     [[nodiscard]] bool blocked() const noexcept {
         return !valid || timer_frozen || !player_alive || mission_end_visible || movie_playing;
     }

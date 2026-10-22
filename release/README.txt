@@ -57,7 +57,7 @@ use Sense labels, including Square, Triangle, Create and Options.
 
 DEFAULT CONTROLS CHEAT SHEET (L = left hand, R = right hand)
 
-Controller       Objectives / Recenter       Pause / VR settings
+Controller       Objectives / Recenter       Pause
 PS VR2 Sense     L Create                    R Options
 Oculus/Meta Touch L stick UP + click          R stick UP + click
 Valve Index      L thumbstick UP + click     R thumbstick UP + click
@@ -67,8 +67,10 @@ WMR              L application-menu button   R application-menu button
 UP + click means deflect upward AND press the stick, not a centered click.
 Keep it upward while holding the click. For Objectives, tap and RELEASE before
 800 ms in gameplay. Hold 800 ms to recenter once; releasing after the hold does
-not also show Objectives. For Pause, a short tap acts on RELEASE; hold 1 second
-to open VR settings instead. Release buttons and center sticks before resuming.
+not also show Objectives. In post-.5 source, Pause acts once on a fresh PRESS;
+holding it does not open a quick panel. Use native Options > Game for VR settings.
+The published .5 package retains its earlier Pause tap/hold behavior.
+Release buttons and center sticks before resuming.
 
 Controller       Reload / hold wheel         Jump / alternate fire
 PS VR2 Sense     L Square / Triangle          R Cross / Circle
@@ -100,8 +102,8 @@ Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
 Ordinary turning is smooth and proportional, up to 90 degrees/second in native
 normal-look mode. Center the stick after a menu, lost input or long frame gap.
 Native Options > Game exposes cinematic presentation, smooth/snap turning and
-weapon guides. These share saved preferences with the held-Pause/Options VR
-panel. Guides default off; default smooth turning retains scoped acceptance.
+weapon guides. Saved preferences survive removal of the held-Pause/Options
+quick panel in post-.5 source. Guides default off; default smooth turning retains scoped acceptance.
 Experimental duel controls: center the right stick after entering the duel;
 place the right hand at the hip and pull down to draw when the game allows,
 then physically raise the hand and push up to raise the weapon. Left/right

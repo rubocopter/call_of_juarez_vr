@@ -274,6 +274,8 @@ struct CameraStereoFrameSample {
     bool pause_pressed = false;
     // Runtime settings opt in only; the owner thread rechecks native eligibility.
     bool cinematic_immersive = false;
+    bool cinematic_skip_requested = false; // Fresh UI edge; no gameplay permission.
+    std::uint64_t cinematic_movie_epoch = 0;
     bool settings_input_captured = false;
 };
 
@@ -317,6 +319,8 @@ void ProcessCameraNativeSettings(bool input_allowed) noexcept;
 [[nodiscard]] bool DispatchCameraUiBackPress(
     std::string* error = nullptr,
     CoJUiDispatchRoute* route = nullptr) noexcept;
+[[nodiscard]] bool DispatchCameraMovieSkipPress(std::uint64_t tracking_sequence,
+    std::uint64_t native_context,std::uint64_t movie_epoch) noexcept;
 [[nodiscard]] bool ObserveCameraGameTimerFrozen(
     bool& frozen,
     std::string* error = nullptr) noexcept;

@@ -69,9 +69,8 @@ Native menus retain naturally scheduled flat-theater drawing; no second-eye UI
 traversal or new overlay is introduced. Other preference groups remain future work.
 
 `runtime/vr_settings` now owns all three preferences, configuration and atomic
-publication through one versioned store. The presenter panel refreshes its
-editable mode from that owner before input and submits only after successful
-overlay publication. The native bridge snapshots the same values once per Show.
+publication through one versioned store. Post-.5 source removes the presenter
+quick editor; the native bridge snapshots the authoritative values once per Show.
 Native highlighting remains local; OK queues request 1, consumed as token 2
 before application/save. Accepted completion requires that token and clears it
 before original OK; Cancel/Back revoke readiness and pending requests. Failed
@@ -82,7 +81,7 @@ references cross threads; this protocol is authored by the mod, not an engine AP
 The shared owner preserves these application and persistence contracts:
 
 - `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini` is independent of staging and
-  panel lifetime. Missing/invalid input defaults to theater/smooth/guides off.
+  native editor lifetime. Missing/invalid input defaults to theater/smooth/guides off.
   Version 1 retains its cinematic choice and supplies smooth turning; version 2
   retains both choices. Both default guides off. The next accepted save writes
   strict version 3 with all values. Cinematic-only edits preserve other choices.
@@ -94,22 +93,26 @@ The shared owner preserves these application and persistence contracts:
   The comfort label and Off/On choices follow the game's startup `Game.ini`
   locale (English/Spanish, English fallback), using original widget fonts.
 - Atomic temporary-file replacement retains the previous file on failed save.
-  A session-applied value and its persisted status are distinct. The existing
-  panel rolls back an invisible failed proposal before publication/persistence;
-  preserve that safeguard without making preferences depend on successful panel
-  rendering when a different valid editor submits a change.
+  A session-applied value and its persisted status are distinct. Native save
+  failure keeps the editor visible with session-only feedback; no renderer
+  overlay needs publication to apply a valid native edit.
 - Runtime movie admission remains game-owned: immersive selection does not
   bypass pause, death, mission-end or unknown-owner fallback.
 
-Native input retains an explicit owner split. The current
-`SettingsInputCaptured()` suppresses both gameplay and injected native pointer
-delivery. Reusing it unchanged for a native page would block editing. Preserve
-gameplay suppression and available-release barriers while admitting pointer,
-accept/back only to the verified native editor. Bind requests to its menu,
-caller/modal and lifetime; the panel's player-generation/presentation token does
-not identify a particular native page. JNI references stay on the game thread;
-the renderer receives only values. Closing, modal replacement and context loss
-must cancel pending requests without stale clicks or resumed held actions.
+Native input retains an explicit owner split. Post-.5 `SettingsInputCaptured()`
+is only the presenter's startup/focus/owner available-release fence. It suppresses
+gameplay and pointer injection while controls are unavailable or awaiting neutral
+input; it is not set just because the native options page is open. Native menu
+ownership separately blocks gameplay and admits pointer/accept/back to its verified
+editor. Closing, modal replacement and context loss cancel pending requests.
+
+The original `LawmanModuleSingle.OnInputKey(IZC)V` checks key-down at PC0 and
+Escape at PC5. `CanSkipMovie` combines `CanLevelBreakAndSkipMovie` (mission end,
+blocking hint and precache guards) with `IsPlayingSkipableMovie`; the Escape
+consumer calls `OnSkipableMovieSkip` only for that native scene. Post-.5 immersive
+input forwards a fresh permitted request to this consumer, never directly invokes
+skip/fade callbacks. The active movie and module must remain stable before dispatch;
+the camera-only path must not swallow the request or grant gameplay authority.
 
 The canonical code patcher now includes the hash-pinned menu class. The Data0
 transformer adds its script through the same compressed-record-preserving

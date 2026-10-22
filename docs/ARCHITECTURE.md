@@ -280,35 +280,46 @@ naturally rendered pass; no script/sprite traversal is replayed. This transport
 is host-tested. The operator confirms subtitle appearance in exercised animations,
 without specifying the rendering mode; broader timing and mode coverage remain open.
 
-VR settings run on the OpenVR presenter. A released short Options tap requests
-native pause; a one-second hold opens the panel. Right-stick left/right selects
-the cinematic preference, Cross toggles it and Circle closes. Input capture
-includes the opening hold and the entry/exit release barriers. Focus, tracking,
-button availability and native owner changes cancel the panel. Available neutral
-buttons and sticks are required before gameplay or native menu input resumes.
-Capturing controls preserves the admitted independent hand/weapon render
-transaction and current finger presentation. Those visual transforms restore
-hand before child weapon after eye capture; they publish no ballistic/whip aim
-and execute no native gameplay action or actor/body update. Movies retain their
-separate natural-body camera-only route. Settings capture backpressure may repeat
-the last successfully queued pair within the ordinary freshness window; repeated
-admission cannot renew that window. Failed native restoration invalidates it
-immediately.
+VR preferences are edited in native Options > Game. Post-.5 source removes
+the held-Options quick editor, its OpenVR overlay, shared texture and redundant
+cinematic writer. Options now forwards one fresh native pause press, with no
+hold timer or release action. The versioned preference store, native OK/Cancel/
+Defaults and saved cinematic/turning/weapon-guide choices remain authoritative.
+
+The presenter retains a dedicated neutral-input release gate across startup,
+focus/tracking/poll loss and native owner changes. Missing channels do not
+fabricate releases of previously held controls; never-bound optional actions
+do not block neutral input. `SettingsInputCaptured` now reports this availability
+fence, not an open VR quick panel. It temporarily suppresses gameplay and native
+pointer delivery until available buttons are released and sticks centered.
+
+Immersive movies retain the natural-body camera-only route and block ordinary
+gameplay/body/weapon mutation. Their proxy copies a separate fresh skip intent
+before clearing UI/gameplay fields. Options/Circle/Cross and either trigger's
+selection edge request the same native Escape consumer, with no repeated request
+from the same tracking sequence. Pending edges carry their polled native owner
+token; a gameplay edge cannot be combined with a newly observed movie owner.
+The token also includes a bridge-owned movie epoch, established by JNI equality
+against retained module/movie references. Replacing a movie without changing
+presentation flags invalidates the old input owner. Only that epoch leaves the
+game adapter; no JNI reference crosses to the presenter. The two observation
+references retire on movie exit/reset, with no native lifecycle mutation.
+If an immersive capture temporarily falls back to natural theater output, its
+controls retain this strict movie route instead of generic UI-back/pointer retries.
+The game thread rechecks its active movie,
+native `CanSkipMovie` and retained module/movie identity before calling original
+`OnInputKey(1,true,0)` and its release. Native restrictions, hint/loading and
+mission-end ownership remain authoritative; no direct movie-end callback runs.
+Scoped render-level restoration is required, and any attempted skip returns to
+natural rendering rather than replaying the old camera snapshot into both eyes.
+Delivery does not prove a fade or skip completed. Theater keeps its existing route.
+
 The natural-camera fallback has a renderer-only scope: its camera updater
 forwards directly to the retained native updater without enabling/disabling the
 relative pose tracker. A transient capture failure must not discard the VR base
-or recenter hands on the next pose.
-The game adapter supplies value-only owner identity and startup language; the
-renderer owns the dedicated head-space panel. A bounded versioned user-local
-configuration defaults to theater, replaces atomically on changes and reports
-save failure in the panel. Native comfort preferences share this same owner.
-Its dedicated BGRA texture uses DEFAULT storage with shader/render-target and
-shared-resource flags; the presenter verifies a non-null legacy shared handle
-and flushes initial data before publication. Host tests open the resource on a
-second device and compare pixels. This establishes direct sharing, not a claim
-that every OpenVR DirectX texture requires those flags. Overlay failures record
-bounded API stage/error/HRESULT/resource/adapter detail. An invisible failed
-panel cannot publish or persist a changed preference.
+or recenter hands on the next pose. Settings/camera capture backpressure may repeat
+the last successfully queued pair within its ordinary freshness window without
+renewing it. Failed native restoration invalidates it immediately.
 
 The presenter intersects tracked `/pose/tip` with the flat screen automatically,
 retains a valid hand owner and lets a fresh L2/R2 select that hand. No shoulder
@@ -797,6 +808,16 @@ states for both hands, two-hand flags, animation clocks and rifle ammo/reserve
 readback across Square. It can omit natural pose when scoped visuals are active;
 no manual Winchester contract is admitted from those observations. The native
 ammo getter is diagnostic rather than a proven effective clip count.
+Post-.5 indexed reload observation separately admits exact Remington/SawOff/
+Derringer/Lemant classes. It copies both loaded indices and distinct pistol/
+rifle/shotgun reserve fields under repeated JNI same-object/owner/count proofs,
+without manual eligibility or retained cross-frame pointers. The bridge rejects
+active/faulted overlays; opt-in tracing is bounded to 120 attempts and 32 samples
+at a 350 ms minimum interval per process. Sparse samples carry no transfer proof.
+The pure vector classifier additionally requires a caller-held synchronous
+identity lease/operation scope; matching numeric IDs alone cannot supply it.
+The [reload ownership research](research/COJ_RELOAD_OWNERSHIP.md) owns exact
+storage/pool mappings and the remaining manual-loading boundaries.
 Failed restoration blocks the current transaction. After entry cleanup verifies,
 ordinary controls recover through the existing release/press barrier; the bridge
 can still disable new tracked mutations after a native fault. A grip fault must

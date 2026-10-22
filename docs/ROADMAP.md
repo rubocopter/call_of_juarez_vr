@@ -15,6 +15,12 @@ native text retains priority and queued instructions require current ownership
 and expiry. Binding labels and coaching are implemented/host-tested;
 native SteamVR metadata and physical presentation remain unqualified.
 These changes do not expand weapon admission or alter the published .5 package.
+The held-Options quick cinematic editor is removed from current source; native
+Options > Game retains the saved preferences and Options acts on a fresh press.
+Immersive movie skip now has a separate native input route with host coverage;
+physical skip acceptance remains pending independently of accepted stereo recovery.
+Indexed ammunition observation/classification is also implemented/host-tested;
+it adds no manual weapon admission or native mechanical writer.
 
 ## Current gate
 
@@ -181,17 +187,15 @@ holstered weapon model remains future work.
 
 Immediate work, in order:
 
-1. **Remaining campaign continuity and ownership recovery.** Preserve accepted
-   Hope/multi-cinematic recovery and hot switching. Broaden coverage only for
-   unexercised campaign and ownership boundaries; accepted recovery needs no repeat.
-   Preserve the chest/scroll diagnostic and qualify the current-level correction
-   on the next naturally encountered scroll, including menu closure and resumed
-   control/stereo; the latest session did not exercise chests. Preserve accepted
-   continuous body following and investigate room-scale leg animation separately.
-   Preserve the bow's improved capture lifetime; use remaining alignment and
-   recovery evidence to choose its next correction. Basic firing is no longer
-   recorded as wholly untested. Batch focus/tracking/dashboard and held-control recovery;
-   an accepted ordinary menu or quit does not close those gates.
+1. **Secret-scroll interaction; cinematic recovery is complete in exercised play.**
+   The operator reconfirms that the cinematic entry/exit, stereo recovery and
+   switching checks work; do not keep them as unfinished implementation or request
+   repeats. Secret scrolls were not tested. Qualify the current-level correction
+   on the next naturally encountered scroll, including closure and resumed
+   control/stereo. General device loss and sustained pacing remain separate
+   engineering limits. The newly reported inability to skip an immersive movie
+   is a distinct input defect, not a reopened stereo-recovery failure.
+   Prioritize weapons while waiting for that naturally eligible scroll scene.
 2. **Make the held cartridge convincing.** Preserve the accepted reload and
    textured CC0 .357. Its revised skin-derived anchor is host-tested and has
    bounded live delivery evidence, but the latest close-up does not establish
@@ -275,10 +279,10 @@ reserve and callback facts have one owner: [reload research](research/COJ_RELOAD
 | Frontier, Walker, Cogswell | Exact single-ammo manual extensions are host-tested; Cogswell uses rifle reserve. | Qualify per-model hand/port geometry, visual ammunition and interruption behaviour; current .357 visual is not evidence of correct calibre for every weapon. |
 | Winchester | Exact support grip and passive native reload observer are host-tested. Square still performs conventional automatic reload. | First observe native hand/animation/ammo/reserve through begin/loop/end; correlate the native ammo field with HUD and qualify a loading-port frame; then implement a separate supervised manual rifle session and deliberate regrip. Manual loading is not implemented. |
 | Scoped Winchester | Native fallback; deliberately excluded from the support and manual whitelist. | Qualify exact class, optic alignment/zoom, both-hand ownership and its own reload/support adapter before enabling either interaction. |
-| Remington and SawOff | Remington bimanual grasp headset-validated; SawOff support host-tested only. Physical manual reload remains unimplemented; native Square is whole-clip/two-slot. | Demonstrate index-specific single-shell transfer and per-barrel readback/callback ownership before manual loading; separately qualify opening, port/ejection and either-hand SawOff recovery. |
+| Remington and SawOff | Remington bimanual grasp headset-validated; SawOff support host-tested only. Passive two-slot/typed-reserve observation and separate synchronous vector policy are implemented/host-tested. Physical manual reload remains unimplemented; native Square is whole-clip/two-slot. | Demonstrate native index-specific single-shell transfer, phase and per-barrel callback ownership before manual loading; separately qualify opening, port/ejection and either-hand SawOff recovery. Sparse observations cannot prove an insertion. |
 | Volcanic | Native fallback; static single-index/per-round contract identified. | Observe native loading states/pose, qualify hand/port and effective ammo/reserve transaction, then implement its own manual profile. |
-| Derringer | Native whole-clip/two-index fallback. | Establish per-chamber transaction, opening and ejection; one existing native call may fill both chambers, so it cannot represent one cartridge. |
-| Lemant (archive spelling; LeMat) | Native fallback with separate rifle/pistol indices and reserve pools. | Selective index transfer and mode ownership, distinct loading geometry/gestures and both reserves; existing unit helper must not load both types for one gesture. |
+| Derringer | Native whole-clip/two-index fallback; separate indexed observation/shared pistol-reserve policy is host-tested. | Establish per-chamber transaction, opening and ejection; one existing native call may fill both chambers, so it cannot represent one cartridge. |
+| Lemant (archive spelling; LeMat) | Native fallback; separate indexed observation and rifle/pistol reserve-vector policy is host-tested. | Selective index transfer and mode ownership, distinct loading geometry/gestures and both reserves. Native unit reload stops after the first eligible index, preferring rifle index 0; it exposes no caller-selected ammunition index. |
 | Schofield base/A/B | Native/hybrid whole-clip behaviour retained. | Qualify a deliberate full-clip gesture and readback, or establish selective transfer before a per-round design. Not part of the current manual session. |
 | Bow | Physical string grab/pull/release and native shot-cache alignment host-tested; operator reports improved capture lifetime. | Use remaining mesh/string/arrow/reticle and interruption evidence to choose corrections. Keep native concentration duration, trajectory and ammunition. No new bow physics is required for the rifle/reload run. |
 | Hands, Bible/whip, dynamite and mounted weapons | Physical Hands combat and Ray Bible/on-foot kick have scoped acceptance; conventional equipment/input routes exist. | Hands: volume/guard/AI anticipation. Whip/climbing, dynamite throws and cannon/mounted aim: discover exact native permissions/contact/ownership for physical interactions before adding gestures. An input binding alone is not implementation of a physical mechanic. |
@@ -414,9 +418,11 @@ or reload work:
   Derringer and Lemant need distinct multi-slot/mixed-ammo handling.
   Static indexed research now shows that Lemant's non-whole-clip native call
   stops after its first successful index (rifle first, pistol only if rifle is
-  ineligible); it does not load both pools in one invocation. Before new manual
-  admission, implement a passive same-object two-index/typed-reserve observer and
-  vector-delta classifier. Shared reserves must be counted once; no native helper
+  ineligible); it does not load both pools in one invocation. Post-.5 source
+  implements a passive same-object two-index/typed-reserve observer and separate
+  synchronous vector classifier, both host-tested;
+  actual indexed native phase/transfer correlation remains unobserved. Shared
+  reserves are counted once; no native helper
   currently proves an isolated selective shell transaction. Sound-only routing
   is identified, but insertion content/overlap remains acoustically unqualified.
   [Exact reload ownership](research/COJ_RELOAD_OWNERSHIP.md) records the
@@ -514,8 +520,10 @@ candidate, and the operator starts/closes the game and SteamVR.
 
 Achieved in exercised contexts: per-eye rendering, tracked head, recenter,
 room-scale motion and stereo recovery after Hope and multiple cinematics,
-including hot mode switches. Finish broad loading/reset/transition coverage,
-sustained pacing and recording compatibility before public support claims.
+including hot mode switches. The operator reconfirms completion of those
+cinematic recovery checks; secret-scroll interaction remains untested. General
+loading/device-reset, sustained pacing and recording compatibility are distinct
+limits before public support claims, not pending cinematic recovery fixes.
 
 ## Milestone 2 — player body and comfort
 

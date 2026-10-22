@@ -3,6 +3,7 @@
 #include "games/call_of_juarez/revolver_profile.hpp"
 #include "games/call_of_juarez/hud_text_reader.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/movie_skip.hpp"
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
 
 #include <windows.h>
@@ -863,6 +864,7 @@ void JavaPlayerBridge::Reset() noexcept {
     if (!RestoreTrackedHands() || !RestoreTrackedWeapons() || !ClearTrackedWhip(true)) return;
     std::string ignored;
     void* env = vm_ ? Environment(&ignored) : nullptr;
+    if(!movie_input_owner_.Clear(env))return; // Retain references for an owner-thread retry.
     if (env) {
         ClearBeing(env);
         if(being_)return;
@@ -918,6 +920,7 @@ void JavaPlayerBridge::Reset() noexcept {
     lawman_game_class_ = nullptr;
     lawman_module_single_class_ = nullptr;
     active_game_module_field_ = nullptr;
+    movie_input_field_=nullptr;
     is_timer_freezed_method_ = nullptr;
     get_mesh_element_method_ = nullptr;
     get_element_id_method_ = nullptr;
@@ -1490,7 +1493,26 @@ bool JavaPlayerBridge::TryGetActiveGamePresentationOwner(
     if(ClearException(env,error,"blocking presentation module read failed") || !module){DeleteLocal(env,module);return false;}
     const bool owned=is_instance(env,module,lawman_module_single_class_)!=0;
     if(ClearException(env,error,"blocking presentation module type failed") || !owned){DeleteLocal(env,module);return false;}
-    const bool observed=ReadCoJPresentationOwner(env,module,state);
+    bool observed=ReadCoJPresentationOwner(env,module,state);
+    if(observed&&state.movie_playing){
+        const auto field_id=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+        const auto get_object=EnvFunction<GetObjectFieldFn>(env,kGetObjectField);
+        if(!field_id||!get_object){state={};observed=false;}
+        else {
+            if(!movie_input_field_){
+                movie_input_field_=field_id(env,lawman_module_single_class_,"m_cMoviePlaying","LMovie;");
+                if(ClearException(env,error,"movie input owner field lookup failed"))movie_input_field_=nullptr;
+            }
+            if(!movie_input_field_){state={};observed=false;}
+            else {
+                void* movie=get_object(env,module,movie_input_field_);
+                const bool failed=ClearException(env,error,"movie input owner read failed");
+                const auto epoch=failed?0:movie_input_owner_.Update(env,module,movie);
+                DeleteLocal(env,movie);
+                if(!epoch){state={};observed=false;}else state.movie_input_epoch=epoch;
+            }
+        }
+    }else if(observed&&!movie_input_owner_.Clear(env)){state={};observed=false;}
     DeleteLocal(env,module);
     if(!observed){SetError(error,"native blocking presentation observation unavailable");return false;}
     return true;
@@ -1655,6 +1677,32 @@ bool JavaPlayerBridge::TryObserveWinchesterReload(CoJWinchesterReloadSnapshot& o
     const bool read=ReadCoJWinchesterReload(env,player,out,natural?frame:nullptr,this);
     if(!read||being_!=player||being_generation_!=generation){out={};return false;}
     return true;
+}
+
+bool JavaPlayerBridge::TryObserveIndexedReload(std::uint64_t native_context,
+    CoJIndexedReloadSnapshot& out) noexcept {
+    out={};
+    if(!being_||!native_context||independent_hand_faulted_||weapon_overlay_faulted_)return false;
+    for(const auto& hand:hand_overlays_)if(hand.object)return false;
+    for(const auto& weapon:weapon_overlays_)if(weapon.weapon||weapon.active||weapon.applied)return false;
+    void* env=Environment(nullptr);if(!CoJIndexedReloadApiAvailable(env))return false;
+    void* const player=being_;const auto generation=being_generation_;
+    // One-poll local reference only: no identity/transaction lease crosses
+    // polls, so object_epoch and synchronous_scope explicitly remain zero.
+    using namespace long_gun_observer_detail;
+    Reader r{env};if(!r.Check())return false;
+    auto cls=r.Class(player);if(!r.ok)return false;
+    constexpr const char* names[]{"GetActiveWeapon","GetActualWeaponNotEmpty","GetDesiredWeapon"};
+    for(int hand=0;hand<2;++hand)for(const char* name:names){
+        auto method=r.Method(cls,name,"(I)LWeapon;");if(!r.ok)return false;
+        auto weapon=r.Get(player,method,hand);if(!r.ok)return false;
+        if(!weapon.value)continue;
+        const CoJIndexedReloadContext context{generation,native_context,0,0};
+        const bool read=ReadCoJIndexedReload(env,player,weapon,hand,context,out);
+        if(!read||being_!=player||being_generation_!=generation){out={};return false;}
+        return true;
+    }
+    return false;
 }
 
 bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
@@ -4819,6 +4867,34 @@ bool JavaPlayerBridge::TryDispatchMissionEndKey(
     if (ClearException(env, error, "mission-end key release failed")) return false;
     SetError(error, "");
     return true;
+}
+
+bool JavaPlayerBridge::TryDispatchMovieSkipPress(std::uint64_t expected_movie_epoch) noexcept {
+    CoJPresentationOwner current{};
+    if(!expected_movie_epoch||!TryGetActiveGamePresentationOwner(current)||
+        !current.immersive_movie_allowed()||current.movie_input_epoch!=expected_movie_epoch)return false;
+    void* env=Environment(nullptr);
+    if(!env||!EnsureCampaignAccess(env,nullptr))return false;
+    const auto get_static=EnvFunction<GetStaticObjectFieldFn>(env,kGetStaticObjectField);
+    const auto instance=EnvFunction<IsInstanceOfFn>(env,kIsInstanceOf);
+    const auto same=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    if(!get_static||!instance||!same)return false;
+    void* module=get_static(env,lawman_game_class_,active_game_module_field_);
+    if(ClearException(env,nullptr,"movie skip module read failed")||!module){DeleteLocal(env,module);return false;}
+    const bool exact=instance(env,module,lawman_module_single_class_)!=0;
+    if(ClearException(env,nullptr,"movie skip module type failed")||!exact){DeleteLocal(env,module);return false;}
+    const auto validate_current=[](void* context,void* environment,void* retained) noexcept {
+        auto& bridge=*static_cast<JavaPlayerBridge*>(context);
+        const auto get=EnvFunction<GetStaticObjectFieldFn>(environment,kGetStaticObjectField);
+        const auto equal=EnvFunction<IsSameObjectFn>(environment,kIsSameObject);
+        void* active=get(environment,bridge.lawman_game_class_,bridge.active_game_module_field_);
+        if(bridge.ClearException(environment,nullptr,"movie skip active module reread failed")||!active){DeleteLocal(environment,active);return false;}
+        const bool matches=equal(environment,active,retained)!=0;
+        const bool failed=bridge.ClearException(environment,nullptr,"movie skip module identity failed");
+        DeleteLocal(environment,active);return matches&&!failed;
+    };
+    const bool delivered=DispatchCoJMovieSkip(env,module,validate_current,this);
+    DeleteLocal(env,module);return delivered;
 }
 
 bool JavaPlayerBridge::TryDispatchUiBackPress(

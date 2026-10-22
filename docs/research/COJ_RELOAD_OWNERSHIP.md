@@ -127,9 +127,31 @@ does not itself verify `weapon.cOwner == caller`, and writes loaded count
 before reserve (130, 143). A Boolean is insufficient; an exception can leave a
 partial write. Never retry/refund or temporarily fill another slot, alter
 reserve, change whole-clip policy or replay a completion callback to force
-selection. The smallest next implementation is a separate read-only two-index,
+selection. Post-.5 source now implements a separate read-only two-index,
 typed-reserve observer of ordinary native reload; arbitrary indexed transfer,
 native skin side effects and physical opening/port ownership remain unproven.
+
+The observer admits only exact Remington/SawOff/Derringer/Lemant classes, holds
+one-poll JNI locals and checks every nonempty active/actual/desired slot against
+the same retained weapon object before and after reading. Stable partial tuples
+are observable with an empty other hand; matching complete two-hand tuples are
+limited to exact long guns. Class, opaque player/weapon IDs, cOwner, presence,
+both loaded counts and distinct typed reserves must remain stable. Both slots
+sharing one reserve produce one reserve readback, never two independent debits.
+This sampled consistency cannot establish an atomic transaction or unsampled ABA.
+
+The game bridge rejects retained/faulted hand/weapon overlays. Its new diagnostic
+is opt-in through reload tracing, with a 350 ms cadence and process limits of
+120 attempts/32 emitted observations. Copied values explicitly mark no synchronous
+scope, no proven transfer and no manual admission. Ordinary sessions add no polls.
+The separate pure vector classifier requires one caller-retained player/weapon
+lease, a lease-derived object epoch and a fresh synchronous operation scope on
+both samples. Passive polling supplies zero for those fields and cannot classify
+an insertion. Coherent selected +1/matching typed reserve -1, unchanged other
+slot/pools, native multi-slot refill and mismatches remain distinct host contracts.
+No native setter, reload callback, parameter factory, sound or gesture is enabled
+by these policies. New manual integration still needs selective transaction,
+opening/port, support-hand and native phase qualification.
 
 For Winchester, the next step is **read-only live observation** of reload
 begin/body/end, free support hand, loaded/reserve delta and natural weapon pose.

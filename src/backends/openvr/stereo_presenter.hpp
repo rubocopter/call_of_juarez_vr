@@ -60,7 +60,7 @@ struct OpenVrTrackingSample {
     bool ui_back_pressed = false;
     bool pause_pressed = false;
     bool ui_actions_allowed = false;
-    bool vr_settings_active = false;
+    std::uint64_t ui_context_token = 0; // Owner under which pending UI edges were polled.
     bool vr_settings_input_captured = false;
 };
 
@@ -116,7 +116,6 @@ public:
     void PublishBowFeedbackOwner(std::uint64_t token) noexcept;
     // Game-owner values only; independent from gameplay feedback and JNI.
     void PublishSettingsContext(std::uint64_t token, bool available = true) noexcept;
-    void PublishSettingsLanguage(runtime::SettingsLanguage language) noexcept;
 
     [[nodiscard]] bool Publish(d3d9::StereoCpuFrame frame,
         std::uint64_t fixed_output_authority_epoch = 0) noexcept;
