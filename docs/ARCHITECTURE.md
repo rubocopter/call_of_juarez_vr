@@ -723,8 +723,9 @@ One captured support surface joins the four holster surfaces. Renderer-owned
 immutable L1 glyphs add no native draw, contact writer, scene depth or wider
 grasp permission. The operator identified the previous native left_hand contact
 floating away from the Remington, and confirmed grasp/movement at that remote
-point. Mesh-derived placement replaces that rejected reference. Its visible
-registration, hand fit and stability remain physical gates; the original mesh
+point. Mesh-derived placement replaces that rejected reference. The operator
+accepts the corrected Remington grasp; other model fit and unreported stability/
+recovery remain physical gates under [Validation](VALIDATION.md). The original mesh
 measurements and ownership are in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md#measured-long-gun-contact).
 Native right-trigger firing and automatic rifle reload remain authoritative.
 Separately, the final ordinary-fire phase observes exact right-only rifle

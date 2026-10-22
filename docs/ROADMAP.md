@@ -31,9 +31,11 @@ guard, reload thumb/continuity corrections, a two-hand rifle support prototype
 and improved launcher resolution reporting. These are implemented/host-tested,
 with scoped operator acceptance of native option usability and one successful
 physical duel draw/raise and rejection of tested incorrect/cheating postures.
-Hand contact and unreported timing/recovery remain open. The solver is now connected to exact Winchester, Remington
-and SawOff native rifle transactions, with host coverage and physical acceptance
-pending. The published .4 download does not contain these later changes.
+Unreported hand fit and timing/recovery remain open. The solver is connected to
+exact Winchester, Remington and SawOff native transactions. The corrected
+Remington bimanual grip now has scoped operator headset acceptance; Winchester
+and SawOff remain host-tested pending physical qualification. Manual long-gun
+reload remains unimplemented. The published .4 download does not contain these later changes.
 
 The offline batch additionally implements module-owned immersive subtitle text
 and native-cache bow concentration magnification, both host-tested only. The
@@ -45,8 +47,9 @@ diagnostic enables chamber mechanics or physical holster contact.
 The read-only rifle support observer and evidence analysis are host-tested.
 The prototype acquires a measured mesh fore-end on a fresh nearby L1,
 retains that weapon-local reference through native fire/cycle, and cancels for
-reload, invalid geometry or changed ownership. Placement, stability and recovery
-join that same session; automatic native rifle reload is preserved.
+reload, invalid geometry or changed ownership. The operator accepts the corrected
+Remington grasp; untested model placement, sustained stability and interruption
+recovery remain separate gates. Automatic native rifle reload is preserved.
 
 The operator now reports the bow worked very well in exercised play, extending
 the earlier substantial improvement after separating renderer capture drops
@@ -131,8 +134,10 @@ adapter now derives translation from measured wooden fore-end islands in the
 original Remington/SawOff/Winchester meshes and the owning live weapon element;
 left_hand retains anatomy only. Shared guide/admission mapping, mesh-frame
 rotation/translation, absent/replaced source and native-cycle freezing are
-host-tested. The next narrow check is marker/wood registration, grasp/roll and
-native fire/reload on the available Remington; correct physical fit remains open.
+host-tested. The operator subsequently confirms that Remington bimanual use now
+works, closing its reported placement/acquisition defect. No repeat grasp test
+is requested. Manual reload remains pending development; untested models,
+detailed hand fit and unreported fire/cycle/recovery cases retain separate gates.
 The earlier trace identifies an unsupported Derringer, not every
 pistol the operator tried. Existing dual/whole-clip/multiple-ammo exclusions
 remain: the current run cannot qualify cartridge fit or reload feedback.
@@ -223,7 +228,7 @@ Additional implementation remains bounded by the following prerequisites:
 | Development | Current boundary and next prerequisite |
 | --- | --- |
 | Physical-walk/turn leg animation | Planned. The inspected native root/SetFrame routes also advance child animation and notifications, including footsteps/MakeNoise; they cannot serve as a simple legs-only writer. Qualify an event-free sampler or complete reversible lower-body transaction for both models, preserving accepted continuous follow and native movement/permissions. |
-| Rifle two-hand attachment | Exact Winchester/Remington/SawOff attachment is implemented/host-tested through one scoped paired-hand/weapon/aim transaction. Contact now uses the measured mesh fore-end; the previous remote socket allowed acquisition/movement with rejected placement. Corrected physical registration, firing/cycling stability and interruption recovery remain pending; native automatic reload is preserved. |
+| Rifle two-hand attachment | Remington's corrected bimanual grasp is headset-validated in exercised play. Winchester/SawOff remain host-tested pending physical qualification. All use one scoped paired-hand/weapon/aim transaction and measured mesh contact. Detailed hand fit, sustained firing/cycling and unreported interruption recovery remain open; native automatic reload is preserved. |
 | Physical holster contact | Physical duel posture guard exists. Native holster sockets are identified, but grasp volume and displayed-body alignment must be measured before socket-based contact enables drawing. Basic gesture zones below are independent of this geometry. |
 | Basic virtual holsters | Ergonomic HMD-relative hip zones for pistols, right shoulder for rifle and left shoulder for bow are implemented/host-tested independently of model sockets or attached meshes. Optional colored guides share their geometry, default off in native comfort options. Physical zone fit, guide comfort and Action/Kick coexistence join the consolidated candidate; precise socket contact remains separate future work. |
 | Real drum/chambers and ejection | Loading and drum rotation are separate native operations. Establish phase-bound mouth geometry, occupancy and native mechanical ownership before precise insertion or independent cylinder/ejection writers. |
@@ -247,7 +252,7 @@ reserve and callback facts have one owner: [reload research](research/COJ_RELOAD
 | Frontier, Walker, Cogswell | Exact single-ammo manual extensions are host-tested; Cogswell uses rifle reserve. | Qualify per-model hand/port geometry, visual ammunition and interruption behaviour; current .357 visual is not evidence of correct calibre for every weapon. |
 | Winchester | Exact support grip and passive native reload observer are host-tested. Square still performs conventional automatic reload. | First observe native hand/animation/ammo/reserve through begin/loop/end; correlate the native ammo field with HUD and qualify a loading-port frame; then implement a separate supervised manual rifle session and deliberate regrip. Manual loading is not implemented. |
 | Scoped Winchester | Native fallback; deliberately excluded from the support and manual whitelist. | Qualify exact class, optic alignment/zoom, both-hand ownership and its own reload/support adapter before enabling either interaction. |
-| Remington and SawOff | Exact two-hand support prototype host-tested; native Square remains whole-clip/two-slot. | Demonstrate index-specific single-shell transfer and per-barrel readback/callback ownership before manual loading; separately qualify opening, port/ejection and either-hand SawOff recovery. |
+| Remington and SawOff | Remington bimanual grasp headset-validated; SawOff support host-tested only. Physical manual reload remains unimplemented; native Square is whole-clip/two-slot. | Demonstrate index-specific single-shell transfer and per-barrel readback/callback ownership before manual loading; separately qualify opening, port/ejection and either-hand SawOff recovery. |
 | Volcanic | Native fallback; static single-index/per-round contract identified. | Observe native loading states/pose, qualify hand/port and effective ammo/reserve transaction, then implement its own manual profile. |
 | Derringer | Native whole-clip/two-index fallback. | Establish per-chamber transaction, opening and ejection; one existing native call may fill both chambers, so it cannot represent one cartridge. |
 | Lemant (archive spelling; LeMat) | Native fallback with separate rifle/pistol indices and reserve pools. | Selective index transfer and mode ownership, distinct loading geometry/gestures and both reserves; existing unit helper must not load both types for one gesture. |
@@ -376,7 +381,8 @@ or reload work:
   object, invalid tracking or excessive separation cancel. Real bridge fixtures
   cover both-parent-before-child commit, same-ID replacement rejection and
   retained restoration. L1/L2 claims suppress competing consumers until release.
-  Test grasp fit, fire/cycle coherence and interruption recovery together in visor.
+  Remington's exercised corrected grasp is headset-validated and needs no repeat.
+  Other model fit, sustained fire/cycle coherence and interruption recovery remain open.
   Scope variants and physical manual long-gun loading remain unimplemented.
   Original-archive reload research identifies Winchester's single-round rifle
   path as the first candidate for a separate manual session. Remington and

@@ -137,7 +137,10 @@ of this same point, before the solver rotates toward the left controller.
 Frozen weapon-local contact retains native-cycle continuity and restoration.
 Host regressions cover independent player-socket motion, child-element rotation/
 translation, missing/replaced mesh frames, frozen cycling and paired native
-transactions. Visible registration and physical fit remain unqualified.
+transactions. The operator subsequently accepts the corrected Remington
+bimanual grasp, closing that model's reported detached-contact defect.
+Winchester/SawOff placement, detailed finger fit and unreported sustained-cycle/
+recovery cases remain unqualified. This acceptance adds no manual reload route.
 
 The exact `InvObject.GetOwnerElementID` chooses `Left_hand`/`Right_hand`, with
 `Bip01 L/R Hand` as fallback. The Ray/Billy meshes contain the lowercase holding
