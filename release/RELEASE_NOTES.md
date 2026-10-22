@@ -1,3 +1,170 @@
+# v0.1.0-prealpha.5 — Physical bow, rifle support and virtual holsters
+
+Experimental community prerelease for **original Steam Call of Juarez (2006),
+D3D9/OpenVR, Windows 10/11 x64**. Cumulative from prealpha.4. Back up saves;
+campaign completion and general headset/controller support remain unqualified.
+
+**Remington bimanual grip is operator-validated on the exercised PS VR2 setup.
+Physical manual reload for rifles/shotguns is still NOT implemented:** Square
+keeps the original automatic reload. Winchester/SawOff support is experimental
+and needs its own physical confirmation.
+
+## Gameplay and controls added since prealpha.4
+
+- **Physical bow draw:** hold/aim with the left hand; bring the right hand to the
+  string, freshly hold R2, retract and release R2 to shoot. Returning toward the
+  bow or moving off-axis relaxes tension without losing the held string. A short
+  or slack release does not request a shot. The exact bow root/holding frame,
+  native hand-state supervision and vibration transport are integrated. Native
+  ammo, timing and concentration rules remain authoritative. The operator reports
+  very good exercised bow use; sustained consistency, arrow/string alignment,
+  haptic quality and interruption recovery remain separate checks.
+- **Bimanual rifles/shotguns:** fresh L1 near the wooden fore-end acquires support
+  on an idle, right-owned Remington, Winchester or SawOff. One rigid map keeps
+  the weapon, hands, muzzle and aiming ray together without stretching. Release
+  L1 to detach; Square cancels support for native reload. Crossing the support
+  hand behind the dominant grip cancels instead of flipping the barrel. Native
+  cycling retains the acquired local contact. Scoped Winchester is excluded.
+- **Correct rifle contact:** acquisition and its optional L1 guide now use
+  measured wood geometry on the live weapon element. This fixes the reported
+  floating Remington grab point; the player's native support socket supplies
+  anatomy rather than contact position. The corrected Remington grasp is
+  headset-validated in exercised play. Other models and broad recovery remain
+  unqualified.
+- **Virtual holsters:** fresh R1 at the right hip toggles its pistol, L1 at the
+  left hip toggles its pistol, R1 above/behind the right shoulder toggles the
+  long weapon, and L1 above/behind the left shoulder toggles the bow. Release
+  between gestures. These ergonomic zones require native inventory/permissions,
+  operate on foot outside duels, and have scoped operator acceptance. They do
+  not add visible holstered weapon models or precise body-socket grasping.
+- **Optional weapon guides:** native Options > Game can show colored holster
+  zones and the small rifle L1 marker. Cyan locates rifle contact, green indicates
+  nearby released-hand admission, grey requests release; the marker hides when
+  attached. Guides default off and share the real acquisition geometry. The
+  operator accepts exercised holster guides and switching assistance on/off.
+- **Equipment wheel presentation:** procedural Western styling and localized
+  labels retain hold/select/release behavior and native equipment authority.
+- **Native VR options:** Options > Game now exposes cinematic theater/immersive,
+  smooth/snap turning and weapon guides using native widgets. Shared version-3
+  preferences preserve older saved choices and are shared with the held-Options
+  VR settings panel. A missing turning preference defaults to smooth. Explicit
+  choices persist; a failed save remains a visible session-only change. EN/ES
+  authored labels follow the game's startup locale.
+- **Physical duel posture:** stick-down draw requires a fresh right hand at the
+  hip and stick-up raise requires physically raising it. Native duel timing and
+  permissions still apply. The operator confirms the correct gesture works and
+  tested incorrect/cheating postures are rejected. Broader duel timing/retry and
+  recenter recovery remain open.
+- **Continuous body following:** normal gameplay follows every HMD yaw change,
+  replacing the previous free-look cone while preserving scoped camera/body
+  restoration. This has scoped operator acceptance. Legs still slide during
+  physical walking/turning; room-scale leg animation is not implemented.
+- **Immersive movie subtitles:** module-owned subtitle text can now be transported
+  during immersive cinematics, respecting native subtitle ownership/settings and
+  clearing stale text. The operator confirms subtitle appearance in exercised
+  animations without specifying all modes. Other timing/mode cases remain open;
+  theater stays the cinematic default and earlier accepted recovery is retained.
+- **Bow concentration optics:** use the native cached concentration value for
+  scoped world-view magnification, preserving physical HUD/menu optics and
+  avoiding repeated native updates. This part is host-tested; visual alignment
+  and comfort remain unqualified.
+
+## Fixes and reliability
+
+- **Free-hand rifle trigger:** L2 no longer falls through the native empty-hand
+  attack route and fires a right-owned Remington. The operator confirms the fix.
+  Consumed trigger holds require physical release across context changes; R2
+  remains the normal firing trigger.
+- **Grip arbitration:** rifle and holster claims consume conflicting Action/Kick
+  input, including denied zone presses, so they cannot leak into delayed kicks
+  or other interactions. Earlier unwanted kicks were corrected; exercised
+  holsters are accepted, broader held-input recovery remains open.
+- **Rifle regripping:** approaching with a released L1 preserves the release
+  baseline; pressing outside contact never queues an automatic later grab.
+  Named Remington Holder element zero is accepted as its valid root socket.
+- **Rifle ownership and stereo:** retain the actual Java weapon object and epoch
+  across restored frames, reject same-ID replacements and changed mesh anchors,
+  recheck both hand maps before the single weapon commit, and verify muzzle/ray
+  ownership through both eyes. A failed expected map invalidates the pair;
+  successful restoration cannot publish images from a failed pair.
+- **Bow continuity:** capture-ring misses alone no longer cancel an otherwise
+  valid physical draw. Consumed R2 remains consumed through lost owner proof;
+  real tracking/native owner loss still cancels and requires release. Holding a
+  valid draw no longer inherits the unrelated concentration-expiry cancellation;
+  native release/shot and concentration duration are retained.
+- **Manual revolver reload:** preserve grip/feedback continuity across slow wrist
+  motion, reject discontinuous carries, add a soft held-zone cue distinct from
+  accepted-insertion feedback, and a short native-confirmed support-thumb gesture
+  after insertion. Cartridge axis follows the measured displayed-finger tangent.
+  Convincing cartridge grip, hand/scene occlusion, real chamber insertion,
+  insertion-specific sound and ejection remain unfinished. The existing admitted
+  profiles and native ammo/reserve authority are retained.
+- **Body restoration:** keep the original actor, generation and complete preimage
+  through pelvis/diagnostic-arm transactions, failed writes and translated restore
+  retries. Restoration runs before replacement, disabled-tracking exits or new
+  mutations; a failure retains ownership and stops dependent work.
+- **Chest/scroll crash mitigation:** preserve only a verified, still-active native
+  render-level context around injected input dispatch. Foreign, removed or
+  read-only invalid contexts reject. This is host-tested mitigation, **not a
+  confirmed fix of the reported campaign crash**; keep save backups.
+- **Transactional recovery:** inventory hidden/system and nested directory contents
+  before restoring/removing staged files. Preserve unknown contents and journals;
+  reject fresh staging when the original directory cannot be represented safely.
+- **Resolution reporting:** launcher output distinguishes saved intent, applied
+  size and specific fallback causes, including unavailable SteamVR recommendations
+  and incompatible native caps. No new resizing backend, automatic supersampling
+  policy or live resolution switching is introduced.
+
+## Diagnostics and engineering
+
+- Fix [issue #5's](https://github.com/rubocopter/call_of_juarez_vr/issues/5) confirmed
+  unwanted HUD sprite/flush diagnostic: ordinary sessions no longer install those
+  hooks with resource probes disabled. Retained callbacks also honor permission.
+  The report actually shows working GPU sharing during gameplay; CPU theater
+  transfer is separate. **Resolution of the reported Pico 4/Virtual Desktop
+  rhythmic stutter is still unverified; this release does not claim it fixed.**
+- Retire automatic FX-global/emitter walks, duplicate shot/barrel comparisons and
+  repeated skeleton discovery from ordinary play. They remain available only
+  through explicit resource/movement traces. Keep exact-build rejection, muzzle/
+  hand verification, rollback, crash reporting and lightweight transport/cadence
+  counters active. This is reduced diagnostic work, not a measured FPS claim.
+- Add opt-in, bounded rifle admission/native Winchester reload observations and
+  offline bow/reload evidence analysis with owner/epoch/state correlation. These
+  observers neither implement manual rifle reload nor prove chamber occupancy.
+- Extend host regressions for settings/bytecode verification, gestures, geometry,
+  same-ID replacement, failed restoration, staging recovery and packaging.
+- Document native reload contracts for the remaining weapons and assess external
+  VR reference projects. Development-only body-haptics admission/recording
+  groundwork adds no vest SDK/provider or supported hardware. No external VR
+  framework or physics runtime is added by this research.
+
+## Install/update and focused community checks
+
+Extract the complete **Windows player ZIP**, close the game, start SteamVR for
+Auto/percentage profiles and select **1 — Install/update** in `CoJ-VR.cmd`.
+Resolution and manual-reload preferences survive updates. Before later plays,
+choose **6 — Prepare session** while closed. Start/close the game and SteamVR
+manually. The GitHub automatic source ZIP is not the player package.
+
+Please report your weapon/checkpoint, headset/controllers and any observed jump,
+missed grab or input leak. Test an available unqualified Winchester/SawOff support
+grip, bow consistency and native options/holsters during ordinary play. Existing
+Remington grasp and accepted baselines need no repeat solely for confirmation.
+For issue #5, compare movement pacing on the affected setup with ordinary probes
+off; no additional PS VR2 run can establish the Pico result. Reports remain local
+until inspected and manually attached.
+
+Remaining limits: full campaign and other hardware; chest/scroll crash recovery;
+tracking/dashboard/device-loss and held-input recovery; native PC tutorial labels;
+mounted/climbing/scoped contexts; cartridge fit/occlusion and complete chamber/
+ejection mechanics; physical long-gun reload; room-scale leg animation; sustained
+and recording performance. Independent eye RTs, OpenXR and D3D10 remain separate
+experimental/future tracks and are not enabled by this package.
+
+Original project code is GPL-3.0-or-later. The player ZIP includes the license,
+third-party notices and exact `SOURCE_COMMIT.txt`; no game archives/assets are
+distributed. [All source changes since prealpha.4](https://github.com/rubocopter/call_of_juarez_vr/compare/v0.1.0-prealpha.4...v0.1.0-prealpha.5).
+
 # v0.1.0-prealpha.4 — Duels, dual reticles and compatibility
 
 Experimental community prerelease for the **original Steam Call of Juarez (2006),

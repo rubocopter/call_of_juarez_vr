@@ -1102,6 +1102,13 @@ before forwarding to D3D state queries/logging. Ordinary community sessions
 must not install these diagnostic hooks while the resource probe is disabled.
 Removing this work does not establish a performance improvement on a headset.
 
+Periodic native FX-global/emitter walks and duplicate shot/barrel comparisons
+also require that resource-probe opt-in. Repeated skeleton element discovery is
+restricted to `movementTraceEnabled`; it is not proof of body ownership. These
+integration observations are separate from functional bow shot counters,
+muzzle/hand verification, exact-build admission, restoration and fault reporting,
+which retain their ordinary safety/behavior roles.
+
 ## Evidence and lifecycle
 
 The startup-only `frameLumaProbeEnabled` diagnostic is renderer-owned and off by

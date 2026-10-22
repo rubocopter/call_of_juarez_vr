@@ -43,7 +43,7 @@ The mod currently targets **only the first Call of Juarez (2006)**. It is a work
 
 ## Download and play
 
-**[Download Call of Juarez VR v0.1.0-prealpha.4 for Windows](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.4/CoJ-VR-0.1.0-prealpha.4-windows-x64.zip)** · [Release notes & checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.4)
+**[Download Call of Juarez VR v0.1.0-prealpha.5 for Windows](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.5/CoJ-VR-0.1.0-prealpha.5-windows-x64.zip)** · [Release notes & checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.5)
 
 You need the **original Steam PC game**, Windows 10/11 x64, SteamVR, and a PCVR headset. The mod does not include the game.
 
@@ -54,14 +54,14 @@ You need the **original Steam PC game**, Windows 10/11 x64, SteamVR, and a PCVR 
 
 No compiler or development tools are required. The launcher includes resolution profiles, controller help, diagnostics and recovery. Full instructions are below for those who need them.
 
-For the unpublished development candidate, see the [current acceptance table and consolidated headset checklist](docs/VALIDATION.md#pending-headset-checks) and [development backlog](docs/ROADMAP.md#development-backlog). Continuous body following, native option usability and one correct physical duel gesture have scoped operator acceptance; the latest bow trial reports substantial improvement. Remaining checks are listed separately from features still awaiting implementation, so accepted behavior is not repeatedly marked untested.
+See the [current acceptance table and focused headset checklist](docs/VALIDATION.md#pending-headset-checks) and [development backlog](docs/ROADMAP.md#development-backlog). Continuous body following, native option usability, physical duel gestures, ordinary holsters/guides and the corrected Remington bimanual grasp have scoped operator acceptance; the latest bow trial reports very good exercised use. Other weapon models and broader recovery remain separate checks.
 
 <details>
 <summary><strong>Detailed installation, updates and resolution settings</strong></summary>
 
 <br>
 
-The latest public version is **v0.1.0-prealpha.4**. Its changes include tracked duel draw/raise controls, both firearm reticles, careful-movement corrections, default smooth turning, improved idle support-hand presentation for long guns, and additional launcher settings. Current local development work may go beyond this release; it is not included in the download.
+The latest public version is **v0.1.0-prealpha.5**, cumulative from .4. It adds physical bow drawing, bimanual rifle support, virtual holsters, optional weapon guides, native VR options, physical duel posture checks and continuous body following. It also corrects input ownership, restoration and unwanted diagnostic work. See the [complete changes and validation limits](release/RELEASE_NOTES.md).
 
 **Revolvers only:** long-gun manual reload is not available. Rifles and shotguns use the game's automatic reload animation.
 
@@ -94,11 +94,12 @@ Profiles change native rendering at startup, including menu/theater sources, and
 
 These features have scoped headset validation in exercised scenes, not full campaign coverage:
 
-- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch and default smooth turning. The published .4 build has no in-game smooth/snap selector.
+- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch, default smooth turning and continuous body following. Native Options > Game exposes smooth/snap, cinematic presentation and weapon guides; native option usability has scoped acceptance.
 - Independent tracked hands/weapons with the original torso and legs; exercised pistol effects, whip use and physical Hands combat.
 - Controller menus, equipment wheel/haptics, wrist compass, encountered HUD/subtitles, pickup/carry, drawers and Focus.
 - Experimental manual revolver reload, enabled by default: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
 - Simultaneous independent aiming reticles with two firearms; Clyde duel draw/raise with the right stick and tracked-hand aiming/fire; corrected free-left-hand fingers with a normally held long gun.
+- Physical bow use, ordinary virtual holsters and their optional guides, plus the corrected Remington bimanual grasp. Winchester/SawOff support and broader interruption recovery remain experimental.
 
 Compared with prealpha.1, this release also improves Ray's body/coat presentation, including the accepted 8 cm horizontal visual setback. Stereo recovery after cinematics, including Hope, is fixed and headset-validated across multiple exercised sequences. The operator also accepted hot presentation-mode changes, different equipped weapons, recentering during sequences and continued gameplay; this is not complete campaign coverage.
 
@@ -128,9 +129,13 @@ Current PS VR2 Sense defaults:
 
 PS VR2 Sense default bindings. **Hold Options for 1 second** to open VR settings; a short tap pauses on release. For manual reload with an eligible revolver and empty support hand: **press Square to open → press/hold the free-hand trigger at your hip to grab a round → bring it to the gun and release → press Square to close**. For the other experimental controller profiles, see the [controls cheat sheet](release/README.txt).
 
-The .4 VR settings panel is an **experimental interface** for cinematic presentation. Later native Options > Game and smooth/snap work is described in the [roadmap](docs/ROADMAP.md#parallel-engineering-tracks) and is not in the download.
+**Options > Game** exposes cinematic presentation, smooth/snap turning and weapon guides. These settings share saved preferences with the held-Options VR panel; guides default off.
 
-**Duels:** center the right stick on entry, pull down to draw when the game permits, then up to raise; aim with your tracked hand and use the triggers to fire. **Ray concentration:** holster both weapons and wait for native readiness, then make a fresh L2/R2 press. R3 is Focus/zoom; selecting fists is not holstering. With both pistols drawn, hold Triangle, highlight the right sector with the right stick and release to holster the right pistol; center and repeat left for the left pistol. Let both animations finish. **Blocking hints:** Cross dismisses; release before the next action. A PC Z prompt means Circle/alternate fire once gameplay resumes. Native tutorial windows still display PC keys.
+**Bow:** aim with the left hand, bring the right hand to the string, freshly hold R2, draw back and release R2 to shoot. **Bimanual long guns:** with an idle right-held Remington, Winchester or SawOff and an empty left hand, freshly hold L1 near the wooden fore-end; release L1 to detach. Enable guides to locate contact. Square cancels support for native reload. Scoped Winchester is excluded.
+
+**Virtual holsters:** freshly press R1 at the right hip or L1 at the left hip for pistols; R1 above/behind the right shoulder selects/stows the long weapon, L1 above/behind the left shoulder the bow. Release between gestures. These zones use native inventory permissions and operate on foot outside duels; no visible holstered weapon models are added.
+
+**Duels:** center the right stick on entry; place the right hand at the hip and pull down to draw when the game permits, then physically raise the hand and push up to raise the weapon. Aim with your tracked hand and use the triggers to fire. **Ray concentration:** holster both weapons and wait for native readiness, then make a fresh L2/R2 press. R3 is Focus/zoom; selecting fists is not holstering. With both pistols drawn, hold Triangle, highlight the right sector with the right stick and release to holster the right pistol; center and repeat left for the left pistol. Let both animations finish. **Blocking hints:** Cross dismisses; release before the next action. A PC Z prompt means Circle/alternate fire once gameplay resumes. Native tutorial windows still display PC keys.
 
 PS VR2 with Sense through SteamVR is the only physically validated reference, limited to exercised scenes. Packaged Touch, Index, Vive wand and WMR bindings are experimental and do not establish support for another headset or PC. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls).
 
@@ -138,15 +143,15 @@ PS VR2 with Sense through SteamVR is the only physically validated reference, li
 
 ## Known limitations
 
-- A chest/possible-scroll interaction has caused a campaign crash. Its cause and recovery remain unresolved; progress can be lost.
-- Full campaign cinematic coverage remains open. Theater is the default; immersive movie subtitles are not transported. Earlier intermittent full-scene flashes have not recurred in later exercised sessions, but their cause remains unresolved.
+- A chest/possible-scroll interaction has caused a campaign crash. A native render-context mitigation is host-tested; the campaign fix and recovery remain unconfirmed. Progress can be lost.
+- Full campaign cinematic coverage remains open. Immersive subtitle transport is implemented, with broader mode/timing checks pending; theater remains the default. Earlier intermittent full-scene flashes have not recurred in later exercised sessions, but their cause remains unresolved.
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
 - Manual reload has scoped revolver acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. Long guns retain automatic native reload and its original animation. The latest hand-directed interaction also awaits physical acceptance.
 - Native tutorial windows still show PC keys. The long-gun support-hand correction applies in normal weapon states; firing/alternate/reload/transitions can retain native fingers.
 - Community feedback confirms the retained .3 projection correction on Beyond and reports a good Quest view without specifying its model. Menu gaze alignment and broader headset/controller support remain unqualified. The rejected independent eye RT prototype and investigation probes remain off.
 
-The latest published release is **v0.1.0-prealpha.4**, cumulative from .3, .2 and .1. See [release notes](release/RELEASE_NOTES.md) for the changes since .3 and [Validation](docs/VALIDATION.md) for acceptance limits. Unpublished source changes have their own validation gates. Archived packages and canonical verifier outcomes remain unchanged.
+The latest published release is **v0.1.0-prealpha.5**, cumulative from .4, .3, .2 and .1. See [release notes](release/RELEASE_NOTES.md) for all changes since .4 and [Validation](docs/VALIDATION.md) for acceptance limits. The Pico 4/Virtual Desktop rhythmic-stutter report remains unresolved; reduced diagnostic work does not establish a performance fix. Archived packages and canonical verifier outcomes remain unchanged.
 
 ## Feedback
 
@@ -178,7 +183,7 @@ ctest --preset release
 
 Physical candidates use `tools/vr_test.ps1 prepare` and `finish`; add `-BodyIkAtStart -LargeAddressAware -ManualReload` for the manual-reload candidate. The operator starts/closes SteamVR and the game. Read [AGENTS.md](AGENTS.md) and the [validation workflow](docs/VALIDATION.md#evidence-policy) before integration work.
 
-The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.4` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
+The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.5` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
 
 </details>
 

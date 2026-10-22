@@ -303,6 +303,11 @@ function Show-PublicLauncherHelp {
     Write-Host 'Save/load: open the native pause menu, then select Save/Load when the campaign permits. Either hand trigger selects with its menu pointer; profile Accept/Back controls also work.'
     Write-Host 'Quick Save/Quick Load have no default controller binding. Optional actions can be assigned in SteamVR bindings. Custom bindings may differ from this table.'
     Write-Host 'Additional controller profiles are experimental. In-game prompts currently use Sense labels.'
+    Write-Host 'Native Options > Game: cinematic presentation, smooth/snap turning and weapon guides (default off).'
+    Write-Host 'Sense bow: left hand aims; right hand at string -> fresh R2 hold -> draw back -> release R2 to shoot.'
+    Write-Host 'Sense rifle support: fresh L1 hold near the wooden fore-end; release to detach. Square keeps automatic native reload. Remington grasp has scoped acceptance; Winchester/SawOff remain experimental.'
+    Write-Host 'Sense holsters: fresh R1 at right hip/right shoulder, L1 at left hip/left shoulder; release between gestures. Shoulder zones select/stow long gun/bow. Native inventory permissions apply.'
+    Write-Host 'Duels: center right stick; right hand at hip + stick down to draw when permitted, then physically raise hand + stick up. Native timing still applies.'
 }
 function Start-PublicSession([string]$Game, [object]$State) {
     Assert-PublicStageIdentity $Game $State

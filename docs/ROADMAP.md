@@ -10,7 +10,7 @@ Status vocabulary: `planned`, `implemented`, `host-tested`, `live-tested`,
 
 ## Current gate
 
-The published `v0.1.0-prealpha.4` baseline has scoped PS VR2 Sense acceptance
+The published `v0.1.0-prealpha.5` includes the earlier scoped PS VR2 Sense baseline
 for native stereo and head tracking, movement/smooth turning, independent hands,
 physical Hands combat, manual revolver unit loading, controller menus, encountered
 HUD and subtitles, two reticles, and the exercised Clyde and Ray mechanics.
@@ -25,7 +25,7 @@ Neither that declaration nor successful normal quit qualifies all cinematics,
 unreported subtitle modes/timing, focus/dashboard/tracking loss or device resets.
 Already accepted Hope and ordinary reload/menu behavior need no repeat test.
 
-Current unpublished work includes a shared version-3 preference owner and native
+The .5 release includes a shared version-3 preference owner and native
 Options > Game cinematic/turning/holster-guide selectors, a physical right-hand duel posture
 guard, reload thumb/continuity corrections, a two-hand rifle support prototype
 and improved launcher resolution reporting. These are implemented/host-tested,
@@ -35,7 +35,7 @@ Unreported hand fit and timing/recovery remain open. The solver is connected to
 exact Winchester, Remington and SawOff native transactions. The corrected
 Remington bimanual grip now has scoped operator headset acceptance; Winchester
 and SawOff remain host-tested pending physical qualification. Manual long-gun
-reload remains unimplemented. The published .4 download does not contain these later changes.
+reload remains unimplemented. Distribution does not expand those physical gates.
 
 The offline batch additionally implements module-owned immersive subtitle text
 and native-cache bow concentration magnification, both host-tested only. The
@@ -552,13 +552,14 @@ requires a second independent game demonstration before generalization.
 
 ## Release direction
 
-The latest published package is `v0.1.0-prealpha.4`, cumulative from .3/.2/.1.
+The latest published package is `v0.1.0-prealpha.5`, cumulative from .4/.3/.2/.1.
 [Release notes](../release/RELEASE_NOTES.md) own its changes and controls;
 [Validation](VALIDATION.md#public-prerelease-policy) owns scoped PS VR2 acceptance,
-community observations and unresolved risks. Native settings, physical duel
-posture, reload feedback/continuity, two-hand solver, continuous body follow and
-ambient render-context preservation work described above
-remain unpublished and do not inherit the .4 acceptance.
+community observations and unresolved risks. The release includes the native
+settings, physical duel posture, reload continuity, bow/holsters, two-hand solver,
+continuous body follow, ambient render-context mitigation and diagnostic cleanup
+described above. Each keeps its own acceptance limits; publication alone does
+not qualify the campaign crash mitigation, other weapon models or issue #5 pacing.
 
 Future distributions must preserve exact-build rejection, reversible archive
 installation, independent saved resolution/reload preferences, local-only

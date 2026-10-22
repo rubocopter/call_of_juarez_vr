@@ -1,22 +1,21 @@
-Call of Juarez VR 0.1.0-prealpha.4 - experimental player package
+Call of Juarez VR 0.1.0-prealpha.5 - experimental player package
 Experimental community-testing prerelease
 
 The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
 
-This release is cumulative from .3, including the earlier .2
-baseline and OpenVR asymmetric vertical projection correction. Community
-feedback confirms the corrected Beyond gameplay view; an unspecified Quest
-report is also positive. These observations do not establish general support.
+This release is cumulative from .4/.3/.2/.1. It adds physical bow drawing,
+bimanual rifle support, virtual holsters/guides, native VR options, physical
+duel posture checks and continuous body following. Exercised PS VR2 play has
+scoped acceptance of the corrected Remington grasp, ordinary holsters/guides,
+option usability, duel gestures and body following, with very good bow feedback.
+Winchester/SawOff support and broader timing/recovery remain unqualified.
 Auto remains the missing resolution preference. Manual reload starts on for
-fresh installation and current updates preserve its choice. New movement,
-smooth-turn, dual-reticle and normal long-gun support-hand changes have scoped
-operator confirmation in the exercised PS VR2 candidate. The operator also
-confirms Clyde's down/up draw/raise, tracked aiming/shooting and ordinary Ray
-concentration after holstering. Other hardware, duels and interruption/retry
-recovery remain unqualified.
-Archived .3/.2/.1 packages and verdicts are unchanged.
+fresh installation; updates preserve its choice. Earlier projection and stereo
+recovery corrections are retained. Community Beyond/unspecified Quest feedback
+does not establish general hardware support. Archived packages and verdicts
+are unchanged. RELEASE_NOTES.md lists all changes since .4 and their limits.
 
 IMPORTANT: MANUAL RELOAD FOR LONG GUNS IS NOT IMPLEMENTED. Rifles/shotguns
 retain automatic native reload and its original animation (Sense: Square).
@@ -100,20 +99,35 @@ profile and the startup sequence. Custom SteamVR bindings may differ.
 Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
 Ordinary turning is smooth and proportional, up to 90 degrees/second in native
 normal-look mode. Center the stick after a menu, lost input or long frame gap.
-The .4 build has no smooth/snap selector; default smooth turning has scoped
-PS VR2 operator confirmation. Hold Pause/Options for the existing experimental
-VR settings panel to choose cinematic presentation.
+Native Options > Game exposes cinematic presentation, smooth/snap turning and
+weapon guides. These share saved preferences with the held-Pause/Options VR
+panel. Guides default off; default smooth turning retains scoped acceptance.
 Experimental duel controls: center the right stick after entering the duel;
-pull it down to draw when the game allows, then up to raise the weapon. Left/
-right stick aims in the native duel; triggers retain native firing. Ordinary
+place the right hand at the hip and pull down to draw when the game allows,
+then physically raise the hand and push up to raise the weapon. Left/right
+stick aims in the native duel; triggers retain native firing. Ordinary
 turning yields during duels. Clyde draw/raise and tracked aim/fire have scoped
-operator confirmation. Broader duel/retry behavior remains unqualified.
+operator confirmation, including tested rejection of incorrect/cheating
+postures. Broader duel/retry behavior remains unqualified.
 Concentration outside duels retains its original activation requirements.
 Crouch / Focus: L / R stick click; Touch/Index require a CENTER click.
 Vive uses L / R trackpad CENTER click. WMR uses stick clicks, not pad centers.
 L grip = interact; R grip = kick (Sense: L1 / R1). Triggers retain the game's
 left/right hand actions; the free-hand trigger carries/releases rounds in
 manual reload, enabled by default.
+Bow: aim with the left hand; bring the right hand to the string, freshly hold
+R2, draw back, then release R2 to shoot. Slack/off-axis motion relaxes tension
+without losing the grab; native ammo, timing and concentration rules apply.
+Bimanual long guns: with an idle right-held Remington, Winchester or SawOff
+and an empty left hand, freshly hold L1 near the wooden fore-end. Release L1
+to detach; Square cancels support for native reload. Enable weapon guides to
+locate contact. Scoped Winchester is excluded. Only the exercised corrected
+Remington grasp has physical acceptance; other models remain experimental.
+Virtual holsters (on foot outside duels): freshly press R1 at the right hip
+or L1 at the left hip for pistols; R1 above/behind the right shoulder for the
+long weapon, L1 above/behind the left shoulder for the bow. Release between
+gestures. Zones require native inventory permissions; guides are optional.
+Visible holstered weapon models and physical long-gun reload are not added.
 Directional clicks can coincide with movement/turning: Touch/Index UP-clicks
 deflect their sticks, Vive pads also move/turn, and WMR's separate movement/turn
 sticks can remain deflected. Center those inputs when you want to stand still.
@@ -251,9 +265,10 @@ KNOWN LIMITATIONS
   broader headset/controller support and other PCs remain unqualified.
 - Background/Scene recommendation identity, other headsets and memory headroom
   remain unqualified. Auto is a product default, not a support guarantee.
-- A chest/possible-scroll interaction has caused a crash. Cause and recovery
-  are unresolved; campaign progress is at risk.
-- Full campaign cinematic coverage and immersive subtitle transport remain open.
+- A chest/possible-scroll interaction has caused a crash. A render-context
+  mitigation is host-tested; its campaign fix and recovery remain unconfirmed.
+- Full campaign cinematic coverage remains open. Immersive subtitle transport
+  is implemented, with broader mode/timing acceptance still pending.
   Stereo recovery after Hope and multiple other exercised cinematics is fixed
   and headset-validated, including hot mode changes, weapons and recentering.
   Theater remains the default. Earlier intermittent full-scene flashes have not
@@ -270,6 +285,9 @@ KNOWN LIMITATIONS
   above; R3 zoom, Ray concentration and Circle/alternate fire are different actions.
 - OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
   The rejected independent eye RT prototype and investigation probes remain off.
+- Pico 4/Virtual Desktop rhythmic stutters reported in issue #5 remain
+  unresolved. HUD/FX/skeleton diagnostic work is now opt-in; this does not prove
+  a performance fix. Muzzle/hand safety, restoration and transport counters remain.
 
 REPORTING
 

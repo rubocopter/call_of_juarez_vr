@@ -2215,6 +2215,9 @@ void ObservePlayerSkeleton(
     const std::uint64_t frame_sequence,
     const JavaPlayerPosition position) noexcept {
     if (!ShouldObserveBodyFrame(frame_sequence)) return;
+    // Element discovery was an integration probe, not body ownership proof.
+    // Keep it available for explicit movement traces without recurring JNI work.
+    if (!CurrentCommand().command.movement_trace_enabled) return;
 
     try {
         std::string error;
@@ -7066,7 +7069,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     std::array<CoJWeaponShotDiagnostics,2> fx_shots{};
     std::array<bool,2> sample_emitters{};
     const auto fx_now=GetTickCount64();
-    const bool fx_gameplay=gameplay_input.active && !loading_ui_input.suppress_gameplay;
+    // Accepted shot/FX placement no longer needs periodic native emitter walks
+    // or duplicate barrel comparisons in ordinary play. Keep these observers
+    // behind the existing graphics diagnostic opt-in; muzzle safety is separate.
+    const bool fx_gameplay=snapshot.command.render_resource_probe_enabled &&
+        gameplay_input.active && !loading_ui_input.suppress_gameplay;
     if (!fx_gameplay) {
         fx_window.Invalidate(0); fx_window.Invalidate(1);
     } else if (fx_window.NeedsPoll(fx_now) &&
@@ -7079,8 +7086,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             else fx_window.Invalidate(hand);
         }
     }
-    const bool observe_fx = gameplay_input.active && !loading_ui_input.suppress_gameplay &&
-        ShouldObserveBodyFrame(frame_sequence);
+    const bool observe_fx = fx_gameplay && ShouldObserveBodyFrame(frame_sequence);
     const auto observe_native_fx = [&](CoJNativeFxPhase phase, const char* phase_name) noexcept {
         if (!observe_fx && !sample_emitters[0] && !sample_emitters[1]) return;
         try {
@@ -7139,8 +7145,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         }
     };
     observe_native_fx(CoJNativeFxPhase::frame, "pre_render");
-    if (gameplay_input.active && !loading_ui_input.suppress_gameplay &&
-        ShouldObserveBodyFrame(frame_sequence)) {
+    if (observe_fx) {
         try {
             for (int hand = 0; hand < 2; ++hand) {
                 CoJWeaponShotDiagnostics shot_state{};

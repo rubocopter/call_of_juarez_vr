@@ -12,11 +12,14 @@ owns contracts and [Roadmap](ROADMAP.md) owns priorities.
 
 ## Public prerelease policy
 
-`v0.1.0-prealpha.4` is cumulative from .3/.2/.1, adding duel input, simultaneous
-weapon reticles, careful-movement/default-smooth corrections, normal-rifle support
-fingers, reload choice/help menus and video-only Cloud Files compatibility. The
-operator confirms the final candidate's exercised functions on PS VR2, including
-normal-rifle free-hand presentation and ordinary concentration after holstering.
+`v0.1.0-prealpha.5` is cumulative from .4/.3/.2/.1, adding physical bow drawing,
+bimanual rifle support, virtual holsters/guides, native VR options, physical duel
+posture checks and continuous body following. Scoped PS VR2 operator acceptance
+covers the corrected Remington grasp, ordinary holsters/guides, native option
+usability, tested duel posture admission/rejection and continuous body following,
+with very good exercised bow feedback. Winchester/SawOff support and broader
+timing/interruption recovery remain separate gates. Earlier accepted functions,
+including normal-rifle free-hand presentation and concentration, are retained.
 Live OneDrive behavior remains unqualified. Long-gun manual reload is unimplemented;
 Square retains conventional reload and the original animation. The archived
 packages and canonical verdicts remain unchanged. No release claims
@@ -92,6 +95,12 @@ This corrects unwanted diagnostic work in ordinary sessions; it does not prove
 the reported rhythmic stutter resolved. Reporter testing, sustained performance
 and Pico controller/headset qualification remain open. The community tail is
 not a complete canonical run and cannot promote support or performance gates.
+
+Periodic FX-global/emitter walks and duplicate shot/barrel comparisons also
+require the resource-probe opt-in; skeleton element discovery requires movement
+tracing. These retired integration observations add no acceptance and are not
+ordinary gameplay dependencies. Exact-build rejection, muzzle/hand safety,
+ownership/restoration, fault reporting and transport counters remain active.
 
 The [approved independent-resolution design](research/COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
 has a startup-only binding observer and offline analyzer implemented and

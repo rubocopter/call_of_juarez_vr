@@ -6,6 +6,25 @@ namespace cojvr::games::call_of_juarez {
 namespace {
 int native_updates=0;
 int diagnostic_hud_calls=0;
+int diagnostic_skeleton_calls=0;
+void DiagnosticBodyEvent(const char* event,const char*,const char*) noexcept {
+    if(!std::strcmp(event,"body_player_discovery"))++diagnostic_skeleton_calls;
+}
+bool SkeletonDiscoveryRespectsTrace(){
+    const auto previous_callback=g_event_callback;
+    const auto previous_command=g_command;
+    const auto previous_poll=g_next_control_poll;
+    g_event_callback=&DiagnosticBodyEvent;g_command={};
+    g_next_control_poll=std::numeric_limits<ULONGLONG>::max();
+    ObservePlayerSkeleton(1,{});
+    const bool disabled=diagnostic_skeleton_calls==0;
+    g_command.movement_trace_enabled=true;
+    ObservePlayerSkeleton(1,{});
+    const bool enabled=diagnostic_skeleton_calls==1;
+    g_event_callback=previous_callback;g_command=previous_command;
+    g_next_control_poll=previous_poll;
+    return disabled&&enabled;
+}
 std::uint64_t diagnostic_hud_frame=0;
 void DiagnosticHud(void*,const CoJHudBoundaryEvent&,std::uint64_t frame) noexcept {
     ++diagnostic_hud_calls;diagnostic_hud_frame=frame;
@@ -451,6 +470,8 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
+    if(!cojvr::games::call_of_juarez::SkeletonDiscoveryRespectsTrace()){
+        std::cerr<<"retired skeleton discovery still polls in an ordinary session\n";return 1;}
     if(!cojvr::games::call_of_juarez::HudDiagnosticsRespectOptIn()){
         std::cerr<<"disabled resource diagnostics still reached HUD device queries/logging\n";return 1;}
     if(!cojvr::games::call_of_juarez::RifleVerificationStopsLaterEyes())return 1;
