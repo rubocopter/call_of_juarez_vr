@@ -2808,7 +2808,6 @@ void EnsureStarted() noexcept {
                 stereo_callbacks.submit_frame = &SubmitStereoFrame;
                 stereo_callbacks.set_capture_readback_enabled = &SetCaptureReadbackEnabled;
                 stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
-                stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
                 stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
                 stereo_callbacks.publish_bow_feedback_owner = &PublishBowFeedbackOwner;
                 stereo_callbacks.observe_reload_depth = &ObserveReloadDepth;
@@ -2819,7 +2818,13 @@ void EnsureStarted() noexcept {
                     stereo_callbacks.eye_render_restoration_pending = &IndependentEyeRestorationPending;
                     stereo_callbacks.observe_natural_render = &ObserveNaturalFrame;
                 }
-                if(g_resource_probe_enabled.load())stereo_callbacks.observe_render_pass = &ObserveRenderPass;
+                // HUD boundary hooks exist only for resource diagnostics. In a
+                // normal release session do not install their sampled D3D reads
+                // and log bursts alongside the already-disabled binding probe.
+                if(g_resource_probe_enabled.load()) {
+                    stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
+                    stereo_callbacks.observe_render_pass = &ObserveRenderPass;
+                }
             }
 
             const auto control_path = GameDirectory() / L"cojvr-camera-control.json";

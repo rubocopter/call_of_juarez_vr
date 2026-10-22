@@ -5,6 +5,32 @@
 namespace cojvr::games::call_of_juarez {
 namespace {
 int native_updates=0;
+int diagnostic_hud_calls=0;
+std::uint64_t diagnostic_hud_frame=0;
+void DiagnosticHud(void*,const CoJHudBoundaryEvent&,std::uint64_t frame) noexcept {
+    ++diagnostic_hud_calls;diagnostic_hud_frame=frame;
+}
+bool HudDiagnosticsRespectOptIn(){
+    const auto previous_callbacks=g_stereo_callbacks;
+    const auto previous_command=g_command;
+    const auto previous_poll=g_next_control_poll;
+    const auto previous_frame=g_stereo_frame_sequence.load();
+    g_stereo_callbacks={};g_stereo_callbacks.observe_hud_boundary=&DiagnosticHud;
+    g_command={};g_next_control_poll=std::numeric_limits<ULONGLONG>::max();
+    g_stereo_frame_sequence.store(731);
+    const CoJHudBoundaryEvent event{CoJHudBoundaryStage::sprites_begin,1,nullptr,0};
+    ObserveHudBoundary(nullptr,event);
+    const bool disabled=diagnostic_hud_calls==0;
+    g_command.render_resource_probe_enabled=true;
+    ObserveHudBoundary(nullptr,event);
+    const bool enabled=diagnostic_hud_calls==1&&diagnostic_hud_frame==731;
+    g_command.render_resource_probe_enabled=false;
+    ObserveHudBoundary(nullptr,event);
+    const bool stopped=diagnostic_hud_calls==1;
+    g_stereo_callbacks=previous_callbacks;g_command=previous_command;
+    g_next_control_poll=previous_poll;g_stereo_frame_sequence.store(previous_frame);
+    return disabled&&enabled&&stopped;
+}
 void __fastcall NativeUpdate(void*,void*) { ++native_updates; }
 struct PassEvent { runtime::Eye eye; std::uint64_t frame; std::uintptr_t owner; bool begin,complete; };
 std::vector<PassEvent> pass_events;
@@ -425,6 +451,8 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
+    if(!cojvr::games::call_of_juarez::HudDiagnosticsRespectOptIn()){
+        std::cerr<<"disabled resource diagnostics still reached HUD device queries/logging\n";return 1;}
     if(!cojvr::games::call_of_juarez::RifleVerificationStopsLaterEyes())return 1;
     if(!cojvr::games::call_of_juarez::CaptureDropPreservesBow()){
         std::cerr<<"capture backpressure cancelled physical bow\n";return 1;}

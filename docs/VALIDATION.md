@@ -79,6 +79,20 @@ rejected experimental prototype; the
 [source investigation](research/COJ_VR_RENDER_RESOLUTION.md) adds no physical
 acceptance and makes no claim that DSR works on a particular setup.
 
+[Community issue #5](https://github.com/rubocopter/call_of_juarez_vr/issues/5)
+reports rhythmic movement stutters with Pico 4/Virtual Desktop at 72 Hz and an
+RX 7600. The available report tail shows shared GPU transport and disabled CPU
+hashing during native stereo; its CPU theater route is separate and does not
+establish failed gameplay interop. Native capture drops and occasional long
+submissions are observed, without enough timing evidence to identify the
+stutter's cause. The active source now gates the previously unconditional HUD
+sprite/flush diagnostic by the resource-probe opt-in, with host coverage for
+disabled/enabled/revoked callback delivery and native forwarding/restoration.
+This corrects unwanted diagnostic work in ordinary sessions; it does not prove
+the reported rhythmic stutter resolved. Reporter testing, sustained performance
+and Pico controller/headset qualification remain open. The community tail is
+not a complete canonical run and cannot promote support or performance gates.
+
 The [approved independent-resolution design](research/COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md)
 has a startup-only binding observer and offline analyzer implemented and
 host-tested. Real D3D9/Ex tests cover read-only state/pixels, release before Reset,

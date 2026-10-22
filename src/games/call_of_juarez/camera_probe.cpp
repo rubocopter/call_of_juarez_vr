@@ -8603,6 +8603,9 @@ CoJPostprocessResourceSnapshot ObserveInstalledCoJPostprocessResources() noexcep
 }
 
 void ObserveHudBoundary(void*, const CoJHudBoundaryEvent& event) noexcept {
+    // This callback performs optional D3D state queries and synchronous logging,
+    // not HUD presentation. A retained callback must not bypass diagnostic opt-in.
+    if (!CurrentCommand().command.render_resource_probe_enabled) return;
     const auto frame = g_stereo_frame_sequence.load(std::memory_order_acquire);
     if (g_stereo_callbacks.observe_hud_boundary)
         g_stereo_callbacks.observe_hud_boundary(g_stereo_callbacks.context, event, frame);

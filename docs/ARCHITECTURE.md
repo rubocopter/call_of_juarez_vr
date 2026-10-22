@@ -1094,6 +1094,14 @@ native. Failed Create/Reset restores caller parameters and does not commit caden
 Missing timing retains the last valid cap; late timing can require native Reset.
 The cap is not compositor phase lock; WaitGetPoses owns presenter cadence.
 
+Native sprite/flush boundary hooks are optional resource diagnostics, separate
+from HUD presentation and text capture. Register their observer only with the
+startup `renderResourceProbeEnabled` opt-in, alongside the render-pass observer.
+A retained HUD diagnostic callback also checks current diagnostic permission
+before forwarding to D3D state queries/logging. Ordinary community sessions
+must not install these diagnostic hooks while the resource probe is disabled.
+Removing this work does not establish a performance improvement on a headset.
+
 ## Evidence and lifecycle
 
 The startup-only `frameLumaProbeEnabled` diagnostic is renderer-owned and off by

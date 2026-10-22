@@ -103,6 +103,15 @@ measured cartridge contact, rigid support grip and exact reload ownership before
 adding optional grip blending, virtual stock or device-aware contextual prompts.
 No third-party renderer or physics framework is added by that research.
 
+Before the next release, retain the host-tested fix for the resource-probe
+opt-in also governing native HUD sprite/flush diagnostics. Community issue #5
+exposed this observer running in an ordinary session with probes disabled.
+Its report shows working native GPU sharing; CPU theater telemetry is not a
+gameplay fallback. The unwanted diagnostic work is corrected, while rhythmic
+Pico 4/Virtual Desktop movement stutters still need reporter confirmation and
+timing correlation. Do not close that issue or claim a measured pacing gain from
+the host regression alone; [Validation](VALIDATION.md) owns the report's limits.
+
 The audit's actor-replacement pelvis corruption, lost diagnostic-arm restore,
 hidden-file recovery deletion and consumed-bow-trigger loss are corrected with
 host regressions. Body transactions retain their original actor and verified
