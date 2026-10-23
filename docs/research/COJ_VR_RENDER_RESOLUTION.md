@@ -36,6 +36,12 @@ fits the captured desktop image onto the finite-depth screen using each eye's
 optics. Its output may exceed the source size to accommodate that geometry.
 This does not increase the source scene detail or constitute VR supersampling.
 
+The table describes the ordinary active path. A separate default-off private-bank
+prototype is implemented/host-tested; its first exact-game B0 trial was rejected
+and B1 remains blocked. Its existence does not qualify independent scene sizing
+or change the source-sized production contract above. The
+[design](COJ_VR_INDEPENDENT_RESOLUTION_DESIGN.md) owns that experimental boundary.
+
 ## Increasing the native game resolution
 
 A higher selected mode can improve the captured scene if ChromeEngine actually

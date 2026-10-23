@@ -146,18 +146,23 @@ user-customized SteamVR bindings or physical controller behavior.
 | R2 | original RMB / right-hand action; exact left-held bow: approach string, grab, retract and release |
 | L1 | Fresh nearby grip supports an admitted idle right rifle; hold to retain two-hand aim, release to detach. Else Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol, above/behind the left shoulder toggles the bow during admitted ordinary gameplay |
 | R1 | fresh Kick press on foot; fresh grip at the right virtual hip toggles its pistol, above/behind the right shoulder toggles the rifle; hold Horse run / gallop when mounted |
-| Square | Reload; opens/closes an admitted Peacemaker/Frontier session with `-ManualReload` |
+| Square | Reload; opens/closes an admitted exact revolver session when manual reload is enabled |
 | Cross | Jump |
 | Circle | Toggle alternate fire |
 | Triangle | hold weapon/equipment radial; release to confirm or cancel |
 | Create tap | Objectives, decided on release before 800 ms |
 | Create hold | Recenter VR once at 800 ms; release cannot also send Objectives |
-| Options tap, on release | Pause / native Escape |
-| Options hold, 1 second | Open VR settings; right stick left/right chooses cinematic mode, Cross toggles, Circle closes |
+| Options fresh press | Pause / native Escape; VR preferences are in native Options > Game |
 
 Triangle has no modifier or tap action. Hands and Throw are wheel sectors only
-by default. With `-ManualReload`, fresh Square prepares an admitted single
-Peacemaker/Frontier with empty support. The free-hand **trigger**, not Grip,
+by default. Current source retires the held-Options quick editor; holding or
+releasing Options adds no second action. Native menu ownership and the presenter's
+available-release fence remain distinct. This post-.5 change is host-tested only.
+Manual reload defaults on for fresh public installs and preserves the installed
+choice on updates; developer candidates explicitly select `-ManualReload`.
+Fresh Square prepares an admitted exact revolver with empty support, as listed
+in [the profile table](COJ_RELOAD_OWNERSHIP.md#exact-revolver-profiles).
+The free-hand **trigger**, not Grip,
 picks up a cartridge at waist and releases it near the weapon to insert one
 native round. Square again or armed trigger closes; release before firing or
 reopening. Scoped headset acceptance covers sustained waiting, tracked hands,
@@ -476,8 +481,9 @@ contexts remain separate gates; dispatch alone does not validate them.
   defaults, not a measured holster; no native time, permission or threshold is
   changed. Missing/stale tracking, action/context changes and recenter revoke
   posture authority until a fresh lowered/centered sample. One correct physical
-  hip-hand draw/raise has scoped operator acceptance. Wrong/early gestures, retry
-  and precise special crosshair/weapon agreement retain separate physical gates.
+  hip-hand draw/raise and rejection of exercised incorrect/cheating positions have
+  scoped operator acceptance. Unreported early timing, retry and precise special
+  crosshair/weapon agreement retain separate physical gates.
   `InvObject.GetOwnerElementIDFromSlot` places inventory weapons at body
   `HolsterR`/`HolsterL`; the weapon's own `Holster` frame is inverted before
   attaching to that mount. These dummy nodes are attachment frames, not grasp
@@ -495,8 +501,9 @@ contexts remain separate gates; dispatch alone does not validate them.
   introduced. A claimed hold suppresses Action/Kick/Gallop until physical release,
   even outside the zone or after loss. Native carry/death/reload or transitioning
   hands reject selection; inventory permissions, wheel/fire conflicts and known
-  non-duel/on-foot ownership remain gates. These zones are host-tested only and
-  do not qualify contact with the native sockets or alter duel draw authority.
+  non-duel/on-foot ownership remain gates. Exercised zone selection has scoped
+  operator acceptance; this does not qualify native socket contact or alter duel
+  draw authority. Broader fit and held-input recovery remain open.
   The original `WeaponRightPistolToggle`, `WeaponLeftPistolToggle` and
   `WeaponTwoHandedToggle` first try `ReplaceWeapons` using `GetWeaponNearby`,
   then fall back to `WeaponToggle`. The holster readiness reader therefore
@@ -506,14 +513,16 @@ contexts remain separate gates; dispatch alone does not validate them.
   geometry and preserves the ordinary wheel/button route.
   Optional colored guides use the same canonical zones and default off in the
   native VR comfort options. The option follows the game's startup locale;
-  guides contain no text. Guide fit and comfort remain physically unqualified.
+  guides contain no text. Exercised guides and assistance on/off have scoped
+  operator acceptance; broader fit and comfort remain separate gates.
   The exact Winchester/Remington/SawOff support-grip prototype arbitrates L1
   before Action and holsters. Approach the naturally animated left support grip
   while idle and freshly hold L1; R2 fires, release L1 detaches. L1 and L2 remain
   consumed until their physical releases after cancellation. Native Square reload
   cancels support and runs the automatic animation; release/regrip afterward.
-  Scope variants remain outside admission. Fit and firing/cycling continuity are
-  host-tested only, awaiting the combined physical gate in Validation.
+  Scope variants remain outside admission. The corrected mesh-derived Remington
+  grasp has scoped operator acceptance. Winchester/SawOff fit and unreported
+  sustained firing/cycling and recovery remain physical gates in Validation.
 - **Billy climbing and stealth:** forward plus jump initiates climbing;
   crouching, slow movement, cover and light level affect stealth. Physical
   camera lean is not proof that native lean/cover state matches Q/E. The player

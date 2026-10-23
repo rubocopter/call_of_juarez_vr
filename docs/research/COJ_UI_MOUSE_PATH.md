@@ -26,8 +26,8 @@ prove native hover processing.
 
 ## Native VR settings integration boundary
 
-**Source/archive inspection and implemented native editor.** The provisional OpenVR
-panel remains a development surface. The native editor extends the existing Game
+**Source/archive inspection and implemented native editor.** Current source retires
+the held-Options OpenVR panel. The native editor extends the existing Game
 page. The original recognized `code.pak` contains these existing routes
 (bytecode offsets are within the named method, not native RVAs):
 
@@ -123,9 +123,11 @@ weapon/mesh transformations remain included and independently checked.
 
 Host fixtures execute transformed menu bytecode, original OK/back dispatch and
 the JNI request bridge separately; they do not initialize the native widget
-renderer. Batch native navigation, layout, main/paused return, failure feedback,
-persistence and held-input recovery into a fresh canonical headset candidate.
-The provisional panel remains usable throughout.
+renderer. Native option usability and exercised guide assistance on/off have
+scoped operator acceptance. Unreported persistence, save-failure feedback and
+held-input recovery remain separate gates in [Validation](../VALIDATION.md).
+The post-.5 panel retirement and immersive skip route are host-tested only;
+accepted cinematic stereo recovery does not establish skip acceptance.
 
 ## Native consumer and coordinates
 

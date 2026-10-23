@@ -380,10 +380,9 @@ rendered image alignment or frame-pacing improvement.
 
 ## Shared preferences and native settings
 
-`runtime/vr_settings` owns one synchronized preference store for cinematic mode
-and smooth/snap turning, plus optional holster guides. The existing presenter
-panel and native Options > Game editor read versioned snapshots and submit values
-through that owner. An older
+`runtime/vr_settings` owns one synchronized preference store for cinematic mode,
+smooth/snap turning and optional weapon guides. The native Options > Game editor
+reads versioned snapshots and submits values through that owner. An older
 editor cannot overwrite a newer edit. Runtime reads use atomic publication;
 native references remain on the game thread. Version 1 retains its cinematic
 choice and supplies smooth turning; version 1/2 files default guides off.
@@ -391,7 +390,7 @@ Accepted saves write version 3.
 Missing/invalid files use theater/smooth/guides off;
 unrecognized or unreadable startup files are preserved, with session-only changes
 and explicit save-failure feedback. Atomic replacement preserves the previous
-file when persistence fails. The overlay cannot apply an invisible proposal.
+file when persistence fails. The held-Options presenter editor is retired.
 
 The hash-pinned native editor extends the existing `MenuOptionsGame` class and
 `OptionsGame.scr`, shared by main/pause Options, with three original-style selectors
@@ -403,10 +402,10 @@ only after a successful save. Failed saves retain the visible page and distingui
 the session choice. A conflicting edit refreshes values and requires another OK.
 
 Exact current UI type/visibility, native object identity and per-Show serial bind
-the editor. Modal replacement, focus/input loss and the development panel cancel
-its owner; reacquisition clears an old request before synchronization. Ordinary
-native menu input stays active; the overlay's exclusive input-capture flag is not
-reused for this editor. Existing pause/gameplay release barriers still apply.
+the editor. Modal replacement and focus/input loss cancel its owner; reacquisition
+clears an old request before synchronization. Ordinary native menu input stays
+active; the presenter's neutral-input fence is separate from editor ownership.
+Existing pause/gameplay release barriers still apply.
 The three preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
 cinematic-only editor changes preserve turning and guide choices. Native labels
 follow the game's startup locale (English/Spanish, English fallback), without a
@@ -460,8 +459,9 @@ After an admitted draw, a positive stick cannot raise the native gun until the
 physical tip returns above -30 degrees. These are gesture UX thresholds, not a
 measured holster or body socket. Pre-aiming plus stick-only draw/raise is rejected.
 Pose/input/owner loss, stale or reversed samples and recenter require a fresh
-lowered/centered baseline. This guard is host-tested; the earlier Clyde acceptance
-does not qualify its new physical gesture.
+lowered/centered baseline. Correct physical draw/raise and rejection of exercised
+incorrect postures have scoped operator acceptance; broader timing/retry remains
+separate in Validation.
 Native draw/raise/timing and trigger permissions
 remain final. A fresh centered sample is required on ownership/input loss and
 each native game clock receives at most one delivery, even if VR renders faster.
@@ -502,7 +502,8 @@ hip/Kick grip the right pistol, right shoulder/Kick grip the long weapon, and
 left shoulder/Action grip the bow.
 These are ergonomic tracking-metre gesture zones relative to the HMD position
 and horizontal heading, independent of native body sockets or visible holstered
-meshes. Looking down does not pitch the zones. Their physical fit is unvalidated.
+meshes. Looking down does not pitch the zones. Exercised holsters/guides and
+assistance on/off have scoped acceptance; broader fit/recovery remains open.
 The exact adapter requires ordinary on-foot gameplay, known non-duel ownership,
 stable idle/empty native hand tuples, no carry/death/reload or nearby world
 weapon, no manual reload or
@@ -551,7 +552,7 @@ This has host coverage only; visual fit/readability remain in Validation.
 
 The wheel uses procedural leather, brass, stitching and amber highlights while
 preserving native localized labels, sector order, permissions and input policy.
-Its new styling has host raster coverage; visor readability remains unqualified.
+Its styling has host raster coverage only; visor readability remains unqualified.
 
 Read-only game-thread readers copy native inventory permissions, actual rotor
 IDs, visible waypoint/map orientation and owned HUD caches into bounded neutral
@@ -713,264 +714,94 @@ and gameplay events. See [animation ownership](research/COJ_ARM_SKINNING_AND_AIM
 
 ## Body IK
 
-The active `-BodyIkAtStart` presentation hides the partitioned connected arm mesh
-only during independent-hand ownership and retains native torso/legs. Twenty
-named forearm/twist/hand/finger/holding-socket frames per hand receive one rigid
-map; armed hands share the measured weapon map, unarmed sockets map to absolute
-grip orientation. There is no upper-arm enlargement or span fit in this mode.
-Native animation owns conventional reload. An explicit manual candidate can
-retain the existing scoped weapon/independent-hand maps during an admitted native
-reload session; its independent-hand presentation has scoped operator acceptance
-in the exercised manual context. Both eye draws
-verify frames and arm visibility.
+The active `-BodyIkAtStart` presentation uses independent native hands with the
+original torso/legs and hides the partitioned connected arm mesh only while
+those hands own presentation. Twenty named forearm/twist/hand/finger/socket
+frames per hand receive one rigid map. Armed hands share the verified weapon
+map; unarmed sockets use absolute grip orientation. Connected-arm span fitting
+and IK remain rejected diagnostics, with observation gated by movement tracing.
+The [arm research](research/COJ_ARM_SKINNING_AND_AIM.md) owns mesh hashes,
+hierarchy, exact writers, measured grip points and rejected anatomy findings.
 
-The inactive connected-arm solver's periodic geometry/calibration observation
-and read-only lower-body analysis require movement tracing. An explicitly active
-legacy arm writer retains its original update and observation path. Independent
-hand mapping, body following, native permissions and all pending restore retries
-remain functional work and are never gated by that diagnostic choice.
+Parent hand/socket maps apply before the child weapon. Restore returns the
+parent before its captured child, then the outer pelvis, rebasing positions by
+actor translation. Removing an outer pelvis offset adjusts retained inner
+captures exactly once. Failed restoration retains references/preimages, blocks
+further mutation and prevents native closing callbacks or watchdog renewal.
+Player replacement never redirects cleanup to a new actor.
 
-Reload diagnostics are game-thread value snapshots of the exact owner, native
-states/animation advance, reserve and raw ammunition readback. They are off in
-ordinary non-reload staging; `-ManualReload` enables its existing bounded trace.
-They report controller/native ownership policy without changing that ownership.
-An opt-in archive derivative supplies a bounded native wait/zero-transfer probe:
-only an admitted paced ticket attaches its exact hand machine to a pre-Clear
-veto. It waits 1.5 native-clock units, then retains native closing callbacks while
-skipping ammunition transfer; explicit cancellation precedes save/load. This
-does not itself enable persistent loading or tracked hands during reload. A
-separate `-ManualReload` candidate extends this proven logical boundary with
-fresh Square preparation, native watchdog supervision and one immediate original
-`PawnArmed.WeaponReload` call per support-trigger insertion. The native game owns
-ammunition, reserve, capacity and mechanical animation. VR owns input barriers,
-cartridge gestures and the existing scoped weapon/hand presentation. Native end,
-save/load and cancellation retain zero-transfer closing. No ammunition replica,
-deferred credit or new body/IK solver exists. This candidate is host-tested and
-bounded live-tested on a right-hand Peacemaker: correlated unit transfers,
-sustained waiting and sampled scoped presentation/restoration recover to ready.
-Square preparation/closure, continued hand tracking, repeated manual loading
-and weapon/menu recovery have scoped operator acceptance. The loading port's
-visual presentation is also operator-accepted. Measured mouth geometry/insertion,
-prolonged comfort and other interruption contexts require further evidence.
-Manual Square rearming is scoped to available gameplay, player/context/input
-generation and the observed weapon. Loss invalidates a prior released baseline;
-held Square cannot open a recovered session until a fresh available release.
-Discharging the existing physical claim remains possible after disabling manual
-reload, so the conventional path can recover. This strengthening is host-tested.
-Manual cartridge offers/carries additionally require a positive current native
-reserve observation. Empty/invalid reserve withdraws the gesture and continuation
-token while preserving native waiting/close supervision and physical release
-claims; reserve recovery cannot rearm an already-held pickup trigger. Native
-waiting at zero reserve can show a bounded EN/ES close instruction under the
-existing guide preference, using the current reload binding. Native text,
-owner/phase/binding invalidation and expiry keep their original priority.
-Native heartbeat/insertion helper results are published only if the original player
-and generation survive lookup/callback and no JNI exception remains. A Boolean
-success followed by owner loss or an exception grants no insertion feedback.
-Continuation cartridges belong to one manual session. Direct native completion
-to status 0/4, failed start and fresh preparation clear any pending continuation;
-a new session cannot inherit the previous session's token. A synchronous native
-insertion rejection/fault resolves closing and yields requested presentation and
-supervision before publishing the frame, retaining insertion intent only for
-diagnostics. Cancellation preserves the failure cause and distinguishes recenter,
-publication gaps and regressions. These recovery paths are host-tested only.
-The public .4 Install/update defaults this persistent flow on for fresh installs
-and preserves the installed choice on upgrades. Launcher option 8 changes it
-transactionally while closed; Prepare session retains it without repatching.
-Noninteractive `-ManualReload:$false` remains available. Long guns are outside
-manual admission and retain conventional native reload and its original animation.
-Development candidates still select manual revolver reload with `-ManualReload`. See
-[reload ownership](research/COJ_RELOAD_OWNERSHIP.md#audited-input-animation-and-observation-boundary).
+Native animation owns conventional reload. The persistent manual route keeps
+scoped weapon/independent-hand presentation only under positively verified native
+reload ownership. Its exact policy is `READY -> OPENING -> MANUAL_LOAD -> CLOSING
+-> READY`: fresh Square prepares/closes, free-hand trigger pickup/journey/release
+requests one synchronous native unit insertion, and armed-trigger closing cannot
+shoot. Native ammunition, reserve, capacity and mechanical animation remain
+authoritative. Invalid/unknown ownership cannot fall through to conventional
+reload; only positively identified unsupported contexts use that fallback.
+The [reload owner](research/COJ_RELOAD_OWNERSHIP.md#persistent-manual-candidate--scoped-headset-acceptance)
+retains helper signatures, native state/clock boundaries, restoration, legacy
+hybrid/paced/wait contracts and their evidence limits.
 
-Parent hand/socket applies before child weapon; restoration restores the parent
-before its captured child and then the outer pelvis. Captured positions rebase
-by actor translation. Failed restoration retains references for retry and blocks
-further mutation. Manual closing restores hands then weapon before invoking
-native callbacks; a failed restore retains ownership and stops watchdog renewal.
-An outer pelvis restore subtracts its removed offset from any
-retained inner capture exactly once. The legacy connected-arm solver is diagnostic;
-its hierarchy/writer limits remain in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md).
+Post-.5 reserve and JNI hardening is host-tested only. Positive current reserve
+is required to offer/carry a cartridge; reserve loss withdraws continuation but
+retains native waiting/close supervision and physical release claims. Replenished
+reserve cannot rearm a held trigger. Optional zero-reserve coaching uses the
+current reload binding without issuing a close command. Helper success requires
+the original player/generation after lookup and callback, with no JNI exception.
+Rejected/faulted insertion stops presentation/supervision before publication and
+never retries. Completion, failed preparation and fresh sessions clear old tokens.
 
-The two-hand rifle prototype admits exact Winchester, Remington and SawOff
-classes with a repeatedly stable right actual/desired/active owner and empty
-left native slot. A fresh left grip near the measured wooden fore-end acquires
-support while idle. The exact mesh profile supplies a point in the currently
-sampled weapon's named GunBarrel (Remington/SawOff) or GunBody (Winchester).
-The player's left_hand supplies anatomical orientation and verified hand mapping,
-never contact translation. The acquired weapon-local contact stays fixed
-through admitted native firing/cycling states; reload/equip or ambiguity cancels.
-One rigid solver anchors the right socket and rotates the weapon, both hands,
-muzzle and ray together, without scaling the weapon. Both parent hand maps apply
-before the single child-weapon commit. Commit, verification and ray publication
-recheck the retained Java weapon object, generation and mapped support frame.
-L1/left trigger claims precede Action, holsters and native fire and retain physical
-release barriers after cancellation. Duplicate tracking reads retain their first
-observation time; they cannot renew stale tracking. Prototype acquisition/separation
-bounds are ergonomic limits, not measured collision volumes or visor acceptance.
-While unattached, spatial rejection alone does not erase an observed released
-L1 baseline from the same qualified native owner, tracking and context. A fresh
-press on reaching admissible contact can acquire; a press outside contact is
-never queued for later movement. Attached support still cancels on every spatial
-failure. Context/owner/input/tracking discontinuities retain their release fences.
-The optional reload trace records bounded admission attempts, source-read stage,
-individual context gates, owner epoch, sample age, contact/span/hemisphere values
-and the preceding observed physical release. Those observations are diagnostic;
-they neither admit a grip nor prove a policy baseline or physical contact.
-The saved optional weapon-guide choice also exposes the unattached rifle's
-ordinary acquisition contact as a small L1 marker. Admission and presentation
-share the same ordinary-map helper; the marker never follows the solver's
-left-hand target. Cyan locates it, green means within the existing radius and
-spatial gates with L1 released, and grey requests release of a held attempt.
-It uses the capture's tracking basis/head pose, hides for attachment, invalid
-tracking/context, native fire or changed retained weapon, and is suppressed by
-the same preference immediately in the presenter. The native row is now labelled
-weapon guides; the existing version-3 Boolean and migration/default remain.
-Late guide validation reads against the existing retained weapon without clearing
-or creating its epoch. A failed optional read hides the marker and cannot erase
-the acquisition policy's released-input baseline.
-One captured support surface joins the four holster surfaces. Renderer-owned
-immutable L1 glyphs add no native draw, contact writer, scene depth or wider
-grasp permission. The operator identified the previous native left_hand contact
-floating away from the Remington, and confirmed grasp/movement at that remote
-point. Mesh-derived placement replaces that rejected reference. The operator
-accepts the corrected Remington grasp; other model fit and unreported stability/
-recovery remain physical gates under [Validation](VALIDATION.md). The original mesh
-measurements and ownership are in [arm research](research/COJ_ARM_SKINNING_AND_AIM.md#measured-long-gun-contact).
-Native armed-hand firing and automatic rifle reload remain authoritative.
-Separately, the final ordinary-fire phase observes exact Winchester/Remington/
-SawOff ownership after non-fire equipment actions, without requiring support
-contact, an idle animation or natural geometry. For a sole rifle in either hand,
-it consumes the empty hand's trigger instead of letting native Attack retry the
-armed hand. Both active/actual/desired tuples must agree and remain the same JNI
-objects after classification. Genuinely occupied hands and unrelated exact
-classes keep their native route. Failed ownership reads withhold both ordinary
-triggers. Each consumed hold survives owner, focus and source changes until that
-trigger has its own fresh available physical release; releasing the other hand
-cannot discharge it. Raw input remains available to ammunition gestures, and
-bow shot synthesis runs afterward under its own native owner. This policy stays
-inside the CoJ adapter and adds no left-handed support or reload admission.
-Sticky tracked-write fault flags do not prevent this read-only classifier after
-verified restoration has retired every hand/arm/weapon preimage. Retained failed
-restoration still rejects, and tracked-write quarantine is never cleared by
-ordinary-fire recovery.
-An opt-in read-only exact-class Winchester observer records raw native reload
-states for both hands, two-hand flags, animation clocks and rifle ammo/reserve
-readback across Square. It can omit natural pose when scoped visuals are active;
-no manual Winchester contract is admitted from those observations. The native
-ammo getter is diagnostic rather than a proven effective clip count.
-Post-.5 indexed reload observation separately admits exact Remington/SawOff/
-Derringer/Lemant classes. It copies both loaded indices and distinct pistol/
-rifle/shotgun reserve fields under repeated JNI same-object/owner/count proofs,
-without manual eligibility or retained cross-frame pointers. The bridge rejects
-active/faulted overlays; opt-in tracing is bounded to 120 attempts and 32 samples
-at a 350 ms minimum interval per process. Sparse samples carry no transfer proof.
-The pure vector classifier additionally requires a caller-held synchronous
-identity lease/operation scope; matching numeric IDs alone cannot supply it.
-The offline evidence analyzer retains indexed samples only inside the inventoried
-run interval, rejects incomplete/invalid claims and unfinished runs, and copies
-both indices and distinct typed pools. Numeric owner/clock checks can reject
-repeated samples but never prove cross-poll object identity or a transfer. It
-emits no inferred insertion, native index choice or callback completion.
-The [reload ownership research](research/COJ_RELOAD_OWNERSHIP.md) owns exact
-storage/pool mappings and the remaining manual-loading boundaries.
-Failed restoration blocks the current transaction. After entry cleanup verifies,
-ordinary controls recover through the existing release/press barrier; the bridge
-can still disable new tracked mutations after a native fault. A grip fault must
-not become a permanent global fire veto for unrelated weapons.
+The public launcher enables manual reload on fresh installs and preserves the
+installed choice on updates; option 8 changes it transactionally while closed.
+Developer candidates explicitly select `-ManualReload`; long guns retain native
+conventional reload. Exact profile admission belongs to the
+[revolver table](research/COJ_RELOAD_OWNERSHIP.md#exact-revolver-profiles), not a
+model-name prefix or inherited pistol class. Scoped accepted Peacemaker flow and
+port visibility do not qualify new profiles, cartridge contact, precise loading
+mouths, mechanical writers, ejection or broad interruption recovery.
 
-Optional finger curls interpolate exact Ray/Billy authored relaxed-rest/fist
-local orientations while preserving translations/lengths and Hand/socket frames.
-All fifteen targets join the existing transaction. Empty-hand eligibility checks
-actual/active/desired equipment and pending states, carrying and shared two-hand
-ownership. Missing curls or ambiguity normally retain native fingers. A bridge-owned
-idle-rifle exception admits the logically empty left support only when a stable
-right `WeaponRifle` owns an applied scoped weapon map. Both hands' actual,
-active and desired owners, four native states and two-hand flags must agree
-on repeated observation; carrying, reload, replacement, faults and death reject.
-Only the existing optional finger map changes; rifle input and reload remain native.
-The operator confirms this normal-state free-hand presentation in the exercised
-PS VR2 candidate. Fire/alternate/reload and broader transition coverage remain native
-or separately unqualified; physical long-gun reload is not implemented.
-A bridge-owned
-manual opening/wait can admit the empty support hand through the existing native
-reload-recovery reader plus a matching weapon/hand/probe snapshot. Actual carrying,
-replacement, death and failed reads still reject it; the armed hand remains native.
-During manual waiting the support uses current curls, or authored rest when no
-curl sample exists. The estimated cartridge pinch requires a physical trigger
-claim and held round, not merely an open weapon or a replenished available token.
-Curl zero means authored rest, not maximum opening. A host-tested support-thumb
-gesture starts only after the existing same-owner native unit transfer is observed.
-It preserves the insertion sample's pinch, moves thumb curl from .7 to .75 over
-50 ms and returns to current ordinary fingers by 180 ms. Both-hand offline skin
-measurements bound this motion to roughly 1.45/2.71 mm; it is feedback rather than
-a measured axial insertion. Context/weapon/input-generation changes, tracking
-loss, recentering, sample regression/gap or renewed pickup cancel it without replay.
-The existing native empty-support-hand gate and scoped finger restoration still
-apply; closing status rejects the pose, including an immediate final-round close.
-The cartridge remains hidden after insertion. Availability of a continuation
-token does not cancel the thumb gesture; cancellation requires a physically held
-support-trigger claim. Composed session/feedback tests cover the 50 ms peak,
-180 ms recovery and fresh-pickup priority for both hands. No delayed transfer
-or retry is added.
+Two-hand support connects `runtime/two_hand_grip` to exact right-owned Winchester,
+Remington and SawOff transactions with an empty left native slot. Fresh nearby L1
+acquires a measured wooden fore-end point on the retained live weapon element;
+the player's detached left_hand socket supplies anatomy/orientation only. One
+rigid map preserves weapon scale and authored roll across both hands, muzzle and
+ray. Acquired weapon-local contact persists through admitted native fire/cycle;
+reload/equip, invalid tracking, excessive separation or changed ownership cancels.
+Both parent hands commit before the child weapon and every eye verifies the
+retained object/epoch. L1/L2 claims precede Action, holsters and ordinary fire and
+remain consumed through physical release. Numeric IDs cannot retain support.
+The [measured-contact owner](research/COJ_ARM_SKINNING_AND_AIM.md#measured-long-gun-contact)
+retains original mesh coordinates/hashes and exact-class constraints. Corrected
+Remington grasp has scoped acceptance; other fit and unreported sustained-cycle/
+recovery remain open. No manual rifle admission follows from support acceptance.
 
-The manual cartridge uses one loose .357 node from a third-party CC0 glTF (83
-positions, 92 triangles), baked with source normals/UVs and a cropped 128x160
-albedo. There is no runtime glTF parser or filesystem asset load. A renderer-owned
-material adapts the orange case palette to brass and uses authored head-space
-preview lights/reflection; it does not sample native environment lighting. The
-prior full .44 OBJ with placeholder swatches was physically rejected. Geometry is
-captured with the stereo pair and batched into one compositor draw per eye. Its
-centre now uses the midpoint of two skin-derived local offsets on the verified
-displayed distal thumb/index frames, converted from native centimetres into
-tracking metres. The exact-game Ray skin and authored .7/.7 thumb/index curls
-supplied the reference; a bounded pad separation and live bone-frame
-verification reject incompatible poses. Delivery is host-tested and bounded
-live-tested, but the latest close-up does not establish convincing contact.
-The host-tested candidate also derives orientation from the displayed distal
-frames: the mean distal +X direction is projected perpendicular to the measured
-thumb-to-index pad gap. Mesh -Z follows that tangent; both centre and axes are
-converted through the exact camera basis. Degenerate tangent, changed bones,
-invalid basis or failed restoration hides the cartridge. This changes only the
-visual pose, not gesture admission. The revised axis has no live/visor acceptance;
-native scene depth is still absent from the compositor.
-Missing or unrestored hand/weapon
-presentation hides the manual cartridge. Native ammunition and the existing
-free-hand trigger pickup/release insertion gesture are unchanged. Scene-depth
-occlusion and physical visual fit
-remain pending; asset provenance is in [assets/models](../assets/models/README.md).
-Captured UVs/normals and asset/bake identities fail closed independently of the
-essential HUD. Legacy gestures keep their original proxy material/cache.
+Optional finger curls preserve authored translations, lengths and Hand/socket
+frames in the same transaction. Ordinary empty-hand eligibility, the verified
+idle-rifle support exception and manual support-hand recovery remain game-owned.
+A physically held cartridge claims pinch; an available continuation token does
+not. Native-confirmed unit loading alone starts the short support-thumb feedback;
+closing and ownership/tracking loss suppress it. Exact poses, timing, sampled
+skin measurements and limitations belong to
+[reload contact research](research/COJ_RELOAD_OWNERSHIP.md#finger-contact-boundary--visibility-accepted-grip-unresolved).
 
-Default-off reload diagnostics additionally compare captured native and verified
-displayed distal thumb/index frames in each Hand-local centimetre basis. A
-value-only snapshot precedes restoration; one event accompanies a newly visible
-pickup after successful hand/weapon recovery. Sequence mismatch reports
-unavailable. The observer never changes finger policy or animation time. Joint
-origins remain distinct from skin contact; Validation owns the accepted visibility
-and unresolved grip fit.
+The loose CC0 cartridge is renderer-owned geometry/material captured with each
+eye pair, with no runtime asset parser or native environmental-light sampling.
+Its midpoint and tangent derive from verified displayed distal finger frames;
+invalid frames or failed hand/weapon restoration hide it. Visibility acceptance
+does not establish convincing contact, revised-axis acceptance or scene occlusion.
+The [asset and contact owner](research/COJ_RELOAD_OWNERSHIP.md#installed-ammunition-resources--pickup-meshes-not-loose-cartridges)
+retains provenance, rejected visuals and measured skin/mesh findings. Sparse
+contact/depth diagnostics are read-only; matching depth dimensions or offline
+overlap cannot qualify eye/hand contents, penetration or occlusion.
 
-The same sparse verified snapshot can report pad separation, the displayed
-cartridge's transverse mesh envelope, each pad's unsigned closest-triangle
-distance and signed station along the cartridge axis from its rear base. These
-measurements use the actual displayed mesh transform, including its centre.
-Triangle searches are requested only for the sparse pickup diagnostic, not the
-ordinary per-frame presentation. Envelope overlap and point-to-triangle proximity
-do not measure skin volume, penetration or occlusion and never change the pose.
-
-Default-off diagnostics can additionally observe current D3D9 render target,
-depth surface descriptions, viewport, depth states and view/projection at full
-eye completion. At most six observations per manual opening accompany initial
-held-cartridge appearances. COM references are released immediately; there is
-no texture copy, readback, depth sampling or render-state mutation. Matching
-dimensions/MSAA are layout evidence only, never eye/hand content or occlusion
-admission. The backend owns these renderer-specific observations. The reader is
-host-tested; exact-game depth content remains unobserved.
-The offline evidence analyzer groups these samples by frame and requires one
-ordered left/right pair with identical device/generation, intact read-only
-metadata, finite matrices and compatible surface/viewport layout. Missing,
-repeated, reversed or reset-crossing observations are reported separately.
-Even correlated metadata does not establish that the sampled depth matches the
-captured eye, contains rendered fingers or can be transported to the compositor.
+Read-only Winchester and indexed reload observers copy native states, clocks,
+loaded indices and typed reserves under exact-class/same-object proofs. Their
+offline analyzers reject incomplete intervals and invalid identity/count/clock
+claims; sparse samples or numeric IDs never prove a transfer or cross-poll object
+identity. The synchronous vector classifier requires a caller-held identity
+lease. These implemented/host-tested tools add no manual weapon or mechanical
+writer. [Reload ownership](research/COJ_RELOAD_OWNERSHIP.md#unimplemented-families-original-archive-reload-contracts)
+owns storage/pool mappings and remaining native correlation prerequisites.
 
 ## Weapon ownership
 
@@ -990,8 +821,9 @@ through the dominant grip relative to the ordinary right-hand mapped mesh
 contact. Equal hand spacing alone could otherwise admit a reversed rifle;
 the same hemisphere gate applies at acquisition, retention and render refresh,
 with physical L1 release required before reacquisition.
-The complete fire/cycle lifetime, physical contact and visual grip remain open
-headset gates. Existing idle-finger eligibility alone does not qualify contact.
+The corrected Remington grasp has scoped operator acceptance. Other model fit,
+complete fire/cycle lifetime and broader recovery remain open headset gates.
+Existing idle-finger eligibility alone does not qualify contact.
 The bridge retains a Java object reference and opaque epoch independently of
 each restored hand/weapon transaction. A same-ID replacement between frames
 changes that epoch and cancels the physical claim until release/regrip. Missing

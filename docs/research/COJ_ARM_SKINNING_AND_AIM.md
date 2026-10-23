@@ -214,11 +214,11 @@ accuracy/trajectory. In original `ArmedPlayerBeing.Attack(IZ)`, hand 0's pressed
 input calls `TurnOnAlternateFire` and returns; hand 1's pressed input can attack
 only while `m_abAttackHandState[0]` is true and the bow hand is in an alternate
 state. The pressed=false branch performs no attack here. Thus the inherited
-right-trigger path alone is tension/alternate control, not a demonstrated
-release-to-shoot contract. This must not be described as verified firing from
-R2 release or a physical string gesture. The operator tried both triggers,
-including one held while pressing the other, without firing; these static gates
-alone do not identify the remaining failure in that session.
+right-trigger path alone is tension/alternate control, not a release-to-shoot
+contract. That static finding explains why the physical gesture below needs its
+own native channel supervision. Earlier unsuccessful trigger trials are
+superseded by scoped positive operator feedback on the implemented physical
+draw/release route; broader consistency and recovery remain separate gates.
 Missing barrels on other weapons still reject. Mesh/arrow
 agreement, both-eye reticle alignment and campaign usability require eligible
 headset evidence; that pose correction alone implements no physical string draw

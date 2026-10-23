@@ -115,9 +115,9 @@ headsets. No game/runtime lifecycle is automated.
 Install/update prepares the first session. Resolution selection is optional;
 PrepareSession is required before later plays for fresh provenance. It retains
 the installed feature set without archive repatching. Default Install/update
-also enables manual reload, including prior false states, without a reload y/n
-prompt. Advanced noninteractive `-ManualReload:$false` applies to that installation;
-a later default Install/update enables it again. Ordinary stereo, independent
+enables manual reload for fresh installs and preserves the installed choice on
+updates. Launcher option 8 changes it transactionally while closed; explicit
+noninteractive `-ManualReload:$false` remains available. Ordinary stereo, independent
 hands, native torso/legs and physical Hands combat remain enabled. Theater stays
 default; independent eye RT and investigation probes remain off.
 
@@ -237,7 +237,9 @@ dimensions, hot-reset or promise crash-proof native allocation fallback.
 
 Keep requested profile/Manual width and height separate from applied `Video.scr` and
 recovery state. The existing [cinematic preference owner](../../src/runtime/vr_settings.cpp)
-keeps its bounded version-1 configuration unchanged. The separate launcher-owned
+owns cinematic, turning and weapon-guide choices in strict version 3, with
+version-1/2 migration; see the [settings contract](COJ_UI_MOUSE_PATH.md#native-vr-settings-integration-boundary).
+The separate launcher-owned
 file avoids concurrent writers/schema loss. Retain preference intent across
 uninstall, but never persist a native override as the original video selection.
 

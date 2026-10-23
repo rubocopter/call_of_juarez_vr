@@ -4,8 +4,10 @@ Estado: **prototipo probado en host; primer B0 real rechazado; B1 bloqueado**.
 El banco privado y su restauración pasan pruebas GPU con memoria nativa
 sintética. Las pruebas no cualifican el juego real, detalle visual, rendimiento
 ni visor. Q0/B0/B1 mantienen sus puertas físicas; no cambian la pre-release.
-Referencia funcional: código de `main` en `3dba9f8` y aceptación acotada registrada
-en [VALIDATION](../VALIDATION.md). Alcance acordado el 16 de octubre de 2026.
+La base funcional y cada aceptación acotada pertenecen a
+[VALIDATION](../VALIDATION.md); esta especificación conserva las condiciones del
+experimento, no una lista de tareas actuales. El editor rápido de ajustes se ha
+retirado del código actual: sus observaciones históricas no prueban una ruta activa.
 
 Este documento define la intervención y sus puertas de entrada. No afirma que
 ya exista un punto nativo seguro para redimensionar toda la escena. Los hechos
@@ -610,7 +612,9 @@ profundidad presente/ausente, alias, liberación antes de Reset, ResetEx,
 coalescencia, límite, hilo/identidad inválidos, cancelación, pérdida y recuperación
 de hooks, resultados originales, controles y rechazo del analizador. Esto no
 cualifica el grafo del juego, retiro OpenVR, nitidez ni continuidad en visor.
-Q0 y el escritor B0/B1 siguen pendientes.
+Q0 sigue sin cualificación completa. El escritor B0/B1 ya está implementado y
+probado en host; el primer B0 real fue rechazado y B1 sigue bloqueado. No se
+habilita en la ruta ordinaria ni se acepta por estas pruebas.
 
 El analizador añade un componente separado `desktopSpriteOrdering`: comprueba
 orden de traversal/flush después del par, thread/frame/Present, propietarios
