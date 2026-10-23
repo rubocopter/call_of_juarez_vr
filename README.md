@@ -36,13 +36,13 @@
 
 ## The experience
 
-The goal is to make **Call of Juarez feel like a VR game** while keeping the original story, characters and world. Look around naturally, aim and fire with either hand, move through the levels at room scale, and interact with the world using motion controllers. Your in-game torso and legs remain visible beneath independent tracked hands.
+The goal is to make **Call of Juarez feel like a VR game** while keeping the original story, characters and world. Look and lean naturally, aim and fire with either hand, and interact with the world using motion controllers. Your in-game torso and legs remain visible beneath independent tracked hands.
 
 | Experience | What it means |
 | --- | --- |
 | **A world with depth** | Two native game-rendered views, one per eye, with head tracking through SteamVR. |
 | **Weapons in your hands** | Independent aiming, dual-wielded pistols, holstering and experimental physical revolver reloads. |
-| **More than shooting** | Motion-based melee, whip, picking up objects, equipment selection, in-world HUD aids and controller-operated menus. |
+| **More than shooting** | Physical bow drawing and melee, picking up objects, an equipment wheel, readable HUD and controller-operated menus. |
 | **The original adventure** | The 2006 PC game, with its story, characters, cinematics and original body presentation. |
 
 The mod currently targets **only the first Call of Juarez (2006)**. It is a work in progress, with more interactions and campaign scenarios still being validated. See [what has been exercised](#features-in-the-headset) and [what remains unfinished](#known-limitations).
@@ -63,7 +63,7 @@ VDXR does not switch the mod's backend; a direct OpenXR/VDXR path is not impleme
 
 No compiler or development tools are required. The launcher includes resolution profiles, controller help, diagnostics and recovery. Full instructions are below for those who need them.
 
-See the [current acceptance table and focused headset checklist](docs/VALIDATION.md#pending-headset-checks) and [development backlog](docs/ROADMAP.md#development-backlog). Continuous body following, native option usability, physical duel gestures, ordinary holsters/guides and the corrected Remington bimanual grasp have scoped operator acceptance; the latest bow trial reports very good exercised use. Other weapon models and broader recovery remain separate checks.
+For testing, use the [current validation scope and focused checklist](docs/VALIDATION.md#pending-headset-checks). The [roadmap](docs/ROADMAP.md#development-backlog) separates implemented work from remaining development.
 
 <details>
 <summary><strong>Detailed installation, updates and resolution settings</strong></summary>
@@ -93,7 +93,7 @@ To update, close the game, extract a newer player ZIP, start SteamVR manually fo
 
 **Image resolution:** The player package includes [saved startup profiles](docs/research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md): **Preserve, Auto, 75%, 100%, 125% and Manual** width/height per eye. With the game closed, use **CoJ-VR.cmd → 7**, then **6** to apply a change. Missing preferences default to **Auto**; all explicit saved choices persist. Auto and 100% use the **SteamVR helper's recommended per-eye extent, not panel-native pixels**. Percentages scale total pixel count while approximately preserving aspect ratio. Start SteamVR manually before Install/update or Prepare session queries it. If the helper is unavailable or caps are incompatible, preparation keeps the selected game size and explains why; it retains profile intent and retries on the next preparation. Background/Scene recommendation identity remains unqualified.
 
-**Validated local reference:** Manual **2804×2860 per eye** has measured native raster/capture/output dimensions and repeated positive PS VR2 operator feedback. It is that setup's saved choice and remains intact across updates; no repeat test is pending. Auto does not impose that size on other users. Other profiles remain experimental. Higher sizes can increase GPU and x86 memory pressure; recommendation equivalence, sustained timings and broad recovery remain separate [validation limits](docs/VALIDATION.md#image-quality-profile-acceptance).
+**Validated local reference:** Manual **2804×2860 per eye** has measured native raster/capture/output dimensions and repeated positive PS VR2 operator feedback. That exercised profile needs no repeat acceptance test; a later candidate may use a different startup size. Auto does not impose that size on other users. Other profiles remain experimental. Higher sizes can increase GPU and x86 memory pressure; recommendation equivalence, sustained timings and broad recovery remain separate [validation limits](docs/VALIDATION.md#image-quality-profile-acceptance).
 
 Profiles change native rendering at startup, including menu/theater sources, and never resize a running game. There is no new upscaler. At **2804×2860**, the accepted main-menu GPU presentation preserves its angular reference, proportions and native pointer coordinates; this targeted correction is not enabled for other sizes. SteamVR's slider alone does not enlarge the game's native render targets.
 
@@ -101,16 +101,16 @@ Profiles change native rendering at startup, including menu/theater sources, and
 
 ## Features in the headset
 
-These features have scoped headset validation in exercised scenes, not full campaign coverage:
+Already exercised on PS VR2 Sense in specific scenes:
 
-- Native stereo, tracked head, recentering and room-scale movement; controller locomotion, physical crouch, default smooth turning and continuous body following. Native Options > Game exposes smooth/snap, cinematic presentation and weapon guides; native option usability has scoped acceptance.
-- Independent tracked hands/weapons with the original torso and legs; exercised pistol effects, whip use and physical Hands combat.
-- Controller menus, equipment wheel/haptics, wrist compass, encountered HUD/subtitles, pickup/carry, drawers and Focus.
-- Experimental manual revolver reload, enabled by default: Square opens/closes, the free-hand trigger carries/inserts rounds and accepted insertions give haptic feedback. Cartridge grip and precise chamber loading remain unfinished.
-- Simultaneous independent aiming reticles with two firearms; Clyde duel draw/raise with the right stick and tracked-hand aiming/fire; corrected free-left-hand fingers with a normally held long gun.
-- Physical bow use, ordinary virtual holsters and their optional guides, plus the corrected Remington bimanual grasp. Winchester/SawOff support and broader interruption recovery remain experimental.
+- **Native stereo and natural movement:** tracked head, physical crouch, smooth/snap turning and a visible native body with independent tracked hands.
+- **Weapons you handle:** independent pistol aiming, physical bow drawing, melee, virtual holsters and the corrected two-hand Remington grip.
+- **Manual revolver loading:** open with Square, pick up a round with the free trigger, carry it to the weapon and release. Native ammunition remains authoritative.
+- **The original adventure in VR:** controller menus, equipment wheel, encountered HUD/subtitles and exercised cinematic recovery, including Hope. Native VR options select cinematic mode, turning and guides.
 
-Compared with prealpha.1, this release also improves Ray's body/coat presentation, including the accepted 8 cm horizontal visual setback. Stereo recovery after cinematics, including Hope, is fixed and headset-validated across multiple exercised sequences. The operator also accepted hot presentation-mode changes, different equipped weapons, recentering during sequences and continued gameplay; this is not complete campaign coverage.
+Acceptance is limited to exercised scenes. Cartridge contact/chamber mechanics, other rifle grips and full campaign coverage remain unfinished.
+
+**In development, awaiting the next headset test:** horse steering/recovery corrections, ammunition pickup assistance and binding-aware reload coaching, improved empty-reserve handling, immersive cinematic skip and further input/diagnostic cleanup. These changes are in current source and the local candidate; they are **not a new public release or newly validated headset features**. [Current status and remaining checks](docs/VALIDATION.md#pending-headset-checks).
 
 <details>
 <summary><strong>PS VR2 Sense controls, manual reload and special actions</strong></summary>
@@ -146,7 +146,7 @@ PS VR2 Sense default bindings for current development source. The held-Options q
 
 **Duels:** center the right stick on entry; place the right hand at the hip and pull down to draw when the game permits, then physically raise the hand and push up to raise the weapon. Aim with your tracked hand and use the triggers to fire. **Ray concentration:** holster both weapons and wait for native readiness, then make a fresh L2/R2 press. R3 is Focus/zoom; selecting fists is not holstering. With both pistols drawn, hold Triangle, highlight the right sector with the right stick and release to holster the right pistol; center and repeat left for the left pistol. Let both animations finish. **Blocking hints:** Cross dismisses; release before the next action. A PC Z prompt means Circle/alternate fire once gameplay resumes. Native tutorial windows still display PC keys.
 
-PS VR2 with Sense through SteamVR is the only physically validated reference, limited to exercised scenes. Packaged Touch, Index, Vive wand and WMR bindings are experimental and do not establish support for another headset or PC. Custom SteamVR bindings are allowed; displayed prompts still use Sense labels. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls).
+PS VR2 with Sense through SteamVR is the only physically validated reference, limited to exercised scenes. Packaged Touch, Index, Vive wand and WMR bindings are experimental and do not establish support for another headset or PC. Custom SteamVR bindings are allowed. The public .5 package retains its existing prompts; binding-aware coaching is part of the untested development candidate. [Detailed Sense controls](docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls).
 
 </details>
 

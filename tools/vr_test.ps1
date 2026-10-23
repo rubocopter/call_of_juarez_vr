@@ -426,13 +426,13 @@ switch ($Action) {
             Write-Host "Keep the accepted locomotion baseline and Steam recording off; finish retains GPU transport, frame-age, cadence and producer/consumer wait telemetry."
             Write-Host "Independent native hands retain torso/legs at native proportions; no T-pose calibration is needed. Physical crouch, ordinary firing and body following keep their earlier scoped acceptance. Leg animation during physical walking/turning is still planned, not a missing acceptance test."
             if ($ManualReload) {
-            Write-Host "In an admitted manual session, verify both hands/weapon follow the controllers through preparation, waiting and coherent closing, with connected arms still hidden. Visible loading-port clearance and insertion sound remain unproven. Unsupported native animations retain their existing presentation."
+            Write-Host "In an admitted manual session, verify both hands/weapon follow the controllers through preparation, waiting and coherent closing, with connected arms still hidden. Exercised loading-port visibility is accepted; precise cartridge contact and broader interruption recovery remain unproven. Unsupported native animations retain their existing presentation."
             } else {
                 Write-Host "Confirm detached hands/weapon follow the controllers and original arms return only during native animation."
             }
         } else {
             Write-Host "Transport-profile run: first exercise automatic menu hover, R2/L2 selection, Cross/Circle and physical mouse/drag coexistence. Report accuracy separately; the transport verifier does not accept menu usability."
-            Write-Host "Body IK stays off. Slowly turn your head beyond both sides of the 35-degree comfort cone while watching the native revolver hand; report whether the previous body-yaw steps remain."
+            Write-Host "Body IK stays off. Exercise slow head turns in both directions and report any discontinuity in native body/weapon following; continuous on-foot body following already has scoped acceptance."
             Write-Host "Then reach native-stereo gameplay, confirm depth and stable slow/fast head turns, move/walk/jump and recenter with an 800 ms Create hold. Open/close the SteamVR dashboard once and confirm presentation/input resume."
             Write-Host "Body IK remains disabled. Do not judge tracked avatar arms or weapon alignment from this profile. Finish through a normal game quit."
             Write-Host "The acceptance target is stable tracking/stereo with producer cadence following the configured HMD refresh and zero classic-D3D9 fallback/readback."
