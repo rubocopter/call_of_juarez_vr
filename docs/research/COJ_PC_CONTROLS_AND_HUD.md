@@ -140,10 +140,10 @@ user-customized SteamVR bindings or physical controller behavior.
 | --- | --- |
 | Left stick | head-relative movement; small deflection gives native analog slow movement |
 | L3 | on-foot crouch toggle, merged with physical crouch |
-| Right stick | proportional smooth turn; prepared duel uses native draw/raise/aim instead |
+| Right stick | proportional smooth turn; mounted Cannon uses continuous horizontal/vertical aim; prepared duel uses native draw/raise/aim instead |
 | R3 | Focus toggle; XR magnification follows real native squint |
 | L2 | original LMB / left-hand action |
-| R2 | original RMB / right-hand action; exact left-held bow: approach string, grab, retract and release |
+| R2 | original RMB / right-hand action; native stationary Cannon: fire through action9; exact left-held bow: approach string, grab, retract and release |
 | L1 | Fresh nearby grip supports an admitted idle right rifle; hold to retain two-hand aim, release to detach. Else Action / contextual F from the left Sense aim ray; fresh grip at the left virtual hip toggles its pistol, above/behind the left shoulder toggles the bow during admitted ordinary gameplay |
 | R1 | fresh Kick press on foot; fresh grip at the right virtual hip toggles its pistol, above/behind the right shoulder toggles the rifle; hold Horse run / gallop when mounted |
 | Square | Reload; opens/closes an admitted exact revolver session when manual reload is enabled |
@@ -259,8 +259,41 @@ desired bow additionally combines cached squint with native module/BulletTime
 concentration using `squint + concentration - squint * concentration`, including
 concentration while Focus is released. The cache reader rechecks weapon/module
 identities and invokes no native zoom update or parameter factory. This extension
-is host-tested only. Scoped Winchester remains excluded: its camera-dependent
-zoom and separately updated scope mesh need distinct per-eye restoration.
+is host-tested only. The exact scoped Winchester now has a separate passive
+parameter-cache/default-camera reader, reproducing native scope visibility and
+camera-normalized magnification. Copied scene-eye separation is divided by zoom
+about the physical binocular centre to preserve displayed disparity. One common
+aim shift references the verified weapon ray without replacing each headset's
+asymmetric principal point. Hardware IPD/tracking and UI optics stay physical.
+Per-eye projected lens centres/radii share one angular aperture with black exterior
+and a crisp scope rim/cross; the reticle uses its actual ray projection.
+Looking away or losing verified ownership
+returns to physical optics. This is a host-tested scene-scope fallback.
+
+For this model, inherited `WpnLogicRifle.GetAttackMode` returns -2 (aim) for
+button0; R2 therefore routes through native action9/Attack(1), whose original
+other-hand fallback attacks the right rifle with button1. R3 retains native Focus
+and Square retains automatic native reload. No direct attack, ammo/state write or
+new manual loading profile is added. Exact owner changes/input loss require a
+fresh release. A hash-pinned FPPCamera derivative suppresses only the detached
+desktop mask for a locally tracked stable exact scoped rifle, preserving the
+original Show/Hide/transform lifecycle on the next ordinary update. It does not
+change `Being.IsScopeVisible`, native alternate-fire rules or the weapon's scope
+mesh. The operator accepts scoped support/discharge in the exercised scene;
+the preceding zoom is rejected for binocular fusion. Revised fusion, zoom
+readability, native reload, precise shot agreement and recovery remain gates.
+
+The reproducible original-archive presentation inventory distinguishes weapon
+`WinchesterScope.msh` element `Scope` (index 9, parent GunBody) from the separate
+`FPPCamera.m_ScopeObject` loaded from `Equipment/Scope/Scope.MSH`. Original scope
+logic zoom is 8, normalized by `tan(defaultCameraFov/2) / tan(40 degrees)`;
+therefore the authored 8 is not a fixed headset magnification. Parameter getters
+can reach `CreateWeaponParam` on cache miss; the passive reader therefore retains
+the existing TreeMap entry directly. Native post-being update owns overlay pose and
+scale, activation/visibility and replacement. Offline tangent/position math and
+material declarations do not qualify actual per-eye coverage, alpha, shader
+consumption or retained-object restoration for a telescope texture. Measured
+scoped support is now host-tested; physical manual loading remains excluded.
 
 Default slow movement needs no synthesized Shift: the native float path preserves
 the shipped independent 0.04-per-axis deadzone and remapping to actions 4-7.
@@ -279,6 +312,49 @@ Other weapons, mounted routing and special mechanics remain pending rather than
 failed. The replacement left-hand L1 route and held-only ring are host-tested,
 not physically accepted. [VALIDATION.md](../VALIDATION.md#revised-sense-control-acceptance)
 owns the acceptance gates.
+
+## Refresh-rate and controller equivalence boundary
+
+Ordinary movement sends shaped float magnitudes to native actions 4-7; it does
+not accumulate translation once per VR frame. The delivered values are cached
+until input changes. Jump is native digital action 11, with press/release
+transitions rather than a VR-computed velocity or repeated per-frame impulse.
+Smooth turning integrates the high-resolution monotonic elapsed time at
+90 degrees per second for full deflection; that speed constant is not an
+assumption about HMD refresh. Producer pacing separately follows the HMD property.
+
+Host fixtures exercise 72/80/90/120/144 samples per second with integer timestamp
+remainders, held/released jump, proportional movement, repeated samples and
+pre-shoulder/shoulder/fire phases. They require the same native magnitudes and
+integrated yaw, one jump press/release and neutral interruption recovery. Pacer
+fixtures cover those rates separately. These observations do not simulate the
+original physics, establish jump height/flight time, or prove the native timer
+advances at wall-clock speed under stalls or compositor reprojection. Never apply
+a compensating 90/Hz speed or jump multiplier without native timing evidence.
+
+All five default OpenVR profiles retain the same logical campaign actions.
+The non-Sense profiles are experimental and physically unqualified. Their
+critical route semantics, left/right ownership, click requirements, pose paths
+and haptic outputs have static/host coverage; mere action presence is insufficient.
+SteamVR user bindings may override the defaults and runtime labels use the
+reported source rather than guessing a Sense button.
+
+| Action | PS VR2 Sense | Touch / Quest | Index | Vive wands / WMR |
+| --- | --- | --- | --- | --- |
+| Move / turn | Left / right stick | Left / right stick | Left / right stick | Left / right pad (Vive); sticks (WMR) |
+| Left / right weapon | L2 / R2 | Left / right trigger | Left / right trigger | Left / right trigger |
+| Action / contextual kick or gallop | L1 / R1 | Left / right grip | Left / right grip | Left / right grip |
+| Jump / alternate fire | Cross / Circle | Right A / B | Right A / B | Right pad north / south click |
+| Reload / wheel hold | Square / Triangle | Left X / Y | Left A / B | Left pad south / north click |
+| Crouch / Focus | Left / right stick click | Left / right centered stick click | Left / right centered stick click | Centered left / right pad click (Vive); stick click (WMR) |
+| Auxiliary tap Objectives / hold Recenter | Create | Left stick north + click | Left stick north + click | Left application-menu button |
+| Pause | Options | Right stick north + click | Right stick north + click | Right application-menu button |
+
+Auxiliary hold duration remains 800 ms in all profiles. Dpad north/center routes
+require a click, not merely a stick deflection; north is deliberately separate
+from centered crouch/Focus. Touch/Index defaults avoid reserved system buttons.
+These layouts establish intended reachability, not controller comfort, physical
+pose/grip alignment or full campaign support on those devices.
 
 ## Mechanics that a button list does not cover
 
@@ -346,6 +422,46 @@ keeps gameplay disabled until it succeeds. No gameplay permission is overridden.
 JNI fault/recovery, partial delivery, generation transitions,
 exclusive routes and releases are host-tested; campaign horse behavior remains
 unaccepted physically.
+
+### Stationary Gatling firing
+
+Exact original `HumanBeing.IsUsingCannon` reads `m_cCannon != null`;
+`GetCannon` returns that reference. `HumanBeing.Attack(IZ)` starts/stops its
+`ICannonController` only for hand1. `PlayerController.ExecuteInput` maps action9
+to hand1 and action10 to hand0. `CanExecuteInput` admits both action IDs while
+using a Cannon, but permission to dispatch does not make hand0 shoot it.
+`CannonController.FireModeAuto` retains its native target and CanFire checks.
+
+The VR adapter observes stable Cannon/controller identity after non-fire actions,
+independently of active/actual/desired hand weapon tuples. Fresh physical R2
+drives action9 while owned; physical L2 has no new Cannon action. The last fire
+boundary supersedes inventory-specific rifle/boxing/bow filters but preserves
+loading fire suppression, recenter and failed/quarantined restoration gates.
+Unknown native ownership, cancellation, owner/source change and unavailable input
+require real releases before rearming. Exiting retains held-trigger claims until
+release so the ordinary hand weapon cannot inherit a Cannon shot. Calls still
+use InputDigital.Translate; no direct StartFire call or permission override.
+Owner/JNI faults, high-bit IDs, repeated poses, sustained mapping, stopping and
+ordinary-route recovery are host-tested. Grabbing and firing now have operator
+acceptance in the exercised Gatling scene; broader stopping/recovery remains open.
+
+The ordinary adapter's yaw-only route did not provide right-stick elevation.
+Stationary aim now owns continuous X/Y via the existing SmoothTurnState timing,
+neutral and proportional shaping. The native OnInputMouseAxis dispatcher gets
+each resulting angle divided by InputSettings.GetMouseSensitivity, whose matching
+multiplication remains in CreatureController. Controller.CanApplyState, native
+inversion and Creature/Cannon limits are retained. Ordinary turn and automatic
+HMD body-yaw commits yield while the native Cannon is active or unknown; looking
+around cannot deliberately steer it through the body's automatic follow writer.
+
+The directional reticle reads controller m_OwnerMesh and m_nElementBarrelExit,
+retains local references and brackets Cannon/controller/mesh/element identity.
+It uses the proven GetElementPos/+X/up frame reader; native GetElementForwardVector
+has the known false return defect, and GetFireDir would randomize spread.
+The barrel world ray projects through both restored eye views, replacing retained
+inventory reticles while Cannon is owned. It does not trace a hit, alter spread
+or claim every bullet lands at the marker. Elevation, reticle visibility/alignment
+and practical precision are host-tested and still physically unqualified.
 
 ### Native character and tutorial eligibility
 
@@ -451,9 +567,16 @@ contexts remain separate gates; dispatch alone does not validate them.
   route to dismiss it without necessarily performing that action. Release,
   then press Circle after gameplay resumes to request alternate fire. Circle
   remains UI Back/Escape while a blocking UI owns input. Copied HUD hint text
-  translates keys, but native flat-theater tutorial pixels retain PC labels;
-  this display limitation is unresolved. Do not infer a concentration defect
-  from R3 zoom or successful hint dismissal alone.
+  translates keys. Exact EN FastShooting A/B and continuation presentation now
+  have separate HintBase helpers reached only from MenuHint.Show's two display
+  calls. Current ID/resource/localized template must match; continuation also
+  requires its unchanged one-action release condition to be action 20. They use
+  semantic `Alternate fire`, with no guessed device label or input/permission
+  mutation. Native GetText/GetTipText and all other dialogs/locales stay intact.
+  The archive builder verifies the original classes and both EN resources before
+  emitting; DataEn is read only. Interpreted helper/archive tests do not qualify
+  real JVM/dialog pixels or tutorial completion. Do not infer a concentration
+  defect from R3 zoom or successful hint dismissal alone.
 - **Duels:** drawing becomes available when the countdown reaches zero or the
   opponent reaches for his gun. The manual specifies downward mouse movement
   to draw, then upward mouse movement to raise/aim, and allows Q/E leaning. Ordinary
@@ -490,6 +613,11 @@ contexts remain separate gates; dispatch alone does not validate them.
   points. The usable authored grip is the weapon `Holder` transformed from its
   `Holster` into the positively owned body mount; the inspected revolvers place
   those origins roughly 10–13 cm apart. Ray has both mounts; Billy only the right.
+  Exact original Peacemaker/Frontier/Walker/Cogswell profiles now reproduce
+  `Holder * inverse(Holster) * bodyMount` for all twelve available Ray/Billy
+  combinations, preserving full affine authored frames. The source's value-only
+  geometry functions do not attach meshes or grant native selection; a derived
+  player mesh needs its own provenance/element-preservation proof.
   Read-only natural pre-body mount diagnostics do not establish a current
   holstered weapon, physical contact radius or alignment after the visual-body
   offset. Keep contact admission disabled until those identities/frames agree.
@@ -824,6 +952,34 @@ unchanged arguments; restoration preserves foreign hooks. No render target is
 redirected and no sprite pass is replayed. Host tests cover forwarding and owned
 restoration; live scheduling, target ownership and usable alpha/coverage still
 require evidence before implementing HUD capture and composition.
+
+The source extension adds a separate bounded HUD batch collector to the existing
+native draw ingress. It retains actual sprite/flush depths and owners, native
+and D3D hook epochs, native device generation versus continuity epoch, frame,
+Present, thread and cached permission epoch. Unsampled nested control boundaries
+remain visible independently of legacy log sampling. At most six passes and 64
+state queries/records per pass observe RT0/depth/texture0/shaders, viewport/scissor
+and complete RGB/separate-alpha blend, write/test/depth states before original
+draw forwarding; its actual returned HRESULT completes the record. Temporary
+getter references and all diagnostic locks retire before forwarding. Per-draw
+permission reads only cached owner state, never the control file or formatter.
+Matched closure requires a successful flush draw and unchanged witnesses; reset,
+permission/identity loss, nesting, faults and overflow remain incomplete. The
+collector never replenishes its budget or borrows the eye-probe namespace.
+Route/original native caller remain unknown; interface addresses are not COM
+alias/lifetime proofs. This extension is implemented in source with authored,
+unexecuted C++ fixtures. `correlationOnly=true`, `captureAdmitted=false` and
+`occlusionAdmitted=false` remain explicit. It adds no image capture, replay,
+resource creation or alpha/content acceptance.
+
+The offline resource analyzer retains these rows in a separate `hudBatch`
+component, with raw line references and observed/incomplete/rejected states.
+It checks the producer schema, bounded counts, exact context/closure/record
+witnesses and read/draw faults inside the canonical run/build interval, while
+keeping binding-pair admission and legacy components separate. Partial native
+reads and aborted closure remain incomplete; malformed authority claims reject.
+Interpreted parser/CLI tests establish analysis behavior only. An observed HUD
+metadata component does not admit image capture, alpha, depth or physical gates.
 
 Finished gameplay evidence now includes sampled ordered sprite traversal and
 flush after a complete eye pair, with matching thread/frame, device, color RT

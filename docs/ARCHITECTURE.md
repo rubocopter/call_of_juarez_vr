@@ -6,7 +6,10 @@ Call of Juarez (2006), Windows x86, is the reference implementation for native
 stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
 tracked head and independent native hands with the game's torso and legs.
 Connected-arm IK remains a rejected diagnostic presentation. Default-on persistent
-manual revolver reload has scoped acceptance and a launcher opt-out; complete chamber/ejection and
+manual revolver reload has historical scoped acceptance and a launcher opt-out;
+the latest long playtest recovers unit loading on one weapon while the combined
+candidate and broader coverage remain rejected/pending (see Validation).
+Complete chamber/ejection and
 convincing cartridge grip remain development work.
 D3D10, OpenXR and additional games are separate future/experimental tracks.
 
@@ -61,6 +64,8 @@ not establish physical coverage of every identity range.
 Each physical candidate binds source state, build manifest, deployed hashes and
 one fresh run ID to one game process. `tools/vr_test.ps1 prepare` builds, checks
 and stages; `finish` collects evidence and restores original assets transactionally.
+Prepare/finish hold an exclusive local workflow lease for their full duration,
+preventing overlapping verification, collection and restoration.
 Canonical native telemetry checks use only the interval from one exact run/build
 start to its matching later end; duplicate, foreign or reversed markers reject.
 Collection preserves that rejection and cannot mark an invalid interval complete.
@@ -99,9 +104,29 @@ owned restoration are independent of that choice.
 
 The journaled `code.pak` patches target verified original classes only and retain
 native fallback paths. The `Data0.pak` player-mesh partition is similarly hash
-pinned. All original archives restore byte-for-byte. Optional quick/automatic
-save-preview capture is suppressed at its exact invocation while ordinary save
+pinned. All original archives restore byte-for-byte.
+World FX definition creation/release uses null tests rather than signed positive
+checks in the exact FXEmitter derivative, preserving LAA heap-pointer bits.
+Runtime emitter handles and damage/timer behavior retain native semantics;
+[world-fire research](research/COJ_WORLD_FIRE_DEFINITIONS.md) owns the boundary
+and its unproven attribution to the invisible campfire report.
+Optional quick/automatic save-preview capture is suppressed at its exact invocation while ordinary save
 serialization remains native; see [save thumbnails](research/COJ_SAVE_THUMBNAIL_PATH.md).
+Pause entry also suppresses both optional capture/ForceRender branches of the
+exact `TakeScreenshotsOnLevelBreak` helper. Its HUD restoration, input cleanup
+and delayed native pause scheduling remain intact. The existing null-background
+path releases/hides the pause screenshot rather than loading a missing/stale
+image; manual saving removes any stale destination preview without copying the
+omitted pause image. Native save serialization remains unchanged. This closes
+an observed pause screenshot allocation path in source; physical recovery remains
+a separate gate.
+Full `vr_test prepare -BodyIkAtStart` defaults to the reversible exact-build LAA
+transaction, matching the established gameplay recipe. Explicit
+`-LargeAddressAware:$false` retains an intentional original-image diagnostic;
+startup-only/non-body preparation keeps its existing default. The executable
+SHA-256, backup and restoration contracts stay authoritative. This increases
+the available x86 VA range on the host; it does not qualify arbitrary allocation
+pressure or general high-address JVM/native behavior.
 
 ## Camera and stereo
 
@@ -393,8 +418,18 @@ and explicit save-failure feedback. Atomic replacement preserves the previous
 file when persistence fails. The held-Options presenter editor is retired.
 
 The hash-pinned native editor extends the existing `MenuOptionsGame` class and
-`OptionsGame.scr`, shared by main/pause Options, with three original-style selectors
-and a status label. It adds no UI index or class registry slot. Original native
+`OptionsGame.scr`, shared by main/pause Options, with three comfort and nine graphics
+selectors plus a status label. Graphics exposes enable, sharpness, contrast,
+saturation, gamma, diagonal-edge smoothing, a requested reconstruction mode,
+startup render scale and mounted peripheral comfort in English/Spanish. Native,
+DLAA and DLSS Quality are selectable; the latter two explicitly report pending
+qualification and retained native rendering. A saved request does not enable NGX
+against unqualified game images. Numeric selectors
+use five-percentage-point steps within each implemented filter's bounds; unchanged
+rounded selectors preserve a more precise existing file value. Whole selector
+rectangles use measured native layout and child click geometry; host nonoverlap
+does not establish physical readability. It adds no UI index or class registry
+slot. Original native
 options, defaults, fonts, pointer processing and return behavior remain owned by
 the game. Highlighting and Cancel do not apply VR choices. OK queues one request;
 the bridge consumes it before publication/persistence and completes original OK
@@ -406,11 +441,31 @@ the editor. Modal replacement and focus/input loss cancel its owner; reacquisiti
 clears an old request before synchronization. Ordinary native menu input stays
 active; the presenter's neutral-input fence is separate from editor ownership.
 Existing pause/gameplay release barriers still apply.
-The three preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
+The three comfort preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.ini`;
 cinematic-only editor changes preserve turning and guide choices. Native labels
 follow the game's startup locale (English/Spanish, English fallback), without a
 separate VR language selector.
+`runtime/graphics_settings` owns the nine graphics values in its separate strict
+version-4 `graphics.ini`, accepting complete version-1/version-2/version-3 files with the
+missing choices defaulted to native reconstruction, automatic scale and no mask,
+with a versioned editor store and coherent live
+publication. The bridge validates all selections and both captured revisions
+before editing either owner. Each file has atomic replacement; this is not a
+cross-file transaction. A failure saving either file retains the visible menu,
+session values and explicit retry feedback. Invalid/unreadable startup files
+remain protected. The renderer takes one coherent published graphics tuple at a
+fresh capture boundary through a short publication lock separate from disk I/O;
+no per-frame file polling or re-filtering of repeated images is introduced.
 Launcher resolution profiles retain their independent startup-only transaction.
+Full LAA candidate preparation without an explicit resolution override reads the
+saved menu scale through `cojvr_graphics_startup`: Auto/75%/100%/125%/150%/200%
+query the current background OpenVR recommendation. Percentages multiply total
+pixel count; each axis scales by its square root before rounding. The personal
+2804x2860 menu entry is removed; explicit Manual CLI/launcher behavior remains.
+V3 Manual index 4 migrates to Auto, rather than being reinterpreted as 150%.
+Existing caps, unavailable-query fallback and profile restoration remain active.
+This applies during the next preparation, not by resizing a running scene;
+the public release launcher is a separate integration boundary.
 Native selector usability and exercised holster assistance on/off have scoped
 physical acceptance. Unreported comfort, persistence and interruption cases
 remain separate gates in Validation.
@@ -502,8 +557,16 @@ hip/Kick grip the right pistol, right shoulder/Kick grip the long weapon, and
 left shoulder/Action grip the bow.
 These are ergonomic tracking-metre gesture zones relative to the HMD position
 and horizontal heading, independent of native body sockets or visible holstered
-meshes. Looking down does not pitch the zones. Exercised holsters/guides and
-assistance on/off have scoped acceptance; broader fit/recovery remains open.
+meshes. Looking down does not pitch the zones. Earlier exercised holsters/guides
+and assistance on/off retain scoped acceptance; broader fit/recovery remains open.
+Current hip zones use 11 cm radii and shoulder zones retain 24 cm; visual half-extents
+share those actual interaction radii. Thin antialiased 128x128 rings retain clear
+centres and existing availability colors, without changing other ammunition or
+support glyphs. A positively observed native world selection preserves fresh
+left-grip Action near the hips over holster intent; ordinary front selection does
+not block a valid behind-shoulder gesture. Native nearby-weapon/ready guards
+remain authoritative. Prior consumed holds still require release.
+These refinements have host gesture/pixel coverage and require physical checking.
 The exact adapter requires ordinary on-foot gameplay, known non-duel ownership,
 stable idle/empty native hand tuples, no carry/death/reload or nearby world
 weapon, no manual reload or
@@ -582,16 +645,37 @@ Pixel rebuilds and bounded game-owner observation run at up to 10 Hz while each
 captured frame retains its own geometry, optics and resource identity.
 
 Ordinary Focus reads cached squint factor/maximum and applies
-`1 + (maximum - 1) * factor` to copied asymmetric render-eye tangents. Eye transforms,
-IPD, runtime and UI optics remain unchanged. It never calls CalculateZoom via
+`1 + (maximum - 1) * factor` to copied asymmetric render-eye tangents. The copied
+scene-eye baseline is divided by magnification about its existing binocular
+centre; otherwise narrowed FOV multiplies displayed disparity. Physical runtime
+IPD/tracking, eye cant, UI optics and restore preimages remain unchanged. It never calls CalculateZoom via
 GetBeingZoom. Bow concentration combines squint with the existing module
 `BulletTime` current/target caches using the original clamped proportional rule
 and `squint + concentration - squint * concentration`. Actual/desired bow
 identities and module/BulletTime ownership must remain stable; no native update
 or parameter factory is called. Invalid caches/context fall back to physical
-optics. Scoped Winchester remains excluded: its separate camera-dependent optics
-and scope mesh need their own per-eye ownership/restoration contract. Bow cache
-composition is host-tested only.
+optics. The exact scoped Winchester additionally reads the already-existing
+module TreeMap parameter and cached default-camera FOV, bracketing parameter,
+camera, module, state and weapon identities. Its native scope-visibility predicate
+and camera-normalized magnification govern a binocular scene-scope fallback;
+no parameter factory or native camera/zoom update executes. One binocular-centre
+angular shift aims both parallel frusta toward the verified muzzle ray's existing
+reticle reference plane, after admitting it through both physical optical views.
+Each original asymmetric principal point is preserved; independent UV=.5
+convergence is rejected because it changes the displayed binocular alignment.
+Normal camera transactions restore shifted frusta/scene offsets. Looking away or losing
+verified ownership uses physical optics. The complete current right-reticle pair
+authorizes per-eye lens centres/radii projected from one shared angular aperture,
+with black exterior and a thin post-filter sniper rim/cross, even
+when optional colour processing is off; stale/partial pairs cannot activate it.
+The original FPPCamera mask update is suppressed only for the locally tracked
+stable exact rifle; ordinary updates retain its complete native object lifecycle.
+This is a scene-scope fallback, not a telescope texture or physical qualification.
+Scoped grip/fire have operator acceptance where exercised; optics/fusion are
+physically rejected in the preceding candidate. The revised fusion and renderer
+presentation remain host-tested only, independent of bow cache acceptance.
+The admitted current native protected-target flag colors the scope sight red
+after scene filtering; it cannot be discarded by suppressing the old reticle.
 
 ## Essential gameplay text
 
@@ -619,7 +703,10 @@ than an arbitrary controller. Hold/tap and wheel direction/release remain explic
 Without a runtime metadata source, the existing Sense presentation is preserved.
 An invalidated source retains a nonzero epoch with empty labels and uses semantic
 fallback until fresh metadata arrives; it cannot create an unfenced Sense label.
-This does not describe arbitrary binding chords or replace graphical glyphs.
+This does not describe arbitrary binding chords. Optional graphical glyphs require
+one qualified connected origin and an exact inspected controller/component/input
+tuple; unknown devices, chords and ambiguous sources retain the text fallback.
+Glyph metadata has a separate bounded lifetime and binding epoch.
 
 Origin metadata is cached until binding/device/input invalidation; empty or failed
 lookups retry at most once per second without querying settled actions again.
@@ -686,6 +773,14 @@ write before throwing. Recovery resends all four axes and remains pending until
 lock/delivery/unlock/apply complete; a fire/shoulder-only phase cannot acknowledge
 that recovery. Neutral cleanup must not trust the last acknowledged zero values
 to describe a partially mutated native controller.
+The existing movement-trace opt-in also observes actual JNI dispatch entry,
+duration, phase and turn inhibition/rearm, with distinct frame/pose/native-context
+and player/input generations. Native action and yaw acknowledgements retain
+partial failures; they do not establish displacement. Unknown input-sample or
+device identities stay zero. The bounded sink never adds native dispatches;
+formatting/clock/log work is absent once disabled or capped. Summary p99 retains
+the existing percentile convention. These diagnostics attribute observations,
+not a measured pacing improvement or a resolved external stutter report.
 Native speed coefficients and physics remain authoritative. Verified on-foot body
 yaw follows every HMD yaw change, without the former 35-degree free-look cone.
 The previous committed actor yaw is removed once from tracked camera, hand and
@@ -710,7 +805,12 @@ vertical actor position stays native. Physical crouch height uses a calibrated
 hysteresis and compensates duplicate native camera descent without altering
 collision. Recenter/player/mount changes invalidate the relevant references.
 Physical-walk animation remains unresolved; root updates affect child animation
-and gameplay events. See [animation ownership](research/COJ_ARM_SKINNING_AND_AIM.md#physical-walk-animation-ownership).
+and gameplay events. The offline ANM sampler evaluates bounded original cubic
+channels, native rotation modes and local-times-parent matrices without invoking
+the engine. Hash-bound Ray/Billy profiles recompose eight leg elements below an
+explicit pelvis anchor; authored root/pelvis motion remains unapplied. No runtime
+leg writer, grounded eligibility or native restore/lifetime transaction follows
+from this mathematical sampler. See [animation ownership](research/COJ_ARM_SKINNING_AND_AIM.md#physical-walk-animation-ownership).
 
 ## Body IK
 
@@ -896,6 +996,28 @@ observations. Only a fresh available release from the current input source
 discharges it, and that release sample remains consumed. A replacement source
 establishes its own baseline; repeated or retired observations cannot resume
 ordinary native fire or release the old claim.
+Stationary Cannon ownership is independent of retained hand inventory. The
+adapter brackets the current player's native IsUsingCannon/GetCannon and the
+Cannon/controller identities, then routes physical R2 to action9/Attack(1) through
+the normal native dispatcher. It does not call StartFire directly. Inventory
+rifle/punch/bow filters cannot own that contextual shot; explicit loading,
+recenter and restoration safety still override it. Cancellation invalidates
+arming without releasing consumed holds; unknown-owner reads consume held
+channels until fresh available physical releases. Native exit owns Cannon stop.
+Grab/fire now have scoped operator acceptance; broader recovery remains open.
+Stationary aim owns both right-stick axes continuously through the existing
+SmoothTurnState timing/shaping policy, with a neutral baseline on entry/recovery.
+The game adapter dispatches the resulting angles through native OnInputMouseAxis,
+normalizing the common mouse sensitivity once. Native target eligibility,
+Controller state, inversion and angular constraints remain authoritative; no
+Cannon-angle fields are overwritten. Ordinary yaw and HMD body-follow commits
+yield to Cannon ownership. Skipped render/input frames invalidate aim policy.
+The reticle observes the current controller's mesh/barrel element with retained
+local references and the existing rigid +X/up frame reader, brackets ownership,
+and projects its world ray through both applied eye frusta after restoration.
+It does not call the randomized GetFireDir or reuse a hand-inventory reticle.
+This is a directional reference; actual alignment/precision and impact prediction
+are separate, and the new X/Y/reticle route is host-tested only.
 The read-only evidence analyzer preserves bow requests, valid counter maxima and
 separate gesture/dispatch/reset reasons within the inventoried run interval.
 Neither a request nor native attack entry proves an arrow spawn; absent events
@@ -1058,6 +1180,15 @@ native. Failed Create/Reset restores caller parameters and does not commit caden
 Missing timing retains the last valid cap; late timing can require native Reset.
 The cap is not compositor phase lock; WaitGetPoses owns presenter cadence.
 
+Refresh-rate policy does not scale native movement or jump by the HMD frequency.
+The adapter retains shaped native movement magnitudes, digital jump edges and
+elapsed-time smooth yaw. Host fixtures cover 72/80/90/120/144 Hz input/pacing;
+they do not replace the original simulation clock/physics or establish real
+distance, jump height or wall-clock progression under lower native frame rates.
+Per-device optics use OpenVR projection and eye transforms; default bindings
+share logical actions while retaining device-specific physical routes. Physical
+qualification remains separate for each controller/runtime combination.
+
 Native sprite/flush boundary hooks are optional resource diagnostics, separate
 from HUD presentation and text capture. Register their observer only with the
 startup `renderResourceProbeEnabled` opt-in, alongside the render-pass observer.
@@ -1065,6 +1196,17 @@ A retained HUD diagnostic callback also checks current diagnostic permission
 before forwarding to D3D state queries/logging. Ordinary community sessions
 must not install these diagnostic hooks while the resource probe is disabled.
 Removing this work does not establish a performance improvement on a headset.
+
+The separate HUD batch collector uses actual natural boundary/depth/owner and
+hook-epoch witnesses, with six passes and 64 per-pass state queries/records.
+Existing draw ingress supplies pre-call state and the original returned result;
+no diagnostic lock or getter reference crosses forwarding. Per-draw permission
+is a cached owner read with an independent epoch, not file polling. Native device
+generation, continuity, frame/Present/thread and hook identities stay distinct.
+Faults, nesting, reset, changed ownership and missing/overflowed closure retain
+incomplete metadata. This source implementation and authored C++ fixtures await
+compiled verification. It observes no pixels and cannot qualify alpha/coverage,
+depth contents, resource lifetime, native HUD capture or compositor retirement.
 
 Periodic native FX-global/emitter walks and duplicate shot/barrel comparisons
 also require that resource-probe opt-in. Repeated skeleton element discovery is
@@ -1220,6 +1362,132 @@ guard/blocking or native AI anticipation of a controller wind-up. Firearm input
 and dual reload retain their existing routes.
 
 ## Physical-candidate image quality
+
+An experimental, opt-in D3D11 spatial processor runs once on each fresh ordinary
+native-stereo pair, after source upload and before VR reticles/HUD/handheld mesh
+composition. It provides original contrast-adaptive local sharpening, diagonal
+edge smoothing and contrast/saturation/gamma controls. It is not AMD CAS, FXAA,
+DLAA/DLSS, temporal reconstruction or supersampling; it retains native eye extent,
+pose and generation. Native HUD already baked into captured color cannot be
+excluded by this ordering. Theater/menu captures, repeated frames and the
+independent-eye private bank bypass it.
+
+The shared graphics owner initializes
+`%LOCALAPPDATA%/CoJVR/CallOfJuarez/graphics.ini` once per process, separately from
+cinematic `settings.ini` and launcher `resolution.json`. The strict version-4
+file requires all ten keys exactly once (complete seven-key version 1 and
+eight-key version 2 and ten-key version 3 remain readable); missing, unreadable, oversized or
+invalid files initialize processing off and log the reason. Native Options > Game
+edits and saves the nine controls, applying the spatial tuple to the next fresh
+native pair without restarting. Cancel/highlighting/default staging do not apply
+graphics changes. Disabled or enabled-neutral controls are an exact bypass without
+processor GPU resources. The optional
+[`source example`](../assets/graphics.ini.example) remains available for manual
+startup configuration; external file edits require a game restart. Its proposed
+sharpening value is an experiment, not an accepted visual preset. `sharpness` accepts 0..1, `contrast`
+0.5..1.5, `saturation` 0..2 and `gamma` 0.5..2; color neutrality is 1, sharpening
+neutrality is 0 and `edge_smoothing` is a lowercase boolean.
+`reconstruction` is `native`, `dlaa` or `dlss_quality`; it records intent only until
+the exact-game temporal source and compositor path are qualified.
+`render_scale` selects Auto, 75%, 100%, 125%, 150% or 200% via values 0..5;
+`horse_comfort` selects off/mild/strong via values 0..2. A positive mounted-motion
+input observation publishes a 150 ms lease; unavailable input, loading, frozen
+time or expired lease disables the mask. The compositor dims the periphery of
+fresh native pairs before overlays, independently of color-filter enable. It
+changes neither horse speed nor camera/FOV.
+Mild uses clear/full-dimming eye-normalized radii .42/.78; Strong uses .28/.60,
+retaining .55/.85 maximum dimming. The centre and alpha remain unchanged, with
+annular GPU checks at actual eye extents; corners alone do not qualify effect.
+Comfort and physical visibility of the compact sixteen-row native editor remain unqualified.
+
+The renderer validates both same-device, distinct, equal-size private BGRA/BGRX
+UNORM outputs before writing. Shared/misc-flagged endpoints are rejected because
+different COM objects can alias one shared allocation. One reused source scratch texture processes the eyes
+sequentially, capped at 128 MiB (32,077,760 bytes at 2804x2860). Private D3D11.1
+context state isolates and restores caller bindings. Unsupported devices/formats
+or allocation/setup failures disable effects until a deliberate new options
+acceptance permits another setup attempt, retaining the native pair. A detected
+removed device terminally revokes old/new
+submission cadence and stops the presenter through common cleanup. A later CPU
+upload cannot revive that consumer; no automatic recovery is claimed. Sampled
+telemetry correlates capture/device/generation and reports CPU command-queue
+time and scratch allocations, not GPU timing or a performance improvement.
+Spatial output quality, headset comfort, sustained pacing and allocation/device
+recovery remain physical gates in [Validation](VALIDATION.md).
+
+An original experimental `cojvr_dlss_client` library and separately built x64
+`tools/dlss_host` implement the helper pattern researched in FarCry2VR. The helper
+uses official NVIDIA NGX D3D11, the consumer adapter LUID, separate features per
+eye and private NT-shared RGBA16F color/output, R32F standard depth, RG16F motion
+and R8 current-color bias. A fixed-width versioned pipe protocol validates both
+process identities and bounds. Idle waits monitor parent/pipe lifetime without
+expiring a healthy paused session; message completion has a bounded deadline.
+Failed startup drains pending connection I/O before rolling back the owned child.
+The owned hidden helper has kill-on-close lifetime;
+it never owns the game or SteamVR. CPU-completed shared fences precede
+acknowledgement/output admission; timeout/exit is not GPU completion. Uncertain
+client allocations are quarantined rather than recycled. Missing helpers,
+runtime, capabilities and incomplete guides reject reconstruction.
+
+`runtime/temporal_reconstruction` provides unjittered row-vector reprojection and
+history admission/reset policy. `temporal_guides` privately generates paired
+depth/camera motion/current-color guides on D3D11, rejects unqualified sources,
+restores caller state and exposes no stale guides after rejection. This library
+is exercised by host fixtures, not linked into the active presenter. Its source
+qualification bit is an adapter obligation, not a depth-content detector.
+CoJ still transports presentation color without a qualified sampled geometry-depth,
+motion/jitter or temporal-input lease contract. The optional existing resource
+probe can now sample 16x16 HDR-alpha values from a currently COM-owned pixel texture
+binding only when it matches the exact-build `1B_16` descriptor. The bounded
+observer now attempts copying at the matching native draw, while the COM-owned
+binding is still present, and reports missing consumers at scope end. Actual
+registers are queried across 0..15: material user sampler 10 is a logical name,
+while collected consumption used registers 0/2. The earlier fixed-register
+observer produced no pixel samples even in the long exercised session.
+Samples have bounded copied lifetime and explicit
+`temporalAdmitted:false`; they are diagnostic, not depth transport. The
+extended observer has live RGB/alpha delivery for three consumers per eye in
+stable gameplay windows. Its optional scope-local write-call witnesses count
+successful RT0 draw/Clear and typed native StretchRect destination-copy intents, retain
+alpha write masks/last-writer shader identity, and expose read failures. Counts
+are not proof that fragments modified pixels or that all MRT/copy paths were
+covered; live copy rectangles retain partial/full extent explicitly. Borrowed
+surface arguments remain scoped to the synchronous hook callback; copied numeric
+addresses never authorize COM access. Diagnostic copies are excluded from their
+own ledger. Scope-end totals
+can expose writes after a sampled consumer. No source qualification follows.
+The [postprocess ownership findings](research/COJ_PPFX_TARGET_OWNERSHIP.md#hdr-alpha-depth-candidate)
+own material semantics and remaining coverage gates.
+Live copy witnesses now separate pre-copy consumer contents from the subsequent
+equal-extent FP16 scene copy and stable later samples. The bounded collector
+requires that observed complete copy within the current eye scope before
+selecting a phase; partial/scaled/self/non-FP16 copies, later observed source
+writes, reset and read uncertainty withdraw readiness. This is observational
+readiness with explicit coverage limits, not source/eye/depth qualification.
+Consumer ordinals remain local and are renumbered after filtering. Copied grids
+stay 16x16 and cannot become a full-size temporal-input lease.
+The filter's subsequent delivered pairs retain an unresolved split-alpha pattern
+despite differing RGB. Bounded upstream RT0 clear/draw, alpha-write-mask and blend
+call witnesses now freeze at native copy time; absent/unreadable producers remain
+unknown. Their counts do not establish fragment writes, depth or material coverage.
+The first blend-enabled alpha draw per bounded producer additionally freezes
+effective alpha blend factors/operation and up to4KiB of its owned shader program.
+No logged address is revisited. Incomplete/oversize/failed bytecode reads remain
+unknown, with one attempt per producer and no new GPU allocations. Offline alpha
+algebra/program digests do not qualify material coverage or temporal input.
+Camera-only motion reconstruction does not describe independently moving
+hands/NPCs/foliage. Actual CoJ capture, scoped jitter, dynamic masks, per-eye
+presentation/history commitment and reduced native raster work remain pending.
+No saved DLAA/DLSS menu request launches the helper or changes game rendering.
+The official SDK/runtime is an ignored, pinned external dependency prepared by
+`tools/bootstrap_dlss.ps1`; the x64 helper and NVIDIA binaries are excluded from
+normal game staging/releases. Local host experiments do not qualify distribution.
+Shared sun shadows also
+need independently demonstrated Chrome light/cascade/caster and atlas lifetime
+equivalence. Neither technique is enabled by this spatial processor; see
+[reference findings](research/COJ_VR_REFERENCE_PROJECTS.md#farcry2vr-rendering-findings-and-limits).
+Native video options already expose anisotropic trilinear filtering; its native
+mode is not evidence of a forced 16x factor. No sampler override is introduced.
 
 `prepare` preserves the selected game resolution and stages FSAA 0 unless the
 operator elects to keep video settings. Original video configuration is journaled

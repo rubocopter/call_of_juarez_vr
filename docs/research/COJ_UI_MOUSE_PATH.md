@@ -54,21 +54,29 @@ no demonstrated open-ended page-registration API. A new page must qualify
 registry/capacity changes and every affected consumer; never reuse an apparently
 empty index without checking its other owners.
 
-The implemented route adds cinematic, smooth/snap and holster-guide selectors to the existing
+The implemented route adds cinematic, smooth/snap, weapon-guide and nine graphics selectors to the existing
 `MenuOptionsGame`, shared by both Options variants. This avoids a new UI registry
 slot and retains original OK/Cancel/Defaults and return behavior. The recognized
 class SHA-256 is `2FE3AA28003AA2C3F9539071EEFA040E4FAEDBDD6868FBD8C179AB0230BA6DD8`;
 `Data/Menu/scr/OptionsGame.scr` is
 `995388EDB69798167E318189598E451319D31C351B230455D737679608772B1D`.
 The transformation clones the original selector resource at installation time,
-retaining `MenuSmall`/scale, original option rows and buttons. Native
+retaining `MenuSmall`/scale, original options and buttons. Native
 `UIOptionsControlSelect` supplies label, option data, selection, focus and tips.
-Only the decorative list frame grows to contain three additional rows and a
-noninteractive native status label. No original resource/class is redistributed.
+The graphics extension compacts the whole native selector rectangles, including
+their inherited label/option/arrow click extents: sixteen `.465 x .038` rows at
+screen y `.15 + index*.041`, ending at `.803`. The noninteractive status occupies
+`.805..855`; the enlarged decorative list ends at `.86166667`, before the original
+`.87166667` separator. Original callback routes and font patterns remain native.
+Host geometry checks do not qualify glyph fit or physical readability. No
+original resource/class is redistributed.
 Native menus retain naturally scheduled flat-theater drawing; no second-eye UI
-traversal or new overlay is introduced. Other preference groups remain future work.
+traversal or new overlay is introduced. A Native/DLAA/DLSS Quality selector saves
+the reconstruction request; explicit experimental tips and pending/native-active
+status distinguish that request from an available game rendering mode. The
+standalone NGX backend is not connected to current CoJ presentation.
 
-`runtime/vr_settings` now owns all three preferences, configuration and atomic
+`runtime/vr_settings` owns the three comfort preferences, configuration and atomic
 publication through one versioned store. Post-.5 source removes the presenter
 quick editor; the native bridge snapshots the authoritative values once per Show.
 Native highlighting remains local; OK queues request 1, consumed as token 2
@@ -92,6 +100,25 @@ The shared owner preserves these application and persistence contracts:
   turning, guides and language; `cojvrHolsterGuidesValue()I` reads the local choice.
   The comfort label and Off/On choices follow the game's startup `Game.ini`
   locale (English/Spanish, English fallback), using original widget fonts.
+- Graphics uses a separate `cojvrSyncGraphics(IIIIIIIIII)V` and ready flag. Its
+  arguments are enabled, sharpness percentage, contrast percentage, saturation
+  percentage, gamma percentage, edge smoothing, reconstruction request, startup
+  resolution scale, horse comfort and locale. Four numeric choices
+  use bounded five-percentage-point steps; booleans/locale use 0/1. Both readiness
+  flags and all twelve preference getters must qualify before a VR request is queued
+  or original OK is completed. Missing/wrong widgets retain native fallback.
+- `runtime/graphics_settings` owns strict version-4 `graphics.ini` (complete versions
+  1/2 migrate with missing choices defaulted; v3 scales 0..3 retain meaning and
+  removed Manual4 becomes Auto). Native scale options are Auto/75/100/125/150/200%
+  pixel counts relative to a fresh HMD recommendation at next preparation. It owns per-store
+  revisions and atomic replacement. Both owners' revisions are checked before
+  applying a native proposal; separate file replacements are not a cross-file
+  transaction. A failure of either save retains the editor and session choices
+  for a deliberate retry. Unchanged quantized controls preserve precise legacy
+  file floats. Native Cancel/default staging do not publish. A separate short
+  publication lock supplies coherent graphics values at fresh capture boundaries,
+  without renderer disk reads or the persistence lock. Repeats/theater/private
+  bank remain outside image processing; terminal consumer loss cannot be revived.
 - Atomic temporary-file replacement retains the previous file on failed save.
   A session-applied value and its persisted status are distinct. Native save
   failure keeps the editor visible with session-only feedback; no renderer
@@ -221,11 +248,19 @@ mouse-button handler similarly requires a positive second argument.
 callback resumes the timer and starts the mission. Successful JNI delivery alone
 therefore does not prove that loading continued.
 
-Both global/Cross accept and pointer/trigger accept now send one direct native
-key-down to an identified current loading UI. A loading-only request rejects
+Direct `OnInputKey` dispatch bypassed exclusive registration and could schedule
+callbacks before readiness or repeatedly restart the native fade. The hash-pinned
+loading derivative now exposes `cojvrContinueLoading()Z`: it requires native
+`IsRegisteredKeyRequestExclusive()` readiness and an unset queued flag, sets that
+flag before the original positive key handler, and refuses subsequent delivery.
+Preserved `WaitForUserInput`, `Hide` and `ShowCommon` bodies reset this local flag
+through wrappers; native continuation/fade/timer/mission callbacks are unchanged.
+`cojvrLoadingState()I` distinguishes not ready, ready and already queued for JNI
+diagnostics. Both global/Cross and pointer/trigger use this boolean helper.
+A loading-only request rejects
 ordinary menus; paused hints, mission-end and ordinary menu activation retain
 their own routes. This direct UI handler does not set global held-key state, and
-one call schedules at most one continuation callback. JNI host fixtures cover
+one readiness epoch schedules at most one continuation callback. JNI host fixtures cover
 both callers, loading-only admission, single positive delivery, exception cleanup
 and absence of generic Enter/mouse fallback. This correction is host-tested;
 controller-only continuation with Cross/triggers still needs a physical check in

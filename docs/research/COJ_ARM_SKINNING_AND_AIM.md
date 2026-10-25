@@ -91,8 +91,9 @@ remains fixed in weapon space through admitted native fire/cycle states 30..38;
 it is not reseeded from their animated hand motion. Exact
 Winchester, Remington and SawOff classes require repeated right active/actual/
 desired object equality, empty left slot, coherent four state getters and three
-two-hand flags per hand, alive/not carrying/not reloading. Scoped/unknown classes
-reject. This is host-tested admission, not measured physical grasp acceptance.
+two-hand flags per hand, alive/not carrying/not reloading. Exact scoped Winchester
+also has independently measured support below; unknown classes reject. This is
+host-tested admission, not measured physical grasp acceptance.
 
 The adapter's neutral solver receives metres and returns one rigid map without
 scale. Both hands/socket parents move before the child weapon commits; retained
@@ -119,6 +120,7 @@ row-vector local times parent; diagnostic views do not redefine native axes.
 | WeaponRifleRemington | `d086f18770302d6dd176543d417dc3f929e9ad2ce5b772b89fcfe7e930e7e596` | GunBarrel | 122 | (0.001855, 0.731875, 10.743126) |
 | WeaponRifleRemingtonSawOff | `bb8ae35d14e9d34945b33477dc5ae6d226a2ebd7970730249f01dead9c5c2343` | GunBarrel | 122 | (0.002069, 0.732127, 10.742139) |
 | WeaponRifleWinchester | `be1f0508ea41e809a413256c295ba75b02eeaf7df935c3c1dfb6e623a8ee320e` | GunBody | 84 | (0.009580, -41.159535, -4.031803) |
+| WeaponRifleWinchesterScope | `a989d5c4bcaad39e250a0fcaa070c985ec832ec51e2f48e6f2d62eb580d532cd` | GunBody | 60 | (0.009580, -41.159535, -4.031803) |
 
 Assets are under `Data/Player/Equipment/<model>/<model>.msh`. Remington wood bounds
 in GunBarrel centimetres are (-1.456061,-0.661657,-0.489324) through
@@ -132,6 +134,15 @@ point by that full live element frame, then express it relative to weapon root.
 Preserve native left_hand orientation separately and map its current anatomy to
 the solved contact. A missing/invalid mesh frame rejects instead of falling back
 to the detached player socket. Contact element replacement cancels the claim.
+The scoped mesh's independently decoded 60-triangle wood island has bounds
+(-1.752137,-56.974736,-6.475970) through (1.771298,-25.344335,-1.587635) cm.
+Its centre matching ordinary Winchester is a measured result, not inherited
+geometry. Pinned `PlayerGunStateMashine` creates alternate idle129 and shot
+start159; `AddShotStates` constructs start-1 through start+7. Exact scoped
+support therefore additionally admits idle129/fire158..166, retaining the same
+owner/flag/frame/restoration checks. Other classes do not inherit that state bank,
+and alternate reload/unrelated states still reject. New acquisition during a
+firing transition remains excluded. This adds no manual loading permission.
 The optional L1 guide and distance admission share the ordinary right-hand map
 of this same point, before the solver rotates toward the left controller.
 Frozen weapon-local contact retains native-cycle continuity and restoration.
@@ -256,11 +267,17 @@ Wheel/conflicting actions and mapper trigger-rearm barriers cancel the gesture.
 Failed hand/weapon verification invalidates its owner through both eyes and clears
 captured controller feedback. Native scheduling, actual spawning and visual
 string/arrow agreement retain their separate evidence limits.
-`WeaponBow.ShowArrowMesh` separately attaches the visual arrow object to the
-player's right hand. The bow-root map does not introduce a writer for that
-separate object. Its presentation under independent tracked hands must be
-checked independently; a coherent root ray does not prove drawn-arrow visual
-alignment or physical string interaction.
+The independently created `WeaponBow.m_cArrowMesh` is a different MeshObject
+loaded from BowArrow.msh, attached by `ShowArrowMesh` to the player's native
+Right_hand/Bip01 R Hand. Bow's DArrow is not that object. Its current animation
+and parent must be observed together; bind constants cannot replace animated
+element frames. Hide/Show, deletion and save loading can detach/replace it.
+`DropArrowAmmo` also reads the separate object's world position and forward for
+native ammunition creation, so a temporary pose write is not proven visual-only.
+The copied-value observer and full affine reversible map establish mathematics,
+not a native retained-reference/preimage/restore transaction or string endpoints.
+The bow-root map does not introduce a writer for that separate object. A coherent
+root ray does not prove drawn-arrow alignment or physical string interaction.
 
 ## Shot visualization and emitter ownership
 
@@ -588,9 +605,17 @@ bone matrices cannot restore all sequence, morph, cache and attachment state.
 Shipped walking events can update the ground/material cache, play footsteps and
 reach `MakeNoise`; a physical-only visual overlay must not duplicate those events.
 
-Physical-walk animation remains planned. Implementation requires demonstrated
-natural evaluation versus both-eye render order, an event-free sampler or a
-complete reversible animation transaction, isolation of physical-only events,
+The offline mathematical sampler now decodes pinned ANM1 type-3 cubic channels,
+integer tick truncation, six native rotation modes and complete local*parent
+frames. Hash-bound Ray/Billy profiles recompose eight leg elements beneath a
+supplied pelvis anchor; authored root/pelvis motion is explicitly unapplied.
+Eleven active Unarmed tracks use seven clips; commented rotate tracks are not
+silently admitted. Interpreted synthetic/original-archive checks do not execute
+SetFrame, updates, events, footsteps or MakeNoise.
+
+Physical-walk runtime animation remains planned. Implementation requires
+demonstrated natural evaluation versus both-eye render order, a retained scoped
+native write/restore transaction, isolation of physical-only events,
 fresh grounded/pending-state eligibility and both-model clip coverage. HMD
 velocity must also distinguish lean/discontinuities from walking and define
 coexistence with stick locomotion. These static findings do not validate a

@@ -1,5 +1,37 @@
 # Exact CoJ reload ownership
 
+## Current regression boundary
+
+The subsequent long session recovers one exercised manual revolver: ten native
+unit transfers with reserve debits and haptic delivery, matching operator feedback.
+This is scoped recovery, not qualification of every tested weapon. A separate
+native-only fallback observation now handles stable exact-class weapons rejected
+by manual eligibility before class lookup (attack/alternate/native states).
+It compares actual/active/desired objects and states twice, cOwner, GetThisID,
+player generation and the absence of pending tracked body/weapon transactions.
+Unknown classes, JNI failures and changed identities remain withheld. This
+observation admits only ordinary native action 31, never a manual profile.
+The reported long-range rifle's fire-to-zoom remains uncorrelated to an exact
+class/press in the sparse trace; no button remapping or scoped-fire fix is claimed.
+Bounded rejection diagnostics now name known rifles as well as pistols.
+
+The latest original-campaign report rejects current manual loading for all
+weapons tried: assistance appeared but cartridge carry/insertion/ammo transfer
+did not. Logs show pickup followed by held-cartridge cancellation without an
+insertion event. `GetTickCount64` can repeat at the tracked-pose cadence; the
+continuity test then admits zero displacement. Reload sampling now uses the
+existing high-resolution monotonic millisecond clock. Host replay distinguishes
+coarse-clock cancellation from continuous carry at identical positions.
+
+A fresh armed trigger on an empty, positively admitted manual revolver with
+reserve now requests existing native manual preparation instead of falling
+through to automatic fire/reload. Owner changes require trigger release;
+unsupported weapons retain native behavior. No ammo setter or new profile is
+introduced. Host tests cover both hands and held-trigger suppression; physical
+cartridge appearance, native unit transfer and recovery remain rejected/pending
+despite historical scoped acceptance below. DLC native animation behavior is
+outside this original-campaign report.
+
 These contracts apply to the original Steam Call of Juarez (2006) archive
 `code.pak`, SHA-256
 `F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12`.
@@ -231,6 +263,126 @@ must produce loaded +1 and the matching reserve -1 before insertion feedback.
 Host fixtures cover both armed hands, owner/recovery rejection, JNI cleanup,
 expanded emitted-bytecode admission and typed reserve correlation/restoration.
 
+### Offline remaining-weapon laboratory and authored animation boundary
+
+`tools/coj_offline_manual_reload.py` builds separate, non-installable class
+derivatives for exact `WeaponRifleWinchester` or `WeaponPistolVolcanic`. It
+accepts only pinned original classes/archive and exports `.class.bin` plus an
+explicit unqualified manifest outside the source installation. It has no PAK
+installer, launcher flag or runtime admission. Production revolver patch output
+is unchanged. Host execution of emitted helpers covers native-callback ordering,
+zero-transfer waiting, explicit unit requests, capacity/reserve termination,
+cancel/watchdog cleanup and rejection of changed ownership, occupied support,
+whole-clip and multi-ammunition contexts. Native scheduling, capacity/transfer
+and skin calls remain stand-ins in that interpreter: these tests do not establish
+live accounting, hand availability, loading geometry or mechanical playback.
+
+The pure `indexed_reload_prediction.hpp` preflight complements the existing
+post-call vector classifier. With an explicit synchronous lease it predicts the
+original ascending-index call, distinguishing no transfer, one requested-index
+unit, a different-index unit and multiple units. A shared reserve is counted
+once. Two empty Remington/SawOff/Derringer slots and two reserve rounds predict
+two loaded units; one reserve round chooses index 0. A full other slot can limit
+the native call to the remaining empty slot. Lemant still prefers eligible rifle
+index 0 before pistol index 1. Predictions never authorize calls or gestures,
+change counts/parameters, or replace same-lease post-call readback. Passive
+observer samples cannot obtain a prediction. General selective transfer remains
+outside the production path.
+
+`tools/coj_indexed_reload.py` separately emits an uncalled in-memory helper from
+the complete pinned original archive. It selects one explicit ammo index for
+exact Remington/SawOff/Derringer/Lemant profiles, using original indexed loaded
+and typed reserve setters rather than the ascending/whole-clip native loop.
+Busy precedes virtual reads; full actual/active/desired hand and machine/body21
+ownership, parameters, both loaded counts and all three retained reserve
+counters/maxima are checked before, between and after writers. Shared ammo pools
+are debited once. Partial setter/skin failure or unexplained changes quarantine
+without compensation/retry, and finally clears busy while retaining the fault.
+This is a new composite transaction tested with original storage/counter
+bytecode and modeled native boundaries. It does not add a native selective
+API, supervised wait, game event, mechanical animation, loading mouth or runtime
+gesture admission. Physical integration still requires those separate contracts.
+
+The separate in-memory `coj_indexed_reload_session.py` derivative now composes
+that helper with the original reload request and supervised pre-Clear veto.
+Its exact per-family private profile checks the original whole-clip policy;
+no parameter or production profile is changed. Insertion requires a retained
+Status2 ticket, matching hand/weapon/machine/veto owner and valid native clock,
+including inside the unit helper's prewriter proof. A consumed internal permit
+and outer exclusion prevent direct unscoped insertion/reentry. After full typed
+readback it publishes the native reload event once and rechecks the vector;
+the final proof reads the exact retained Java ticket/hand/state fields without
+virtual callbacks after the parameter getters. Final capacity/reserve uses the
+native zero-transfer close, including an exhausted wait with no unit inserted.
+Closing retains its original machine and end-state across callbacks, checks
+desired movement again, and never retargets a replaced probe field. Partial effects
+quarantine heartbeat and insertion with finally cleanup, without retry/refund.
+This composition is interpreted-tested with original state/storage bytecode,
+but scheduling, native skin and mechanical calls remain modeled. It adds no
+runtime gesture, loading mouth or per-unit body replay; production stays native
+automatic for these families.
+
+All these current families select `PlayerGunStateMashine`, whose ordinary
+reload graph is `20 PlayerSubPairState -> 21 PlayerSubState -> 22
+PlayerSubPairState -> 1`. Body 21 is **not looped**. Alternate 148/149/150 states
+are separate. Null support weapon slots are statically possible for Winchester,
+but the other hand can still be a native animation slave: null references do
+not qualify a free tracked hand or restoration after reload.
+
+`tools/coj_reload_animation_inventory.py` reads both pinned original archives
+and inventories authored equipment tracks, include/alias provenance, state-time
+definitions and concrete class/ammo metadata. It exports only metadata; it does
+not play animations, decode ANM payloads or write frames/clocks. Missing or
+ambiguous definitions remain unknown. Equipment and player tracks are distinct:
+Winchester's weapon reload ranges are 0–10/10–18/18–28, whereas its player
+ranges are 0–30/30–54/54–84, all authored at 30 fps. Native state timing is a
+separate contract:
+
+| Family | Authored ordinary begin/body/end state times, seconds |
+| --- | --- |
+| Winchester / Volcanic | .33333333 / .35 / .33333333 |
+| Remington / SawOff | 0 / .8 / 1.0 |
+| Derringer | 0 / .4 / .6 |
+| Lemant | .3 / .35 / .3 |
+| Schofield | 0 / .4 / .4 |
+
+An absent begin declaration leaves its zero-initialized state time at zero;
+the begin callback can still execute. Frame ranges do not determine native
+state duration, runtime multipliers or a loading-mouth pose.
+
+Direct `StateMashine.SetCurrentState(body21)` has no same-state early return:
+it runs Clear/Finished then Set/Started, bypassing the Update pre-Clear veto.
+Original finish can transfer ammunition again. The persistent zero-transfer
+guard prevents that debit, but result=false still changes desired21 to movement,
+invalidating the session. Host bytecode coverage reproduces this failure of naive
+replay. Started also increments important-state bookkeeping and calls
+`Weapon.Reload(index,0)` for every index, potentially playing body audio and
+writing native ammo skin despite unchanged counts. `ReloadRotate` instead
+belongs to ReloadEnd completion, not body replay. An accepted insertion may
+already have initiated closing on full/empty reserve. It cannot authorize a
+replay into a retired owner.
+
+The isolated Winchester/Volcanic derivative now has an optional per-unit native
+body-cycle transaction. It acquires a reentry guard before virtual eligibility
+reads and retains player/weapon/hand/machine ownership. One original
+`PawnArmed.WeaponReload(Weapon)` call must produce loaded +1 and matching reserve
+-1 with unchanged capacity, type and counter identity before the game event is
+published. Readback is repeated after callbacks. Full capacity or exhausted
+reserve closes normally; otherwise only the expected same-body Clear suppresses
+the terminating completion, and original Set/Started reinitializes the body.
+No desired-state write, animation frame/time setter or inventory compensation is
+introduced. The next native pre-Clear wait is required for another insertion.
+Exceptions clear retained scope references and rethrow; uncertain partial writes
+quarantine further insertion/renewal for that player instance without retry.
+Interpreted fixtures execute the original transfer and state/callback bytecode,
+but native storage/skin/scheduling remain test doubles. This is an offline
+derivative, not production manual admission or validated animation playback.
+
+Forcing desired21 back after a callback could overwrite real cancellation. Native reload-frame
+notification absence and audio timing remain unqualified; the demonstrated ammo
+event owner is Java state completion. These static findings and host tools do
+not promote any physical gate.
+
 ## Native request and completion
 
 ### Ammunition transfer and cylinder phase are distinct
@@ -411,6 +563,14 @@ and 0.519 cm. These are geometric observations, not interaction tolerances or
 proof of gate clearance. The insertion approaches along cylinder-local +Z from
 the rear. A future target must use the actual displayed cylinder frame, including
 native accumulated phase, and a cartridge-tip trajectory rather than grip distance.
+
+The pinned presentation inventory now reproduces all twelve original ring fits
+for the six-centre Peacemaker/Frontier profiles from quantized vertices, using
+XY-circle/tilted-plane residual and angular-coverage checks plus complete bind
+frames. These are seeded geometric checks, not independent socket discovery or
+evidence of accessible displayed clearance. Neither fit windows/radii nor a
+loading-part pivot ranking is a gameplay insertion tolerance. Other models do
+not inherit this mouth contract.
 
 Ordinary reload scripts select begin frames 0–8, loop 8–16 and end 16–25 at
 30 fps. Isolated native ANM sampling uses frame-domain time: frame 8 opens
@@ -1077,6 +1237,16 @@ No added sound is enabled: the existing clip's insertion-specific content and
 overlap with native entry/animation audio remain acoustically unqualified. Keep
 those checks within the ordinary combined reload session, without replaying a
 reload callback, cylinder rotation or a second fallback sound.
+
+The original Data2 inventory measures `Frontier_Ammo_Open.wav` as
+30720/44100 seconds (about .697 s); PCM peak/RMS/envelope and nominal overlap
+windows establish neither its insertion content nor actual playback duplication.
+`SoundBuffer.Accept` also filters suffix length, beyond ordinary filename prefix
+matching. For plain `Schofield_Reload`, the inspected `_Beg.wav`/`_End.wav` names
+exceed its seven-character suffix limit, while `Schofield_Reload.wav` passes.
+The begin/end files are byte-identical; that fact does not prove both are selected
+or audible. Current VFS overrides/order, caches and native skin/event callbacks
+remain separate evidence requirements before adding a one-shot.
 
 The two-index families have different original defaults. Remington and SawOff
 inherit `WpnAmmoShotgunRemington`: both indices have null body/end reload

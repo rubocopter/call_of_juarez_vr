@@ -1,7 +1,8 @@
 # VR reference projects and CoJ application
 
 These are design and engineering references, reviewed against primary project
-sources on 2026-10-21. They establish hypotheses and useful patterns, not Chrome
+sources on 2026-10-21, with the FarCry2VR rendering review added on 2026-10-24.
+They establish hypotheses and useful patterns, not Chrome
 Engine contracts or CoJ headset acceptance. No implementation from these
 projects was copied into this candidate. Check the exact file licence and
 attribution before any future code reuse.
@@ -19,11 +20,72 @@ attribution before any future code reuse.
 | [UEVR](https://github.com/praydog/UEVR), [render/runtime boundary](https://github.com/praydog/UEVR/blob/master/src/mods/VR.hpp) | Distinguishes native, synchronized sequential and alternating stereo; treats UI as a separate integration concern. | Preserve CoJ's demonstrated full-wrapper stereo and evidence per eye/context. Use its methodology to investigate UI capture and temporal ownership; UE's stereo hooks, DX11/12 resources and profiles are not CoJ adapters. Do not substitute AFR for the current stereo path. |
 | [OpenKneeboard injection architecture](https://github.com/OpenKneeboard/OpenKneeboard/blob/master/docs/internals/injectables.md) | Producer/consumer image ownership, overlays and isolated host fixtures before game integration. | Guide future native HUD sprite/flush capture with verified alpha, order, device generation and recovery. It neither locates CoJ's UI boundary nor proves scene-depth/hand correspondence. Existing text HUD remains the fallback. |
 | [VR Performance Toolkit](https://github.com/fholger/vrperfkit), [configuration](https://github.com/fholger/vrperfkit/blob/master/vrperfkit.yml) | Configurable upscale/sharpen/foveation experiments and explicit API limits. | Reference only after measurements identify a native render bottleneck. Its supported graphics API is D3D11; CoJ renders in D3D9. Filtering transport output cannot remove the cost of CoJ's two native scene renders. No toolkit injection or guessed optimization is enabled. |
+| [FarCry2VR](https://github.com/Braxusx/FarCry2VR), [DLSS guides](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/dlss_fc2.cpp), [x64 helper](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/dlss_host/dlss_host.cpp) | An x86 game can use an x64 DLSS helper through shared GPU resources; separate eye histories, camera-depth motion reconstruction, projection jitter and near-pass masks. Also separates render/output size and shares qualified sun-shadow work between eyes. | Research reference for a future temporal reconstruction backend. CoJ's D3D11 color transport is only one prerequisite: sampled per-eye depth, motion coverage, history/reset identity and GPU retirement remain unqualified. Dunia's D3D10 target/near-pass/shadow hooks do not establish Chrome contracts or justify changing the active D3D9/OpenVR path. |
 
 The earlier local notes also mentioned Doom 3 BFG VR as a wrist/body UX example.
 The cited KozGit release URL could not be retrieved during this review; no source
 or implementation claim from it is used to select work. Existing CoJ wrist/body
 decisions stand on their own evidence.
+
+## FarCry2VR rendering findings and limits
+
+Reviewed revision: `c6bc74c370a0e32edf3c7227f2519fd8f199ab74`.
+This is source inspection, not a local build, performance comparison or headset
+test of FarCry2VR. Its [README](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/README.md)
+requires D3D10/OpenXR and advertises DLSS/DLAA, not DLSS frame generation.
+
+- **Separate the algorithm host from the x86 game.** The
+  [client](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/dlss_client.cpp)
+  selects the helper GPU by adapter LUID and duplicates D3D11 texture/fence
+  handles into an x64 D3D12/NGX process. One feature per eye keeps temporal
+  histories separate. This is a transferable architecture; it does not port
+  the game renderer to D3D12 or remove the game's x86 allocation limits.
+- **Generate meaningful temporal inputs.** The
+  [guide pass](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/dlss_fc2.cpp#L24)
+  reconstructs camera motion from depth and current/previous eye matrices;
+  it does not reconstruct independent object or skeletal motion. A near-pass
+  mask biases arms/weapon pixels toward current color. For CoJ, moving hands,
+  NPCs, foliage, particles, transparency and newly exposed surfaces require
+  their own coverage/quality assessment. Camera-only vectors are a bounded
+  prototype, not proof of artifact-free temporal reconstruction.
+- **Keep projection and history coherent.**
+  [Eye rendering](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/main.cpp#L2667)
+  uses subpixel jitter, unjittered guide matrices and history invalidation for
+  discontinuities. CoJ must bind inputs to the same eye/frame/pose/generation
+  and qualify recenter, snap turns, cinematics, tracking loss and resource
+  recreation before enabling such a pass. Existing depth diagnostics establish
+  descriptors only, not sampled scene/hand content or D3D11 transport.
+- **Distinguish DLAA from upscaling.**
+  [Target selection](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/main.cpp#L1690)
+  lowers actual eye rendering dimensions for DLSS modes while retaining larger
+  output dimensions; DLAA keeps dimensions equal. DLAA is a possible initial
+  quality experiment after depth/motion qualification, without first requiring
+  independent eye resizing. Performance-oriented upscaling still requires
+  lower native raster work and measured net benefit including helper overhead.
+  Neither approach qualifies CoJ's rejected independent-resolution bank.
+- **Investigate redundant work before raising quality costs.** The
+  [sun-shadow path](https://github.com/Braxusx/FarCry2VR/blob/c6bc74c370a0e32edf3c7227f2519fd8f199ab74/mod/src/main.cpp#L1190)
+  reuses a common atlas for the right eye while retaining per-eye work for other
+  lights. CoJ would need independent evidence of equal light/cascade/caster
+  inputs and retained atlas lifetime. Never skip the demonstrated full second-eye
+  wrapper on this basis. Isolating native HUD before temporal processing is
+  another useful pattern; CoJ's native graphical HUD ownership remains open.
+- **Audit executable behavior, synchronization and attribution.** In this
+  revision, FSR references remain in comments/protocol structures, but the host
+  selects DLSS; those references do not establish working FSR support. Likewise,
+  the IPC header describes a bounded CPU fence-completion wait, while the client
+  frame path receives an acknowledgement and queues a GPU wait without that
+  completion check. Do not inherit a completion guarantee from the header.
+  Preserve CoJ's proven retirement rules and test helper exit/failure separately.
+  The project declares GPLv3 and credits helper ancestry from Dishonored/BioShock
+  projects; verify exact source notices and NVIDIA runtime terms before reuse.
+
+The original standalone CoJ x86/x64 NGX D3D11 backend now exercises the helper
+pattern on controlled host inputs, without copying FarCry2VR implementation or
+replacing the primary D3D9/OpenVR path. Native options save reconstruction requests
+with explicit pending status. Exact-game depth/coverage, transport, scoped jitter
+and atomic presentation remain open; [architecture](../ARCHITECTURE.md#physical-candidate-image-quality)
+and [validation](../VALIDATION.md) own those boundaries and acceptance.
 
 ## Decisions for this project
 

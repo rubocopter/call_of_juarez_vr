@@ -208,6 +208,149 @@ and another 8-byte 1x1 color when two eyes share the remaining scratch recipe.
 That is 0.07 MiB at 2560x1920 and 0.12 MiB at 2804x2860 before padding, metadata
 and other histories. Cheap history payload does not solve native ownership.
 
+## HDR-alpha depth candidate
+
+The original pinned `Data0.pak` (SHA-256
+`5eb6ec4856e53226dfabad929522706a21f02d428923a8c9c38804cc2cf11a94`)
+provides a concrete depth candidate, independent of the final D3D9 depth surface.
+`Data/Shaders/Common/Consts.hlsl` defines `DEPTHSCALE 0.01`.
+`DefaultShader/30/DefaultShader30_Pass.mtt` selects `USE_WRITEZ` for `bWriteZ`;
+`VS2PS30.hlsl` enables `TC_DEPTH`, the vertex shader writes clip-position W times
+that scale, and selected pixel-shader variants write `TC_DEPTH` into color alpha.
+This is consistent with the adapter's centimetre-to-metre conversion, provided
+that W is positive axial view distance for the actual scoped projection.
+The relevant vertex/pixel member SHA-256 identities are
+`8afea48f780a86b60c9add6e4d773f6682786a18a2e09dd17ebd83bbdcabfa7f`
+and `e6bc3ceaa48631d45a1c5afda6d3c8c99e9ddcaa44bcb4b609505445dfce5405`.
+
+`Data/Postprocess/Common/Mix30.mat` samples alpha from user-map sampler 10 as
+depth for near/far DOF masks; `scene30.ppfx` supplies `1B_16` at that consumer.
+The same effect explicitly describes its final backbuffer scene pass as lacking
+the scene Z buffer. A final presentation DSV is therefore not a qualified source.
+The Mix30 member SHA-256 is
+`e668a1e4771da3a61eaec0b3a761d282f503779dea3a83b6330cf3f7a659f0a4`.
+
+This is not an all-material depth guarantee. Other branches write opacity, glow
+or constant alpha; sky, transparent effects, independently moving characters,
+native near-weapon/hand passes and postprocess ordering require content evidence.
+Matching dimensions, descriptor endpoints or finite positive alpha cannot qualify
+those semantics. Do not apply `.01` again to alpha already written with DEPTHSCALE.
+
+The existing opt-in resource census now attempts bounded 16x16 POINT alpha copies
+at a successful matching gameplay draw, only if a current COM-owned pixel texture
+matches the exact-build copied `1B_16` identity and dimensions. It never calls a
+decoded native pointer. A six-slot GPU-query ring keeps copied samples until
+readback at a Present boundary; reset/teardown discard them. Values and
+frame/eye/owner/device/generation/scope identity are diagnostic telemetry, explicitly
+not temporal-source admission. Sampling may be skipped if the consumer binding
+is no longer present or the format/copy operation is unavailable. The long
+exercised session produced no alpha pixels: fixed D3D register 10 was incorrect.
+Material user sampler 10 is a logical effect input; actual binding-state records
+correlate `1B_16` consumption with D3D registers 0 and 2, including native draws.
+The corrected observer checks all current pixel texture bindings 0..15 against
+the exact copied identity/extent/format. It does not reinterpret the copied
+pointer as a callable object or pick any texture merely by matching dimensions.
+The revised observer retains begin-scope identity, marks an attempt before its
+diagnostic copy to prevent reentry, and reports absent consumers at scope end.
+GPU fixtures cover actual registers 0/2/10, wrong extents, unbound identities and
+copied pixel lifetime. The hidden fixture submits its own event query explicitly;
+the production probe still polls without flush and retains native cadence.
+The subsequent native run delivered four 16x16 alpha grids in two eye pairs.
+One left-eye grid has an exactly-one lower half while its right partner varies;
+far-valued 65504 samples and non-normalized varying values also occur. Delivery
+is observed; neither those values nor source shader text qualify depth semantics.
+The two sampled frames were early/at a level transition and lacked co-located
+RGB, consumer and pose witnesses. Do not infer that exactly one always means
+opacity, or that every finite positive value is axial depth.
+
+The extended optional observer records RGB and alpha from the same copied texels,
+retains render target/pixel shader/sampler/pose identity, and takes at most three
+distinct consumer signatures per eye. It retains complete scope-end/hook-boundary
+witnesses separately from capture success. The same texture can change contents
+between consumers; a source pointer alone cannot identify temporal inputs.
+Beyond the original census windows, eight per-session stable gameplay windows
+wait two seconds after owner/generation acquisition and are spaced ten seconds
+apart. Owner loss/regression requalifies time without replenishing the budget.
+The structural census's own six-pair budget is unchanged. Diagnostic work and
+small copied surfaces do not allocate a full-size transport or write native FX.
+
+`tools/analyze_coj_temporal_source.py` consumes inventoried finished evidence,
+checks the canonical run/build interval, rejects duplicate/malformed/overclaimed
+samples and reports pair/consumer/scope identity and constant/far-value regions.
+Legacy grids retain missing witnesses explicitly. All outputs retain
+`temporalAdmitted:false`; no statistical threshold grants depth qualification.
+Extended delivery/content, full-size paired D3D11 leases, dynamic masks and
+scoped jitter/history/presentation remain open.
+
+The subsequent extended run delivered sixty co-located RGB/alpha grids at three
+consumers per eye: thirty matched signature pairs, twenty complete scopes and
+eight additional stable windows, with no skipped queues or absent readbacks.
+Consumers two/three match in all sampled grids. At the first right-eye consumer,
+192 of 256 RGBA texels match the preceding left terminal grid in each sampled
+frame. Source contents change before the next consumer; a native scene-to-HDR
+StretchRect destination write lies between the sampled phases. This is evidence
+that the first matching sampler alone does not prove fresh same-eye contents;
+neither a constant alpha region nor an identical texel establishes its material.
+
+The next bounded observer counts successful source write-call intents before
+each sample and at scope end. RT0 draw calls retain alpha write-mask distinction
+and last-writer shader identity; target clears and typed native StretchRect
+destination copies are separate from diagnostic copies. The synchronous copy
+hook supplies still-live COM surface arguments and actual/null-full rectangles,
+so the first source copy need not wait for a sampler or earlier RT binding.
+Numeric addresses in generic resource events never authorize COM calls.
+Read failures withdraw completeness. Partial rectangles stay partial; counts
+do not establish fragment coverage, axial depth, all MRT paths or temporal
+admission. GPU and fault fixtures test bounded copied provenance and state
+preservation; tests alone do not establish delivery of those witnesses.
+
+The writer-witness run subsequently delivered fifty-one grids in seventeen
+complete eye scopes, with twenty-one matched consumer/pose pairs and no lost
+queued readbacks. Three selected frames have no right diagnostic scope, leaving
+nine unpaired left samples; do not reinterpret that as ordinary stereo failure.
+All observed first consumers have one RT0 write intent and no source copy.
+The later two consumers have one additional alpha/source write: an equal-extent
+FP16 StretchRect with full source/destination rectangles. All 256 RGBA samples
+change across that copy in every scope; the two later consumers match without
+further observed writes through scope end. Seven complete pairs retain the
+earlier left-terminal/right-first 192-texel identity pattern. This identifies
+the relevant native copy boundary, not axial depth or complete material coverage.
+
+The collector now requires a complete same-size FP16 copy in the current eye's
+reset ledger before consuming a candidate phase. Source dimensions and copy
+write ordinal are retained with the samples. Partial/scaled/self/non-FP16
+copies, later observed RT0 writes, reset or uncertainty withdraw readiness.
+Consumer ordinals are assigned after this filter; no hardcoded consumer number
+selects a temporal input. CPU/GPU and analyzer regressions cover these cases.
+The subsequent filter run delivered sixty grids in twenty complete eye scopes,
+thirty matched consumer pairs and all sixty queued readbacks. All three retained
+consumers follow a complete current-eye copy and match without later observed
+writes. One pair retains split alpha: the upper half is65504 and lower half1,
+while lower-half RGB differs. This establishes filter delivery, not alpha-depth
+semantics or material/hand/transparent/sky coverage. New bounded producer witnesses
+count upstream RT0 clear/draw calls, alpha-write-mask and blending observations,
+freezing the source snapshot at native copy time. Unobserved producers stay
+unknown, not zero; shared RT/callback addresses grant no extra dereference or
+write authority. CPU/GPU/analyzer tests cover copying/reset/uncertainty, but
+actual producer-witness delivery remains open. Surfaces stay16x16; source/depth
+qualification, full-size leases, dynamic masks, jitter and NGX presentation remain
+unresolved.
+
+The subsequent producer evidence observes RGB-only geometry and occasional
+blend-enabled alpha draws in complete copied scopes. It does not prove blend
+corruption: state counts cannot distinguish destination preservation from source
+replacement or other alpha algebra, and no material/pixel association follows.
+The next bounded observer records the first blend-enabled alpha draw per existing
+producer entry: effective separate/non-separate alpha factors/operation, blend
+factor and up to1024DWORDs of the currently owned pixel shader. Read/size failures
+stay explicit, fixed function is distinct from failed shader access, and no saved
+pointer is dereferenced later. The native-copy snapshot freezes those values.
+The analyzer validates the bounded record, hashes complete little-endian program
+bytes and describes alpha algebra while preserving missing historical data as
+unknown. Additional blend draws remain counted, not silently covered by the first
+witness. Host GPU/state/analyzer regressions pass; actual delivery, shader alpha
+semantics and material/hand/sky/transparent coverage remain separate gates.
+
 ## Remaining Q0 work and implementation order
 
 The optional resource diagnostic now includes a bounded structural reader in

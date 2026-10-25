@@ -2,6 +2,27 @@
 
 ## Established boundary
 
+Native Options > Game stores Auto/75/100/125/150/200% pixel-count requests for the
+next full LAA development preparation. Explicit launcher/CLI Manual dimensions
+remain a separate compatibility path; the personal 2804x2860 entry is removed
+from native options. Strict graphics v4 reads older versions; v3 Manual4 becomes
+Auto, without interpreting it as the newly assigned 150%. Existing 0..3 scales
+retain their meaning. Opening/cancelling/loading preferences never rewrites them.
+
+Percentages multiply the fresh background OpenVR-recommended pixel count, with
+the square root applied to each axis before rounding. For recommendation
+2804x2860: 125% requests 3135x3198, 150% 3434x3503 and 200% 3965x4045.
+They are not percentages of the panel or current native raster; Auto currently
+equals 100%. The helper recommendation is not qualified as the Scene application's
+per-app recommendation. Caps/adapter/fallback/restoration still gate preparation.
+Saving a choice does not resize a running scene or consume it when restarting
+an existing candidate without preparation. The public resolution.json launcher
+policy remains separate. New dimensions and clarity/performance require physical
+evidence; earlier 2804x2860 acceptance is not promoted by proposal arithmetic.
+Helper/proposal JSON uses the bounded strict reader, preserving UTC timestamp
+strings through PowerShell conversion. The pre-apply 120-second freshness check
+parses invariant UTC text, avoiding locale-dependent DateTime string roundtrips.
+
 The active D3D9/OpenVR path renders two native views, but does not allocate the
 game's scene targets from the headset recommendation. There is no fixed 1024x768
 limit in the mod. Scene detail is bounded by the engine's actual color targets
