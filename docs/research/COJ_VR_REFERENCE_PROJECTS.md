@@ -16,6 +16,7 @@ attribution before any future code reuse.
 | [Godot XR Tools hand grab points](https://github.com/GodotVR/godot-xr-tools/blob/master/addons/godot-xr-tools/objects/grab_points/grab_point_hand.gd), [pickable](https://github.com/GodotVR/godot-xr-tools/blob/master/addons/godot-xr-tools/objects/pickable.gd) | Explicit primary/secondary hand roles, per-point poses and constrained acquisition. | Keep acquisition, retention and release as separate policies; bind future reload sockets to measured weapon-local frames and phase. Current CoJ crossed-support rejection is a geometry safeguard; visual fit and a real loading port remain unqualified. Reuse semantics rather than Godot dependencies or collision behaviour. |
 | [NomaiVR input prompts](https://github.com/Raicuparta/nomai-vr/blob/master/NomaiVR/UI/InputPrompts.cs), [gesture prompts](https://github.com/Raicuparta/nomai-vr/blob/master/NomaiVR/UI/GesturePrompts.cs) | Action/device-aware button images and cache invalidation on binding changes. | CoJ now has host-tested OpenVR-origin text labels and brief reload coaching, with generation invalidation and semantic fallback. Device-aware graphical glyphs remain future work; metadata/text tests do not qualify other controllers or physical readability. Avoid a permanent aiming ring. |
 | [Half-Life 2 VR: Unleashed](https://github.com/vittorioromeo/HL2VRU) | Documented virtual stock and grip-holster interactions, including priority for hand interactions. | Compare support-grip comfort and input arbitration. CoJ already consumes grip claims before Action/Kick/holster dispatch. Virtual shoulder stabilization remains optional future work after rigid grip acceptance. The consulted public repository exposes documentation, not the fork's implementation; this is a UX reference. |
+| [Half-Life 2: VR Mod reloading manual](https://halflife2vr.com/manual/#reloading), [FAQ](https://halflife2vr.com/faq/) | Each firearm has weapon-specific manual steps and optional quick reload. Shotgun pump, pistol slide and magazine exchange differ; two-hand use also depends on the weapon. | Reuse the separation between ammunition transfer, required follow-up action and support grip as interaction policy. For CoJ, Schofield clip, Winchester feed, Remington barrels and Lemant indices must each preserve their original native accounting and animations. The reference documents UX, not transferable engine code or physical acceptance. |
 | [Half-Life: VR Mod release notes](https://github.com/maxmakesmods/Half-Life-VR/blob/main/docs/release-notes.md) | Physical ladders/ledges, draggable entities, binding changes and recovery across level changes. | Useful scenarios for future whip/climbing/mounted interaction and ownership recovery. Each needs CoJ-native permissions, contact and animation evidence. GoldSrc movement/event boundaries cannot be assumed in Chrome. |
 | [UEVR](https://github.com/praydog/UEVR), [render/runtime boundary](https://github.com/praydog/UEVR/blob/master/src/mods/VR.hpp) | Distinguishes native, synchronized sequential and alternating stereo; treats UI as a separate integration concern. | Preserve CoJ's demonstrated full-wrapper stereo and evidence per eye/context. Use its methodology to investigate UI capture and temporal ownership; UE's stereo hooks, DX11/12 resources and profiles are not CoJ adapters. Do not substitute AFR for the current stereo path. |
 | [OpenKneeboard injection architecture](https://github.com/OpenKneeboard/OpenKneeboard/blob/master/docs/internals/injectables.md) | Producer/consumer image ownership, overlays and isolated host fixtures before game integration. | Guide future native HUD sprite/flush capture with verified alpha, order, device generation and recovery. It neither locates CoJ's UI boundary nor proves scene-depth/hand correspondence. Existing text HUD remains the fallback. |
@@ -86,6 +87,38 @@ replacing the primary D3D9/OpenVR path. Native options save reconstruction reque
 with explicit pending status. Exact-game depth/coverage, transport, scoped jitter
 and atomic presentation remain open; [architecture](../ARCHITECTURE.md#physical-candidate-image-quality)
 and [validation](../VALIDATION.md) own those boundaries and acceptance.
+
+### Independent DLSS cross-check (2026-10-25)
+
+NVIDIA's [DLSS Super Resolution programming guide](https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS.md)
+requires render-resolution input colour, depth, motion vectors and a separate
+output, with coherent per-frame resources. Its
+[integration checklist](https://developer.nvidia.com/blog/how-to-integrate-nvidia-dlss-4-into-your-game-with-nvidia-streamline/)
+calls out object/material motion, compatible jitter, reset on camera discontinuity,
+exposure and real input/output resolution selection. These are requirements on the
+source game integration even when NGX evaluation works on synthetic GPU textures.
+CoJ's `1B_16` alpha consumer is a **candidate** source, not a qualified depth
+buffer; positive/far alpha values, write-call counters and shader identity alone
+do not establish an axial depth field for hands, sky, transparency or NPCs.
+
+The [ETS2/ATS DLAA/DLSS injection project](https://github.com/JRDevo/ETS2-ATS-DLAA-DLSS-Injection-Mod)
+describes separate OpenXR passes per eye, dynamic-object motion, DLAA at native
+render resolution and actual reduced raster for DLSS. This comparison is based
+on its public project documentation, **not** an independent source/runtime audit
+or verification of its advertised quality. Its native D3D11 interception cannot
+be transferred directly to CoJ's D3D9 game. The separately developed
+[OptiScaler VR fork](https://github.com/tig3rmast3r/OptiScaler_DLSSNR_VR)
+also describes isolated per-eye model resources/history, with wider compatibility
+explicitly experimental. Both reinforce the stereo-history boundary already
+enforced by CoJ's host fixtures, without resolving CoJ's input-ownership gap.
+
+**Decision gate:** stop adding new NGX host modes or sampling-only diagnostics
+until one exact CoJ eye/frame shows a full-size, source-qualified depth and colour
+pair with measured material coverage, and the other eye is correlated to the same
+pose/generation. If the HDR alpha field fails coverage, investigate a different
+native depth stage before expanding the helper. Only after that admission should
+the project attempt scoped jitter/motion, an atomic DLAA A/B and finally a safe
+reduced-native-raster DLSS path with measured end-to-end latency and GPU cost.
 
 ## Decisions for this project
 

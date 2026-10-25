@@ -5,19 +5,18 @@
 Call of Juarez (2006), Windows x86, is the reference implementation for native
 stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
 tracked head and independent native hands with the game's torso and legs.
-Connected-arm IK remains a rejected diagnostic presentation. Default-on persistent
-manual revolver reload has historical scoped acceptance and a launcher opt-out;
-the latest long playtest recovers unit loading on one weapon while the combined
-candidate and broader coverage remain rejected/pending (see Validation).
-Complete chamber/ejection and
-convincing cartridge grip remain development work.
+Connected-arm IK remains a rejected diagnostic presentation. The current
+revolver session preserves native ammunition authority; other manual-reload
+families need separate exact-class admission. Launcher installation defaults
+and operator opt-out are described in the distribution contract below.
 D3D10, OpenXR and additional games are separate future/experimental tracks.
 
 Only game-neutral policy may be reused from Penumbra VR Framework. HPL layouts,
 addresses and hooks do not apply here. Chrome Engine contracts remain CoJ-specific
 until a second game independently demonstrates them. [VALIDATION.md](VALIDATION.md)
 owns acceptance state and unresolved physical gates; [ROADMAP.md](ROADMAP.md)
-owns development priorities.
+owns development priorities. [Documentation index](README.md) maps the
+exact-game research and release boundaries.
 
 [Reference-project findings](research/COJ_VR_REFERENCE_PROJECTS.md) map external
 grip, reload, UI and rendering patterns to these boundaries. They guide hypotheses
@@ -1354,12 +1353,10 @@ payload references after the attempt. No shared attack parameters or health are
 written. Scope cleanup also rethrows Java failures unchanged. Synchronous boxing
 reaction reads the native attack's damage type through the same transient scope.
 Tracked fist rendering uses the authored hand socket, without a firearm barrel.
-Attempt telemetry is not hit confirmation. The operator has headset-validated
-the current route in an exercised fight, reporting three defeated enemies and
-substantially improved feel. This is scoped acceptance, not broad campaign
-support. Four sampled skin witnesses do not qualify complete fist volume,
-guard/blocking or native AI anticipation of a controller wind-up. Firearm input
-and dual reload retain their existing routes.
+Attempt telemetry is not hit confirmation. Four sampled skin witnesses do not
+qualify complete fist volume, guard/blocking or native AI anticipation of a
+controller wind-up. Firearm input and dual reload retain their existing routes;
+the exercised melee acceptance belongs to [Validation](VALIDATION.md).
 
 ## Physical-candidate image quality
 

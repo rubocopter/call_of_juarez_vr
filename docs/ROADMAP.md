@@ -8,65 +8,30 @@ acceptance or supported hardware.
 
 ## Current gate
 
-Scoped Winchester grip and discharge now have operator acceptance in the
-exercised scene. R3 zoom is rejected for binocular fusion: the operator must
-close one eye, and the visible tunnel lacks a sniper sight. Other weapon zoom
-is reported pixelated/blurred, while scope scene detail is not. Current work
-compensates virtual scene-eye separation by magnification, replaces per-eye
-texture-centre convergence with one common aim shift preserving physical
-principal points, and projects a shared angular aperture through each eye.
-A crisp post-filter scope rim/cross uses the actual reticle projection. These
-corrections remain host-tested until comfortable fusion and image quality are
-confirmed in the visor. Square/native reload, plot completion, precise hit/reticle
-agreement and broader recovery remain unconfirmed; manual rifle loading is absent.
-Ordinary weapon sharpness has no demonstrated root-cause fix: source-sized
-transport is observed, while native DOF/LOD/material attribution remains unknown.
-Effective graphics/FOV records permit a bounded comparison without overriding
-native quality state or changing saved preferences.
+The next headset session should exercise the existing **combined, locally
+staged candidate** when useful campaign scenes are available; preparation and
+host evidence cannot promote a visor verdict. [Validation's snapshot and
+checklist](VALIDATION.md#pending-headset-checks) own accepted and pending physical
+behavior, including the revised scoped-Winchester view, ordinary weapon zoom,
+revolver contact, mounted controls, reload and recovery.
 
-Gatling progression and functional right-stick X/Y are accepted in one section;
-precision remains difficult. Original-campaign New Game/loading has scoped
-recovery, and one distant campfire is visible. Other emitters/nearby flame-damage
-agreement, horse comfort efficacy and unreported holster/HUD recovery remain open.
-Native settings, six startup resolution scales and preferences remain active;
-no live raster resizing is introduced.
+Continue offline engineering by dependency: native owner and phase evidence,
+then measured weapon geometry/hand contact, followed by narrowly admitted
+mechanics. The exact-family inventory below distinguishes runtime-integrated
+features from observers and separately verified laboratory derivatives.
 
-DLSS diagnostics retain per-eye full-copy and upstream producer witnesses.
-Their observations do not qualify source alpha as axial depth, material/dynamic
-coverage, full-size leases, motion/jitter or atomic NGX presentation. Game DLAA
-and DLSS remain inactive; saved menu choices retain intent. Local host helper
-experiments are separate from actual game reconstruction and distribution.
-The first blend-enabled alpha draw now has a bounded state/program witness;
-verify actual delivery and shader/material semantics before granting source
-qualification. Program identity alone cannot establish fragment coverage.
-
-The published package remains `v0.1.0-prealpha.5`. Source development and durable
-acceptance documentation are independent of release artifacts. Build/CTest,
-Git publication and candidate preparation never promote headset acceptance.
-Recent failure/repair history is retained in Validation; current unresolved
-contracts and priorities are listed here without treating superseded failures
-as the latest state. Candidate particulars remain under ignored `work/`.
-
-Preserve scoped acceptance already recorded for native stereo, movement and
-continuous body following, independent hands, historical manual revolver unit loading,
-Remington bimanual grasp, exercised bow use, holsters/guides, native options,
-duel posture, physical Hands combat and cinematic recovery. Manual 2804x2860 is
-an accepted local PS VR2 reference, **not evidence for the untested candidate**.
-Do not request repeats merely to reconfirm these accepted contexts.
-
-The post-.5 batch implements ammunition assistance, binding-aware hints/coaching,
-quick-panel removal and immersive skip input, mirrored rifle trigger protection,
-indexed reload analysis, diagnostic opt-in cleanup, mounted reins/reference
-corrections and manual reserve/JNI/close-hint hardening. These are host-tested;
-their live presentation and recovery remain unqualified. Native Options > Game
-owns preferences; the held-Options quick editor is retired.
+For DLAA/DLSS, verify source-owned per-eye color/depth and material coverage
+before further reconstruction work; no game image reconstruction is active.
+Independent-resolution B0 remains rejected/default-off. The latest *public*
+package is `v0.1.0-prealpha.5`; later source changes await testing and release.
+Accepted functionality stays scoped to the evidence in Validation. Candidate
+identities and run histories remain in ignored `work/`.
 
 ## Development backlog
 
 Priorities below distinguish remaining implementation from physical checks of
 existing code. Continue independent engineering while eligible campaign scenes
 are unavailable; collect related physical checks in one meaningful candidate.
-No headset test is requested as part of documentation cleanup.
 
 1. **Convincing cartridge contact.** Preserve native unit loading and the accepted
    cartridge/port visibility. Judge the host-tested displayed-finger tangent and
@@ -100,13 +65,13 @@ Exact capacities, classes, reserve types and callback ownership belong in
 | --- | --- | --- |
 | Peacemaker / admitted Frontier1878 | Persistent native unit-loading route with scoped acceptance. | Contact/occlusion, precise mouth, sound, mechanics and broader interruption recovery. |
 | Additional Frontier, Walker, Cogswell | Manual profiles host-tested; Cogswell uses rifle reserve. | Per-model physical unit transfer, geometry, ammunition appearance and recovery. Existing acceptance does not promote these extensions. |
-| Winchester | Support/passive observer and isolated offline unit-loading derivative host-tested; Square reload remains native. | Correlate native phases, HUD/ammo/reserve and support motion, then qualify a port and connect a separate manual session. Offline authored-animation inventory does not qualify playback. |
+| Winchester | Support/passive observer and isolated offline unit-loading derivative host-tested. Ten consecutive modeled unit transfers and body waits close through native end22; the derivative passes shipped Java 1.4 verification. Native remaining-count and canceled-probe callbacks now have readback/guarded-end22 recovery against duplicate native transfers in interpreted fixtures. Square reload remains native. | Correlate live native phases, HUD/ammo/reserve, animation and support release/regrip; measure a loading port before admitting a gesture/runtime manual session. JVM verification does not qualify playback. |
 | Remington / SawOff | Remington grasp accepted; SawOff support host-tested. Two-index observation/classifier and native index-choice prediction host-tested; isolated selected-unit and supervised-wait session derivatives interpreted-tested. | Runtime selective loading, per-barrel mechanism/port/gesture and animation; untested fit, firing/cycling and recovery. Lab sessions do not admit gameplay gestures. |
-| Scoped Winchester | Grip/discharge accepted in the exercised scene; corrected virtual-baseline/asymmetric scope optics and sight host-tested. Square remains native; physical manual loading excluded. | Binocular fusion/quality rejected on the preceding candidate; verify revised optics, precise shot agreement, Square/native transfer, plot progression and recovery. |
+| Scoped Winchester | Grip/discharge accepted in the exercised scene; corrected virtual-baseline/asymmetric scope optics and sight host-tested. Exact-class native reload state/hand/ammunition observer host-tested with history isolated from ordinary Winchester. Exact-class offline 12-round/body-cycle derivative shares Winchester policy, with separate ten-unit callback/fault regressions and shipped Java 1.4 verifier acceptance. Square remains native; physical manual loading excluded. | Confirm scope-specific native ammo/animation ownership, loading mouth, support-hand release/regrip and actual playback before runtime manual admission. Binocular fusion/quality rejected on the preceding candidate; verify revised optics, precise shot agreement, Square/native transfer, plot progression and recovery. |
 | Volcanic | Native fallback; isolated offline unit-loading derivative and authored-animation inventory host-tested. | Native phase/readback, hand/port qualification and runtime manual profile. No live admission follows from the lab. |
 | Derringer | Native whole-clip fallback; observer/prediction and isolated selected-unit/supervised-session derivatives interpreted-tested. | Native chamber phase/readback, animation, port/gesture and runtime integration before representing one cartridge. |
 | Lemant / LeMat | Native fallback; typed observer/classifier/prediction and isolated selected-unit/supervised-session derivatives interpreted-tested. | Native index ownership/readback, separate ammo/geometry, animation and runtime integration. Original native reload still prefers eligible rifle index 0. |
-| Schofield base/A/B | Native/hybrid whole-clip behavior. | Deliberate clip UX or proven selective transfer; outside persistent manual admission. |
+| Schofield base/A/B | Native/hybrid whole-clip behavior; isolated whole-clip transaction interpreted-tested with exact-class, ammo/reserve, event and post-native-close guards; all three derivatives verified on the shipped JVM. | Deliberate clip UX, model/animation and hand ownership, native live readback; no production manual admission. |
 | Bow | Physical grab/pull/release has scoped functional acceptance. | Mesh/string/arrow/reticle, haptics, concentration optics and interruption evidence. Preserve native trajectory, ammo and concentration lifecycle. |
 | Hands / Bible / whip / dynamite / mounted weapons | Scoped Hands and Ray Bible/on-foot kick acceptance; other native routes retained. | Fist volume/guard/AI anticipation and exact permissions/contact for additional physical mechanics. |
 
@@ -182,43 +147,23 @@ continuation, mirrored rifle triggers, HUD styling and global ownership checks.
 Unavailable campaign scenes remain pending/inconclusive; do not split them into
 repeated small sessions. These changes have no new physical acceptance.
 
-## Stabilization baseline
+## Milestones and stabilization
 
-Preserve SHA-256 exact-build rejection, native inventory/permissions, scoped
-camera/body/weapon writes and transactional restoration. Production presentation
-is independent hands with native torso/legs and hidden head/connected arms.
-Connected-arm IK remains rejected diagnostics. Keep D3D9/OpenVR primary, probes
-and independent eye bank off by default, and operator-controlled game/SteamVR
-lifecycle. Active originals/journals are not disposable evidence caches.
+The [architecture invariants](ARCHITECTURE.md#safety-and-provenance-invariants)
+govern every milestone: recognized SHA-256 build, scoped/restorable native
+mutations, D3D9/OpenVR as the active path and a manually controlled game/SteamVR
+lifecycle. The independent-eye bank and diagnostics remain opt-in or disabled.
 
-## Milestone 1 — native stereo and HMD
+| Milestone | Delivery boundary | Still open |
+| --- | --- | --- |
+| 1. Native stereo and HMD | Stereo, tracking, recenter and cinematic recovery in exercised scenes. | Device/loading transitions and sustained pacing. |
+| 2. Player body and comfort | Native movement, jump, crouch, turning and body follow in exercised scenes. | Mounted steering/comfort, physical-walk leg animation. |
+| 3. Hands and body | Independent tracked hands and native torso/legs. | Weapon/finger fit and recovery; connected-arm IK remains diagnostic. |
+| 4. UI and interactions | Exercised menus, wheel, HUD/text, combat, bow, holsters and revolver loading. | Per-weapon mechanics, full graphical HUD and wider campaign validation. |
+| 5. Other backends/games | Experimental OpenXR research. | D3D10, Bound in Blood and Gunslinger; independent proof before Chrome Engine generalization. |
 
-Scoped stereo, tracking, recenter, room-scale and exercised cinematic recovery
-are achieved. Broader device/loading transitions and sustained pacing remain.
-
-## Milestone 2 — player body and comfort
-
-Scoped native locomotion, jump, crouch, smooth/snap turn and continuous body
-follow are achieved. Mounted correction/recovery is unqualified; physical-walk
-animation remains planned.
-
-## Milestone 3 — tracked hands and body IK
-
-Independent hands/native body are active and accepted where exercised. Broaden
-weapon/finger/recovery coverage; connected-arm reconstruction is not a production
-requirement.
-
-## Milestone 4 — controller UI and interactions
-
-Scoped menus, native settings, wheel, HUD/text, combat, duel posture, bow,
-holsters and manual revolver loading are accepted. Remaining mechanics and
-visual/recovery gates are listed above, not implied complete by these milestones.
-
-## Milestone 5 — additional renderers and games
-
-OpenXR is experimental; D3D10, Bound in Blood and Gunslinger are future tracks.
-Reuse neutral policy only; a second game must independently demonstrate a
-Chrome Engine boundary before generalization.
+These milestones identify implemented scope. [Validation](VALIDATION.md)
+provides the exact physical acceptance boundaries and pending checks.
 
 ## Release direction
 

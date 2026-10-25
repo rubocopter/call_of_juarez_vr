@@ -108,9 +108,13 @@ Already exercised on PS VR2 Sense in specific scenes:
 - **Manual revolver loading:** open with Square, pick up a round with the free trigger, carry it to the weapon and release. Native ammunition remains authoritative.
 - **The original adventure in VR:** controller menus, equipment wheel, encountered HUD/subtitles and exercised cinematic recovery, including Hope. Native VR options select cinematic mode, turning and guides.
 
-Acceptance is limited to exercised scenes. Cartridge contact/chamber mechanics, other rifle grips and full campaign coverage remain unfinished.
+Acceptance is limited to exercised scenes. Cartridge contact/chamber mechanics, other long-gun states and full campaign coverage remain unfinished.
 
-**In development, awaiting the next headset test:** horse steering/recovery corrections, ammunition pickup assistance and binding-aware reload coaching, improved empty-reserve handling, immersive cinematic skip and further input/diagnostic cleanup. These changes are in current source and the local candidate; they are **not a new public release or newly validated headset features**. [Current status and remaining checks](docs/VALIDATION.md#pending-headset-checks).
+**Current development source (after the public .5 release):** scoped Winchester two-hand grip and R2 firing have been accepted on PS VR2 Sense in one scene. Mounted Gatling right-stick X/Y traversal is also accepted in one section, though precise aiming remains difficult. Neither result establishes broader campaign or headset support.
+
+**Manual reload in development:** an earlier original-campaign session could not carry or insert cartridges on the weapons tried. A subsequent long session recovered ten native round transfers on one revolver, confirmed by the operator. Other revolver profiles, convincing finger contact and interruptions still require checks. Winchester/Volcanic, double-barrel and Schofield experiments remain offline; these weapons use native Square reload in the game.
+
+**Awaiting a headset check:** the previous scoped R3 view could not be fused comfortably with both eyes open. Revised binocular optics and a scope sight pass host tests but have not passed a new visor test; ordinary weapon zoom sharpness is also unresolved. Horse steering/recovery corrections, ammunition pickup assistance, binding-aware reload coaching, empty-reserve handling, immersive cinematic skip and diagnostic cleanup also await their applicable checks. These changes **are not included in the published .5 package**. [Current status and remaining checks](docs/VALIDATION.md#pending-headset-checks).
 
 <details>
 <summary><strong>PS VR2 Sense controls, manual reload and special actions</strong></summary>
@@ -140,7 +144,7 @@ PS VR2 Sense default bindings for current development source. The held-Options q
 
 **Options > Game** exposes cinematic presentation, smooth/snap turning and weapon guides, preserving saved preferences. Guides default off. Current source routes fresh Options/Circle/Cross or trigger selection to the game's own skip consumer during immersive cinematics; native skip restrictions remain authoritative and physical verification is pending.
 
-**Bow:** aim with the left hand, bring the right hand to the string, freshly hold R2, draw back and release R2 to shoot. **Bimanual long guns:** with an idle right-held Remington, Winchester or SawOff and an empty left hand, freshly hold L1 near the wooden fore-end; release L1 to detach. Enable guides to locate contact. Square cancels support for native reload. Scoped Winchester is excluded.
+**Bow:** aim with the left hand, bring the right hand to the string, freshly hold R2, draw back and release R2 to shoot. **Bimanual long guns:** with an idle right-held Remington, Winchester or SawOff and an empty left hand, freshly hold L1 near the wooden fore-end; release L1 to detach. Enable guides to locate contact. Square cancels support for native reload. In current development source, the scoped Winchester also admits L1 support and R2 fire in an exercised scene; its Square reload and revised R3 scope view still need separate headset checks.
 
 **Virtual holsters:** freshly press R1 at the right hip or L1 at the left hip for pistols; R1 above/behind the right shoulder selects/stows the long weapon, L1 above/behind the left shoulder the bow. Release between gestures. These zones use native inventory permissions and operate on foot outside duels; no visible holstered weapon models are added.
 
@@ -156,6 +160,8 @@ PS VR2 with Sense through SteamVR is the only physically validated reference, li
 - Full campaign cinematic coverage remains open. Immersive subtitle transport is implemented, with broader mode/timing checks pending; theater remains the default. Earlier intermittent full-scene flashes have not recurred in later exercised sessions, but their cause remains unresolved.
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
+- The scoped Winchester's previous R3 view required closing one eye to aim. The revised binocular projection/sight is host-tested only; comfortable fusion, sight clarity, shot alignment and campaign completion are pending. Other weapon zoom sharpness is also unresolved.
+- DLAA/DLSS options in development source save a request but currently leave native game rendering active. GPU helper fixtures pass; game image reconstruction and performance gains have not been demonstrated.
 - Manual reload has scoped revolver acceptance, but convincing cartridge grip, precise chamber loading and broader interruption recovery remain unfinished. Long guns retain automatic native reload and its original animation. The latest hand-directed interaction also awaits physical acceptance.
 - Native tutorial windows still show PC keys. The long-gun support-hand correction applies in normal weapon states; firing/alternate/reload/transitions can retain native fingers.
 - Community feedback confirms the retained .3 projection correction on Beyond and reports a good Quest view without specifying its model. Menu gaze alignment and broader headset/controller support remain unqualified. The rejected independent eye RT prototype and investigation probes remain off.
@@ -172,6 +178,7 @@ Logs are **optional**. **3 — Diagnostics** creates a local report for you to i
 
 ## Documentation
 
+[Documentation index](docs/README.md) ·
 [Installation and player package](release/README.txt) ·
 [Validation and limits](docs/VALIDATION.md) ·
 [Roadmap](docs/ROADMAP.md) ·

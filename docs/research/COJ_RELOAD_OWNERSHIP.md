@@ -2,40 +2,27 @@
 
 ## Current regression boundary
 
-The subsequent long session recovers one exercised manual revolver: ten native
-unit transfers with reserve debits and haptic delivery, matching operator feedback.
-This is scoped recovery, not qualification of every tested weapon. A separate
-native-only fallback observation now handles stable exact-class weapons rejected
-by manual eligibility before class lookup (attack/alternate/native states).
-It compares actual/active/desired objects and states twice, cOwner, GetThisID,
-player generation and the absence of pending tracked body/weapon transactions.
-Unknown classes, JNI failures and changed identities remain withheld. This
-observation admits only ordinary native action 31, never a manual profile.
-The reported long-range rifle's fire-to-zoom remains uncorrelated to an exact
-class/press in the sparse trace; no button remapping or scoped-fire fix is claimed.
-Bounded rejection diagnostics now name known rifles as well as pistols.
+The latest long exercised session recovered ten native unit transfers on
+**one** manual revolver, each with the corresponding reserve debit and operator
+feedback. Earlier original-campaign observations of visible assistance but
+failed cartridge carry/insert are historical failures; other admitted models
+and interruptions remain unqualified. The corrected high-resolution monotonic
+reload clock and fresh empty-trigger preparation have host coverage, not a
+blanket headset verdict.
 
-The latest original-campaign report rejects current manual loading for all
-weapons tried: assistance appeared but cartridge carry/insertion/ammo transfer
-did not. Logs show pickup followed by held-cartridge cancellation without an
-insertion event. `GetTickCount64` can repeat at the tracked-pose cadence; the
-continuity test then admits zero displacement. Reload sampling now uses the
-existing high-resolution monotonic millisecond clock. Host replay distinguishes
-coarse-clock cancellation from continuous carry at identical positions.
+Native-only fallback separately checks exact weapon/player identity, state,
+ownership and pending body writes before forwarding the original action 31.
+It admits no new manual profile; uncertainty and JNI failure fail closed.
+The originally reported long-range rifle's fire-to-zoom was never conclusively
+attributed from its sparse trace. Later scoped-Winchester R2 fire/left support
+have narrow operator acceptance; its R3 binocular view was rejected and revised
+optics remain host-tested. Its Square reload and manual loading remain distinct.
 
-A fresh armed trigger on an empty, positively admitted manual revolver with
-reserve now requests existing native manual preparation instead of falling
-through to automatic fire/reload. Owner changes require trigger release;
-unsupported weapons retain native behavior. No ammo setter or new profile is
-introduced. Host tests cover both hands and held-trigger suppression; physical
-cartridge appearance, native unit transfer and recovery remain rejected/pending
-despite historical scoped acceptance below. DLC native animation behavior is
-outside this original-campaign report.
-
-These contracts apply to the original Steam Call of Juarez (2006) archive
-`code.pak`, SHA-256
+The exact-game contracts below apply to original Steam Call of Juarez (2006)
+`code.pak` SHA-256
 `F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12`.
-Game hand indices are 0/right and 1/left.
+Game hand indices are 0/right and 1/left. [Validation](../VALIDATION.md)
+owns physical acceptance; [Roadmap](../ROADMAP.md) owns work priority.
 
 ## Active scope
 
@@ -111,7 +98,7 @@ does not expose caller-selected index ownership.
 | Exact weapon | Native contract | Manual integration requirement |
 | --- | --- | --- |
 | `WeaponRifleWinchester` | Whole-clip **false**; index 0 `WpnAmmoRifleWinchester`, 12 rounds from rifle reserve; authored reload begin/loop/end. | First long-gun candidate for single-round transfer. Requires own state/hand admission, release of support grip, qualified loading port/animation and native count/readback. |
-| `WeaponRifleWinchesterScope` | Inherits Winchester's per-round logic; own `WpnAmmoRifleWinchesterScope` index 0. | Separate exact class and optics/hand ownership; excluded by current support prototype. |
+| `WeaponRifleWinchesterScope` | Inherits Winchester's per-round logic; own `WpnAmmoRifleWinchesterScope` index 0. | Separate exact class and optics/hand ownership. Scoped grip/fire have exercised acceptance, but manual reload remains excluded from runtime. |
 | `WeaponRifleRemington` | Whole-clip **true**, `WeaponRifleDoubleAmmo` storage; indices 0/1 both use `WpnAmmoShotgunRemington`, capacity 1 per barrel (shotgun reserve). | One native call may fill both barrels. Per-shell insertion needs a demonstrated index-specific transaction and callback/animation ownership. |
 | `WeaponRifleRemingtonSawOff` | Inherits Remington's two ammo indices and slot storage; own logic sets whole-clip **true**, with single-hand/other-hand flags. | Same possible two-barrel transfer, plus either-hand ownership/recovery. |
 | `WeaponPistolVolcanic` | Whole-clip **false**; index 0 `WpnAmmoPistolVolcanic`, capacity 8 (pistol reserve). | Single-round accounting is plausible, but loading mechanism, pose, hand interaction and animation need separate qualification. |
@@ -221,7 +208,8 @@ Remington/SawOff/Derringer, solve per-slot transfer first; for Lemant, solve
 ammunition-index and mixed-reserve ownership first. Leave native Square
 fallback and exact-build fail-closed behavior unchanged.
 
-The exact `WeaponRifleWinchester` read-only probe is implemented and host-tested.
+The exact `WeaponRifleWinchester` and `WeaponRifleWinchesterScope` read-only
+probe is implemented and host-tested for both concrete classes.
 With `reloadTraceEnabled` it emits `winchester_native_reload` values before body
 overlays: both hands' four raw state IDs, active/actual/desired occupancy and
 three two-hand flags, native reload/carry/dead status, state-machine animation
@@ -234,8 +222,13 @@ gaps and raw deltas. Explicit `window_end` events close expired, exhausted,
 idle-limited or restarted histories; discovery remains active at 350 ms after
 the 220-sample emission cap. Holding fire/reload status does not renew an
 exhausted budget; a fresh intent, new observed weapon or new native reload
-transition can open another bounded window. These sampling policies and
-analyzer delimiters have host regressions, without physical acceptance.
+transition can open another bounded window. Numeric weapon-ID reuse across
+normal/scoped classes closes the previous window (`owner_changed`) and starts
+fresh ammunition/pose history. The event and bounded window end carry an exact
+`weapon_class`; the analyzer rejects class changes without a delimiter, while
+legacy schema-1 window ends lacking the class remain valid only for ordinary
+Winchester evidence. These sampling policies and analyzer delimiters have host
+regressions, without physical acceptance.
 In the pinned archive Winchester inherits `WeaponRifle -> WeaponFireAmmo`;
 virtual `GetAmmoCount(0)` reads `WeaponFireAmmo.m_iAmmo0Count`, not the base
 `Weapon` zero stub. This establishes its static count source. Sparse readback
@@ -248,12 +241,13 @@ closed; scoped visual maps are never interpreted as natural geometry. Unknown
 reload state numbers remain unclassified until live evidence arrives. Neither
 Square dispatch, tracked rifle grip nor manual admission has changed.
 
-Next physical gate: enable the trace for one fresh reversible headset run,
-equip an ordinary Winchester (not Scope), observe idle/fire/Square reload from
-partially loaded and nearly empty conditions, inspect support-hand release and
-reacquisition, interrupt by changing weapon or returning to a menu, then finish
-and correlate emitted states, ammo readback and rifle reserve with the game's
-visible ammunition/animation. A host pass does not qualify any of these phases.
+Next physical gate: enable the trace for one fresh reversible headset run;
+observe an ordinary Winchester and scoped Winchester separately at idle, firing
+and during Square reload from partially loaded and nearly empty conditions.
+Inspect each exact class's support-hand release/reacquisition, interrupt by
+changing weapons or returning to a menu, and correlate raw states, ammunition,
+rifle reserve and animation with visible gameplay. Class-specific native timing,
+loading-port geometry and actual playback remain unqualified by host passes.
 
 Readback telemetry now names `reserve_kind` and `reserve_count` before/after.
 Legacy `pistol_reserve` fields retain pistol meaning and emit `n/a` for rifle
@@ -317,10 +311,54 @@ native zero-transfer close, including an exhausted wait with no unit inserted.
 Closing retains its original machine and end-state across callbacks, checks
 desired movement again, and never retargets a replaced probe field. Partial effects
 quarantine heartbeat and insertion with finally cleanup, without retry/refund.
-This composition is interpreted-tested with original state/storage bytecode,
+The outer session also retains both loaded counts, all three typed reserve
+amounts, counter objects and their original maximum amounts across the native
+closing callbacks. Its post-close proof rechecks the original count/storage
+fields, counter identity/owner/maxima, ticket and retained hand/machine state;
+unexpected callback changes quarantine the session even if the native close
+already committed. All four emitted exact-class derivatives pass the game's
+shipped Java 1.4 verifier (`-Xverify:all`), with a corrupted helper rejected by
+`VerifyError`. This composition is interpreted-tested with original state/storage bytecode,
 but scheduling, native skin and mechanical calls remain modeled. It adds no
 runtime gesture, loading mouth or per-unit body replay; production stays native
 automatic for these families.
+
+The three exact Schofield classes now have a separate **offline whole-clip**
+derivative in `tools/coj_clip_reload.py`. The profile accepts only the original
+whole-clip, one-index pistol-reserve contract and its already-owned body-21
+wait. An insertion uses the original `PawnArmed.WeaponReload(Weapon)` exactly
+once, verifies `loaded += min(6-loaded, reserve)` and the matching pistol
+reserve debit, then emits the native reload event and verifies readback again.
+It closes the native 20/21/22 sequence after the clip operation, including a
+short reserve. Exact Java class identity, retained reload ticket, type, capacity
+and counter identity are rechecked, as is `Weapon.cOwner == ArmedPlayerBeing`
+before and after inventory/event callbacks. Busy or faulted clip transactions
+also deny the heartbeat that extends native body 21. Ambiguous effects quarantine
+further insertions without retry or refunds. The latest offline derivative also
+retains the exact machine/hand across the original closing callbacks and checks
+status 3, cancellation, native end state 22, class/owner/counter identity and
+the same loaded/reserve vector **after** closing; altered accounting or a
+replacement ticket faults the session. Close exceptions retain their original
+throwable and fault the session, and callback reentry cannot make a second
+transfer. All three exact class derivatives pass the shipped Java 1.4 JVM's
+`-Xverify:all`; deliberately corrupting the clip helper produces `VerifyError`.
+This is modeled bytecode execution with native scheduling/skin stand-ins.
+JVM verification establishes class validity, not native game behavior.
+It has no installable PAK, runtime caller,
+physical clip prop, release/reacquisition gesture or animation qualification.
+Schofield's complete-cylinder reload therefore remains native in production.
+
+The shared long-gun grip policy also has an exact-family host regression for
+`WeaponRifleWinchester`, `WeaponRifleWinchesterScope`, `WeaponRifleRemington`
+and `WeaponRifleRemingtonSawOff`. Entering native begin/body/end (20/21/22)
+or the separate alternate reload bank (148/149/150)
+invalidates the two-hand render mapping, cancels support and consumes the old
+L1/L2 claims. Returning to idle while L1 is still held cannot reattach;
+release and a new physical L1 press are required. This qualifies input/owner
+policy in C++ only, not the natural in-game reload pose, finger animation,
+loading port or live support-hand recovery. The free hand is available to a
+future manual loader only after its separate native transaction and physical
+gesture gates are established.
 
 All these current families select `PlayerGunStateMashine`, whose ordinary
 reload graph is `20 PlayerSubPairState -> 21 PlayerSubState -> 22
@@ -367,15 +405,45 @@ body-cycle transaction. It acquires a reentry guard before virtual eligibility
 reads and retains player/weapon/hand/machine ownership. One original
 `PawnArmed.WeaponReload(Weapon)` call must produce loaded +1 and matching reserve
 -1 with unchanged capacity, type and counter identity before the game event is
-published. Readback is repeated after callbacks. Full capacity or exhausted
+published. Readback is repeated after callbacks and again after each native
+`GetWeaponMaxAmmoToReload` query: an injected reserve mutation during this query
+previously allowed body21 to restart before the transaction faulted. The native
+result is retained in a separate local while the readback runs, keeping verifier
+branch stacks consistent. Full capacity or exhausted
 reserve closes normally; otherwise only the expected same-body Clear suppresses
 the terminating completion, and original Set/Started reinitializes the body.
+The self-Clear guard now persists until `SetCurrentState` returns and records
+whether body21 completion actually occurred. Owner/probe loss during a nested
+callback must not fall through to the original completion and silently transfer
+another cartridge. A failed transaction tries native end22 only for the retained
+same-hand state machine, same current weapon and an available exact close state,
+while suppressing its body21 Clear; this also covers a probe disappearing after
+the game event but before body replay. Ambiguous or foreign ownership still
+quarantines the helper, and closing cannot be claimed if the native end state
+is unavailable. These cases were reproduced with emitted callback bytecode;
+real JVM scheduling, concurrent callbacks and physical playback are unproven.
 No desired-state write, animation frame/time setter or inventory compensation is
 introduced. The next native pre-Clear wait is required for another insertion.
+An independent exact-class offline `WeaponRifleWinchesterScope` profile now shares
+Winchester's proven one-index, 12-round rifle-accounting and guarded body-cycle
+*code*, without promoting its own animation, support-hand reacquisition or R3
+optics. The original `code.pak` hash remains mandatory, and this additional
+profile produces only isolated class derivatives, never a runtime PAK.
 Exceptions clear retained scope references and rethrow; uncertain partial writes
 quarantine further insertion/renewal for that player instance without retry.
-Interpreted fixtures execute the original transfer and state/callback bytecode,
-but native storage/skin/scheduling remain test doubles. This is an offline
+Interpreted fixtures execute original transfer and state/callback bytecode for
+**both exact Winchester classes**, including ten sequential unit insertions per
+class, zero immediate duplicates, per-round native completion waits, final end22
+and retained loaded/reserve accounting. Both profiles reject a changed reserve
+counter, lost probe during synchronous body Clear, canceled ownership after the
+reload event and probe loss during body start: no second debit is permitted on
+the subsequent update. Both independent `cycle_animation` derivatives pass the
+shipped Java 1.4 `-Xverify:all`; each deliberately corrupted helper produces
+`VerifyError`. The emitted class bytes differ by exact-class selector while the
+machine derivative remains shared. Original ammo model/optics and grip ownership
+are still class-specific; these test doubles do not inspect a physical port.
+The verifier checks class loading and stack safety, while native
+storage/skin/scheduling remain test doubles. This is an offline
 derivative, not production manual admission or validated animation playback.
 
 Forcing desired21 back after a callback could overwrite real cancellation. Native reload-frame

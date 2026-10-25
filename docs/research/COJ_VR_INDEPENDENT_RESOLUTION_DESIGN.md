@@ -29,8 +29,10 @@ de ojo puede obtener su detalle mediante ampliación de la imagen de escritorio.
 Se mantiene D3D9Ex → D3D11 → OpenVR, las dos llamadas al wrapper completo,
 ópticas asimétricas, procedencia por ejecución, restauración transaccional y
 las rutas actuales de interacción. No se modifica la pre-release publicada,
-sus archivos/etiquetas ni el instalador público. No hay OpenXR, D3D10, resolución
-dinámica, selector de escala, menú nuevo ni refactorización global.
+sus archivos/etiquetas ni el instalador público. El prototipo no añade OpenXR,
+D3D10, resolución dinámica, un selector propio ni un menú nuevo: los perfiles
+de resolución nativa al arrancar y sus opciones existentes son independientes
+de este banco privado rechazado (véase [perfiles](COJ_VR_RELEASE_RESOLUTION_PROFILES.md)).
 
 Alternativas consideradas:
 

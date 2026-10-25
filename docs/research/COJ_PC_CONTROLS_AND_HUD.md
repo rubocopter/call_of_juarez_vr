@@ -1181,7 +1181,7 @@ on-foot kick are accepted where exercised; this does not qualify concentration
 or remove campaign-specific kick restrictions.
 
 [VALIDATION.md](../VALIDATION.md#pc-mechanics-and-gameplay-hud-completeness)
-owns acceptance; [ROADMAP.md](../ROADMAP.md#milestone-4--controller-ui-and-interactions)
+owns acceptance; [ROADMAP.md](../ROADMAP.md#milestones-and-stabilization)
 owns priority. Source/manual findings and host tests do not promote physical
 gates. Local settings, extracted classes/manuals and run evidence belong under
 ignored `work/`.

@@ -6,7 +6,8 @@ Read this file before changing code. Then read, in order:
 2. `docs/VALIDATION.md`
 3. `docs/ROADMAP.md`
 
-Read the focused documents under `docs/research/` only when their exact-game
+Read the [documentation index](docs/README.md) for ownership and research
+locations; read focused `docs/research/` files only when their exact-game
 boundary is relevant to the work at hand.
 
 Inspect the repository before acting. Documentation records durable contracts and validation state; source, local staging and fresh test results decide whether an item is still pending.
