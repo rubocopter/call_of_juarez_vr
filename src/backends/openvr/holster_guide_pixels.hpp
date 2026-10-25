@@ -5,7 +5,7 @@
 
 namespace cojvr::backends::openvr {
 // Small immutable translucent hint textures; no game assets or scene depth.
-inline const std::array<HudTextPanel,3>& HolsterGuidePanels() {
+inline const std::array<HudTextPanel,3>& GlyphGuideBackgroundPanels() {
     static const auto panels=[] {
         std::array<HudTextPanel,3> out{};
         constexpr std::array<std::uint32_t,3> colors{0xD8AA60U,0x70DDA0U,0x9A8274U};
@@ -24,9 +24,32 @@ inline const std::array<HudTextPanel,3>& HolsterGuidePanels() {
     }();
     return panels;
 }
+inline const std::array<HudTextPanel,3>& HolsterGuidePanels() {
+    static const auto panels=[] {
+        std::array<HudTextPanel,3> out{};
+        constexpr unsigned extent=128;
+        constexpr float half=extent*.5F;
+        constexpr std::array<std::uint32_t,3> colors{0xD8AA60U,0x70DDA0U,0x9A8274U};
+        constexpr std::array<unsigned,3> opacity{100,155,50};
+        for(unsigned state=0;state<out.size();++state){auto& p=out[state];
+            p.width=p.height=extent;p.pixels.resize(extent*extent);
+            for(unsigned y=0;y<extent;++y)for(unsigned x=0;x<extent;++x){
+                const float r=std::hypot(x+.5F-half,y+.5F-half);
+                // 1.5px stroke plus one-pixel edge coverage, entirely inside
+                // the canonical interaction radius. No translucent centre fill.
+                const float distance=std::abs(r-(half-1.25F))-.75F;
+                const float coverage=std::fmax(0.F,std::fmin(1.F,.5F-distance));
+                const unsigned alpha=static_cast<unsigned>(coverage*opacity[state]+.5F);
+                p.pixels[y*extent+x]=alpha?(alpha<<24)|colors[state]:0;
+            }
+        }
+        return out;
+    }();
+    return panels;
+}
 inline const std::array<HudTextPanel,3>& SupportGripGuidePanels() {
     static const auto panels=[] {
-        auto out=HolsterGuidePanels();
+        auto out=GlyphGuideBackgroundPanels();
         constexpr std::array<std::uint32_t,3> colors{0x68DAE8U,0x70DDA0U,0x9A8274U};
         constexpr unsigned glyphs[2][7]{{16,16,16,16,16,16,31},{4,12,4,4,4,4,14}};
         for(unsigned state=0;state<3;++state){
@@ -42,7 +65,7 @@ inline const std::array<HudTextPanel,3>& SupportGripGuidePanels() {
 }
 inline const std::array<HudTextPanel,3>& AmmunitionPickupGuidePanels() {
     static const auto panels=[] {
-        auto out=HolsterGuidePanels();
+        auto out=GlyphGuideBackgroundPanels();
         constexpr std::array<std::uint32_t,3> colors{0xF0C76AU,0x70DDA0U,0x9A8274U};
         for(unsigned state=0;state<3;++state){
             for(auto& pixel:out[state].pixels)pixel=(pixel&0xff000000U)|colors[state];

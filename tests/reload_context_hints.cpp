@@ -24,6 +24,9 @@ int main(){
     Check(empty.Draw(empty_out)&&empty_out.reload_instruction&&
         empty_out.text.interaction.view()==u"No reserve ammunition. Press Reload Button to close.",
         "empty reserve needs a bounded instruction using the reload binding");
+    Check(empty_out.control_hint_action==PromptAction::reload&&
+        empty_out.control_hint_prompts.binding_generation==empty.labels.binding_generation,
+        "empty reserve must capture semantic reload and its owned binding epoch");
     Check(!empty.r.insert&&!empty.r.cancel&&!empty.r.gesture.cartridge_held,
         "empty reserve instruction changed native or gesture authority");
     empty.Step();auto empty_es=empty.Frame();
@@ -35,6 +38,31 @@ int main(){
         "reserve recovery retained the empty closing instruction");
     Fixture f;auto out=f.Frame();Check(f.Draw(out)&&out.reload_instruction&&out.text.interaction.view().find(u"Left Trigger")!=std::u16string_view::npos,"pickup instruction needs actual reported support binding");
     Check(out.text.controller_prompt_generation==5&&!f.r.insert&&!f.r.gesture.cartridge_held,"instruction cannot grant a cartridge or insertion");
+    Check(out.control_hint_action==PromptAction::left_fire&&out.control_hint_prompts.binding_generation==5,
+        "coaching did not capture the actual support action and binding epoch");
+    Fixture graphical;graphical.labels.glyph_sample_ms=100;graphical.labels.glyph_deadline_ms=1600;
+    graphical.labels.glyphs[0]=QualifyPromptGlyph("playstation_vr2_sense","/user/hand/left",
+        "trigger","/input/l2","trigger","click","trigger",33);
+    auto decorated=graphical.Frame();Check(graphical.Draw(decorated),"glyph coaching missing");
+    Check(ResolveReloadInstructionGlyph(decorated,5,101).origin==33,
+        "semantic support coaching did not admit the captured actual binding");
+    graphical.labels.glyphs={};
+    Check(ResolveReloadInstructionGlyph(decorated,5,101).origin==33,
+        "captured hint borrowed mutable producer metadata");
+    for(const auto now:{99ULL,1600ULL,3100ULL})
+        Check(ResolveReloadInstructionGlyph(decorated,5,now).kind==PromptGlyphKind::none,
+            "queued semantic glyph survived clock regression or deadline");
+    Check(ResolveReloadInstructionGlyph(decorated,6,101).kind==PromptGlyphKind::none,
+        "queued semantic glyph survived rebinding");
+    auto priority=decorated;priority.text.hint.length=1;priority.text.hint.characters[0]=u'N';
+    Check(ResolveReloadInstructionGlyph(priority,5,101).kind==PromptGlyphKind::none,
+        "native hint priority admitted optional art");
+    priority=decorated;priority.reload_instruction=false;
+    Check(ResolveReloadInstructionGlyph(priority,5,101).kind==PromptGlyphKind::none,
+        "ordinary native interaction text was decorated without semantic ownership");
+    priority=decorated;priority.control_hint_action=PromptAction::interact;
+    Check(ResolveReloadInstructionGlyph(priority,5,101).kind==PromptGlyphKind::none,
+        "non-reload action was admitted by coaching-only glyph path");
     for(int i=0;i<151;++i){f.Step();out=f.Frame();(void)f.Draw(out);}
     out=f.Frame();Check(!f.Draw(out),"stationary stage replayed an expired instruction");
     f.r.gesture.pickup_hint={};f.r.gesture.cartridge_held=true;f.r.gesture.cartridge_hand=f.r.gesture.claimed_hand=1;f.Step();out=f.Frame();
@@ -63,5 +91,7 @@ int main(){
     Check(mirrored.hints.Append(mirrored.s,mirrored.r,17,mirrored.labels,CoJUiLanguage::spanish,true,out)&&
         out.text.interaction.view().find(u"Right B")!=std::u16string_view::npos&&
         out.text.interaction.view().find(u"cartucho")!=std::u16string_view::npos,"mirrored Spanish coaching used the wrong hand or language");
+    Check(out.control_hint_action==PromptAction::right_fire&&out.control_hint_prompts.binding_generation==5,
+        "mirrored coaching captured the wrong semantic action");
     std::cout<<"reload context coaching checks passed\n";
 }

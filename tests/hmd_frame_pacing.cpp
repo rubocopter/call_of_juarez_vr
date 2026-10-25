@@ -7,6 +7,18 @@
 
 int main() {
     using cojvr::runtime::HmdFramePacer;
+    for (const int hz : {72,80,90,120,144}) {
+        HmdFramePacer rate;
+        const auto period=static_cast<std::int64_t>(1000000000.0/hz);
+        for (int frame=0;frame<=hz;++frame) {
+            const auto now=frame*period;
+            if (rate.Deadline(now,static_cast<float>(hz))!=now) {
+                std::cerr << "HMD rate introduced a second producer wait\n";
+                return 1;
+            }
+        }
+        if (std::abs(hz*period-1000000000LL)>hz) return 1;
+    }
     HmdFramePacer pacer;
     if (pacer.Deadline(0, 90.0F) != 0 ||
         pacer.Deadline(1000000, 90.0F) != 11111111 ||

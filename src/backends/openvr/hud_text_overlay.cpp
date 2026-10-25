@@ -222,11 +222,13 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11DeviceContext> text_context;
     std::array<ComPtr<ID3D11Texture2D>,2> text_targets;
     std::uint64_t text_generation=0,text_reload_owner=0,text_until_ms=0;
+    std::uint64_t text_glyph_sample_ms=0,text_glyph_until_ms=0;
     bool text_reload=false;
     void DiscardText() noexcept {
         for(auto& patch:text_patches){patch.saved=false;patch.rectangle={};}
         text_context.Reset();text_targets={};
         text_generation=text_reload_owner=text_until_ms=0;text_reload=false;
+        text_glyph_sample_ms=text_glyph_until_ms=0;
     }
     bool PrepareTextPatches(ID3D11Device* device,ID3D11DeviceContext* context,
         const std::array<ID3D11Texture2D*,2>& outputs,std::size_t part,
@@ -367,10 +369,13 @@ void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext
     }
     const bool stale_generation=impl_->text_generation&&
         impl_->text_generation!=runtime::CurrentActionPrompts().binding_generation;
+    const auto now=GetTickCount64();
     const bool stale_reload=impl_->text_reload&&(!show_holster_guides||!reload_owner_token||
         reload_owner_token!=impl_->text_reload_owner||!impl_->text_until_ms||
-        GetTickCount64()>=impl_->text_until_ms);
-    if(!stale_generation&&!stale_reload)return;
+        now>=impl_->text_until_ms);
+    const bool stale_glyph=impl_->text_glyph_until_ms&&
+        (now<impl_->text_glyph_sample_ms||now>=impl_->text_glyph_until_ms);
+    if(!stale_generation&&!stale_reload&&!stale_glyph)return;
     // Retire the complete controlled stack if any layer expires. Reversing the
     // draw order preserves preimages even when its text rectangles overlap.
     for(std::size_t slot=impl_->text_patches.size();slot>0;--slot){
@@ -462,11 +467,15 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     try {
         if (!Prepare(device)) return false;
         const runtime::HudText hidden_hint{};
+        const auto now=GetTickCount64();
+        const auto current_generation=runtime::CurrentActionPrompts().binding_generation;
         const bool stale_bindings=overlay.text.controller_prompt_generation&&
-            overlay.text.controller_prompt_generation!=runtime::CurrentActionPrompts().binding_generation;
+            overlay.text.controller_prompt_generation!=current_generation;
         const bool stale_reload=overlay.reload_instruction&&(!show_holster_guides||!reload_owner_token||
             reload_owner_token!=overlay.reload_feedback.owner_token||!overlay.reload_instruction_until_ms||
-            GetTickCount64()>=overlay.reload_instruction_until_ms);
+            now>=overlay.reload_instruction_until_ms||!overlay.text.hint.view().empty());
+        const auto coaching_glyph=!stale_bindings&&!stale_reload?
+            runtime::ResolveReloadInstructionGlyph(overlay,current_generation,now):runtime::PromptGlyph{};
         const std::array<const runtime::HudText*, 5> texts{
             stale_bindings?&hidden_hint:&overlay.text.hint,
             stale_bindings||stale_reload?&hidden_hint:&overlay.text.interaction, &overlay.text.subtitle,
@@ -488,7 +497,12 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         placement[7].captured_quad = true;
         placement[7].head_corners = overlay.interaction_gaze_head_corners;
         const auto& subtitle = impl_->raster[2].Render(*texts[2]);
-        const auto& interaction = impl_->raster[1].Render(*texts[1]);
+        const auto& interaction_text = impl_->raster[1].Render(*texts[1]);
+        // Only the semantic reload owner supplies artwork metadata. Native HUD
+        // strings are never parsed and retain their original pixels/priority.
+        const auto& interaction=impl_->ui_raster.DecorateControlHint(interaction_text,
+            impl_->raster[1].rebuilds(),overlay.control_hint_prompts,overlay.control_hint_action,
+            current_generation,now,coaching_glyph.kind!=runtime::PromptGlyphKind::none);
         const auto& timer=impl_->raster[3].Render(*texts[3],true);
         const auto& notices=impl_->raster[4].Render(*texts[4]);
         bool critical_fits=true;
@@ -536,11 +550,12 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 [&](const auto& zone){return zone.kind==guide_kind&&zone.state==guide_state;}))continue;
             if(critical_text&&!critical_fits)continue;
             const auto text_index=critical_text?part-5:part;
-            const auto& panel = (part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
+            const auto& panel = part==1?interaction:(part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
                 guide?(ammunition_guide?AmmunitionPickupGuidePanels()[guide_state]:support_guide?SupportGripGuidePanels()[guide_state]:HolsterGuidePanels()[guide_state]):threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
-            const auto revision=(part<3||critical_text) ? impl_->raster[text_index].rebuilds() : (threat||guide)?1:
+            const auto revision=part==1?impl_->ui_raster.control_decoration_revision():
+                (part<3||critical_text) ? impl_->raster[text_index].rebuilds() : (threat||guide)?1:
                 (part==3 ? impl_->ui_raster.wheel_revision() : (part==4 ? impl_->ui_raster.compass_revision() : (part==5 ? impl_->ui_raster.status_revision() : part==6&&overlay.reload_cartridge_textured?2:1)));
             // Retain the immutable cartridge GPU cache across gesture hiding.
             if(part==6&&!cartridge_visible)continue;
@@ -652,6 +667,10 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     if(part==1&&overlay.reload_instruction){
                         impl_->text_reload=true;impl_->text_reload_owner=overlay.reload_feedback.owner_token;
                         impl_->text_until_ms=overlay.reload_instruction_until_ms;
+                        if(coaching_glyph.kind!=runtime::PromptGlyphKind::none){
+                            impl_->text_glyph_sample_ms=overlay.control_hint_prompts.glyph_sample_ms;
+                            impl_->text_glyph_until_ms=overlay.control_hint_prompts.glyph_deadline_ms;
+                        }
                     }
                     for(std::size_t eye=0;eye<2;++eye){
                         auto& patch=impl_->text_patches[2*part+eye];const auto& r=quads[eye];

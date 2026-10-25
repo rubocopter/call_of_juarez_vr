@@ -158,7 +158,7 @@ class ManualReloadNativeTests(unittest.TestCase):
                 changed={n for n in before.namelist() if before.read(n)!=after.read(n)}
                 self.assertEqual(changed,{'ArmedPlayerBeing.class','StateMashine.class','WeaponFire.class',
             'BeingTriggered.class','LawmanModuleSingle.class','WeaponWhip.class','WeaponMelee.class',
-            'MenuOptionsGame.class','LawmanModule.class'})
+            'MenuOptionsGame.class','LawmanModule.class','MenuBackgroundModule.class','MenuSaveLoad.class','GameUILoading.class','FXEmitter.class','FireEmitterCore.class','FPPCamera.class'})
             with self.assertRaises(ValueError):
                 patch.patch_archive(source,Path(temp)/'both.pak',reload_wait_probe=True,manual_reload=True)
             self.assertFalse((Path(temp)/'both.pak').exists())

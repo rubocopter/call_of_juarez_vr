@@ -1,5 +1,6 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/motion_reload_adapter.hpp"
+#include "games/call_of_juarez/manual_reload_session.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdlib>
@@ -19,6 +20,9 @@ int schofield_a_class, schofield_b_class;
 int peacemaker_class, derringer_class;
 int frontier_class,walker_class,cogswell_class,schofield_class;
 int weapon_alias;
+int scoped_class, winchester_class, remington_class, sawoff_class, volcanic_class, lemant_class;
+int old_frontier_class, old_schofield_a_class, old_schofield_b_class;
+bool foreign_owner=false;
 void* table[174]{};
 void** holder = table;
 int refs = 0, step = 0, fail_step = -1;
@@ -63,6 +67,15 @@ void* JNI_CALL Find(void*, const char* name) {
     if (!std::strcmp(name,"WeaponPistolSchofield"))return Ref(&schofield_class);
 
     if (!std::strcmp(name, "WeaponPistolDerringer")) return Ref(&derringer_class);
+    if (!std::strcmp(name,"WeaponRifleWinchesterScope"))return Ref(&scoped_class);
+    if (!std::strcmp(name,"WeaponRifleWinchester"))return Ref(&winchester_class);
+    if (!std::strcmp(name,"WeaponRifleRemington"))return Ref(&remington_class);
+    if (!std::strcmp(name,"WeaponRifleRemingtonSawOff"))return Ref(&sawoff_class);
+    if (!std::strcmp(name,"WeaponPistolVolcanic"))return Ref(&volcanic_class);
+    if (!std::strcmp(name,"WeaponPistolLemant"))return Ref(&lemant_class);
+    if (!std::strcmp(name,"WeaponPistolFrontier1878_Regular_Old"))return Ref(&old_frontier_class);
+    if (!std::strcmp(name,"WeaponPistolSchofield_A_Old"))return Ref(&old_schofield_a_class);
+    if (!std::strcmp(name,"WeaponPistolSchofield_B_Old"))return Ref(&old_schofield_b_class);
     const bool whitelisted = !std::strcmp(name, "WeaponPistolFrontier1878_Regular") ||
         !std::strcmp(name, "WeaponPistolSchofield_A") ||
         !std::strcmp(name, "WeaponPistolSchofield_B");
@@ -164,6 +177,16 @@ std::uint8_t JNI_CALL Boolean(void*, void*, void* method, const Value* args) {
             !std::strcmp(name, "IsDesiredWeaponOperatedTwoHand") ? 1 : 2][args[0].integer];
 }
 template<class T> void Set(int slot, T fn) { table[slot] = reinterpret_cast<void*>(fn); }
+void* JNI_CALL OwnerField(void*,void*,const char* name,const char* descriptor) {
+    Require(!std::strcmp(name,"cOwner")&&!std::strcmp(descriptor,"LPawnInventory;"),
+        "fallback looked up an unapproved field");
+    if(Fail()||(fail_lookup&&!std::strcmp(name,fail_lookup))) {pending=!null_failure;return nullptr;}
+    return const_cast<char*>(name);
+}
+void* JNI_CALL OwnerObject(void*,void*,void*) {
+    if(Fail())return nullptr;
+    return Ref(foreign_owner?&replacement:&player);
+}
 void Reset(int hand = 0) {
     actual = active = desired = {}; current = destiny = wanted = actual_state = {};
     actual[hand] = active[hand] = desired[hand] = &weapon;
@@ -176,6 +199,7 @@ void Reset(int hand = 0) {
     attack[0] = attack[1] = false;
     weapon_class = &pistol_class; weapon_id = 123;
     step = 0; fail_step = -1; fail_lookup = nullptr;
+    foreign_owner=false;
 }
 int Check(bool expected, int hand = 0) {
     CoJMotionReloadOwner out{1, 999, true};
@@ -368,11 +392,94 @@ void NativeReloadContinuationIntegration() {
     (void)poll(); Reset();
     Require(!poll().cartridge_held,"actual state32 rejection must irreversibly cancel the continuation");
 }
+void NativeFallbackRegression() {
+    using namespace cojvr::runtime;
+    const auto fallback=[](bool expected) {
+        const bool actual_result=ReadCoJNativeReloadFallback(&holder,&player);
+        Require(actual_result==expected,"native fallback observation mismatch");
+        Require(refs==0&&!pending,"fallback leaked a JNI local or exception");
+        return step;
+    };
+    for(int hand:{0,1})for(void* cls:{static_cast<void*>(&scoped_class),static_cast<void*>(&winchester_class),
+        static_cast<void*>(&remington_class),static_cast<void*>(&sawoff_class),static_cast<void*>(&volcanic_class),
+        static_cast<void*>(&lemant_class),static_cast<void*>(&derringer_class),static_cast<void*>(&schofield_class),
+        static_cast<void*>(&schofield_a_class),static_cast<void*>(&schofield_b_class),
+        static_cast<void*>(&old_frontier_class),static_cast<void*>(&old_schofield_a_class),
+        static_cast<void*>(&old_schofield_b_class)}) {
+        for(int state:{1,31,32,97,129,149}) {
+            Reset(hand);weapon_class=cls;current[hand]=destiny[hand]=wanted[hand]=actual_state[hand]=state;
+            CoJMotionReloadOwner manual{};CoJMotionReloadDiagnostic diagnostic{};
+            (void)ReadCoJMotionReloadOwner(&holder,&player,manual,&diagnostic);
+            Require(!manual.single_round_supported,"native fallback enabled a new manual profile");
+            const bool allowed=ReadCoJNativeReloadFallback(&holder,&player);
+            Require(allowed&&refs==0&&!pending,"alternate/native-only firearm lost native reload");
+            CoJManualReloadSession session;CoJManualReloadInput s{};s.enabled=s.allowed=true;
+            s.native_fallback_allowed=allowed;s.player=7;s.context=5;s.raw.active=true;
+            s.head.position_valid=s.head.orientation_valid=s.left.position_valid=s.left.orientation_valid=
+                s.right.position_valid=s.right.orientation_valid=true;
+            s.admission=manual;s.raw.input_context_generation=8;s.sequence=1;s.now=1000;
+            auto mapped=s.raw;(void)session.Update(mapped,s);
+            s.raw.reload=true;++s.sequence;s.now+=50;mapped=s.raw;
+            const auto out=session.Update(mapped,s);
+            Require(mapped.reload&&!out.start&&!out.insert&&!out.cancel,
+                "manual session consumed the positively observed native-only reload");
+        }
+    }
+    for(void* cls:{static_cast<void*>(&scoped_class),static_cast<void*>(&old_schofield_b_class)}) {
+        Reset();weapon_class=cls;const int calls=fallback(true);
+        for(int operation=1;operation<=calls;++operation) {
+            Reset();weapon_class=cls;fail_step=operation;fallback(false);
+        }
+    }
+    for(bool without_exception:{false,true})for(const char* name:{"GetActualWeaponNotEmpty","GetActiveWeapon",
+        "GetDesiredWeapon","GetHandStateMashineState","GetHandStateMashineDestinyState",
+        "GetDesiredWeaponState","GetActualWeaponState","IsNotAlive","GetThisID","cOwner",
+        "WeaponRifleWinchesterScope"}) {
+        Reset();weapon_class=&scoped_class;fail_lookup=name;null_failure=without_exception;fallback(false);
+    }
+    for(int hand:{0,1}) {
+        for(void* cls:{static_cast<void*>(&pistol_class),static_cast<void*>(&peacemaker_class),
+            static_cast<void*>(&frontier_class),static_cast<void*>(&walker_class),
+            static_cast<void*>(&cogswell_class),static_cast<void*>(&other_class)}) {
+            Reset(hand);weapon_class=cls;current[hand]=149;fallback(false);
+        }
+        for(int id:{0,-1}){Reset(hand);weapon_class=&scoped_class;weapon_id=id;fallback(false);}
+        for(std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
+            Reset(hand);weapon_class=&scoped_class;weapon_id=static_cast<std::int32_t>(id);fallback(true);
+        }
+        for(auto slots:{&actual,&active,&desired}) {
+            Reset(hand);weapon_class=&scoped_class;(*slots)[hand]=nullptr;fallback(false);
+            Reset(hand);weapon_class=&scoped_class;(*slots)[hand]=&replacement;fallback(false);
+            Reset(hand);weapon_class=&scoped_class;(*slots)[1-hand]=&replacement;fallback(false);
+        }
+        Reset(hand);weapon_class=&scoped_class;active[hand]=desired[hand]=&weapon_alias;fallback(true);
+        Reset(hand);weapon_class=&scoped_class;actual[1-hand]=active[1-hand]=desired[1-hand]=&weapon_alias;
+        fallback(true); // Native long-gun ownership may be shared by both hands.
+        Reset(hand);weapon_class=&scoped_class;foreign_owner=true;fallback(false);
+        Reset(hand);weapon_class=&scoped_class;dead=true;fallback(false);
+        Reset(hand);weapon_class=&scoped_class;replace_on_id=true;fallback(false);
+        Reset(hand);weapon_class=&scoped_class;recovery_mutation=RecoveryMutation::identity;fallback(false);
+        Reset(hand);weapon_class=&scoped_class;recovery_mutation=RecoveryMutation::active_weapon;fallback(false);
+        Reset(hand);weapon_class=&scoped_class;recovery_mutation=RecoveryMutation::desired_weapon;fallback(false);
+        for(auto mutation:{RecoveryMutation::attack_state,RecoveryMutation::alternate_state,
+            RecoveryMutation::support_state,RecoveryMutation::death}) {
+            Reset(hand);weapon_class=&scoped_class;recovery_mutation=mutation;fallback(false);
+        }
+        Reset(hand);weapon_class=&scoped_class;pending=true;fallback(false);
+    }
+    Require(!ReadCoJNativeReloadFallback(nullptr,&player)&&!ReadCoJNativeReloadFallback(&holder,nullptr),
+        "fallback accepted a missing JNI environment or player");
+    for(int slot:{6,15,17,23,24,31,33,36,39,51,94,95}) {
+        Reset();weapon_class=&scoped_class;auto saved=table[slot];table[slot]=nullptr;fallback(false);table[slot]=saved;
+    }
+}
 }
 int main() {
     Set(6, Find); Set(15, Exception); Set(17, Clear); Set(23, Delete);
     Set(24, Same); Set(31, Class); Set(33, Lookup);
     Set(36, Object); Set(39, Boolean); Set(51, Integer);
+    Set(94,OwnerField);Set(95,OwnerObject);
+    NativeFallbackRegression();
     for(int hand=0;hand<2;++hand)for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
         Reset(hand);weapon_id=static_cast<std::int32_t>(id);Check(true,hand);
         ReloadRecovery(hand);weapon_id=static_cast<std::int32_t>(id);CheckRecovery(true,hand);

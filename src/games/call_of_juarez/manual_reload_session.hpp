@@ -44,6 +44,16 @@ public:
         const bool reload_owner_changed=s.player!=reload_player_||s.context!=reload_context_||
             s.raw.input_context_generation!=reload_generation_||s.native.weapon_id!=reload_weapon_||
             s.native.armed_hand!=reload_hand_;
+        if(!available||reload_owner_changed)fire_ready_.fill(false);
+        const int armed=s.native.armed_hand;
+        const bool empty_fire_edge=available&&fresh&&armed>=0&&armed<2&&fire_ready_[armed]&&
+            (armed==0?input.fire_right:input.fire_left)&&s.native.valid&&s.native.probe_valid&&
+            !s.native.reloading&&s.native.ammo_readback==0&&s.native.reserve_readback>0;
+        if(fresh)for(unsigned h=0;h<2;++h) {
+            const bool held=h==0?s.raw.fire_right:s.raw.fire_left;
+            if(held)fire_ready_[h]=false;
+            else if(available)fire_ready_[h]=true;
+        }
         // A release from before a menu/tracking/binding/owner loss cannot arm
         // a recovered Square press. Keep physical trigger claims separately.
         if(!available||!reload_available_||reload_owner_changed)reload_ready_=false;
@@ -86,14 +96,16 @@ public:
             }else if(s.native.probe_status==2){phase_=CoJManualReloadPhase::manual_load;
             }
         }
-        if(phase_==CoJManualReloadPhase::ready&&allowed&&edge&&input.reload&&
+        if(phase_==CoJManualReloadPhase::ready&&allowed&&((edge&&input.reload)||empty_fire_edge)&&
             s.admission.valid&&s.admission.single_round_supported&&s.player!=0&&
             s.native.valid&&s.native.probe_valid&&(s.native.probe_status==0||s.native.probe_status==4)&&
             s.native.armed_hand==s.admission.armed_hand&&s.native.weapon_id==s.admission.weapon_id){
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
             replenish_=false;
-            phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;out.reason="reload_button";
+            phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;
+            out.reason=empty_fire_edge?"empty_trigger":"reload_button";
+            input.reload=true;
         }
         const bool owned=phase_!=CoJManualReloadPhase::ready;
         if(s.enabled&&!out.start&&s.raw.reload&&!s.native_fallback_allowed){
@@ -169,6 +181,7 @@ private:
     int reload_hand_=-1;
     int hand_=-1;
     std::uint8_t trigger_claims_=0;
+    std::array<bool,2> fire_ready_{};
     bool have_sample_=false,reload_available_=false,reload_ready_=false,reload_claim_=false,replenish_=false,cancel_pending_=false;
 };
 }

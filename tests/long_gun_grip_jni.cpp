@@ -141,10 +141,15 @@ void Bind(JavaPlayerBridge& bridge){
 }
 int main(int argc,char** argv){
     const std::string mode=argc>1?argv[1]:"normal";
-    if(mode=="root-holder"){rifle_class="WeaponRifleRemington";holder_element=0;}
+    const bool scoped=argc>2&&std::string(argv[2])=="scoped";
+    if(scoped)rifle_class="WeaponRifleWinchesterScope";
+    const bool alternate=argc>3&&std::string(argv[3])=="alternate";
+    Check(!alternate||scoped,"alternate fixture is exact scoped rifle only");
+    if(alternate)right_states={129,129,129,129};
+    if(mode=="root-holder"){if(!scoped)rifle_class="WeaponRifleRemington";holder_element=0;}
     JavaPlayerBridge bridge;Bind(bridge);const auto natural=a.f;const auto original_hands=hands;
     CoJLongGunFireRouting fire_routing{};
-    Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
+    Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&(scoped||(fire_routing.block_left&&!fire_routing.block_right)),
         "bridge lost right-only rifle trigger ownership before grip acquisition");
     const auto original_class=rifle_class;
     rifle_class="WeaponRifleRemingtonSawOff";weapon_hand=1;
@@ -192,7 +197,7 @@ int main(int argc,char** argv){
         Check(!bridge.ApplyPreparedTrackedWeapon(0,origin,&error)&&before==writes,"replacement accepted before first write");
     }else{
         Check(bridge.ApplyPreparedTrackedWeapon(0,origin,&error),"real rifle commit failed");
-        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
+        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&(scoped||(fire_routing.block_left&&!fire_routing.block_right)),
             "scoped weapon/hand map hid native rifle trigger ownership");
         Check(bridge.VerifyTrackedWeapon(0,active,&error)&&active,"paired rifle verification failed");
         Check(bridge.TryGetWeaponBarrel(0,origin,direction,&error)&&bridge.TryPublishWeaponRay(0,origin,direction,true,&error),"real rifle ray failed");
@@ -227,7 +232,7 @@ int main(int argc,char** argv){
     Check(globals==1,"completed overlays did not retain exactly one rifle identity");
     if(mode=="normal"){
         Check(bridge.independent_hand_faulted_&&bridge.weapon_overlay_faulted_,"restore retry cleared mutation quarantine");
-        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
+        Check(bridge.TryObserveLongGunFireOwnership(fire_routing)&&(scoped||(fire_routing.block_left&&!fire_routing.block_right)),
             "verified restoration left ordinary rifle fire permanently unavailable");
         const auto before=writes;
         Check(!bridge.TryPrepareTrackedWeapon(0,g.dominant_socket_cm,g.dominant_grip_cm,frame.plan.muzzle_direction,
@@ -262,7 +267,7 @@ int main(int argc,char** argv){
         Check(bridge.TryObserveLongGunSupport(g.native)&&step().attached,
             "same Java object lost its completed-frame support claim");
         const auto acquired_epoch=g.native.object_epoch;
-        right_states={30,31,38,1};
+        right_states=scoped?std::array<int,4>{158,159,166,129}:std::array<int,4>{30,31,38,1};
         Check(bridge.TryObserveLongGunSupport(g.native)&&g.native.firing&&
             g.native.object_epoch==acquired_epoch&&step().attached,
             "native fire/cycle replaced the retained Java identity or support claim");

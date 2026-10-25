@@ -240,6 +240,55 @@ int ArmCheck(JavaPlayerBridge& bridge, bool expected, int hand = 0, std::uint32_
 }
 }
 namespace {
+int fallback_scope_class;
+JavaPlayerBridge* fallback_bridge=nullptr;
+int fallback_mutation=0;
+void* JNI_CALL FallbackFind(void* env,const char* name) {
+    if(!std::strcmp(name,"WeaponRifleWinchesterScope"))return Ref(&fallback_scope_class);
+    return Find(env,name);
+}
+void* JNI_CALL FallbackField(void*,void*,const char* name,const char* descriptor) {
+    Require(!std::strcmp(name,"cOwner")&&!std::strcmp(descriptor,"LPawnInventory;"),"fallback read an unapproved field");
+    return const_cast<char*>(name);
+}
+void* JNI_CALL FallbackOwner(void*,void*,void*) { return Ref(&player); }
+int JNI_CALL FallbackInteger(void* env,void* object,void* method,const Value* args) {
+    const int result=Integer(env,object,method,args);
+    if(fallback_bridge&&!std::strcmp(static_cast<char*>(method),"GetThisID")) {
+        if(fallback_mutation==1)fallback_bridge->being_=&replacement;
+        if(fallback_mutation==2)++fallback_bridge->being_generation_;
+    }
+    return result;
+}
+void NativeFallbackBridgeTests(JavaPlayerBridge& bridge) {
+    const auto reset=[&]() {
+        TicketReset(bridge);weapon_class=&fallback_scope_class;
+        Set(6,FallbackFind);Set(31,Class);Set(33,Lookup);Set(36,Object);Set(39,Boolean);
+        Set(51,FallbackInteger);Set(94,FallbackField);Set(95,FallbackOwner);
+        bridge.independent_hand_faulted_=bridge.weapon_overlay_faulted_=false;
+        bridge.body_restore_owner_count_=0;bridge.hand_overlays_={};bridge.weapon_overlays_={};
+        fallback_bridge=&bridge;fallback_mutation=0;
+    };
+    reset();Require(bridge.TryObserveNativeReloadFallback(),"bridge lost stable native fallback");
+    for(int mutation:{1,2}) {
+        reset();fallback_mutation=mutation;
+        Require(!bridge.TryObserveNativeReloadFallback(),"fallback credited a replaced player or generation");
+    }
+    for(int guard=0;guard<7;++guard) {
+        reset();
+        if(guard==0)bridge.independent_hand_faulted_=true;
+        if(guard==1)bridge.weapon_overlay_faulted_=true;
+        if(guard==2)bridge.body_restore_owner_count_=1;
+        if(guard==3)bridge.hand_overlays_[0].object=&player;
+        if(guard==4)bridge.weapon_overlays_[0].weapon=&weapon;
+        if(guard==5)bridge.weapon_overlays_[1].active=true;
+        if(guard==6)bridge.weapon_overlays_[1].applied=true;
+        Require(!bridge.TryObserveNativeReloadFallback()&&environment_calls==0,
+            "fallback touched JNI during an unresolved body/hand/weapon transaction");
+    }
+    reset();Require(refs==0&&!pending&&writes==0,"fallback mutated native reload state or leaked JNI");
+    fallback_bridge=nullptr;Set(6,Find);Set(51,Integer);Set(94,TicketField);Set(95,static_cast<void*>(nullptr));
+}
 bool manual_result=true;
 int manual_calls=0, manual_cancels=0;
 JavaPlayerBridge* manual_scoped_owner=nullptr;
@@ -737,5 +786,6 @@ int main() {
     Require(!bridge.TryArmSingleRoundReload({0, 123, true}) && writes == 0,
         "owner without per-round support accepted");
     ManualReloadJniTests(bridge);
+    NativeFallbackBridgeTests(bridge);
     ReloadGeometryTests(bridge);
 }

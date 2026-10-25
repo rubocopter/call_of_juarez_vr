@@ -15,6 +15,15 @@ struct Output { unsigned begins=0; std::vector<D3D9RenderResourceRecord> records
     std::vector<D3D9RenderResourceContext> contexts; };
 std::vector<RenderResourceEvent> hook_events;
 unsigned call_enters=0,call_leaves=0;
+unsigned copy_callbacks=0;
+IDirect3DSurface9 *copy_from=nullptr,*copy_to=nullptr;
+void HookCopy(IDirect3DDevice9*,IDirect3DSurface9* source,const RECT* source_rect,
+    IDirect3DSurface9* destination,const RECT* destination_rect,HRESULT hr) noexcept {
+    Check(source==copy_from&&destination==copy_to&&!source_rect&&!destination_rect&&SUCCEEDED(hr),
+        "copy callback changed native borrowed arguments/result");
+    D3DSURFACE_DESC desc{};Check(SUCCEEDED(destination->GetDesc(&desc)),"copy destination retired before callback");
+    ++copy_callbacks;SetLastError(0xBAD);
+}
 bool reset_allowed=true;unsigned reset_admissions=0;
 unsigned reset_ex_returns=0;
 void AfterResetEx(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*,HRESULT hr) noexcept {
@@ -162,6 +171,21 @@ int main(int argc,char**){
     const D3DVIEWPORT9 invalid_viewport{0,0,0,0,0,1};
     const auto invalid=device->SetViewport(&invalid_viewport);const auto native_error=GetLastError();
     DeviceHookCallbacks callbacks{};callbacks.resource_probe_event=&HookEvent;callbacks.resource_probe_call=&HookCall;
+    callbacks.resource_probe_copy=&HookCopy;
+    ComPtr<IDirect3DSurface9> copy_source,copy_destination;
+    Check(SUCCEEDED(device->CreateRenderTarget(32,32,D3DFMT_X8R8G8B8,D3DMULTISAMPLE_NONE,0,FALSE,&copy_source,nullptr))&&
+        SUCCEEDED(device->CreateRenderTarget(32,32,D3DFMT_X8R8G8B8,D3DMULTISAMPLE_NONE,0,FALSE,&copy_destination,nullptr)),"copy hook fixture allocation failed");
+    copy_from=copy_source.Get();copy_to=copy_destination.Get();
+    SetLastError(0x12345);
+    const auto copy_result=device->StretchRect(copy_from,nullptr,copy_to,nullptr,D3DTEXF_POINT);
+    const auto copy_error=GetLastError();Check(SUCCEEDED(copy_result),"native copy fixture failed");
+    DeviceHookCallbacks copy_only{};copy_only.resource_probe_copy=&HookCopy;
+    Check(InstallDeviceVtableHook(device.Get(),copy_only),"copy-only observer install failed");
+    SetLastError(0x12345);
+    Check(device->StretchRect(copy_from,nullptr,copy_to,nullptr,D3DTEXF_POINT)==copy_result&&
+        GetLastError()==copy_error&&copy_callbacks==1,"copy-only observer was not installed or changed native forwarding");
+    // Update the active callback set; full retirement is tested at shutdown.
+    copy_callbacks=0;
     Check(InstallDeviceVtableHook(device.Get(),callbacks),"probe hook install failed");
     SetLastError(native_error);
     Check(device->SetViewport(&invalid_viewport)==invalid&&GetLastError()==native_error,
@@ -169,6 +193,10 @@ int main(int argc,char**){
     Check(hook_events.size()==1&&hook_events.back().operation==RenderResourceOperation::set_viewport&&
         hook_events.back().result==invalid&&hook_events.back().caller!=0,"failed call not observed exactly once");
     Check(call_enters==1&&call_leaves==1,"native-call ingress/retirement not balanced");
+    SetLastError(0x12345);
+    Check(device->StretchRect(copy_from,nullptr,copy_to,nullptr,D3DTEXF_POINT)==copy_result&&
+        GetLastError()==copy_error&&copy_callbacks==1,"typed copy callback changed HRESULT/last-error or callback count");
+    copy_source.Reset();copy_destination.Reset();copy_from=copy_to=nullptr;
     Check(SUCCEEDED(device->SetViewport(&viewport)),"hook changed viewport forwarding");
     D3DVIEWPORT9 forwarded{};device->GetViewport(&forwarded);
     Check(forwarded.X==viewport.X&&forwarded.Height==viewport.Height,"hook changed viewport arguments");

@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 import sys
 
-RATIOS={'Auto':Decimal(1),'75%':Decimal('.75'),'100%':Decimal(1),'125%':Decimal('1.25')}
+RATIOS={'Auto':Decimal(1),'75%':Decimal('.75'),'100%':Decimal(1),'125%':Decimal('1.25'),
+        '150%':Decimal('1.5'),'200%':Decimal(2)}
 INT32_MAX=2**31-1
 UINT64_MAX=2**64-1
 GATES=['exact_game_build','recommendation_application_identity','native_adapter_format_viewport',

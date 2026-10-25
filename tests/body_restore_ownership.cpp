@@ -35,6 +35,8 @@ int writes=0,fail_write_at=-1;
 int failures=0;
 int natural_renders=0;
 bool mounted=false,mounted_fault=false,replace_during_mount_observation=false;
+bool using_cannon=false,cannon_fault=false;
+int cannon,cannon_controller;
 int actor_turns=0;
 void __fastcall Natural(void*,void*,void*){++natural_renders;}
 void Check(bool ok,const char* why){if(!ok){std::cerr<<"FAIL "<<why<<'\n';++failures;}}
@@ -42,7 +44,7 @@ void* Id(int i){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(i));}
 std::int32_t __stdcall Env(void*,void** env,std::int32_t){*env=&env_holder;return 0;}
 void* __stdcall Exception(void*){return pending?&exception:nullptr;}
 void __stdcall Clear(void*){pending=false;}
-void __stdcall Drop(void*,void* p){if(p!=&type&&p!=&exception&&p!=&old_actor&&p!=&new_actor)delete static_cast<Vector*>(p);}
+void __stdcall Drop(void*,void* p){if(p!=&type&&p!=&exception&&p!=&old_actor&&p!=&new_actor&&p!=&cannon&&p!=&cannon_controller)delete static_cast<Vector*>(p);}
 void* __stdcall Global(void*,void* p){if(p==&old_actor||p==&new_actor)++static_cast<Actor*>(p)->refs;return p;}
 void __stdcall DeleteGlobal(void*,void* p){if(p==&old_actor||p==&new_actor)--static_cast<Actor*>(p)->refs;}
 void* __stdcall Class(void*,void*){return &type;}
@@ -55,6 +57,10 @@ void* __stdcall Method(void*,void*,const char* name,const char*){
     if(!std::strcmp(name,"GetElementUpVector"))return Id(14);
     if(!std::strcmp(name,"GetBoneJointPos"))return Id(15);
     if(!std::strcmp(name,"IsRidingHorse"))return Id(16);
+    if(!std::strcmp(name,"IsUsingCannon"))return Id(18);
+    if(!std::strcmp(name,"GetCannon"))return Id(19);
+    if(!std::strcmp(name,"GetThisID"))return Id(20);
+    if(!std::strcmp(name,"IsNotAlive"))return Id(21);
     return Id(99);
 }
 void* __stdcall New(void*,void*,void*,const void*){return new Vector;}
@@ -64,11 +70,17 @@ void* __stdcall Object(void*,void*,void*){return nullptr;}
 void __stdcall SetObject(void*,void*,void*,void*){}
 // JNI jvalue occupies eight bytes on x86.
 union JArg {void* l;std::int32_t i;float f;double d;std::int64_t j;};
-void* __stdcall CallObject(void*,void* obj,void*,const JArg*){
+void* __stdcall CallObject(void*,void* obj,void* method,const JArg*){
+    if(method==Id(19)){
+        if(cannon_fault){pending=true;return nullptr;}
+        return obj==&cannon?static_cast<void*>(&cannon_controller):using_cannon?static_cast<void*>(&cannon):nullptr;
+    }
     if(fail_position){pending=true;return nullptr;}
     const auto p=static_cast<Actor*>(obj)->position;return new Vector{{p.x,p.y,p.z}};
 }
 std::uint8_t __stdcall Boolean(void*,void* obj,void* method,const JArg* args){
+    if(method==Id(18)){if(cannon_fault)pending=true;return using_cannon;}
+    if(method==Id(21))return 0;
     if(method==Id(16)){
         if(mounted_fault)pending=true;
         if(replace_during_mount_observation)g_java_player_bridge.being_generation_=8;
@@ -87,6 +99,8 @@ std::uint8_t __stdcall Boolean(void*,void* obj,void* method,const JArg* args){
     if(wrong_readback&&method==Id(12))v.x+=10;
     auto* out=static_cast<Vector*>(args[1].l);*out={{v.x,v.y,v.z}};return 1;
 }
+std::uint8_t __stdcall Same(void*,void* a,void* b){return a==b;}
+std::int32_t __stdcall IntMethod(void*,void*,void* method,const JArg*){Check(method==Id(20),"unexpected cannon ID method");return 0x1abcd;}
 void __stdcall CallVoid(void*,void* obj,void* method,const JArg* args){
     if(method==Id(17)){++actor_turns;return;}
     if(method!=Id(11))return;
@@ -99,6 +113,7 @@ void Bind(){
     env_table[15]=(void*)&Exception;env_table[17]=(void*)&Clear;env_table[21]=(void*)&Global;env_table[22]=(void*)&DeleteGlobal;
     env_table[23]=(void*)&Drop;env_table[30]=(void*)&New;env_table[31]=(void*)&Class;env_table[33]=(void*)&Method;
     env_table[36]=(void*)&CallObject;env_table[39]=(void*)&Boolean;env_table[63]=(void*)&CallVoid;
+    env_table[24]=(void*)&Same;env_table[51]=(void*)&IntMethod;
     env_table[94]=(void*)&Field;env_table[95]=(void*)&Object;env_table[102]=(void*)&Float;env_table[104]=(void*)&SetObject;env_table[111]=(void*)&SetFloat;
     vm_table[6]=(void*)&Env;
     auto& b=g_java_player_bridge;b.vm_=&vm_holder;b.being_=&old_actor;b.being_generation_=7;old_actor.refs=1;
@@ -128,6 +143,11 @@ void MountedYaw(){
     Check(actor_turns==0&&g_body_yaw_generation==7,
         "actor replacement during mount observation escaped the commit guard");
     replace_during_mount_observation=false;b.being_generation_=7;
+    using_cannon=true;CommitBodyYawOwnership(update,4);
+    Check(actor_turns==0&&g_body_owned_yaw_degrees==10,"Cannon was steered by automatic HMD body following");
+    using_cannon=false;cannon_fault=true;CommitBodyYawOwnership(update,4);
+    Check(actor_turns==0&&g_body_owned_yaw_degrees==10&&!pending,"unknown Cannon ownership admitted body yaw or leaked exception");
+    cannon_fault=false;
     update.actor_yaw_generation=7;CommitBodyYawOwnership(update,4);
     Check(actor_turns==1&&g_body_owned_yaw_degrees==35,
         "verified on-foot body-follow failed after dismount");

@@ -158,6 +158,91 @@ void WheelTooling(Canvas& c) {
     }
 }
 }
+const HudTextPanel& GameplayUiRaster::ControlHint(const runtime::ActionPromptSnapshot& prompts,
+    runtime::PromptAction action,std::uint64_t generation,std::uint64_t now,
+    bool native_text_visible,bool spanish) noexcept {
+    if(native_text_visible){
+        if(!control_hint_pixels_.pixels.empty())++control_hint_revision_;
+        control_hint_pixels_={};control_hint_label_.clear();control_hint_glyph_={};return control_hint_pixels_;
+    }
+    const auto glyph=runtime::ResolveActionPromptGlyph(prompts,action,generation,now);
+    const bool current=prompts.active&&generation&&prompts.binding_generation==generation;
+    const runtime::ActionPromptSnapshot fallback{};
+    const auto label=runtime::ResolveActionPrompt(current?prompts:fallback,action,spanish);
+    if(label.empty()){
+        if(!control_hint_pixels_.pixels.empty())++control_hint_revision_;
+        control_hint_pixels_={};control_hint_label_.clear();control_hint_glyph_={};return control_hint_pixels_;
+    }
+    if(label==control_hint_label_&&glyph==control_hint_glyph_&&!control_hint_pixels_.pixels.empty())return control_hint_pixels_;
+    control_hint_pixels_={};++control_hint_revision_;
+    try{
+        Canvas c;if(!c.pixels)return control_hint_pixels_;
+        const bool art=glyph.kind!=runtime::PromptGlyphKind::none;
+        const COLORREF ink=RGB(245,235,205);
+        if(art){
+            constexpr int x=28,y=32,r=14;
+            using K=runtime::PromptGlyphKind;
+            // Small procedural shapes only; no controller image/asset/license.
+            if(glyph.kind==K::circle){c.Circle(x,y,r,ink);c.Circle(x,y,r-3,RGB(1,1,1));}
+            else if(glyph.kind==K::cross){c.Segment(x-r,y-r,x+r,y+r,3,ink);c.Segment(x-r,y+r,x+r,y-r,3,ink);}
+            else if(glyph.kind==K::square){
+                c.Segment(x-r,y-r,x+r,y-r,3,ink);c.Segment(x+r,y-r,x+r,y+r,3,ink);
+                c.Segment(x+r,y+r,x-r,y+r,3,ink);c.Segment(x-r,y+r,x-r,y-r,3,ink);
+            }else if(glyph.kind==K::triangle){
+                c.Segment(x,y-r,x+r,y+r,3,ink);c.Segment(x+r,y+r,x-r,y+r,3,ink);c.Segment(x-r,y+r,x,y-r,3,ink);
+            }else if(glyph.kind==K::trigger){
+                c.Segment(x-r,y-r,x+r,y-r,3,ink);c.Segment(x+r,y-r,x+9,y+7,3,ink);
+                c.Segment(x+9,y+7,x,y+r,3,ink);c.Segment(x,y+r,x-r,y-r,3,ink);
+            }else if(glyph.kind==K::grip){
+                for(int dy:{-10,0,10})c.Segment(x-r,y+dy,x+r,y+dy,4,ink);
+            }
+            const wchar_t hand=glyph.hand==runtime::PromptGlyphHand::left?L'L':L'R';
+            RECT hand_box{48,0,72,64};SetTextColor(c.dc,ink);
+            DrawTextW(c.dc,&hand,1,&hand_box,DT_CENTER|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX);
+        }
+        // Art never substitutes for the binding's localized name or the semantic
+        // fallback. Native dialogue/hint text never enters this optional panel.
+        const std::wstring text(label.begin(),label.end());RECT box{art?80:16,0,504,64};
+        SetTextColor(c.dc,ink);
+        DrawTextW(c.dc,text.data(),static_cast<int>(text.size()),&box,
+            DT_LEFT|DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);
+        GdiFlush();control_hint_pixels_.width=512;control_hint_pixels_.height=64;
+        control_hint_pixels_.pixels.assign(c.pixels,c.pixels+512*64);
+        for(auto& pixel:control_hint_pixels_.pixels)if(pixel)pixel|=0xFF000000U;
+        control_hint_label_=label;control_hint_glyph_=glyph;
+    }catch(...){control_hint_pixels_={};control_hint_label_.clear();control_hint_glyph_={};}
+    return control_hint_pixels_;
+}
+const HudTextPanel& GameplayUiRaster::DecorateControlHint(const HudTextPanel& instruction,
+    std::uint64_t revision,const runtime::ActionPromptSnapshot& prompts,runtime::PromptAction action,
+    std::uint64_t generation,std::uint64_t now,bool admitted) noexcept {
+    const auto glyph=admitted?runtime::ResolveActionPromptGlyph(prompts,action,generation,now):runtime::PromptGlyph{};
+    const bool art=glyph.kind!=runtime::PromptGlyphKind::none;
+    if(revision==control_decoration_source_revision_&&glyph==control_decoration_glyph_&&
+        (!art||!control_decoration_pixels_.pixels.empty()))return art?control_decoration_pixels_:instruction;
+    control_decoration_source_revision_=revision;control_decoration_glyph_=glyph;
+    control_decoration_pixels_={};++control_decoration_revision_;
+    if(!art||!instruction.width||instruction.width>1968||!instruction.height||instruction.height>512||
+        instruction.pixels.size()!=static_cast<std::size_t>(instruction.width)*instruction.height)return instruction;
+    try{
+        const auto& tile=ControlHint(prompts,action,generation,now,false);
+        if(tile.width!=512||tile.height!=64||tile.pixels.size()!=512*64)return instruction;
+        auto& panel=control_decoration_pixels_;
+        panel.width=instruction.width+80;panel.height=std::max(64U,instruction.height);
+        panel.pixels.assign(static_cast<std::size_t>(panel.width)*panel.height,0xFF151A20U);
+        for(unsigned y=0;y<instruction.height;++y)
+            std::copy_n(instruction.pixels.data()+y*instruction.width,instruction.width,
+                panel.pixels.data()+y*panel.width+80);
+        const unsigned top=(panel.height-64)/2;
+        // Only the procedural icon/hand margin, never its standalone button-name
+        // text. The full coaching sentence already owns the localized binding.
+        for(unsigned y=0;y<64;++y)for(unsigned x=0;x<72;++x){
+            const auto pixel=tile.pixels[y*512+x];
+            if(pixel>>24)panel.pixels[(y+top)*panel.width+x]=pixel;
+        }
+        return panel;
+    }catch(...){control_decoration_pixels_={};return instruction;}
+}
 const HudTextPanel& GameplayUiRaster::Threat(bool damage) noexcept {
     auto& panel=threat_pixels_[damage?1:0];
     if(!panel.pixels.empty())return panel;

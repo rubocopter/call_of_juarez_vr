@@ -60,6 +60,11 @@ bool ReadCoJMotionReloadOwner(void* env, void* player,
 // the adapter must match the result to its accepted continuation owner.
 bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player,
     CoJMotionReloadOwner& out, CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
+// Positive native-only firearm observation, independent of manual idle/recovery
+// states. Exact class, coherent hand slots, cOwner and object/ID stability are
+// required. No new manual admission, reload request or parameter factory call.
+// Caller retains exact-build, gameplay-context and player-generation gates.
+bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept;
 // Diagnostic-only exact-class lookup for a currently observed hand weapon.
 // This never changes eligibility or requests a reload; callers should keep it
 // off the per-frame path and use it only when emitting a rejection sample.

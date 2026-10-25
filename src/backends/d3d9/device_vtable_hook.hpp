@@ -27,6 +27,16 @@ struct DeviceHookCallbacks {
     IDirect3DDevice9* get_direct3d_device = nullptr;
     void (*resource_probe_event)(IDirect3DDevice9*, const RenderResourceEvent&) noexcept = nullptr;
     void (*resource_probe_call)(IDirect3DDevice9*, bool entering) noexcept = nullptr;
+    // Synchronous borrowed arguments at the real native copy boundary, after
+    // forwarding and before the caller can retire them. Never retain them.
+    void (*resource_probe_copy)(IDirect3DDevice9*,IDirect3DSurface9*,const RECT*,
+        IDirect3DSurface9*,const RECT*,HRESULT) noexcept = nullptr;
+    // Separate bounded HUD diagnostic ingress. Register only with the existing
+    // render-resource opt-in AND a qualified natural sprite/flush coordinator.
+    // Entry observes actual pre-draw bindings; exit supplies the native result.
+    // No callback/collector lock may survive into original forwarding.
+    void (*hud_batch_draw)(IDirect3DDevice9*, const RenderResourceEvent&, bool entering) noexcept = nullptr;
+    void (*hud_batch_call)(IDirect3DDevice9*, bool entering) noexcept = nullptr;
     // Source retirement on the caller thread, before BOTH Reset entry points.
     // False defers forwarding while an owned rollback remains incomplete.
     bool (*allow_reset)(IDirect3DDevice9*) noexcept = nullptr;
@@ -42,6 +52,8 @@ struct ResourceProbeHookContinuity {
     bool intact=false;
 };
 [[nodiscard]] ResourceProbeHookContinuity InspectResourceProbeHookContinuity(IDirect3DDevice9*) noexcept;
+// Fixed-slot, allocation-free, nonblocking check for the HUD draw ingress.
+[[nodiscard]] ResourceProbeHookContinuity TryInspectHudBatchHookContinuity(IDirect3DDevice9*) noexcept;
 
 struct DeviceVtableHookContinuity {
     void** vtable = nullptr;

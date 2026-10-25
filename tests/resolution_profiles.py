@@ -24,7 +24,7 @@ def resolve(profile,obs=None,**kwargs):
 
 class ResolutionProfiles(unittest.TestCase):
     def test_pixel_ratios_not_axis_ratios_and_never_apply(self):
-        for name,extent in [('Auto',[2804,2860]),('75%',[2428,2477]),('100%',[2804,2860]),('125%',[3135,3198])]:
+        for name,extent in [('Auto',[2804,2860]),('75%',[2428,2477]),('100%',[2804,2860]),('125%',[3135,3198]),('150%',[3434,3503]),('200%',[3965,4045])]:
             result=resolve(name,observation())
             self.assertEqual(result['candidateDimensions'],extent)
             self.assertFalse(result['applyAllowed'])
@@ -33,6 +33,15 @@ class ResolutionProfiles(unittest.TestCase):
             self.assertIn('recommendation_application_identity',result['unresolvedGates'])
             self.assertEqual(result['payloadLowerBoundBytes'],32*extent[0]*extent[1])
             self.assertLessEqual(abs(extent[0]/extent[1]-2804/2860),1/min(extent))
+
+    def test_all_pixel_profiles_follow_current_headset_and_need_fresh_observation(self):
+        for name,ratio,extent in [('125%',1.25,[2236,1118]),('150%',1.5,[2449,1225]),('200%',2,[2828,1414])]:
+            result=resolve(name,observation(recommendedWidth=2000,recommendedHeight=1000))
+            self.assertEqual(result['candidateDimensions'],extent)
+            self.assertEqual(result['pixelRatio'],ratio)
+            self.assertEqual(resolve(name)['status'],'unavailable')
+            self.assertEqual(resolve(name,observation(observedUtc='2026-10-17T19:57:59Z'))['status'],'rejected')
+            self.assertEqual(resolve(name,observation(),width=2000,height=1000)['status'],'rejected')
 
     def test_manual_preserves_aspect_without_runtime(self):
         result=resolve('Manual',width=2560,height=1440)

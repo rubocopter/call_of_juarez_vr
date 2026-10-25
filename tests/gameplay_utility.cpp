@@ -13,6 +13,22 @@ int Selections(const GameplayInputState& state) {
     return count;
 }
 int main() {
+    // Real headset rates rarely divide a microsecond evenly. Accumulate the
+    // actual timestamps, including repeated samples, for exactly one second.
+    for (const std::uint64_t hz : {72ULL, 80ULL, 90ULL, 120ULL, 144ULL}) {
+        SmoothTurnState smooth;
+        GameplayInputState input{}; input.active = input.turn_available = true;
+        Require(smooth.Update(input, 1000000) == 0, "HMD-rate turn baseline moved");
+        input.turn.x = .625F;
+        float yaw = 0;
+        for (std::uint64_t frame = 1; frame <= hz; ++frame) {
+            const auto now = 1000000 + frame * 1000000 / hz;
+            yaw += smooth.Update(input, now);
+            Require(smooth.Update(input, now) == 0, "repeated HMD sample doubled turn");
+        }
+        Require(std::fabs(yaw - 45.0F) < .002F,
+            "72/80/90/120/144 Hz changed one-second turn distance");
+    }
     // Same one-second turn at 50/100/200 Hz; no per-frame yaw or held snaps.
     for (const std::uint64_t step_us : {20000ULL, 10000ULL, 5000ULL}) {
         SmoothTurnState smooth;

@@ -72,6 +72,9 @@ bool CaptureGpuFrame(
 } // namespace
 
 int main() {
+    // Frame snapshots carry bounded HUD geometry. Keep the independent fault
+    // fixtures on the heap instead of exhausting the default Win32 stack.
+    // Ownership/destruction order and every transport assertion stay intact.
     const auto create_ex = cojvr::backends::d3d9::SystemDirect3DCreate9Ex();
     if (!create_ex) return Fail("System d3d9.dll has no Direct3DCreate9Ex");
 
@@ -110,7 +113,8 @@ int main() {
     if (FAILED(hr) || !source) return Fail("D3D9Ex source surface retrieval failed", hr);
 
     cojvr::backends::d3d9::D3D9StereoCapture capture;
-    cojvr::backends::d3d9::StereoCpuFrame frame{};
+    auto frame_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+    auto& frame = *frame_storage;
     if (!CaptureGpuFrame(capture, device9ex.Get(), source.Get(), 1, frame)) {
         std::cerr << capture.last_error() << '\n';
         return Fail("D3D9Ex capture did not produce a shared frame");
@@ -221,7 +225,8 @@ int main() {
 
     // Acquiring the next producer slot also reclaims the completed consumer
     // lease without waiting or flushing the D3D9 device.
-    cojvr::backends::d3d9::StereoCpuFrame second{};
+    auto second_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+    auto& second = *second_storage;
     if (!CaptureGpuFrame(capture, device9ex.Get(), source.Get(), 2, second)) {
         return Fail("producer ring did not continue after the consumer fence");
     }
@@ -301,7 +306,8 @@ int main() {
     {
         cojvr::backends::d3d9::D3D9StereoCapture recovering_capture;
         cojvr::backends::openvr::D3D9SharedTextureBridge recovering_bridge;
-        cojvr::backends::d3d9::StereoCpuFrame recovering_frame;
+        auto recovering_frame_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+        auto& recovering_frame = *recovering_frame_storage;
         if (!CaptureGpuFrame(recovering_capture, device9ex.Get(), source.Get(), 101, recovering_frame) ||
             !recovering_bridge.CopyFrame(device11.Get(), context11.Get(), recovering_frame,
                 raw_destinations, timing)) {
@@ -403,13 +409,14 @@ int main() {
         // without publishing additional producer frames.
         auto make_probe = [&recovering_frame](const std::uint64_t generation,
             const std::shared_ptr<cojvr::backends::d3d9::ProducerFrameReleaseState>& state) {
-            cojvr::backends::d3d9::StereoCpuFrame probe;
+            auto probe_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+            auto& probe = *probe_storage;
             probe.transport = recovering_frame.transport;
             probe.device_id = recovering_frame.device_id;
             probe.generation = generation;
             probe.shared_eyes = recovering_frame.shared_eyes;
             probe.producer_lease = cojvr::backends::d3d9::ProducerFrameLease(state);
-            return probe;
+            return std::move(probe);
         };
         auto deferred_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
         auto deferred = make_probe(2, deferred_state);
@@ -481,7 +488,8 @@ int main() {
     auto rejected_state = std::make_shared<cojvr::backends::d3d9::ProducerFrameReleaseState>();
     {
         cojvr::backends::openvr::D3D9SharedTextureBridge failed_bridge;
-        cojvr::backends::d3d9::StereoCpuFrame failed_frame{};
+        auto failed_frame_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+        auto& failed_frame = *failed_frame_storage;
         failed_frame.transport = cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
         failed_frame.device_id = frame.device_id;
         failed_frame.generation = frame.generation;
@@ -501,7 +509,8 @@ int main() {
             return Fail("failed GetData prematurely retired a producer GPU lease");
         }
 
-        cojvr::backends::d3d9::StereoCpuFrame rejected_frame{};
+        auto rejected_frame_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+        auto& rejected_frame = *rejected_frame_storage;
         rejected_frame.transport = cojvr::backends::d3d9::StereoFrameTransport::d3d9ex_shared_texture;
         rejected_frame.device_id = frame.device_id;
         rejected_frame.generation = frame.generation;
@@ -550,7 +559,8 @@ int main() {
         cojvr::backends::d3d9::D3D9StereoCapture abandoned_capture;
         {
             cojvr::backends::openvr::D3D9SharedTextureBridge abandoned_bridge;
-            cojvr::backends::d3d9::StereoCpuFrame abandoned_frame;
+            auto abandoned_frame_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+            auto& abandoned_frame = *abandoned_frame_storage;
             if (!CaptureGpuFrame(abandoned_capture, device9ex.Get(), source.Get(), 201, abandoned_frame) ||
                 !abandoned_bridge.CopyFrame(device11.Get(), context11.Get(), abandoned_frame,
                     raw_destinations, timing)) {
@@ -615,13 +625,15 @@ int main() {
             return Fail("producer failed-query fixture could not fence a frame");
         }
         failed_capture.ForceNextFencePollFailureForTest();
-        cojvr::backends::d3d9::StereoCpuFrame quarantined{};
+        auto quarantined_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+        auto& quarantined = *quarantined_storage;
         if (failed_capture.TryCollectReady(quarantined) ||
             failed_capture.stats().ring_depth != 1 ||
             failed_capture.stats().frames_invalidated != 1) {
             return Fail("failed producer query did not quarantine its GPU slot");
         }
-        cojvr::backends::d3d9::StereoCpuFrame following{};
+        auto following_storage = std::make_unique<cojvr::backends::d3d9::StereoCpuFrame>();
+        auto& following = *following_storage;
         if (!CaptureGpuFrame(failed_capture, device9ex.Get(), source.Get(), 21, following) ||
             following.producer_slot == 0 ||
             failed_capture.stats().ring_depth != 2 ||

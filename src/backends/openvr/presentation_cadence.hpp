@@ -17,6 +17,7 @@ enum class PresentationContent : std::uint8_t {
 class PresentationCadence final {
 public:
     void FrameUploaded() noexcept {
+        if (consumer_failed_) return;
         presentable_ = true;
         new_frame_pending_ = true;
     }
@@ -24,6 +25,13 @@ public:
     void Invalidate() noexcept {
         presentable_ = false;
         new_frame_pending_ = false;
+    }
+
+    // Terminal for this presenter consumer. Ordinary invalidation is recoverable;
+    // a removed device needs a new session and must not be revived by an upload.
+    void ConsumerFailed() noexcept {
+        consumer_failed_ = true;
+        Invalidate();
     }
 
     [[nodiscard]] bool presentable() const noexcept { return presentable_; }
@@ -45,6 +53,7 @@ public:
     }
 
 private:
+    bool consumer_failed_ = false;
     bool presentable_ = false;
     bool new_frame_pending_ = false;
 };

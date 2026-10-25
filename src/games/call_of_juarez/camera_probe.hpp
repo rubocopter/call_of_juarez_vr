@@ -5,6 +5,7 @@
 
 #include "runtime/pose_source.hpp"
 #include "runtime/hud_text.hpp"
+#include "runtime/scope_view.hpp"
 
 #include <array>
 #include <cstdint>
@@ -58,6 +59,8 @@ struct CameraWeaponReticle {
 
 struct CameraStereoReticleOverlay {
     std::uint64_t frame_sequence = 0;
+    bool scope_view = false; // Complete centred binocular scoped-rifle view.
+    std::array<runtime::ScopeLens,2> scope_lenses{};
     // Stable hand order: right, left. Each marker has a complete eye pair.
     std::array<CameraWeaponReticle, 2> weapons{};
 };

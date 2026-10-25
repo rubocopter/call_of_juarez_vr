@@ -129,7 +129,8 @@ void* COJVR_JNICALL Method(void*, void* cls, const char* name, const char* sig) 
         return Token(Id::module_key);
     if (cls == &ui_class && Is(name, "CallOnInputKeyGlobal") && Is(sig, "(IZI)V"))
         return Token(Id::ui_key);
-    if (cls == &ui_class && Is(name, "OnInputKey") && Is(sig, "(IZC)V"))
+    if (cls == &ui_class && Is(name, "cojvrLoadingState") && Is(sig, "()I")) return Token(Id::loading_key);
+    if (cls == &ui_class && Is(name, "cojvrContinueLoading") && Is(sig, "()Z"))
         return Token(Id::loading_key);
     if (Is(name, "GetHintManager") && Is(sig, "()LHintManager;")) {
         // Shipped LawmanModule extends Module, not GameMode. The getter is
@@ -266,6 +267,12 @@ void* COJVR_JNICALL New(void*, void* cls, void* ctor, const JValue* args) {
     return Local(vector);
 }
 std::uint8_t COJVR_JNICALL Boolean(void*, void* obj, void* method, const JValue* args) {
+    if(obj==&ui && method==Token(Id::loading_key)) {
+        Require(!pending && !args && loading_ui);
+        if(loading_key_throw) {pending=true;return 0;}
+        if(!loading_waiting)return 0;
+        ++loading_presses;loading_waiting=false;return 1;
+    }
     if (obj == &module && method == Token(Id::mission_visible)) {
         Require(!pending && !args);
         if (mission_throw) pending = true;
@@ -369,6 +376,7 @@ std::uint8_t COJVR_JNICALL Instance(void*, void* obj, void* cls) {
     return obj == &ui && loading_ui ? 1 : 0;
 }
 std::int32_t COJVR_JNICALL Int(void*, void* obj, void* method, const JValue* args) {
+    if(obj==&ui&&method==Token(Id::loading_key)){Require(!pending&&!args);return loading_waiting?1:2;}
     Require(!pending && (obj == &ui || obj == &modal_ui) &&
         method == Token(Id::object_id) && !args);
     return obj == &modal_ui ? 456 : 123;
@@ -771,6 +779,11 @@ int Run() {
                 enter_presses == enter_before && native_clicks == clicks_before &&
                 route == CoJUiDispatchRoute::loading_ui,
                 "loading Cross/ray select must send one native key-down, not key-up or generic UI input");
+            const bool repeated=pointer?bridge.TryDispatchUiPointerSelectPress(
+                require_loading,&DispatchMouseButton,&observed_loading,&error,nullptr,&route):
+                bridge.TryDispatchUiSelectPress(require_loading,&observed_loading,&error,nullptr,&route);
+            ok&=Check(!repeated&&loading_presses==presses_before+1&&native_clicks==clicks_before,
+                "queued loading continuation restarted fade or became a generic click");
             bridge.Reset(); CheckClean();
         }
         JavaPlayerBridge bridge; std::string error;

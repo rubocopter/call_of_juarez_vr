@@ -3,7 +3,10 @@
 #include "runtime/vr_types.hpp"
 
 namespace cojvr::games::call_of_juarez {
-struct CoJLongGunFireRouting {bool block_left=false,block_right=false;};
+struct CoJLongGunFireRouting {
+    bool block_left=false,block_right=false;
+    std::uint32_t scoped_right_weapon=0;
+};
 // Attack(hand, pressed) retries the other hand when the requested one cannot
 // attack. An empty hand must not fire the sole exact rifle in the other hand.
 // This read needs no grip geometry, native idle state or ammo mutation, and
@@ -27,14 +30,26 @@ inline bool ReadCoJLongGunFireOwnership(void* env,void* player,CoJLongGunFireRou
     for(int h=0;h<2;++h){
         for(int i=1;i<3;++i)if(!r.Equal(owners[h*3],owners[h*3+i]))return false;
     }
-    bool rifle=false;
+    bool rifle=false,scoped=false;
+    std::uint32_t scoped_id=0;
+    void* scoped_id_method=nullptr;
     const bool right=owners[0].value!=nullptr,left=owners[3].value!=nullptr;
     if(right!=left){
         auto weapon_class=r.Class(owners[right?0:3]);if(!r.ok)return false;
         for(const char* name:Classes){
             auto exact=r.FindClass(name);if(!r.ok)return false;
-            if(r.Equal(weapon_class,exact)){rifle=true;break;}
+            if(r.Equal(weapon_class,exact)){
+                rifle=true;
+                scoped=right&&std::strcmp(name,"WeaponRifleWinchesterScope")==0;
+                break;
+            }
             if(!r.ok)return false;
+        }
+        if(scoped){
+            if(!(*static_cast<void***>(env))[51])return false;
+            scoped_id_method=r.Method(weapon_class,"GetThisID","()I");if(!r.ok)return false;
+            scoped_id=static_cast<std::uint32_t>(r.Int(owners[0],scoped_id_method));
+            if(!r.ok||!ValidId(scoped_id))return false;
         }
     }
     // Classification may resolve classes; bracket its whole read with the
@@ -43,7 +58,8 @@ inline bool ReadCoJLongGunFireOwnership(void* env,void* player,CoJLongGunFireRou
         auto again=r.Get(player,methods[i],h);
         if(!r.ok||!r.Equal(again,owners[h*3+i]))return false;
     }
-    routing={rifle&&right,rifle&&left};return true;
+    if(scoped&&(static_cast<std::uint32_t>(r.Int(owners[0],scoped_id_method))!=scoped_id||!r.ok))return false;
+    routing={rifle&&right,rifle&&left,scoped_id};return true;
 }
 class CoJLongGunFreeTrigger final {
 public:

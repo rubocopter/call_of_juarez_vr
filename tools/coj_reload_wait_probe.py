@@ -6,7 +6,7 @@ Only the canonical patcher may install it from hash-verified original classes.
 """
 import hashlib
 import struct
-from inspect_java_bytecode import Reader, parse_constant_pool, disassemble
+from inspect_java_bytecode import Reader, parse_constant_pool, disassemble, instruction_offsets
 from patch_coj_weapon_consumers import Code, u2, u4, insert_target_tag, patch_class
 
 STATE_SHA256 = 'd8bc41b303ee2b419c42dd3f93318c1f76e1c4ba1b51d2df824c4b846d2af8f8'
@@ -20,6 +20,10 @@ class ClassEdit:
         self.pool = parse_constant_pool(r); self.cp_end = r.stream.tell()
         self.extra = bytearray(); self.next = len(self.pool.entries)
         self.refs = {self.pool.describe(i): i for i, e in enumerate(self.pool.entries) if e is not None and i}
+        # String and Utf8 have the same human-readable describe() value. Keep
+        # symbol identities typed when composing multiple verified derivatives.
+        self.utf8_refs = {entry[1]: i for i, entry in enumerate(self.pool.entries)
+                          if entry is not None and entry[0] == 'Utf8'}
         r.u2(); self.this = r.u2(); r.u2(); r.read(r.u2() * 2)
         self.fields_at = r.stream.tell(); self.fields_count = r.u2()
         for _ in range(self.fields_count): self.member()
@@ -35,10 +39,9 @@ class ClassEdit:
         i = self.next; self.next += 1; self.extra.extend(raw); return i
 
     def utf8(self, text):
-        key = repr(text)
-        if key not in self.refs:
-            raw = text.encode('utf-8'); self.refs[key] = self.append(b'\x01' + u2(len(raw)) + raw)
-        return self.refs[key]
+        if text not in self.utf8_refs:
+            raw = text.encode('utf-8'); self.utf8_refs[text] = self.append(b'\x01' + u2(len(raw)) + raw)
+        return self.utf8_refs[text]
 
     def cls(self, owner):
         if owner not in self.refs: self.refs[owner] = self.append(b'\x07' + u2(self.utf8(owner)))
@@ -57,8 +60,21 @@ class ClassEdit:
         self.fields.extend(u2(0x0081) + u2(self.utf8(name)) + u2(self.utf8(desc)) + u2(0))
         return self.ref(owner, name, desc, 9)
 
-    def helper(self, name, desc, code, locals_):
-        attr = u2(8) + u2(locals_) + u4(len(code)) + code + u2(0) + u2(0)
+    def helper(self, name, desc, code, locals_, *, exception_table=()):
+        handlers = bytearray()
+        if exception_table:
+            boundaries = instruction_offsets(code)
+            pool = parse_constant_pool(Reader(u2(self.next) + self.data[10:self.cp_end] + self.extra))
+        for start, end, handler, catch_type in exception_table:
+            if not (0 <= start < end <= len(code) and 0 <= handler < len(code) and
+                    0 <= catch_type < self.next and start in boundaries and
+                    handler in boundaries and (end == len(code) or end in boundaries)):
+                raise ValueError('Invalid emitted helper exception table')
+            if catch_type and pool.get(catch_type)[0] != 'Class':
+                raise ValueError('Invalid emitted helper exception table')
+            handlers.extend(u2(start) + u2(end) + u2(handler) + u2(catch_type))
+        attr = (u2(8) + u2(locals_) + u4(len(code)) + code +
+                u2(len(exception_table)) + handlers + u2(0))
         self.helpers.append(u2(1) + u2(self.utf8(name)) + u2(self.utf8(desc)) + u2(1) +
                             u2(self.utf8('Code')) + u4(len(attr)) + attr)
 
@@ -85,13 +101,23 @@ class ClassEdit:
                 self.data[self.fields_at+2:self.fields_end] + self.fields + methods + self.data[r.stream.tell():])
 
 
-def patch_probe_classes(original_player, original_machine):
+def patch_probe_classes(original_player, original_machine, *, _offline_weapon=None, _offline_indexed=None):
     # patch_class owns the original ArmedPlayerBeing hash check. Never augment
     # unknown or already modified input. The second class is checked before any
     # output is created by the archive patcher.
     if hashlib.sha256(original_machine).hexdigest() != STATE_SHA256:
         raise ValueError('Unknown StateMashine.class SHA-256; no mutation')
-    e = ClassEdit(patch_class(original_player))
+    if _offline_indexed is not None:
+        if _offline_weapon is not None:
+            raise ValueError('Select one exact offline reload family')
+        from coj_indexed_reload_session import _patch_indexed_player
+        patched_player = _patch_indexed_player(original_player, _offline_indexed)
+    elif _offline_weapon is None:
+        patched_player = patch_class(original_player)
+    else:
+        from coj_offline_manual_reload import _patch_offline_player
+        patched_player = _patch_offline_player(original_player, _offline_weapon)
+    e = ClassEdit(patched_player)
     f = {name: e.field('cojvrReloadProbe' + name, desc) for name, desc in (
         ('Weapon', 'LWeapon;'), ('Hand', 'I'), ('Machine', 'LPlayerStateMashine;'),
         ('Until', 'F'), ('Since', 'F'), ('Cancelled', 'Z'), ('Status', 'I'))}

@@ -21,7 +21,7 @@ param(
     [string]$IndependentEyeResolution = 'off',
     [ValidateSet('preserve','2804x2860')]
     [string]$NativeResolution = 'preserve',
-    [ValidateSet('Preserve','Auto','75%','100%','125%','Manual')]
+    [ValidateSet('Preserve','Auto','75%','100%','125%','150%','200%','Manual')]
     [string]$ResolutionProfile = 'Preserve',
     [object]$ResolutionWidth = 0,
     [object]$ResolutionHeight = 0,
@@ -38,6 +38,7 @@ $LocalConfigPath = Join-Path $LocalStateDirectory "vr-test.json"
 $VideoProfileStatePath = Join-Path $LocalStateDirectory "vr-video-profile.json"
 $VideoProfileBackupPath = Join-Path $LocalStateDirectory "vr-video-profile.backup"
 . (Join-Path $PSScriptRoot "coj_video_profile.ps1")
+. (Join-Path $PSScriptRoot "coj_resolution_session.ps1")
 
 function Get-CoJVideoSettingsPath {
     $Documents = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
@@ -68,7 +69,7 @@ function Invoke-VrResolutionObservation {
     $Raw=& $Helper --preparation-id $PreparationId
     $ExitCode=$LASTEXITCODE
     if ($ExitCode -notin @(0,2)) {throw 'Resolution observation helper failed.'}
-    try {$Record=($Raw -join "`n") | ConvertFrom-Json} catch {throw 'Resolution helper did not return a valid observation.'}
+    try {$Record=ConvertFrom-CoJResolutionJson ($Raw -join "`n")} catch {throw 'Resolution helper did not return a valid observation.'}
     return [pscustomobject]@{PreparationId=$PreparationId;Record=$Record}
 }
 
@@ -89,7 +90,7 @@ function Invoke-VrNativeResolutionLimits {
 }
 
 function Resolve-VrResolutionProfile {
-    param([ValidateSet('Preserve','Auto','75%','100%','125%','Manual')][string]$Profile='Preserve',
+    param([ValidateSet('Preserve','Auto','75%','100%','125%','150%','200%','Manual')][string]$Profile='Preserve',
           [object]$Width=0,[object]$Height=0,[switch]$Experimental)
     $Width=ConvertTo-CoJNativeDimension $Width
     $Height=ConvertTo-CoJNativeDimension $Height
@@ -108,7 +109,7 @@ function Resolve-VrResolutionProfile {
             python $Resolver --profile $Profile --observation - --preparation-id $Observation.PreparationId
     }
     $ExitCode=$LASTEXITCODE
-    try {$Proposal=($Raw -join "`n") | ConvertFrom-Json} catch {throw 'Invalid resolution proposal report.'}
+    try {$Proposal=ConvertFrom-CoJResolutionJson ($Raw -join "`n")} catch {throw 'Invalid resolution proposal report.'}
     if ($ExitCode -ne 0 -or $Proposal.status -eq 'rejected') {throw ('Resolution request rejected: '+($Proposal.errors -join '; '))}
     if ($Proposal.status -eq 'unavailable') {
         return [pscustomobject]@{Status='preserve_unavailable';Width=0;Height=0;Experimental=$false;Profile=$Profile;Proposal=$Proposal}
@@ -181,8 +182,42 @@ $CurrentRunPath = Join-Path $ResolvedGameDirectory ".cojvr-run.json"
 $ControlPath = Join-Path $ResolvedGameDirectory "cojvr-camera-control.json"
 $ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 
+function Resolve-VrLargeAddressAware {
+    param([switch]$BodyIkAtStart,[switch]$StartupOnly,
+          [switch]$ExplicitChoice,[switch]$Requested)
+    if ($ExplicitChoice) { return [bool]$Requested }
+    # Match the established full gameplay recipe. A caller can still explicitly
+    # request the original 2 GiB image for a controlled diagnostic candidate.
+    return [bool]($BodyIkAtStart -and -not $StartupOnly)
+}
+
+function Enter-VrWorkflowLock([string]$Directory) {
+    [void][IO.Directory]::CreateDirectory($Directory)
+    try {
+        return [IO.File]::Open((Join-Path $Directory 'vr-test.workflow.lock'),
+            [IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    } catch [IO.IOException] {
+        if(($_.Exception.HResult -band 0xffff) -in @(32,33)) {
+            throw 'Another VR prepare/finish operation is running. Wait for it to finish before trying again.'
+        }
+        throw
+    }
+}
+
+$WorkflowLease=$null
+if($Action -in @('prepare','finish')) {$WorkflowLease=Enter-VrWorkflowLock $LocalStateDirectory}
+try {
 switch ($Action) {
     "prepare" {
+        $LargeAddressAware = [switch](Resolve-VrLargeAddressAware `
+            -BodyIkAtStart:$BodyIkAtStart -StartupOnly:$StartupOnly `
+            -ExplicitChoice:($PSBoundParameters.ContainsKey('LargeAddressAware')) `
+            -Requested:$LargeAddressAware)
+        $MenuResolutionDefault=$BodyIkAtStart -and -not $StartupOnly -and $LargeAddressAware -and
+            -not $KeepVideoSettings -and $IndependentEyeResolution -eq 'off' -and
+            -not $UseSavedResolutionProfile -and -not $PSBoundParameters.ContainsKey('ResolutionProfile') -and
+            $NativeResolution -eq 'preserve' -and -not $ResolutionWidth -and -not $ResolutionHeight -and
+            -not $ExperimentalResolutionProfile
         if ($UseSavedResolutionProfile) {
             if ($PSBoundParameters.ContainsKey('ResolutionProfile') -or $ResolutionWidth -or $ResolutionHeight -or
                 $ExperimentalResolutionProfile -or $NativeResolution -ne 'preserve') {
@@ -260,8 +295,8 @@ switch ($Action) {
                 Invoke-Checked { cmake --build --preset release } "Release build failed."
                 Invoke-Checked { ctest --preset release } "Release host tests failed."
             }
-            if ($ProfileRequested) {
-                Invoke-Checked { cmake --build --preset release --target cojvr_openvr_resolution_query cojvr_d3d9_resolution_limits } "Resolution helper build failed."
+            if ($ProfileRequested -or $MenuResolutionDefault) {
+                Invoke-Checked { cmake --build --preset release --target cojvr_graphics_startup cojvr_openvr_resolution_query cojvr_d3d9_resolution_limits } "Resolution helper build failed."
                 Invoke-Checked { ctest --preset release -R '^(resolution_profiles|resolution_profile_workflow|openvr_resolution_query_cli|d3d9_resolution_limits_cli)$' } "Resolution profile host tests failed."
             }
         } finally {
@@ -270,6 +305,14 @@ switch ($Action) {
 
         # Provenance must bind the exact artifact produced by the build/test tree
         # above. Do not stage a similarly named DLL from another build directory.
+        if($MenuResolutionDefault) {
+            $MenuProfile=& (Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_graphics_startup.exe')
+            if($LASTEXITCODE -eq 0 -and @('Auto','75%','100%','125%','150%','200%') -ccontains [string]$MenuProfile) {
+                $ResolutionProfile=[string]$MenuProfile
+                $ExperimentalResolutionProfile=[switch]$true;$ProfileRequested=$true
+                Write-Host "Native VR menu startup resolution: $ResolutionProfile (fresh headset query for automatic scales)."
+            } else {Write-Warning 'Native graphics startup preferences unavailable; preserving native resolution.'}
+        }
         $ProxyPath = Join-Path $RepositoryRoot "build\win32-debug\Release\d3d9_native_stereo.dll"
         $ManifestPath = Join-Path $RepositoryRoot "build\win32-debug\Release\d3d9_native_stereo.build-manifest.json"
         & (Join-Path $PSScriptRoot "new_build_manifest.ps1") `
@@ -313,7 +356,8 @@ switch ($Action) {
             $VideoProfile = $null
             if (-not $KeepVideoSettings) {
                 if ($ResolutionDecision.Experimental -and $ResolutionProfile -ne 'Manual') {
-                    $ObservationAge=([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse($ResolutionDecision.Proposal.observation.observedUtc)).TotalSeconds
+                    $ObservationAge=([DateTimeOffset]::UtcNow-[DateTimeOffset]::Parse(
+                        $ResolutionDecision.Proposal.observation.observedUtc,[Globalization.CultureInfo]::InvariantCulture)).TotalSeconds
                     if ($ObservationAge -lt 0 -or $ObservationAge -gt 120) {throw 'Resolution observation expired before video apply; prepare a fresh session.'}
                 }
                 $VideoProfile = Apply-VrVideoProfile -NativeResolution $NativeResolution `
@@ -410,7 +454,7 @@ switch ($Action) {
         Write-Host "Hold Triangle for the equipment wheel: highlight with right stick, release Triangle to confirm once, release in center to cancel. Center right stick after closing before smooth turning resumes. In a prepared duel, freshly lower the right hand toward the hip with the stick centered, then pull the stick down to draw. Physically raise the hand before stick-up raises the weapon; stick-only input is insufficient. Left/right aims; native timing and triggers remain authoritative. Correct draw/raise and rejection of exercised incorrect positions are accepted; unreported native early timing and retry recovery remain pending. Create tap opens Objectives on release; an 800 ms hold recenters once."
         Write-Host "Physical bow: left hand holds/aims. Bring the right hand to the string, freshly hold R2 to grab, retract the right arm and release R2 to shoot once. L2 is not required. Returning toward the bow or moving off-axis relaxes tension without dropping the held string; a short/slack release must not fire. Latest operator feedback is substantially improved; sustained consistency, mesh/arrow/reticle agreement, vibration and interruption recovery remain separate checks."
         Write-Host "Basic virtual holsters (host-tested, physical fit pending): on foot outside duels, fresh R1 at the right hip toggles its pistol; L1 at the left hip toggles its pistol; R1 above/behind the right shoulder toggles the rifle; L1 above/behind the left shoulder toggles the bow. Release between attempts. Optional colored guides default off in native VR comfort settings; check reach, alignment and On/Off there. Judge the new wheel styling during ordinary selection. No visible holstered mesh is required. The claimed grip suppresses Action/Kick until release; elsewhere L1/R1 retain their normal functions. Native inventory/permissions and hand transitions remain authoritative."
-        Write-Host "Two-hand rifle support (Remington grasp headset-validated; Winchester/SawOff physical fit pending): enable native VR weapon guides to locate the small L1 contact marker on an idle Winchester/Remington/SawOff. Cyan locates the calculated contact; green means the released left hand is within its existing capture zone; grey requests L1 release. Approach then press L1. The marker hides on attachment. Judge marker/foregrip alignment for an untested model; do not repeat an accepted grasp solely for confirmation. Aim/roll and fire with R2 only if acquired; release L1 to detach. Square cancels support and retains automatic native rifle reload; physical manual rifle reload remains unimplemented. Scope variants are not admitted. Earlier free-hand appearance and corrected free-L2 suppression keep their scoped acceptance; physical cartridge loading remains limited to admitted revolvers."
+        Write-Host "Two-hand rifle support (Remington and scoped Winchester grasp accepted where exercised; Winchester/SawOff physical fit pending): enable native VR weapon guides to locate the small L1 contact marker on an idle admitted rifle. Cyan locates the calculated contact; green means the released left hand is within its existing capture zone; grey requests L1 release. Approach then press L1. The marker hides on attachment. Judge marker/foregrip alignment for an untested model; do not repeat an accepted grasp solely for confirmation. Hold L1 for support and fire with R2; release L1 to detach. Square cancels support and retains automatic native rifle reload; physical manual rifle reload remains unimplemented. Scoped Winchester R2 discharge and L1 support are accepted where exercised. R3 uses native Focus with revised binocular disparity/principal-point mapping, a thin sniper sight and black surround; fusion/readability remain pending after rejection of the preceding zoom. Square reload and combined recovery remain unconfirmed. Earlier free-hand appearance and corrected free-L2 suppression keep their scoped acceptance; physical cartridge loading remains limited to admitted revolvers."
         Write-Host "Sense tutorial: Cross dismisses a blocking hint; release, then Circle requests Z/alternate fire in gameplay. R3 is Focus/zoom. Ray concentration needs both pistols holstered and native readiness/cooldown: with both drawn, Triangle + right wheel sector/release hides right pistol; center, Triangle + left/release hides left pistol. Let both animations finish, then freshly press L2/R2. Down/Hands is fists, not empty hands."
         Write-Host "VR labels follow startup Game.ini Locale En/Es; unknown settings use English. Native copied text keeps its own localization. Blocking native tutorial images still contain PC keys. Source UTF-8 and UTF-16 accent preservation are host-tested; wording and visor fit join the combined session."
         Write-Host "Gameplay HUD: native text and visible cached wrist data include health/ammo, posture/shadow and optional concentration/countdown/horse indicators. Concentration state glyphs and paired horse health/fatigue meters are host-tested; check them only when naturally available in the combined session. Fatigue is not remaining stamina. Full native graphical HUD capture remains pending."
@@ -604,3 +648,4 @@ switch ($Action) {
         break
     }
 }
+} finally {if($WorkflowLease){$WorkflowLease.Dispose()}}

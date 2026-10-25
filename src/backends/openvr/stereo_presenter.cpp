@@ -17,6 +17,8 @@
 #include "runtime/bow_draw_haptics.hpp"
 #include "runtime/vr_math.hpp"
 #include "backends/openvr/flat_menu_composition.hpp"
+#include "backends/openvr/spatial_image_processor.hpp"
+#include "runtime/graphics_settings.hpp"
 
 #include <d3d11.h>
 #include <d3d9.h>
@@ -396,6 +398,9 @@ struct OpenVrStereoPresenter::Impl {
         std::vector<std::uint8_t>& flat_pointer_scratch,
         FlatMenuCompositor& flat_menu_compositor,
         bool& menu_gpu_disabled,
+        SpatialImageProcessor& spatial_processor,
+        const runtime::GraphicsSettings& graphics,
+        bool& spatial_disabled,
         bool clear_flat_canvas,
         std::array<ComPtr<ID3D11Texture2D>, 2>& textures,
         std::uint32_t& texture_width,
@@ -420,6 +425,75 @@ struct OpenVrStereoPresenter::Impl {
                 ? fixed_frame_authority.Execute(fixed_authority_epoch, operation)
                 : operation();
         };
+        // The adapter owns the angular aperture and its physical-eye projection.
+        // Admit complete lenses aligned with this capture's right-weapon markers.
+        const auto& scope_marker=frame.gameplay_reticle.weapons[0];
+        const bool scope_view=frame.presentation_mode==d3d9::FramePresentationMode::native_stereo&&
+            IsCurrentCenteredScopeReticle(frame.gameplay_reticle,frame.capture_sequence);
+        bool scope_mask_applied=false;
+        const auto process_graphics = [&]() noexcept {
+            const auto horse_lease_ms=runtime::CurrentMountedMotionLeaseMs();
+            const float horse_dimming=horse_lease_ms?
+                (graphics.horse_comfort==1?.55F:graphics.horse_comfort==2?.85F:0.F):0.F;
+            const auto report_horse=[&](unsigned route,const char* status,float applied) noexcept {
+                // Bound transition diagnostics as well as ordinary sequence
+                // sampling; do not format/write every mounted frame.
+                static thread_local unsigned last_state=~0U,transitions=0;
+                const unsigned state=route*16+unsigned(graphics.horse_comfort)*2+(horse_lease_ms!=0);
+                const bool changed=state!=last_state;last_state=state;
+                if(!ShouldLogSequence(frame.capture_sequence)&&!(changed&&transitions<256))return;
+                if(changed&&transitions<256)++transitions;
+                try {
+                    std::ostringstream line;
+                    line<<"native_stereo_horse_comfort: status="<<status
+                        <<";frame_sequence="<<frame.capture_sequence<<";render_pose_sequence="<<frame.render_pose_sequence
+                        <<";device_id="<<frame.device_id<<";generation="<<frame.generation
+                        <<";horse_comfort="<<unsigned(graphics.horse_comfort)<<";color_enabled="<<graphics.enabled
+                        <<";motion_lease_remaining_ms="<<horse_lease_ms<<";requested_dimming="<<horse_dimming
+                        <<";applied_dimming="<<applied<<";applied_dimming_known="<<(route!=5);
+                    Log(line.str());
+                } catch (...) {}
+            };
+            // Only fresh ordinary native captures reach this point. Theater and
+            // the separate experimental private bank retain their own contracts.
+            if(fixed_outputs) {report_horse(1,"private_bank",0);return true;}
+            if(spatial_disabled) {report_horse(2,"processor_disabled",0);return true;}
+            if(frame.presentation_mode!=d3d9::FramePresentationMode::native_stereo) {
+                report_horse(3,"theater",0);return true;
+            }
+            if(!runtime::GraphicsEffectsActive(graphics)&&horse_dimming==0&&!scope_view) {
+                report_horse(4,graphics.horse_comfort==0?"off":"no_motion_lease",0);return true;
+            }
+            const std::array<ID3D11Texture2D*,2> targets{textures[0].Get(),textures[1].Get()};
+            if(!spatial_processor.Process(d3d11.device(),d3d11.context(),targets,graphics,horse_dimming,scope_view,
+                    scope_view?&frame.gameplay_reticle.scope_lenses:nullptr,scope_view&&scope_marker.no_shoot)) {
+                const auto failure=spatial_processor.last_result();
+                spatial_disabled=true;
+                report_horse(5,"processing_failed",0);
+                std::ostringstream line;line<<"native_stereo_graphics: status=disabled;hr=0x"<<std::hex<<failure
+                    <<";device_removed=0x"<<d3d11.device()->GetDeviceRemovedReason();Log(line.str());
+                spatial_processor.Reset();
+                // Setup/validation failures precede writes and retain the native
+                // pair. A removed device cannot qualify either eye for submit.
+                return SUCCEEDED(d3d11.device()->GetDeviceRemovedReason());
+            }
+            scope_mask_applied=scope_view;
+            report_horse(6,scope_view?"scope":"processed",scope_view?0.F:horse_dimming);
+            if(ShouldLogSequence(frame.capture_sequence)) {
+                std::ostringstream line;line<<"native_stereo_graphics: status=processed;frame_sequence="<<frame.capture_sequence
+                    <<";device_id="<<frame.device_id<<";generation="<<frame.generation
+                    <<";width="<<texture_width<<";height="<<texture_height
+                    <<";scope_view="<<scope_view
+                    <<";color_enabled="<<graphics.enabled<<";sharpness="<<graphics.sharpness
+                    <<";contrast="<<graphics.contrast<<";saturation="<<graphics.saturation
+                    <<";gamma="<<graphics.gamma<<";edge_smoothing="<<graphics.edge_smoothing
+                    <<";cpu_queue_ms="<<spatial_processor.last_queue_ms()
+                    <<";scratch_allocations="<<spatial_processor.scratch_allocations()
+                    <<";scratch_bytes="<<std::uint64_t(texture_width)*texture_height*4;
+                Log(line.str());
+            }
+            return true;
+        };
         const auto update_output = [&](std::size_t eye, const D3D11_BOX* box,
                                        const void* pixels, UINT row_pitch) noexcept {
             const bool updated = run_authorized([&]() noexcept {
@@ -434,6 +508,10 @@ struct OpenVrStereoPresenter::Impl {
         };
         const auto draw_hud_text = [&]() noexcept {
             if (!authority_ok()) { composition_ok = false; return; }
+            // Scope presentation keeps its black surround and only the optical
+            // sight. Later wrist/text/guide writes must not repaint the mask;
+            // the new world upload already retired any preceding HUD preimage.
+            if(scope_mask_applied)return;
             if (frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
                 frame.hud_text.frame_sequence != frame.capture_sequence) return;
             const std::array<ID3D11Texture2D*, 2> targets{textures[0].Get(), textures[1].Get()};
@@ -449,6 +527,9 @@ struct OpenVrStereoPresenter::Impl {
         };
         const auto draw_gameplay_reticle = [&]() noexcept {
             if (!authority_ok()) { composition_ok = false; return; }
+            // The GPU scope pass already drew its sight after scene filters.
+            // Neither the ordinary cross nor secondary markers may repaint it.
+            if(scope_mask_applied)return;
             if (!frame.gameplay_reticle.active() ||
                 frame.gameplay_reticle.frame_sequence != frame.capture_sequence ||
                 frame.presentation_mode != d3d9::FramePresentationMode::native_stereo ||
@@ -576,6 +657,7 @@ struct OpenVrStereoPresenter::Impl {
             }
             upload_ms = shared_timing.open_ms + shared_timing.copy_queue_ms;
             discard_old_text();
+            if(!process_graphics())return false;
             draw_gameplay_reticle();
             draw_hud_text();
             return !fixed_outputs || (composition_ok && authority_ok());
@@ -824,6 +906,7 @@ struct OpenVrStereoPresenter::Impl {
                 if (!update_output(eye, nullptr, CpuEyeData(source), source.stride)) return false;
             }
         }
+        if(!process_graphics())return false;
         draw_gameplay_reticle();
         draw_hud_text();
         const auto upload_end = std::chrono::steady_clock::now();
@@ -897,6 +980,9 @@ struct OpenVrStereoPresenter::Impl {
         const auto settings_path=runtime::DefaultVrSettingsPath();
         auto& preference_store=runtime::SharedVrPreferences();
         const auto loaded_settings=preference_store.Initialize(settings_path);
+        auto& graphics_store=runtime::SharedGraphicsPreferences();
+        const auto loaded_graphics=graphics_store.Initialize(runtime::DefaultGraphicsSettingsPath());
+        auto active_graphics=loaded_graphics;
         runtime::PublishSettingsInputCapture(true);
         std::array<ComPtr<ID3D11Texture2D>, 2> textures{};
         std::uint32_t texture_width = 0;
@@ -921,6 +1007,8 @@ struct OpenVrStereoPresenter::Impl {
         std::vector<std::uint8_t> flat_pointer_scratch;
         FlatMenuCompositor flat_menu_compositor;
         bool menu_gpu_disabled=false;
+        SpatialImageProcessor spatial_processor;
+        bool spatial_disabled=false;
         runtime::UiPointerOwnership pointer_ownership;
         runtime::UiPointerGameplayGate pointer_gameplay_gate;
         runtime::EquipmentWheelHaptics wheel_haptics;
@@ -1084,6 +1172,15 @@ struct OpenVrStereoPresenter::Impl {
             running.store(true, std::memory_order_release);
             Log(std::string("vr_settings: editor=native_options;pause=fresh_press;config_load=")+
                 std::to_string(static_cast<int>(loaded_settings.load_status))+";error="+std::to_string(loaded_settings.load_error));
+            {
+                const auto& values=loaded_graphics.values;
+                std::ostringstream line;line<<"native_stereo_graphics: config_load="<<static_cast<int>(loaded_graphics.load_status)
+                    <<";error="<<loaded_graphics.load_error<<";active="<<(runtime::GraphicsEffectsActive(values)&&!fixed_outputs)
+                    <<";sharpness="<<values.sharpness<<";contrast="<<values.contrast<<";saturation="<<values.saturation
+                    <<";gamma="<<values.gamma<<";edge_smoothing="<<values.edge_smoothing
+                    <<";scope=fresh_native_before_overlays;experimental=true";
+                Log(line.str());
+            }
             const float initial_refresh = runtime.ReadDisplayFrequency();
             display_frequency_hz.store(
                 runtime::HmdFramePacer::ValidRefresh(initial_refresh) ? initial_refresh : 0.0F,
@@ -1723,12 +1820,48 @@ struct OpenVrStereoPresenter::Impl {
                             flat_ui_pointer = {};
                             PublishFlatUiPointer(flat_ui_pointer);
                         }
+                        // Publication has its own short lock and never waits on
+                        // the menu owner's persistence lock or reads the file.
+                        // Apply one coherent tuple only at a fresh capture; old
+                        // images retain their existing processing on repeats.
+                        const auto published_graphics=runtime::CurrentGraphicsPreferences();
+                        if(published_graphics.revision!=active_graphics.revision) {
+                            active_graphics=published_graphics;
+                            // A deliberate new OK may retry optional setup on a
+                            // healthy consumer. A terminal consumer never reaches
+                            // this loop again and cannot be revived by settings.
+                            spatial_disabled=false;
+                            std::ostringstream line;line<<"native_stereo_graphics: status=settings_applied;revision="
+                                <<active_graphics.revision<<";frame_sequence="<<frame.capture_sequence
+                                <<";active="<<runtime::GraphicsEffectsActive(active_graphics.values)
+                                <<";horse_comfort="<<unsigned(active_graphics.values.horse_comfort)
+                                <<";color_enabled="<<active_graphics.values.enabled
+                                <<";sharpness="<<active_graphics.values.sharpness
+                                <<";contrast="<<active_graphics.values.contrast
+                                <<";saturation="<<active_graphics.values.saturation
+                                <<";gamma="<<active_graphics.values.gamma
+                                <<";edge_smoothing="<<active_graphics.values.edge_smoothing;
+                            Log(line.str());
+                        }
                         if (fixed_outputs) cadence.Invalidate();
                         const bool uploaded = (!fixed_outputs || fixed_frame_authority.Allows(incoming_fixed_authority_epoch)) && UploadFrame(
                                 d3d11, shared_bridge, frame, incoming_fixed_authority_epoch, flat_ui_pointer,
-                                flat_pointer_scratch, flat_menu_compositor, menu_gpu_disabled, flat_reference_changed,
+                                flat_pointer_scratch, flat_menu_compositor, menu_gpu_disabled,
+                                spatial_processor, active_graphics.values, spatial_disabled, flat_reference_changed,
                                 textures, texture_width, texture_height, texture_format,
                                 left_hash, right_hash, hash_ms, upload_ms, shared_timing);
+                        // An optional filter setup failure may fall back to a
+                        // healthy native pair. Removed consumer resources may
+                        // already contain partial writes: revoke old/new cadence
+                        // and leave the worker before any repeat or submission.
+                        if((runtime::GraphicsEffectsActive(active_graphics.values)||active_graphics.values.horse_comfort>0||
+                            frame.gameplay_reticle.scope_view)&&
+                           FAILED(d3d11.device()->GetDeviceRemovedReason())) {
+                            cadence.ConsumerFailed();
+                            SetError("graphics consumer device removed; presenter restart required");
+                            Log("native_stereo_graphics: status=consumer_lost;submission=revoked;session=stopped");
+                            break;
+                        }
                         if(!flat_reference_changed && active_flat_reference_owner!=frame.flat_reference_owner) {
                             flat_reference_changed=true;
                             pointer_ownership.Suspend();flat_ui_pointer={};PublishFlatUiPointer(flat_ui_pointer);
@@ -2226,6 +2359,7 @@ struct OpenVrStereoPresenter::Impl {
         Log("native_stereo_presenter_shutdown: stage=d3d11_begin");
         hud_text_compositor.Reset();
         flat_menu_compositor.Reset();
+        spatial_processor.Reset();
         if (fixed_outputs) {
             if (d3d11.context()) d3d11.context()->ClearState();
             fixed_outputs->Seal();
@@ -2263,6 +2397,7 @@ void OpenVrStereoPresenter::PublishSettingsContext(std::uint64_t token,bool avai
 }
 
 void OpenVrStereoPresenter::PublishGameplayFeedbackContext(bool available) noexcept {
+    if(!available)runtime::PublishMountedMotion(false);
     impl_->feedback_context.Publish(available);
 }
 

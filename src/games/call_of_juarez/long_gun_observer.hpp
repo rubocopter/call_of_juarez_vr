@@ -33,7 +33,7 @@ struct CoJLongGunSupportSnapshot {
     int contact_element=-1;
     ElementWorldBasisTarget contact_anchor{}; // Weapon mesh, separate from player anatomy.
     CoJReloadLocalFrame support_in_weapon{};
-    bool firing=false; // valid + false = ordinary idle; true = ordinary 30..38 transition.
+    bool firing=false; // Exact admitted idle/fire phase; see SupportState below.
 };
 using CoJLongGunReadFrame=bool(*)(void* context,void* object,int element,
     ElementWorldBasisTarget& out) noexcept;
@@ -123,14 +123,29 @@ struct Reader {
         Check();if(!std::isfinite(v))ok=false;return v;
     }
 };
-inline constexpr const char* Classes[]{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"};
+// Also consumed by long_gun_fire.hpp for exact sole-rifle routing. State/mesh
+// admission below grants no scope optics or manual-reload authority.
+inline constexpr const char* Classes[]{"WeaponRifleWinchester","WeaponRifleRemington",
+    "WeaponRifleRemingtonSawOff","WeaponRifleWinchesterScope"};
+// 0 = rejected, 1 = idle, 2 = fire/cycle. Pinned PlayerGunStateMashine creates
+// idle 1/129 and AddShotStates(31/159) creates start-1..start+7. The alternate
+// bank is admitted ONLY for the exact scoped model, never an arbitrary rifle.
+inline int SupportState(const char* exact_class,int state) noexcept {
+    if(state==1)return 1;
+    if(state>=30&&state<=38)return 2;
+    if(exact_class&&!std::strcmp(exact_class,"WeaponRifleWinchesterScope")){
+        if(state==129)return 1;
+        if(state>=158&&state<=166)return 2;
+    }
+    return 0;
+}
 inline constexpr const char* Names[]{"GetActiveWeapon","GetActualWeaponNotEmpty","GetDesiredWeapon",
     "GetHandStateMashineState","GetHandStateMashineDestinyState","GetActualWeaponState","GetDesiredWeaponState",
     "IsActualWeaponOperatedTwoHand","IsDesiredWeaponOperatedTwoHand","IsHandStateMashineOperatedTwoHand",
     "IsNotAlive","IsCarrying","IsWeaponReloading","GetThisID","GetElementID"};
 inline constexpr const char* Descriptors[]{"(I)LWeapon;","(I)LWeapon;","(I)LWeapon;",
     "(I)I","(I)I","(I)I","(I)I","(I)Z","(I)Z","(I)Z","()Z","()Z","()Z","()I","(Ljava/lang/String;)I"};
-inline bool ReadOwner(Reader& r,void* player,void* weapon,const std::array<void*,15>& methods,
+inline bool ReadOwner(Reader& r,void* player,void* weapon,const std::array<void*,15>& methods,const char* exact_class,
     CoJLongGunSupportSnapshot& sample) noexcept {
     for(int i=10;i<13;++i)if(r.Bool(player,methods[i])||!r.ok)return false;
     bool firing=false;
@@ -142,8 +157,9 @@ inline bool ReadOwner(Reader& r,void* player,void* weapon,const std::array<void*
         }
         for(int i=0;i<4;++i){
             const int state=r.Int(player,methods[3+i],&arg);sample.states[h][i]=state;
-            if(!r.ok || (h==1?state!=0:(state!=1&&(state<30||state>38))))return false;
-            if(h==0&&state!=1)firing=true;
+            const int phase=SupportState(exact_class,state);
+            if(!r.ok || (h==1?state!=0:phase==0))return false;
+            if(h==0&&phase==2)firing=true;
         }
         for(int i=0;i<3;++i){
             const bool flag=r.Bool(player,methods[7+i],&arg);sample.two_handed[h][i]=flag;
@@ -180,7 +196,7 @@ inline bool ReadCoJLongGunSupport(void* env,void* player,CoJLongGunSupportSnapsh
     if(!sample.weapon_class)return false;
     void* weapon_id=r.Method(weapon_class,"GetThisID","()I");if(!r.ok)return false;
     void* weapon_element=r.Method(weapon_class,"GetElementID","(Ljava/lang/String;)I");if(!r.ok)return false;
-    if(!ReadOwner(r,player,weapon,methods,sample))return false;
+    if(!ReadOwner(r,player,weapon,methods,sample.weapon_class,sample))return false;
     sample.player_id=static_cast<std::uint32_t>(r.Int(player,methods[13]));
     sample.weapon_id=static_cast<std::uint32_t>(r.Int(weapon,weapon_id));
     if(!r.ok||!ValidId(sample.player_id)||!ValidId(sample.weapon_id))return false;
@@ -205,7 +221,7 @@ inline bool ReadCoJLongGunSupport(void* env,void* player,CoJLongGunSupportSnapsh
         !BuildCoJReloadLocalFrame(sample.root,sample.support,sample.support_in_weapon)||
         !BuildCoJReloadLocalFrame(sample.root,sample.contact_anchor,holder_local))return false;
     CoJLongGunSupportSnapshot after{};
-    if(!ReadOwner(r,player,weapon,methods,after)||after.states!=sample.states||
+    if(!ReadOwner(r,player,weapon,methods,sample.weapon_class,after)||after.states!=sample.states||
         after.two_handed!=sample.two_handed)return false;
     auto class_after=r.Class(weapon);
     if(!r.ok||!r.Equal(class_after,weapon_class))return false;

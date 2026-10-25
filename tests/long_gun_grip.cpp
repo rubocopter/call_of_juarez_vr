@@ -72,7 +72,7 @@ void PlayerAnimationCannotMoveWeaponContact(){
         "weapon element movement did not carry its mesh contact");
 }
 void MeshContactPlacementAndCancellation(){
-    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
+    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff","WeaponRifleWinchesterScope"}){
         auto g=Geometry();g.native.weapon_class=cls;ContactAt(g.native,{130,210,260});
         // Rotate the sampled mesh element 90 degrees about Y. The authored
         // point must follow the real child frame, not the player's socket.
@@ -94,7 +94,7 @@ void MeshContactPlacementAndCancellation(){
     }
 }
 void NativeRootHolderIsValid(){
-    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
+    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff","WeaponRifleWinchesterScope"}){
         auto g=Geometry();g.native.weapon_class=cls;
         ContactAt(g.native,g.native.support.position);
         // Live Remington resolves the named Holder to native element zero.
@@ -110,7 +110,8 @@ void NativeRootHolderIsValid(){
 }
 struct Fixture {
     CoJLongGunGripState state;CoJLongGunGripGeometry g=Geometry();CoJLongGunGripInput in{};
-    Fixture(){in.player_generation=3;in.context=5;in.controls.input_generation=7;
+    Fixture(const char* cls="WeaponRifleWinchester"){g.native.weapon_class=cls;ContactAt(g.native,g.native.support.position);
+        in.player_generation=3;in.context=5;in.controls.input_generation=7;
         in.controls.enabled=in.controls.eligible=in.controls.tracking_valid=true;
         in.controls.grip_available=in.controls.support_trigger_available=true;
         in.controls.acquisition_radius_m=.1F;in.controls.sequence=1;
@@ -173,6 +174,58 @@ void ChangedMeshContactRetiresClaim(){
     const auto out=f.Step();
     Check(!out.attached&&out.claim.cancelled&&out.claim.consume_grip,
         "changed mesh contact did not cancel the physical claim");
+}
+void ScopedMeasuredGeometryAndOwnership(){
+    auto g=Geometry();g.native.weapon_class="WeaponRifleWinchesterScope";
+    // Independent original scoped-mesh measurement, not a profile-derived
+    // expected value. Rotate GunBody +90Y and move the anatomical socket away.
+    g.native.contact_anchor={{130,250,260},{0,1,0},{1,0,0},true};
+    g.native.support.position={999,888,777};
+    Check(BuildCoJReloadLocalFrame(g.native.root,g.native.support,g.native.support_in_weapon),"scoped anatomy fixture");
+    const auto acquisition=BuildCoJLongGunAcquisitionFrame(g);
+    Check(acquisition.contact.valid&&Near(acquisition.support.position,{125.968197F,208.840465F,259.990420F}),
+        "scoped contact did not follow its independently measured GunBody fore-end");
+    g.support_grip_cm=acquisition.contact.position;
+    const auto mapped=BuildCoJLongGunGripFrame(g);
+    Check(IsCoJLongGunGripFrameAdmitted(mapped)&&mapped.contact_distance_m<.00001F&&
+        Near(mapped.mapped_support_frame.position,g.support_grip_cm),"scoped measured contact failed rigid mapping");
+    for(int state:{30,31,32,33,34,35,36,37,38,158,159,160,161,162,163,164,165,166}){
+        Fixture f("WeaponRifleWinchesterScope");(void)f.Attach();
+        f.g.native.firing=true;f.g.native.states[0]={state,state,state,state};
+        f.g.native.support.position={999,888,777};f.g.native.contact_anchor.position={777,666,555};
+        Check(BuildCoJReloadLocalFrame(f.g.native.root,f.g.native.support,f.g.native.support_in_weapon),"scoped cycle fixture");
+        Check(f.Step().attached&&f.state.Refresh(f.in.player_generation,f.in.context,f.g).valid,
+            "scoped fire/cycle lost frozen contact");
+        f.in.controls.grip_held=false;Check(!f.Step().attached,"scoped release retained support");
+        Fixture fresh("WeaponRifleWinchesterScope");fresh.g.native.states[0][0]=state;fresh.g.native.firing=true;
+        (void)fresh.Step();fresh.in.controls.grip_held=true;
+        Check(!fresh.Step().attached,"scoped firing acquired new support");
+    }
+    for(int state:{0,20,21,22,29,39,128,130,148,149,157,167,168}){
+        Fixture f("WeaponRifleWinchesterScope");(void)f.Attach();f.g.native.states[0][0]=state;
+        Check(!f.state.Refresh(f.in.player_generation,f.in.context,f.g).valid,"unqualified scoped state refreshed");
+        auto out=f.Step();Check(!out.attached&&out.claim.cancelled&&out.claim.consume_grip,
+            "unqualified scoped state retained a held claim");
+    }
+    Fixture alternate("WeaponRifleWinchesterScope");alternate.g.native.states[0]={129,129,129,129};
+    (void)alternate.Attach();
+    alternate.g.native.firing=true;alternate.g.native.states[0]={158,159,166,129};
+    Check(alternate.Step().attached,"alternate scoped cycle cancelled the grip");
+    alternate.g.native.firing=false;alternate.g.native.states[0]={129,129,129,129};
+    Check(alternate.Step().attached,"alternate scoped idle lost the frozen grip");
+    for(int why=0;why<7;++why){
+        Fixture f("WeaponRifleWinchesterScope");(void)f.Attach();
+        if(why==0)++f.g.native.object_epoch;
+        if(why==1)++f.g.native.contact_element;
+        if(why==2)f.g.native.weapon_class="WeaponRifleWinchester";
+        if(why==3)f.g.native.weapon_class="UnknownScopedSubclass";
+        if(why==4)++f.in.player_generation;
+        if(why==5)++f.in.context;
+        if(why==6)f.in.controls.tracking_valid=false;
+        const auto out=f.Step();Check(!out.attached&&out.claim.cancelled&&out.claim.consume_grip,
+            "scoped owner/source loss retained support");
+        Check(!f.Step().attached,"held scoped grip reacquired after cancellation");
+    }
 }
 void RejectionsAndRefresh(){
     for(int why=0;why<14;++why){Fixture f;(void)f.Attach();
@@ -327,5 +380,5 @@ void CapturedGripGuide(){
         "guide capacity overrun changed existing surfaces");
 }
 }
-int main(){PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();UnattachedFreeTrigger();LeftOwnedRifleFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
+int main(){ScopedMeasuredGeometryAndOwnership();PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();UnattachedFreeTrigger();LeftOwnedRifleFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

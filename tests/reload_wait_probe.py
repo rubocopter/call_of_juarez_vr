@@ -21,6 +21,12 @@ def original(name):
     raise unittest.SkipTest('Exact original game archive unavailable')
 
 
+class JVMThrown(Exception):
+    def __init__(self, value):
+        self.value = value
+        super().__init__('Modeled Java exception')
+
+
 class VM:
     """Small JVM interpreter; native weapon transfer is an observable boundary.
 
@@ -115,68 +121,87 @@ class VM:
             steps += 1
             if steps > 20000: raise AssertionError('Unbounded bytecode execution')
             at, op = pc, code[pc]; pc += 1
-            if op == 0x00: pass
-            elif op == 0x01: stack.append(None)
-            elif 0x02 <= op <= 0x08: stack.append(op - 3)
-            elif 0x0b <= op <= 0x0d: stack.append(float(op - 0x0b))
-            elif op in (0x10, 0x11):
-                n = 1 if op == 0x10 else 2
-                stack.append(int.from_bytes(code[pc:pc+n], 'big', signed=True)); pc += n
-            elif op == 0x13:
-                idx = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
-                entry = pool.get(idx)
-                stack.append(pool.utf8(entry[1]) if entry[0] == 'String' else entry[1])
-            elif op in (0x15, 0x17, 0x19): stack.append(locals_[code[pc]]); pc += 1
-            elif 0x1a <= op <= 0x1d: stack.append(locals_[op - 0x1a])
-            elif 0x2a <= op <= 0x2d: stack.append(locals_[op - 0x2a])
-            elif op in (0x36, 0x38, 0x3a): locals_[code[pc]] = stack.pop(); pc += 1
-            elif 0x3b <= op <= 0x3e: locals_[op - 0x3b] = stack.pop()
-            elif 0x4b <= op <= 0x4e: locals_[op - 0x4b] = stack.pop()
-            elif op == 0x59: stack.append(stack[-1])
-            elif op == 0x62: stack.append(stack.pop() + stack.pop())
-            elif op == 0x66:
-                b,a=stack.pop(),stack.pop(); stack.append(a-b)
-            elif op in (0x95, 0x96):
-                b, a = stack.pop(), stack.pop()
-                stack.append((-1 if op == 0x95 else 1) if a != a or b != b else (a > b) - (a < b))
-            elif op in (0xb2, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8):
-                idx = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
-                entry = pool.get(idx); class_name = pool.describe(entry[1])
-                nt = pool.get(entry[2]); key, signature = pool.utf8(nt[1]), pool.utf8(nt[2])
-                if op == 0xb2: stack.append({} if key == 'cSingleton' else 1)
-                elif op == 0xb4: stack.append(stack.pop().get(key, None if signature.startswith('L') else 0))
-                elif op == 0xb5:
-                    val = stack.pop(); stack.pop()[key] = val
-                else:
-                    # Descriptors used here have only one-slot primitives/objects.
-                    import re
-                    types = re.findall(r'L[^;]+;|[IZF]', signature[1:signature.index(')')])
-                    argv = [stack.pop() for _ in types][::-1]
-                    target = None if op == 0xb8 else stack.pop()
-                    interpreted = key.startswith('cojvr') or (class_name, key) in {
-                        ('StateMashine', 'Update'), ('StateMashine', 'SetCurrentState'),
-                        ('ArmedPlayerBeing', 'OnHandStateFinished_Reload'),
-                        ('ArmedPlayerBeing', 'OnHandStateFinished_ReloadEnd')}
-                    if interpreted and class_name in self.classes and (key, signature) in self.classes[class_name][1]:
-                        result = self.run(class_name, key, signature, target, argv)
-                    else: result = self.native(target, key, argv)
-                    if signature[-1] != 'V': stack.append(result)
-            elif op in (0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa5, 0xa6, 0xa7, 0xc6, 0xc7):
-                delta = int.from_bytes(code[pc:pc+2], 'big', signed=True); pc += 2
-                if op == 0xa7: take = True
-                elif op in (0xa5, 0xa6):
-                    b, a = stack.pop(), stack.pop(); take = (a is b) if op == 0xa5 else (a is not b)
-                elif op in (0x9f, 0xa0):
-                    b, a = stack.pop(), stack.pop(); take = (a == b) if op == 0x9f else (a != b)
-                else:
-                    a = stack.pop()
-                    if op == 0xc6: take = a is None
-                    elif op == 0xc7: take = a is not None
-                    else: take = {0x99: a == 0, 0x9a: a != 0, 0x9b: a < 0, 0x9c: a >= 0, 0x9d: a > 0, 0x9e: a <= 0}[op]
-                if take: pc = at + delta
-            elif op in (0xac, 0xb0): return stack.pop()
-            elif op == 0xb1: return None
-            else: raise AssertionError(f'Unimplemented opcode {op:02x} at {cls}.{name}:{at}')
+            try:
+                if op == 0x00: pass
+                elif op == 0x01: stack.append(None)
+                elif 0x02 <= op <= 0x08: stack.append(op - 3)
+                elif 0x0b <= op <= 0x0d: stack.append(float(op - 0x0b))
+                elif op in (0x10, 0x11):
+                    n = 1 if op == 0x10 else 2
+                    stack.append(int.from_bytes(code[pc:pc+n], 'big', signed=True)); pc += n
+                elif op == 0x13:
+                    idx = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
+                    entry = pool.get(idx)
+                    stack.append(pool.utf8(entry[1]) if entry[0] == 'String' else entry[1])
+                elif op in (0x15, 0x17, 0x19): stack.append(locals_[code[pc]]); pc += 1
+                elif 0x1a <= op <= 0x1d: stack.append(locals_[op - 0x1a])
+                elif 0x2a <= op <= 0x2d: stack.append(locals_[op - 0x2a])
+                elif op in (0x36, 0x38, 0x3a): locals_[code[pc]] = stack.pop(); pc += 1
+                elif 0x3b <= op <= 0x3e: locals_[op - 0x3b] = stack.pop()
+                elif 0x4b <= op <= 0x4e: locals_[op - 0x4b] = stack.pop()
+                elif op == 0x59: stack.append(stack[-1])
+                elif op == 0x57: stack.pop()
+                elif op in (0x60, 0x64):
+                    b, a = stack.pop(), stack.pop()
+                    value = a+b if op == 0x60 else a-b
+                    stack.append((value + (1 << 31)) % (1 << 32) - (1 << 31))
+                elif op == 0x84:
+                    index = code[pc]
+                    delta = int.from_bytes(code[pc+1:pc+2], 'big', signed=True)
+                    locals_[index] = (locals_[index]+delta+(1 << 31)) % (1 << 32) - (1 << 31)
+                    pc += 2
+                elif op == 0x62: stack.append(stack.pop() + stack.pop())
+                elif op == 0x66:
+                    b,a=stack.pop(),stack.pop(); stack.append(a-b)
+                elif op in (0x95, 0x96):
+                    b, a = stack.pop(), stack.pop()
+                    stack.append((-1 if op == 0x95 else 1) if a != a or b != b else (a > b) - (a < b))
+                elif op in (0xb2, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8):
+                    idx = int.from_bytes(code[pc:pc+2], 'big'); pc += 2
+                    entry = pool.get(idx); class_name = pool.describe(entry[1])
+                    nt = pool.get(entry[2]); key, signature = pool.utf8(nt[1]), pool.utf8(nt[2])
+                    if op == 0xb2: stack.append({} if key == 'cSingleton' else 1)
+                    elif op == 0xb4: stack.append(stack.pop().get(key, None if signature.startswith('L') else 0))
+                    elif op == 0xb5:
+                        val = stack.pop(); stack.pop()[key] = val
+                    else:
+                        # Descriptors used here have only one-slot primitives/objects.
+                        import re
+                        types = re.findall(r'L[^;]+;|[IZF]', signature[1:signature.index(')')])
+                        argv = [stack.pop() for _ in types][::-1]
+                        target = None if op == 0xb8 else stack.pop()
+                        interpreted = key.startswith('cojvr') or (class_name, key) in {
+                            ('StateMashine', 'Update'), ('StateMashine', 'SetCurrentState'),
+                            ('ArmedPlayerBeing', 'OnHandStateFinished_Reload'),
+                            ('ArmedPlayerBeing', 'OnHandStateFinished_ReloadEnd')}
+                        if interpreted and class_name in self.classes and (key, signature) in self.classes[class_name][1]:
+                            result = self.run(class_name, key, signature, target, argv)
+                        else: result = self.native(target, key, argv)
+                        if signature[-1] != 'V': stack.append(result)
+                elif op in (0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xc6, 0xc7):
+                    delta = int.from_bytes(code[pc:pc+2], 'big', signed=True); pc += 2
+                    if op == 0xa7: take = True
+                    elif op in (0xa5, 0xa6):
+                        b, a = stack.pop(), stack.pop(); take = (a is b) if op == 0xa5 else (a is not b)
+                    elif op in (0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4):
+                        b, a = stack.pop(), stack.pop()
+                        take = {0x9f:a==b, 0xa0:a!=b, 0xa1:a<b, 0xa2:a>=b, 0xa3:a>b, 0xa4:a<=b}[op]
+                    else:
+                        a = stack.pop()
+                        if op == 0xc6: take = a is None
+                        elif op == 0xc7: take = a is not None
+                        else: take = {0x99: a == 0, 0x9a: a != 0, 0x9b: a < 0, 0x9c: a >= 0, 0x9d: a > 0, 0x9e: a <= 0}[op]
+                    if take: pc = at + delta
+                elif op == 0xbf: raise JVMThrown(stack.pop())
+                elif op in (0xac, 0xb0): return stack.pop()
+                elif op == 0xb1: return None
+                else: raise AssertionError(f'Unimplemented opcode {op:02x} at {cls}.{name}:{at}')
+            except JVMThrown as thrown:
+                handler = next((entry[2] for entry in method.exception_table
+                                if entry[0] <= at < entry[1] and entry[3] == 0), None)
+                if handler is None:
+                    raise
+                stack, pc = [thrown.value], handler
         raise AssertionError('Missing return')
 
     def arm(self):

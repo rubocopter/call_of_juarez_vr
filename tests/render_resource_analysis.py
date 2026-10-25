@@ -585,4 +585,280 @@ class NativePostprocessTests(unittest.TestCase):
                 self.assertEqual(source.read_bytes(),content)
 
 
+HUD_KEYS = [27,19,20,171,193,206,207,208,209,168,190,191,192,
+            15,24,25,7,14,23,195,175,174,194]
+
+
+def hud_pass():
+    def boundary(sprite, flush):
+        return dict(spriteDepth=sprite,flushDepth=flush,epoch=3,intact=1,faulted=0)
+    def resource_(**changes):
+        return dict(RESOURCE,bound=1,valid=1,**changes)
+    states={key:0 for key in HUD_KEYS}
+    states.update({19:5,20:6,171:1,207:5,208:6,209:1,168:15,25:8,23:4})
+    def record(ordinal,phase,owner):
+        return dict(ordinal=ordinal,repeat=1,phase=phase,operation=7,result=0,
+                    drawIngressAddress=0x81234567,nativeOwner=owner,option=0,
+                    spriteDepth=1 if phase==0 else 0,flushDepth=1 if phase==2 else 0,
+                    nativeHookEpoch=3,rt0=resource_(),depth=resource_(object=60,format=75),
+                    texture0=resource_(object=70,type=3),vertexShader=[0,0,1],pixelShader=[0,0,1],
+                    viewport=[0,0,2560,1440],viewportDepth=[0,1],viewportValid=1,
+                    scissorValid=1,scissor=[0,0,2560,1440],stateKeys=HUD_KEYS[:],
+                    states=[states[key] for key in HUD_KEYS],stateValid=[1]*len(HUD_KEYS),valid=1)
+    return dict(schema=1,event='hud_natural_pass',**{'pass':7},device=30,
+                nativeGeneration=1,continuityEpoch=4,drawHookEpoch=2,nativeHookEpoch=3,
+                cachedPermissionEpoch=5,frame=9,present=12,thread=3,
+                spriteOwner=112,spriteEndOwner=112,flushOwner=128,flushEndOwner=128,
+                option=0,flushEndOption=0,route='unknown',nativeCaller='unknown',
+                complete=1,faults=0,draws=2,samples=2,flushDraws=1,
+                correlationOnly=True,captureAdmitted=False,occlusionAdmitted=False,
+                boundaries=[boundary(1,0),boundary(1,0),boundary(0,1),boundary(0,1)],
+                records=[record(1,0,112),record(2,2,128)])
+
+
+def with_hud(events=None,source=None):
+    rows=[hud_pass()] if events is None else events
+    content=log(pair()) if source is None else source
+    return content.replace('run_end:', '\n'.join('hud_batch_probe: '+json.dumps(e)
+                                               for e in rows)+'\nrun_end:')
+
+
+class HudBatchAnalysisTests(unittest.TestCase):
+    def component(self,source):
+        report=a.analyze(source)
+        self.assertIn('hudBatch',report,'Missing connected HUD batch analysis')
+        hud=report['hudBatch']
+        for key,value in [('correlationOnly',True),('captureAdmitted',False),
+                          ('occlusionAdmitted',False),('headsetValidated',False)]:
+            self.assertIs(hud[key],value)
+        self.assertEqual(hud['route'],'unknown');self.assertEqual(hud['nativeCaller'],'unknown')
+        return report,hud
+
+    def reject(self,event):
+        report,hud=self.component(with_hud([event]))
+        self.assertEqual(report['status'],'observed',report['errors'])
+        self.assertEqual(hud['status'],'incomplete')
+        self.assertEqual(hud['rows'][0]['status'],'rejected')
+        self.assertEqual(hud['rows'][0]['event'],event)
+        self.assertTrue(hud['rows'][0]['errors'])
+
+    def test_connected_complete_integer_boolean_pass_is_correlation_only(self):
+        report,hud=self.component(with_hud())
+        self.assertEqual(report['status'],'observed')
+        self.assertEqual(hud['status'],'observed',hud['errors'])
+        self.assertEqual(len(hud['passes']),1)
+        self.assertEqual(hud['rows'][0]['event'],hud_pass())
+        self.assertEqual(hud['passes'][0]['nativeGeneration'],1)
+        self.assertEqual(hud['passes'][0]['continuityEpoch'],4)
+
+    def test_absent_rows_preserve_existing_components(self):
+        baseline=a.analyze(with_hud([],source=with_sprites()))
+        report,hud=self.component(with_hud(source=with_sprites()))
+        for key in ('status','errors','scopes','pairs','nativePostprocess','desktopSpriteOrdering'):
+            self.assertEqual(report[key],baseline[key])
+        _,missing=self.component(log(pair()))
+        self.assertEqual(missing['status'],'incomplete');self.assertEqual(missing['rows'],[])
+
+    def test_authority_route_schema_types_and_foreign_fields_reject(self):
+        for key,value in [('schema',True),('schema',2),('event','capture'),('complete',True),
+                          ('correlationOnly',1),('captureAdmitted',0),('occlusionAdmitted',True),
+                          ('route',0),('nativeCaller',77),('eye',0),('capture',True)]:
+            with self.subTest(key=key,value=value):
+                event=hud_pass();event[key]=value;self.reject(event)
+
+    def test_context_identity_ranges_preserve_high_bits(self):
+        event=hud_pass();event['device']=0xe1000000
+        _,hud=self.component(with_hud([event]));self.assertEqual(hud['status'],'observed')
+        for key in ('pass','device','nativeGeneration','continuityEpoch','drawHookEpoch',
+                    'nativeHookEpoch','cachedPermissionEpoch','frame','present','thread','spriteOwner'):
+            for value in (0,True,-1):
+                event=hud_pass();event[key]=value;self.reject(event)
+        for value in (2**32-1,2**32):
+            event=hud_pass();event['device']=value;self.reject(event)
+
+    def test_complete_claim_requires_matching_closure_and_faults(self):
+        for key,value in [('spriteEndOwner',113),('flushEndOwner',129),('flushEndOption',1),
+                          ('faults',1),('complete',0),('flushDraws',0)]:
+            event=hud_pass();event[key]=value;self.reject(event)
+        for key,value in [('epoch',4),('spriteDepth',2),('flushDepth',2),('intact',0),('faulted',1)]:
+            event=hud_pass();event['boundaries'][2][key]=value;self.reject(event)
+
+    def test_faulted_read_and_partial_closure_are_retained_incomplete(self):
+        event=hud_pass();event.update(complete=0,faults=8)
+        event['records'][0]['rt0']['valid']=0;event['records'][0]['valid']=0
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['rows'][0]['status'],'incomplete')
+        self.assertEqual(hud['rows'][0]['event'],event)
+        event=hud_pass();event.update(complete=0,faults=64,draws=0,samples=0,flushDraws=0,
+                                   records=[],spriteEndOwner=0,flushOwner=0,flushEndOwner=0)
+        event['boundaries'][1:]=[dict(spriteDepth=0,flushDepth=0,epoch=0,intact=0,faulted=1)]*3
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['rows'][0]['status'],'incomplete')
+        self.assertEqual(hud['passes'],[])
+
+    def test_failed_viewport_read_preserves_null_numeric_values_as_incomplete(self):
+        event=hud_pass();event.update(complete=0,faults=8)
+        event['records'][0].update(viewportValid=0,viewportDepth=[None,None],valid=0)
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['rows'][0]['status'],'incomplete',hud['errors'])
+        self.assertEqual(hud['rows'][0]['event'],event)
+        event['records'][0]['viewportValid']=1
+        self.reject(event)
+
+    def test_signed_hresult_and_read_fault_truth(self):
+        event=hud_pass();event.update(complete=0,faults=16)
+        event['records'][0]['result']=-2005530516
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['rows'][0]['status'],'incomplete')
+        event['faults']=0;self.reject(event)
+        for value in (2**31,-2**31-1,True):
+            event=hud_pass();event['records'][0]['result']=value;self.reject(event)
+
+    def test_record_witness_phase_ordinals_and_counts_reject(self):
+        for key,value in [('ordinal',2),('repeat',0),('phase',3),('operation',5),
+                          ('nativeOwner',999),('nativeHookEpoch',4),('spriteDepth',0),
+                          ('flushDepth',1),('drawIngressAddress',0)]:
+            event=hud_pass();event['records'][0][key]=value;self.reject(event)
+        for key,value in [('samples',1),('samples',65),('draws',3),('flushDraws',2),('faults',2048)]:
+            event=hud_pass();event[key]=value;self.reject(event)
+        event=hud_pass();event['records'].reverse();self.reject(event)
+
+    def test_state_arrays_exact_alignment_and_integer_booleans(self):
+        for key,value in [('states',[0]),('stateValid',[1]),('stateKeys',list(reversed(HUD_KEYS))),
+                          ('valid',True),('viewportValid',True),('scissorValid',2),
+                          ('vertexShader',[0,0,True]),('pixelShader',[0,0]),('unknown',1)]:
+            event=hud_pass();event['records'][0][key]=value;self.reject(event)
+        for key,value in [('states',True),('stateValid',True),('stateKeys',True)]:
+            event=hud_pass();event['records'][0][key][0]=value;self.reject(event)
+
+    def test_invalid_resource_viewport_shader_and_nonfinite_reject(self):
+        for target,key,value in [('rt0','width',0),('rt0','width',True),('rt0','bound',True),
+                                 ('texture0','object',2**32),('depth','valid',True)]:
+            event=hud_pass();event['records'][0][target][key]=value;self.reject(event)
+        for key,value in [('viewport',[0,0,0,1440]),('viewport',[0,0,3000,1440]),
+                          ('viewportDepth',[1,0]),('viewportDepth',[0,None]),
+                          ('viewportDepth',[0,1e300]),('scissor',[1,2,3]),
+                          ('vertexShader',[5,0,1])]:
+            event=hud_pass();event['records'][0][key]=value;self.reject(event)
+
+    def test_pass_order_duplicate_context_and_six_pass_budget(self):
+        rows=[]
+        for i in range(6):
+            event=hud_pass();event.update({'pass':7+i});rows.append(event)
+        _,hud=self.component(with_hud(rows));self.assertEqual(hud['status'],'observed',hud['errors'])
+        extra=hud_pass();extra['pass']=13
+        for events in (rows+[extra],rows[:1]*2,list(reversed(rows))):
+            _,hud=self.component(with_hud(events));self.assertEqual(hud['status'],'incomplete')
+            self.assertTrue(any(row['status']=='rejected' for row in hud['rows']))
+        event=hud_pass();event.update({'pass':8,'frame':8})
+        _,hud=self.component(with_hud([hud_pass(),event]));self.assertEqual(hud['status'],'incomplete')
+
+    def test_exact_sample_cap_and_truthful_truncation(self):
+        event=hud_pass();event['records'][0]['repeat']=63
+        event['records'][1]['ordinal']=64;event.update(draws=64,samples=64)
+        _,hud=self.component(with_hud([event]));self.assertEqual(hud['status'],'observed',hud['errors'])
+        event.update(draws=65,complete=0,faults=32)
+        _,hud=self.component(with_hud([event]));self.assertEqual(hud['rows'][0]['status'],'incomplete')
+        event['faults']=0;self.reject(event)
+
+    def test_canonical_interval_gate_cannot_be_replaced_by_hud(self):
+        good=with_hud()
+        for source in (good+'\nrun_end: run_id=synthetic',good.replace(BUILD,'unbound'),
+                       with_hud(source=log([])),good.replace('run_id=synthetic','run_id=unbound'),
+                       good.replace('run_end: run_id=synthetic','run_end: run_id=foreign')):
+            report,hud=self.component(source)
+            self.assertEqual(report['status'],'incomplete')
+            self.assertEqual(hud['status'],'incomplete');self.assertEqual(hud['passes'],[])
+            self.assertEqual(len(hud['rows']),1);self.assertNotEqual(hud['rows'][0]['status'],'observed')
+
+    def test_outside_interval_is_retained_but_not_observed(self):
+        row='hud_batch_probe: '+json.dumps(hud_pass())
+        for source in (row+'\n'+log(pair()),log(pair())+'\n'+row):
+            report,hud=self.component(source)
+            self.assertEqual(report['status'],'observed')
+            self.assertEqual(hud['rows'][0]['status'],'rejected')
+            self.assertEqual(hud['rows'][0]['raw'],row)
+
+    def test_json_errors_and_namespace_spoofs_remain_hud_only(self):
+        baseline=a.analyze(with_hud([],source=with_sprites()))
+        for row in ('hud_batch_probe: {','hud_batch_probe:{}','hud_batch_probe_error: failed',
+                    'hud_batch_probe: {"schema":1,"schema":1}',
+                    'hud_batch_probe: {"hint":"run_start: run_id=foreign build_manifest_id='+BUILD+'"}',
+                    'hud_batch_probe: {"x":NaN}',
+                    'hud_batch_probe: {"x":1e999}',
+                    'hud_batch_probe: '+'['*1500+'0'+']'*1500):
+            source=with_sprites().replace('run_end:',row+'\nrun_end:')
+            report,hud=self.component(source)
+            for key in ('status','errors','scopes','pairs','desktopSpriteOrdering','nativePostprocess'):
+                self.assertEqual(report[key],baseline[key],row[:100])
+            self.assertEqual(hud['rows'][0]['status'],'rejected')
+            self.assertEqual(hud['rows'][0]['raw'],row)
+            json.dumps(report,allow_nan=False)
+
+    def test_cli_exposes_hud_without_changing_binding_exit_or_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'hud.log';output=Path(directory)/'report.json'
+            content=with_hud().encode();source.write_bytes(content)
+            run=subprocess.run([sys.executable,'-B',str(TOOL),str(source),'--output',str(output)],
+                               capture_output=True,text=True)
+            self.assertEqual(run.returncode,0,run.stderr)
+            self.assertIn('hudBatch=observed',run.stdout)
+            self.assertEqual(json.loads(output.read_text())['hudBatch']['status'],'observed')
+            self.assertEqual(source.read_bytes(),content)
+
+    def test_nonjson_hud_text_cannot_inject_native_namespace(self):
+        source='\n'.join(native_lines())
+        baseline=a.analyze(source)
+        for row in ('hud_batch_probe_error: native_ppfx_resource_probe_error: failed',
+                    'hud_batch_probe: native_ppfx_resource_probe: {}'):
+            report,hud=self.component(source.replace('run_end:',row+'\nrun_end:'))
+            self.assertEqual(hud['rows'][0]['status'],'rejected')
+            self.assertEqual(report['nativePostprocess'],baseline['nativePostprocess'])
+
+    def test_aborted_pending_sample_and_changed_end_witness_are_incomplete(self):
+        event=hud_pass();event.update(complete=0,faults=64)
+        event['records']=event['records'][:1]
+        event['flushEndOwner']=0
+        event['boundaries'][3]=dict(spriteDepth=0,flushDepth=0,epoch=0,intact=0,faulted=1)
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['rows'][0]['status'],'incomplete',hud['errors'])
+        self.assertEqual(hud['rows'][0]['event']['samples'],2)
+        event=hud_pass();event.update(complete=0,faults=2)
+        event['boundaries'][3].update(epoch=4,spriteDepth=2,flushDepth=3)
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['rows'][0]['status'],'incomplete',hud['errors'])
+        event['complete']=1;self.reject(event)
+
+    def test_unknown_deep_json_can_still_be_written_as_rejected_raw(self):
+        row='hud_batch_probe: {"foreign":'+'['*990+'0'+']'*990+'}'
+        report,hud=self.component(log(pair()).replace('run_end:',row+'\nrun_end:'))
+        self.assertEqual(hud['rows'][0]['status'],'rejected')
+        self.assertEqual(hud['rows'][0]['raw'],row)
+        json.dumps(report,allow_nan=False)
+
+    def test_missing_frozen_fields_and_record_cap_reject(self):
+        for key in hud_pass():
+            event=hud_pass();del event[key];self.reject(event)
+        for key in hud_pass()['records'][0]:
+            event=hud_pass();del event['records'][0][key];self.reject(event)
+        event=hud_pass();event['records']*=33;self.reject(event)
+
+    def test_good_records_after_bad_rows_are_retained_with_component_incomplete(self):
+        bad=hud_pass();bad.update(complete=1,faults=64)
+        good=hud_pass();good['pass']=8
+        _,hud=self.component(with_hud([bad,good]))
+        self.assertEqual([r['status'] for r in hud['rows']],['rejected','observed'])
+        self.assertEqual(hud['status'],'incomplete')
+        self.assertEqual(len(hud['passes']),1)
+
+    def test_sprites_end_phase_has_no_native_owner_and_no_route_inference(self):
+        event=hud_pass();middle=copy.deepcopy(event['records'][0])
+        middle.update(phase=1,nativeOwner=0,spriteDepth=0,ordinal=2)
+        event['records'][1]['ordinal']=3
+        event['records'].insert(1,middle);event.update(draws=3,samples=3)
+        _,hud=self.component(with_hud([event]))
+        self.assertEqual(hud['status'],'observed',hud['errors'])
+        self.assertEqual(hud['passes'][0]['route'],'unknown')
+
+
 if __name__=='__main__':unittest.main()

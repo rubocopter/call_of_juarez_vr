@@ -2,6 +2,7 @@
 
 #include "runtime/vr_types.hpp"
 #include "runtime/gameplay_ui.hpp"
+#include "runtime/action_prompts.hpp"
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -98,6 +99,10 @@ struct StereoHudTextOverlay {
     BowDrawFeedback bow_feedback{};
     bool reload_instruction = false; // Low-priority interaction text, bound to reload_feedback.owner_token.
     std::uint64_t reload_instruction_until_ms = 0;
+    // Source-owned reload coaching ONLY. Never infer an action from copied
+    // native text. Complete owned binding metadata travels with this capture.
+    PromptAction control_hint_action = PromptAction::count;
+    ActionPromptSnapshot control_hint_prompts{};
     HolsterGuides holster_guides{};
     std::array<EyeView, 2> eyes{};
     HudTextSnapshot text{};
@@ -120,5 +125,19 @@ struct StereoHudTextOverlay {
     bool interaction_gaze_visible = false;
     std::array<Vec3,4> interaction_gaze_head_corners{};
 };
+
+// Admission independent of renderer pixels. Owner/preference fences are checked
+// by the existing reload-instruction compositor path before using this proof.
+[[nodiscard]] inline PromptGlyph ResolveReloadInstructionGlyph(const StereoHudTextOverlay& overlay,
+    std::uint64_t current_generation,std::uint64_t now) noexcept {
+    if(!overlay.reload_instruction||!overlay.reload_instruction_until_ms||
+        now>=overlay.reload_instruction_until_ms||!overlay.text.hint.view().empty()||
+        overlay.text.interaction.view().empty()||
+        overlay.text.controller_prompt_generation!=overlay.control_hint_prompts.binding_generation||
+        (overlay.control_hint_action!=PromptAction::left_fire&&
+         overlay.control_hint_action!=PromptAction::right_fire&&
+         overlay.control_hint_action!=PromptAction::reload))return {};
+    return ResolveActionPromptGlyph(overlay.control_hint_prompts,overlay.control_hint_action,current_generation,now);
+}
 
 } // namespace cojvr::runtime

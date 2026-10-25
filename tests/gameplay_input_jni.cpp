@@ -10,6 +10,8 @@
 #include "runtime/gameplay_utility.hpp"
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
+#include "games/call_of_juarez/input_dispatch_diagnostics.hpp"
+#include "games/call_of_juarez/scoped_rifle_fire.hpp"
 #define private public
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #undef private
@@ -30,6 +32,7 @@ void* vm_table[8]{};
 void** vm_holder = vm_table;
 bool locked = false, pending = false, fail_analog = false, analog_outside_lock = false;
 int locks = 0, commits = 0;
+int fail_void_method=-1;
 int fail_digital_action=-1;
 bool mount_on_interact=false, native_crouched=false;
 std::array<int,48> releases{};
@@ -175,7 +178,11 @@ std::uint8_t __stdcall Boolean(void* env, void* owner, void* method, const JValu
     return 1;
 }
 void __stdcall Void(void*, void*, void* method, const JValue* args) {
-    if(method==Ptr(rotate_method)){native_turns.push_back(args[0].f);return;}
+    if(method==Ptr(rotate_method)){
+        native_turns.push_back(args[0].f);
+        if(method==Ptr(fail_void_method)){fail_void_method=-1;pending=true;}
+        return;
+    }
     if (method==Ptr(lock_method)) { locked=true; ++locks; }
     else if (method==Ptr(unlock_method)) locked=false;
     else if (method==Ptr(apply_method)) ++commits;
@@ -184,6 +191,7 @@ void __stdcall Void(void*, void*, void* method, const JValue* args) {
         native_analog_values[args[0].i] = args[1].f;
         if (fail_analog) { fail_analog=false; pending=true; }
     }
+    if(method==Ptr(fail_void_method)){fail_void_method=-1;pending=true;}
 }
 void Bind(JavaPlayerBridge& bridge) {
     bridge.vm_=&vm_holder;
@@ -522,6 +530,43 @@ int main() {
                 "untimed shoulder/fire erased Hands' yaw discontinuity or consumed the turn clock");
         }
     }
+    // Rate equivalence at the actual native-input boundary. Native physics is
+    // not modeled: these assert magnitudes/edges/yaw, never jump height/distance.
+    for (const std::uint64_t hz : {72ULL,80ULL,90ULL,120ULL,144ULL}) {
+        JavaPlayerBridge rate_bridge; Bind(rate_bridge); rate_bridge.being_=&player;
+        rate_bridge.rotate_horizontally_method_=Ptr(rotate_method);
+        cojvr::runtime::GameplayInputState input{};
+        input.active=input.turn_available=true;
+        ok &= Check(rate_bridge.TryApplyGameplayInput(input,&error,
+            CoJInputDispatchPhase::pre_shoulder,0,1000000),"rate baseline failed");
+        const auto first_turn=native_turns.size();
+        const int jump_presses=accepted[11],jump_releases=releases[11];
+        input.move={-.28F,.52F}; input.turn={.625F,0};
+        for (std::uint64_t frame=1;frame<=hz;++frame) {
+            input.jump=frame<=hz/2;
+            const auto now=1000000+frame*1000000/hz;
+            ok &= Check(rate_bridge.TryApplyGameplayInput(input,&error,
+                CoJInputDispatchPhase::pre_shoulder,0,now),"rate input dispatch failed");
+            const auto turns=native_turns.size();
+            ok &= Check(rate_bridge.TryApplyGameplayInput(input,&error,CoJInputDispatchPhase::shoulder)&&
+                rate_bridge.TryApplyGameplayInput(input,&error,CoJInputDispatchPhase::fire)&&
+                rate_bridge.TryApplyGameplayInput(input,&error,CoJInputDispatchPhase::pre_shoulder,0,now)&&
+                native_turns.size()==turns,"rate phases/duplicate sample repeated yaw");
+            ok &= Check(std::fabs(native_analog_values[4]-.5F)<.000001F&&
+                native_analog_values[5]==0&&native_analog_values[6]==0&&
+                std::fabs(native_analog_values[7]-.25F)<.000001F,
+                "HMD rate changed native movement magnitude");
+        }
+        float yaw=0; for (auto n=first_turn;n<native_turns.size();++n) yaw+=native_turns[n];
+        ok &= Check(std::fabs(yaw+45.0F)<.002F&&native_turns.size()==first_turn+hz,
+            "HMD rate changed integrated native yaw");
+        ok &= Check(accepted[11]==jump_presses+1&&releases[11]==jump_releases+1,
+            "HMD rate changed native jump press/release count");
+        ok &= Check(rate_bridge.TryApplyGameplayInput({},&error)&&
+            native_analog_values[4]==0&&native_analog_values[5]==0&&
+            native_analog_values[6]==0&&native_analog_values[7]==0,
+            "rate test interruption retained native movement");
+    }
     // A long dispatch gap deliberately disarms held turning. It must not
     // suppress native movement, and only a fresh neutral stick rearms yaw.
     JavaPlayerBridge gap_bridge; Bind(gap_bridge); gap_bridge.being_=&player;
@@ -818,6 +863,196 @@ int main() {
         observation.being_=&player;
         ok &= Check(HolsterReady(observation)&&!pending&&holster_locals==0,"holster reader failed to recover");
         std::copy(saved.begin(),saved.end(),std::begin(env_table));
+    }
+    {
+        JavaPlayerBridge diagnostic_bridge; Bind(diagnostic_bridge);
+        diagnostic_bridge.being_=&player;
+        diagnostic_bridge.being_generation_=73;
+        diagnostic_bridge.rotate_horizontally_method_=Ptr(rotate_method);
+        std::vector<CoJInputDispatchDiagnostic> rows; rows.reserve(32);
+        CoJInputDispatchTraceContext trace{};
+        trace.movement_trace_enabled=true;
+        trace.frame_sequence=101; trace.sample_sequence=202; trace.pose_sequence=303;
+        trace.native_context=404; trace.process_id=505; trace.device_identity=606;
+        trace.sink_context=&rows;
+        trace.sink=[](void* context,const CoJInputDispatchDiagnostic& row) noexcept {
+            static_cast<std::vector<CoJInputDispatchDiagnostic>*>(context)->push_back(row);
+        };
+        auto input=cojvr::runtime::GameplayInputState{};
+        input.active=true; input.input_context_generation=707;
+        const auto dispatch=[&](std::uint64_t time,CoJInputDispatchPhase phase=CoJInputDispatchPhase::pre_shoulder) {
+            return diagnostic_bridge.TryApplyGameplayInput(input,&error,phase,0,time,&trace);
+        };
+        ok &= Check(cojvr::runtime::CurrentTurnMode()==cojvr::runtime::TurnMode::smooth,
+            "diagnostic fixture requires the default smooth preference");
+        trace.movement_trace_enabled=false;
+        ok &= Check(dispatch(10000)&&rows.empty(),"disabled trace invoked its sink");
+        trace.movement_trace_enabled=true; input.turn={1,0};input.move={.5F,.8F};
+        ok &= Check(dispatch(20000)&&rows.size()==1,"timed dispatch did not emit exactly once");
+        auto row=rows.back();
+        ok &= Check(row.identity.frame_sequence==101&&row.identity.sample_sequence==202&&
+            row.identity.pose_sequence==303&&row.player_generation_before==73&&
+            row.input.input_context_generation==707&&row.identity.native_context==404&&
+            row.identity.process_id==505&&row.identity.device_identity==606&&
+            row.turn_time_us==20000&&row.dispatch_monotonic_us!=0&&
+            row.turn.reason==CoJTurnInhibitReason::none&&row.turn_delivered_degrees!=0,
+            "dispatch trace conflated clock/identity or lost off-to-on policy history");
+        ok &= Check(row.move_callbacks_completed[0]>0&&row.analog_apply_completed&&
+            std::fabs(row.acknowledged_move[0]-native_analog_values[4])<.00001F,
+            "trace omitted acknowledged native movement");
+        const auto yaw=diagnostic_bridge.last_turn_degrees();
+        ok &= Check(dispatch(0,CoJInputDispatchPhase::shoulder)&&dispatch(0,CoJInputDispatchPhase::fire)&&
+            rows.size()==3&&!rows[1].turn_updated&&!rows[2].turn_updated&&
+            diagnostic_bridge.last_turn_degrees()==yaw,"untimed phases duplicated turn or diagnostics");
+        input.move={-.5F,.3F};
+        ok &= Check(dispatch(210000)&&rows.back().turn.gap&&
+            rows.back().turn.reason==CoJTurnInhibitReason::awaiting_neutral&&
+            rows.back().analog_apply_completed,"long turn gap hid successful movement");
+        input.turn={};
+        ok &= Check(dispatch(220000)&&rows.back().turn.rearmed,"trace missed neutral rearm");
+        input.turn={1,0};input.move={.9F,.6F};fail_analog=true;
+        ok &= Check(!dispatch(230000)&&rows.back().move_callbacks_attempted[0]==1&&
+            rows.back().move_callbacks_completed[0]==0&&rows.back().analog_uncertain&&
+            rows.back().turn_delivered_degrees!=0&&!rows.back().success,
+            "post-mutation exception was reported as complete movement or lost partial yaw");
+        ok &= Check(dispatch(240000)&&!rows.back().analog_uncertain,
+            "trace recovery disagrees with actual native recovery");
+        const auto before=rows.size();
+        // The budget counts dispatcher rows, including phases and failures.
+        trace.max_records=static_cast<std::uint32_t>(before);
+        ok &= Check(dispatch(250000)&&rows.size()==before,"diagnostic record cap was not enforced");
+        trace.movement_trace_enabled=false;(void)dispatch(260000);
+        trace.movement_trace_enabled=true; trace.max_records=1;
+        ok &= Check(dispatch(270000)&&rows.size()==before+1&&rows.back().budget_exhausted,
+            "trace opt-in restart or final-record cap marker is missing");
+        trace.movement_trace_enabled=false;(void)dispatch(280000);
+        trace.movement_trace_enabled=true;trace.max_records=4096;
+        std::uint64_t diagnostic_time=290000;
+        for(const int failure:{lock_method,unlock_method,apply_method}) {
+            fail_void_method=failure;input.move.x=-input.move.x;
+            const auto count=rows.size();
+            ok &= Check(!dispatch(diagnostic_time)&&rows.size()==count+1&&
+                rows.back().analog_uncertain&&!rows.back().success,
+                "native transaction fault lost its single failed trace row");
+            row=rows.back();
+            ok &= Check((failure!=lock_method||(!row.analog_lock_completed&&!row.analog_unlock_attempted))&&
+                (failure!=unlock_method||(row.analog_unlock_attempted&&!row.analog_unlock_completed&&!row.analog_apply_attempted))&&
+                (failure!=apply_method||(row.analog_apply_attempted&&!row.analog_apply_completed)),
+                "trace acknowledged a throwing native lock/unlock/apply callback");
+            diagnostic_time+=10000;
+            ok &= Check(dispatch(diagnostic_time)&&!rows.back().analog_uncertain,
+                "native callback fault did not recover under diagnostic observation");
+            diagnostic_time+=10000;
+        }
+        fail_digital_action=11;input.jump=true;
+        ok &= Check(!dispatch(diagnostic_time)&&rows.back().failed_action==11&&
+            rows.back().analog_uncertain==false&&
+            (rows.back().actions_acknowledged_mask&(std::uint64_t{1}<<11))==0,
+            "failed digital transition was reported acknowledged");
+        diagnostic_time+=10000;
+        ok &= Check(dispatch(diagnostic_time),"digital diagnostic fault did not recover");
+        input.turn.x=.250001F;
+        const auto tiny_turn_count=native_turns.size();
+        ok &= Check(dispatch(diagnostic_time+10000)&&rows.back().turn_requested_degrees!=0&&
+            rows.back().turn_native_epsilon_suppressed&&!rows.back().turn_attempted&&
+            !rows.back().turn_completed&&rows.back().turn_delivered_degrees==0&&
+            native_turns.size()==tiny_turn_count,
+            "sub-epsilon native no-op was falsely reported as delivered yaw");
+        input.turn.x=1;
+        fail_void_method=rotate_method;
+        ok &= Check(!dispatch(diagnostic_time+20000)&&rows.back().turn_attempted&&
+            !rows.back().turn_completed&&rows.back().turn_delivered_degrees==0&&
+            !rows.back().move_values_built&&!rows.back().success,
+            "throwing yaw callback was reported complete or movement was fabricated");
+        trace.movement_trace_enabled=false;(void)dispatch(diagnostic_time+30000);
+        trace.movement_trace_enabled=true;trace.max_records=0;
+        const auto zero_count=rows.size();
+        ok &= Check(dispatch(diagnostic_time+40000)&&rows.size()==zero_count,
+            "zero trace budget invoked the sink");
+        trace.max_records=50000;
+        // Preload the counter rather than issuing thousands of native calls.
+        diagnostic_bridge.input_trace_records_=4095;
+        ok &= Check(dispatch(diagnostic_time+50000)&&rows.size()==zero_count+1&&
+            rows.back().record_limit==4096&&rows.back().budget_exhausted&&
+            dispatch(diagnostic_time+60000)&&rows.size()==zero_count+1,
+            "caller enlarged the hard diagnostic bound");
+    }
+    // Scoped button0 means aim. Physical R2 must use action9/Attack1 while
+    // native fallback/permissions choose the stable right-owned rifle.
+    {
+        JavaPlayerBridge rifle_bridge;Bind(rifle_bridge);
+        CoJScopedRifleFire rifle;
+        CoJLongGunFireRouting owner{true,false,0xf1234567U};
+        cojvr::runtime::GameplayInputState physical{};
+        physical.active=true;physical.input_context_generation=170;physical.digital_available=~0U;
+        auto poll=[&](std::uint64_t seq,bool known=true){
+            auto mapped=physical;rifle.Filter(known,owner,7,53,seq,physical,mapped);return mapped;
+        };
+        (void)poll(1);
+        const int left_before=native_hand_attacks[1],right_before=native_hand_attacks[0];
+        physical.fire_right=true;auto mapped=poll(2);
+        ok &= Check(mapped.fire_left&&!mapped.fire_right&&
+            rifle_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire)&&
+            native_hand_attacks[1]==left_before+1&&native_hand_attacks[0]==right_before,
+            "scoped R2 must fire action9 instead of native button0 zoom");
+        physical.fire_left=true;mapped=poll(3);
+        ok &= Check(mapped.fire_left&&!mapped.fire_right,"physical L2 changed scoped R2 ownership");
+        owner.scoped_right_weapon++;mapped=poll(4);
+        ok &= Check(!mapped.fire_left&&!mapped.fire_right,"held R2 fired replacement scoped rifle");
+        physical.fire_left=physical.fire_right=false;(void)poll(5);physical.fire_right=true;
+        ok &= Check(poll(6).fire_left,"scoped rifle failed to recover after release");
+        {CoJScopedRifleFireFrame interrupted{rifle};}
+        ok &= Check(!poll(7).fire_left,"early render return did not disarm scoped rifle");
+        physical.fire_right=false;(void)poll(8);physical.fire_right=true;physical.reload=true;mapped=poll(9);
+        ok &= Check(!mapped.fire_left&&!mapped.fire_right&&mapped.reload,"Square lost native reload or fired");
+        physical.reload=false;ok &= Check(!poll(10).fire_left,"held R2 fired after reload conflict");
+        physical.fire_right=false;(void)poll(11);physical.fire_right=true;
+        ok &= Check(!poll(12,false).fire_left&&!poll(13).fire_left,"unknown owner bypassed release gate");
+        physical.fire_right=false;(void)poll(14);physical.fire_right=true;
+        ok &= Check(!poll(13).fire_left,"regressed sequence fired scoped rifle");
+        physical.fire_right=false;(void)poll(15);physical.fire_right=true;physical.digital_available&=~2U;
+        ok &= Check(!poll(16).fire_left,"unavailable R2 fired");physical.digital_available|=2U;
+        ok &= Check(!poll(17).fire_left,"held R2 fired after binding recovery");
+        physical.fire_right=false;(void)poll(18);physical.fire_right=true;owner={};mapped=poll(19);
+        ok &= Check(!mapped.fire_right&&!mapped.fire_left,"scoped hold leaked into ordinary weapon");
+        physical.fire_right=false;(void)poll(20);physical.fire_right=true;mapped=poll(21);
+        ok &= Check(mapped.fire_right&&!mapped.fire_left,"ordinary R2 failed after scoped exit/release");
+        (void)rifle_bridge.TryApplyGameplayInput({},&error);
+    }
+    // Exercise the real phased dispatcher after inventory-specific filters
+    // have cleared both triggers. Cannon R2 must reach action9/Attack(1), and
+    // release must stop it without replaying action10 on exit.
+    {
+        JavaPlayerBridge cannon_bridge;Bind(cannon_bridge);
+        CoJStationaryFire cannon_fire;
+        CoJStationaryWeaponOwner cannon{true,0xf1234001U};
+        cojvr::runtime::GameplayInputState physical{};
+        physical.active=true;physical.input_context_generation=70;
+        auto mapped=physical;
+        (void)cannon_fire.Filter(true,cannon,7,53,1,physical,mapped);
+        const int left_before=native_hand_attacks[1],right_before=native_hand_attacks[0];
+        physical.fire_right=true;mapped={};mapped.active=true;
+        (void)cannon_fire.Filter(true,cannon,7,53,2,physical,mapped);
+        ok &= Check(cannon_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire)&&
+            native_hand_attacks[1]==left_before+1&&native_hand_attacks[0]==right_before,
+            "stationary R2 did not dispatch action9/Attack1 exclusively");
+        const int stopped_before=releases[9];
+        physical.fire_right=false;mapped=physical;
+        (void)cannon_fire.Filter(true,cannon,7,53,3,physical,mapped);
+        ok &= Check(cannon_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire)&&
+            releases[9]==stopped_before+1,"stationary release did not dispatch native StopFire channel");
+        physical.fire_right=true;mapped=physical;
+        (void)cannon_fire.Filter(true,cannon,7,53,4,physical,mapped);
+        ok &= Check(cannon_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire),"second cannon shot dispatch failed");
+        mapped=physical;(void)cannon_fire.Filter(true,{},7,53,5,physical,mapped);
+        ok &= Check(cannon_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire)&&
+            native_hand_attacks[0]==right_before,"held cannon R2 leaked into ordinary weapon on exit");
+        physical.fire_right=false;mapped=physical;(void)cannon_fire.Filter(true,{},7,53,6,physical,mapped);
+        (void)cannon_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire);
+        physical.fire_right=true;mapped=physical;(void)cannon_fire.Filter(true,{},7,53,7,physical,mapped);
+        ok &= Check(cannon_bridge.TryApplyGameplayInput(mapped,&error,CoJInputDispatchPhase::fire)&&
+            native_hand_attacks[0]==right_before+1,"ordinary R2 did not recover after fresh physical release");
+        (void)cannon_bridge.TryApplyGameplayInput({},&error);
     }
     env_table[6]=reinterpret_cast<void*>(&CampaignFind);
     env_table[21]=reinterpret_cast<void*>(&CampaignGlobal);

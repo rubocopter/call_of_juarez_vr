@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/indexed_reload_delta.hpp"
+#include "games/call_of_juarez/indexed_reload_prediction.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -134,8 +135,55 @@ void ForeignAndUnavailable(){
     v=baseline;v.weapon_present={};
     Need(ClassifyCoJIndexedReloadDelta(v,v,0).kind==Kind::unavailable,"empty owner admitted");
 }
+void NativeIndexChoice(){
+    using Prediction=CoJIndexedReloadPredictionKind;
+    for(auto cls:{Class::remington,Class::saw_off,Class::derringer}){
+        const int pool=cls==Class::derringer?0:2;
+        auto v=Sample(cls);
+        auto p=PredictCoJIndexedNativeReload(v,0);
+        Need(p.kind==Prediction::multiple_units&&p.loaded==std::array<std::int32_t,2>{1,1}&&
+            p.reserve_debit[pool]==2,"two empty barrels must not become one cartridge gesture");
+        v.reserves[pool]=1;
+        p=PredictCoJIndexedNativeReload(v,0);
+        Need(p.kind==Prediction::selected_unit&&p.loaded==std::array<std::int32_t,2>{1,0}&&
+            p.reserve_debit[pool]==1,"one reserve round follows native ascending barrel order");
+        Need(PredictCoJIndexedNativeReload(v,1).kind==Prediction::other_unit,"cannot choose second empty barrel first");
+        v.loaded={1,0};v.reserves[pool]=12;
+        p=PredictCoJIndexedNativeReload(v,1);
+        Need(p.kind==Prediction::selected_unit&&p.loaded==std::array<std::int32_t,2>{0,1}&&
+            p.reserve_debit[pool]==1,"other full barrel permits exactly one selected round");
+        v.loaded={0,1};
+        Need(PredictCoJIndexedNativeReload(v,0).kind==Prediction::selected_unit,"first barrel with full second rejected");
+        v.loaded={1,1};
+        Need(PredictCoJIndexedNativeReload(v,0).kind==Prediction::no_transfer,"full weapon predicts a cartridge");
+        v.loaded={0,0};v.reserves[pool]=0;
+        Need(PredictCoJIndexedNativeReload(v,0).kind==Prediction::no_transfer,"empty reserve predicts a cartridge");
+    }
+    auto v=Sample(Class::lemant);
+    auto p=PredictCoJIndexedNativeReload(v,1);
+    Need(p.kind==Prediction::other_unit&&p.loaded==std::array<std::int32_t,2>{1,0}&&
+        p.reserve_debit==std::array<std::int32_t,3>{0,1,0},"Lemant must prefer available rifle index");
+    v.loaded[0]=1;
+    p=PredictCoJIndexedNativeReload(v,1);
+    Need(p.kind==Prediction::selected_unit&&p.loaded==std::array<std::int32_t,2>{0,1}&&
+        p.reserve_debit==std::array<std::int32_t,3>{1,0,0},"Lemant must debit only pistol pool for pistol index");
+    v.loaded={0,7};v.reserves[1]=0;
+    Need(PredictCoJIndexedNativeReload(v,1).kind==Prediction::selected_unit,"unavailable rifle pool must yield to pistol index");
+    v.loaded[1]=8;
+    Need(PredictCoJIndexedNativeReload(v,1).kind==Prediction::no_transfer,"full pistol with empty rifle reserve predicts transfer");
+    for(int index:{-1,2})Need(PredictCoJIndexedNativeReload(v,index).kind==Prediction::unavailable,"bad index predicted");
+    for(int change=0;change<5;++change){
+        v=Sample();
+        if(change==0)v.context.synchronous_scope=0;
+        if(change==1)v.context.object_epoch=0;
+        if(change==2)v.valid=false;
+        if(change==3)v.loaded[0]=-1;
+        if(change==4)v.reserves[0]=1;
+        Need(PredictCoJIndexedNativeReload(v,0).kind==Prediction::unavailable,"passive or invalid input predicted");
+    }
+}
 }
 int main(){
-    SharedPools();MixedPools();Mutations();ForeignAndUnavailable();
+    SharedPools();MixedPools();Mutations();ForeignAndUnavailable();NativeIndexChoice();
     std::cout<<"Indexed reload vector classification passed\n";
 }

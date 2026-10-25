@@ -13,6 +13,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
+#include <optional>
 #include <string_view>
 #include <type_traits>
 
@@ -1005,6 +1007,9 @@ void JavaPlayerBridge::Reset() noexcept {
     gameplay_input_applied_ = false;
     gameplay_analog_state_uncertain_ = false;
     turn_state_ = {};
+    turn_dispatch_observer_ = {};
+    input_trace_records_ = 0;
+    input_trace_enabled_ = input_trace_have_time_ = false;
     native_settings_bridge_.Invalidate();
     duel_input_state_ = {};
     last_turn_degrees_ = 0.0F;
@@ -1736,6 +1741,18 @@ bool JavaPlayerBridge::TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
     return observed;
 }
 
+bool JavaPlayerBridge::TryObserveNativeReloadFallback() noexcept {
+    if (!being_ || independent_hand_faulted_ || weapon_overlay_faulted_ || body_restore_owner_count_)
+        return false;
+    for (const auto& hand:hand_overlays_) if (hand.object) return false;
+    for (const auto& weapon:weapon_overlays_)
+        if (weapon.weapon || weapon.active || weapon.applied) return false;
+    void* const player=being_;
+    const auto generation=being_generation_;
+    const bool observed=ReadCoJNativeReloadFallback(Environment(nullptr),player);
+    return observed && player==being_ && generation==being_generation_;
+}
+
 bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error) noexcept {
     result=false;
     if(!being_)return false;
@@ -1976,6 +1993,54 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     if (!clean()) { (void)ClearSingleRoundReloadField(env, nullptr); return false; }
     SetError(error, "");
     return true;
+}
+
+bool JavaPlayerBridge::TryObserveStationaryWeapon(CoJStationaryWeaponOwner& owner) noexcept {
+    owner={};
+    if(!being_)return false;
+    const auto generation=being_generation_;void* const player=being_;
+    CoJStationaryWeaponOwner observed{};
+    if(!ReadCoJStationaryWeaponOwner(Environment(nullptr),player,observed)||
+        being_!=player||being_generation_!=generation)return false;
+    owner=observed;return true;
+}
+
+bool JavaPlayerBridge::TryObserveStationaryAim(CoJStationaryAimRay& ray,std::string* error) noexcept {
+    ray={};if(!being_)return false;
+    SetError(error,"");
+    const auto generation=being_generation_;void* const player=being_;
+    struct FrameContext{JavaPlayerBridge* bridge;std::string* error;} context{this,error};
+    const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& out) noexcept {
+        const auto& source=*static_cast<FrameContext*>(context);JavaPlayerPosition p{},u{},f{};out={};
+        if(!source.bridge->ReadObjectElementFrame(object,element,p,u,f,source.error,true))return false;
+        out={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
+    };
+    CoJStationaryAimRay observed;
+    if(!ReadCoJStationaryAim(Environment(error),player,frame,&context,observed)||
+        being_!=player||being_generation_!=generation){
+        if(error&&error->empty())SetError(error,"stationary owner/mesh/barrel source unavailable or changed");
+        return false;
+    }
+    ray=observed;return true;
+}
+
+bool JavaPlayerBridge::TryDispatchStationaryAim(CoJStationaryWeaponOwner owner,runtime::Vec2 degrees,
+    bool& dispatched,std::string* error) noexcept {
+    dispatched=false;
+    if(!being_||!owner.active){SetError(error,"stationary aim owner unavailable");return false;}
+    const auto generation=being_generation_;void* const player=being_;
+    void* env=Environment(error);
+    if(!env||!EnsureGameplayInputAccess(env,error))return false;
+    const auto get=EnvFunction<GetStaticObjectFieldFn>(env,kGetStaticObjectField);
+    if(!get)return false;
+    void* controller=get(env,lawman_game_class_,input_controller_field_);
+    if(ClearException(env,error,"stationary input controller read failed")||!controller){DeleteLocal(env,controller);return false;}
+    const bool ok=DispatchCoJStationaryAim(env,player,controller,input_settings_class_,owner,degrees,dispatched);
+    DeleteLocal(env,controller);
+    if(!ok||being_!=player||being_generation_!=generation){
+        dispatched=false;SetError(error,"stationary aim native boundary rejected");return false;
+    }
+    SetError(error,"");return true;
 }
 
 bool JavaPlayerBridge::TryObserveMounted(bool& mounted) noexcept {
@@ -2803,32 +2868,34 @@ bool JavaPlayerBridge::BindPreparedLongGunSupport(const CoJLongGunSupportSnapsho
 bool JavaPlayerBridge::ValidateTrackedLongGunOwner(const int hand,const bool mapped_support,std::string* error) noexcept {
     const auto& overlay=weapon_overlays_[static_cast<std::size_t>(hand)];
     if(!overlay.long_gun_owner.valid)return true;
+    const auto reject=[&](const char* reason) noexcept {SetError(error,reason);return false;};
     if(hand!=0||overlay.long_gun_generation!=being_generation_||weapon_overlay_faulted_||
-        independent_hand_faulted_||weapon_overlays_[1].weapon)return false;
+        independent_hand_faulted_||weapon_overlays_[1].weapon)return reject("rifle pose owner/generation or hand availability changed");
     void* env=Environment(error);
     const auto same=env?EnvFunction<IsSameObjectFn>(env,kIsSameObject):nullptr;
     if(!same||!long_gun_grip_owner_||long_gun_grip_generation_!=being_generation_||
-        !long_gun_grip_epoch_||overlay.long_gun_owner.object_epoch!=long_gun_grip_epoch_)return false;
+        !long_gun_grip_epoch_||overlay.long_gun_owner.object_epoch!=long_gun_grip_epoch_)return reject("rifle retained grip lease changed");
     const bool retained=same(env,overlay.weapon,long_gun_grip_owner_)!=0;
-    if(ClearException(env,error,"rifle transaction identity comparison failed")||!retained)return false;
+    if(ClearException(env,error,"rifle transaction identity comparison failed"))return false;
+    if(!retained)return reject("rifle retained weapon object changed");
     const auto frame=[](void* context,void* object,int element,ElementWorldBasisTarget& out) noexcept {
         auto& bridge=*static_cast<JavaPlayerBridge*>(context);JavaPlayerPosition p{},u{},f{};out={};
         if(!bridge.ReadObjectElementFrame(object,element,p,u,f,nullptr,true))return false;
         out={{p.x,p.y,p.z},{u.x,u.y,u.z},{f.x,f.y,f.z},true};return true;
     };
     CoJLongGunSupportSnapshot now{};
-    if(!ReadCoJLongGunSupport(Environment(error),being_,now,frame,this,overlay.weapon))return false;
+    if(!ReadCoJLongGunSupport(Environment(error),being_,now,frame,this,overlay.weapon))return reject("rifle native support snapshot no longer admits retained pose");
     const auto& expected=overlay.long_gun_owner;
     if(now.player_id!=expected.player_id||now.weapon_id!=expected.weapon_id||
         now.holder_element!=expected.holder_element||now.support_element!=expected.support_element||
         now.contact_element!=expected.contact_element||
-        std::strcmp(now.weapon_class,expected.weapon_class))return false;
+        std::strcmp(now.weapon_class,expected.weapon_class))return reject("rifle native object/class or attachment elements changed");
     if(mapped_support){
         const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float e){return std::abs(a.x-b.x)<=e&&
             std::abs(a.y-b.y)<=e&&std::abs(a.z-b.z)<=e;};
         if(!close(now.support.position,overlay.long_gun_support.position,.1F)||
             !close(now.support.up,overlay.long_gun_support.up,.02F)||
-            !close(now.support.forward,overlay.long_gun_support.forward,.02F))return false;
+            !close(now.support.forward,overlay.long_gun_support.forward,.02F))return reject("rifle support frame changed after tracked hand/socket pose");
     }
     return true;
 }
@@ -3558,22 +3625,85 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     const cojvr::runtime::GameplayInputState& state,
     std::string* error, const CoJInputDispatchPhase phase,
     const float head_relative_move_yaw_degrees,
-    const std::uint64_t monotonic_us) noexcept {
+    const std::uint64_t monotonic_us,
+    const CoJInputDispatchTraceContext* trace) noexcept {
+    // This scope observes this invocation only. Its sink runs once, after JNI
+    // cleanup, including early failures. No extra native input call is made.
+    std::optional<CoJInputDispatchDiagnostic> diagnostic;
+    const auto trace_clock = []() noexcept {
+        return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    };
+    if (!input_trace_emitting_) {
+        const bool enabled = trace && trace->movement_trace_enabled && trace->sink;
+        if (!enabled || !input_trace_enabled_) {
+            input_trace_records_ = 0;
+            input_trace_have_time_ = false;
+        }
+        input_trace_enabled_ = enabled;
+        const auto limit = enabled ? std::min(trace->max_records, 4096U) : 0U;
+        if (enabled && input_trace_records_ < limit) {
+            auto& row = diagnostic.emplace();
+            row.identity = *trace;
+            row.phase = phase; row.input = state;
+            row.turn_time_us = monotonic_us;
+            row.head_relative_move_yaw_degrees = head_relative_move_yaw_degrees;
+            row.player_generation_before = being_generation_;
+            row.player_reference_before = reinterpret_cast<std::uintptr_t>(being_);
+            row.dispatch_monotonic_us = trace_clock();
+            row.dispatch_delta_valid = input_trace_have_time_ && row.dispatch_monotonic_us >= input_trace_previous_us_;
+            if (row.dispatch_delta_valid) row.dispatch_delta_us = row.dispatch_monotonic_us - input_trace_previous_us_;
+            input_trace_previous_us_ = row.dispatch_monotonic_us; input_trace_have_time_ = true;
+            row.record_index = ++input_trace_records_; row.record_limit = limit;
+            row.budget_exhausted = row.record_index == limit;
+        }
+    }
+    const auto finish_trace = [&]() noexcept {
+        if (!diagnostic) return; // No clock, formatting or sink work when off/capped.
+        auto& row = *diagnostic;
+        row.duration_us = trace_clock() - row.dispatch_monotonic_us;
+        row.player_generation_after = being_generation_;
+        row.player_reference_after = reinterpret_cast<std::uintptr_t>(being_);
+        row.analog_uncertain = gameplay_analog_state_uncertain_;
+        // BuildCoJGameplayActionValues puts actions 4..7 at indices 2..5.
+        for (std::size_t i = 0; i < 4; ++i) row.acknowledged_move[i] = last_gameplay_action_values_[i + 2];
+        input_trace_emitting_ = true;
+        row.identity.sink(row.identity.sink_context, row);
+        input_trace_emitting_ = false;
+    };
+    struct TraceExit {
+        const decltype(finish_trace)& finish;
+        ~TraceExit() { finish(); }
+    } trace_exit{finish_trace};
+    if (diagnostic) diagnostic->stage = "cancel_manual_reload";
     if (!state.active && !CancelManualReload(error)) return false;
+    if (diagnostic) diagnostic->stage = "clear_single_round_reload";
     if (!state.active && single_round_reload_pending_ && !ClearSingleRoundReload(error)) return false;
     float turn_degrees=0.0F;
     if (phase!=CoJInputDispatchPhase::fire && phase!=CoJInputDispatchPhase::shoulder) {
         last_turn_degrees_ = 0.0F;
         last_analog_transaction_applied_ = false;
-        turn_degrees = -turn_state_.Update(state, monotonic_us,runtime::CurrentTurnMode());
+        const auto turn_mode = runtime::CurrentTurnMode();
+        turn_degrees = -turn_state_.Update(state, monotonic_us, turn_mode);
+        const auto turn_observation = turn_dispatch_observer_.Observe(state, monotonic_us, turn_mode, turn_degrees);
+        if (diagnostic) {
+            diagnostic->turn_updated = true;
+            diagnostic->turn = turn_observation;
+            diagnostic->turn_requested_degrees = turn_degrees;
+        }
     }
-    if (!state.active && !gameplay_input_applied_ && !gameplay_analog_state_uncertain_) return true;
+    if (!state.active && !gameplay_input_applied_ && !gameplay_analog_state_uncertain_) {
+        if (diagnostic) { diagnostic->stage = "inactive_no_work"; diagnostic->success = true; }
+        return true;
+    }
 
     if (turn_degrees != 0.0F) {
-        if (!TryRotateHorizontally(turn_degrees, error)) return false;
+        if (diagnostic) diagnostic->stage = "rotate_horizontally";
+        if (!TryRotateHorizontally(turn_degrees, error, diagnostic ? &*diagnostic : nullptr)) return false;
         last_turn_degrees_ = turn_degrees;
     }
 
+    if (diagnostic) diagnostic->stage = "gameplay_input_access";
     void* env = Environment(error);
     if (!env || !EnsureGameplayInputAccess(env, error)) return false;
 
@@ -3592,6 +3722,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         return false;
     }
 
+    if (diagnostic) diagnostic->stage = "controller_lookup";
     void* controller = get_static_object(env, lawman_game_class_, input_controller_field_);
     if (!controller ||
         ClearException(env, error, "LawmanGame.sm_cInputController gameplay read failed")) {
@@ -3599,6 +3730,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         SetError(error, "game input controller is unavailable");
         return false;
     }
+    if (diagnostic) diagnostic->stage = "action_target_arrays";
     void* actions = get_object_field(env, controller, controller_actions_field_);
     void* targets = get_object_field(env, controller, controller_targets_field_);
     if (!actions || !targets ||
@@ -3620,6 +3752,11 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     }
 
     const auto values = BuildCoJGameplayActionValues(state, head_relative_move_yaw_degrees);
+    if (diagnostic) {
+        diagnostic->move_values_built = true;
+        for (const auto& item : values)
+            if (UseDirectAnalogCoJLocomotion(item.action)) diagnostic->requested_move[item.action - 4] = item.value;
+    }
     // A 0.005 action tolerance hid several degrees of gaze changes during a
     // careful step. Suppress numerical noise without quantizing that direction.
     constexpr float kAnalogDispatchEpsilon = 0.00001F;
@@ -3651,6 +3788,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         // complete batch succeeds, retry every axis rather than trusting the
         // last acknowledged cache to describe that partial native state.
         gameplay_analog_state_uncertain_ = true;
+        if (diagnostic) { diagnostic->stage = "analog_lock"; diagnostic->analog_lock_attempted = true; }
         call_void(env, controller, controller_lock_apply_method_, controller_state_args);
         if (ClearException(
                 env, error,
@@ -3661,10 +3799,12 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             return false;
         }
         analog_transaction_locked = true;
+        if (diagnostic) diagnostic->analog_lock_completed = true;
     }
 
     const auto apply_value = [&](const CoJGameplayActionValue& item,
                                  const CoJGameplayActionValue& previous_item) noexcept {
+        if (diagnostic) diagnostic->stage = "action_lookup";
         void* action = get_element(env, actions, item.action);
         if (!action || ClearException(env, error, "InputAction array access failed")) {
             DeleteLocal(env, action);
@@ -3748,6 +3888,10 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                         direct_args[0].i = item.action;
                         direct_args[1].f = item.value;
                         direct_args[2].l = action;
+                        if (diagnostic) {
+                            diagnostic->stage = "move_callback";
+                            ++diagnostic->move_callbacks_attempted[item.action - 4];
+                        }
                         call_void(
                             env, target, game_object_controller_input_method_, direct_args);
                         if (ClearException(
@@ -3759,6 +3903,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                             DeleteLocal(env, action);
                             return false;
                         }
+                        if (diagnostic) ++diagnostic->move_callbacks_completed[item.action - 4];
                         invoked = true;
                     }
                 }
@@ -3813,6 +3958,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
             return false;
         }
         if (digital) {
+                if (diagnostic) diagnostic->stage = "digital_translate";
                 // Translate forwards the configured action ID; the shipped
                 // PlayerController then converts it to an attack hand index.
                 const JValue args[3]{
@@ -3835,6 +3981,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                     return false;
                 }
         } else {
+            if (diagnostic) diagnostic->stage = "analog_translate";
             JValue analog_args[4]{};
             analog_args[0].l = target;
             analog_args[1].i = device;
@@ -3858,6 +4005,7 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
         if (!UseDirectAnalogCoJLocomotion(values[index].action)) continue;
         if (values[index].action != previous_values[index].action ||
             !apply_value(values[index], previous_values[index])) {
+            if (diagnostic) diagnostic->failed_action = values[index].action;
             ok = false;
             break;
         }
@@ -3865,17 +4013,23 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
 
     if (analog_transaction_locked) {
         std::string transaction_error;
+        const char* prior_stage = diagnostic ? diagnostic->stage : nullptr;
+        if (diagnostic) { diagnostic->stage = "analog_unlock"; diagnostic->analog_unlock_attempted = true; }
         call_void(env, controller, controller_unlock_apply_method_, controller_state_args);
         const bool unlock_failed = ClearException(
             env, &transaction_error,
             "GameInputController.UnlockApplyControllerState VR locomotion failed");
         bool apply_failed = false;
+        if (diagnostic) diagnostic->analog_unlock_completed = !unlock_failed;
         if (!unlock_failed) {
+            if (diagnostic) { diagnostic->stage = "analog_apply"; diagnostic->analog_apply_attempted = true; }
             call_void(env, controller, controller_apply_method_, controller_state_args);
             apply_failed = ClearException(
                 env, &transaction_error,
                 "GameInputController.ApplyControllerState VR locomotion failed");
+            if (diagnostic) diagnostic->analog_apply_completed = !apply_failed;
         }
+        if (diagnostic && !ok) diagnostic->stage = prior_stage;
         if (unlock_failed || apply_failed) {
             if (ok) SetError(error, transaction_error.c_str());
             ok = false;
@@ -3903,11 +4057,13 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
                 UseDirectAnalogCoJLocomotion(values[index].action)) continue;
             if (values[index].action != previous_values[index].action ||
                 !apply_value(values[index], previous_values[index])) {
+                if (diagnostic) diagnostic->failed_action = values[index].action;
                 ok = false;
                 break;
             }
             // A later action can fail: never replay a transition already delivered.
             last_gameplay_action_values_[index]=values[index].value;
+            if (diagnostic) diagnostic->actions_acknowledged_mask |= std::uint64_t{1} << values[index].action;
             if (values[index].value!=0.0F) gameplay_input_applied_=true;
         }
     }
@@ -3919,20 +4075,26 @@ bool JavaPlayerBridge::TryApplyGameplayInput(
     gameplay_input_applied_ = state.active;
     for (const auto value:last_gameplay_action_values_) gameplay_input_applied_|=value!=0.0F;
     if (gameplay_analog_state_uncertain_) {
+        if (diagnostic) diagnostic->stage = "analog_recovery_required";
         SetError(error, "native locomotion requires a complete analog recovery batch");
         return false;
     }
+    if (diagnostic) { diagnostic->stage = "complete"; diagnostic->success = true; }
     return true;
 }
 
 bool JavaPlayerBridge::TryRotateHorizontally(
     const float degrees,
-    std::string* error) noexcept {
+    std::string* error,
+    CoJInputDispatchDiagnostic* diagnostic) noexcept {
     if (!std::isfinite(degrees)) {
         SetError(error, "player horizontal rotation is not finite");
         return false;
     }
-    if (std::fabs(degrees) <= 1.0e-5F) return true;
+    if (std::fabs(degrees) <= 1.0e-5F) {
+        if (diagnostic) diagnostic->turn_native_epsilon_suppressed = true;
+        return true;
+    }
     if ((!being_ || !rotate_horizontally_method_) && !Refresh(error)) return false;
 
     void* env = Environment(error);
@@ -3947,8 +4109,14 @@ bool JavaPlayerBridge::TryRotateHorizontally(
     }
     JValue args[1]{};
     args[0].f = degrees;
+    if (diagnostic) { diagnostic->stage = "rotate_callback"; diagnostic->turn_attempted = true; }
     call_void(env, being_, rotate_horizontally_method_, args);
-    return !ClearException(env, error, "PlayerBeing.RotateHorizontally VR rotation failed");
+    const bool completed = !ClearException(env, error, "PlayerBeing.RotateHorizontally VR rotation failed");
+    if (diagnostic) {
+        diagnostic->turn_completed = completed;
+        if (completed) diagnostic->turn_delivered_degrees = degrees;
+    }
+    return completed;
 }
 
 CoJCurrentUiResolution JavaPlayerBridge::TryResolveCurrentGameUi(
@@ -4560,7 +4728,9 @@ bool JavaPlayerBridge::TryProcessNativeSettings(bool input_allowed,std::string* 
     (void)preferences.Initialize(runtime::DefaultVrSettingsPath());
     const auto language=ui_language_==CoJUiLanguage::spanish?
         runtime::SettingsLanguage::spanish:runtime::SettingsLanguage::english;
-    const bool result=native_settings_bridge_.Update(env,ui,language,preferences,error);
+    auto& graphics=runtime::SharedGraphicsPreferences();
+    (void)graphics.Initialize(runtime::DefaultGraphicsSettingsPath());
+    const bool result=native_settings_bridge_.Update(env,ui,language,preferences,graphics,error);
     DeleteLocal(env,ui);return result;
 }
 
@@ -5128,23 +5298,32 @@ bool JavaPlayerBridge::TryDispatchUiSelectPress(
         return false;
     }
     if (is_loading) {
-        void* on_input_key = get_method(env, ui_class, "OnInputKey", "(IZC)V");
+        void* continuation = get_method(env, ui_class, "cojvrContinueLoading", "()Z");
         DeleteLocal(env, ui_class);
-        if (!on_input_key || ClearException(env, error, "GameUILoading.OnInputKey lookup failed")) {
-            DeleteLocal(env, ui);
+        const auto boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+        if (!continuation || !boolean || ClearException(env, error, "Qualified loading continuation unavailable")) {
+            DeleteLocal(env, ui); return false;
+        }
+        const bool delivered = boolean(env, ui, continuation, nullptr)!=0;
+        if (ClearException(env, error, "Qualified loading continuation failed")) {DeleteLocal(env,ui);return false;}
+        if (!delivered) {
+            // Report why a fresh edge was refused without advancing native fade,
+            // timer, precache or mission state. UI references stay on this thread.
+            void* type=get_class(env,ui);
+            const bool type_valid=!ClearException(env,nullptr,"loading state type");
+            void* state=type&&type_valid?get_method(env,type,"cojvrLoadingState","()I"):nullptr;
+            const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+            const int value=state&&integer&&!ClearException(env,nullptr,"loading state lookup")?
+                integer(env,ui,state,nullptr):-1;
+            const bool valid=!ClearException(env,nullptr,"loading state observation");
+            DeleteLocal(env,type);DeleteLocal(env,ui);
+            SetError(error,valid&&value==2?"loading continuation already queued; native fade owns completion":
+                valid&&value==0?"loading continuation waiting for native exclusive registration":"loading readiness unavailable");
             return false;
         }
-        JValue loading_args[3]{};
-        loading_args[0].i = 1;
-        // GameUILoading consumes key-down; key-up does not continue loading.
-        loading_args[1].z = 1;
-        loading_args[2].c = 0;
-        call_void(env, ui, on_input_key, loading_args);
         DeleteLocal(env, ui);
-        if (ClearException(env, error, "GameUILoading.OnInputKey call failed")) return false;
         if (route) *route = CoJUiDispatchRoute::loading_ui;
-        SetError(error, "");
-        return true;
+        SetError(error, ""); return true;
     }
     void* press = get_method(env, ui_class, "CallEnterKeyPressed", "()V");
     void* release = get_method(env, ui_class, "CallEnterKeyReleased", "()V");
@@ -5255,25 +5434,33 @@ bool JavaPlayerBridge::TryDispatchUiPointerSelectPress(
         return false;
     }
     if (is_loading) {
-        void* on_input_key = get_method(env, ui_class, "OnInputKey", "(IZC)V");
+        void* continuation = get_method(env, ui_class, "cojvrContinueLoading", "()Z");
         DeleteLocal(env, ui_class);
-        if (!on_input_key || ClearException(env, error, "GameUILoading.OnInputKey lookup failed")) {
-            DeleteLocal(env, ui);
+        const auto boolean = EnvFunction<CallBooleanMethodAFn>(env, kCallBooleanMethodA);
+        if (!continuation || !boolean || ClearException(env, error, "Qualified loading continuation unavailable")) {
+            DeleteLocal(env, ui); return false;
+        }
+        const bool delivered = boolean(env, ui, continuation, nullptr)!=0;
+        if (ClearException(env, error, "Qualified loading continuation failed")) {DeleteLocal(env,ui);return false;}
+        if (!delivered) {
+            // Report why a fresh edge was refused without advancing native fade,
+            // timer, precache or mission state. UI references stay on this thread.
+            void* type=get_class(env,ui);
+            const bool type_valid=!ClearException(env,nullptr,"loading state type");
+            void* state=type&&type_valid?get_method(env,type,"cojvrLoadingState","()I"):nullptr;
+            const auto integer=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+            const int value=state&&integer&&!ClearException(env,nullptr,"loading state lookup")?
+                integer(env,ui,state,nullptr):-1;
+            const bool valid=!ClearException(env,nullptr,"loading state observation");
+            DeleteLocal(env,type);DeleteLocal(env,ui);
+            SetError(error,valid&&value==2?"loading continuation already queued; native fade owns completion":
+                valid&&value==0?"loading continuation waiting for native exclusive registration":"loading readiness unavailable");
             return false;
         }
-        JValue loading_args[3]{};
-        loading_args[0].i = 1;
-        // Same loading-only native press for ray selection; no generic click.
-        loading_args[1].z = 1;
-        loading_args[2].c = 0;
-        call_void(env, ui, on_input_key, loading_args);
         DeleteLocal(env, ui);
-        if (ClearException(env, error, "GameUILoading.OnInputKey call failed")) return false;
         if (route) *route = CoJUiDispatchRoute::loading_ui;
-        SetError(error, "");
-        return true;
+        SetError(error, ""); return true;
     }
-
     if (!dispatch_button) {
         DeleteLocal(env, ui_class);
         DeleteLocal(env, ui);
@@ -6122,7 +6309,7 @@ bool JavaPlayerBridge::TryGetMeshElementByName(
     const bool failed = ClearException(env, error, "GetElementID call failed");
     DeleteLocal(env, java_name);
     if (failed || result < 0) {
-        if (!failed) SetError(error, "named mesh element is unavailable");
+        if (!failed && error) try { *error=std::string("named mesh element is unavailable: ")+name; } catch(...) {}
         return false;
     }
     element = result;

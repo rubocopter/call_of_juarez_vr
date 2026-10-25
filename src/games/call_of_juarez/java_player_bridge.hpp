@@ -13,6 +13,8 @@
 #include "games/call_of_juarez/reload_geometry.hpp"
 #include "games/call_of_juarez/long_gun_observer.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
+#include "games/call_of_juarez/stationary_weapon.hpp"
+#include "games/call_of_juarez/stationary_aim.hpp"
 #include "games/call_of_juarez/winchester_reload_observer.hpp"
 #include "games/call_of_juarez/indexed_reload_observer.hpp"
 #include "games/call_of_juarez/bow_aim.hpp"
@@ -23,6 +25,7 @@
 #include "games/call_of_juarez/movie_input_owner.hpp"
 #include "games/call_of_juarez/duel_input.hpp"
 #include "games/call_of_juarez/native_settings_bridge.hpp"
+#include "games/call_of_juarez/input_dispatch_diagnostics.hpp"
 
 #include <array>
 #include <cstdint>
@@ -257,7 +260,6 @@ private:
     const cojvr::runtime::GameplayInputState& state,
     float head_relative_move_yaw_degrees = 0.0F) noexcept;
 [[nodiscard]] bool UseDirectAnalogCoJLocomotion(int action) noexcept;
-enum class CoJInputDispatchPhase { all, non_fire, pre_shoulder, shoulder, fire };
 [[nodiscard]] bool ShouldDispatchCoJGameplayAction(CoJInputDispatchPhase phase, int action) noexcept;
 [[nodiscard]] cojvr::runtime::GameplayInputState MergeCoJGameplayInputPhase(
     const cojvr::runtime::GameplayInputState& previous,
@@ -424,6 +426,7 @@ public:
         CoJIndexedReloadSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveNativeReloadFallback() noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
         bool include_wait_probe = false) noexcept;
     // Only the explicitly staged manual derivative has these exact helpers.
@@ -453,6 +456,10 @@ public:
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;
+    [[nodiscard]] bool TryObserveStationaryWeapon(CoJStationaryWeaponOwner& owner) noexcept;
+    [[nodiscard]] bool TryObserveStationaryAim(CoJStationaryAimRay& ray,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryDispatchStationaryAim(CoJStationaryWeaponOwner owner,runtime::Vec2 degrees,
+        bool& dispatched,std::string* error=nullptr) noexcept;
     // Read-only life/carry/reload and stable idle/empty hand-state proof.
     // Caller additionally owns gameplay, duel, tracking and inventory admission.
     [[nodiscard]] bool TryObserveVirtualHolsterReady() noexcept;
@@ -477,7 +484,8 @@ public:
     // the stereo eye overlays have been restored for the current frame.
     [[nodiscard]] bool TryRotateHorizontally(
         float degrees,
-        std::string* error = nullptr) noexcept;
+        std::string* error = nullptr,
+        CoJInputDispatchDiagnostic* diagnostic = nullptr) noexcept;
     // Feed semantic VR gameplay intent through the game's own configured
     // InputAction objects. This never synthesizes process-global keyboard or
     // mouse input; digital transitions and analog values are translated on
@@ -487,7 +495,8 @@ public:
         std::string* error = nullptr,
         CoJInputDispatchPhase phase = CoJInputDispatchPhase::all,
         float head_relative_move_yaw_degrees = 0.0F,
-        std::uint64_t monotonic_us = 0) noexcept;
+        std::uint64_t monotonic_us = 0,
+        const CoJInputDispatchTraceContext* trace = nullptr) noexcept;
     [[nodiscard]] runtime::GameplayInputState AppliedGameplayCommands() const noexcept;
     // Route an intentional VR UI-select press through the currently visible
     // CoJ UI. GameUILoading owns an exact OnInputKey route for its exclusive
@@ -828,6 +837,10 @@ private:
     bool gameplay_input_applied_ = false;
     bool gameplay_analog_state_uncertain_ = false;
     runtime::GameplayTurnState turn_state_{};
+    CoJTurnDispatchObserver turn_dispatch_observer_{};
+    std::uint64_t input_trace_previous_us_ = 0;
+    std::uint32_t input_trace_records_ = 0;
+    bool input_trace_enabled_ = false, input_trace_have_time_ = false, input_trace_emitting_ = false;
     NativeSettingsBridge native_settings_bridge_{};
     float last_turn_degrees_ = 0.0F;
     bool last_analog_transaction_applied_ = false;

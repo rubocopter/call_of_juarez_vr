@@ -1,4 +1,5 @@
 #pragma once
+#include "games/call_of_juarez/interaction_selection.hpp"
 #include "runtime/equipment_actions.hpp"
 #include "runtime/gameplay_ui.hpp"
 #include "runtime/vr_math.hpp"
@@ -10,6 +11,7 @@ namespace cojvr::games::call_of_juarez {
 struct CoJVirtualHolsterSample {
     runtime::GameplayInputState raw{};
     runtime::EquipmentWheelSnapshot inventory{};
+    CoJInteractionSelection interaction{}; // passive, current native Action owner
     runtime::Pose head{};
     std::array<runtime::Pose,2> grips{}; // right, left
     std::uint64_t player=0,context=0,sequence=0,now_us=0;
@@ -22,9 +24,15 @@ struct CoJVirtualHolsterZone {
     bool shoulder=false;
 };
 inline constexpr std::array<CoJVirtualHolsterZone,4> kCoJVirtualHolsterZones{{
-    {{-.22F,-.70F,0},.20F,1,0,false},{{.22F,-.70F,0},.20F,0,1,false},
+    {{-.22F,-.70F,0},.11F,1,0,false},{{.22F,-.70F,0},.11F,0,1,false},
     {{.22F,-.10F,.20F},.24F,0,2,true},{{-.22F,-.10F,.20F},.24F,1,5,true}
 }};
+inline bool CoJVirtualHolsterWorldInteraction(const CoJInteractionSelection& s) noexcept {
+    // Selection is not permission to execute Action. It only prevents an
+    // equipment gesture from stealing the native interaction's physical grip.
+    return s.valid&&(s.executing_id!=0 || (s.active_id!=0&&
+        !(s.disabled_valid&&s.detection_disabled)));
+}
 inline bool CoJVirtualHolsterPoseValid(const runtime::Pose& p) noexcept {
     const auto q=p.orientation;const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
     return p.position_valid&&p.orientation_valid&&std::isfinite(p.position.x)&&
@@ -63,7 +71,7 @@ inline int CoJVirtualHolsterZoneForHand(const runtime::Pose& head,const runtime:
     return -1;
 }
 // Presentation and dispatch share the same conflict policy. A blocked zone
-// remains a holster intent, never permission to fall through to Action/Kick.
+// remains a holster intent unless a positive native world Action owns left grip.
 inline bool CoJVirtualHolsterInputConflict(const runtime::GameplayInputState& raw,
     const runtime::GameplayInputState& mapped) noexcept {
     for(unsigned i=0;i<raw.equipment_select.size();++i)
@@ -107,6 +115,7 @@ public:
         }
         known_=valid;player_=s.player;context_=s.context;input_=s.raw.input_context_generation;
         const bool conflict=CoJVirtualHolsterInputConflict(s.raw,out);
+        const bool world_interaction=CoJVirtualHolsterWorldInteraction(s.interaction);
         int selected=-1;
         for(int h=0;h<2;++h){
             if(!available[h]||!CoJVirtualHolsterPoseValid(s.grips[h])){armed_[h]=false;continue;}
@@ -116,8 +125,13 @@ public:
             // Reserve a geometrically known zone press even when input is
             // stale, unarmed or busy. Selection still requires every proof
             // below; cancellation/exit must not turn this hold into a kick.
-            if(channel>=0)claimed_[h]=true;
-            const bool admitted=valid&&fresh&&same&&armed_[h]&&mapped[h]&&!conflict;
+            // Fresh left grip belongs to an observed native world Action,
+            // including carry/put-down. Never release a previously claimed
+            // holster hold here; only an available physical release does that.
+            const bool world_priority=world_interaction&&channel!=2&&channel!=5;
+            const bool world_action=h==1&&world_priority&&!conflict;
+            if(channel>=0&&!world_action)claimed_[h]=true;
+            const bool admitted=valid&&fresh&&same&&armed_[h]&&mapped[h]&&!conflict&&!world_priority;
             armed_[h]=false;
             if(!admitted)continue;
             if(channel<0)continue;

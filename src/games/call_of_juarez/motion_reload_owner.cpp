@@ -65,6 +65,10 @@ constexpr Getter getters[]{
     {"IsWeaponReloading", "()Z"}
 };
 constexpr const char* known_pistol_classes[]{
+    "WeaponRifleWinchesterScope",
+    "WeaponRifleWinchester",
+    "WeaponRifleRemingtonSawOff",
+    "WeaponRifleRemington",
     "WeaponPistolFrontier1878_Regular",
     "WeaponPistolSchofield_A",
     "WeaponPistolSchofield_B",
@@ -313,6 +317,100 @@ bool ReadCoJMotionReloadOwner(void* env, void* player, CoJMotionReloadOwner& out
 bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player, CoJMotionReloadOwner& out,
     CoJMotionReloadDiagnostic* diagnostic) noexcept {
     return ReadCoJReloadOwner(env, player, out, diagnostic, true);
+}
+bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept {
+    if (!env || !player || !*static_cast<void***>(env)) return false;
+    for (int index : {6,15,17,23,24,31,33,36,39,51,94,95})
+        if (!(*static_cast<void***>(env))[index]) return false;
+    if (!Clean(env)) return false;
+    Locals locals{env};
+    void* player_class = locals.Keep(Fn<Class>(env,31)(env,player));
+    if (!Clean(env) || !player_class) return false;
+    std::array<void*,7> methods{};
+    for (std::size_t i=0; i<methods.size(); ++i) {
+        methods[i]=Fn<Method>(env,33)(env,player_class,getters[i].name,getters[i].signature);
+        if (!Clean(env) || !methods[i]) return false;
+    }
+    void* alive=Fn<Method>(env,33)(env,player_class,"IsNotAlive","()Z");
+    if (!Clean(env) || !alive) return false;
+    const auto same=[&](void* a,void* b) noexcept {
+        const bool equal=Fn<Same>(env,24)(env,a,b)!=0;
+        return Clean(env) && equal;
+    };
+    const auto read=[&](std::array<Hand,2>& hands) noexcept {
+        const bool dead=Fn<Boolean>(env,39)(env,player,alive,nullptr)!=0;
+        if (!Clean(env) || dead) return false;
+        for (int hand=0; hand<2; ++hand) {
+            Value arg{.integer=hand};
+            for (std::size_t i=0; i<3; ++i) {
+                hands[hand].weapons[i]=locals.Keep(Fn<Object>(env,36)(env,player,methods[i],&arg));
+                if (!Clean(env)) return false;
+            }
+            if (!same(hands[hand].weapons[0],hands[hand].weapons[1]) ||
+                !same(hands[hand].weapons[0],hands[hand].weapons[2])) return false;
+            for (std::size_t i=0; i<4; ++i) {
+                hands[hand].states[i]=Fn<Integer>(env,51)(env,player,methods[i+3],&arg);
+                if (!Clean(env) || hands[hand].states[i]<0) return false;
+            }
+        }
+        return true;
+    };
+    std::array<Hand,2> first{},second{};
+    if (!read(first)) return false;
+    void* weapon=first[0].weapons[0] ? first[0].weapons[0] : first[1].weapons[0];
+    if (!weapon) return false;
+    for (const auto& hand:first)
+        if (hand.weapons[0] && !same(weapon,hand.weapons[0])) return false;
+    void* cls=locals.Keep(Fn<Class>(env,31)(env,weapon));
+    if (!Clean(env) || !cls) return false;
+    // Concrete shipped native-only firearms, deliberately separate from manual
+    // admission. An unknown subclass or failed lookup is never positive proof.
+    constexpr const char* native_classes[]{
+        "WeaponRifleWinchesterScope","WeaponRifleWinchester",
+        "WeaponRifleRemington","WeaponRifleRemingtonSawOff",
+        "WeaponPistolVolcanic","WeaponPistolLemant","WeaponPistolDerringer",
+        "WeaponPistolSchofield","WeaponPistolSchofield_A","WeaponPistolSchofield_B",
+        "WeaponPistolFrontier1878_Regular_Old","WeaponPistolSchofield_A_Old","WeaponPistolSchofield_B_Old"
+    };
+    int matched=-1;
+    for (std::size_t i=0; i<std::size(native_classes); ++i) {
+        void* candidate=Fn<Find>(env,6)(env,native_classes[i]);
+        const bool clean=Clean(env);
+        bool equal=false,compared=false;
+        if (clean && candidate) {
+            equal=Fn<Same>(env,24)(env,cls,candidate)!=0;
+            compared=Clean(env);
+        }
+        if (candidate) Fn<Delete>(env,23)(env,candidate);
+        if (!clean || !candidate || !compared) return false;
+        if (equal) { matched=static_cast<int>(i); break; }
+    }
+    if (matched<0) return false;
+    if (first[0].weapons[0] && first[1].weapons[0] && matched>=4) return false;
+    using Field=void*(COJ_RELOAD_JNICALL*)(void*,void*,const char*,const char*);
+    using GetObject=void*(COJ_RELOAD_JNICALL*)(void*,void*,void*);
+    void* owner_field=Fn<Field>(env,94)(env,cls,"cOwner","LPawnInventory;");
+    if (!Clean(env) || !owner_field) return false;
+    const auto owner_matches=[&]() noexcept {
+        void* owner=locals.Keep(Fn<GetObject>(env,95)(env,weapon,owner_field));
+        return Clean(env) && owner && same(owner,player);
+    };
+    if (!owner_matches()) return false;
+    void* id_method=Fn<Method>(env,33)(env,cls,"GetThisID","()I");
+    if (!Clean(env) || !id_method) return false;
+    const auto id=Fn<Integer>(env,51)(env,weapon,id_method,nullptr);
+    if (!Clean(env) || !IsCoJNativeObjectIdentity(static_cast<std::uint32_t>(id))) return false;
+    // No idle-state assumption: native action31 retains reload eligibility.
+    // Both complete observations must nevertheless have the same owner/state.
+    if (!read(second)) return false;
+    for (int hand=0; hand<2; ++hand) {
+        if (first[hand].states!=second[hand].states) return false;
+        for (int slot=0; slot<3; ++slot)
+            if (!same(first[hand].weapons[slot],second[hand].weapons[slot])) return false;
+    }
+    if (!owner_matches()) return false;
+    const auto second_id=Fn<Integer>(env,51)(env,weapon,id_method,nullptr);
+    return Clean(env) && second_id==id;
 }
 bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     const bool include_wait_probe) noexcept {

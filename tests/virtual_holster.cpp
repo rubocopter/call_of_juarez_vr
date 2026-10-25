@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/virtual_holster.hpp"
+#include "games/call_of_juarez/interaction_selection.hpp"
 #include "runtime/gameplay_utility.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -10,6 +11,9 @@ void Check(bool value,const char* reason) {if(!value){std::cerr<<reason<<'\n';st
 runtime::Pose Pose(runtime::Vec3 p) {return {p,{},true,true};}
 template<class Sample> void NativeReady(Sample& s,bool ready){
     if constexpr(requires{s.native_ready=ready;})s.native_ready=ready;
+}
+void WorldSelection(CoJVirtualHolsterSample& s,const CoJInteractionSelection& selection){
+    s.interaction=selection;
 }
 struct Fixture {
     CoJVirtualHolsterState gate;
@@ -27,6 +31,89 @@ struct Fixture {
 };
 }
 int main(){
+    for(const auto& zone:kCoJVirtualHolsterZones){
+        Fixture f;const auto layout=BuildCoJVirtualHolsterLayout(f.s.head);
+        const auto index=static_cast<unsigned>(&zone-kCoJVirtualHolsterZones.data());
+        for(int axis=0;axis<3;++axis)for(float sign:{-1.F,1.F})for(float fraction:{.99F,1.01F}){
+            auto hand=Pose(layout.centres[index]);
+            const float distance=zone.radius*sign*fraction;
+            if(axis==0)hand.position.x+=distance;
+            if(axis==1)hand.position.y+=distance;
+            if(axis==2)hand.position.z+=distance;
+            const bool inside=fraction<1&&(!zone.shoulder||hand.position.z-f.s.head.position.z>=.05F);
+            Check(CoJVirtualHolsterZoneForHand(f.s.head,hand,zone.hand)==(inside?zone.channel:-1),
+                "holster boundary does not match its three-dimensional radius");
+            Check(CoJVirtualHolsterZoneForHand(f.s.head,hand,1-zone.hand)!=zone.channel,
+                "opposite hand acquired a holster zone");
+        }
+    }
+    // Ordinary 15 cm reaches near the hips retain their original Action.
+    // Shoulder zones intentionally stay generous behind the head.
+    for(int channel:{0,1}){
+        Fixture f;const int hand=channel==0||channel==5?1:0;
+        const auto layout=BuildCoJVirtualHolsterLayout(f.s.head);
+        const int index=channel==0?0:channel==1?1:channel==2?2:3;
+        f.s.grips[hand]=Pose(layout.centres[index]);
+        f.s.grips[hand].position.x+=(channel<2?.15F:.18F)*(hand==0?1:-1);
+        f.Step();if(hand==0)f.s.raw.kick=true;else f.s.raw.interact=true;
+        Check(f.Step()==-1,"overbroad holster radius intercepted a world reach");
+        Check(hand==0?f.out.kick:f.out.interact,"world reach lost its ordinary grip");
+    }
+    for(int channel:{2,5}){
+        Fixture f;const int hand=channel==5?1:0;
+        const auto layout=BuildCoJVirtualHolsterLayout(f.s.head);const int index=channel==2?2:3;
+        Check(kCoJVirtualHolsterZones[index].radius>=.24F,"shoulder zone was shrunk with the hip zones");
+        f.s.grips[hand]=Pose(layout.centres[index]);f.s.grips[hand].position.y+=.20F;
+        CoJInteractionSelection selection{};selection.valid=true;selection.active_id=19;WorldSelection(f.s,selection);
+        f.Step();if(hand==0)f.s.raw.kick=true;else f.s.raw.interact=true;
+        Check(f.Step()==channel,"front world selection blocked the generous behind-shoulder gesture");
+        Check(!f.out.kick&&!f.out.interact,"shoulder equipment leaked into Action/Kick");
+    }
+    // Cached native Action selection wins even at a holster centre. Clearing
+    // the selection while held must not convert that Action into equipment.
+    for(bool executing:{false,true}){
+        Fixture f;CoJInteractionSelection selection{};selection.valid=true;
+        if(executing)selection.executing_id=17;else selection.active_id=19;
+        WorldSelection(f.s,selection);f.Step();f.s.raw.interact=true;
+        Check(f.Step()==-1&&f.out.interact,"native world Action was consumed by a holster");
+        WorldSelection(f.s,{});
+        Check(f.Step()==-1&&f.out.interact,"lost world selection retargeted a held Action");
+        f.Release();f.s.raw.interact=true;Check(f.Step()==0,"fresh release did not restore left holster");
+    }
+    {
+        Fixture f;f.Step();f.s.raw.interact=true;Check(f.Step()==0,"claim fixture failed");
+        CoJInteractionSelection selection{};selection.valid=true;selection.active_id=19;
+        WorldSelection(f.s,selection);f.s.grips[1]=Pose({-1,1.7F,-1});
+        Check(f.Step()==-1&&!f.out.interact,"world selection stole a previously claimed hold");
+        f.Release();f.s.grips[1]=Pose({-.22F,1,0});f.s.raw.interact=true;
+        Check(f.Step()==-1&&f.out.interact,"released holster hold did not yield to world Action");
+    }
+    for(int fault=0;fault<3;++fault){
+        Fixture f;CoJInteractionSelection selection{};selection.active_id=19;
+        if(fault==1){selection.valid=true;selection.active_id=0;}
+        if(fault==2){selection.valid=true;selection.disabled_valid=true;selection.detection_disabled=true;}
+        WorldSelection(f.s,selection);f.Step();f.s.raw.interact=true;
+        Check(f.Step()==0,"invalid, empty or disabled native selection changed holster policy");
+    }
+    {
+        Fixture f;CoJInteractionSelection selection{};selection.valid=true;selection.active_id=19;
+        WorldSelection(f.s,selection);f.Step();f.s.raw.kick=true;
+        Check(f.Step()==-1&&!f.out.kick,"world selection allowed equipment or a denied-zone kick");
+        f.s.grips[0]=Pose({1,1.7F,-1});WorldSelection(f.s,{});
+        Check(f.Step()==-1&&!f.out.kick,"world conflict changed a claimed hold into Kick");
+    }
+    {
+        Fixture f;CoJInteractionSelection selection{};selection.valid=true;selection.active_id=19;
+        WorldSelection(f.s,selection);f.Step();f.s.raw.interact=true;f.s.raw.reload=true;
+        Check(f.Step()==-1&&!f.out.interact,"world priority bypassed a conflicting reload claim");
+        f.s.raw.reload=false;WorldSelection(f.s,{});f.s.grips[1]=Pose({-1,1.7F,-1});
+        Check(f.Step()==-1&&!f.out.interact,"conflict recovery leaked a claimed Action");
+    }
+    {
+        Fixture f;CoJInteractionSelection selection{};selection.valid=true;selection.executing_id=17;
+        WorldSelection(f.s,selection);f.Step();NativeReady(f.s,false);f.s.raw.interact=true;
+        Check(f.Step()==-1&&f.out.interact,"busy/carrying native world owner lost Action");
+    }
     for(int channel:{0,1,2,5}){
         Fixture f;Check(f.Step()==-1,"neutral acquisition selected a weapon");
         if(channel==0||channel==5)f.s.raw.interact=true;else f.s.raw.kick=true;

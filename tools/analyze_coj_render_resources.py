@@ -513,18 +513,275 @@ def analyze_native_postprocess(lines, start, end, scopes):
     return result
 
 
+HUD_LINE = re.compile(r'^[^{]*?(hud_batch_probe(?:_error)?)\b')
+HUD_KEYS = (27,19,20,171,193,206,207,208,209,168,190,191,192,
+            15,24,25,7,14,23,195,175,174,194)
+HUD_IDENTITY = ('device', 'nativeGeneration', 'continuityEpoch', 'drawHookEpoch',
+                'nativeHookEpoch', 'cachedPermissionEpoch', 'frame', 'present', 'thread', 'pass')
+HUD_FAULTS = ('nested', 'identity_changed', 'bad_order', 'read_failed', 'draw_failed',
+              'truncated', 'unterminated', 'native_fault', 'disabled', 'contended', 'missing_flush_draw')
+
+
+def hud_marker(line):
+    marker = HUD_LINE.match(line)
+    native = NATIVE_LINE.match(line)
+    # Even a malformed non-JSON message belongs to its first namespace. Later
+    # marker-like text is payload, not a second diagnostic row.
+    if marker and (native is None or marker.start(1) < native.start(1)):
+        return marker
+    return None
+
+
+def hud_component():
+    return dict(status='incomplete', coverage='hud_natural_pass', readOnly=True,
+                correlationOnly=True, captureAdmitted=False, occlusionAdmitted=False,
+                headsetValidated=False, route='unknown', nativeCaller='unknown',
+                rows=[], passes=[], errors=[])
+
+
+def hud_fields(obj, fields):
+    if type(obj) is not dict or set(obj) != set(fields.split()):
+        raise ValueError('Missing/foreign HUD fields')
+
+
+def hud_flag(obj, key):
+    # DrainHudBatch has no boolalpha: native bools are JSON integers, while its
+    # explicitly authored safety claims are literal JSON booleans.
+    return integer(obj, key, 0, 1)
+
+
+def hud_float(text):
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError('Nonfinite HUD JSON number')
+    return value
+
+
+def hud_array(obj, key, count):
+    values = obj.get(key)
+    if type(values) is not list or len(values) != count:
+        raise ValueError('Invalid HUD array: '+key)
+    return values
+
+
+def hud_resource(value):
+    hud_fields(value, '''object parent surface width height depth levels format usage pool
+        samples quality type bound valid''')
+    bound, valid = hud_flag(value, 'bound'), hud_flag(value, 'valid')
+    for key in ('object', 'parent', 'surface'):
+        native_pointer(value, key, optional=True)
+    if bool(value['object']) != bool(bound):
+        raise ValueError('HUD resource object/bound mismatch')
+    for key in ('width', 'height'):
+        integer(value, key, 1 if bound and valid else 0, 16384)
+    for key in ('depth', 'levels', 'format', 'usage', 'pool', 'samples', 'quality', 'type'):
+        integer(value, key, 0, U32)
+    return bool(valid)
+
+
+def hud_snapshot(record):
+    valid = hud_flag(record, 'valid')
+    reads = [hud_resource(record[key]) for key in ('rt0', 'depth', 'texture0')]
+    reads.append(bool(record['rt0']['bound']))
+    for key in ('vertexShader', 'pixelShader'):
+        shader = hud_array(record, key, 3)
+        native_pointer({'object': shader[0]}, 'object', optional=True)
+        integer({'bytes': shader[1]}, 'bytes', 0, U32)
+        reads.append(bool(hud_flag({'valid': shader[2]}, 'valid')))
+        if shader[2] and bool(shader[0]) != bool(shader[1]):
+            raise ValueError('HUD shader object/byte-size mismatch')
+    viewport = hud_array(record, 'viewport', 4)
+    for value in viewport:
+        integer({'coordinate': value}, 'coordinate', 0, U32)
+    vrange = hud_array(record, 'viewportDepth', 2)
+    viewport_valid = hud_flag(record, 'viewportValid')
+    # The producer writes null for a nonfinite returned scalar, even when a
+    # failed getter left partial output. Preserve that truthful failure without
+    # allowing null or an invalid range to qualify a successful viewport read.
+    if any(v is not None and (type(v) not in (int, float) or not math.isfinite(v)) for v in vrange):
+        raise ValueError('Invalid HUD viewport depth')
+    if viewport_valid and any(v is None or not 0 <= v <= 1 for v in vrange):
+        raise ValueError('Invalid HUD viewport depth')
+    if viewport_valid and vrange[0] > vrange[1]:
+        raise ValueError('Reversed HUD viewport depth')
+    reads.append(bool(viewport_valid))
+    if viewport_valid:
+        x, y, width, height = viewport
+        raster = record['rt0']
+        if raster['format'] == NULL_COLOR_FORMAT and record['depth']['bound']:
+            raster = record['depth']
+        if (not width or not height or x+width > U32 or y+height > U32 or
+                (raster['valid'] and raster['bound'] and
+                 (x+width > raster['width'] or y+height > raster['height']))):
+            raise ValueError('HUD viewport outside observed extent')
+    for value in hud_array(record, 'scissor', 4):
+        integer({'coordinate': value}, 'coordinate', -2**31, 2**31-1)
+    reads.append(bool(hud_flag(record, 'scissorValid')))
+    keys = hud_array(record, 'stateKeys', len(HUD_KEYS))
+    for value in keys:
+        integer({'key': value}, 'key', 0, U32)
+    if tuple(keys) != HUD_KEYS:
+        raise ValueError('HUD state keys differ from frozen producer order')
+    for value in hud_array(record, 'states', len(HUD_KEYS)):
+        integer({'state': value}, 'state', 0, U32)
+    for value in hud_array(record, 'stateValid', len(HUD_KEYS)):
+        reads.append(bool(hud_flag({'valid': value}, 'valid')))
+    if bool(valid) != all(reads):
+        raise ValueError('Untruthful HUD aggregate snapshot validity')
+    return bool(valid)
+
+
+def validate_hud_pass(event):
+    """Return incomplete reasons; structural contradictions raise ValueError.
+
+    Emission implies closed storage, not a matched flush end. Aborts retain zero
+    end owners/default witnesses and queried-but-unreturned samples truthfully.
+    """
+    hud_fields(event, '''schema event pass device nativeGeneration continuityEpoch drawHookEpoch
+        nativeHookEpoch cachedPermissionEpoch frame present thread spriteOwner spriteEndOwner
+        flushOwner flushEndOwner option flushEndOption route nativeCaller complete faults draws
+        samples flushDraws correlationOnly captureAdmitted occlusionAdmitted boundaries records''')
+    integer(event, 'schema', 1, 1)
+    if (event['event'] != 'hud_natural_pass' or event['route'] != 'unknown' or
+            event['nativeCaller'] != 'unknown' or event['correlationOnly'] is not True or
+            event['captureAdmitted'] is not False or event['occlusionAdmitted'] is not False):
+        raise ValueError('Unexpected HUD schema/authority/route/caller')
+    for key in HUD_IDENTITY:
+        if key == 'device':
+            native_pointer(event, key)
+        else:
+            integer(event, key, 1, U32 if key == 'thread' else 2**64-1)
+    if event['continuityEpoch'] < event['nativeGeneration']:
+        raise ValueError('HUD continuity epoch precedes native generation')
+    native_pointer(event, 'spriteOwner')
+    for key in ('spriteEndOwner', 'flushOwner', 'flushEndOwner'):
+        native_pointer(event, key, optional=True)
+    for key in ('option', 'flushEndOption'):
+        integer(event, key, 0, U32)
+    complete = hud_flag(event, 'complete')
+    faults = integer(event, 'faults', 0, (1 << len(HUD_FAULTS))-1)
+    draws = integer(event, 'draws')
+    samples = integer(event, 'samples', 0, 64)
+    flush_draws = integer(event, 'flushDraws', 0, draws)
+    records = event['records']
+    if type(records) is not list or len(records) > 64 or not len(records) <= samples <= min(draws, 64):
+        raise ValueError('HUD sample/record budget or count mismatch')
+    boundaries = hud_array(event, 'boundaries', 4)
+    closure = True
+    for boundary, depths in zip(boundaries, ((1,0), (1,0), (0,1), (0,1))):
+        hud_fields(boundary, 'spriteDepth flushDepth epoch intact faulted')
+        for key in ('spriteDepth', 'flushDepth'):
+            integer(boundary, key, 0, U32)
+        integer(boundary, 'epoch')
+        intact, faulted = hud_flag(boundary, 'intact'), hud_flag(boundary, 'faulted')
+        closure &= ((boundary['spriteDepth'], boundary['flushDepth']) == depths and
+                    boundary['epoch'] == event['nativeHookEpoch'] and intact == 1 and faulted == 0)
+    closure &= (event['spriteEndOwner'] == event['spriteOwner'] and event['flushOwner'] != 0 and
+                event['flushEndOwner'] == event['flushOwner'] and event['flushEndOption'] == event['option'])
+    represented = flush_samples = 0
+    last_phase = 0
+    read_failed = draw_failed = False
+    for record in records:
+        hud_fields(record, '''ordinal repeat phase operation result drawIngressAddress nativeOwner option
+            spriteDepth flushDepth nativeHookEpoch rt0 depth texture0 vertexShader pixelShader viewport
+            viewportDepth viewportValid scissorValid scissor stateKeys states stateValid valid''')
+        if integer(record, 'ordinal', 1, 64) != represented+1:
+            raise ValueError('HUD record ordinal gap/duplicate/reversal')
+        repeat = integer(record, 'repeat', 1, 64)
+        represented += repeat
+        phase = integer(record, 'phase', 0, 2)
+        if phase < last_phase:
+            raise ValueError('Reversed HUD record phase')
+        last_phase = phase
+        integer(record, 'operation', 6, 9)
+        draw_failed |= integer(record, 'result', -2**31, 2**31-1) < 0
+        native_pointer(record, 'drawIngressAddress')
+        native_pointer(record, 'nativeOwner', optional=phase == 1)
+        integer(record, 'option', 0, U32)
+        integer(record, 'nativeHookEpoch', 1)
+        for key in ('spriteDepth', 'flushDepth'):
+            integer(record, key, 0, U32)
+        owner = (event['spriteOwner'], 0, event['flushOwner'])[phase]
+        if (record['nativeOwner'] != owner or record['nativeHookEpoch'] != event['nativeHookEpoch'] or
+                (record['spriteDepth'], record['flushDepth']) != ((1,0),(0,0),(0,1))[phase] or
+                (phase == 2 and record['option'] != event['option'])):
+            raise ValueError('HUD record owner/depth/epoch/option mismatch')
+        flush_samples += repeat if phase == 2 else 0
+        read_failed |= not hud_snapshot(record)
+    if represented > samples or flush_samples > flush_draws:
+        raise ValueError('HUD represented samples exceed queries/draws')
+    if ((read_failed and not faults & 8) or (draw_failed and not faults & 16) or
+            (draws > 64 and not faults & 32)):
+        raise ValueError('HUD failed read/draw/truncation lacks fault')
+    healthy = (not faults and closure and draws > 0 and flush_draws > 0 and
+               represented == samples == draws and flush_samples == flush_draws and
+               not read_failed and not draw_failed)
+    if bool(complete) != bool(healthy):
+        raise ValueError('Untruthful HUD complete claim')
+    if not complete and not faults:
+        raise ValueError('HUD incomplete closure/counts lack a fault')
+    return [name for bit, name in enumerate(HUD_FAULTS) if faults & (1 << bit)]
+
+
+def analyze_hud_batches(lines, start, end, canonical):
+    result = hud_component()
+    prior = None
+    count = 0
+    for index, line in enumerate(lines):
+        marker = hud_marker(line)
+        if marker is None:
+            continue
+        count += 1
+        row = dict(line=index+1, raw=line, event=None, status='rejected', errors=[])
+        result['rows'].append(row)
+        try:
+            if marker[1] != 'hud_batch_probe' or line[marker.end():marker.end()+2] != ': ':
+                raise ValueError('Malformed HUD prefix or serialization failure')
+            if len(line) > 256*1024:
+                raise ValueError('HUD serialized row exceeds bounded size')
+            event = json.loads(line[marker.end()+2:], object_pairs_hook=unique_object,
+                               parse_constant=reject_constant, parse_float=hud_float)
+            row['event'] = event
+            if count > 6:
+                raise ValueError('HUD six-pass session budget exceeded')
+            reasons = validate_hud_pass(event)
+            if not canonical:
+                raise ValueError('Complete canonical binding interval unavailable')
+            if not start < index < end:
+                raise ValueError('HUD observation outside canonical run interval')
+            if prior is not None and (event['pass'] <= prior['pass'] or
+                    event['frame'] < prior['frame'] or event['present'] < prior['present'] or
+                    event['nativeGeneration'] < prior['nativeGeneration'] or
+                    event['continuityEpoch'] < prior['continuityEpoch']):
+                raise ValueError('Duplicate/reversed HUD pass context')
+            prior = event
+            row['status'] = 'incomplete' if reasons else 'observed'
+            row['errors'] = reasons
+            if not reasons:
+                result['passes'].append(dict(event, line=index+1))
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError, RecursionError) as error:
+            row['errors'].append(str(error))
+        result['errors'].extend(f"Line {index+1}: {reason}" for reason in row['errors'])
+    if not result['rows']:
+        result['errors'].append('No HUD batch observations')
+    elif all(row['status'] == 'observed' for row in result['rows']):
+        result['status'] = 'observed'
+    return result
+
+
 def analyze(text):
     report = dict(schema=1, status='incomplete', readOnly=True, resizingAdmitted=False,
                   coverage='binding_state_only', headsetValidated=False,
                   correlationOnly=True, scopes=[], pairs=[], unresolved=UNRESOLVED[:], errors=[],
                   nativePostprocess=native_component())
     report['nativePostprocess']['errors'] = ['Complete canonical binding interval unavailable']
+    start = end = None
     try:
         native_lines = text.splitlines()
         # Preserve line indices while isolating the optional namespace from the
         # established marker/binding/sprite parsers. Byte names can contain their
         # marker text; those strings are data, never additional telemetry.
-        lines = ['' if NATIVE_LINE.match(line) else line for line in native_lines]
+        lines = ['' if NATIVE_LINE.match(line) or hud_marker(line) else line for line in native_lines]
         starts = [(i, START.search(line)) for i, line in enumerate(lines) if 'run_start:' in line]
         ends = [(i, END.search(line)) for i, line in enumerate(lines) if 'run_end:' in line]
         if len(starts) != 1 or len(ends) != 1 or not starts[0][1] or not ends[0][1]:
@@ -634,9 +891,11 @@ def analyze(text):
             raise ValueError('Missing complete eye pair')
         report['status'] = 'observed'
         report['desktopSpriteOrdering'] = analyze_sprite_ordering(lines, start, end, report['scopes'])
-        report['nativePostprocess'] = analyze_native_postprocess(native_lines, start, end, report['scopes'])
+        native_only = ['' if hud_marker(line) else line for line in native_lines]
+        report['nativePostprocess'] = analyze_native_postprocess(native_only, start, end, report['scopes'])
     except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as error:
         report['errors'].append(str(error))
+    report['hudBatch'] = analyze_hud_batches(native_lines, start, end, report['status'] == 'observed')
     return report
 
 
@@ -654,7 +913,7 @@ def main():
     sprite_status = report.get('desktopSpriteOrdering', {}).get('status', 'not_evaluated')
     native_status = report['nativePostprocess']['status']
     print(report['status']+'; resizingAdmitted=false; headsetValidated=false; spriteOrdering='+sprite_status+
-          '; nativePostprocess='+native_status)
+          '; nativePostprocess='+native_status+'; hudBatch='+report['hudBatch']['status'])
     return 0 if report['status'] == 'observed' else 2
 
 

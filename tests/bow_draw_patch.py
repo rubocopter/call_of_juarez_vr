@@ -27,7 +27,7 @@ EXECUTED = {"CheckBulletTime", "TurnOffAlternateFire", "PrepareForNormalFire",
             "SetDesiredWeaponMoveState", "GetWeaponMoveState"}
 
 
-def verifier_class():
+def verifier_class(target='ArmedPlayerBeing'):
     """Reflect on the transformed player with initialization explicitly disabled."""
     pool = []
     def add(raw):
@@ -40,7 +40,7 @@ def verifier_class():
         return add(b'\x0a' + u2(cls(owner)) + u2(nt))
     this, parent = cls('VerifyBowDrawPatch'), cls('java/lang/Object')
     main, desc, attr = utf('main'), utf('([Ljava/lang/String;)V'), utf('Code')
-    player = add(b'\x08' + u2(utf('ArmedPlayerBeing')))
+    player = add(b'\x08' + u2(utf(target)))
     loader = method('java/lang/ClassLoader', 'getSystemClassLoader', '()Ljava/lang/ClassLoader;')
     lookup = method('java/lang/Class', 'forName', '(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;')
     methods = method('java/lang/Class', 'getDeclaredMethods', '()[Ljava/lang/reflect/Method;')

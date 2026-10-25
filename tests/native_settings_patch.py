@@ -24,6 +24,17 @@ DATA_SHA = "5eb6ec4856e53226dfabad929522706a21f02d428923a8c9c38804cc2cf11a94"
 CLASS_SHA = "2fe3aa28003aa2c3f9539071eefa040e4faedbdd6868fbd8c179ab0230ba6dd8"
 SCRIPT_SHA = "995388edb69798167e318189598e451319d31c351b230455d737679608772b1d"
 SCRIPT_NAME = "Data/Menu/scr/OptionsGame.scr"
+GRAPHICS = (
+    ("GRAPHICS_ENABLED", "GraphicsEnabled", 0, 1, 1, 0, "VR graphics", "Gráficos RV"),
+    ("SHARPNESS", "Sharpness", 0, 100, 5, 0, "VR sharpness", "Nitidez RV"),
+    ("CONTRAST", "Contrast", 50, 150, 5, 100, "VR contrast", "Contraste RV"),
+    ("SATURATION", "Saturation", 0, 200, 5, 100, "VR saturation", "Saturación RV"),
+    ("GAMMA", "Gamma", 50, 200, 5, 100, "VR gamma", "Gamma RV"),
+    ("EDGE_SMOOTHING", "EdgeSmoothing", 0, 1, 1, 0, "VR edge smoothing", "Suavizado de bordes RV"),
+    ("RECONSTRUCTION", "Reconstruction", 0, 2, 1, 0, "VR DLAA / DLSS", "DLAA / DLSS RV"),
+    ("RENDER_SCALE", "RenderScale", 0, 5, 1, 0, "VR resolution (restart)", "Resolución RV (reiniciar)"),
+    ("HORSE_COMFORT", "HorseComfort", 0, 2, 1, 0, "Horse comfort", "Comodidad a caballo"),
+)
 PATCH_PATH = ROOT / "tools/coj_native_settings.py"
 # Identity is the real unpatched baseline for the initial RED behavioral run.
 if PATCH_PATH.exists():
@@ -51,25 +62,35 @@ def file_sha(path):
     return digest.hexdigest()
 
 
-def originals():
-    candidates = (GAME,) if EXPLICIT_GAME else (GAME, ROOT / "work/release-prealpha2/originals")
-    for directory in candidates:
-        code, data = directory / "code.pak", directory / "Data0.pak"
+def original_archives():
+    # Active staging backups are read-only inputs and still require full archive
+    # identity. Never infer originality from a backup filename or stage journal.
+    candidates = [(GAME / "code.pak", GAME / "Data0.pak")]
+    if not EXPLICIT_GAME:
+        cache = ROOT / "work/release-prealpha2/originals"
+        candidates += [(cache / "code.pak", cache / "Data0.pak"),
+                       (GAME / "code.cojvr-backup.pak", GAME / "Data0.cojvr-backup.pak")]
+    for code, data in candidates:
         if not code.is_file() or not data.is_file():
             continue
         if file_sha(code) != CODE_SHA or file_sha(data) != DATA_SHA:
             if EXPLICIT_GAME:
                 raise AssertionError("Explicit code.pak/Data0.pak present but not exact original SHA-256")
             continue
-        with zipfile.ZipFile(code) as z:
-            menu = z.read("MenuOptionsGame.class")
-            option = z.read("UIOptionsControlSelect$OptionInfo.class")
-        with zipfile.ZipFile(data) as z:
-            script = z.read(SCRIPT_NAME)
-        assert hashlib.sha256(menu).hexdigest() == CLASS_SHA
-        assert hashlib.sha256(script).hexdigest() == SCRIPT_SHA
-        return menu, script, option
+        return code, data
     raise unittest.SkipTest("Exact original code.pak/Data0.pak unavailable; native settings behavior not tested")
+
+
+def originals():
+    code, data = original_archives()
+    with zipfile.ZipFile(code) as z:
+        menu = z.read("MenuOptionsGame.class")
+        option = z.read("UIOptionsControlSelect$OptionInfo.class")
+    with zipfile.ZipFile(data) as z:
+        script = z.read(SCRIPT_NAME)
+    assert hashlib.sha256(menu).hexdigest() == CLASS_SHA
+    assert hashlib.sha256(script).hexdigest() == SCRIPT_SHA
+    return menu, script, option
 
 
 def widget(kind="UIOptionsControlSelect"):
@@ -93,12 +114,14 @@ class VM:
             "ID_AUTO_RELOAD", "ID_FULL_AKIMBO", "ID_SELECT_SPEECH", "ID_SUBTITLES",
             "ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES")}
         self.widgets["ID_VR_STATUS"] = widget("UIStatic")
+        self.widgets.update({"ID_VR_" + row[0]: widget() for row in GRAPHICS})
         for name in missing:
             self.widgets.pop(name)
         self.menu = {"kind": "MenuOptionsGame"}
         self.settings = {"bAutoReloadGuns": 0, "bFullAkimbo": 0,
                          "bSubtitles": 1, "sSpeechID": "en"}
         self.events = []
+        self.field_writes = []
         self.paused = paused
         self.depth = 0
         self.run("<init>")
@@ -198,6 +221,11 @@ class VM:
             elif op == 0x60:
                 b, a = stack.pop(), stack.pop()
                 stack.append(((a + b + 2**31) % 2**32) - 2**31)
+            elif op == 0x70:  # irem: Java truncates division toward zero
+                b, a = stack.pop(), stack.pop()
+                assert b != 0, "integer division by zero"
+                quotient = abs(a) // abs(b) * (-1 if (a < 0) != (b < 0) else 1)
+                stack.append(a - quotient * b)
             elif op in (0x10, 0x11):
                 n = 1 if op == 0x10 else 2
                 stack.append(int.from_bytes(code[pc:pc+n], "big", signed=True)); pc += n
@@ -228,6 +256,7 @@ class VM:
                 elif op == 0xb5:
                     value = stack.pop(); target = stack.pop(); assert target is not None
                     target[key] = value
+                    if target is self.menu: self.field_writes.append((key, value))
                 else:
                     params = re.findall(r"\[*L[^;]+;|\[*[ZBCSIJFD]", signature[1:signature.index(")")])
                     call_args = [stack.pop() for _ in params][::-1]
@@ -292,12 +321,176 @@ class NativeSettingsTests(unittest.TestCase):
 
     def sync(self, vm, cinema=1, turn=1, language=0, guides=0):
         vm.run("cojvrSyncSettings", "(IIII)V", (cinema, turn, guides, language))
+        self.graphics_sync(vm, language=language)
+
+    def graphics_sync(self, vm, values=(1, 35, 105, 110, 115, 1, 0, 0, 0), language=0):
+        vm.run("cojvrSyncGraphics", "(IIIIIIIIII)V", (*values, language))
+
+    def graphics_values(self, vm):
+        return tuple(vm.run("cojvr" + row[1] + "Value", "()I") for row in GRAPHICS)
+
+    def test_temporal_request_reports_pending_native_rendering_in_both_languages(self):
+        for language in (0, 1):
+            for mode in (1, 2):
+                vm=self.vm();self.graphics_sync(vm,(0,0,100,100,100,0,mode,0,0),language)
+                self.assertEqual(vm.run("cojvrReconstructionValue","()I"),mode)
+                self.assertIn("nativo activo" if language else "native rendering active", vm.widgets["ID_VR_STATUS"]["text"])
+
+    def test_old_sync_alone_retains_native_fallback_without_graphics_commit(self):
+        vm = self.vm()
+        vm.run("cojvrSyncSettings", "(IIII)V", (1, 1, 1, 0))
+        self.assertEqual(vm.menu["cojvrSettingsReady"], 1)
+        self.assertEqual(vm.menu.get("cojvrGraphicsReady", 0), 0)
+        vm.run("OnOK")
+        self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+        self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
+
+    def test_graphics_ranges_localization_and_sync_does_not_overwrite_edits(self):
+        for language in (0, 1):
+            vm = self.vm(); self.sync(vm, language=language)
+            self.assertEqual(vm.menu["cojvrGraphicsReady"], 1)
+            self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0))
+            for id_, tag, low, high, step, default, en, es in GRAPHICS:
+                row = vm.widgets["ID_VR_" + id_]
+                self.assertEqual(row["label"], es if language else en)
+                self.assertTrue(row["tooltip"]); self.assertTrue(row["cycle"])
+                values = list(range(low, high + 1, step))
+                self.assertEqual([o["m_cData"]["value"] for o in row["options"]], values)
+                self.assertEqual([o["text"] for o in row["options"]],
+                                 (["No", "Sí"] if language else ["Off", "On"])
+                                 if high == 1 else ({"Reconstruction":["Native / Nativo", "DLAA (experimental)", "DLSS Quality (experimental)"], "RenderScale":["Auto (HMD)","75% pixels / píxeles","100% pixels / píxeles","125% pixels / píxeles","150% pixels / píxeles","200% pixels / píxeles"], "HorseComfort":["Off / No","Mild / Suave","Strong / Intenso"]}.get(tag,[str(v) + "%" for v in values])))
+                for opt, expected in zip(row["options"], values):
+                    row["selected"] = opt
+                    self.assertEqual(vm.run("cojvr" + tag + "Value", "()I"), expected)
+                self.graphics_sync(vm, language=1-language)
+                self.assertEqual(vm.run("cojvr" + tag + "Value", "()I"), high)
+            self.assertNotIn("save", vm.events)
+
+    def test_resolution_tooltip_explains_pixel_reference_and_pending_application(self):
+        for language in (0,1):
+            vm=self.vm();self.sync(vm,language=language)
+            row=vm.widgets['ID_VR_RENDER_SCALE']
+            for phrase in (('píxeles','recomendación actual del visor','preparación/reinicio') if language else
+                           ('pixel count','current HMD recommendation','preparation/restart')):
+                self.assertIn(phrase,row['tooltip'])
+            self.assertNotIn('2804',str(row['options']))
+            for scale in (4,5):
+                row['selected']=row['options'][scale]
+                self.assertEqual(vm.run('cojvrRenderScaleValue','()I'),scale)
+                self.assertNotIn('save',vm.events)
+            vm.run('OnOK');vm.run('OnCancel')
+            self.assertNotIn('save',vm.events)
+            vm.run('Show');self.sync(vm,language=language)
+            self.assertEqual(vm.run('cojvrRenderScaleValue','()I'),0)
+
+    def test_invalid_graphics_sync_is_atomic_and_cannot_publish(self):
+        defaults = [row[5] for row in GRAPHICS] + [0]
+        for index, row in enumerate((*GRAPHICS, ("locale", "", 0, 1, 1))):
+            low, high, step = row[2:5]
+            for value in (low-1, high+1, *( (low+1,) if step == 5 else ())):
+                with self.subTest(index=index, value=value):
+                    vm = self.vm()
+                    vm.run("cojvrSyncSettings", "(IIII)V", (1, 1, 1, 0))
+                    args = defaults.copy(); args[index] = value
+                    vm.run("cojvrSyncGraphics", "(IIIIIIIIII)V", args)
+                    self.assertEqual(vm.menu.get("cojvrGraphicsReady", 0), 0)
+                    self.assertEqual(self.graphics_values(vm), (-1,) * 9)
+                    self.assertTrue(all(not vm.widgets["ID_VR_" + r[0]]["options"] for r in GRAPHICS))
+                    vm.run("OnOK")
+                    self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+
+    def test_missing_or_wrong_graphics_control_rejects_whole_menu_proposal(self):
+        for id_, tag, *_ in GRAPHICS:
+            for wrong in (False, True):
+                with self.subTest(id=id_, wrong=wrong):
+                    key = "ID_VR_" + id_
+                    vm = VM(self.transformed, self.option, missing=(key,))
+                    if wrong: vm.widgets[key] = widget("UIStatic")
+                    vm.run("OnInit"); vm.run("Show"); self.sync(vm)
+                    self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
+                    self.assertEqual(vm.run("cojvr" + tag + "Value", "()I"), -1)
+                    self.assertTrue(all(not w["options"] for k, w in vm.widgets.items()
+                                        if k in {"ID_VR_"+r[0] for r in GRAPHICS}))
+                    vm.run("OnDefault"); vm.run("OnOK")
+                    self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+                    self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
+
+    def test_invalid_graphics_selection_uses_native_fallback(self):
+        for id_, tag, low, high, step, *_ in GRAPHICS:
+            for value in (None, "not int", low-1, high+1, *((low+1,) if step == 5 else ())):
+                with self.subTest(id=id_, value=value):
+                    vm = self.vm(); self.sync(vm)
+                    opt = vm.option(value)
+                    if isinstance(value, str): opt["m_cData"] = value
+                    vm.widgets["ID_VR_"+id_]["selected"] = None if value is None else opt
+                    self.assertEqual(vm.run("cojvr"+tag+"Value", "()I"), -1)
+                    vm.run("OnOK")
+                    self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+                    self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
+
+    def test_graphics_defaults_stage_without_publish_and_cancel_reopen_discards(self):
+        vm = self.vm(); vm.run("OnDefault")
+        settings = vm.settings.copy()
+        self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
+        self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+        self.sync(vm); vm.run("OnOK"); vm.run("OnDefault")
+        self.assertEqual(self.graphics_values(vm), (0, 0, 100, 100, 100, 0, 0, 0, 0))
+        self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+        self.assertEqual(vm.menu["cojvrGraphicsReady"], 1)
+        vm.run("OnCancel")
+        self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
+        self.assertNotIn("save", vm.events)
+        self.assertEqual(vm.settings, settings)
+        vm.run("Show"); self.sync(vm)
+        self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0))
+
+    def test_graphics_refresh_and_separate_readiness_guard_completion(self):
+        vm = self.vm(); self.sync(vm); vm.run("OnOK")
+        vm.menu["cojvrSettingsRequest"] = 2
+        vm.menu["cojvrGraphicsReady"] = 0
+        vm.run("cojvrCompleteSettings", "(ZLjava/lang/String;)V", (1, ""))
+        self.assertNotIn("save", vm.events)
+        self.graphics_sync(vm, (0, 0, 100, 100, 100, 0, 0, 0, 0), 1)
+        self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+        self.assertEqual(vm.menu["cojvrSettingsReady"], 1)
+        self.assertEqual(vm.menu["cojvrGraphicsReady"], 1)
+        self.assertEqual(self.graphics_values(vm), (0, 0, 100, 100, 100, 0, 0, 0, 0))
+        self.assertEqual(vm.menu["cojvrSettingsOpenSerial"], 1)
+
+    def test_graphics_readiness_is_last_publication_and_both_sync_orders_work(self):
+        for graphics_first in (False, True):
+            vm = self.vm()
+            calls = (("cojvrSyncSettings", "(IIII)V", (1, 1, 1, 0)),
+                     ("cojvrSyncGraphics", "(IIIIIIIIII)V", (1, 100, 150, 200, 200, 1, 2, 4, 2, 0)))
+            for name, desc, args in calls[::(-1 if graphics_first else 1)]:
+                vm.run(name, desc, args)
+                expected = "cojvrGraphicsReady" if name.endswith("Graphics") else "cojvrSettingsReady"
+                self.assertEqual(vm.field_writes[-1], (expected, 1))
+            vm.run("OnOK")
+            self.assertEqual(vm.menu["cojvrSettingsRequest"], 1)
+            self.assertEqual(self.graphics_values(vm), (1, 100, 150, 200, 200, 1, 2, 4, 2))
+            vm.run("Show")
+            self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
+            self.assertEqual(vm.menu["cojvrSettingsReady"], 0)
+            self.graphics_sync(vm)
+            vm.run("OnOK")  # graphics alone cannot commit comfort preferences
+            self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+            self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
+
+    def test_invalid_graphics_refresh_retains_staged_values_but_cannot_queue(self):
+        vm = self.vm(); self.sync(vm)
+        vm.menu["cojvrGraphicsReady"] = 0
+        self.graphics_sync(vm, (1, 36, 100, 100, 100, 1))
+        self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
+        self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0))
+        vm.run("OnOK")
+        self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
+        self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
 
     def test_initialized_ok_keeps_native_page_visible(self):
         vm = self.vm()
-        # Supply a valid initialized native editor without requiring new helpers:
-        # the unpatched OnOK must fail by saving/backing immediately.
-        vm.menu["cojvrSettingsReady"] = 1
+        # Both editors must initialize before native OK can queue a proposal.
+        self.sync(vm)
         for key in ("ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES"):
             vm.widgets[key]["options"] = [vm.option(0), vm.option(1)]
             vm.widgets[key]["selected"] = vm.widgets[key]["options"][1]
@@ -359,12 +552,18 @@ class NativeSettingsTests(unittest.TestCase):
         info = declarations(self.transformed)
         self.assertEqual((info.major, info.minor), (declarations(self.original).major, declarations(self.original).minor))
         fields = {(f.name, f.descriptor): f.access for f in info.fields}
-        for key in (("cojvrSettingsReady", "Z"), ("cojvrSettingsRequest", "I"), ("cojvrSettingsOpenSerial", "I")):
+        for key in (("cojvrSettingsReady", "Z"), ("cojvrGraphicsReady", "Z"),
+                    ("cojvrSettingsRequest", "I"), ("cojvrSettingsOpenSerial", "I")):
             self.assertEqual(fields[key], 0x0041)  # public volatile, never static
         methods = {(m.name, m.descriptor): m.access for m in info.methods}
         for key in (("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
-                    ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"), ("cojvrCompleteSettings", "(ZLjava/lang/String;)V")):
+                    ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"),
+                    ("cojvrSyncGraphics", "(IIIIIIIIII)V"),
+                    ("cojvrCompleteSettings", "(ZLjava/lang/String;)V")) + tuple(
+                        ("cojvr" + row[1] + "Value", "()I") for row in GRAPHICS):
             self.assertEqual(methods[key], 1)
+        for row in GRAPHICS:
+            self.assertEqual(fields["cojvr" + row[1] + "Control", "LUIOptionsControlSelect;"], 2)
 
     def test_unrelated_members_and_attributes_are_byte_identical(self):
         (old_fields, old_methods), old_tail = members(self.original)
@@ -477,6 +676,7 @@ class NativeSettingsTests(unittest.TestCase):
                     vm.run(method)
                     self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
                     self.assertEqual(vm.menu["cojvrSettingsReady"], 0)
+                    self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
                     vm.run("cojvrCompleteSettings", "(ZLjava/lang/String;)V", (1, ""))
                     self.assertNotIn("save", vm.events)
                     self.assertEqual(vm.events[-1], ("back", 6 if paused else 1))
@@ -576,7 +776,8 @@ class NativeSettingsTests(unittest.TestCase):
         for absent in (False, True):
             with self.subTest(absent=absent):
                 vm = VM(self.transformed, self.option,
-                        missing=("ID_VR_STATUS", "ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES") if absent else ())
+                        missing=(("ID_VR_STATUS", "ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES") + tuple(
+                            "ID_VR_" + row[0] for row in GRAPHICS)) if absent else ())
                 if not absent: vm.widgets["ID_VR_STATUS"] = widget("UIWindow")
                 vm.run("OnInit"); vm.run("Show"); self.sync(vm)
                 vm.run("cojvrCompleteSettings", "(ZLjava/lang/String;)V", (0, "Save failed"))
@@ -595,32 +796,92 @@ class NativeSettingsTests(unittest.TestCase):
                         function(invalid)
                 self.assertEqual(function(original), function(original))
 
-    def test_resource_augmentation_retains_every_original_byte_except_frame_height(self):
+    def test_resource_layout_preserves_styles_and_unrelated_bytes(self):
         out = patch.patch_menu_script(self.script)
-        for id_, y in ((b"ID_VR_CINEMATICS", b"0.30681818"), (b"ID_VR_TURNING", b"0.37954545"), (b"ID_VR_HOLSTER_GUIDES", b"0.45227273")):
+        originals = (b"ID_AUTO_RELOAD", b"ID_FULL_AKIMBO", b"ID_SELECT_SPEECH", b"ID_SUBTITLES")
+        additions = (b"ID_VR_CINEMATICS", b"ID_VR_TURNING", b"ID_VR_HOLSTER_GUIDES") + tuple(
+            ("ID_VR_" + row[0]).encode() for row in GRAPHICS)
+        restored = out
+        for index, id_ in enumerate(originals + additions):
             self.assertEqual(out.count(b'"' + id_ + b'"'), 1)
             a, b = patch._block(out, b"MenuButton", id_)
-            row = out[a:b].replace(id_, b"ID_SUBTITLES").replace(y, b"0.23409091")
-            c, d = patch._block(self.script, b"MenuButton", b"ID_SUBTITLES")
-            self.assertEqual(row, self.script[c:d])
+            row = out[a:b]
+            source_id = id_ if index < 4 else b"ID_SUBTITLES"
+            c, d = patch._block(self.script, b"MenuButton", source_id)
+            template = self.script[c:d]
+            # Whole rows change size/position; all pattern, text/font, input,
+            # ownership and native child inheritance bytes stay identical.
+            row = row.replace(id_, source_id)
+            for prop in (b"LogicPos", b"LogicSize"):
+                expected = re.search(prop + rb"\([^)]*\)", template)[0]
+                row = re.sub(prop + rb"\([^)]*\)", lambda _: expected, row)
+            self.assertEqual(row, template)
+            a, b = patch._block(restored, b"MenuButton", id_)
+            restored = restored[:a] + (template if index < 4 else b"") + restored[b:]
         a, b = patch._block(out, b"Static", b"ID_VR_STATUS")
-        status = out[a:b]
         for prop in (b"CanFocus(0)", b"Mouse(0)", b"Keyboard(0)", b"Joy(0)", b'Font("MenuSmall")', b"FontScale(0.5)"):
-            self.assertIn(prop, status)
-        self.assertNotIn(b"ForceTextLowerCase", status)
-        insertion, _ = patch._block(self.script, b"Window", b"ID_LIST_FRAME")
-        frame, _ = patch._block(out, b"Window", b"ID_LIST_FRAME")
-        restored = out[:insertion] + out[frame:]
-        restored = restored.replace(b"LogicSize(0.5125,0.49833333)", b"LogicSize(0.5125,0.29166666)")
-        self.assertEqual(restored, self.script)
+            self.assertIn(prop, out[a:b])
+        self.assertNotIn(b"ForceTextLowerCase", out[a:b])
+        a, b = patch._block(restored, b"Static", b"ID_VR_STATUS")
+        restored = restored[:a] + restored[b:]
+        a, b = patch._block(restored, b"Window", b"ID_LIST_FRAME")
+        c, d = patch._block(self.script, b"Window", b"ID_LIST_FRAME")
+        restored = restored[:a] + self.script[c:d] + restored[b:]
+        # Only whitespace insertion boundaries may differ after stripping clones.
+        self.assertEqual(re.sub(rb"\s+", b" ", restored), re.sub(rb"\s+", b" ", self.script))
         self.assertEqual(out.count(b"{"), out.count(b"}"))
-        # Measured reference frame .13833334 + y*.73333335; absolute row height.
-        row_bottom = .13833334 + .45227273 * .73333335 + .05
-        status_top = .13833334 + .525 * .73333335
-        status_bottom = status_top + .06
-        self.assertLess(row_bottom, status_top)
-        self.assertLess(status_bottom, .10166667 + .49833333)
-        self.assertLess(.10166667 + .49833333, .87166667)
+
+    def test_sixteen_whole_rows_labels_and_click_extents_fit_without_overlap(self):
+        out = patch.patch_menu_script(self.script)
+        def pair(block, prop):
+            return tuple(map(float, re.search(prop + rb"\(([^,]+),([^)]*)\)", block).groups()))
+        ids = (b"ID_AUTO_RELOAD", b"ID_FULL_AKIMBO", b"ID_SELECT_SPEECH", b"ID_SUBTITLES",
+               b"ID_VR_CINEMATICS", b"ID_VR_TURNING", b"ID_VR_HOLSTER_GUIDES") + tuple(
+                   ("ID_VR_" + row[0]).encode() for row in GRAPHICS)
+        rectangles = []
+        for index, id_ in enumerate(ids):
+            a, b = patch._block(out, b"MenuButton", id_)
+            row = out[a:b]
+            x, y = pair(row, b"LogicPos"); w, h = pair(row, b"LogicSize")
+            rect = (.0225 + .51*x, .13833334 + .73333335*y, w, h)
+            self.assertAlmostEqual(rect[0], .045)
+            self.assertAlmostEqual(rect[1], .15 + .041*index)
+            self.assertEqual((w, h), (.465, .038))
+            self.assertLessEqual(rect[0]+w, .535)
+            if rectangles:
+                self.assertGreaterEqual(rect[1] - rectangles[-1][1] - rectangles[-1][3], .0029999)
+            rectangles.append(rect)
+        # Read the shipped pattern, not a fabricated rectangle for just the new
+        # labels. Both arrows and the full-height label/option are parent-sized;
+        # native UpdateElements changes horizontal extent only. Label2 copies the
+        # original label at size (1,1)/pos(0,0), so its vertical envelope is equal.
+        _, archive = original_archives()
+        with zipfile.ZipFile(archive) as z:
+            pattern = z.read("Data/Menu/UIDef/OptionsControlSelect.def")
+        for kind, id_ in ((b"ControlObject", b"ID_LABEL"), (b"Button", b"ID_BTN_LEFT"),
+                          (b"Button", b"ID_BTN_RIGHT"), (b"Button", b"ID_OPTION")):
+            a, b = patch._block(pattern, kind, id_)
+            child = pattern[a:b]
+            x, y = pair(child, b"LogicPos"); w, h = pair(child, b"LogicSize")
+            self.assertIn(b"ParentSizingY(1)", child)
+            self.assertIn(b"ParentSizingX(1)", child)
+            self.assertGreaterEqual(x, 0); self.assertLessEqual(x+w, 1)
+            self.assertGreaterEqual(y, 0); self.assertLessEqual(y+h, 1.000001)
+            for rx, ry, rw, rh in rectangles:
+                self.assertGreaterEqual(ry+y*rh, ry)
+                self.assertLessEqual(ry+(y+h)*rh, ry+rh+.0000001)
+        a, b = patch._block(out, b"Static", b"ID_VR_STATUS")
+        _, y = pair(out[a:b], b"LogicPos"); _, h = pair(out[a:b], b"LogicSize")
+        status_top = .13833334 + .73333335*y
+        self.assertAlmostEqual(status_top, .805)
+        self.assertGreater(status_top, rectangles[-1][1]+rectangles[-1][3])
+        a, b = patch._block(out, b"Window", b"ID_LIST_FRAME")
+        _, frame_y = pair(out[a:b], b"LogicPos"); _, frame_h = pair(out[a:b], b"LogicSize")
+        self.assertLess(frame_y, rectangles[0][1])
+        self.assertLess(status_top+h, frame_y+frame_h)
+        self.assertLess(frame_y+frame_h, .87166667)  # native lower separator/buttons
+        # Font glyph fit, actual native rendering and visor readability are NOT
+        # established by logical rectangles or the interpreted widget model.
 
 
 if __name__ == "__main__":

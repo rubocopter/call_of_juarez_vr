@@ -37,12 +37,14 @@ function Get-Stats([double[]]$Values) {
     foreach ($Value in $Sorted) { $Sum += $Value }
     $P50Index = [Math]::Floor(($Sorted.Count - 1) * 0.50)
     $P95Index = [Math]::Floor(($Sorted.Count - 1) * 0.95)
+    $P99Index = [Math]::Floor(($Sorted.Count - 1) * 0.99)
     return [ordered]@{
         count = $Sorted.Count
         min = [Math]::Round($Sorted[0], 3)
         average = [Math]::Round($Sum / $Sorted.Count, 3)
         p50 = [Math]::Round($Sorted[$P50Index], 3)
         p95 = [Math]::Round($Sorted[$P95Index], 3)
+        p99 = [Math]::Round($Sorted[$P99Index], 3)
         max = [Math]::Round($Sorted[-1], 3)
     }
 }
@@ -253,8 +255,8 @@ foreach ($MetricName in @(
         "d3d11Upload", "waitPose", "submit")) {
     $Stats = $Report.metricsMs[$MetricName]
     if ($null -eq $Stats) { continue }
-    Write-Host ("{0}: n={1} avg={2} ms p50={3} ms p95={4} ms max={5} ms" -f `
-        $MetricName, $Stats.count, $Stats.average, $Stats.p50, $Stats.p95, $Stats.max)
+    Write-Host ("{0}: n={1} avg={2} ms p50={3} ms p95={4} ms p99={5} ms max={6} ms" -f `
+        $MetricName, $Stats.count, $Stats.average, $Stats.p50, $Stats.p95, $Stats.p99, $Stats.max)
 }
 Write-Host "OpenVR focus cycle observed: $($FocusCycleObserved.ToString().ToLowerInvariant())"
 Write-Host "SteamVR dashboard cycle observed: $($DashboardCycleObserved.ToString().ToLowerInvariant())"

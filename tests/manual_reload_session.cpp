@@ -36,6 +36,42 @@ struct Fixture{
     CoJManualReloadOutput Insert(){Carry(s.left,s.right);s.raw.fire_left=false;return Poll();}
 };
 int main(){
+    for(int hand:{0,1}) {
+        Fixture empty;empty.s.admission.armed_hand=empty.s.recovery.armed_hand=empty.s.native.armed_hand=hand;
+        empty.s.native.ammo_readback=0;empty.s.native.reserve_readback=6;
+        (void)empty.Poll();
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=true;
+        auto out=empty.Poll();
+        Check(out.start&&empty.mapped.reload&&!empty.mapped.fire_left&&!empty.mapped.fire_right&&
+            std::strcmp(out.reason,"empty_trigger")==0,"empty armed trigger bypassed manual preparation");
+        empty.session.NoteStart(true);
+        Check(!empty.Poll().start,"held empty trigger repeatedly started reload");
+    }
+    {
+        Fixture ordinary;ordinary.s.admission.single_round_supported=false;
+        ordinary.s.native_fallback_allowed=true;(void)ordinary.Poll();ordinary.s.raw.fire_right=true;
+        const auto out=ordinary.Poll();Check(!out.start&&ordinary.mapped.fire_right,
+            "manual empty-trigger path stole unsupported native fire/reload");
+    }
+    // A 90 Hz delivery clock must distinguish movement between unique poses.
+    // Reproduce coarse 15.6 ms ticks: the carry cancels before reaching the gun.
+    // With the same positions/sequence and QPC millisecond delivery it survives
+    // and emits a single insertion intent on release (never native ammo credit).
+    for(bool coarse:{true,false}) {
+        Fixture f;f.Open();f.Claim();
+        const auto begin=f.s.left.position;const auto end=f.s.right.position;
+        const auto base=f.s.now;bool retained=true;CoJManualReloadOutput out;
+        for(unsigned step=1;step<=20;++step) {
+            const float t=step/20.F;f.s.left=At({begin.x+(end.x-begin.x)*t,
+                begin.y+(end.y-begin.y)*t,begin.z+(end.z-begin.z)*t});
+            ++f.s.sequence;const auto elapsed=step*11ULL;
+            f.s.now=base+(coarse?(elapsed/16)*16:elapsed);f.mapped=f.s.raw;
+            out=f.session.Update(f.mapped,f.s);retained&=out.gesture.cartridge_held;
+        }
+        f.s.raw.fire_left=false;++f.s.sequence;f.s.now+=11;f.mapped=f.s.raw;
+        out=f.session.Update(f.mapped,f.s);
+        Check(coarse?(!retained&&!out.insert):(retained&&out.insert),"coarse-clock carry regression / high-resolution insertion");
+    }
     // A visible round is an interaction offer, not inventory. Do not offer or
     // insert one when the current native waiting snapshot has no reserve.
     for(const int reserve:{0,-1}){

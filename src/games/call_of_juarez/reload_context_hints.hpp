@@ -51,6 +51,8 @@ public:
         out.text.interaction=text;out.text.controller_prompt_generation=prompts.binding_generation;
         out.reload_instruction=true;
         out.reload_instruction_until_ms=started_>UINT64_MAX-3000?UINT64_MAX:started_+3000;
+        out.control_hint_action=instruction_==Instruction::empty_reserve?runtime::PromptAction::reload:support;
+        out.control_hint_prompts=prompts;
         return true;
     }
     void Reset() noexcept {have_=false;instruction_=Instruction::none;}

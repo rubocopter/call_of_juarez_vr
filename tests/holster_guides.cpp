@@ -21,7 +21,18 @@ int main(){
         const auto& zone=kCoJVirtualHolsterZones[z];
         Check(std::abs(centre.x-zone.offset.x)<.0001F&&std::abs(centre.y-zone.offset.y)<.0001F&&
             std::abs(centre.z-zone.offset.z)<.0001F,"guide centre diverged from active selection zone");
+        const auto corner=guide.head_corners[0];
+        const float half_extent=std::sqrt((corner.x-centre.x)*(corner.x-centre.x)+
+            (corner.y-centre.y)*(corner.y-centre.y)+(corner.z-centre.z)*(corner.z-centre.z)) / std::sqrt(2.F);
+        Check(std::abs(half_extent-zone.radius)<.0001F,"visible guide radius diverged from interaction radius");
+        Check(zone.shoulder?zone.radius>=.24F:zone.radius<=.12F,"hip/shoulder ergonomic sizes were conflated");
     }
+    s.interaction.valid=true;s.interaction.active_id=19;
+    Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[0].state==2&&
+        out.holster_guides.zones[1].state==2,"native world selection advertised selectable holsters");
+    Check(out.holster_guides.zones[2].state!=2&&out.holster_guides.zones[3].state!=2,
+        "front world selection disabled behind-shoulder guides");
+    s.interaction={};
     s.inventory.available_mask=0;
     Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[0].state==2,"denied slot must not look selectable");
     s.inventory.available_mask=0x27;s.raw.fire_left=true;
@@ -43,7 +54,7 @@ int main(){
     Check(!BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.count==0,"unowned weapons must not advertise zones");
     s.inventory.owned_mask=s.inventory.available_mask=0x27;
     s.head.orientation={-.70710678F,0,0,.70710678F};
-    Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[0].head_corners[0].z<-.3F,
+    Check(BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.zones[0].head_corners[0].z<-.5F,
         "hip guides must remain visible when looking down");
     s.allowed=false;
     Check(!BuildCoJHolsterGuides(s,true,out)&&out.holster_guides.count==0,"lost gameplay owner retained guide geometry");

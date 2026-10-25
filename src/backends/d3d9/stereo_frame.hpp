@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/scope_view.hpp"
 
 #include "runtime/vr_types.hpp"
 #include "runtime/hud_text.hpp"
@@ -61,6 +62,8 @@ struct StereoWeaponReticle {
 
 struct StereoReticleOverlay {
     std::uint64_t frame_sequence = 0;
+    bool scope_view = false;
+    std::array<runtime::ScopeLens,2> scope_lenses{};
     std::array<StereoWeaponReticle, 2> weapons{};
     [[nodiscard]] bool active() const noexcept {
         return weapons[0].active || weapons[1].active;

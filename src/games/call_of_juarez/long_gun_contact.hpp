@@ -19,6 +19,12 @@ inline CoJLongGunContactProfile CoJLongGunContact(const char* weapon_class) noex
         return {"GunBarrel",{.002069F,.732127F,10.742139F}};
     if(!std::strcmp(weapon_class,"WeaponRifleWinchester"))
         return {"GunBody",{.009580F,-41.159535F,-4.031803F}};
+    // Independently decoded original WinchesterScope.msh SHA-256:
+    // a989d5c4bcaad39e250a0fcaa070c985ec832ec51e2f48e6f2d62eb580d532cd
+    // GunBody LOD0 has a 60-triangle wood island (ordinary Winchester: 84).
+    // Its measured AABB centre coincides; never infer admission by inheritance.
+    if(!std::strcmp(weapon_class,"WeaponRifleWinchesterScope"))
+        return {"GunBody",{.009580F,-41.159535F,-4.031803F}};
     return {};
 }
 }

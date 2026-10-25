@@ -12,11 +12,15 @@ void Check(bool value,const char* message) {
     if(!value){std::cerr<<message<<'\n';std::exit(1);}
 }
 struct Page { bool exact=true,visible=true,ready=false;std::int32_t id=0x81234567,
-    serial=1,request=0,cinematics=0,turning=0,guides=0;int syncs=0,completions=0;std::string status; } page;
+    serial=1,request=0,cinematics=0,turning=0,guides=0;
+    bool graphics_ready=false;
+    std::int32_t enabled=0,sharpness=0,contrast=100,saturation=100,gamma=100,smoothing=0,reconstruction=0,render_scale=0,horse_comfort=0;
+    int syncs=0,graphics_syncs=0,completions=0;std::string status; } page;
 struct Object { int references=0; } klass,other_class,exception,text;
 bool pending=false,missing_marker=false,fail_complete=false;
 int writes=0,callbacks=0;
-enum Id { visible=1,identity,ready,serial,request,sync,cinematics,turning,guides,complete };
+enum Id { visible=1,identity,ready,serial,request,sync,cinematics,turning,guides,complete,
+    graphics_ready,graphics_sync,enabled,sharpness,contrast,saturation,gamma,smoothing,reconstruction,render_scale,horse_comfort };
 void* Token(int id){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(id));}
 int Number(void* id){return static_cast<int>(reinterpret_cast<std::uintptr_t>(id));}
 void* __stdcall Find(void*,const char* name){Check(std::string(name)=="MenuOptionsGame","unexpected class lookup");++klass.references;return &klass;}
@@ -29,6 +33,7 @@ void* __stdcall Field(void*,void*,const char* name,const char*) {
     if(missing_marker){pending=true;return nullptr;}
     const std::string n(name);
     if(n=="cojvrSettingsReady")return Token(ready);
+    if(n=="cojvrGraphicsReady")return Token(graphics_ready);
     if(n=="cojvrSettingsOpenSerial")return Token(serial);
     if(n=="cojvrSettingsRequest")return Token(request);
     Check(false,"unexpected field");return nullptr;
@@ -38,6 +43,16 @@ void* __stdcall Method(void*,void*,const char* name,const char* descriptor) {
     if(n=="IsActuallyVisible")return Token(visible);
     if(n=="GetThisID")return Token(identity);
     if(n=="cojvrSyncSettings"){Check(std::string(descriptor)=="(IIII)V","sync JNI descriptor mismatch");return Token(sync);}
+    if(n=="cojvrSyncGraphics"){Check(std::string(descriptor)=="(IIIIIIIIII)V","graphics sync JNI descriptor mismatch");return Token(graphics_sync);}
+    if(n=="cojvrGraphicsEnabledValue")return Token(enabled);
+    if(n=="cojvrSharpnessValue")return Token(sharpness);
+    if(n=="cojvrContrastValue")return Token(contrast);
+    if(n=="cojvrSaturationValue")return Token(saturation);
+    if(n=="cojvrGammaValue")return Token(gamma);
+    if(n=="cojvrEdgeSmoothingValue")return Token(smoothing);
+    if(n=="cojvrReconstructionValue")return Token(reconstruction);
+    if(n=="cojvrRenderScaleValue")return Token(render_scale);
+    if(n=="cojvrHorseComfortValue")return Token(horse_comfort);
     if(n=="cojvrCinematicsValue")return Token(cinematics);
     if(n=="cojvrTurningValue")return Token(turning);
     if(n=="cojvrHolsterGuidesValue"){Check(std::string(descriptor)=="()I","guide JNI descriptor mismatch");return Token(guides);}
@@ -45,11 +60,20 @@ void* __stdcall Method(void*,void*,const char* name,const char* descriptor) {
     Check(false,"unexpected method");return nullptr;
 }
 std::uint8_t __stdcall Bool(void*,void*,void*,const void*) {return page.visible;}
-std::uint8_t __stdcall ReadBool(void*,void*,void*){return page.ready;}
+std::uint8_t __stdcall ReadBool(void*,void*,void* field){return Number(field)==ready?page.ready:page.graphics_ready;}
 std::int32_t __stdcall Int(void*,void*,void* method,const void*) {
     if(Number(method)==identity)return page.id;
     if(Number(method)==cinematics)return page.cinematics;
     if(Number(method)==guides)return page.guides;
+    if(Number(method)==enabled)return page.enabled;
+    if(Number(method)==sharpness)return page.sharpness;
+    if(Number(method)==contrast)return page.contrast;
+    if(Number(method)==saturation)return page.saturation;
+    if(Number(method)==gamma)return page.gamma;
+    if(Number(method)==smoothing)return page.smoothing;
+    if(Number(method)==reconstruction)return page.reconstruction;
+    if(Number(method)==render_scale)return page.render_scale;
+    if(Number(method)==horse_comfort)return page.horse_comfort;
     Check(Number(method)==turning,"unexpected int method");return page.turning;
 }
 std::int32_t __stdcall ReadInt(void*,void*,void* field){return Number(field)==serial?page.serial:page.request;}
@@ -57,7 +81,8 @@ void __stdcall WriteInt(void*,void*,void* field,std::int32_t value){
     Check(Number(field)==request,"unexpected integer write");page.request=value;++writes;
 }
 void __stdcall WriteBool(void*,void*,void* field,std::uint8_t value){
-    Check(Number(field)==ready,"unexpected boolean write");page.ready=value!=0;
+    Check(Number(field)==ready||Number(field)==graphics_ready,"unexpected boolean write");
+    if(Number(field)==ready)page.ready=value!=0;else page.graphics_ready=value!=0;
 }
 void* __stdcall String(void*,const char* value){page.status=value;++text.references;return &text;}
 void __stdcall Void(void*,void*,void* method,const NativeSettingsJValue* values){
@@ -67,11 +92,19 @@ void __stdcall Void(void*,void*,void* method,const NativeSettingsJValue* values)
         Check(values[3].i==0||values[3].i==1,"invalid sync language");
         page.ready=true;page.request=0;page.status.clear();++page.syncs;return;
     }
+    if(Number(method)==graphics_sync) {
+        page.enabled=values[0].i;page.sharpness=values[1].i;page.contrast=values[2].i;
+        page.saturation=values[3].i;page.gamma=values[4].i;page.smoothing=values[5].i;
+        page.reconstruction=values[6].i;
+        page.render_scale=values[7].i;page.horse_comfort=values[8].i;
+        Check(values[9].i==0||values[9].i==1,"invalid graphics language");
+        page.graphics_ready=true;++page.graphics_syncs;return;
+    }
     Check(Number(method)==complete,"unexpected callback");
     if(values[0].z)Check(page.request==2,"request was not consumed before accepted callback");
     page.request=0;
     if(fail_complete){pending=true;return;}
-    if(values[0].z){++page.completions;page.visible=false;page.ready=false;}
+    if(values[0].z){++page.completions;page.visible=false;page.ready=false;page.graphics_ready=false;}
 }
 void Clean(){Check(!pending&&!klass.references&&!other_class.references&&!exception.references&&!text.references,"JNI reference/exception leak");}
 }
@@ -89,47 +122,128 @@ int main(){
     const auto root=std::filesystem::temp_directory_path()/
         (L"cojvr-native-settings-"+std::to_wstring(GetCurrentProcessId()));
     std::filesystem::create_directories(root);const auto path=root/L"settings.ini";
-    VrPreferenceStore store;(void)store.Initialize(path);NativeSettingsBridge bridge;std::string error;
-    page.exact=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error),"ordinary native UI was blocked");
+    VrPreferenceStore store;(void)store.Initialize(path);GraphicsPreferenceStore graphics;
+    const auto graphics_path=root/L"graphics.ini";(void)graphics.Initialize(graphics_path);
+    NativeSettingsBridge bridge;std::string error;
+    page.exact=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"ordinary native UI was blocked");
     Check(page.syncs==0&&writes==0,"foreign UI acquired settings");Clean();page.exact=true;
-    page.visible=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error),"hidden page failed");
+    page.visible=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"hidden page failed");
     Check(page.syncs==0,"hidden page acquired settings");Clean();page.visible=true;
-    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.ready&&page.syncs==1,"fresh visible page not synchronized");Clean();
+    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.ready&&page.syncs==1,"fresh visible page not synchronized");Clean();
+    Check(page.graphics_ready&&page.graphics_syncs==1&&page.enabled==0&&page.contrast==100,
+        "native graphics controls not synchronized with comfort controls");
+    Check(!std::filesystem::exists(graphics_path),"opening native menu wrote graphics preferences");
     page.cinematics=1;page.turning=1;page.guides=1;
-    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.cinematics==1&&page.syncs==1,"unsaved native edits overwritten");
+    page.enabled=1;page.sharpness=35;page.contrast=110;page.saturation=90;page.gamma=125;page.smoothing=1;
+    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.cinematics==1&&page.syncs==1,"unsaved native edits overwritten");
     Check(store.Read().values.cinematics==CinematicsMode::theater,"highlight applied before OK");
     page.request=1;
-    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.completions==1,"accepted native OK did not complete");Clean();
+    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.completions==1,"accepted native OK did not complete");Clean();
     auto snapshot=store.Read();
     Check(snapshot.values.cinematics==CinematicsMode::immersive&&snapshot.values.turning==TurnMode::snap&&snapshot.values.holster_guides&&CurrentHolsterGuidesEnabled(),"native choices not published together");
     Check(LoadVrSettings(path).turning==TurnMode::snap&&LoadVrSettings(path).holster_guides,"native choices not persisted");
-    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,&error)&&page.completions==1,"completed request replayed");
+    const auto saved_graphics=LoadGraphicsSettings(graphics_path);
+    Check(saved_graphics.values.enabled&&saved_graphics.values.sharpness==.35F&&saved_graphics.values.contrast==1.1F&&
+        saved_graphics.values.saturation==.9F&&saved_graphics.values.gamma==1.25F&&saved_graphics.values.edge_smoothing,
+        "native graphics tuple not persisted");
+    Check(CurrentGraphicsPreferences().values.gamma==1.25F,"native graphics not published live");
+    Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.completions==1,"completed request replayed");
     page.visible=true;page.ready=false;++page.serial;
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.syncs==2,"reopened page did not rebase");
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.syncs==2,"reopened page did not rebase");
     auto other=store.ApplyCinematics(CinematicsMode::theater,snapshot.revision);
     Check(other.accepted,"other editor setup failed");page.request=1;
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.completions==1&&!page.status.empty(),"stale editor overwrote newer preferences or silently closed");
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.completions==1&&!page.status.empty(),"stale editor overwrote newer preferences or silently closed");
     Check(store.Read().values.cinematics==CinematicsMode::theater&&page.cinematics==0&&page.guides==1,"conflict did not rebase to authoritative mode");Clean();
     page.guides=2;page.request=1;
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.request==0&&page.completions==1,"invalid guide committed");
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.request==0&&page.completions==1,"invalid guide committed");
     page.guides=1;page.cinematics=99;page.request=1;
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.request==0&&page.completions==1,"invalid native option committed/retried");Clean();
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.request==0&&page.completions==1,"invalid native option committed/retried");Clean();
     page.cinematics=1;page.turning=0;page.guides=0;page.request=1;
     HANDLE locked=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
     Check(locked!=INVALID_HANDLE_VALUE,"save denial setup failed");
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.visible&&page.completions==1&&!page.status.empty(),"failed persistence hid error or left page");
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.visible&&page.completions==1&&!page.status.empty(),"failed persistence hid error or left page");
     Check(store.Read().save_failed&&store.Read().values.cinematics==CinematicsMode::immersive&&!CurrentHolsterGuidesEnabled(),"save failure lost session value");
     Check(LoadVrSettings(path).mode==CinematicsMode::theater&&LoadVrSettings(path).holster_guides,"failed native save destroyed previous file");CloseHandle(locked);Clean();
-    page.request=1;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.completions==2,"fresh explicit save retry failed");Clean();
-    page.visible=true;page.ready=false;++page.serial;Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error),"partial callback setup failed");
+    page.request=1;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.completions==2,"fresh explicit save retry failed");Clean();
+    page.visible=true;page.ready=false;++page.serial;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"partial callback setup failed");
     page.cinematics=0;page.request=1;fail_complete=true;
-    Check(!bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.request==0,"callback fault retained replayable request");Clean();fail_complete=false;
+    Check(!bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.request==0,"callback fault retained replayable request");Clean();fail_complete=false;
     const int completions=page.completions;
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.completions==completions,"partial completion automatically retried original OK");Clean();
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.completions==completions,"partial completion automatically retried original OK");Clean();
     bridge.Invalidate();page.request=1;
-    Check(bridge.Update(env,&page,SettingsLanguage::english,store,&error)&&page.request==0&&page.completions==completions,"owner recovery replayed pending request");Clean();
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.request==0&&page.completions==completions,"owner recovery replayed pending request");Clean();
     missing_marker=true;bridge.Invalidate();
-    Check(!bridge.Update(env,&page,SettingsLanguage::english,store,&error),"unpatched class admitted mutation");Clean();missing_marker=false;
+    Check(!bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"unpatched class admitted mutation");Clean();missing_marker=false;
+
+    const auto reopen=[&] {
+        bridge.Invalidate();page.visible=true;page.ready=false;page.graphics_ready=false;page.request=0;++page.serial;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.ready&&page.graphics_ready,
+            "graphics reopen failed");Clean();
+    };
+    reopen();
+    const auto comfort_before=store.Read();auto graphics_before=graphics.Read();
+    auto newer=graphics_before.values;newer.sharpness=.7F;
+    Check(graphics.Apply(newer,graphics_before.revision).accepted,"graphics conflict setup");
+    page.gamma=200;page.request=1;const int closed_before=page.completions;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.completions==closed_before&&
+        page.sharpness==70&&page.request==0,"stale graphics menu did not rebase visibly");
+    Check(store.Read().revision==comfort_before.revision&&graphics.Read().values.gamma==newer.gamma,
+        "graphics conflict partially committed native selection");Clean();
+
+    // A rounded selector is only a display approximation of precise legacy files.
+    auto precise=graphics.Read().values;precise.sharpness=.337F;
+    Check(graphics.Apply(precise,graphics.Read().revision).saved,"precise graphics setup");reopen();
+    Check(page.sharpness==35,"precision displayed outside native five-percent steps");
+    page.request=1;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&
+        graphics.Read().values.sharpness==.337F&&LoadGraphicsSettings(graphics_path).values.sharpness==.337F,
+        "unchanged graphics selector rounded a precise persisted value");Clean();
+
+    reopen();graphics_before=graphics.Read();const auto native_revision=store.Read().revision;
+    for(unsigned field=0;field<9;++field) {
+        auto* selection=field==0?&page.enabled:field==1?&page.sharpness:field==2?&page.contrast:
+            field==3?&page.saturation:field==4?&page.gamma:field==5?&page.smoothing:field==6?&page.reconstruction:field==7?&page.render_scale:&page.horse_comfort;
+        const auto old=*selection;*selection=field==6||field==8?3:field==7?6:field==0||field==5?2:field==1?33:field==2?45:field==3?205:40;
+        page.request=1;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.request==0,
+            "invalid graphics request not consumed");
+        Check(graphics.Read().revision==graphics_before.revision&&store.Read().revision==native_revision,
+            "invalid graphics selection committed any preference");*selection=old;Clean();
+    }
+
+    page.gamma=150;page.request=1;
+    HANDLE graphics_locked=CreateFileW(graphics_path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    Check(graphics_locked!=INVALID_HANDLE_VALUE,"graphics save-denial setup");
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.visible&&
+        graphics.Read().save_failed&&CurrentGraphicsPreferences().values.gamma==1.5F&&page.request==0,
+        "failed graphics save closed menu or lost published session selection");
+    Check(LoadGraphicsSettings(graphics_path).values.gamma==precise.gamma,"failed graphics save damaged prior file");
+    CloseHandle(graphics_locked);Clean();page.request=1;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
+        LoadGraphicsSettings(graphics_path).values.gamma==1.5F,"explicit graphics save retry failed");Clean();
+    reopen();page.reconstruction=2;page.render_scale=3;page.horse_comfort=2;page.request=1;
+    Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
+        LoadGraphicsSettings(graphics_path).values.reconstruction==ReconstructionMode::dlss_quality&&
+        LoadGraphicsSettings(graphics_path).values.render_scale==3&&LoadGraphicsSettings(graphics_path).values.horse_comfort==2,
+        "DLSS request was not persisted from native options");Clean();
+    reopen();Check(page.reconstruction==2&&page.render_scale==3&&page.horse_comfort==2,"saved graphics/comfort request lost on reopen");
+    Check(!GraphicsEffectsActive(GraphicsSettings{false,0,1,1,1,false,ReconstructionMode::dlss_quality}),
+        "pending DLSS request changed spatial activation");
+    for(int scale : {4,5}) {
+        reopen();const auto before=graphics.Read();
+        page.render_scale=scale;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&
+            graphics.Read().revision==before.revision&&LoadGraphicsSettings(graphics_path).values.render_scale==before.values.render_scale,
+            "highlighting resolution saved/published before accepted OK");
+        page.visible=false;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"cancel resolution failed");
+        reopen();Check(page.render_scale==before.values.render_scale,"cancel retained pending resolution");
+        page.render_scale=scale;page.request=1;
+        Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
+            LoadGraphicsSettings(graphics_path).values.render_scale==scale,
+            "accepted high pixel profile not persisted");Clean();
+        reopen();Check(page.render_scale==scale,"saved high pixel profile lost on reopen");
+    }
     std::filesystem::remove_all(root);
-    std::cout<<"native_settings_bridge: ownership, synchronization, commit, save-failure and cancellation passed\n";
+    std::cout<<"native_settings_bridge: comfort/graphics ownership, live tuple, precision, conflicts, invalid selections and save retries passed\n";
 }

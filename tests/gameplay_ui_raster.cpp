@@ -1,5 +1,6 @@
 #include "backends/openvr/gameplay_ui_raster.hpp"
 #include "backends/openvr/reticle_pixels.hpp"
+#include "backends/openvr/holster_guide_pixels.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -130,10 +131,84 @@ void WheelVisuals(GameplayUiRaster& raster,const EquipmentWheelSnapshot& source,
         Require(raster.Wheel(wheel).pixels.empty(),"invalid selection must not resurrect decorated wheel pixels");}
 }
 int main(int argc,char** argv) {
+    const auto& guides=HolsterGuidePanels();
+    std::set<std::vector<std::uint32_t>> guide_states;
+    for(const auto& guide:guides){
+        Require(guide.width==128&&guide.height==128&&guide.pixels.size()==128*128,
+            "holster ring must use a bounded higher-definition raster");
+        std::size_t coverage=0,edge_levels=0;std::set<unsigned> alpha_levels;
+        for(unsigned y=0;y<guide.height;++y)for(unsigned x=0;x<guide.width;++x){
+            const unsigned alpha=guide.pixels[y*guide.width+x]>>24;
+            const float dx=x+.5F-guide.width*.5F,dy=y+.5F-guide.height*.5F;
+            const float radius=std::hypot(dx,dy)/(guide.width*.5F);
+            if(radius<.94F||radius>=1.F)Require(alpha==0,"holster hint obscures its centre or exterior");
+            coverage+=alpha;alpha_levels.insert(alpha);edge_levels+=alpha>0&&alpha<20;
+        }
+        Require(coverage<128*128*255/25,"holster outline has excessive pixel coverage");
+        Require(alpha_levels.size()>12&&edge_levels>20,"holster ring needs smooth subpixel edge coverage");
+        Require(HolsterGuidePanels()[&guide-guides.data()].pixels.data()==guide.pixels.data(),
+            "immutable holster pixels rebuilt on repeat");
+        guide_states.insert(guide.pixels);
+    }
+    Require(guide_states.size()==3,"holster guide availability states collapsed");
+    Require(SupportGripGuidePanels()[0].width==64&&AmmunitionPickupGuidePanels()[0].width==64,
+        "holster refinement changed support/ammunition glyph geometry");
     Require(NoShootReticlePixel(0,0)==0xFFFF4038U&&NoShootReticlePixel(6,-6)==0xFFFF4038U,"warning must be a red X at aim point");
     Require(NoShootReticlePixel(1,0)==0xFF000000U,"warning must retain contrasting outline");
     Require(NoShootReticlePixel(0,6)==0&&NoShootReticlePixel(9,9)==0,"warning must preserve world outside diagonals/footprint");
     GameplayUiRaster raster;
+    ActionPromptSnapshot prompts{};prompts.active=true;prompts.binding_generation=7;
+    prompts.glyph_sample_ms=100;prompts.glyph_deadline_ms=1600;
+    Require(SetActionPromptLabel(prompts,PromptAction::alternate_fire,"Right Circle"),"control fixture label rejected");
+    prompts.glyphs[static_cast<std::size_t>(PromptAction::alternate_fire)]=
+        QualifyPromptGlyph("playstation_vr2_sense","/user/hand/right","button_b",
+            "/input/circle","button","click","button",17);
+    const auto with_art=raster.ControlHint(prompts,PromptAction::alternate_fire,7,101,false);
+    const auto art_revision=raster.control_hint_revision();
+    (void)raster.ControlHint(prompts,PromptAction::alternate_fire,7,102,false);
+    Require(raster.control_hint_revision()==art_revision,"unchanged control row rebuilt its pixels");
+    Require(with_art.width==512&&with_art.height==64&&with_art.pixels.size()==512*64,
+        "control hint must remain a bounded renderer-owned row");
+    auto text_only=prompts;text_only.glyphs={};
+    const auto without_art=raster.ControlHint(text_only,PromptAction::alternate_fire,7,101,false);
+    Require(raster.control_hint_revision()==art_revision+1,"glyph-only change did not invalidate upload cache");
+    Require(with_art.pixels!=without_art.pixels&&!without_art.pixels.empty(),
+        "qualified art must decorate, with readable text-only fallback");
+    Require(raster.ControlHint(prompts,PromptAction::alternate_fire,7,1600,false).pixels==without_art.pixels,
+        "retained snapshot must lose art at its exact deadline");
+    const ActionPromptSnapshot fallback{};
+    const auto semantic=raster.ControlHint(fallback,PromptAction::alternate_fire,0,101,false);
+    Require(raster.ControlHint(prompts,PromptAction::alternate_fire,8,101,false).pixels==semantic.pixels,
+        "stale generation retained old glyph or old controller text");
+    Require(raster.ControlHint(prompts,PromptAction::alternate_fire,7,101,true).pixels.empty(),
+        "optional control row obscured higher-priority native text");
+    Require(raster.ControlHint(prompts,PromptAction::alternate_fire,7,101,false).pixels==with_art.pixels,
+        "priority withdrawal failed to restore current row");
+    Require(raster.ControlHint(prompts,PromptAction::count,7,101,false).pixels.empty(),
+        "invalid action resurrected cached control pixels");
+    std::set<std::vector<std::uint32_t>> symbols;
+    for(auto kind:{PromptGlyphKind::cross,PromptGlyphKind::circle,PromptGlyphKind::square,
+        PromptGlyphKind::triangle,PromptGlyphKind::trigger,PromptGlyphKind::grip}){
+        prompts.glyphs[6]={kind,PromptGlyphHand::right,17};
+        const auto panel=raster.ControlHint(prompts,PromptAction::alternate_fire,7,101,false);
+        Require(panel.pixels.front()==0,"optional symbol flooded transparent exterior");
+        symbols.insert(panel.pixels);
+    }
+    Require(symbols.size()==6,"procedural identifiers collapsed to the same glyph");
+    HudTextPanel coaching{};coaching.width=1024;coaching.height=72;
+    coaching.pixels.assign(1024*72,0xFF113355U);
+    const auto full=raster.DecorateControlHint(coaching,1,prompts,PromptAction::alternate_fire,7,101,true);
+    Require(full.width==1104&&full.height==72,"coaching glyph must add a bounded margin to the complete text");
+    for(unsigned y=0;y<72;++y)for(unsigned x=0;x<1024;++x)
+        Require(full.pixels[y*1104+x+80]==coaching.pixels[y*1024+x],
+            "glyph decoration damaged original instruction pixels");
+    const auto full_revision=raster.control_decoration_revision();
+    (void)raster.DecorateControlHint(coaching,1,prompts,PromptAction::alternate_fire,7,102,true);
+    Require(raster.control_decoration_revision()==full_revision,"unchanged coaching decoration rebuilt");
+    Require(&raster.DecorateControlHint(coaching,1,prompts,PromptAction::alternate_fire,7,1600,true)==&coaching&&
+        raster.control_decoration_revision()>full_revision,"expired glyph did not return the complete text fallback");
+    Require(&raster.DecorateControlHint(coaching,1,prompts,PromptAction::alternate_fire,7,101,false)==&coaching,
+        "native priority changed original text pixels");
     const auto& gaze=raster.InteractionGaze();
     Require(gaze.width==32&&gaze.height==32&&gaze.pixels.size()==32*32,
         "gaze marker must be a bounded immutable raster");

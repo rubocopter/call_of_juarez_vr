@@ -51,7 +51,8 @@ function Invoke-CoJResolutionProgram {
         $script:Ids += $Id
         $Record = [pscustomobject]@{
             schemaVersion=1;recordType='cojvr-resolution-observation';status='observed'
-            preparationId=$Id;observedUtc=[DateTime]::UtcNow.ToString('o')
+            # A trailing zero tick must survive proposal reserialization exactly.
+            preparationId=$Id;observedUtc=[DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'0Z'")
             recommendedWidth=2804;recommendedHeight=2860;runtimeVersion='fixture'
             hmdSerial='fixture';hmdModel='fixture';adapterIndex=0
             applicationKey='fixture-background';applicationKeyStatus='observed'
@@ -84,7 +85,9 @@ function Invoke-CoJResolutionProgram {
     $Result = & $script:RealInvoke @PSBoundParameters
     if ($null -ne $script:ProposalRaw) { $Result.StdOut = $script:ProposalRaw }
     else {
-        $Record = $Result.StdOut | ConvertFrom-Json
+        # Preserve timestamp strings just as production does. PowerShell date
+        # conversion otherwise trims trailing fractional zeros nondeterministically.
+        $Record = ConvertFrom-CoJResolutionJson $Result.StdOut
         & $script:ProposalEdit $Record
         $Result.StdOut = $Record | ConvertTo-Json -Depth 12 -Compress
     }

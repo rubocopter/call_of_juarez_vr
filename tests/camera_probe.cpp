@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/camera_probe.hpp"
+#include "games/call_of_juarez/scoped_rifle_view.hpp"
 #include "games/call_of_juarez/body_adapter.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "games/call_of_juarez/ppfx_resource_observation.hpp"
@@ -347,20 +348,21 @@ int main() {
     // the original optics; loss/recovery must not accumulate scale or IPD.
     std::array<cojvr::runtime::EyeView,2> focus_optics{};
     for(int i=0;i<2;++i){focus_optics[i].eye=i?cojvr::runtime::Eye::right:cojvr::runtime::Eye::left;
-        focus_optics[i].fov=asymmetric_fov;focus_optics[i].eye_to_head.position.x=i?.032F:-.032F;}
+        focus_optics[i].fov=asymmetric_fov;focus_optics[i].eye_to_head.position.x=i?.032F:-.032F;
+        focus_optics[i].eye_to_head.position_valid=true;}
     auto focus_render=focus_optics;
     for(auto zoom:{CoJFocusZoom{1,2,2,true},CoJFocusZoom{},CoJFocusZoom{1,2,2,true},CoJFocusZoom{0,2,1,true}}){
         const float scale=zoom.valid?zoom.magnification:1;
         (void)BuildCoJFocusRenderEyes(focus_optics,zoom,focus_render);
         for(int i=0;i<2;++i){
             CameraProbeFrustum focused{};CameraProbeReticlePoint point{};
-            const float eye_x=i?3.2F:-3.2F;
+            const float eye_x=(i?3.2F:-3.2F)/scale;
             if(!BuildCameraProbeFrustum(focus_render[i].fov,.25F,500,focused)||
                 !Near(focused.left,valid_stereo_frustum.left/scale)||
                 !Near(focused.right,valid_stereo_frustum.right/scale)||
                 !ProjectWorldAimRayToEyeReticle({13,4,5},{0,0,-1},{3+eye_x,4,5},native_identity,focused,100,point)||
                 !Near(point.u,.6F+(10-eye_x)*scale/200)||!Near(point.v,.55F)||
-                !Near(focus_render[i].eye_to_head.position.x,focus_optics[i].eye_to_head.position.x)||
+                !Near(focus_render[i].eye_to_head.position.x,focus_optics[i].eye_to_head.position.x/scale)||
                 !Near(focus_optics[i].fov.angle_left,asymmetric_fov.angle_left)){
                 std::cerr<<"focus render/reticle optics or physical UI/IPD recovery mismatch\n";return 1;
             }
@@ -461,6 +463,106 @@ int main() {
         return 1;
     }
 
+    // A stationary native barrel must project in both eyes, including elevation;
+    // its reference is a world ray and does not snap to the headset center.
+    std::array<CameraProbeReticlePoint,2> level_cannon{},raised_cannon{};
+    for(unsigned eye=0;eye<2;++eye){
+        const CameraProbeVector position{eye==0?-3.2F:3.2F,0,0};
+        if(!ProjectWorldAimRayToEyeReticle({10,-5,-50},{0,0,-1},position,native_identity,
+                valid_stereo_frustum,400,level_cannon[eye])||
+           !ProjectWorldAimRayToEyeReticle({10,-5,-50},{0,.2F,-.9797959F},position,native_identity,
+                valid_stereo_frustum,400,raised_cannon[eye])||
+           !(raised_cannon[eye].v<level_cannon[eye].v)){
+            std::cerr<<"elevated stationary barrel did not move the stereo reticle upwards\n";return 1;
+        }
+    }
+    if(!(level_cannon[0].u>level_cannon[1].u)){
+        std::cerr<<"stationary barrel reticle lost binocular projection\n";return 1;
+    }
+
+    // A centred binocular scope uses the actual weapon ray, not a screen-space
+    // cross pasted over unrelated head-centred zoom. Both asymmetric eye views
+    // preserve tangent spans and the headset's asymmetric principal points.
+    {
+        std::array<cojvr::runtime::EyeView,2> physical{},zoomed{},scoped{};
+        cojvr::runtime::Pose head{};head.position_valid=head.orientation_valid=true;
+        head.orientation.w=1;
+        for(unsigned i=0;i<2;++i){
+            physical[i].fov=i?cojvr::runtime::EyeFov{-.67F,.91F,.72F,-.65F}:
+                cojvr::runtime::EyeFov{-.91F,.67F,.72F,-.65F};
+            physical[i].eye_to_head.position_valid=true;
+            physical[i].eye_to_head.position.x=i? .032F:-.032F;
+            zoomed[i]=physical[i];
+            zoomed[i].eye_to_head.position.x/=8.F;
+            auto scale=[](float x){return std::atan(std::tan(x)/8.F);};
+            auto f=physical[i].fov;zoomed[i].fov={scale(f.angle_left),scale(f.angle_right),scale(f.angle_up),scale(f.angle_down)};
+        }
+        CameraProbeWeaponRay ray{{15,-8,-40},{.1F,.03F,-1},true,true,true};
+        if(!BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,ray,1,500,scoped)){
+            std::cerr<<"scoped rifle view did not centre both eye frusta on verified aim\n";return 1;
+        }
+        for(unsigned eye=0;eye<2;++eye){
+            CameraProbeFrustum f{},before{};CameraProbeReticlePoint point{};
+            const auto eye_pos=ApplyCameraEyeOffset({},native_identity,scoped[eye].eye_to_head.position);
+            if(!BuildCameraProbeFrustum(scoped[eye].fov,1,500,f)||
+                !BuildCameraProbeFrustum(zoomed[eye].fov,1,500,before)||
+                !ProjectWorldAimRayToEyeReticle(ray.origin,ray.direction,eye_pos,native_identity,f,475,point)||
+                !Near(f.right-f.left,before.right-before.left)||
+                !Near(f.top-f.bottom,before.top-before.bottom)||
+                !Near(scoped[eye].eye_to_head.position.x,zoomed[eye].eye_to_head.position.x)){
+                std::cerr<<"scope centre, zoom span or physical IPD changed\n";return 1;
+            }
+        }
+        // Inverse the physical headset projection: texture UV .5 is NOT the
+        // common optical axis of a mirrored asymmetric lens pair. At infinity
+        // both retinal horizontal angles must coincide; at finite depths their
+        // disparity must equal the unzoomed physical baseline, not 8x baseline.
+        for(float depth:{80.F,200.F,475.F,499.F}){
+            float retinal[2]{};
+            for(unsigned eye=0;eye<2;++eye){
+                CameraProbeFrustum f{},o{};CameraProbeReticlePoint p{};
+                if(!BuildCameraProbeFrustum(scoped[eye].fov,1,500,f)||
+                    !BuildCameraProbeFrustum(physical[eye].fov,1,500,o))return 1;
+                const auto eye_pos=ApplyCameraEyeOffset({},native_identity,scoped[eye].eye_to_head.position);
+                if(!ProjectWorldAimRayToEyeReticle({0,0,0},{.1F,.03F,-1},eye_pos,native_identity,f,depth,p))return 1;
+                retinal[eye]=o.left+p.u*(o.right-o.left);
+            }
+            if(std::abs((retinal[0]-retinal[1])-6.4F/depth)>2e-5F){
+                std::cerr<<"scoped asymmetric retinal disparity does not match physical reference\n";return 1;
+            }
+        }
+        CameraWeaponReticle marker{};marker.active=true;
+        for(unsigned eye=0;eye<2;++eye){
+            CameraProbeFrustum f{};
+            if(!BuildCameraProbeFrustum(scoped[eye].fov,1,500,f)||
+                !ProjectWorldAimRayToEyeReticle(ray.origin,ray.direction,
+                    ApplyCameraEyeOffset({},native_identity,scoped[eye].eye_to_head.position),native_identity,f,475,marker.eyes[eye]))return 1;
+        }
+        std::array<cojvr::runtime::ScopeLens,2> lenses{};
+        if(!BuildCoJScopeLenses(physical,marker,lenses)||
+            !Near(lenses[0].center_u,marker.eyes[0].u)||Near(lenses[0].center_u,lenses[1].center_u)){
+            std::cerr<<"scope lenses did not retain each asymmetric optical centre\n";return 1;
+        }
+        for(unsigned eye=0;eye<2;++eye){
+            const auto& f=physical[eye].fov;
+            const float horizontal=lenses[eye].radius_u*(std::tan(f.angle_right)-std::tan(f.angle_left));
+            const float vertical=lenses[eye].radius_v*(std::tan(f.angle_up)-std::tan(f.angle_down));
+            const float other=lenses[1-eye].radius_u*(std::tan(physical[1-eye].fov.angle_right)-std::tan(physical[1-eye].fov.angle_left));
+            if(!Near(horizontal,vertical)||!Near(horizontal,other)){
+                std::cerr<<"scope aperture has unequal angular radii across axes/eyes\n";return 1;
+            }
+        }
+        marker.eyes[1].valid=false;
+        if(BuildCoJScopeLenses(physical,marker,lenses)||lenses[0].valid||lenses[1].valid)return 1;
+        for(auto bad:std::array<CameraProbeWeaponRay,3>{{
+            {{},{0,0,1},true,true,true},{{},{20,0,-1},true,true,true},{{},{0,0,-1},true,true,false}}}){
+            if(BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,bad,1,500,scoped)){
+                std::cerr<<"unverified, backwards or outside-physical-view scope ray admitted\n";return 1;
+            }
+        }
+        head.position_valid=false;
+        if(BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,ray,1,500,scoped))return 1;
+    }
     const CameraProbeVector head_position{10.0F, 20.0F, 30.0F};
     const CameraProbeVector left_eye = ApplyCameraEyeOffset(
         head_position, native_identity, {-0.032F, 0.0F, 0.0F});

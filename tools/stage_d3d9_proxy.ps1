@@ -407,6 +407,10 @@ if ($IsNativeStereo) {
         $PatchArguments = @($CodeArchive, $PatchedCodeSource)
         if ($ReloadWaitProbe) { $PatchArguments += '--reload-wait-probe' }
         if ($ManualReload) { $PatchArguments += '--manual-reload' }
+        $TutorialDataEn = Join-Path $GameDirectory 'DataEn.pak'
+        if (Test-Path -LiteralPath $TutorialDataEn -PathType Leaf) {
+            $PatchArguments += @('--tutorial-data-en', $TutorialDataEn)
+        }
         & $PythonExecutable -B (Join-Path $PSScriptRoot "patch_coj_weapon_consumers.py") @PatchArguments
         if ($LASTEXITCODE -ne 0) { throw "Exact weapon consumer patch failed." }
         $PatchedCodeHash = Get-CojvrFileSha256 $PatchedCodeSource

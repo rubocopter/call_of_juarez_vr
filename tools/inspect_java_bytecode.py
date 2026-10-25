@@ -50,6 +50,7 @@ class Method:
     code: bytes | None
     max_stack: int = 0
     max_locals: int = 0
+    exception_table: tuple[tuple[int, int, int, int], ...] = ()
 
 
 class ConstantPool:
@@ -156,6 +157,7 @@ def parse_methods(reader: Reader, pool: ConstantPool) -> list[Method]:
         code: bytes | None = None
         max_stack = 0
         max_locals = 0
+        exception_table = ()
         attribute_count = reader.u2()
         for _ in range(attribute_count):
             attribute_name = pool.utf8(reader.u2())
@@ -167,7 +169,9 @@ def parse_methods(reader: Reader, pool: ConstantPool) -> list[Method]:
             max_stack = code_reader.u2()
             max_locals = code_reader.u2()
             code = code_reader.read(code_reader.u4())
-        methods.append(Method(access, name, descriptor, code, max_stack, max_locals))
+            exception_table = tuple(tuple(code_reader.u2() for _ in range(4))
+                                    for _ in range(code_reader.u2()))
+        methods.append(Method(access, name, descriptor, code, max_stack, max_locals, exception_table))
     return methods
 
 
@@ -222,6 +226,49 @@ def s2(data: bytes, offset: int) -> int:
 
 def s4(data: bytes, offset: int) -> int:
     return struct.unpack_from(">i", data, offset)[0]
+
+
+def instruction_offsets(code: bytes) -> frozenset[int]:
+    """Strict structural boundaries, not stack/link/type verification."""
+    offsets = set()
+    pc = 0
+    while pc < len(code):
+        offsets.add(pc)
+        op = code[pc]
+        if op not in MNEMONICS:
+            raise ClassFormatError('Unknown instruction in emitted helper')
+        size = 1
+        if op in LOCAL_U1 | CP_U1 | {0x10, 0xBC}:
+            size = 2
+        elif op in CP_U2 | BRANCH_S2 | {0x11, 0x84}:
+            size = 3
+        elif op in (0xB9, 0xBA, 0xC8, 0xC9):
+            size = 5
+        elif op == 0xC5:
+            size = 4
+        elif op == 0xC4:
+            if pc + 1 >= len(code) or code[pc+1] not in LOCAL_U1 | {0x84}:
+                raise ClassFormatError('Invalid wide instruction in emitted helper')
+            size = 6 if code[pc+1] == 0x84 else 4
+        elif op in (0xAA, 0xAB):
+            table = (pc + 4) & ~3
+            header = 12 if op == 0xAA else 8
+            if table + header > len(code):
+                raise ClassFormatError('Truncated switch in emitted helper')
+            if op == 0xAA:
+                low, high = s4(code, table+4), s4(code, table+8)
+                count, width = high-low+1, 4
+                if count <= 0:
+                    raise ClassFormatError('Invalid tableswitch range')
+            else:
+                count, width = s4(code, table+4), 8
+                if count < 0:
+                    raise ClassFormatError('Invalid lookupswitch pair count')
+            size = table + header + count*width - pc
+        if pc + size > len(code):
+            raise ClassFormatError('Truncated instruction in emitted helper')
+        pc += size
+    return frozenset(offsets)
 
 
 def disassemble(code: bytes, pool: ConstantPool) -> list[str]:

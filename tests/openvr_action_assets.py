@@ -137,6 +137,55 @@ for default in defaults:
                 assert target["output"].startswith(set_name + "/")
                 seen[(source["path"], source["mode"], component, target["output"])] += 1
         assert all(n == 1 for n in seen.values()), (kind, seen)
+
+    # Presence alone cannot detect a swapped jump/alternate-fire or left/right
+    # trigger. Pin the intended semantic layout as we already do for Sense.
+    actual = {}
+    for set_name, action_set in config["bindings"].items():
+        for source in action_set["sources"]:
+            for component, target in source["inputs"].items():
+                actual.setdefault(target["output"], []).append(
+                    (source["path"], source["mode"], component))
+    expected_routes = {}
+    def expect(action, hand, control, mode="button", component="click", group="gameplay"):
+        expected_routes[f"/actions/{group}/in/{action}"] = [
+            (f"/user/hand/{hand}/input/{control}", mode, component)]
+    stick = {"oculus_touch": "joystick", "knuckles": "thumbstick",
+             "vive_controller": "trackpad", "holographic_controller": "joystick"}[kind]
+    for hand, fire, select, pointer in (("left", "fire_left", "ui_select_left", "ui_pointer_left"),
+                                        ("right", "fire_right", "ui_select_right", "ui_pointer_right")):
+        expect(fire, hand, "trigger", "trigger")
+        expect(select, hand, "trigger", "trigger", group="global")
+        expect(pointer, hand, "grip", group="global")
+    expect("interact", "left", "grip")
+    expect("kick", "right", "grip")
+    for hand, action in (("left", "move"), ("right", "turn")):
+        expect(action, hand, stick, "trackpad" if kind == "vive_controller" else "joystick", "position")
+    if kind in {"oculus_touch", "knuckles"}:
+        expect("reload", "left", "x" if kind == "oculus_touch" else "a")
+        expect("weapon_radial", "left", "y" if kind == "oculus_touch" else "b")
+        expect("jump", "right", "a")
+        expect("alternate_fire", "right", "b")
+        for hand, action in (("left", "crouch"), ("right", "focus")):
+            expect(action, hand, stick, "dpad", "center")
+        for hand, action in (("left", "recenter"), ("right", "pause")):
+            expect(action, hand, stick, "dpad", "north", "global")
+        expect("ui_accept", "right", "a", group="global")
+        expect("ui_back", "right", "b", group="global")
+    else:
+        for action, hand, direction in (("reload", "left", "south"),
+                ("weapon_radial", "left", "north"), ("jump", "right", "north"),
+                ("alternate_fire", "right", "south")):
+            expect(action, hand, "trackpad", "dpad", direction)
+        for hand, action in (("left", "crouch"), ("right", "focus")):
+            expect(action, hand, stick, "dpad" if kind == "vive_controller" else "joystick",
+                   "center" if kind == "vive_controller" else "click")
+        for hand, action in (("left", "recenter"), ("right", "pause")):
+            expect(action, hand, "application_menu", group="global")
+        expect("ui_accept", "right", "trackpad", "dpad", "north", "global")
+        expect("ui_back", "right", "trackpad", "dpad", "south", "global")
+    for action, route in expected_routes.items():
+        assert actual.get(action) == route, (kind, "semantic route", action, actual.get(action), route)
 for locale in manifest["localization"]:
     assert "Create" not in locale["/actions/global/in/recenter"]
 print("Experimental controller profiles passed (physical validation remains pending)")

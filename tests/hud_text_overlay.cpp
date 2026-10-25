@@ -1,4 +1,5 @@
 #include "backends/openvr/hud_text_overlay.hpp"
+#include "backends/openvr/holster_guide_pixels.hpp"
 #include "runtime/vr_math.hpp"
 #include "runtime/action_prompts.hpp"
 #include <algorithm>
@@ -279,6 +280,32 @@ int main(int argc, char** argv) {
     const auto guide_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
     Require(guide_left!=resized_world&&guide_left!=ReadEye(device.Get(),context.Get(),targets[1].Get())&&
         guide_left.front()==resized_world.front(),"holster guides need bounded real binocular pixels");
+    HudPanelPlacement guide_placement{};guide_placement.captured_quad=true;
+    guide_placement.head_corners=guide.head_corners;ProjectedHudPanel guide_bounds{};
+    Require(ProjectHudPanel(HolsterGuidePanels()[0],overlay.eyes[0],512,512,guide_placement,guide_bounds),
+        "holster guide test projection failed");
+    const auto check_holster_coverage=[&](const auto& pixels){
+        std::size_t changed=0;
+        for(std::size_t i=0;i<pixels.size();++i)changed+=pixels[i]!=resized_world[i];
+        Require(changed>20&&changed<guide_bounds.width*guide_bounds.height/6,
+            "holster GPU pixels must retain a thin outline without flooding the world");
+        const auto centre=(guide_bounds.top+guide_bounds.height/2)*512+
+            guide_bounds.left+guide_bounds.width/2;
+        Require(pixels[centre]==resized_world[centre],"holster GPU ring obscures a world object at its centre");
+    };
+    check_holster_coverage(guide_left);
+    for(unsigned state=1;state<3;++state){
+        guide.state=static_cast<std::uint8_t>(state);clear_world();
+        Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true),
+            "holster state GPU draw failed");
+        const auto pixels=ReadEye(device.Get(),context.Get(),targets[0].Get());
+        Require(pixels!=guide_left,"holster GPU state lost its availability color");
+        check_holster_coverage(pixels);
+    }
+    compositor.Reset();guide.state=0;clear_world();
+    Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==guide_left,
+        "reset changed immutable holster ring output");
     guide.kind=GestureGuideKind::support_grip;clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())!=guide_left,
@@ -587,9 +614,83 @@ int main(int argc, char** argv) {
     }
     overlay.text.hint=Text(u"Press left menu");overlay.text.controller_prompt_generation=101;
     overlay.reload_instruction_until_ms=GetTickCount64()+60000;
-    prompts.binding_generation=101;PublishActionPrompts(prompts);draw_controlled();
+    prompts.binding_generation=101;PublishActionPrompts(prompts);
+    // Native hint priority suppresses coaching. Losing the reload owner must
+    // preserve that hint; only its own binding epoch may retire it.
+    auto hint_only=overlay;hint_only.reload_instruction=false;hint_only.text.interaction={};
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),hint_only,7,replaced),
+        "native priority baseline failed");
+    const std::array<std::vector<std::uint32_t>,2> native_priority_pixels{
+        ReadEye(device.Get(),context.Get(),targets[0].Get()),
+        ReadEye(device.Get(),context.Get(),targets[1].Get())};
+    draw_controlled();
     compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,0);
-    expect_pixels(background,"reload invalidation left a partially restored controlled stack");
+    expect_pixels(native_priority_pixels,"reload owner loss retired an authoritative native hint");
+    prompts.binding_generation=102;PublishActionPrompts(prompts);
+    compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,0);
+    expect_pixels(background,"binding invalidation left a partially restored controlled hint");
+    // Production semantic reload-coaching artwork uses the SAME controlled
+    // interaction layer/backing as its full sentence. No extra native text pass.
+    {
+        overlay={};overlay.frame_sequence=7;overlay.eyes=valid_eyes;
+        overlay.text.subtitle=Text(u"Native dialogue remains below coaching");
+        clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced),
+            "glyph retirement background failed");
+        const std::array<std::vector<std::uint32_t>,2> glyph_background{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        overlay.reload_instruction=true;overlay.reload_feedback.owner_token=42;
+        overlay.reload_instruction_until_ms=GetTickCount64()+60000;
+        overlay.text.interaction=Text(u"Bring the round to the gun, then release Left Trigger.");
+        overlay.text.controller_prompt_generation=601;
+        prompts={};prompts.active=true;prompts.binding_generation=601;
+        const auto refresh_glyph=[&](){
+            prompts.glyph_sample_ms=GetTickCount64();
+            prompts.glyph_deadline_ms=prompts.glyph_sample_ms+kPromptGlyphLifetimeMs;
+            prompts.glyphs[0]=QualifyPromptGlyph("playstation_vr2_sense","/user/hand/left",
+                "trigger","/input/l2","trigger","click","trigger",33);
+            overlay.control_hint_prompts=prompts;PublishActionPrompts(prompts);
+        };
+        const auto draw_reload=[&](){clear_world();
+            Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42),
+                "production glyph coaching draw failed");};
+        refresh_glyph();draw_reload(); // No semantic action -> full text fallback.
+        const std::array<std::vector<std::uint32_t>,2> full_text{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        overlay.control_hint_action=PromptAction::left_fire;draw_reload();
+        const std::array<std::vector<std::uint32_t>,2> glyph_pixels{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        for(unsigned eye=0;eye<2;++eye)Require(glyph_pixels[eye]!=full_text[eye],
+            "semantic source metadata did not produce connected binocular glyph pixels");
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+        expect_pixels(glyph_pixels,"fresh coaching glyph was retired before its deadline");
+        const auto after_glyph=GetTickCount64();
+        if(after_glyph<prompts.glyph_deadline_ms)
+            Sleep(static_cast<DWORD>(prompts.glyph_deadline_ms-after_glyph+1));
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+        expect_pixels(glyph_background,"expired glyph repeat damaged world/native subtitle or retained coaching");
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
+        expect_pixels(glyph_background,"glyph retirement replayed consumed backing");
+        draw_reload();expect_pixels(full_text,"fresh expired-glyph capture did not retain full coaching text fallback");
+        for(unsigned reason=0;reason<3;++reason){
+            refresh_glyph();draw_reload();
+            if(reason==0){prompts.binding_generation=602;PublishActionPrompts(prompts);}
+            compositor.RetireStaleText(device.Get(),context.Get(),replaced,reason!=1,reason==2?0:42);
+            expect_pixels(glyph_background,"coaching glyph survived binding/preference/owner invalidation");
+            prompts.binding_generation=601;
+        }
+        refresh_glyph();overlay.text.hint=Text(u"Native tutorial takes priority");draw_reload();
+        const std::array<std::vector<std::uint32_t>,2> priority_pixels{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        overlay.reload_instruction=false;overlay.text.interaction={};draw_reload();
+        expect_pixels(priority_pixels,"optional reload art/text obscured a native hint");
+        overlay.text.hint={};
+        overlay.text.interaction=Text(u"Bring the round to the gun, then release Left Trigger.");
+        draw_reload();expect_pixels(full_text,"native interaction string was guessed as semantic coaching");
+    }
     ClearActionPrompts();
     std::cout << "HUD Unicode raster, cache and stereo projection passed\n";
 }

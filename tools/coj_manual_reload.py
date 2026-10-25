@@ -7,8 +7,11 @@ from coj_reload_wait_probe import ClassEdit, patch_probe_classes
 from patch_coj_weapon_consumers import Code
 
 
-def patch_manual_classes(player, machine):
-    player, machine = patch_probe_classes(player, machine)
+def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycle=False, _offline_indexed=None):
+    if _offline_cycle and _offline_weapon is None:
+        raise ValueError('Body-cycle experiment requires an exact offline weapon profile')
+    player, machine = patch_probe_classes(player, machine, _offline_weapon=_offline_weapon,
+                                          _offline_indexed=_offline_indexed)
     e = ClassEdit(player)
     def field(name, desc): return e.ref('ArmedPlayerBeing', 'cojvrReloadProbe'+name, desc, 9)
     def method(name, desc): return e.ref('ArmedPlayerBeing', name, desc)
@@ -52,8 +55,12 @@ def patch_manual_classes(player, machine):
         hand_call(c,name,'(I)LWeapon;'); read(c,'Weapon','LWeapon;'); c.branch(0xa6,'reject')
         c.emit(0x2a,0x2a); read(c,'Hand','I'); c.ref(0xb6,method('GetOtherHand','(I)I'))
         c.ref(0xb6,method(name,'(I)LWeapon;')); c.branch(0xc7,'reject')
-    read(c,'Weapon','LWeapon;'); c.ref(0xb6,e.ref('Weapon','IsReloadWholeClipAtOnce','()Z')); c.branch(0x9a,'reject')
-    read(c,'Weapon','LWeapon;'); c.ref(0xb6,e.ref('Weapon','GetAmmoTypeCount','()I')); c.emit(0x04); c.branch(0xa0,'reject')
+    whole_clip = False
+    if _offline_indexed is not None:
+        from coj_indexed_reload_session import _profile
+        whole_clip = _profile(_offline_indexed)[3]
+    read(c,'Weapon','LWeapon;'); c.ref(0xb6,e.ref('Weapon','IsReloadWholeClipAtOnce','()Z')); c.branch(0x99 if whole_clip else 0x9a,'reject')
+    read(c,'Weapon','LWeapon;'); c.ref(0xb6,e.ref('Weapon','GetAmmoTypeCount','()I')); c.emit(0x05 if _offline_indexed else 0x04); c.branch(0xa0,'reject')
     c.emit(0x04,0xac); reject(c)
     e.helper('cojvrManualReloadValid','()Z',c.finish(),3)
 
@@ -83,5 +90,10 @@ def patch_manual_classes(player, machine):
     c.label('capacity'); hand_call(c,'GetWeaponMaxAmmoToReload','(I)I'); c.branch(0x9d,'result')
     c.emit(0x2a); c.ref(0xb6,method('cojvrCancelReloadProbe','()V'))
     c.label('result'); c.emit(0x1b,0xac); reject(c)
-    e.helper('cojvrInsertManualRound','()Z',c.finish(),2)
-    return e.finish(), machine
+    if not _offline_cycle and _offline_indexed is None:
+        e.helper('cojvrInsertManualRound','()Z',c.finish(),2)
+    player=e.finish()
+    if _offline_cycle:
+        from coj_reload_cycle import _add_offline_cycle
+        player=_add_offline_cycle(player, _offline_weapon)
+    return player, machine

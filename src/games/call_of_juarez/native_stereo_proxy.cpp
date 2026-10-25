@@ -7,10 +7,13 @@
 #include "games/call_of_juarez/ppfx_resource_telemetry.hpp"
 #include "games/call_of_juarez/independent_render_scope.hpp"
 #include "games/call_of_juarez/independent_resolution_recipe.hpp"
+#include "games/call_of_juarez/temporal_source_probe.hpp"
+#include "backends/d3d9/hdr_source_writes.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
 #include "backends/d3d9/depth_observation.hpp"
 #include "backends/d3d9/device_vtable_hook.hpp"
+#include "backends/d3d9/hud_batch_probe.hpp"
 #include "backends/d3d9/factory_vtable_hook.hpp"
 #include "backends/d3d9/swapchain_vtable_hook.hpp"
 #include "backends/d3d9/system_d3d9.hpp"
@@ -22,6 +25,7 @@
 #include "backends/d3d9/vr_present_policy.hpp"
 #include "backends/d3d9/source_capture_admission.hpp"
 #include "backends/d3d9/frame_luma_probe.hpp"
+#include "backends/d3d9/hdr_alpha_probe.hpp"
 
 #include <windows.h>
 #include <psapi.h>
@@ -71,6 +75,8 @@ struct NativeStereoState {
     bool luma_enabled = false; // Startup-only diagnostic; never a visual writer.
     std::mutex luma_mutex;
     std::array<LumaChannel, 3> luma_channels;
+    std::mutex hdr_alpha_mutex;
+    cojvr::backends::d3d9::D3D9HdrAlphaProbe hdr_alpha_probe{6};
     std::atomic_uint64_t luma_pose_sequence{0};
     std::atomic<std::uint64_t> frame_feedback_context_token{0};
     cojvr::games::call_of_juarez::CoJPresentationInputEpoch input_owner;
@@ -177,6 +183,7 @@ void LogLine(const std::string_view line) noexcept {
 }
 
 void ResetFrameLumaProbes() noexcept {
+    {std::lock_guard lock(g_stereo.hdr_alpha_mutex);g_stereo.hdr_alpha_probe.Reset();}
     std::lock_guard lock(g_stereo.luma_mutex);
     for (auto& channel : g_stereo.luma_channels) {
         channel.probe.Reset();
@@ -204,7 +211,67 @@ void LogLumaSample(std::size_t stream, const cojvr::backends::d3d9::FrameLumaSam
     LogLine(line.str());
 }
 
+void AppendHdrCopyWitness(std::ostream& out,std::uint64_t calls,std::uintptr_t source,
+    const RECT& from,const RECT& to,bool observed,std::uint32_t format,
+    std::uint64_t write_call,unsigned width,unsigned height,bool current) {
+    out<<",\"sourceCopyCalls\":"<<calls<<",\"sourceLastCopySource\":"<<source
+       <<",\"sourceCopyRectanglesObserved\":"<<(observed?"true":"false")
+       <<",\"sourceLastCopySourceFormat\":"<<format
+       <<",\"sourceCopyWriteCall\":"<<write_call
+       <<",\"sourceLastCopySourceWidth\":"<<width<<",\"sourceLastCopySourceHeight\":"<<height
+       <<",\"sourceCopyBoundaryCurrent\":"<<(current?"true":"false")
+       <<",\"sourceLastCopySourceRect\":["<<from.left<<','<<from.top<<','<<from.right<<','<<from.bottom<<']'
+       <<",\"sourceLastCopyDestinationRect\":["<<to.left<<','<<to.top<<','<<to.right<<','<<to.bottom<<']';
+}
+void AppendHdrProducerWitness(std::ostream& out,const cojvr::backends::d3d9::HdrProducerWrites& p,bool complete) {
+    const auto& b=p.first_alpha_blend;
+    out<<",\"sourceCopyProducer\":{\"surface\":"<<p.surface<<",\"drawCalls\":"<<p.draw_calls
+       <<",\"alphaDrawCalls\":"<<p.alpha_draw_calls<<",\"alphaBlendDrawCalls\":"<<p.alpha_blend_draw_calls
+       <<",\"clearCalls\":"<<p.clear_calls<<",\"firstAlphaShader\":"<<p.first_alpha_shader
+       <<",\"lastAlphaShader\":"<<p.last_alpha_shader<<",\"firstAlphaBlend\":{\"observed\":"<<(b.observed?"true":"false")
+       <<",\"shader\":"<<b.shader<<",\"stateComplete\":"<<(b.state_complete?"true":"false")
+       <<",\"separateAlpha\":"<<(b.separate_alpha?"true":"false")<<",\"sourceBlend\":"<<b.source_blend
+       <<",\"destinationBlend\":"<<b.destination_blend<<",\"blendOperation\":"<<b.blend_operation
+       <<",\"blendFactor\":"<<b.blend_factor<<",\"shaderComplete\":"<<(b.shader_complete?"true":"false")
+       <<",\"shaderBytes\":"<<b.shader_bytes<<",\"bytecode\":[";
+    if(b.shader_complete&&b.shader_bytes<=sizeof(b.bytecode))for(unsigned i=0;i<b.shader_bytes/sizeof(DWORD);++i)
+        out<<(i?",":"")<<b.bytecode[i];
+    out<<"]},\"observationComplete\":"<<(complete?"true":"false")
+       <<",\"coverage\":\"same_extent_fp16_rt0_draw_clear_only\"}";
+}
 void PollFrameLumaProbes() noexcept {
+    {
+        std::lock_guard lock(g_stereo.hdr_alpha_mutex);
+        cojvr::backends::d3d9::HdrAlphaSample sample;
+        while(g_stereo.hdr_alpha_probe.Poll(sample))try {
+            std::ostringstream line;line<<"native_hdr_alpha_probe: {\"frame\":"<<sample.frame
+                <<",\"generation\":"<<sample.generation<<",\"scope\":"<<sample.scope
+                <<",\"owner\":"<<sample.owner<<",\"device\":"<<sample.device<<",\"source\":"<<sample.source
+                <<",\"eye\":"<<sample.eye<<",\"width\":"<<sample.width<<",\"height\":"<<sample.height
+                <<",\"pose\":"<<sample.pose<<",\"consumer\":"<<sample.phase<<",\"sampler\":"<<sample.sampler
+                <<",\"target\":"<<sample.target<<",\"shader\":"<<sample.shader<<",\"scopeKind\":\"hdr_source\""
+                <<",\"sourceWriteCalls\":"<<sample.source_write_calls
+                <<",\"sourceAlphaWriteCalls\":"<<sample.source_alpha_write_calls
+                <<",\"sourceLastWriterShader\":"<<sample.source_last_writer_shader
+                <<",\"sourceWriteObservationComplete\":"<<(sample.source_write_observation_complete?"true":"false")
+                <<",\"sourceWriteCoverage\":\"rt0_and_typed_native_copy_destinations\"";
+            AppendHdrCopyWitness(line,sample.source_copy_calls,sample.source_copy_source,
+                sample.source_copy_source_rect,sample.source_copy_destination_rect,sample.source_copy_rectangles_observed,
+                sample.source_copy_source_format,sample.source_copy_write_call,
+                sample.source_copy_source_width,sample.source_copy_source_height,sample.source_copy_boundary_current);
+            AppendHdrProducerWitness(line,sample.source_copy_producer,sample.source_copy_producer_complete);
+            line
+                <<",\"sampling\":\"16x16_point\",\"temporalAdmitted\":false,\"alpha\":[";
+            for(std::size_t n=0;n<sample.alpha.size();++n) {
+                if(n)line<<',';if(std::isfinite(sample.alpha[n]))line<<sample.alpha[n];else line<<"null";
+            }
+            line<<"],\"rgb\":[";
+            for(std::size_t n=0;n<sample.color.size();++n) {
+                if(n)line<<',';if(std::isfinite(sample.color[n]))line<<sample.color[n];else line<<"null";
+            }
+            line<<"]}";LogLine(line.str());
+        }catch(...) {}
+    }
     if (!g_stereo.luma_enabled) return;
     try {
         std::lock_guard lock(g_stereo.luma_mutex);
@@ -358,7 +425,11 @@ bool RetireIndependentBank(NativeStereoState& state, const char* boundary) noexc
 }
 
 void CancelResourceProbe() noexcept;
+void AbortHudBatch(cojvr::backends::d3d9::hud::Fault) noexcept;
+void DrainHudBatch() noexcept;
 bool AllowDeviceReset(IDirect3DDevice9*) noexcept {
+    AbortHudBatch(cojvr::backends::d3d9::hud::unterminated);
+    DrainHudBatch();
     ResetFrameLumaProbes(); // Called before both Reset and ResetEx, even failed attempts.
     if (!g_stereo.fixed_outputs.enabled) return true;
     CancelResourceProbe();
@@ -384,8 +455,141 @@ struct ResourceProbeThread {
     unsigned route=0,eye=0;
     std::uint64_t integrity_epoch=0;
     bool active=false, selected=false;
+    std::uintptr_t alpha_candidate=0;
+    std::uint32_t alpha_width=0,alpha_height=0;
+    bool alpha_attempted=false;
+    std::uint64_t alpha_scope=0;
+    bool alpha_active=false,alpha_copying=false,alpha_pair=false;
+    unsigned alpha_count=0,alpha_eye=0;
+    std::uint64_t alpha_pair_frame=0,alpha_frame=0,alpha_owner=0,alpha_generation=0,alpha_epoch=0;
+    cojvr::games::call_of_juarez::CoJTemporalProbeSchedule alpha_schedule;
+    cojvr::games::call_of_juarez::CoJTemporalProbePhases alpha_phases;
+    cojvr::backends::d3d9::HdrSourceWrites alpha_writes;
 };
 thread_local ResourceProbeThread g_resource_probe_thread;
+std::atomic_uint64_t g_hdr_scope{0};
+void BeginHdrSource(ResourceProbeThread& trace,std::uint64_t frame,std::uintptr_t owner,
+                    unsigned eye,IDirect3DDevice9* device,std::uint64_t generation) noexcept {
+    trace.alpha_candidate=0;trace.alpha_count=0;trace.alpha_attempted=false;trace.alpha_phases={};
+    trace.alpha_writes={};
+    trace.alpha_copying=false;trace.alpha_frame=frame;trace.alpha_owner=owner;trace.alpha_eye=eye;
+    trace.alpha_generation=generation;trace.alpha_scope=++g_hdr_scope;trace.alpha_active=true;
+    const auto snapshot=cojvr::games::call_of_juarez::ObserveInstalledCoJPostprocessResources();
+    if(!snapshot.valid||snapshot.device!=reinterpret_cast<std::uintptr_t>(device))return;
+    for(std::size_t n=0;n<snapshot.buffer_count;++n)if(std::string_view(snapshot.buffers[n].name.data())=="1B_16") {
+        if(trace.alpha_candidate){trace.alpha_candidate=0;return;}
+        trace.alpha_candidate=snapshot.buffers[n].texture.texture_2d;
+        trace.alpha_width=snapshot.buffers[n].texture.width;trace.alpha_height=snapshot.buffers[n].texture.height;
+    }
+}
+void EndHdrSource(ResourceProbeThread& trace,bool complete) noexcept {
+    if(!trace.alpha_active)return;
+    trace.alpha_active=false;
+    try {std::ostringstream out;out<<"native_hdr_source_scope: {\"scope\":"<<trace.alpha_scope
+        <<",\"frame\":"<<trace.alpha_frame<<",\"owner\":"<<trace.alpha_owner<<",\"generation\":"<<trace.alpha_generation
+        <<",\"eye\":"<<trace.alpha_eye<<",\"complete\":"<<(complete?"true":"false")
+        <<",\"attemptedConsumers\":"<<trace.alpha_count
+        <<",\"sourceWriteCalls\":"<<trace.alpha_writes.calls
+        <<",\"sourceAlphaWriteCalls\":"<<trace.alpha_writes.alpha_calls
+        <<",\"sourceLastWriterShader\":"<<trace.alpha_writes.last_shader
+        <<",\"sourceWriteObservationComplete\":"<<(trace.alpha_writes.complete?"true":"false")
+        <<",\"sourceWriteCoverage\":\"rt0_and_typed_native_copy_destinations\"";
+        AppendHdrCopyWitness(out,trace.alpha_writes.copy_calls,trace.alpha_writes.copy_source,
+            trace.alpha_writes.copy_source_rect,trace.alpha_writes.copy_destination_rect,trace.alpha_writes.copy_rectangles_observed,
+            trace.alpha_writes.copy_source_format,trace.alpha_writes.copy_write_call,
+            trace.alpha_writes.copy_source_width,trace.alpha_writes.copy_source_height,
+            cojvr::backends::d3d9::HasCurrentEyeHdrCopy(trace.alpha_writes,trace.alpha_width,trace.alpha_height));
+        AppendHdrProducerWitness(out,trace.alpha_writes.copy_producer,trace.alpha_writes.copy_producer_complete);
+        out<<",\"temporalAdmitted\":false}";LogLine(out.str());}catch(...){}
+}
+namespace hud = cojvr::backends::d3d9::hud;
+hud::Collector g_hud_batch;
+std::atomic_bool g_hud_batch_active{false};
+std::atomic_uint g_hud_next_output{0};
+std::atomic_flag g_hud_output_busy = ATOMIC_FLAG_INIT;
+void DrainHudBatch() noexcept;
+void AbortHudBatch(hud::Fault reason) noexcept {
+    g_hud_batch.Abort(reason);
+    g_hud_batch_active.store(false, std::memory_order_release);
+}
+
+// Caller holds the nonblocking device-owner lock for this synchronous read.
+bool HudIdentityLocked(IDirect3DDevice9* device, std::uint64_t frame,
+    std::uint64_t native_hook_epoch, std::uint64_t permission_epoch, hud::Identity& identity) noexcept {
+    if (!device || device != g_stereo.device || GetCurrentThreadId() !=
+        g_stereo.native_render_thread.load(std::memory_order_acquire)) return false;
+    const auto hooks = cojvr::backends::d3d9::TryInspectHudBatchHookContinuity(device);
+    if (!hooks.intact) return false;
+    identity.device = reinterpret_cast<std::uintptr_t>(device);
+    identity.native_generation = g_stereo.device_generation.load(std::memory_order_acquire);
+    identity.continuity_epoch = identity.native_generation + g_resource_probe_resets.load(std::memory_order_acquire);
+    identity.hook_epoch = hooks.epoch; identity.native_hook_epoch = native_hook_epoch;
+    identity.permission_epoch = permission_epoch;
+    identity.frame = frame; identity.present = g_stereo.present_telemetry_sequence.load(std::memory_order_acquire);
+    identity.thread = GetCurrentThreadId();
+    return true;
+}
+void HudBatchCall(IDirect3DDevice9* device, bool entering) noexcept {
+    g_hud_batch.Call(device, entering);
+}
+void HudBatchDraw(IDirect3DDevice9* device,
+    const cojvr::backends::d3d9::RenderResourceEvent& event, bool entering) noexcept {
+    if (!g_hud_batch_active.load(std::memory_order_acquire)) return;
+    const auto permission = cojvr::games::call_of_juarez::ReadCoJHudDiagnosticPermission();
+    if (!g_resource_probe_enabled.load(std::memory_order_acquire) ||
+        g_finalization_started.load(std::memory_order_acquire) ||
+        !permission.available || !permission.enabled) {
+        AbortHudBatch(hud::disabled); return;
+    }
+    const auto scope = cojvr::games::call_of_juarez::InspectCoJHudDrawScope();
+    std::unique_lock lock(g_stereo.device_mutex, std::try_to_lock);
+    hud::Identity identity{};
+    if (!lock.owns_lock() || !HudIdentityLocked(device, permission.frame, scope.hook_epoch,
+        permission.source_epoch, identity)) {
+        AbortHudBatch(hud::identity_changed); return;
+    }
+    const hud::DrawWitness witness{
+        {scope.sprite_depth, scope.flush_depth, scope.hook_epoch, scope.hook_intact, scope.interval_faulted},
+        scope.pass_sequence, scope.flush_depth ? scope.flush_owner : scope.sprite_depth ? scope.sprite_owner : 0,
+        scope.option};
+    g_hud_batch.Draw(device, identity, witness, event, entering);
+    // Both locks and every temporary getter reference retire before returning
+    // to the hook, which alone forwards the original draw. No logging here.
+}
+
+void ObserveHudBatch(const cojvr::games::call_of_juarez::CoJHudBoundaryEvent& event,
+    std::uint64_t frame) noexcept {
+    using NativeStage = cojvr::games::call_of_juarez::CoJHudBoundaryStage;
+    if (event.stage == NativeStage::sprites_begin && g_hud_batch_active.load())
+        AbortHudBatch(event.sprite_depth > 1 || event.flush_depth ? hud::nested : hud::unterminated);
+    const hud::BoundaryWitness witness{event.sprite_depth, event.flush_depth,
+        event.hook_epoch, event.hook_intact, event.interval_faulted};
+    const auto permission = cojvr::games::call_of_juarez::ReadCoJHudDiagnosticPermission();
+    if (!permission.available || !permission.enabled || permission.frame != frame) {
+        AbortHudBatch(hud::disabled); DrainHudBatch(); return;
+    }
+    {
+        std::unique_lock lock(g_stereo.device_mutex, std::try_to_lock);
+        hud::Identity identity{};
+        if (!lock.owns_lock() || !HudIdentityLocked(g_stereo.device, frame, event.hook_epoch,
+            permission.source_epoch, identity)) {
+            AbortHudBatch(hud::identity_changed);
+        } else if (event.stage == NativeStage::sprites_begin) {
+            hud::Context context{}; context.identity = identity; context.boundary = witness;
+            context.pass = event.pass_sequence; context.sprite_owner = reinterpret_cast<std::uintptr_t>(event.owner);
+            const hud::Admission admission{g_resource_probe_enabled.load(), true, event.hook_intact, true, true};
+            g_hud_batch_active.store(g_hud_batch.Begin(context, admission) == hud::Rejection::none,
+                std::memory_order_release);
+        } else if (g_hud_batch_active.load()) {
+            const auto stage = event.stage == NativeStage::sprites_end ? hud::Stage::sprites_end :
+                event.stage == NativeStage::flush_begin ? hud::Stage::flush_begin : hud::Stage::flush_end;
+            g_hud_batch.Boundary(stage, identity, witness, event.pass_sequence,
+                reinterpret_cast<std::uintptr_t>(event.owner), event.option);
+            if (stage == hud::Stage::flush_end) g_hud_batch_active.store(false, std::memory_order_release);
+        }
+    }
+    DrainHudBatch(); // At boundaries only; no formatting while forwarding draws.
+}
 
 void WriteResourceInfo(std::ostream& out,
     const cojvr::backends::d3d9::D3D9RenderResourceInfo& r) {
@@ -402,6 +606,69 @@ template<class T> void WriteResourceArray(std::ostream& out, const T& values) {
     out << '['; bool first=true;
     for(const auto value:values){ if(!first)out<<',';first=false;out<<value; }
     out << ']';
+}
+void DrainHudBatch() noexcept {
+    if (g_hud_output_busy.test_and_set(std::memory_order_acquire)) return;
+    struct Release { ~Release() { g_hud_output_busy.clear(std::memory_order_release); } } release;
+    try {
+        for (unsigned index = g_hud_next_output.load(); index < hud::Collector::max_passes; ++index) {
+            hud::Pass pass{};
+            if (!g_hud_batch.CopyPass(index, pass) || !pass.closed) break;
+            // A failed serialization is missing evidence, never a retry loop on
+            // every subsequent boundary. At most six pass serialization attempts.
+            g_hud_next_output.store(index + 1);
+            const auto& c = pass.context; const auto& id = c.identity;
+            std::ostringstream out;
+            out << "hud_batch_probe: {\"schema\":1,\"event\":\"hud_natural_pass\",\"pass\":" << c.pass
+                << ",\"device\":" << id.device << ",\"nativeGeneration\":" << id.native_generation
+                << ",\"continuityEpoch\":" << id.continuity_epoch << ",\"drawHookEpoch\":" << id.hook_epoch
+                << ",\"nativeHookEpoch\":" << id.native_hook_epoch << ",\"frame\":" << id.frame
+                << ",\"cachedPermissionEpoch\":" << id.permission_epoch
+                << ",\"present\":" << id.present << ",\"thread\":" << id.thread
+                << ",\"spriteOwner\":" << c.sprite_owner << ",\"spriteEndOwner\":" << pass.sprite_end_owner
+                << ",\"flushOwner\":" << pass.flush_owner << ",\"flushEndOwner\":" << pass.flush_end_owner
+                << ",\"option\":" << pass.option << ",\"flushEndOption\":" << pass.flush_end_option
+                << ",\"route\":\"unknown\",\"nativeCaller\":\"unknown\",\"complete\":" << pass.complete
+                << ",\"faults\":" << pass.faults << ",\"draws\":" << pass.draws << ",\"samples\":" << pass.samples
+                << ",\"flushDraws\":" << pass.flush_draws
+                << ",\"correlationOnly\":true,\"captureAdmitted\":false,\"occlusionAdmitted\":false,\"boundaries\":[";
+            bool first = true;
+            for (const auto& b : {c.boundary, pass.sprite_end, pass.flush_begin, pass.flush_end}) {
+                if (!first) out << ','; first = false;
+                out << "{\"spriteDepth\":" << b.sprite_depth << ",\"flushDepth\":" << b.flush_depth
+                    << ",\"epoch\":" << b.hook_epoch << ",\"intact\":" << b.intact << ",\"faulted\":" << b.faulted << '}';
+            }
+            out << "],\"records\":["; first = true;
+            for (std::size_t n = 0; n < pass.records; ++n) {
+                const auto& r = pass.values[n]; const auto& s = r.state;
+                if (!first) out << ','; first = false;
+                out << "{\"ordinal\":" << r.ordinal << ",\"repeat\":" << r.repeat << ",\"phase\":" << unsigned(r.stage)
+                    << ",\"operation\":" << unsigned(r.event.operation) << ",\"result\":" << r.event.result
+                    << ",\"drawIngressAddress\":" << r.event.caller << ",\"nativeOwner\":" << r.witness.native_owner
+                    << ",\"option\":" << r.witness.option
+                    << ",\"spriteDepth\":" << r.witness.boundary.sprite_depth
+                    << ",\"flushDepth\":" << r.witness.boundary.flush_depth
+                    << ",\"nativeHookEpoch\":" << r.witness.boundary.hook_epoch << ",\"rt0\":";
+                WriteResourceInfo(out, s.rt0); out << ",\"depth\":"; WriteResourceInfo(out, s.depth);
+                out << ",\"texture0\":"; WriteResourceInfo(out, s.texture0);
+                out << ",\"vertexShader\":[" << s.vertex_shader.object << ',' << s.vertex_shader.bytes << ',' << s.vertex_shader.valid
+                    << "],\"pixelShader\":[" << s.pixel_shader.object << ',' << s.pixel_shader.bytes << ',' << s.pixel_shader.valid << ']';
+                out << ",\"viewport\":"; WriteResourceArray(out, s.viewport);
+                out << ",\"viewportDepth\":[";
+                for (std::size_t z = 0; z < s.viewport_depth.size(); ++z) {
+                    if (z) out << ',';
+                    if (std::isfinite(s.viewport_depth[z])) out << s.viewport_depth[z]; else out << "null";
+                }
+                out << "],\"viewportValid\":" << s.viewport_valid << ",\"scissorValid\":" << s.scissor_valid;
+                out << ",\"scissor\":"; WriteResourceArray(out, s.scissor);
+                out << ",\"stateKeys\":"; WriteResourceArray(out, hud::state_keys);
+                out << ",\"states\":"; WriteResourceArray(out, s.states);
+                out << ",\"stateValid\":"; WriteResourceArray(out, s.state_valid);
+                out << ",\"valid\":" << s.valid << '}';
+            }
+            out << "]}"; LogLine(out.str()); g_hud_next_output.store(index + 1);
+        }
+    } catch (...) { /* Diagnostic serialization cannot alter native rendering. */ }
 }
 void EmitNativePostprocessObservation(const ResourceContext& context,
     const cojvr::backends::d3d9::D3D9RenderResourceSummary* summary) noexcept {
@@ -465,9 +732,19 @@ void ResourceProbeCall(IDirect3DDevice9* device,bool entering) noexcept {
     if(entering)g_resource_call_boundary.Enter(device);else g_resource_call_boundary.Leave();
 }
 void CancelResourceProbe() noexcept;
+void ResourceProbeCopy(IDirect3DDevice9* device,IDirect3DSurface9* source,const RECT* source_rect,
+    IDirect3DSurface9* destination,const RECT* destination_rect,HRESULT result) noexcept {
+    if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
+    auto& trace=g_resource_probe_thread;
+    if(trace.alpha_active&&trace.device==device&&trace.alpha_candidate&&!trace.alpha_copying&&
+       trace.alpha_epoch==g_stereo.device_generation.load()+g_resource_probe_resets.load())
+        cojvr::backends::d3d9::ObserveHdrSourceCopy(device,trace.alpha_candidate,trace.alpha_width,trace.alpha_height,
+            source,source_rect,destination,destination_rect,result,trace.alpha_writes);
+}
 void ResourceProbeEvent(IDirect3DDevice9* device,
     const cojvr::backends::d3d9::RenderResourceEvent& event) noexcept {
     if(event.operation==cojvr::backends::d3d9::RenderResourceOperation::reset) {
+        AbortHudBatch(hud::unterminated); DrainHudBatch();
         if (g_resource_probe_enabled.load(std::memory_order_acquire)) {
             CancelResourceProbe();g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
         }
@@ -482,12 +759,66 @@ void ResourceProbeEvent(IDirect3DDevice9* device,
     }
     if (!g_resource_probe_enabled.load(std::memory_order_acquire)) return;
     auto& trace=g_resource_probe_thread;
+    using Operation=cojvr::backends::d3d9::RenderResourceOperation;
+    const bool draw=event.operation==Operation::draw||event.operation==Operation::draw_indexed||
+        event.operation==Operation::draw_up||event.operation==Operation::draw_indexed_up;
+    if(trace.alpha_active&&trace.device==device&&trace.alpha_candidate&&!trace.alpha_copying&&
+       trace.alpha_epoch==g_stereo.device_generation.load()+g_resource_probe_resets.load())
+        cojvr::backends::d3d9::ObserveHdrSourceWrites(device,trace.alpha_candidate,
+            trace.alpha_width,trace.alpha_height,event,trace.alpha_writes);
+    if(trace.alpha_active&&trace.device==device&&trace.alpha_candidate&&trace.alpha_count<3&&
+       !trace.alpha_copying&&draw&&SUCCEEDED(event.result)&&
+       trace.alpha_epoch==g_stereo.device_generation.load()+g_resource_probe_resets.load()&&
+       cojvr::backends::d3d9::HasCurrentEyeHdrCopy(trace.alpha_writes,trace.alpha_width,trace.alpha_height)) {
+        Microsoft::WRL::ComPtr<IDirect3DTexture9> texture;
+        Microsoft::WRL::ComPtr<IDirect3DSurface9> target;
+        Microsoft::WRL::ComPtr<IDirect3DPixelShader9> shader;
+        unsigned sampler=~0U;
+        if(cojvr::backends::d3d9::FindHdrAlphaSource(device,trace.alpha_candidate,
+            trace.alpha_width,trace.alpha_height,texture,sampler)&&
+            SUCCEEDED(device->GetRenderTarget(0,&target))&&target&&SUCCEEDED(device->GetPixelShader(&shader))&&shader) {
+            const auto phase=trace.alpha_phases.Observe(reinterpret_cast<std::uintptr_t>(target.Get()),
+                reinterpret_cast<std::uintptr_t>(shader.Get()),sampler);
+            if(!phase){if(trace.active&&trace.probe)(void)trace.probe->Record(device,event);return;}
+            trace.alpha_count=phase;trace.alpha_attempted=true;trace.alpha_copying=true;
+            cojvr::backends::d3d9::HdrAlphaSample sample;
+            sample.frame=trace.alpha_frame;sample.generation=trace.alpha_generation;
+            sample.scope=trace.alpha_scope;sample.owner=trace.alpha_owner;sample.eye=trace.alpha_eye;
+            sample.pose=g_stereo.luma_pose_sequence.load();sample.phase=phase;sample.sampler=sampler;
+            sample.target=reinterpret_cast<std::uintptr_t>(target.Get());sample.shader=reinterpret_cast<std::uintptr_t>(shader.Get());
+            sample.source_write_calls=trace.alpha_writes.calls;
+            sample.source_alpha_write_calls=trace.alpha_writes.alpha_calls;
+            sample.source_last_writer_shader=trace.alpha_writes.last_shader;
+            sample.source_write_observation_complete=trace.alpha_writes.complete;
+            sample.source_copy_calls=trace.alpha_writes.copy_calls;sample.source_copy_source=trace.alpha_writes.copy_source;
+            sample.source_copy_source_format=trace.alpha_writes.copy_source_format;
+            sample.source_copy_source_width=trace.alpha_writes.copy_source_width;
+            sample.source_copy_source_height=trace.alpha_writes.copy_source_height;
+            sample.source_copy_write_call=trace.alpha_writes.copy_write_call;
+            sample.source_copy_boundary_current=true; // Gate above; scoped observer readiness, never depth admission.
+            sample.source_copy_source_rect=trace.alpha_writes.copy_source_rect;
+            sample.source_copy_destination_rect=trace.alpha_writes.copy_destination_rect;
+            sample.source_copy_rectangles_observed=trace.alpha_writes.copy_rectangles_observed;
+            sample.source_copy_producer=trace.alpha_writes.copy_producer;
+            sample.source_copy_producer_complete=trace.alpha_writes.copy_producer_complete;
+            bool queued=false;HRESULT result=E_FAIL;
+            {std::lock_guard lock(g_stereo.hdr_alpha_mutex);
+                queued=g_stereo.hdr_alpha_probe.Queue(device,texture.Get(),sample);
+                result=g_stereo.hdr_alpha_probe.last_result();}
+            trace.alpha_copying=false;
+            try {LogLine(std::string("native_hdr_alpha_queue: status=")+(queued?"queued":"skipped")+
+                ";phase=matching_native_sampler_draw;sampler="+std::to_string(sampler)+
+                ";consumer="+std::to_string(phase)+";eye="+std::to_string(trace.alpha_eye)+";frame="+std::to_string(trace.alpha_frame)+
+                ";hr="+std::to_string(static_cast<std::uint32_t>(result))+";temporal_admitted=false");}catch(...){}
+        }
+    }
     if(trace.active&&trace.probe) (void)trace.probe->Record(device,event);
 }
 void CancelResourceProbe() noexcept {
     auto& trace=g_resource_probe_thread;
     (void)g_resource_call_boundary.End(trace.device);
     if(trace.active&&trace.probe)(void)trace.probe->End(trace.device,false);
+    EndHdrSource(trace,false);
     trace.active=false;trace.selected=false;
 }
 cojvr::backends::d3d9::ResourceProbeHookContinuity CurrentProbeContinuity(IDirect3DDevice9* expected) noexcept {
@@ -505,27 +836,32 @@ void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
     const unsigned route=std::string_view(route_name)=="movie"?2:
         std::string_view(route_name)=="settings"?1:0;
     if(!begin) {
-        if(!trace.active){SetLastError(error);return;}
+        if(!trace.active&&!trace.alpha_active){SetLastError(error);return;}
         const auto integrity=CurrentProbeContinuity(trace.device);
         const auto current_generation=g_stereo.device_generation.load(std::memory_order_acquire)+
             g_resource_probe_resets.load(std::memory_order_acquire);
         const bool calls_complete=g_resource_call_boundary.End(trace.device);
-        complete=complete&&trace.frame==frame&&trace.owner==owner&&trace.route==route&&
+        const bool census_complete=complete&&trace.frame==frame&&trace.owner==owner&&trace.route==route&&
             trace.eye==(eye==cojvr::runtime::Eye::left?0u:1u)&&trace.generation==current_generation&&
             integrity.intact&&integrity.epoch==trace.integrity_epoch&&
             calls_complete;
-        if(trace.active&&trace.probe)(void)trace.probe->End(trace.device,complete);
+        if(trace.active&&trace.probe)(void)trace.probe->End(trace.device,census_complete);
+        EndHdrSource(trace,complete&&trace.alpha_frame==frame&&trace.alpha_owner==owner&&route==0&&
+            trace.alpha_eye==(eye==cojvr::runtime::Eye::left?0u:1u)&&trace.alpha_epoch==current_generation&&
+            integrity.intact&&integrity.epoch==trace.integrity_epoch&&calls_complete);
         trace.active=false;
         SetLastError(error);return;
     }
     try {
-        if(trace.active)CancelResourceProbe();
+        if(trace.active||trace.alpha_active)CancelResourceProbe();
         IDirect3DDevice9* device=nullptr;
         {std::lock_guard lock(g_stereo.device_mutex);device=g_stereo.device;}
         const auto device_generation=g_stereo.device_generation.load(std::memory_order_acquire);
         const auto generation=device_generation+
             g_resource_probe_resets.load(std::memory_order_acquire);
         if(eye==cojvr::runtime::Eye::left) {
+            trace.alpha_pair=trace.alpha_schedule.Acquire(GetTickCount64(),frame,owner,generation,route==0);
+            trace.alpha_pair_frame=frame;
             const bool due=frame>3&&(!trace.frame||trace.owner!=owner||trace.route!=route||
                 trace.generation!=generation||frame>trace.frame+900);
             trace.selected=false;
@@ -551,6 +887,15 @@ void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
             trace.eye=context.eye;
             trace.active=trace.probe->Begin(device,context);
             if(!trace.active)CancelResourceProbe();
+        }
+        if(route==0&&((trace.alpha_pair&&trace.alpha_pair_frame==frame)||trace.active)) {
+            if(!trace.active) {
+                const auto integrity=CurrentProbeContinuity(device);
+                if(!integrity.intact||!g_resource_call_boundary.Begin(device)){SetLastError(error);return;}
+                trace.integrity_epoch=integrity.epoch;trace.device=device;
+            }
+            BeginHdrSource(trace,frame,owner,eye==cojvr::runtime::Eye::left?0:1,device,device_generation);
+            trace.alpha_epoch=generation;
         }
     } catch (...) { CancelResourceProbe(); }
     SetLastError(error);
@@ -1324,6 +1669,7 @@ void ObserveNaturalFrame(void* context,bool complete) noexcept {
 }
 
 void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
+    AbortHudBatch(hud::unterminated); DrainHudBatch();
     if (!device || !g_stereo.runtime_ready) {
         cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
         InvalidateSourceAuthority(g_stereo);
@@ -1901,6 +2247,7 @@ void AfterCreateDevice(
         };
         log_factory_identity("factory_native_identity");
         IDirect3DDevice9* replacement = observed;
+        AbortHudBatch(hud::identity_changed); DrainHudBatch();
         ResetFrameLumaProbes();
         (void)RetireIndependentBank(g_stereo, "device_replacement");
         if(g_resource_probe_enabled.load(std::memory_order_acquire))
@@ -1947,6 +2294,9 @@ void AfterCreateDevice(
             .resource_probe_event = (g_resource_probe_enabled.load() || g_stereo.fixed_outputs.enabled)
                 ? &ResourceProbeEvent : nullptr,
             .resource_probe_call = g_resource_probe_enabled.load() ? &ResourceProbeCall : nullptr,
+            .resource_probe_copy = g_resource_probe_enabled.load() ? &ResourceProbeCopy : nullptr,
+            .hud_batch_draw = g_resource_probe_enabled.load() ? &HudBatchDraw : nullptr,
+            .hud_batch_call = g_resource_probe_enabled.load() ? &HudBatchCall : nullptr,
             .allow_reset = (g_stereo.fixed_outputs.enabled || g_stereo.luma_enabled) ? &AllowDeviceReset : nullptr,
             .after_reset_ex = g_stereo.fixed_outputs.enabled ? &AfterDeviceReset : nullptr,
         };
@@ -2461,6 +2811,8 @@ bool SubmitStereoFrame(
     if (!state->capture_readback_enabled.load(std::memory_order_acquire)) return true;
     cojvr::backends::d3d9::StereoReticleOverlay capture_reticle{};
     capture_reticle.frame_sequence = gameplay_reticle.frame_sequence;
+    capture_reticle.scope_view = gameplay_reticle.scope_view;
+    capture_reticle.scope_lenses = gameplay_reticle.scope_lenses;
     for (std::size_t hand = 0; hand < capture_reticle.weapons.size(); ++hand) {
         auto& marker = capture_reticle.weapons[hand];
         const auto& source = gameplay_reticle.weapons[hand];
@@ -2594,6 +2946,7 @@ bool StartStereoRuntime() noexcept {
 
 void Finalize() noexcept {
     if (g_finalization_started.exchange(true, std::memory_order_acq_rel)) return;
+    AbortHudBatch(hud::unterminated); DrainHudBatch();
     InvalidateSourceAuthority(g_stereo);
     g_stereo.presenter.PublishGameplayFeedbackContext(false);
     g_stereo.frame_feedback_context_token.store(0, std::memory_order_release);
@@ -2722,8 +3075,12 @@ void ObserveHudBoundary(void* context,
     const cojvr::games::call_of_juarez::CoJHudBoundaryEvent& event,
     const std::uint64_t frame_sequence) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
-    if (!state) return;
+    if (!state || !g_resource_probe_enabled.load(std::memory_order_acquire)) return;
+    const DWORD saved_error = GetLastError();
+    struct RestoreError { DWORD value; ~RestoreError() { SetLastError(value); } } restore_error{saved_error};
     try {
+        ObserveHudBatch(event, frame_sequence);
+        if (!event.sample_selected) return;
         std::ostringstream line;
         line << "native_hud_boundary: stage="
              << cojvr::games::call_of_juarez::CoJHudBoundaryStageName(event.stage)

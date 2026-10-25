@@ -81,12 +81,23 @@ endif()
 add_library(cojvr_runtime STATIC
     src/runtime/action_prompts.cpp
     src/runtime/vr_settings.cpp
+    src/runtime/graphics_settings.cpp
     src/runtime/gameplay_utility.cpp
     src/runtime/body_ik.cpp
     src/runtime/body_tracking.cpp
     src/runtime/pose_source.cpp
     src/runtime/vr_math.cpp
 )
+
+# Optional reconstruction backend has no NGX dependency in the x86 process.
+# Its x64 SDK host is built separately from tools/dlss_host.
+add_library(cojvr_dlss_client STATIC src/backends/openvr/dlss_client.cpp src/backends/openvr/temporal_guides.cpp)
+add_executable(cojvr_graphics_startup tools/graphics_startup.cpp)
+target_link_libraries(cojvr_graphics_startup PRIVATE cojvr_runtime)
+target_include_directories(cojvr_dlss_client PUBLIC src)
+target_compile_features(cojvr_dlss_client PUBLIC cxx_std_20)
+target_compile_definitions(cojvr_dlss_client PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_link_libraries(cojvr_dlss_client PRIVATE d3d11 dxgi d3dcompiler)
 
 add_library(cojvr_build_identity STATIC
     src/runtime/build_catalog.cpp
@@ -104,6 +115,7 @@ add_library(cojvr_diagnostics STATIC
 add_library(cojvr_d3d9_hooks STATIC
     src/backends/d3d9/diagnostic_context.cpp
     src/backends/d3d9/render_resource_probe.cpp
+    src/backends/d3d9/hud_batch_probe.cpp
     src/backends/d3d9/device_vtable_hook.cpp
     src/backends/d3d9/factory_vtable_hook.cpp
     src/backends/d3d9/hook_registry.cpp
@@ -172,6 +184,7 @@ if(COJVR_ENABLE_OPENVR)
         src/backends/openvr/d3d11_sync.cpp
         src/backends/openvr/d3d11_session.cpp
         src/backends/openvr/stereo_presenter.cpp
+        src/backends/openvr/spatial_image_processor.cpp
         src/backends/openvr/hud_text_overlay.cpp
         src/backends/openvr/gameplay_ui_raster.cpp
         src/backends/d3d9/frame_mailbox.cpp
@@ -470,11 +483,41 @@ if(COJVR_BUILD_TESTS)
             -BinaryDirectory "${CMAKE_BINARY_DIR}"
     )
     add_test(NAME weapon_consumers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/weapon_consumers.py")
+    add_test(NAME pause_previews COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/pause_previews.py")
+    add_test(NAME loading_continue COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/loading_continue.py")
+    add_test(NAME scoped_rifle_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/scoped_rifle_native.py")
+    add_test(NAME fx_definition_pointers COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/fx_definition_pointers.py")
+    add_test(NAME temporal_source_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/temporal_source_analysis.py")
+    add_test(NAME graphics_startup COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/graphics_startup.py" "$<TARGET_FILE:cojvr_graphics_startup>")
     add_test(NAME physical_punch_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/physical_punch_native.py")
     add_test(NAME bow_native_dispatch COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/bow_native_dispatch.py")
     add_test(NAME bow_draw_patch COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/bow_draw_patch.py")
     add_test(NAME reload_wait_probe COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_wait_probe.py")
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
+    add_test(NAME offline_manual_reload COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/offline_manual_reload.py")
+    add_test(NAME reload_animation_inventory COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_animation_inventory.py")
+    foreach(offline_test IN ITEMS java_exception_tables manual_reload_cycle animation_channels
+            lower_body_profiles equipment_geometry tutorial_hints tutorial_archive
+            indexed_manual_reload weapon_presentation_inventory)
+        add_test(NAME ${offline_test} COMMAND "${COJVR_PYTHON_EXECUTABLE}" -B
+            "${CMAKE_SOURCE_DIR}/tests/${offline_test}.py")
+    endforeach()
+    foreach(indexed_session_test IN ITEMS class_edit_constants indexed_reload_session)
+        add_test(NAME ${indexed_session_test} COMMAND "${COJVR_PYTHON_EXECUTABLE}" -B
+            "${CMAKE_SOURCE_DIR}/tests/${indexed_session_test}.py")
+    endforeach()
+    add_test(NAME native_stereo_summary COMMAND "${COJVR_POWERSHELL_EXECUTABLE}" -NoProfile
+        -File "${CMAKE_SOURCE_DIR}/tests/native_stereo_summary.ps1")
+
+    add_executable(cojvr_equipment_geometry_test tests/equipment_geometry.cpp)
+    target_link_libraries(cojvr_equipment_geometry_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_equipment_geometry_test PRIVATE cxx_std_20)
+    add_test(NAME equipment_geometry_native COMMAND cojvr_equipment_geometry_test)
+
+    add_executable(cojvr_input_dispatch_diagnostics_test tests/input_dispatch_diagnostics.cpp)
+    target_link_libraries(cojvr_input_dispatch_diagnostics_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_input_dispatch_diagnostics_test PRIVATE cxx_std_20)
+    add_test(NAME input_dispatch_diagnostics COMMAND cojvr_input_dispatch_diagnostics_test)
     add_test(NAME manual_reload_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_analysis.py")
     add_test(NAME render_resource_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/render_resource_analysis.py")
     add_test(NAME native_resolution_analysis COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_resolution_analysis.py")
@@ -521,6 +564,9 @@ if(COJVR_BUILD_TESTS)
             -SourceDirectory "${CMAKE_SOURCE_DIR}"
             -BinaryDirectory "${CMAKE_BINARY_DIR}"
     )
+    # This fixture temporarily starts a synthetic CoJ-named process. Global
+    # active-game guards in other host tests must not observe that sentinel.
+    set_tests_properties(provenance_tools PROPERTIES RUN_SERIAL TRUE)
 
     add_test(
         NAME render_telemetry_tools
@@ -931,6 +977,11 @@ if(COJVR_BUILD_TESTS)
     set_tests_properties(render_resource_probe_ex PROPERTIES SKIP_RETURN_CODE 77)
     set_tests_properties(render_resource_probe PROPERTIES SKIP_RETURN_CODE 77)
 
+    add_executable(cojvr_hud_batch_probe_test tests/hud_batch_probe.cpp)
+    target_link_libraries(cojvr_hud_batch_probe_test PRIVATE cojvr_d3d9_hooks)
+    target_compile_features(cojvr_hud_batch_probe_test PRIVATE cxx_std_20)
+    add_test(NAME hud_batch_probe COMMAND cojvr_hud_batch_probe_test)
+
     add_executable(cojvr_frame_luma_probe_test tests/frame_luma_probe.cpp
         src/backends/d3d9/system_d3d9.cpp)
     target_include_directories(cojvr_frame_luma_probe_test PRIVATE src)
@@ -1047,6 +1098,35 @@ if(COJVR_BUILD_TESTS)
     target_compile_definitions(cojvr_flat_menu_composition_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(cojvr_flat_menu_composition_test PRIVATE d3d11 d3dcompiler)
     add_test(NAME flat_menu_composition COMMAND cojvr_flat_menu_composition_test)
+
+    add_executable(cojvr_spatial_image_processor_test tests/spatial_image_processor.cpp
+        src/backends/openvr/spatial_image_processor.cpp)
+    target_link_libraries(cojvr_spatial_image_processor_test PRIVATE cojvr_runtime d3d11 d3dcompiler)
+    target_compile_features(cojvr_spatial_image_processor_test PRIVATE cxx_std_20)
+    add_test(NAME spatial_image_processor COMMAND cojvr_spatial_image_processor_test)
+
+    add_executable(cojvr_graphics_settings_test tests/graphics_settings.cpp)
+    target_link_libraries(cojvr_graphics_settings_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_graphics_settings_test PRIVATE cxx_std_20)
+    add_test(NAME graphics_settings COMMAND cojvr_graphics_settings_test)
+    add_test(NAME graphics_settings_example COMMAND cojvr_graphics_settings_test "${CMAKE_SOURCE_DIR}/assets/graphics.ini.example")
+
+    add_executable(cojvr_dlss_protocol_test tests/dlss_protocol.cpp)
+    target_link_libraries(cojvr_dlss_protocol_test PRIVATE cojvr_dlss_client)
+    add_test(NAME dlss_protocol COMMAND cojvr_dlss_protocol_test)
+    add_executable(cojvr_dlss_interop_test tests/dlss_interop.cpp)
+    target_link_libraries(cojvr_dlss_interop_test PRIVATE cojvr_dlss_client)
+    add_test(NAME dlss_missing_dependencies COMMAND cojvr_dlss_interop_test)
+    add_executable(cojvr_temporal_guides_test tests/temporal_guides.cpp)
+    target_link_libraries(cojvr_temporal_guides_test PRIVATE cojvr_dlss_client)
+    add_test(NAME temporal_guides COMMAND cojvr_temporal_guides_test)
+    add_executable(cojvr_temporal_reconstruction_test tests/temporal_reconstruction.cpp)
+    target_link_libraries(cojvr_temporal_reconstruction_test PRIVATE cojvr_runtime)
+    add_test(NAME temporal_reconstruction COMMAND cojvr_temporal_reconstruction_test)
+    add_executable(cojvr_hdr_alpha_probe_test tests/hdr_alpha_probe.cpp src/backends/d3d9/system_d3d9.cpp)
+    target_link_libraries(cojvr_hdr_alpha_probe_test PRIVATE cojvr_runtime d3d9)
+    add_test(NAME hdr_alpha_probe COMMAND cojvr_hdr_alpha_probe_test)
+    set_tests_properties(hdr_alpha_probe PROPERTIES SKIP_RETURN_CODE 77)
 
     add_executable(
         cojvr_frame_mailbox_test
@@ -1393,10 +1473,23 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME long_gun_grip_replace_ray COMMAND cojvr_long_gun_grip_jni_test replace)
     add_test(NAME long_gun_grip_replace_between_frames COMMAND cojvr_long_gun_grip_jni_test cross-frame)
     add_test(NAME long_gun_grip_root_holder COMMAND cojvr_long_gun_grip_jni_test root-holder)
+    add_test(NAME scoped_rifle_grip COMMAND cojvr_long_gun_grip_jni_test normal scoped)
+    add_test(NAME scoped_rifle_grip_alternate COMMAND cojvr_long_gun_grip_jni_test normal scoped alternate)
+    add_test(NAME scoped_rifle_grip_replace COMMAND cojvr_long_gun_grip_jni_test cross-frame scoped)
+    add_test(NAME scoped_rifle_grip_restore COMMAND cojvr_long_gun_grip_jni_test commit scoped alternate)
+    add_executable(cojvr_scoped_rifle_fire_test tests/scoped_rifle_fire.cpp)
+    target_link_libraries(cojvr_scoped_rifle_fire_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_scoped_rifle_fire_test PRIVATE cxx_std_20)
+    add_test(NAME scoped_rifle_fire COMMAND cojvr_scoped_rifle_fire_test)
     add_executable(cojvr_long_gun_observer_test tests/long_gun_observer.cpp)
     target_link_libraries(cojvr_long_gun_observer_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_long_gun_observer_test PRIVATE cxx_std_20)
     add_test(NAME long_gun_observer COMMAND cojvr_long_gun_observer_test)
+
+    add_executable(cojvr_stationary_weapon_test tests/stationary_weapon.cpp)
+    target_link_libraries(cojvr_stationary_weapon_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_stationary_weapon_test PRIVATE cxx_std_20)
+    add_test(NAME stationary_weapon COMMAND cojvr_stationary_weapon_test)
 
     add_executable(cojvr_winchester_reload_observer_test tests/winchester_reload_observer.cpp)
     target_link_libraries(cojvr_winchester_reload_observer_test PRIVATE cojvr_runtime)

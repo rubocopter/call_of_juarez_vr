@@ -10,10 +10,12 @@ namespace {
 using namespace cojvr::games::call_of_juarez;
 void Require(bool v,const char* message){if(!v){std::cerr<<message<<'\n';std::exit(1);}}
 void* P(int n){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(n));}
-constexpr int player=100,weapon=101,alias=102,foreign=103,player_class=110,subclass=114;
+constexpr int player=100,weapon=101,alias=102,foreign=103,player_class=110,subclass=115;
 void* table[224]{};void** env=table;std::map<void*,int> refs;
 int steps=0,fail_step=-1,frames=0,kind=0,change=0,invalid_frame=-1,object_reads=0,owner_change_at=-1;
 int contact_id=10;
+int weapon_id_reads=0;
+bool change_on_id_read=false,replace_on_id_read=false;
 bool pending=false,dead=false,carrying=false,reloading=false,alias_desired=false;
 bool replace_on_weapon_class=false;
 std::uint32_t player_id=0x8f120001,weapon_id=0xf1234001;
@@ -32,10 +34,10 @@ void __stdcall Clear(void*){pending=false;}
 void* __stdcall Class(void*,void* p){if(!Step())return nullptr;
     Require(p==P(player)||p==P(weapon)||p==P(alias)||p==P(foreign),"unexpected class owner");
     if(p!=P(player)&&replace_on_weapon_class)for(int i=0;i<3;++i)weapons[0][i]=P(foreign);
-    return Local(P(p==P(player)?player_class:(kind==3?subclass:111+kind)));}
+    return Local(P(p==P(player)?player_class:(kind==4?subclass:111+kind)));}
 void* __stdcall Find(void*,const char* n){if(!Step())return nullptr;
-    constexpr const char* classes[]{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff"};
-    for(int i=0;i<3;++i)if(!std::strcmp(n,classes[i]))return Local(P(111+i));
+    constexpr const char* classes[]{"WeaponRifleWinchester","WeaponRifleRemington","WeaponRifleRemingtonSawOff","WeaponRifleWinchesterScope"};
+    for(int i=0;i<4;++i)if(!std::strcmp(n,classes[i]))return Local(P(111+i));
     Require(false,"unallowed FindClass");return nullptr;}
 unsigned char __stdcall Same(void*,void* a,void* b){if(!Step())return 0;
     if(a==P(alias))a=P(weapon);if(b==P(alias))b=P(weapon);return a==b;}
@@ -43,7 +45,7 @@ void* __stdcall Lookup(void*,void* cls,const char* n,const char* signature){if(!
     for(int i=0;i<15;++i)if(!std::strcmp(n,names[i])){
         const char* expected=i<3?"(I)LWeapon;":i<7?"(I)I":i<10?"(I)Z":i<13?"()Z":i==13?"()I":"(Ljava/lang/String;)I";
         Require(!std::strcmp(signature,expected),"wrong getter descriptor");
-        Require((cls==P(player_class))||(i>=13&&(cls==P(111)||cls==P(112)||cls==P(113))),"wrong getter class");
+        Require((cls==P(player_class))||(i>=13&&(cls==P(111)||cls==P(112)||cls==P(113)||cls==P(114))),"wrong getter class");
         return P(i+1);
     }
     Require(false,"factory/setter or unknown getter requested");return nullptr;
@@ -58,7 +60,12 @@ void* __stdcall Object(void*,void* obj,void* method,const Value* args){if(!Step(
 }
 std::int32_t __stdcall Integer(void*,void* obj,void* method,const Value* args){if(!Step())return -1;
     const auto i=static_cast<int>(reinterpret_cast<std::uintptr_t>(method))-1;
-    if(i==13){Require(args==nullptr,"ID getter arguments");return static_cast<std::int32_t>(obj==P(player)?player_id:weapon_id);}
+    if(i==13){Require(args==nullptr,"ID getter arguments");
+        if(obj!=P(player)){
+            if(++weapon_id_reads==2&&change_on_id_read)++weapon_id;
+            if(replace_on_id_read)for(int slot=0;slot<3;++slot)weapons[0][slot]=P(foreign);
+        }
+        return static_cast<std::int32_t>(obj==P(player)?player_id:weapon_id);}
     if(i==14){Require(args&&(args->object==P(120)||args->object==P(121)||args->object==P(122)),"unknown element name");
         Require((obj==P(player))==(args->object==P(121)),"element name belongs to wrong object");return args->object==P(120)?4:args->object==P(121)?10:contact_id;}
     Require(obj==P(player)&&i>=3&&i<7&&args&&args->integer>=0&&args->integer<2,"bad state query");
@@ -71,7 +78,7 @@ unsigned char __stdcall Boolean(void*,void* obj,void* method,const Value* args){
 }
 void* __stdcall String(void*,const char* name){if(!Step())return nullptr;
     Require(!std::strcmp(name,"Holder")||!std::strcmp(name,"left_hand")||
-        !std::strcmp(name,kind==0?"GunBody":"GunBarrel"),"unknown mesh contact name");
+        !std::strcmp(name,(kind==0||kind==3)?"GunBody":"GunBarrel"),"unknown mesh contact name");
     return Local(P(!std::strcmp(name,"Holder")?120:!std::strcmp(name,"left_hand")?121:122));}
 bool Frame(void* context,void* object,int element,ElementWorldBasisTarget& out) noexcept {
     Require(context==P(500),"callback context lost");
@@ -96,6 +103,7 @@ bool Frame(void* context,void* object,int element,ElementWorldBasisTarget& out) 
 }
 void Reset(){steps=frames=0;fail_step=-1;kind=change=0;invalid_frame=-1;pending=dead=carrying=reloading=alias_desired=false;
     replace_on_weapon_class=false;
+    weapon_id_reads=0;change_on_id_read=replace_on_id_read=false;
     contact_id=10;
     object_reads=0;owner_change_at=-1;
     player_id=0x8f120001;weapon_id=0xf1234001;
@@ -106,9 +114,46 @@ bool Read(CoJLongGunSupportSnapshot& out){const bool ok=ReadCoJLongGunSupport(&e
 void Reject(bool geometry=false){CoJLongGunSupportSnapshot out{};out.valid=true;
     Require(!Read(out)&&!out.valid&&!out.weapon_class&&!out.support_in_weapon.valid,"invalid observation survived");
     if(!geometry)Require(frames==0,"geometry callback on rejected owner/state");}
+void ScopedFireIdentity(){
+    CoJLongGunFireRouting routing{};
+    for(auto id:{0x12340001u,0x80000000u,0xf1234001u,0xfffffffeu}){
+        Reset();kind=3;weapon_id=id;
+        Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&routing.block_left&&!routing.block_right&&
+            routing.scoped_right_weapon==id,"stable exact scoped right-hand fire identity unavailable");
+        Require(refs.empty()&&!pending&&frames==0,"scoped fire read leaked JNI or read support geometry");
+    }
+    const int total=steps;
+    const auto reject=[&](const char* reason="failed scoped fire read leaked identity/routing/JNI state"){routing={true,true,123};
+        Require(!ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.block_left&&!routing.block_right&&
+            !routing.scoped_right_weapon&&refs.empty()&&!pending&&frames==0,
+            reason);};
+    for(int i=1;i<=total;++i){Reset();kind=3;fail_step=i;reject();}
+    for(auto id:{0u,0xffffffffu}){Reset();kind=3;weapon_id=id;reject();}
+    Reset();kind=3;auto integer=table[51];table[51]=nullptr;reject();table[51]=integer;
+    Reset();kind=3;change_on_id_read=true;reject("scoped fire identity was not bracketed against a changing GetThisID");
+    Reset();kind=3;replace_on_id_read=true;reject();
+    Reset();kind=3;replace_on_weapon_class=true;reject();
+    Reset();kind=3;alias_desired=true;
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&routing.scoped_right_weapon==weapon_id,
+        "scoped fire identity rejected a JNI alias");
+    for(int h=0;h<2;++h)for(int slot=0;slot<3;++slot){
+        Reset();kind=3;weapons[h][slot]=h?P(foreign):nullptr;reject();
+    }
+    for(int k=0;k<5;++k){
+        Reset();kind=k;
+        if(k==3)for(int slot=0;slot<3;++slot){weapons[0][slot]=nullptr;weapons[1][slot]=P(weapon);}
+        auto saved=table[51];table[51]=nullptr;
+        Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.scoped_right_weapon&&
+            !weapon_id_reads&&refs.empty()&&!pending,"non-scoped-right route required GetThisID/JNI51 or leaked scope identity");
+        table[51]=saved;
+    }
+    Reset();kind=3;for(int i=0;i<3;++i)weapons[1][i]=P(foreign);
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.scoped_right_weapon&&!weapon_id_reads,
+        "occupied support hand admitted scoped right ownership");
+}
 template<class T>void Set(int i,T f){table[i]=reinterpret_cast<void*>(f);}
 }
-int main(){
+int main(int argc,char** argv){
     Require(IsCoJLongGunSourceFrameRigid({1,2,3},{1,0,0},{0,1,0}),"rigid native source rejected");
     Require(!IsCoJLongGunSourceFrameRigid({1,2,3},{2,0,0},{0,1,0}),"scaled native source hidden by normalization");
     Require(!IsCoJLongGunSourceFrameRigid({1,2,3},{1,0,0},{.1F,1,0}),"sheared native source hidden by orthogonalization");
@@ -116,6 +161,9 @@ int main(){
         {1,0,0},{0,1,0}),"nonfinite native source accepted");
     Set(6,Find);Set(15,Exception);Set(17,Clear);Set(23,Delete);Set(24,Same);Set(31,Class);
     Set(33,Lookup);Set(36,Object);Set(39,Boolean);Set(51,Integer);Set(167,String);
+    // Parent owns fire routing; allow support-only verification while that
+    // independent implementation is in flight. Default runs both contracts.
+    if(argc<2||std::strcmp(argv[1],"support-only"))ScopedFireIdentity();
     Reset();CoJLongGunSupportSnapshot out{};
     CoJLongGunFireRouting fire_routing{};
     Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
@@ -141,14 +189,14 @@ int main(){
     for(int k=0;k<3;++k){Reset();kind=k;reloading=true;states[0][0]=21;
         Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&fire_routing.block_left&&!fire_routing.block_right,
             "known rifle trigger ownership incorrectly depends on reload/idle pose");}
-    Reset();kind=3;
+    Reset();kind=4;
     Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,"unknown weapon inherited rifle policy");
     Reset();for(int i=0;i<3;++i)weapons[1][i]=P(foreign);
     Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,"occupied left hand blocked as free");
     Reset();for(auto& hand:weapons)for(auto& slot:hand)slot=nullptr;
     Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
         "empty hands inherited a rifle trigger claim");
-    Reset();kind=3;for(int i=0;i<3;++i){weapons[0][i]=nullptr;weapons[1][i]=P(weapon);}
+    Reset();kind=4;for(int i=0;i<3;++i){weapons[0][i]=nullptr;weapons[1][i]=P(weapon);}
     Require(ReadCoJLongGunFireOwnership(&env,P(player),fire_routing)&&!fire_routing.block_left&&!fire_routing.block_right,
         "unknown left-hand weapon inherited a rifle trigger claim");
     Reset();for(int i=0;i<3;++i)weapons[1][i]=P(weapon);
@@ -177,8 +225,8 @@ int main(){
         std::abs(out.support_in_weapon.position.y-10)<.001F&&std::abs(out.support_in_weapon.position.z-20)<.001F,
         "translated/rotated full local frame incorrect");
     Require(std::abs(out.support_in_weapon.forward.z-1)<.001F,"local orientation not preserved");
-    for(int k=0;k<3;++k){Reset();kind=k;Require(Read(out),"exact concrete rifle rejected");}
-    Reset();kind=3;Reject(); // unknown subclass/scope never passes exact class identity
+    for(int k=0;k<4;++k){Reset();kind=k;Require(Read(out),"exact concrete rifle rejected");}
+    Reset();kind=4;Reject(); // unknown subclass never passes exact class identity
     Reset();alias_desired=true;Require(Read(out),"JNI reference aliases must compare by IsSameObject");
     for(int h=0;h<2;++h)for(int i=0;i<3;++i){Reset();weapons[h][i]=h?P(weapon):P(foreign);Reject();}
     for(int i=0;i<3;++i){Reset();two[0][i]=false;Reject();Reset();two[1][i]=true;Reject();}
@@ -197,5 +245,30 @@ int main(){
     Require(!ReadCoJLongGunSupport(nullptr,P(player),out,&Frame,P(500)),"null env accepted");
     Require(!ReadCoJLongGunSupport(&env,nullptr,out,&Frame,P(500)),"null player accepted");
     Require(!ReadCoJLongGunSupport(&env,P(player),out,nullptr,P(500)),"null frame adapter accepted");
+    // Scoped admission must retain the same bracketed owner/state/contact and
+    // exception cleanup guarantees; no scope/alternate state is implied.
+    Reset();kind=3;Require(Read(out)&&!out.firing,"scoped idle support unavailable");
+    Require(!std::strcmp(out.weapon_class,"WeaponRifleWinchesterScope")&&out.contact_element==10,
+        "scoped exact class/contact lost");
+    const int scoped_steps=steps;
+    for(int i=0;i<4;++i){
+        for(int state=30;state<=38;++state){Reset();kind=3;states[0][i]=state;
+            Require(Read(out)&&out.firing,"scoped ordinary fire/cycle state rejected");}
+        Reset();kind=3;states[0][i]=129;
+        Require(Read(out)&&!out.firing,"scoped alternate idle rejected or classified as firing");
+        for(int state=158;state<=166;++state){Reset();kind=3;states[0][i]=state;
+            Require(Read(out)&&out.firing,"scoped alternate fire/cycle state rejected");}
+        for(int state:{0,20,21,22,29,39,40,48,128,130,148,149,157,167,168}){
+            Reset();kind=3;states[0][i]=state;Reject();}
+        Reset();kind=3;states[1][i]=1;Reject();
+    }
+    for(int h=0;h<2;++h)for(int i=0;i<3;++i){
+        Reset();kind=3;weapons[h][i]=h?P(weapon):P(foreign);Reject();
+        Reset();kind=3;two[h][i]=h!=0;Reject();
+    }
+    for(auto flag:{&dead,&carrying,&reloading}){Reset();kind=3;*flag=true;Reject();}
+    for(int i=0;i<4;++i){Reset();kind=3;invalid_frame=i;Reject(true);}
+    for(int i=1;i<=8;++i){Reset();kind=3;change=i;Reject(true);}
+    for(int i=1;i<=scoped_steps;++i){Reset();kind=3;fail_step=i;Reject(true);}
     std::cout<<"exact rifle ownership/state/local-frame and exhaustive JNI cleanup passed\n";
 }

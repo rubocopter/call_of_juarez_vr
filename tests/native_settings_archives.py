@@ -1,5 +1,4 @@
 """Exercise the real archive transformations; no game install is modified."""
-import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -11,17 +10,12 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from inspect_java_class import parse_class
 import patch_coj_weapon_consumers as consumers
 import split_coj_player_mesh as resources
-
-GAME = Path('C:/Program Files (x86)/Steam/steamapps/common/Call of Juarez')
+from native_settings_patch import original_archives, GRAPHICS
 
 class ArchiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        code, data = GAME / 'code.pak', GAME / 'Data0.pak'
-        if not code.is_file() or not data.is_file():
-            raise unittest.SkipTest('Exact original game archives unavailable')
-        if hashlib.sha256(code.read_bytes()).hexdigest() != consumers.PAK_SHA256:
-            raise unittest.SkipTest('Installed code archive is not the original')
+        code, data = original_archives()  # full SHA identities; read-only backups allowed
         cls.code = code
         with zipfile.ZipFile(data) as pak:
             cls.script = pak.read('Data/Menu/scr/OptionsGame.scr')
@@ -34,6 +28,10 @@ class ArchiveTests(unittest.TestCase):
                 menu = parse_class(pak.read('MenuOptionsGame.class'))
                 self.assertIn(('cojvrHolsterGuidesValue', '()I'), {(m.name,m.descriptor) for m in menu.methods})
                 self.assertIn(('cojvrSyncSettings', '(IIII)V'), {(m.name,m.descriptor) for m in menu.methods})
+                self.assertIn(('cojvrSyncGraphics', '(IIIIIIIIII)V'), {(m.name,m.descriptor) for m in menu.methods})
+                for row in GRAPHICS:
+                    self.assertIn(('cojvr' + row[1] + 'Value', '()I'), {(m.name,m.descriptor) for m in menu.methods})
+                self.assertIn(('cojvrGraphicsReady', 'Z'), {(f.name, f.descriptor) for f in menu.fields})
                 self.assertIn(('cojvrSettingsReady', 'Z'),
                               {(f.name, f.descriptor) for f in menu.fields})
                 movie = parse_class(pak.read('LawmanModule.class'))
@@ -57,6 +55,9 @@ class ArchiveTests(unittest.TestCase):
                                  (b.CRC, b.header_offset, b.compress_size))
                 self.assertEqual(original.read('untouched.bin'), patched.read('untouched.bin'))
                 self.assertIn(b'ID_VR_HOLSTER_GUIDES', patched.read('Data/Menu/scr/OptionsGame.scr'))
+                script = patched.read('Data/Menu/scr/OptionsGame.scr')
+                for row in GRAPHICS:
+                    self.assertEqual(script.count(('"ID_VR_' + row[0] + '"').encode()), 1)
                 self.assertNotIn('Data/Player/Ray/Ray.msh', patched.namelist())
 
     def test_unknown_resource_is_rejected_before_output(self):

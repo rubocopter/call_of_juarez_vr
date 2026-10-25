@@ -62,6 +62,23 @@ int main() {
         return Fail("invalidated presentation state retained stale content");
     }
 
-    std::cout << "Presenter cadence pause/repeat policy passed\n";
+    // A processing failure can follow writes into an already repeatable pair.
+    // Removed consumer resources must never be submitted with the old pose or
+    // revived by a later CPU upload. Only a new presenter/session owns recovery.
+    cadence.FrameUploaded();cadence.SubmissionSucceeded();
+    cadence.ConsumerFailed();
+    unsigned submissions=0;
+    for(unsigned iteration=0;iteration<4;++iteration) {
+        if(iteration)cadence.FrameUploaded();
+        if(cadence.scene_submission_allowed(false))++submissions;
+        cadence.SubmissionSucceeded();
+        if(cadence.presentable()||cadence.pending_content()!=PresentationContent::none)
+            return Fail("consumer loss left stale or later content presentable");
+        cadence.Invalidate();
+    }
+    if(submissions)return Fail("removed consumer submitted old or newly overwritten output");
+    PresentationCadence replacement;replacement.FrameUploaded();
+    if(!replacement.presentable())return Fail("new consumer session inherited terminal failure");
+    std::cout << "Presenter cadence pause/repeat and terminal consumer-loss policy passed\n";
     return 0;
 }

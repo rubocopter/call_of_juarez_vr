@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.25)
+project(CoJVRNgxHost LANGUAGES CXX)
+if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR "The experimental NGX helper requires a separate Windows x64 build")
+endif()
+get_filename_component(COJVR_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(COJVR_NGX_ROOT "${COJVR_ROOT}/.cache/deps/nvidia-dlss" CACHE PATH "Official NVIDIA DLSS SDK checkout")
+if(NOT EXISTS "${COJVR_NGX_ROOT}/include/nvsdk_ngx.h")
+    message(FATAL_ERROR "Official DLSS SDK unavailable; see tools/bootstrap_dlss.ps1")
+endif()
+file(SHA256 "${COJVR_NGX_ROOT}/include/nvsdk_ngx.h" COJVR_NGX_HEADER_HASH)
+file(SHA256 "${COJVR_NGX_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib" COJVR_NGX_LIBRARY_HASH)
+file(SHA256 "${COJVR_NGX_ROOT}/lib/Windows_x86_64/rel/nvngx_dlss.dll" COJVR_NGX_RUNTIME_HASH)
+if(NOT COJVR_NGX_HEADER_HASH STREQUAL "96f21266a05ef06bb49f58c89de1a7845f2d9b1e0e0e069fe03740b8eaf0344d" OR
+   NOT COJVR_NGX_LIBRARY_HASH STREQUAL "bc43df9ec032004fde681d3e3afd01cde239e03a0125b822e88674c84287f99c" OR
+   NOT COJVR_NGX_RUNTIME_HASH STREQUAL "d00b5b0ab29c3ca101b70c3a5ecb3a01b7ef33766a3383a28a18623083e6123e")
+    message(FATAL_ERROR "Unexpected NVIDIA SDK/runtime bytes; run tools/bootstrap_dlss.ps1")
+endif()
+add_executable(cojvr_dlss_host64 main.cpp)
+target_include_directories(cojvr_dlss_host64 PRIVATE "${COJVR_ROOT}/src" "${COJVR_NGX_ROOT}/include")
+target_compile_features(cojvr_dlss_host64 PRIVATE cxx_std_20)
+target_compile_definitions(cojvr_dlss_host64 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+target_compile_options(cojvr_dlss_host64 PRIVATE /utf-8 /W4 /EHsc)
+target_link_libraries(cojvr_dlss_host64 PRIVATE d3d11 dxgi dxguid shlwapi
+    "${COJVR_NGX_ROOT}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib")
+add_custom_command(TARGET cojvr_dlss_host64 POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${COJVR_NGX_ROOT}/lib/Windows_x86_64/rel/nvngx_dlss.dll" "$<TARGET_FILE_DIR:cojvr_dlss_host64>/nvngx_dlss.dll")

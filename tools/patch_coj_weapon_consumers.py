@@ -16,6 +16,8 @@ FIRE_CLASS_SHA256 = "d12b513c32db6e3223348f7058799c3702ea3a78746817753998f0de13c
 TRIGGERED_CLASS_SHA256 = "df43daa7fc55299f7a22907da8540a5e44a2bf57c1613f96cdc0d6a19d1045d2"
 PAK_SHA256 = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
 SAVE_MODULE_SHA256 = "ded02549df857e99f25d47c34c5ec9c23f0718cad0dd46079db6818d0dcd3c47"
+PAUSE_BACKGROUND_SHA256 = "020db4802269c6ea1329cd234f1e94dc821181592e4af7b534d305ac79835acb"
+SAVE_MENU_SHA256 = "110587e751d32f9127bc66767fff69b023d1a899cb709119e3cdf1e448f43e71"
 WHIP_CLASS_SHA256 = "0a7ca8d2059582320251646fe2a992bf43ecf04470986128d99ff503366f5746"
 WHIP_FIELDS = ("cojvrTrackedPosition", "cojvrTrackedUp", "cojvrTrackedForward")
 FIELDS = ("cojvrRightOrigin", "cojvrLeftOrigin", "cojvrRightDirection", "cojvrLeftDirection",
@@ -34,8 +36,9 @@ CHECK_BULLET_TIME_SHA256 = "6e97b3218cb31c904931261bc2ae9a50ab5baf80f8813d01bb7c
 SINGLE_ROUND_REVOLVERS = ("WeaponPistolFrontier1878_Regular", "WeaponPistolPeacemaker",
                          "WeaponPistolFrontier", "WeaponPistolWalker", "WeaponPistolCogswell")
 
-def reload_class_guard(c, local, get_class, get_name, equals, class_names, whole_clip):
-    c.emit(0x19,local);c.ref(0xb6,whole_clip);c.branch(0x9a,'done')
+def reload_class_guard(c, local, get_class, get_name, equals, class_names, whole_clip,
+                       whole_clip_expected=False):
+    c.emit(0x19,local);c.ref(0xb6,whole_clip);c.branch(0x99 if whole_clip_expected else 0x9a,'done')
     # Java 1.4 has no ldc Class literal; compare exact runtime class names.
     for name in class_names:
         c.emit(0x19,local);c.ref(0xb6,get_class);c.ref(0xb6,get_name)
@@ -46,7 +49,7 @@ def reload_class_guard(c, local, get_class, get_name, equals, class_names, whole
 
 def manual_reload_admission(pending, net, get_class, get_name, equals,
                             class_names, whole_clip, net_owner, net_game,
-                            active, active_hand, completed):
+                            active, active_hand, completed, *, whole_clip_expected=False):
     """At original offset 12: reject invalid manual mode before native request.
 
     Null pending preserves Square/automatic reload. Whole-clip configuration and
@@ -62,7 +65,7 @@ def manual_reload_admission(pending, net, get_class, get_name, equals,
     c.emit(0x2a);c.ref(0xb4,net);c.branch(0x9a,'done')
     c.ref(0xb8,net_game);c.branch(0x9a,'done')
     c.emit(0x2a);c.ref(0xb6,net_owner);c.branch(0x99,'done')
-    reload_class_guard(c,2,get_class,get_name,equals,class_names,whole_clip)
+    reload_class_guard(c,2,get_class,get_name,equals,class_names,whole_clip,whole_clip_expected)
     # All throwing validation has finished. Publish the limiter before the
     # native setter can commit reload or throw after a partial commit.
     c.emit(0x2a,0x1b);c.ref(0xb5,active_hand)
@@ -370,6 +373,12 @@ def single_hand_attack_guard(origins, net_field, actual_weapon, firearm_class, t
     return c.finish()
 
 def patch_class(data: bytes) -> bytes:
+    return _patch_class(data, SINGLE_ROUND_REVOLVERS)
+
+
+def _patch_class(data: bytes, reload_classes: tuple[str, ...], *, _whole_clip_expected=False) -> bytes:
+    # The public patcher retains its fixed production admission. The offline
+    # lab calls this builder with one separately checked experimental class.
     if hashlib.sha256(data).hexdigest() != CLASS_SHA256:
         raise ValueError("Unknown ArmedPlayerBeing.class SHA-256; no mutation")
     r = Reader(data); r.read(8); pool = parse_constant_pool(r)
@@ -435,7 +444,7 @@ def patch_class(data: bytes) -> bytes:
         cls=append(b'\x07'+u2(utf8(owner)))
         nt=append(b'\x0c'+u2(utf8(name))+u2(utf8(desc)))
         return append(b'\x0a'+u2(cls)+u2(nt))
-    names=tuple(append(b'\x08'+u2(utf8(name))) for name in SINGLE_ROUND_REVOLVERS)
+    names=tuple(append(b'\x08'+u2(utf8(name))) for name in reload_classes)
     class_methods=(
         method_ref('java/lang/Object','getClass','()Ljava/lang/Class;'),
         method_ref('java/lang/Class','getName','()Ljava/lang/String;'),
@@ -456,7 +465,7 @@ def patch_class(data: bytes) -> bytes:
     limiter=manual_reload_limiter(*manual_refs[1:])
     consume=manual_reload_consume(manual_refs[0])
     admission=manual_reload_admission(manual_refs[0],net,*class_methods,
-        find('ArmedPlayerBeing.IsNetGame()Z'),*manual_refs[1:])
+        find('ArmedPlayerBeing.IsNetGame()Z'),*manual_refs[1:],whole_clip_expected=_whole_clip_expected)
     reconcile=manual_reload_public_reconcile(manual_refs[1],
         find('ArmedPlayerBeing.IsWeaponReloading()Z'),manual_refs[0],manual_refs[2],
         find('ArmedPlayerBeing.GetHandStateMashineState(I)I'))
@@ -696,6 +705,48 @@ def redirect_save_thumbnail(code: bytes, native_ref: int, cleanup_ref: int) -> b
     # Same-length replacement preserves save flow, branches and debug offsets.
     return code[:102]+b'\xb7'+u2(cleanup_ref)+code[105:]
 
+def suppress_pause_screenshots(code: bytes) -> bytes:
+    # Exact original LawmanModuleSingle call sites. Preserve profiles, sprite
+    # restoration, input clearing, branches and Code/debug/exception metadata.
+    if len(code)!=110 or code[30:34]!=bytes.fromhex('2a b6 01 68') or code[63:81]!=bytes.fromhex(
+            'b2 00 89 13 01 6a 11 02 00 11 01 00 b6 01 6c b8 00 80'):
+        raise ValueError('Unknown pause screenshot call boundary')
+    return code[:30]+bytes(4)+code[34:63]+bytes(18)+code[81:]
+
+def patch_pause_preview_consumer(data: bytes, background: bool) -> bytes:
+    expected=PAUSE_BACKGROUND_SHA256 if background else SAVE_MENU_SHA256
+    if hashlib.sha256(data).hexdigest()!=expected:
+        raise ValueError('Unknown pause preview consumer SHA-256; no mutation')
+    # Only same-length opcode edits; every other class byte stays identical.
+    r=Reader(data);r.read(8);pool=parse_constant_pool(r)
+    r.read(6);r.read(r.u2()*2)
+    for _ in range(r.u2()):
+        r.read(6)
+        for _ in range(r.u2()):r.u2();r.read(r.u4())
+    result=bytearray(data);found=0
+    target=('ShowScreenInGame','()V') if background else ('SaveScreenshot','(Ljava/lang/String;)V')
+    for _ in range(r.u2()):
+        r.u2();name,desc=pool.utf8(r.u2()),pool.utf8(r.u2())
+        for _ in range(r.u2()):
+            attr_name=pool.utf8(r.u2());length=r.u4();start=r.stream.tell();attr=r.read(length)
+            if attr_name!='Code' or (name,desc)!=target:continue
+            code_length=int.from_bytes(attr[4:8],'big');code=attr[8:8+code_length]
+            if background:
+                if code!=bytes.fromhex('2a b4 00 02 12 1a b6 00 1b b1'):
+                    raise ValueError('Unknown pause background consumer boundary')
+                # Existing ShowScreenInGame(null) releases/hides the optional
+                # image without creating UITexture for an absent/stale file.
+                result[start+12:start+14]=b'\x01\x00'
+            else:
+                if len(code)!=40 or code[32:]!=bytes.fromhex('13 01 36 2b b8 01 37 b1'):
+                    raise ValueError('Unknown manual-save preview copy boundary')
+                # Keep filename construction and stale destination deletion;
+                # SGController.Save remains in the untouched native save flow.
+                result[start+40:start+47]=bytes(7)
+            found+=1
+    if found!=1:raise ValueError('Incomplete pause preview consumer patch')
+    return bytes(result)
+
 def patch_save_module_class(data: bytes) -> bytes:
     if hashlib.sha256(data).hexdigest() != SAVE_MODULE_SHA256:
         raise ValueError('Unknown LawmanModuleSingle.class SHA-256; no mutation')
@@ -719,7 +770,7 @@ def patch_save_module_class(data: bytes) -> bytes:
         r.read(6)
         for _ in range(r.u2()):r.u2();r.read(r.u4())
     methods_at=r.stream.tell();count=r.u2();methods=bytearray(u2(count+1))
-    cleanup=None;patched=0
+    cleanup=None;patched=0;pause_patched=0
     for _ in range(count):
         header=r.read(6);methods.extend(header)
         name=pool.utf8(int.from_bytes(header[2:4],'big'))
@@ -738,8 +789,11 @@ def patch_save_module_class(data: bytes) -> bytes:
                 if name=='QuickSave' and descriptor=='(I)V':
                     code=redirect_save_thumbnail(code,native_ref,helper_ref)
                     attr=attr[:8]+code+attr[8+len(code):];patched+=1
+                if name=='TakeScreenshotsOnLevelBreak' and descriptor=='()V':
+                    code=suppress_pause_screenshots(code)
+                    attr=attr[:8]+code+attr[8+len(code):];pause_patched+=1
             methods.extend(u2(index)+u4(len(attr))+attr)
-    if patched!=1 or cleanup is None:raise ValueError('Incomplete save-thumbnail boundary patch')
+    if patched!=1 or pause_patched!=1 or cleanup is None:raise ValueError('Incomplete save-thumbnail boundary patch')
     stack,locals_,code=cleanup
     attr=u2(stack)+u2(locals_)+u4(len(code))+code+u2(0)+u2(0)
     methods.extend(u2(2)+u2(name_id)+u2(desc_id)+u2(1)+u2(find("'Code'"))+u4(len(attr))+attr)
@@ -816,7 +870,8 @@ def patch_manual_reload_classes(player: bytes, machine: bytes):
     from coj_manual_reload import patch_manual_classes
     return patch_manual_classes(player, machine)
 
-def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_reload=False):
+def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_reload=False,
+                  *, tutorial_data_en: Path | None = None):
     if reload_wait_probe and manual_reload:
         raise ValueError('Select only one reload archive variant')
     if source.resolve() == output.resolve() or output.exists():
@@ -830,11 +885,33 @@ def patch_archive(source: Path, output: Path, reload_wait_probe=False, manual_re
                    "WeaponFire.class":patch_fire_class(original.read("WeaponFire.class")),
                    "BeingTriggered.class":patch_triggered_class(original.read("BeingTriggered.class")),
                    "LawmanModuleSingle.class":patch_save_module_class(original.read("LawmanModuleSingle.class")),
+                   "MenuBackgroundModule.class":patch_pause_preview_consumer(original.read("MenuBackgroundModule.class"),True),
+                   "MenuSaveLoad.class":patch_pause_preview_consumer(original.read("MenuSaveLoad.class"),False),
                    "WeaponWhip.class":patch_whip_class(original.read("WeaponWhip.class"))}
         from coj_native_settings import MENU_CLASS_NAME, patch_menu_class
         patched[MENU_CLASS_NAME] = patch_menu_class(original.read(MENU_CLASS_NAME))
+        from coj_loading_ui import patch_loading_ui
+        patched['GameUILoading.class']=patch_loading_ui(original.read('GameUILoading.class'))
+        from coj_scoped_rifle import patch_scope_camera
+        patched['FPPCamera.class']=patch_scope_camera(original.read('FPPCamera.class'))
+        from coj_fx_definitions import patch_fx_definitions
+        patched['FXEmitter.class']=patch_fx_definitions(original.read('FXEmitter.class'))
+        patched['FireEmitterCore.class']=patch_fx_definitions(original.read('FireEmitterCore.class'))
         from coj_movie_subtitles import MODULE_CLASS_NAME, patch_movie_subtitles
         patched[MODULE_CLASS_NAME] = patch_movie_subtitles(original.read(MODULE_CLASS_NAME))
+        if tutorial_data_en is not None:
+            from coj_tutorial_hints import (RESOURCE_NAME, TIP_RESOURCE_NAME,
+                                            patch_tutorial_classes)
+            # Read presentation resources only. Runtime helpers compare current
+            # native localized text/conditions; unqualified locales stay native.
+            with zipfile.ZipFile(tutorial_data_en) as resources:
+                names = resources.namelist()
+                if len(names) != len(set(names)):
+                    raise ValueError('Duplicate tutorial resource archive entries')
+                base, menu = patch_tutorial_classes(
+                    original.read('HintBase.class'), original.read('MenuHint.class'),
+                    resources.read(RESOURCE_NAME), resources.read(TIP_RESOURCE_NAME))
+            patched['HintBase.class'], patched['MenuHint.class'] = base, menu
         if reload_wait_probe or manual_reload:
             factory=patch_manual_reload_classes if manual_reload else patch_reload_probe_classes
             player, machine = factory(
@@ -862,5 +939,8 @@ if __name__ == "__main__":
         help='Experimental bounded wait, then close with zero ammo transfer; gesture route only')
     p.add_argument('--manual-reload', action='store_true',
         help='Experimental Square preparation, native supervised wait and immediate per-round insertion')
-    a = p.parse_args(); patch_archive(a.source, a.output, a.reload_wait_probe, a.manual_reload)
+    p.add_argument('--tutorial-data-en', type=Path,
+        help='Read exact original EN resources for scoped native tutorial presentation')
+    a = p.parse_args(); patch_archive(a.source, a.output, a.reload_wait_probe, a.manual_reload,
+                                    tutorial_data_en=a.tutorial_data_en)
     print("Exact shot, interaction and procedural-whip consumers patched; other payloads verified unchanged")

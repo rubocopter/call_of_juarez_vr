@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <iterator>
 #include <string>
 #include <utility>
 #include <windows.h>
@@ -109,6 +110,30 @@ struct OpenVrRuntime::Impl {
             PublishActionPrompts(invalidated);
         }
     }
+    vr::VRActionHandle_t PromptHandle(PromptAction action,vr::VRActionSetHandle_t& set) const noexcept {
+        vr::VRActionHandle_t handle=vr::k_ulInvalidActionHandle;
+        set=gameplay_action_set;
+        switch(action){
+        case PromptAction::left_fire:handle=gameplay_actions[2];break;
+        case PromptAction::right_fire:handle=gameplay_actions[3];break;
+        case PromptAction::reload:handle=gameplay_actions[5];break;
+        case PromptAction::interact:handle=gameplay_actions[8];break;
+        case PromptAction::kick:handle=gameplay_actions[11];break;
+        case PromptAction::jump:handle=gameplay_actions[4];break;
+        case PromptAction::alternate_fire:handle=gameplay_actions[14];break;
+        case PromptAction::weapon_radial:handle=gameplay_actions[29];break;
+        case PromptAction::focus:handle=gameplay_actions[13];break;
+        case PromptAction::crouch:handle=gameplay_actions[7];break;
+        case PromptAction::turn:handle=gameplay_actions[1];break;
+        // Objectives is produced by the presenter's short recenter tap,
+        // not the otherwise optional gameplay objectives action binding.
+        case PromptAction::objectives:case PromptAction::recenter:
+            handle=recenter_action;set=global_action_set;break;
+        case PromptAction::pause:handle=pause_action;set=global_action_set;break;
+        default:return vr::k_ulInvalidActionHandle;
+        }
+        return handle;
+    }
     void RefreshPrompts() noexcept {
         if(!input||!system||!owns_process_runtime)return;
         const auto generation=prompt_generation.load(std::memory_order_acquire);
@@ -116,27 +141,8 @@ struct OpenVrRuntime::Impl {
         ActionPromptSource source{};source.context=this;
         source.origins=[](void* context,PromptAction action,std::array<std::uint64_t,16>& out) noexcept {
             auto& self=*static_cast<Impl*>(context);
-            vr::VRActionHandle_t handle=vr::k_ulInvalidActionHandle;
-            auto set=self.gameplay_action_set;
-            switch(action){
-            case PromptAction::left_fire:handle=self.gameplay_actions[2];break;
-            case PromptAction::right_fire:handle=self.gameplay_actions[3];break;
-            case PromptAction::reload:handle=self.gameplay_actions[5];break;
-            case PromptAction::interact:handle=self.gameplay_actions[8];break;
-            case PromptAction::kick:handle=self.gameplay_actions[11];break;
-            case PromptAction::jump:handle=self.gameplay_actions[4];break;
-            case PromptAction::alternate_fire:handle=self.gameplay_actions[14];break;
-            case PromptAction::weapon_radial:handle=self.gameplay_actions[29];break;
-            case PromptAction::focus:handle=self.gameplay_actions[13];break;
-            case PromptAction::crouch:handle=self.gameplay_actions[7];break;
-            case PromptAction::turn:handle=self.gameplay_actions[1];break;
-            // Objectives is produced by the presenter's short recenter tap,
-            // not the otherwise optional gameplay objectives action binding.
-            case PromptAction::objectives:case PromptAction::recenter:
-                handle=self.recenter_action;set=self.global_action_set;break;
-            case PromptAction::pause:handle=self.pause_action;set=self.global_action_set;break;
-            default:return false;
-            }
+            vr::VRActionSetHandle_t set{};
+            const auto handle=self.PromptHandle(action,set);
             if(handle==vr::k_ulInvalidActionHandle)return false;
             std::array<vr::VRInputValueHandle_t,16> origins{};
             if(self.input->GetActionOrigins(set,handle,origins.data(),static_cast<std::uint32_t>(origins.size()))!=vr::VRInputError_None)return false;
@@ -149,6 +155,36 @@ struct OpenVrRuntime::Impl {
                 !self.system->IsTrackedDeviceConnected(info.trackedDeviceIndex))return false;
             return self.input->GetOriginLocalizedName(origin,text.data(),static_cast<std::uint32_t>(text.size()),
                 vr::VRInputString_Hand|vr::VRInputString_InputSource)==vr::VRInputError_None;
+        };
+        source.glyph=[](void* context,PromptAction action,std::uint64_t origin) noexcept -> PromptGlyph {
+            auto& self=*static_cast<Impl*>(context);vr::InputOriginInfo_t info{};
+            if(self.input->GetOriginTrackedDeviceInfo(origin,&info,sizeof(info))!=vr::VRInputError_None||
+                !info.devicePath||info.trackedDeviceIndex>=vr::k_unMaxTrackedDeviceCount||
+                !self.system->IsTrackedDeviceConnected(info.trackedDeviceIndex)||
+                self.system->GetTrackedDeviceClass(info.trackedDeviceIndex)!=vr::TrackedDeviceClass_Controller)return {};
+            vr::VRActionSetHandle_t set{};const auto handle=self.PromptHandle(action,set);
+            if(handle==vr::k_ulInvalidActionHandle)return {};
+            std::array<vr::InputBindingInfo_t,16> bindings{};std::uint32_t count=0;
+            if(self.input->GetActionBindingInfo(handle,bindings.data(),sizeof(bindings[0]),
+                static_cast<std::uint32_t>(bindings.size()),&count)!=vr::VRInputError_None||count!=1)return {};
+            // Terminated views only; absent/truncated/novel fields reject art.
+            const auto bounded=[](const auto& buffer) noexcept -> std::string_view {
+                const auto end=std::find(std::begin(buffer),std::end(buffer),'\0');
+                if(end==std::end(buffer))return {};
+                return {std::data(buffer),static_cast<std::size_t>(end-std::begin(buffer))};
+            };
+            const auto& binding=bindings[0];const auto device=bounded(binding.rchDevicePathName);
+            if(device!="/user/hand/left"&&device!="/user/hand/right")return {};
+            vr::VRInputValueHandle_t device_handle=vr::k_ulInvalidInputValueHandle;
+            if(self.input->GetInputSourceHandle(binding.rchDevicePathName,&device_handle)!=vr::VRInputError_None||
+                device_handle!=info.devicePath)return {};
+            std::array<char,128> controller{};vr::ETrackedPropertyError error=vr::TrackedProp_Success;
+            const auto length=self.system->GetStringTrackedDeviceProperty(info.trackedDeviceIndex,
+                vr::Prop_ControllerType_String,controller.data(),static_cast<std::uint32_t>(controller.size()),&error);
+            if(error!=vr::TrackedProp_Success||!length||length>controller.size())return {};
+            return QualifyPromptGlyph(bounded(controller),device,bounded(info.rchRenderModelComponentName),
+                bounded(binding.rchInputPathName),bounded(binding.rchModeName),bounded(binding.rchSlotName),
+                bounded(binding.rchInputSourceType),origin);
         };
         const auto& snapshot=prompt_cache.Update(source_generation,GetTickCount64(),source);
         try {

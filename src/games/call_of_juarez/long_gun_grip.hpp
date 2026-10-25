@@ -41,7 +41,10 @@ inline bool IsCoJLongGunGripFrameAdmitted(const CoJLongGunGripFrame& frame) noex
 }
 namespace long_gun_grip_detail {
 inline int Kind(const char* name) noexcept {
-    if(name)for(int i=0;i<3;++i)if(!std::strcmp(name,long_gun_observer_detail::Classes[i]))return i+1;
+    int kind=0;
+    if(name)for(const auto* exact:long_gun_observer_detail::Classes){
+        ++kind;if(!std::strcmp(name,exact))return kind;
+    }
     return 0;
 }
 inline bool Qualified(const CoJLongGunSupportSnapshot& n) noexcept {
@@ -51,8 +54,9 @@ inline bool Qualified(const CoJLongGunSupportSnapshot& n) noexcept {
     bool fire=false;
     for(int h=0;h<2;++h){
         for(int state:n.states[h]){
-            if(h==1?state!=0:(state!=1&&(state<30||state>38)))return false;
-            if(h==0&&state!=1)fire=true;
+            const int phase=long_gun_observer_detail::SupportState(n.weapon_class,state);
+            if(h==1?state!=0:phase==0)return false;
+            if(h==0&&phase==2)fire=true;
         }
         for(bool two:n.two_handed[h])if(two!=(h==0))return false;
     }

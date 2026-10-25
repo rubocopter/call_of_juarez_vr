@@ -50,6 +50,7 @@ std::atomic_uint64_t g_integrity_epoch{0};
 std::mutex g_continuity_mutex;
 std::mutex g_callbacks_mutex;
 std::unordered_map<void**, DeviceHookCallbacks> g_callbacks_by_vtable;
+std::unordered_map<void**, bool> g_probe_extended_by_vtable;
 
 void** DeviceVtable(IDirect3DDevice9* device) noexcept {
     return device ? *reinterpret_cast<void***>(device) : nullptr;
@@ -86,16 +87,29 @@ void ProbeEvent(const DeviceHookCallbacks& callbacks, IDirect3DDevice9* device,
 class ProbeCall final {
 public:
     ProbeCall(const DeviceHookCallbacks& callbacks,IDirect3DDevice9* device) noexcept
-        : callback_(callbacks.resource_probe_call),device_(device) { Notify(true); }
+        : callback_(callbacks.resource_probe_call),hud_callback_(callbacks.hud_batch_call),device_(device) { Notify(true); }
     ~ProbeCall(){Notify(false);}
 private:
     void Notify(bool entering) noexcept {
-        if(!callback_)return;
-        const DWORD error=GetLastError();callback_(device_,entering);SetLastError(error);
+        if(!callback_&&!hud_callback_)return;
+        const DWORD error=GetLastError();
+        if(callback_)callback_(device_,entering);
+        SetLastError(error);
+        if(hud_callback_)hud_callback_(device_,entering);
+        SetLastError(error);
     }
     void (*callback_)(IDirect3DDevice9*,bool) noexcept;
+    void (*hud_callback_)(IDirect3DDevice9*,bool) noexcept;
     IDirect3DDevice9* device_;
 };
+
+void HudDrawEvent(const DeviceHookCallbacks& callbacks, IDirect3DDevice9* device,
+    const RenderResourceEvent& event, bool entering) noexcept {
+    if (!callbacks.hud_batch_draw) return;
+    const DWORD error = GetLastError();
+    callbacks.hud_batch_draw(device, event, entering);
+    SetLastError(error);
+}
 
 HRESULT STDMETHODCALLTYPE HookQueryInterface(IDirect3DDevice9* device, REFIID iid, void** object) {
     void** vtable = DeviceVtable(device);
@@ -265,7 +279,12 @@ HRESULT STDMETHODCALLTYPE HookDrawPrimitive(IDirect3DDevice9* device, D3DPRIMITI
     const auto original = reinterpret_cast<Fn>(g_registry.OriginalTarget(vtable, 81));
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
+    RenderResourceEvent draw{RenderResourceOperation::draw, static_cast<DWORD>(type), S_OK,
+        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0};
+    HudDrawEvent(callbacks, device, draw, true);
     const HRESULT result = original(device, type, start, count);
+    draw.result = result;
+    HudDrawEvent(callbacks, device, draw, false);
     ProbeEvent(callbacks, device, {RenderResourceOperation::draw, static_cast<DWORD>(type), result,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
     return result;
@@ -278,7 +297,12 @@ HRESULT STDMETHODCALLTYPE HookDrawIndexedPrimitive(IDirect3DDevice9* device, D3D
     const auto original = reinterpret_cast<Fn>(g_registry.OriginalTarget(vtable, 82));
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
+    RenderResourceEvent draw{RenderResourceOperation::draw_indexed, static_cast<DWORD>(type), S_OK,
+        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0};
+    HudDrawEvent(callbacks, device, draw, true);
     const HRESULT result = original(device, type, base, min, vertices, start, count);
+    draw.result = result;
+    HudDrawEvent(callbacks, device, draw, false);
     ProbeEvent(callbacks, device, {RenderResourceOperation::draw_indexed, static_cast<DWORD>(type), result,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
     return result;
@@ -291,7 +315,12 @@ HRESULT STDMETHODCALLTYPE HookDrawPrimitiveUP(IDirect3DDevice9* device, D3DPRIMI
     const auto original = reinterpret_cast<Fn>(g_registry.OriginalTarget(vtable, 83));
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
+    RenderResourceEvent draw{RenderResourceOperation::draw_up, static_cast<DWORD>(type), S_OK,
+        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0};
+    HudDrawEvent(callbacks, device, draw, true);
     const HRESULT result = original(device, type, count, data, stride);
+    draw.result = result;
+    HudDrawEvent(callbacks, device, draw, false);
     ProbeEvent(callbacks, device, {RenderResourceOperation::draw_up, static_cast<DWORD>(type), result,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
     return result;
@@ -304,7 +333,12 @@ HRESULT STDMETHODCALLTYPE HookDrawIndexedPrimitiveUP(IDirect3DDevice9* device, D
     const auto original = reinterpret_cast<Fn>(g_registry.OriginalTarget(vtable, 84));
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
+    RenderResourceEvent draw{RenderResourceOperation::draw_indexed_up, static_cast<DWORD>(type), S_OK,
+        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0};
+    HudDrawEvent(callbacks, device, draw, true);
     const HRESULT result = original(device, type, min, vertices, count, indices, format, data, stride);
+    draw.result = result;
+    HudDrawEvent(callbacks, device, draw, false);
     ProbeEvent(callbacks, device, {RenderResourceOperation::draw_indexed_up, static_cast<DWORD>(type), result,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
     return result;
@@ -318,6 +352,11 @@ HRESULT STDMETHODCALLTYPE HookStretchRect(IDirect3DDevice9* device, IDirect3DSur
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
     const HRESULT result = original(device, source, source_rect, dest, dest_rect, filter);
+    if(callbacks.resource_probe_copy){
+        const DWORD native_error=GetLastError();
+        callbacks.resource_probe_copy(device,source,source_rect,dest,dest_rect,result);
+        SetLastError(native_error);
+    }
     ProbeEvent(callbacks, device, {RenderResourceOperation::stretch_rect, static_cast<DWORD>(filter), result,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), reinterpret_cast<std::uintptr_t>(source), reinterpret_cast<std::uintptr_t>(dest)});
     return result;
@@ -472,7 +511,9 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
     }
 
     bool probe_ex = false;
-    if (callbacks.resource_probe_event || callbacks.allow_reset || callbacks.after_reset_ex) {
+    const bool resource_observer = callbacks.resource_probe_event || callbacks.resource_probe_copy ||
+        callbacks.hud_batch_draw || callbacks.hud_batch_call;
+    if (resource_observer || callbacks.allow_reset || callbacks.after_reset_ex) {
         // Query before taking the callback mutex: a repeated installation may
         // already have QueryInterface hooked through the same callback map.
         IDirect3DDevice9Ex* extended = nullptr;
@@ -487,6 +528,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
         std::lock_guard continuity_lock(g_continuity_mutex);
         std::lock_guard lock(g_callbacks_mutex);
         g_callbacks_by_vtable.insert_or_assign(vtable, callbacks);
+        g_probe_extended_by_vtable.insert_or_assign(vtable, probe_ex);
 
         std::array<HookSlotRequest, 24> requests{};
         std::size_t request_count = 0;
@@ -501,7 +543,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
         if (callbacks.method_trace) {
             requests[request_count++] = {kTestCooperativeLevelIndex, reinterpret_cast<void*>(&HookTestCooperativeLevel)};
         }
-        if (callbacks.method_trace || callbacks.resource_probe_event) {
+        if (callbacks.method_trace || resource_observer) {
             requests[request_count++] = {kSetRenderTargetIndex, reinterpret_cast<void*>(&HookSetRenderTarget)};
             requests[request_count++] = {kSetDepthStencilSurfaceIndex, reinterpret_cast<void*>(&HookSetDepthStencilSurface)};
             requests[request_count++] = {kClearIndex, reinterpret_cast<void*>(&HookClear)};
@@ -511,7 +553,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
         if (callbacks.method_trace) {
             requests[request_count++] = {kCreateStateBlockIndex, reinterpret_cast<void*>(&HookCreateStateBlock)};
         }
-        if (callbacks.resource_probe_event) {
+        if (resource_observer) {
             requests[request_count++] = {47, reinterpret_cast<void*>(&HookSetViewport)};
             requests[request_count++] = {75, reinterpret_cast<void*>(&HookSetScissorRect)};
             requests[request_count++] = {81, reinterpret_cast<void*>(&HookDrawPrimitive)};
@@ -521,7 +563,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
             requests[request_count++] = {34, reinterpret_cast<void*>(&HookStretchRect)};
         }
         if (probe_ex) requests[request_count++] = {132, reinterpret_cast<void*>(&HookResetEx)};
-        if (callbacks.before_reset || callbacks.after_reset || callbacks.method_trace || callbacks.resource_probe_event || callbacks.allow_reset) {
+        if (callbacks.before_reset || callbacks.after_reset || callbacks.method_trace || resource_observer || callbacks.allow_reset) {
             requests[request_count++] = HookSlotRequest{
                 kResetIndex, reinterpret_cast<void*>(&HookReset)};
         }
@@ -543,6 +585,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
             outcome.result == HookRegistryResult::AlreadyInstalled;
         if (!success && !outcome.ownership_record_retained) {
             g_callbacks_by_vtable.erase(vtable);
+            g_probe_extended_by_vtable.erase(vtable);
         }
         return outcome;
     } catch (...) {
@@ -579,6 +622,36 @@ ResourceProbeHookContinuity InspectResourceProbeHookContinuity(IDirect3DDevice9*
     SetLastError(error);return result;
 }
 
+ResourceProbeHookContinuity TryInspectHudBatchHookContinuity(IDirect3DDevice9* device) noexcept {
+    const DWORD error = GetLastError();
+    ResourceProbeHookContinuity result{};
+    std::unique_lock integrity(g_continuity_mutex, std::try_to_lock);
+    std::unique_lock callbacks(g_callbacks_mutex, std::try_to_lock);
+    if (integrity.owns_lock() && callbacks.owns_lock() && device) {
+        auto** vtable = DeviceVtable(device);
+        const auto found = g_callbacks_by_vtable.find(vtable);
+        const auto extended = g_probe_extended_by_vtable.find(vtable);
+        result.epoch = g_integrity_epoch.load(std::memory_order_acquire);
+        const std::array<HookSlotRequest, 13> required{{
+            {16, reinterpret_cast<void*>(&HookReset)}, {17, reinterpret_cast<void*>(&HookPresent)},
+            {34, reinterpret_cast<void*>(&HookStretchRect)}, {37, reinterpret_cast<void*>(&HookSetRenderTarget)},
+            {39, reinterpret_cast<void*>(&HookSetDepthStencilSurface)}, {43, reinterpret_cast<void*>(&HookClear)},
+            {47, reinterpret_cast<void*>(&HookSetViewport)}, {65, reinterpret_cast<void*>(&HookSetTexture)},
+            {75, reinterpret_cast<void*>(&HookSetScissorRect)}, {81, reinterpret_cast<void*>(&HookDrawPrimitive)},
+            {82, reinterpret_cast<void*>(&HookDrawIndexedPrimitive)}, {83, reinterpret_cast<void*>(&HookDrawPrimitiveUP)},
+            {84, reinterpret_cast<void*>(&HookDrawIndexedPrimitiveUP)}}};
+        result.intact = found != g_callbacks_by_vtable.end() && extended != g_probe_extended_by_vtable.end() &&
+            found->second.hud_batch_draw && found->second.hud_batch_call &&
+            std::all_of(required.begin(), required.end(), [vtable](const auto& slot) {
+                return vtable[slot.index] == slot.replacement;
+            });
+        if (result.intact && extended->second)
+            result.intact = vtable[132] == reinterpret_cast<void*>(&HookResetEx);
+        result.intact = result.intact && result.epoch == g_integrity_epoch.load(std::memory_order_acquire);
+    }
+    SetLastError(error); return result;
+}
+
 bool RestoreAllDeviceVtableHooks() noexcept {
     bool restored_all = true;
     try {
@@ -592,6 +665,7 @@ bool RestoreAllDeviceVtableHooks() noexcept {
                 restored_all = false;
             }
             g_callbacks_by_vtable.erase(vtable);
+            g_probe_extended_by_vtable.erase(vtable);
         }
     } catch (...) {
         restored_all = false;
