@@ -1,14 +1,21 @@
 """Lab transaction executes original transfer/callback bytecode; no game claims."""
+import copy
 import inspect
+import io
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).parent))
 from manual_reload_native import ManualVM
 from reload_wait_probe import original, JVMThrown
 from inspect_java_bytecode import parse_class
 from coj_offline_manual_reload import patch_offline_classes
+
+WINCHESTER_CLASSES = ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope')
 
 
 class CycleVM(ManualVM):
@@ -21,12 +28,13 @@ class CycleVM(ManualVM):
             self.classes[name] = pool, {(m.name, m.descriptor): m for m in methods}
         self.weapon['class'] = weapon
         self.weapon['cOwner'] = self.player
-        self.capacity = 12 if weapon == 'WeaponRifleWinchester' else 8
+        self.capacity = 12 if weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope') else 8
         self.counter = {'amount': 10}
         self.fault_at = None
         self.on_event = None
         self.on_body = None
         self.on_capacity = None
+        self.on_remaining = None
         self.started = self.zero_reloads = self.important_states = 0
 
     def fault(self, point):
@@ -41,14 +49,16 @@ class CycleVM(ManualVM):
             if self.on_capacity: self.on_capacity()
             return self.capacity
         # Original PawnInventory indices: rifle=0, shotgun=1, pistol=2.
-        if name == 'GetAmmoType': return 0 if self.weapon['class'] == 'WeaponRifleWinchester' else 2
+        if name == 'GetAmmoType': return 0 if self.weapon['class'] in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope') else 2
         if name == 'FindAmmoCounter': return self.counter
         if name == 'GetAmount': return owner['amount']
         if name == 'SetAmmoCount':
             self.ammo = args[1]; self.fault('loaded'); return None
         if name == 'SetAmount':
             owner['amount'] = self.reserve = args[0]; self.fault('reserve'); return None
-        if name == 'GetWeaponMaxAmmoToReload': return min(self.capacity-self.ammo, self.counter['amount'])
+        if name == 'GetWeaponMaxAmmoToReload':
+            if self.on_remaining: self.on_remaining()
+            return min(self.capacity-self.ammo, self.counter['amount'])
         if name == 'OnGameEvent':
             self.events += 1
             if self.on_event: self.on_event()
@@ -76,7 +86,7 @@ class ManualReloadCycleTests(unittest.TestCase):
         return vm
 
     def test_one_native_unit_restarts_body_without_terminating_desired_reload(self):
-        for weapon in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
+        for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
             vm = self.make(weapon)
             self.assertTrue(vm.call('cojvrInsertManualRound'))
             self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (3,9,1))
@@ -94,17 +104,42 @@ class ManualReloadCycleTests(unittest.TestCase):
             self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (4,8,2))
 
     def test_final_round_closes_without_reopening_the_body(self):
-        for full in (False, True):
-            vm = self.make()
-            if full: vm.ammo = vm.capacity-1
-            else: vm.counter['amount'] = vm.reserve = 1
-            started = vm.started
-            self.assertTrue(vm.call('cojvrInsertManualRound'))
-            self.assertEqual(vm.started, started)
-            self.assertEqual(vm.player['cojvrReloadProbeStatus'], 3)
-            self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
-            self.assertFalse(vm.call('cojvrInsertManualRound'))
-            self.assertEqual(vm.events, 1)
+        for weapon in WINCHESTER_CLASSES:
+            for full in (False, True):
+                with self.subTest(weapon=weapon, full=full):
+                    vm = self.make(weapon)
+                    if full: vm.ammo = vm.capacity-1
+                    else: vm.counter['amount'] = vm.reserve = 1
+                    started = vm.started
+                    self.assertTrue(vm.call('cojvrInsertManualRound'))
+                    self.assertEqual(vm.started, started)
+                    self.assertEqual(vm.player['cojvrReloadProbeStatus'], 3)
+                    self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+                    self.assertFalse(vm.call('cojvrInsertManualRound'))
+                    self.assertEqual(vm.events, 1)
+
+    def test_winchester_ten_sequential_units_close_natively_without_duplicates(self):
+        for weapon in WINCHESTER_CLASSES:
+            vm = self.make(weapon)
+            for number in range(1, 11):
+                with self.subTest(weapon=weapon, round=number):
+                    self.assertTrue(vm.call('cojvrInsertManualRound'))
+                    self.assertEqual((vm.ammo, vm.counter['amount'], vm.events),
+                                     (2 + number, 10 - number, number))
+                    self.assertFalse(vm.call('cojvrInsertManualRound'),
+                                     'Each native body completion grants at most one cartridge')
+                    if number < 10:
+                        self.assertEqual(vm.machine['m_sCurrentState']['id'], 21)
+                        self.assertEqual(vm.started, number + 1)
+                        vm.update(vm.machine['m_fCurrentTime'] + .4)
+                        self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
+                    else:
+                        self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+                        self.assertEqual(vm.started, 10)
+            with self.subTest(weapon=weapon, phase='after_close'):
+                vm.update(vm.machine['m_fCurrentTime'] + .4)
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (12, 0, 10))
+                self.assertIsNone(vm.player['cojvrReloadProbeWeapon'])
 
     def test_fault_finally_clears_scope_and_prevents_retry_or_renewal(self):
         for point in ('loaded','reserve','event','body'):
@@ -158,6 +193,123 @@ class ManualReloadCycleTests(unittest.TestCase):
             self.assertTrue(vm.player['cojvrManualCycleFaulted'])
             if change=='false_success':
                 self.assertEqual(vm.events,0,'Native Boolean without a unit delta must not publish an event')
+
+    def test_winchester_remaining_query_cannot_approve_a_changed_counter(self):
+        # The native remaining-ammo query runs after the transfer witness. Its
+        # callback can invalidate the reserve witness before the body reentry.
+        for weapon in WINCHESTER_CLASSES:
+            with self.subTest(weapon=weapon):
+                vm = self.make(weapon)
+                def mutate_remaining():
+                    vm.on_remaining = None
+                    vm.counter['amount'] -= 1
+                vm.on_remaining = mutate_remaining
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (3, 8, 1))
+                self.assertEqual(vm.started, 1, 'Inconsistent reserve must not restart the body')
+                self.assertTrue(vm.player['cojvrManualCycleFaulted'])
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+
+    def test_winchester_self_clear_owner_loss_never_falls_through_to_native_reload(self):
+        # During the synchronous SetCurrentState(21) -> Clear -> completion,
+        # even a canceled probe must not run the original ammo callback again.
+        for weapon in WINCHESTER_CLASSES:
+            with self.subTest(weapon=weapon):
+                vm = self.make(weapon)
+                original_native = vm.native
+                invalidated = []
+
+                def during_self_clear(owner, name, args):
+                    if (name == 'GetActualWeapon' and
+                            vm.player.get('cojvrManualCycleSelfClear') and not invalidated):
+                        invalidated.append(True)
+                        vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [0])
+                    return original_native(owner, name, args)
+
+                vm.native = during_self_clear
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+                self.assertEqual(invalidated, [True])
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (3, 9, 1),
+                                 'Self Clear callback must not invoke the native transfer twice')
+                self.assertTrue(vm.player['cojvrManualCycleFaulted'])
+                self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+                vm.update(1.0)
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (3, 9, 1),
+                                 'An abandoned cycle must not reload natively on the next update')
+
+    def test_winchester_probe_loss_after_event_closes_existing_body_without_extra_round(self):
+        # Probe ownership can disappear after a confirmed native transfer but
+        # before the body is restarted. The outstanding old body still must
+        # not complete under the unguarded original reload callback.
+        for weapon in WINCHESTER_CLASSES:
+            with self.subTest(weapon=weapon):
+                vm = self.make(weapon)
+                vm.on_event = lambda: vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe',
+                                             '(I)V', vm.player, [0])
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+                self.assertTrue(vm.player['cojvrManualCycleFaulted'])
+                self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+                vm.update(1.0)
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (3, 9, 1))
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+
+    def test_winchester_body_start_side_effect_can_abort_without_later_reload(self):
+        for weapon in WINCHESTER_CLASSES:
+            with self.subTest(weapon=weapon):
+                vm = self.make(weapon)
+                vm.on_body = lambda: vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe',
+                                            '(I)V', vm.player, [0])
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+                self.assertTrue(vm.player['cojvrManualCycleFaulted'])
+                self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+                vm.update(1.0)
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (3, 9, 1))
+
+    def test_winchester_body_cycle_passes_shipped_java_verifier(self):
+        # The interpreter above exercises callbacks but does not verify JVM
+        # operand stacks, branch joins or declared max_locals.
+        from indexed_manual_reload import ARCHIVE, original_archive
+        from clip_manual_reload import clip_verifier_class
+        java = ARCHIVE.parent / 'jre/bin/java.exe'
+        if not java.is_file():
+            self.skipTest('Shipped Java 1.4 runtime required')
+        original_bytes = original_archive()
+        with zipfile.ZipFile(io.BytesIO(original_bytes)) as source:
+            with tempfile.TemporaryDirectory(prefix='cojvr-winchester-verify-') as directory:
+                root = Path(directory)
+                (root / 'VerifyManualClip.class').write_bytes(clip_verifier_class())
+
+                def build_pak(name, replacement, machine):
+                    output = root / name
+                    with zipfile.ZipFile(output, 'w') as artifact:
+                        for info in source.infolist():
+                            artifact.writestr(copy.copy(info), {
+                                'ArmedPlayerBeing.class': replacement,
+                                'StateMashine.class': machine,
+                            }.get(info.filename, source.read(info.filename)))
+                    return output
+
+                def verify(archive):
+                    return subprocess.run([
+                        str(java), '-Xverify:all', '-cp',
+                        str(root) + ';' + str(archive), 'VerifyManualClip',
+                    ], capture_output=True, text=True, timeout=30)
+
+                for weapon in WINCHESTER_CLASSES:
+                    with self.subTest(weapon=weapon):
+                        player, machine = patch_offline_classes(
+                            source.read('ArmedPlayerBeing.class'), source.read('StateMashine.class'),
+                            weapon, cycle_animation=True)
+                        good = verify(build_pak(weapon + '-lab.pak', player, machine))
+                        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+                        _, methods = parse_class(player)
+                        body = next(m.code for m in methods if (m.name, m.descriptor) ==
+                                    ('cojvrInsertManualRound', '()Z'))
+                        self.assertEqual(player.count(body), 1)
+                        corrupt = player.replace(body, b'\xfe' + body[1:], 1)
+                        bad = verify(build_pak('invalid-' + weapon + '.pak', corrupt, machine))
+                        self.assertNotEqual(bad.returncode, 0)
+                        self.assertIn('VerifyError', bad.stdout + bad.stderr)
 
     def test_parameter_callback_cancellation_or_desired_state_change_prevents_transfer(self):
         for change in ('cancel', 'desired_state'):

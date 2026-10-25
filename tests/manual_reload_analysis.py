@@ -582,6 +582,32 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertFalse(result[1]['manual_admitted'])
         self.assertFalse(report['headset_validated'])
 
+    def test_winchester_scope_observations_keep_separate_class_and_deltas(self):
+        scoped = 'WeaponRifleWinchesterScope'
+        report = self.evidence([
+            winchester_sample(weapon_class=scoped),
+            winchester_sample(2, weapon_class=scoped, ammo_readback=4,
+                              ammo_readback_delta=1, rifle_reserve=13, reserve_delta=-1),
+            winchester_end(2, weapon_class=scoped),
+            winchester_sample(weapon_class='WeaponRifleWinchester',
+                              frame_sequence=15, sample_us=200000),
+        ])
+        rows = report['winchester_reload_observations']
+        self.assertEqual(rows[1]['weapon_class'], scoped)
+        self.assertEqual(rows[1]['ammo_readback_delta'], 1)
+        self.assertEqual(rows[2]['weapon_class'], scoped)
+        self.assertEqual(rows[3]['weapon_class'], 'WeaponRifleWinchester')
+        self.assertEqual(rows[3]['sample_index'], 1)
+        self.assertFalse(report['headset_validated'])
+        for events in (
+            [winchester_sample(), winchester_sample(2, weapon_class=scoped)],
+            [winchester_sample(weapon_class=scoped), winchester_end()],
+            [winchester_sample(weapon_class=scoped), winchester_end(weapon_class='WeaponRifleWinchester')],
+            [winchester_sample(weapon_class='WeaponRifleWinchesterChild')],
+        ):
+            with self.subTest(events=events), self.assertRaises(ValueError):
+                self.evidence(events)
+
     def test_winchester_window_end_delimits_history_and_restarts_at_one(self):
         for reason in ('expired', 'exhausted', 'idle_limit', 'retriggered',
                        'owner_changed', 'native_reload_started', 'context_changed',
@@ -648,7 +674,7 @@ class ReloadAnalysisTests(unittest.TestCase):
                 self.evidence([pose(1,'(1,2,3)'), altered])
 
     def test_winchester_rejects_inconsistent_native_ownership_clocks_and_claims(self):
-        invalid = (dict(weapon_class='WeaponRifleWinchesterScope'),
+        invalid = (dict(weapon_class='WeaponRifleWinchesterChild'),
                    dict(manual_admission='true'), dict(source='post_overlay'),
                    dict(player_id=0xffffffff), dict(weapon_id=0),
                    dict(weapons_right='0,0,0'), dict(two_handed_left='2,0,0'),

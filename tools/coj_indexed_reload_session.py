@@ -132,22 +132,140 @@ def build_indexed_session_lab(original_archive:bytes,weapon:str)->tuple[bytes,by
     c.emit(0x2a,0x2c,0x1d,0x1b)
     c.ref(0xb6,ref('cojvrLabInsertIndexedUnit','(LWeapon;II)Z'));c.emit(0x36,7)
     read(c,fault);c.branch(0x9a,'not_ready')
+
+    # Keep the complete committed vector and original counter objects through
+    # GetWeaponMaxAmmoToReload and the original 21->22 closing callbacks.
+    # Locals 8/9: loaded; 10..12: reserves; 13..15: counters; 16..18: maxima.
+    # This also covers a no-transfer close when the weapon/reserve is exhausted.
+    counters=('Rifle','Shotgun','Pistol')
+    for index in range(2):
+        c.emit(0x2c,index+3)
+        c.ref(0xb6,e.ref('Weapon','GetAmmoCount','(I)I'))
+        c.emit(0x36,8+index)
+    for pool,suffix in enumerate(counters):
+        c.emit(0x2a,pool+3)
+        c.ref(0xb6,e.ref('PawnArmed','FindAmmoCounter','(I)LInventoryAmmoCounter;'))
+        c.emit(0x3a,13+pool)
+        c.emit(0x19,13+pool);c.branch(0xc6,'fault')
+        c.emit(0x19,13+pool)
+        c.ref(0xb4,e.ref('InventoryAmmoCounter','cOwner','LPawnInventory;',9))
+        c.emit(0x2a);c.branch(0xa6,'fault')
+        c.emit(0x19,13+pool)
+        c.ref(0xb6,e.ref('InventoryAmmoCounter','GetAmount','()I'))
+        c.emit(0x36,10+pool)
+        c.emit(0x2a);c.ref(0xb4,e.ref('PawnInventory','nAmmo'+suffix,'I',9))
+        c.emit(0x15,10+pool);c.branch(0xa0,'fault')
+        c.emit(0x19,13+pool)
+        c.ref(0xb4,e.ref('InventoryAmmoCounter','nMaxAmount','I',9))
+        c.emit(0x36,16+pool)
+
+    verification=0
+    def same_vector(failure):
+        nonlocal verification
+        verification+=1
+        suffix=str(verification)
+        # Original getters own the index-specific double-ammo storage. Keep
+        # original counter identity, typed backing fields and owner in sync.
+        for index in range(2):
+            c.emit(0x2c,index+3)
+            c.ref(0xb6,e.ref('Weapon','GetAmmoCount','(I)I'))
+            c.emit(0x15,8+index);c.branch(0xa0,failure)
+        for pool,kind in enumerate(counters):
+            c.emit(0x2a,pool+3)
+            c.ref(0xb6,e.ref('PawnArmed','FindAmmoCounter','(I)LInventoryAmmoCounter;'))
+            c.emit(0x19,13+pool);c.branch(0xa6,failure)
+            c.emit(0x19,13+pool)
+            c.ref(0xb4,e.ref('InventoryAmmoCounter','cOwner','LPawnInventory;',9))
+            c.emit(0x2a);c.branch(0xa6,failure)
+            c.emit(0x19,13+pool)
+            c.ref(0xb6,e.ref('InventoryAmmoCounter','GetAmount','()I'))
+            c.emit(0x15,10+pool);c.branch(0xa0,failure)
+            c.emit(0x2a);c.ref(0xb4,e.ref('PawnInventory','nAmmo'+kind,'I',9))
+            c.emit(0x15,10+pool);c.branch(0xa0,failure)
+        # A second count pass comes after every inventory callback.
+        for index in range(2):
+            c.emit(0x2c,index+3)
+            c.ref(0xb6,e.ref('Weapon','GetAmmoCount','(I)I'))
+            c.emit(0x15,8+index);c.branch(0xa0,failure)
+        # Independent backing-field reads are last: a virtual getter may have
+        # modified an unrelated count after producing its return value.
+        c.emit(0x2c);c.ref(0xc0,e.cls('WeaponFireAmmo'))
+        c.ref(0xb4,e.ref('WeaponFireAmmo','m_iAmmo0Count','I',9))
+        c.emit(0x15,8);c.branch(0xa0,failure)
+        c.emit(0x2c);c.ref(0xc1,e.cls('WeaponRifleDoubleAmmo'))
+        c.branch(0x99,'pistol_backing_'+suffix)
+        c.emit(0x2c);c.ref(0xc0,e.cls('WeaponRifleDoubleAmmo'))
+        c.ref(0xb4,e.ref('WeaponRifleDoubleAmmo','m_iAmmo1Count','I',9))
+        c.branch(0xa7,'second_backing_'+suffix)
+        c.label('pistol_backing_'+suffix)
+        c.emit(0x2c);c.ref(0xc0,e.cls('WeaponPistolDoubleAmmo'))
+        c.ref(0xb4,e.ref('WeaponPistolDoubleAmmo','m_iAmmo1Count','I',9))
+        c.label('second_backing_'+suffix)
+        c.emit(0x15,9);c.branch(0xa0,failure)
+        for pool,kind in enumerate(counters):
+            c.emit(0x2a);c.ref(0xb4,e.ref('PawnInventory','nAmmo'+kind,'I',9))
+            c.emit(0x15,10+pool);c.branch(0xa0,failure)
+            c.emit(0x19,13+pool)
+            c.ref(0xb4,e.ref('InventoryAmmoCounter','nMaxAmount','I',9))
+            c.emit(0x15,16+pool);c.branch(0xa0,failure)
+        c.emit(0x2c)
+        c.ref(0xb4,e.ref('Weapon','cOwner','LPawnInventory;',9))
+        c.emit(0x2a);c.branch(0xa6,failure)
+
+    def closed_ticket(failure):
+        for name,desc,slot in (('Weapon','LWeapon;',2),('Machine','LPlayerStateMashine;',4),
+                               ('Hand','I',3)):
+            probe(c,name,desc)
+            c.emit(0x15 if name=='Hand' else 0x19,slot)
+            c.branch(0xa0 if name=='Hand' else 0xa6,failure)
+        probe(c,'Status','I');c.emit(0x06);c.branch(0xa0,failure)
+        probe(c,'Cancelled','Z');c.branch(0x99,failure)
+        c.emit(0x19,4)
+        c.ref(0xb4,e.ref('StateMashine','cojvrReloadProbeOwner','LArmedPlayerBeing;',9))
+        c.emit(0x2a);c.branch(0xa6,failure)
+        c.emit(0x19,4)
+        c.ref(0xb4,e.ref('StateMashine','m_sCurrentState','LBaseState;',9))
+        c.branch(0xc6,failure)
+        c.emit(0x19,4)
+        c.ref(0xb4,e.ref('StateMashine','m_sCurrentState','LBaseState;',9))
+        c.ref(0xc0,e.cls('PlayerState'))
+        c.ref(0xb4,e.ref('PlayerState','m_iStateID','I',9))
+        c.emit(0x10,22);c.branch(0xa0,failure)
+        c.emit(0x2a);c.ref(0xb4,e.ref('ArmedPlayerBeing',
+            'm_aHandStateMashine','[LArmedPlayerBeing$HandStateMashine;',9))
+        c.emit(0x1d,0x32)
+        c.ref(0xb4,e.ref('ArmedPlayerBeing$HandStateMashine',
+            'm_cStateMashine','LPlayerStateMashine;',9))
+        c.emit(0x19,4);c.branch(0xa6,failure)
+        for state in ('m_cActualState','m_cDesiredState'):
+            c.emit(0x2a);c.ref(0xb4,e.ref('ArmedPlayerBeing',
+                'm_aHandStateMashine','[LArmedPlayerBeing$HandStateMashine;',9))
+            c.emit(0x1d,0x32)
+            c.ref(0xb4,e.ref('ArmedPlayerBeing$HandStateMashine',state,
+                             'LArmedPlayerBeing$HandState;',9))
+            c.ref(0xb4,e.ref('ArmedPlayerBeing$HandState','m_cWeapon','LWeapon;',9))
+            c.emit(0x2c);c.branch(0xa6,failure)
+        c.emit(0x2a);c.ref(0xb4,e.ref('ArmedPlayerBeing','ActiveWeapon','[LWeapon;',9))
+        c.emit(0x1d,0x32,0x2c);c.branch(0xa6,failure)
+        read(c,fault);c.branch(0x9a,failure)
+
     c.emit(0x2a,0x1d);c.ref(0xb6,ref('GetWeaponMaxAmmoToReload','(I)I'));c.emit(0x36,5)
     c.emit(0x2a,0x2c,0x1d,0x19,4,0x03)
     c.ref(0xb6,ref('cojvrIndexedOwnerMatches','(LWeapon;ILPlayerStateMashine;I)Z'));c.branch(0x99,'fault')
+    same_vector('fault')
+    _emit_retained_wait(e,c,2,3,4,'fault')
     c.emit(0x15,5);c.branch(0x9d,'accepted')
     c.emit(0x2a,0x2c,0x1d,0x19,4)
     c.ref(0xb6,ref('cojvrCloseIndexedSession','(LWeapon;ILPlayerStateMashine;)Z'));c.branch(0x99,'fault')
-    for name,desc,local in (('Weapon','LWeapon;',2),('Hand','I',3),('Machine','LPlayerStateMashine;',4)):
-        probe(c,name,desc);c.emit(0x15 if name=='Hand' else 0x19,local)
-        c.branch(0xa0 if name=='Hand' else 0xa6,'fault')
-    probe(c,'Status','I');c.emit(0x06);c.branch(0xa0,'fault')
+    closed_ticket('fault')
+    same_vector('fault')
+    closed_ticket('fault')
     c.label('accepted');c.label('try_end');cleanup(c);c.emit(0x15,7,0xac)
     c.label('fault');put(c,fault,True)
     c.label('not_ready');cleanup(c);c.emit(0x03,0xac)
     c.label('catch');c.emit(0x3a,6);put(c,fault,True);cleanup(c);c.emit(0x19,6,0xbf)
     c.label('reject');c.emit(0x03,0xac)
-    e.helper('cojvrLabInsertWaitingIndexedUnit','(I)Z',c.finish(),8,
+    e.helper('cojvrLabInsertWaitingIndexedUnit','(I)Z',c.finish(),19,
         exception_table=((c.labels['try'],c.labels['try_end'],c.labels['catch'],0),))
     def heartbeat(code):
         c=Code()

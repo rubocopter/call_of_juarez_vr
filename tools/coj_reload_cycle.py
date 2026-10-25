@@ -11,12 +11,13 @@ from patch_coj_weapon_consumers import Code
 
 
 def _add_offline_cycle(player: bytes, weapon_class: str) -> bytes:
-    capacity = {'WeaponRifleWinchester': 12, 'WeaponPistolVolcanic': 8}.get(weapon_class)
+    capacity = {'WeaponRifleWinchester': 12, 'WeaponRifleWinchesterScope': 12,
+                'WeaponPistolVolcanic': 8}.get(weapon_class)
     if capacity is None:
         raise ValueError('No qualified offline body-cycle profile')
     e = ClassEdit(player)
     f = {name: e.field('cojvrManualCycle'+name, desc) for name, desc in (
-        ('Active','Z'),('SelfClear','Z'),('Faulted','Z'),
+        ('Active','Z'),('SelfClear','Z'),('SawClear','Z'),('Faulted','Z'),
         ('Weapon','LWeapon;'),('Machine','LPlayerStateMashine;'),('Hand','I'))}
     def method(name, desc): return e.ref('ArmedPlayerBeing', name, desc)
     def probe(name, desc): return e.ref('ArmedPlayerBeing', 'cojvrReloadProbe'+name, desc,9)
@@ -25,7 +26,7 @@ def _add_offline_cycle(player: bytes, weapon_class: str) -> bytes:
     def put_bool(c,name,value): c.emit(0x2a,0x04 if value else 0x03);c.ref(0xb5,f[name])
     def reject(c): c.label('reject');c.emit(0x03,0xac)
     def clear(c):
-        put_bool(c,'SelfClear',False);put_bool(c,'Active',False)
+        put_bool(c,'SelfClear',False);put_bool(c,'SawClear',False);put_bool(c,'Active',False)
         for name in ('Weapon','Machine'): c.emit(0x2a,0x01);c.ref(0xb5,f[name])
     def hand_call(c,name,desc):
         c.emit(0x2a);read(c,'Hand');c.ref(0xb6,method(name,desc))
@@ -61,16 +62,39 @@ def _add_offline_cycle(player: bytes, weapon_class: str) -> bytes:
     c.emit(0x04,0xac);reject(c)
     e.helper('cojvrManualCycleOwnerMatches','()Z',c.finish(),1)
 
-    # Consume exactly the expected self-Clear. Ordinary close, other hand/state,
-    # canceled/foreign owners and callbacks outside this scope remain native.
+    # A synchronous self-Clear must never fall through to the native reload
+    # callback, even if a virtual getter cancels the probe during Clear. Keep
+    # the veto until SetCurrentState returns so nested callbacks cannot consume
+    # it prematurely; the caller checks ownership and the witnessed completion.
+    # Ordinary close and other hand/state callbacks remain native.
     c=Code();read(c,'SelfClear');c.branch(0x99,'reject')
     c.emit(0x1b);read(c,'Hand');c.branch(0xa0,'reject')
     c.emit(0x1c,0x10,21);c.branch(0xa0,'reject')
-    c.emit(0x2a);c.ref(0xb6,owner_matches);c.branch(0x99,'reject')
-    c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'reject')
-    p_read(c,'Status','I');c.emit(0x05);c.branch(0xa0,'reject')
-    put_bool(c,'SelfClear',False);c.emit(0x04,0xac);reject(c)
+    put_bool(c,'SawClear',True);c.emit(0x04,0xac);reject(c)
     e.helper('cojvrManualCycleSuppressCompletion','(II)Z',c.finish(),3)
+
+    # On a failed transaction after native entry, close its still-owned body21
+    # even if the probe disappeared before the attempted body restart. Keep
+    # the scoped completion veto during close: orphaned body21 would otherwise
+    # finish on a later Update and transfer another native round.
+    c=Code();read(c,'Active');c.branch(0x99,'done')
+    read(c,'Machine');c.branch(0xc6,'done')
+    read(c,'Machine');hand_call(c,'GetHandStateMashine','(I)LPlayerStateMashine;');c.branch(0xa6,'done')
+    read(c,'Machine');c.ref(0xb4,e.ref('StateMashine','cojvrReloadProbeOwner','LArmedPlayerBeing;',9))
+    c.emit(0x4c,0x2b);c.branch(0xc6,'free')
+    c.emit(0x2b,0x2a);c.branch(0xa6,'done')
+    c.label('free')
+    for name in ('GetActualWeapon','GetActiveWeapon','GetDesiredWeapon'):
+        hand_call(c,name,'(I)LWeapon;');read(c,'Weapon');c.branch(0xa6,'done')
+    hand_call(c,'GetHandStateMashineState','(I)I');c.emit(0x10,21);c.branch(0xa0,'done')
+    read(c,'Machine');c.emit(0x10,22)
+    c.ref(0xb6,e.ref('PlayerStateMashine','FindStateByID','(I)LPlayerState;'))
+    c.emit(0x4c,0x2b);c.branch(0xc6,'done')
+    put_bool(c,'SelfClear',True)
+    read(c,'Machine');c.emit(0x2b)
+    c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
+    c.label('done');c.emit(0xb1)
+    e.helper('cojvrManualCycleAbortBody','()V',c.finish(),2)
     def completion(code):
         c=Code();c.emit(0x2a,0x1b,0x1c)
         c.ref(0xb6,method('cojvrManualCycleSuppressCompletion','(II)Z'))
@@ -87,7 +111,8 @@ def _add_offline_cycle(player: bytes, weapon_class: str) -> bytes:
     e.changes[('cojvrKeepManualReloadAlive','()Z')]=heartbeat
 
     # Locals: 1 weapon, 2 machine, 3 counter, 4 loaded, 5 reserve,
-    # 6 capacity, 7 ammo type, 8 saved hand, 9 caught Throwable.
+    # 6 capacity, 7 ammo type, 8 saved hand, 9 caught Throwable,
+    # 10 native remaining result retained across readback.
     c=Code()
     for name in ('Active','Faulted'):read(c,name);c.branch(0x9a,'reject')
     p_read(c,'Weapon','LWeapon;');c.emit(0x4c)
@@ -131,17 +156,22 @@ def _add_offline_cycle(player: bytes, weapon_class: str) -> bytes:
     c.ref(0xb2,singleton);c.ref(0xb2,e.ref('EnumGameEvent','_WEAPON_RELOADED','I',9))
     c.ref(0xb6,e.ref('GameMode','OnGameEvent','(I)V'))
     c.label('after_event');readback()
-    hand_call(c,'GetWeaponMaxAmmoToReload','(I)I');c.branch(0x9d,'still_waiting')
+    # A native remaining query may trigger callbacks after the first witness.
+    # Save its result so a failed readback reaches fault with an empty stack.
+    hand_call(c,'GetWeaponMaxAmmoToReload','(I)I');c.emit(0x36,10)
+    readback()
+    c.emit(0x15,10);c.branch(0x9d,'still_waiting')
     c.emit(0x2a);c.ref(0xb6,method('cojvrCancelReloadProbe','()V'))
     c.emit(0x2a);c.ref(0xb6,owner_matches);c.branch(0x99,'fault')
     c.label('still_waiting')
     p_read(c,'Status','I');c.emit(0x06);c.branch(0x9f,'closing')
     c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'fault')
     p_read(c,'Status','I');c.emit(0x05);c.branch(0xa0,'fault')
-    put_bool(c,'SelfClear',True)
+    put_bool(c,'SawClear',False);put_bool(c,'SelfClear',True)
     c.emit(0x2c,0x2c);c.ref(0xb6,e.ref('StateMashine','GetCurrentState','()LBaseState;'))
     c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
-    read(c,'SelfClear');c.branch(0x9a,'fault')
+    read(c,'SawClear');c.branch(0x99,'fault')
+    put_bool(c,'SelfClear',False)
     readback()
     c.emit(0x2a);c.ref(0xb6,valid);c.branch(0x99,'fault')
     # New body completion must reach the ordinary native veto before another
@@ -152,13 +182,17 @@ def _add_offline_cycle(player: bytes, weapon_class: str) -> bytes:
     c.label('closing')
     p_read(c,'Cancelled','Z');c.branch(0x99,'fault')
     hand_call(c,'GetHandStateMashineState','(I)I');c.emit(0x10,22);c.branch(0xa0,'fault')
-    hand_call(c,'GetWeaponMaxAmmoToReload','(I)I');c.branch(0x9d,'fault')
+    hand_call(c,'GetWeaponMaxAmmoToReload','(I)I');c.emit(0x36,10)
+    readback()
+    c.emit(0x15,10);c.branch(0x9d,'fault')
     c.label('accepted');c.label('try_end');clear(c);c.emit(0x04,0xac)
-    c.label('fault');put_bool(c,'Faulted',True);clear(c);c.emit(0x03,0xac)
+    c.label('fault');put_bool(c,'Faulted',True)
+    c.emit(0x2a);c.ref(0xb6,method('cojvrManualCycleAbortBody','()V'))
+    clear(c);c.emit(0x03,0xac)
     c.label('not_ready');clear(c);c.emit(0x03,0xac)
     c.label('catch');c.emit(0x3a,9);put_bool(c,'Faulted',True);clear(c);c.emit(0x19,9,0xbf)
     reject(c)
     code=c.finish()
-    e.helper('cojvrInsertManualRound','()Z',code,10,
+    e.helper('cojvrInsertManualRound','()Z',code,11,
              exception_table=((c.labels['try'],c.labels['try_end'],c.labels['catch'],0),))
     return e.finish()

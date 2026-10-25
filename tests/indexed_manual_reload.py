@@ -137,6 +137,12 @@ class IndexedVM:
                         current = stack[-1]['class']
                         while current and current != target: current = self.parents.get(current)
                         if current is None: raise JVMThrown({'class': 'ClassCastException'})
+                elif op == 0xc1:
+                    target = pool.describe(int.from_bytes(code[pc:pc+2], 'big')); pc += 2
+                    instance = stack.pop()
+                    current = instance['class'] if instance is not None else None
+                    while current and current != target: current = self.parents.get(current)
+                    stack.append(int(current == target))
                 elif op in (0xb2, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8):
                     entry = pool.get(int.from_bytes(code[pc:pc+2], 'big')); pc += 2
                     declared = pool.describe(entry[1]); nt = pool.get(entry[2])

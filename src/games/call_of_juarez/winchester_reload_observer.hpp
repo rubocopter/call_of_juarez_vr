@@ -1,5 +1,6 @@
 #pragma once
 #include "games/call_of_juarez/long_gun_observer.hpp"
+#include "games/call_of_juarez/winchester_reload_probe.hpp"
 
 namespace cojvr::games::call_of_juarez {
 // Passive exact Winchester observation. Phase numbers are deliberately raw:
@@ -8,13 +9,14 @@ namespace cojvr::games::call_of_juarez {
 struct CoJWinchesterReloadSnapshot {
     bool valid=false,pose_valid=false,native_reloading=false,carrying=false,dead=false;
     std::uint32_t player_id=0,weapon_id=0;
+    CoJWinchesterWeaponClass weapon_class=CoJWinchesterWeaponClass::unknown;
     // Hand 0/right, 1/left; state 0/current,1/destination,2/actual,3/desired.
     std::array<std::array<int,4>,2> states{};
     // For each hand, active/actual/desired weapon occupancy and two-hand flags.
     std::array<std::array<bool,3>,2> weapon_present{},two_handed{};
     std::array<int,2> animation_id{};
     std::array<float,2> animation_time{},animation_duration{};
-    // Exact Winchester -> WeaponRifle -> WeaponFireAmmo.GetAmmoCount(0) reads
+    // Exact Winchester family -> WeaponRifle -> WeaponFireAmmo.GetAmmoCount(0) reads
     // m_iAmmo0Count. A sparse readback alone cannot prove a native transfer or
     // physical chamber occupancy.
     int ammo_readback=0,rifle_reserve=0;
@@ -81,13 +83,20 @@ inline bool ReadCoJWinchesterReload(void* env,void* player,CoJWinchesterReloadSn
     void* weapon=active.value?active.value:actual.value?actual.value:desired.value;
     if(!weapon)return false;
     auto weapon_class=r.Class(weapon);if(!r.ok)return false;
-    auto exact=r.FindClass("WeaponRifleWinchester");
-    if(!r.ok||!r.Equal(weapon_class,exact))return false;
+    auto normal=r.FindClass("WeaponRifleWinchester");
+    if(!r.ok)return false;
+    auto scoped=r.FindClass("WeaponRifleWinchesterScope");
+    if(!r.ok)return false;
+    const bool ordinary_match=r.Equal(weapon_class,normal);
+    if(!r.ok)return false;
+    const bool scoped_match=!ordinary_match&&r.Equal(weapon_class,scoped);
+    if(!r.ok||(!ordinary_match&&!scoped_match))return false;
     auto owner_field=r.Field(weapon_class,"cOwner","LPawnInventory;");
     if(!r.ok)return false;
     auto owner=r.ObjectField(weapon,owner_field);
     if(!r.ok||!owner.value||!r.Equal(owner,player))return false;
     CoJWinchesterReloadSnapshot value{};
+    value.weapon_class=ordinary_match?CoJWinchesterWeaponClass::ordinary:CoJWinchesterWeaponClass::scoped;
     if(!Owner(r,player,weapon,methods,value))return false;
     auto player_id=r.Method(player_class,"GetThisID","()I");
     auto weapon_id=r.Method(weapon_class,"GetThisID","()I");
@@ -152,7 +161,7 @@ inline bool ReadCoJWinchesterReload(void* env,void* player,CoJWinchesterReloadSn
     auto owner_after=r.ObjectField(weapon,owner_field);
     if(!r.ok||!owner_after.value||!r.Equal(owner_after,player))return false;
     auto class_after=r.Class(weapon);
-    if(!r.ok||!r.Equal(class_after,exact))return false;
+    if(!r.ok||!r.Equal(class_after,weapon_class))return false;
     value.valid=true;out=value;return true;
 }
 } // namespace cojvr::games::call_of_juarez

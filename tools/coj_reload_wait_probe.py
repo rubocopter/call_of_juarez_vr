@@ -101,15 +101,19 @@ class ClassEdit:
                 self.data[self.fields_at+2:self.fields_end] + self.fields + methods + self.data[r.stream.tell():])
 
 
-def patch_probe_classes(original_player, original_machine, *, _offline_weapon=None, _offline_indexed=None):
+def patch_probe_classes(original_player, original_machine, *, _offline_weapon=None, _offline_indexed=None,
+                        _offline_clip=None):
     # patch_class owns the original ArmedPlayerBeing hash check. Never augment
     # unknown or already modified input. The second class is checked before any
     # output is created by the archive patcher.
     if hashlib.sha256(original_machine).hexdigest() != STATE_SHA256:
         raise ValueError('Unknown StateMashine.class SHA-256; no mutation')
-    if _offline_indexed is not None:
-        if _offline_weapon is not None:
-            raise ValueError('Select one exact offline reload family')
+    if sum(x is not None for x in (_offline_weapon, _offline_indexed, _offline_clip)) > 1:
+        raise ValueError('Select one exact offline reload family')
+    if _offline_clip is not None:
+        from coj_clip_reload import _patch_clip_player
+        patched_player = _patch_clip_player(original_player, _offline_clip)
+    elif _offline_indexed is not None:
         from coj_indexed_reload_session import _patch_indexed_player
         patched_player = _patch_indexed_player(original_player, _offline_indexed)
     elif _offline_weapon is None:

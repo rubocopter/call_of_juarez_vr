@@ -691,6 +691,9 @@ def winchester_reload_observations(events):
             continue
         if e['result'] == 'window_end':
             reason = f.get('reason')
+            # Older schema-1 window ends did not label the rifle class: they
+            # could only have been produced by the ordinary Winchester probe.
+            weapon_class = f.get('weapon_class', 'WeaponRifleWinchester')
             identity = tuple(integer(f, key) for key in (
                 'player_generation', 'native_context', 'weapon_id'))
             stamp, last_stamp, index = (integer(f, key) for key in (
@@ -699,6 +702,7 @@ def winchester_reload_observations(events):
                     'expired', 'exhausted', 'idle_limit', 'retriggered',
                     'owner_changed', 'native_reload_started', 'context_changed',
                     'clock_reset', 'disabled') or not previous or
+                    weapon_class != previous['weapon_class'] or
                     identity != (previous['identity'][0], previous['identity'][1],
                                  previous['identity'][3]) or
                     index != previous['index'] or last_stamp != previous['stamp'] or
@@ -707,14 +711,17 @@ def winchester_reload_observations(events):
                     (reason == 'idle_limit' and index != 4)):
                 raise ValueError('Invalid Winchester window end or sample history')
             rows.append(dict(line=e['line'], frame=frame, status='window_end',
-                             reason=reason, sample_index=index, sample_us=stamp,
+                             weapon_class=weapon_class, reason=reason,
+                             sample_index=index, sample_us=stamp,
                              last_sample_us=last_stamp, owner=identity,
                              manual_admitted=False, native_phase_qualified=False,
                              ammo_clip_qualified=False))
             previous, baseline = None, None
             continue
-        if e['result'] != 'observed' or any(f.get(key) != value for key, value in dict(
-                schema='1', weapon_class='WeaponRifleWinchester',
+        if e['result'] != 'observed' or f.get('weapon_class') not in (
+                'WeaponRifleWinchester', 'WeaponRifleWinchesterScope') or any(
+                f.get(key) != value for key, value in dict(
+                schema='1',
                 source='native_read_only', units='cm', phase='unclassified').items()):
             raise ValueError('Invalid Winchester observation schema')
         identity = tuple(integer(f, key) for key in (
@@ -755,6 +762,8 @@ def winchester_reload_observations(events):
         if last_observed and identity == last_observed['identity'] and (
                 stamp <= last_observed['stamp'] or frame <= last_observed['frame']):
             raise ValueError('Non-monotonic Winchester observation')
+        if previous and f['weapon_class'] != previous['weapon_class']:
+            raise ValueError('Winchester class changed without closing its history')
         if index == 1:
             if gap or ammo_delta or reserve_delta:
                 raise ValueError('Winchester initial sample retains stale deltas')
@@ -787,10 +796,11 @@ def winchester_reload_observations(events):
                      k in f for k in ('holder_element', 'support_element')):
             raise ValueError('Unqualified Winchester frame published')
         previous = dict(identity=identity, stamp=stamp, frame=frame, index=index,
-                        ammo=ammo, reserve=reserve)
+                        ammo=ammo, reserve=reserve, weapon_class=f['weapon_class'])
         last_observed = previous
         rows.append(dict(line=e['line'], frame=frame, status='observed',
-                         owner=identity, sample_index=index, sample_us=stamp,
+                         owner=identity, weapon_class=f['weapon_class'],
+                         sample_index=index, sample_us=stamp,
                          observed_gap_us=gap if index > 1 else None,
                          states_right=right, states_left=left,
                          weapon_slots=weapons, two_handed=flags, animation=animation,

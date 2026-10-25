@@ -2,12 +2,21 @@
 #include <cstdint>
 
 namespace cojvr::games::call_of_juarez {
+enum class CoJWinchesterWeaponClass : std::uint8_t {unknown,ordinary,scoped};
+inline constexpr const char* CoJWinchesterClassName(CoJWinchesterWeaponClass value) noexcept {
+    switch(value){
+        case CoJWinchesterWeaponClass::ordinary:return "WeaponRifleWinchester";
+        case CoJWinchesterWeaponClass::scoped:return "WeaponRifleWinchesterScope";
+        default:return nullptr;
+    }
+}
 struct CoJWinchesterProbeInput {
     std::uint64_t now_us=0,generation=0,context=0;
     bool square_down=false,fire_down=false;
 };
 struct CoJWinchesterProbeObservation {
     std::uint32_t weapon_id=0;
+    CoJWinchesterWeaponClass weapon_class=CoJWinchesterWeaponClass::unknown;
     bool native_reloading=false;
     int ammo_readback=0,rifle_reserve=0;
 };
@@ -16,6 +25,7 @@ struct CoJWinchesterProbeEnd {
     std::uint64_t generation=0,context=0,sample_us=0,last_sample_us=0;
     std::uint32_t weapon_id=0;
     unsigned sample_index=0;
+    CoJWinchesterWeaponClass weapon_class=CoJWinchesterWeaponClass::unknown;
 };
 struct CoJWinchesterProbeTick {bool poll=false;CoJWinchesterProbeEnd end{};};
 struct CoJWinchesterProbeSample {
@@ -57,13 +67,14 @@ public:
     CoJWinchesterProbeSample Record(bool read,const CoJWinchesterProbeObservation& v) noexcept {
         if(!pending_)return {};pending_=false;
         CoJWinchesterProbeSample out{};
-        if(!read||!v.weapon_id||v.weapon_id==0xffffffffu){
+        if(!read||!v.weapon_id||v.weapon_id==0xffffffffu||!CoJWinchesterClassName(v.weapon_class)){
             out.unavailable=weapon_!=0;
-            (void)Close("unavailable");weapon_=0;native_reloading_=false;
+            (void)Close("unavailable");weapon_=0;weapon_class_=CoJWinchesterWeaponClass::unknown;
+            native_reloading_=false;
             return out;
         }
-        if(weapon_!=v.weapon_id){
-            out.before=Close("owner_changed");weapon_=v.weapon_id;
+        if(weapon_!=v.weapon_id||weapon_class_!=v.weapon_class){
+            out.before=Close("owner_changed");weapon_=v.weapon_id;weapon_class_=v.weapon_class;
             native_reloading_=false;exhausted_=false;idle_=0;
             // Only this tick's intent may cross an equipment boundary.
             until_=intent_duration_?now_+intent_duration_:0;
@@ -91,7 +102,7 @@ public:
 private:
     CoJWinchesterProbeEnd Close(const char* reason) noexcept {
         CoJWinchesterProbeEnd end{};
-        if(samples_)end={reason,generation_,context_,now_,last_,weapon_,samples_};
+        if(samples_)end={reason,generation_,context_,now_,last_,weapon_,samples_,weapon_class_};
         samples_=0;last_=0;ammo_=reserve_=0;until_=0;
         return end;
     }
@@ -101,6 +112,7 @@ private:
     std::uint64_t generation_=0,context_=0,now_=0,attempt_=0,last_=0,until_=0;
     std::uint64_t intent_duration_=0;
     std::uint32_t weapon_=0;
+    CoJWinchesterWeaponClass weapon_class_=CoJWinchesterWeaponClass::unknown;
     unsigned samples_=0,idle_=0;
     int ammo_=0,reserve_=0;
     bool square_=false,fire_=false,pending_=false,native_reloading_=false,exhausted_=false;

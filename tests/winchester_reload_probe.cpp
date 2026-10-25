@@ -12,7 +12,7 @@ bool Reason(const CoJWinchesterProbeEnd& end,const char* reason){
 struct Fixture {
     CoJWinchesterReloadProbe probe;
     CoJWinchesterProbeInput input{1000000,7,5,false,false};
-    CoJWinchesterProbeObservation observed{42,false,5,20};
+    CoJWinchesterProbeObservation observed{42,CoJWinchesterWeaponClass::ordinary,false,5,20};
     CoJWinchesterProbeTick tick{};
     CoJWinchesterProbeSample Step(std::uint64_t advance=350000,bool read=true){
         input.now_us+=advance;tick=probe.Begin(input);
@@ -85,6 +85,28 @@ void HistoryAndLoss(){
     const auto end=f.probe.Reset();Need(Reason(end,"disabled"),"disable silently discarded an open window");
     Need(!f.probe.Reset().reason,"duplicate reset ended an already closed window");
 }
+void ExactClassHistory(){
+    Fixture f;
+    const auto first=f.Step();Need(first.emit&&first.sample_index==1,"ordinary Winchester first sample missing");
+    f.observed.weapon_class=CoJWinchesterWeaponClass::scoped;
+    f.observed.ammo_readback=2;
+    auto scoped=f.Step();
+    Need(Reason(scoped.before,"owner_changed")&&
+         scoped.before.weapon_class==CoJWinchesterWeaponClass::ordinary&&
+         scoped.before.weapon_id==42,"class change merged ordinary history");
+    Need(scoped.emit&&scoped.sample_index==1&&scoped.sample_gap_us==0&&
+         scoped.ammo_delta==0,"scoped observation inherited ordinary ammunition");
+    f.observed.ammo_readback=3;
+    scoped=f.Step();
+    Need(scoped.emit&&scoped.sample_index==2&&scoped.ammo_delta==1,
+         "scoped own-history delta lost");
+    const auto end=f.probe.Reset();
+    Need(end.weapon_class==CoJWinchesterWeaponClass::scoped,
+         "scoped window end lost exact class");
+    f.observed.weapon_class=CoJWinchesterWeaponClass::unknown;
+    const auto invalid=f.Step();
+    Need(!invalid.emit,"unknown class admitted to probe");
+}
 }
 int main(int argc,char** argv){
     const char* mode=argc>1?argv[1]:"all";
@@ -92,5 +114,6 @@ int main(int argc,char** argv){
     if(!std::strcmp(mode,"discovery")||!std::strcmp(mode,"all"))DiscoveryAfterExhaustion();
     if(!std::strcmp(mode,"native")||!std::strcmp(mode,"all"))EndAndNativeRearm();
     if(!std::strcmp(mode,"history")||!std::strcmp(mode,"all"))HistoryAndLoss();
+    if(!std::strcmp(mode,"identity")||!std::strcmp(mode,"all"))ExactClassHistory();
     std::cout<<"Winchester probe cadence, rearming, bounded windows and history passed\n";
 }

@@ -17,7 +17,10 @@ import zipfile
 from patch_coj_weapon_consumers import PAK_SHA256, _patch_class
 
 
-OFFLINE_WEAPONS = ('WeaponRifleWinchester', 'WeaponPistolVolcanic')
+# The scoped rifle shares the one-index native transfer/capacity with Winchester,
+# but gets its own exact-class derivative and no runtime/optics admission.
+OFFLINE_WEAPONS = ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope',
+                   'WeaponPistolVolcanic')
 
 
 def _patch_offline_player(player: bytes, weapon: str) -> bytes:

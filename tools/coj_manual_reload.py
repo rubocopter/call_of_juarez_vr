@@ -7,11 +7,12 @@ from coj_reload_wait_probe import ClassEdit, patch_probe_classes
 from patch_coj_weapon_consumers import Code
 
 
-def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycle=False, _offline_indexed=None):
+def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycle=False,
+                         _offline_indexed=None, _offline_clip=None):
     if _offline_cycle and _offline_weapon is None:
         raise ValueError('Body-cycle experiment requires an exact offline weapon profile')
     player, machine = patch_probe_classes(player, machine, _offline_weapon=_offline_weapon,
-                                          _offline_indexed=_offline_indexed)
+                                          _offline_indexed=_offline_indexed, _offline_clip=_offline_clip)
     e = ClassEdit(player)
     def field(name, desc): return e.ref('ArmedPlayerBeing', 'cojvrReloadProbe'+name, desc, 9)
     def method(name, desc): return e.ref('ArmedPlayerBeing', name, desc)
@@ -59,6 +60,11 @@ def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycl
     if _offline_indexed is not None:
         from coj_indexed_reload_session import _profile
         whole_clip = _profile(_offline_indexed)[3]
+    if _offline_clip is not None:
+        from coj_clip_reload import CLIP_WEAPONS
+        if _offline_clip not in CLIP_WEAPONS:
+            raise ValueError('No exact offline clip profile')
+        whole_clip = True
     read(c,'Weapon','LWeapon;'); c.ref(0xb6,e.ref('Weapon','IsReloadWholeClipAtOnce','()Z')); c.branch(0x99 if whole_clip else 0x9a,'reject')
     read(c,'Weapon','LWeapon;'); c.ref(0xb6,e.ref('Weapon','GetAmmoTypeCount','()I')); c.emit(0x05 if _offline_indexed else 0x04); c.branch(0xa0,'reject')
     c.emit(0x04,0xac); reject(c)
@@ -90,10 +96,13 @@ def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycl
     c.label('capacity'); hand_call(c,'GetWeaponMaxAmmoToReload','(I)I'); c.branch(0x9d,'result')
     c.emit(0x2a); c.ref(0xb6,method('cojvrCancelReloadProbe','()V'))
     c.label('result'); c.emit(0x1b,0xac); reject(c)
-    if not _offline_cycle and _offline_indexed is None:
+    if not _offline_cycle and _offline_indexed is None and _offline_clip is None:
         e.helper('cojvrInsertManualRound','()Z',c.finish(),2)
     player=e.finish()
     if _offline_cycle:
         from coj_reload_cycle import _add_offline_cycle
         player=_add_offline_cycle(player, _offline_weapon)
+    if _offline_clip is not None:
+        from coj_clip_reload import _add_offline_clip
+        player=_add_offline_clip(player, _offline_clip)
     return player, machine

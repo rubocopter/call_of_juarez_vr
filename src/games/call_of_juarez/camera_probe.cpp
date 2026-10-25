@@ -5913,6 +5913,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             ";player_generation="+std::to_string(end.generation)+
             ";native_context="+std::to_string(end.context)+
             ";weapon_id="+std::to_string(end.weapon_id)+
+            ";weapon_class="+CoJWinchesterClassName(end.weapon_class)+
             ";sample_us="+std::to_string(end.sample_us)+
             ";last_sample_us="+std::to_string(end.last_sample_us)+
             ";sample_index="+std::to_string(end.sample_index)+
@@ -5932,7 +5933,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             CoJWinchesterReloadSnapshot observed{};
             const bool read=g_java_player_bridge.TryObserveWinchesterReload(observed);
             const auto witness=probe.Record(read&&generation==g_java_player_bridge.being_generation(),
-                {observed.weapon_id,observed.native_reloading,observed.ammo_readback,observed.rifle_reserve});
+                {observed.weapon_id,observed.weapon_class,observed.native_reloading,
+                 observed.ammo_readback,observed.rifle_reserve});
             end_winchester_window(witness.before);
             if(witness.emit){
                     try {
@@ -5943,7 +5945,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                         std::string detail="schema=1;frame_sequence="+std::to_string(frame_sequence)+
                             ";player_generation="+std::to_string(generation)+";native_context="+std::to_string(context)+
                             ";player_id="+std::to_string(observed.player_id)+";weapon_id="+std::to_string(observed.weapon_id)+
-                            ";weapon_class=WeaponRifleWinchester;sample_us="+std::to_string(now)+
+                            ";weapon_class="+CoJWinchesterClassName(observed.weapon_class)+
+                            ";sample_us="+std::to_string(now)+
                             ";sample_gap_us="+std::to_string(witness.sample_gap_us)+";sample_index="+std::to_string(witness.sample_index)+
                             ";states_right="+four(observed.states[0])+";states_left="+four(observed.states[1])+
                             ";weapons_right="+three(observed.weapon_present[0])+";weapons_left="+three(observed.weapon_present[1])+

@@ -31,7 +31,8 @@ class OfflineManualReloadTests(unittest.TestCase):
             vm.classes[name] = pool, {(m.name, m.descriptor): m for m in methods}
         vm.weapon['class'] = weapon
         # Capacity belongs to the modeled native transaction, not the patch.
-        capacity = {'WeaponRifleWinchester': 12, 'WeaponPistolVolcanic': 8}[weapon]
+        capacity = {'WeaponRifleWinchester': 12, 'WeaponRifleWinchesterScope': 12,
+                    'WeaponPistolVolcanic': 8}[weapon]
         base_native = vm.native
         def native(owner, name, args):
             if name == 'WeaponReload':
@@ -43,7 +44,7 @@ class OfflineManualReloadTests(unittest.TestCase):
         return vm
 
     def test_waiting_never_auto_loads_then_explicit_insert_transfers_one(self):
-        for weapon in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
+        for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
             with self.subTest(weapon=weapon):
                 vm = self.vm(weapon); vm.wait()
                 self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
@@ -59,7 +60,7 @@ class OfflineManualReloadTests(unittest.TestCase):
                 self.assertIsNone(vm.machine['cojvrReloadProbeOwner'])
 
     def test_native_capacity_and_last_reserve_close_without_extra_round(self):
-        for weapon, capacity in (('WeaponRifleWinchester', 12), ('WeaponPistolVolcanic', 8)):
+        for weapon, capacity in (('WeaponRifleWinchester', 12), ('WeaponRifleWinchesterScope', 12), ('WeaponPistolVolcanic', 8)):
             for ammo, reserve in ((capacity-1, 10), (2, 1), (2, 0)):
                 with self.subTest(weapon=weapon, ammo=ammo, reserve=reserve):
                     vm = self.vm(weapon); vm.wait(); vm.ammo, vm.reserve = ammo, reserve
@@ -73,7 +74,7 @@ class OfflineManualReloadTests(unittest.TestCase):
                     self.assertEqual((vm.ammo, vm.reserve, vm.events), (ammo+count, reserve-count, count))
 
     def test_successive_rounds_fill_exact_native_capacity_then_cleanup_once(self):
-        for weapon, capacity in (('WeaponRifleWinchester', 12), ('WeaponPistolVolcanic', 8)):
+        for weapon, capacity in (('WeaponRifleWinchester', 12), ('WeaponRifleWinchesterScope', 12), ('WeaponPistolVolcanic', 8)):
             vm = self.vm(weapon); vm.wait(); vm.reserve = 20
             for count in range(3, capacity+1):
                 self.assertTrue(vm.call('cojvrInsertManualRound'))
@@ -86,7 +87,7 @@ class OfflineManualReloadTests(unittest.TestCase):
             self.assertEqual((vm.ammo, vm.reserve, vm.events), (capacity, 22-capacity, capacity-2))
 
     def test_watchdog_and_opening_cancel_keep_native_end_and_zero_transfer(self):
-        for weapon in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
+        for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
             vm = self.vm(weapon); vm.arm()
             vm.run('ArmedPlayerBeing', 'cojvrCancelReloadProbe', '()V', vm.player)
             self.assertEqual(vm.transitions.count(22), 1)
@@ -97,7 +98,7 @@ class OfflineManualReloadTests(unittest.TestCase):
             self.assertEqual((vm.ammo, vm.reserve, vm.events), (2, 10, 0))
 
     def test_body_reentry_is_not_an_animation_only_operation(self):
-        for weapon in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
+        for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
             vm = self.vm(weapon); vm.wait()
             self.assertTrue(vm.call('cojvrInsertManualRound'))
             # Execute the shipped setter and patched completion. A naive replay
@@ -108,7 +109,7 @@ class OfflineManualReloadTests(unittest.TestCase):
             self.assertEqual((vm.ammo, vm.reserve, vm.events), (3, 9, 1))
 
     def test_native_owner_support_and_ammo_shape_changes_cannot_insert(self):
-        for weapon in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
+        for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
             for change in ('support', 'actual', 'desired', 'machine', 'dead', 'network', 'whole_clip', 'multi_ammo'):
                 with self.subTest(weapon=weapon, change=change):
                     vm = self.vm(weapon); vm.wait()
@@ -123,11 +124,13 @@ class OfflineManualReloadTests(unittest.TestCase):
                     self.assertEqual((vm.ammo, vm.reserve, vm.events), (2, 10, 0))
 
     def test_lab_exact_class_does_not_admit_other_families_or_subclasses(self):
-        for selected in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
-            for actual in ('WeaponPistolPeacemaker', 'WeaponRifleWinchesterScope',
+        for selected in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
+            for actual in ('WeaponPistolPeacemaker', 'WeaponRifleWinchester', 'WeaponRifleWinchesterScope',
                            'WeaponRifleRemington', 'WeaponRifleRemingtonSawOff',
                            'WeaponPistolDerringer', 'WeaponPistolLemant',
                            'WeaponPistolSchofield', 'DerivedWinchester'):
+                if selected == actual:
+                    continue
                 vm = self.vm(selected); vm.weapon['class'] = actual; vm.wait()
                 self.assertFalse(vm.call('cojvrInsertManualRound'))
                 self.assertEqual((vm.ammo, vm.reserve, vm.events), (2, 10, 0))
@@ -136,7 +139,7 @@ class OfflineManualReloadTests(unittest.TestCase):
         player, machine = production.patch_manual_reload_classes(original('ArmedPlayerBeing'), original('StateMashine'))
         self.assertEqual(hashlib.sha256(player).hexdigest(), '544293062a55fd97fc8e170a4ca20e145ff5ff277afb14423c13cd3aa7a2a910')
         self.assertEqual(hashlib.sha256(machine).hexdigest(), 'd9103cc2b9b10e7e81eeafb03b864d621be0358b5541184ecec0ade59d9c53d4')
-        for weapon in ('WeaponRifleWinchester', 'WeaponPistolVolcanic'):
+        for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
             vm = ManualVM(); vm.weapon['class'] = weapon; vm.wait()
             self.assertFalse(vm.call('cojvrInsertManualRound'))
             self.assertEqual((vm.ammo, vm.reserve, vm.events), (2, 10, 0))
@@ -144,7 +147,7 @@ class OfflineManualReloadTests(unittest.TestCase):
     def test_unknown_profile_or_modified_native_classes_reject(self):
         self.assertIsNotNone(lab)
         p, m = original('ArmedPlayerBeing'), original('StateMashine')
-        for weapon in ('WeaponRifleRemington', 'WeaponPistolDerringer', 'WeaponRifleWinchesterScope', 'unknown'):
+        for weapon in ('WeaponRifleRemington', 'WeaponPistolDerringer', 'unknown'):
             with self.assertRaises(ValueError): lab.patch_offline_classes(p, m, weapon)
         for p1, m1 in ((p+b'x', m), (p, m+b'x')):
             with self.assertRaises(ValueError): lab.patch_offline_classes(p1, m1, 'WeaponPistolVolcanic')

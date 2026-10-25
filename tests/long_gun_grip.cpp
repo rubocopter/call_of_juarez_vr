@@ -248,6 +248,37 @@ void RejectionsAndRefresh(){
     Fixture q;(void)q.Attach();q.state.Cancel();Check(!q.state.attached(),"cancel kept attachment");
     auto o=q.Step();Check(o.claim.consume_grip&&!o.attached,"cancel forgot physical hold");
 }
+void ReloadDetachesAndRequiresFreshSupportGrip(){
+    // Each exact rifle family uses the shared native begin/body/end states.
+    // Native reload must hand the left controller back to loading, then require
+    // a fresh L1 press after an eligible idle state returns.
+    for(const char* cls:{"WeaponRifleWinchester","WeaponRifleWinchesterScope",
+                         "WeaponRifleRemington","WeaponRifleRemingtonSawOff"}){
+        Fixture f(cls);(void)f.Attach();
+        f.in.controls.support_trigger_held=true;
+        // 148/149/150 are the alternate native reload bank. They must never
+        // be mistaken for the admitted scoped fire/cycle bank (158..166).
+        for(int state:{20,21,22,148,149,150}){
+            f.g.native.states[0]={state,state,state,state};
+            Check(!f.state.Refresh(f.in.player_generation,f.in.context,f.g).valid,
+                "native rifle reload retained rendered bimanual map");
+            const auto o=f.Step();
+            Check(!o.attached&&o.claim.consume_grip&&o.claim.consume_support_trigger,
+                "native rifle reload leaked its support hand");
+            if(state==20)Check(o.claim.cancelled,"reload opening failed to detach support");
+        }
+        f.g.native.states[0]={1,1,1,1};
+        Check(!f.Step().attached,"held support reattached after native reload");
+        f.in.controls.grip_held=false;
+        auto o=f.Step();
+        Check(!o.attached&&o.claim.consume_grip,
+            "first release after reload escaped support ownership");
+        f.in.controls.support_trigger_held=false;(void)f.Step();
+        f.in.controls.grip_held=true;
+        o=f.Step();Check(o.attached&&o.claim.acquired,
+            "fresh support press could not regrip after native reload");
+    }
+}
 void UnattachedFreeTrigger(){
     CoJLongGunFreeTrigger state;
     GameplayInputState raw{};raw.active=true;raw.input_context_generation=1;
@@ -380,5 +411,5 @@ void CapturedGripGuide(){
         "guide capacity overrun changed existing surfaces");
 }
 }
-int main(){ScopedMeasuredGeometryAndOwnership();PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();UnattachedFreeTrigger();LeftOwnedRifleFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
+int main(){ScopedMeasuredGeometryAndOwnership();PlayerAnimationCannotMoveWeaponContact();MeshContactPlacementAndCancellation();GeometryAndSinglePlan();NativeRootHolderIsValid();CrossingSupportHandCannotFlipRifle();OwnershipAndRelease();ChangedMeshContactRetiresClaim();RejectionsAndRefresh();ReloadDetachesAndRequiresFreshSupportGrip();UnattachedFreeTrigger();LeftOwnedRifleFreeTrigger();RepeatedRenderSamples();ApproachAndPressFromReleasedGrip();CapturedGripGuide();
     std::cout<<"longgun measured geometry, single-map replay, native cycle/ownership and physical releases passed\n";}

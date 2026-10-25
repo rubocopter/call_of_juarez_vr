@@ -15,7 +15,7 @@ void* slots[224]{};void** env=slots;
 std::map<void*,int> locals;
 std::map<std::string,int> names;
 int next_name=1,step=0,fail_step=-1,pose_reads=0,change=0;
-bool exception=false,missing_pose=false,other_class=false,other_owner=false,alias=false,foreign_left=false;
+bool exception=false,missing_pose=false,other_class=false,scoped=false,other_owner=false,alias=false,foreign_left=false;
 std::uint32_t player_id=0x80000033u,weapon_id=0xf1234001u;
 int state[2][4]{{1,1,1,1},{0,0,0,0}};
 bool two[2][3]{{true,true,true},{false,false,false}};
@@ -29,11 +29,13 @@ void* __stdcall Exception(void*){return exception?Local(Ptr(199)):nullptr;}
 void __stdcall Clear(void*){exception=false;}
 void* __stdcall Class(void*,void* p){if(!Step())return nullptr;
     if(p==Ptr(1))return Local(Ptr(11));
-    if(p==Ptr(2)||p==Ptr(3))return Local(Ptr(other_class?13:12));
+    if(p==Ptr(2)||p==Ptr(3))return Local(Ptr(other_class?13:scoped?15:12));
     if(p==Ptr(4)||p==Ptr(5))return Local(Ptr(14));
     Need(false,"unknown class object");return nullptr;}
 void* __stdcall Find(void*,const char* cls){if(!Step())return nullptr;
-    Need(!std::strcmp(cls,"WeaponRifleWinchester"),"unscoped class lookup");return Local(Ptr(12));}
+    if(!std::strcmp(cls,"WeaponRifleWinchester"))return Local(Ptr(12));
+    if(!std::strcmp(cls,"WeaponRifleWinchesterScope"))return Local(Ptr(15));
+    Need(false,"unknown class lookup");return nullptr;}
 unsigned char __stdcall Same(void*,void* a,void* b){if(!Step())return 0;
     if(a==Ptr(3))a=Ptr(2);if(b==Ptr(3))b=Ptr(2);return a==b;}
 int Name(const char* n){auto [it,created]=names.try_emplace(n,next_name);if(created)++next_name;return it->second;}
@@ -105,11 +107,12 @@ bool Frame(void*,void* obj,int element,ElementWorldBasisTarget& out) noexcept {
     Need(locals[Ptr(2)]>0,"lost retained weapon in frame callback");
     out={{static_cast<float>(i),2,3},{0,1,0},{1,0,0},true};
     if(i==2){if(change==1)state[0][1]=22;if(change==2)++weapon_id;if(change==3)other_owner=true;
-        if(change==4)ammo++;if(change==5)present[0][2]=false;}
+        if(change==4)ammo++;if(change==5)present[0][2]=false;
+        if(change==6)scoped=!scoped;}
     return Step()&&!missing_pose;
 }
 void Reset(){Need(locals.empty()&&!exception,"leaked local on previous read");step=pose_reads=0;fail_step=-1;change=0;
-    missing_pose=other_class=other_owner=alias=foreign_left=false;player_id=0x80000033u;weapon_id=0xf1234001u;
+    missing_pose=other_class=scoped=other_owner=alias=foreign_left=false;player_id=0x80000033u;weapon_id=0xf1234001u;
     ammo=5;reserve=26;anim[0]=3;anim[1]=0;clock_time[0]=1.25F;clock_time[1]=0;duration[0]=1.5F;duration[1]=0;
     for(int h=0;h<2;++h)for(int i=0;i<3;++i){present[h][i]=h==0;two[h][i]=h==0;}
     for(int h=0;h<2;++h)for(int i=0;i<4;++i)state[h][i]=h==0?1:0;
@@ -128,7 +131,19 @@ int main(){
     Reset();CoJWinchesterReloadSnapshot out{};
     Need(Read(out),"idle Winchester rejected");Need(out.valid&&out.pose_valid&&pose_reads==3&&
         out.player_id==player_id&&out.weapon_id==weapon_id&&out.ammo_readback==5&&out.rifle_reserve==26,"bad baseline");
+    Need(out.weapon_class==CoJWinchesterWeaponClass::ordinary,"ordinary Winchester class lost");
     const int total=step;
+    Reset();scoped=true;Need(Read(out),"scoped Winchester rejected");
+    Need(out.weapon_class==CoJWinchesterWeaponClass::scoped&&out.pose_valid,
+         "scoped Winchester identity/pose lost");
+    const int scoped_total=step;
+    Reset();scoped=true;state[0][3]=21;Need(Read(out)&&out.native_reloading,
+         "scoped native reload status lost");
+    Reset();scoped=true;change=2;Reject(true);
+    Reset();scoped=true;other_owner=true;Reject();
+    Reset();scoped=true;other_class=true;Reject();
+    Reset();change=6;Reject(true);
+    Reset();scoped=true;change=6;Reject(true);
     Reset();state[0][0]=20;state[0][1]=21;state[0][2]=22;state[0][3]=21;two[0][0]=false;
     Need(Read(out),"unknown native reload tuple rejected");Need(out.states[0][0]==20&&out.states[0][2]==22&&
         !out.two_handed[0][0]&&out.native_reloading,"native state/flag telemetry lost");
@@ -141,6 +156,7 @@ int main(){
     for(int i=1;i<=5;++i){Reset();change=i;Reject(true);}
     for(auto identity:{&player_id,&weapon_id})for(auto v:{0u,0xffffffffu}){Reset();*identity=v;Reject();}
     for(int i=1;i<=total;++i){Reset();fail_step=i;Reject(true);}
+    for(int i=1;i<=scoped_total;++i){Reset();scoped=true;fail_step=i;Reject(true);}
     for(int index:{6,15,17,23,24,31,33,36,39,51,94,95,100,102,167}){
         Reset();auto saved=slots[index];slots[index]=nullptr;Reject();slots[index]=saved;}
     Reset();Need(!ReadCoJWinchesterReload(nullptr,Ptr(1),out,nullptr,nullptr),"null JNI accepted");

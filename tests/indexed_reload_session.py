@@ -1,13 +1,17 @@
 """Compose emitted wait/session/indexed storage bytecode; never launch a JVM."""
 import importlib.util
 import copy
+import io
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
+import zipfile
 
 sys.dont_write_bytecode=True
 sys.path[:0]=[str(Path(__file__).parent),str(Path(__file__).resolve().parents[1]/'tools')]
-from indexed_manual_reload import IndexedVM, original_archive, PROFILES
+from indexed_manual_reload import ARCHIVE, IndexedVM, original_archive, PROFILES
 from inspect_java_bytecode import parse_class
 from reload_wait_probe import VM, JVMThrown
 
@@ -47,7 +51,7 @@ class SessionVM(IndexedVM):
         self.transitions=[]
         self.events=self.automatic_transfers=0
         self.close_rotations=0
-        self.on_event=self.on_max=None
+        self.on_event=self.on_max=self.on_close=None
 
     def native(self,owner,name,args):
         try:return self._native(owner,name,args)
@@ -77,7 +81,10 @@ class SessionVM(IndexedVM):
         if name=='CanAutomaticAttack':return False
         if name in ('FindStateByID','GetCurrentState','GetDestState','GetPrevState','SetPrevState',
                     'SetCurrentState','IsStoped','CanChangeState','GetNextState','Clear','Set'):
-            return VM.native(self,owner,name,args)
+            result=VM.native(self,owner,name,args)
+            if name=='Set' and owner is self.states[22] and self.on_close:
+                self.on_close()
+            return result
         if name=='GetCurrentStateID':return owner['m_sCurrentState']['id']
         return super().native(owner,name,args)
 
@@ -284,6 +291,48 @@ class IndexedSessionTests(unittest.TestCase):
             self.assertNotIn(('cojvrInsertManualRound','()Z'),names,
                              'Indexed session must not expose the ascending insertion helper')
 
+    def test_shipped_jvm_verifies_every_indexed_session_derivative(self):
+        """The interpreter does not model Java 1.4 bytecode verification."""
+        from clip_manual_reload import clip_verifier_class
+        from coj_indexed_reload_session import build_indexed_session_lab
+        java = ARCHIVE.parent / 'jre/bin/java.exe'
+        if not java.is_file():
+            self.skipTest('Shipped Java 1.4 runtime required')
+        original = original_archive()
+        with tempfile.TemporaryDirectory(prefix='cojvr-indexed-verify-') as temp:
+            root = Path(temp)
+            (root / 'VerifyManualClip.class').write_bytes(clip_verifier_class())
+
+            def verify(path):
+                return subprocess.run([str(java), '-Xverify:all', '-cp',
+                                       str(root) + ';' + str(path), 'VerifyManualClip'],
+                                      capture_output=True, text=True, timeout=30)
+
+            for weapon in PROFILES:
+                player, machine = build_indexed_session_lab(original, weapon)
+                target = root / (weapon + '.pak')
+                with zipfile.ZipFile(io.BytesIO(original)) as source, zipfile.ZipFile(target, 'w') as out:
+                    for info in source.infolist():
+                        out.writestr(info, {'ArmedPlayerBeing.class': player,
+                                           'StateMashine.class': machine}.get(
+                                               info.filename, source.read(info.filename)))
+                result = verify(target)
+                self.assertEqual(result.returncode, 0, weapon + ': ' + result.stdout + result.stderr)
+                if weapon == next(iter(PROFILES)):
+                    _, methods = parse_class(player)
+                    code = next(m.code for m in methods if (m.name, m.descriptor) ==
+                                ('cojvrLabInsertWaitingIndexedUnit', '(I)Z'))
+                    self.assertEqual(player.count(code), 1)
+                    damaged = player.replace(code, b'\xfe' + code[1:], 1)
+                    bad = root / 'invalid-indexed.pak'
+                    with zipfile.ZipFile(target) as good, zipfile.ZipFile(bad, 'w') as out:
+                        for info in good.infolist():
+                            out.writestr(info, damaged if info.filename == 'ArmedPlayerBeing.class'
+                                         else good.read(info.filename))
+                    rejected = verify(bad)
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn('VerifyError', rejected.stdout + rejected.stderr)
+
     def test_every_observed_callback_fault_rethrows_and_retires_outer_scope(self):
         for closing in (False,True):
             template=self.make('WeaponRifleRemington' if closing else 'WeaponPistolLemant')
@@ -350,6 +399,45 @@ class IndexedSessionTests(unittest.TestCase):
         self.assertEqual(vm.machine['m_sCurrentState']['id'],21)
         self.assertEqual(vm.other['m_sCurrentState']['id'],20)
         self.assertTrue(vm.player['cojvrIndexedFaulted'])
+
+    def test_post_close_callbacks_preserve_selected_unit_and_retained_owners(self):
+        for change in ('loaded','reserve','counter','counter_max','owner','ticket','state',
+                       'hand_machine','reentry','exception'):
+            with self.subTest(change=change):
+                vm=self.make('WeaponRifleRemington');vm.wait()
+                vm.player['nAmmoShotgun']=1
+                replies=[];exception={'class':'Throwable','close':change}
+                def close():
+                    if change=='loaded':vm.weapon['m_iAmmo1Count']=0
+                    if change=='reserve':vm.player['nAmmoShotgun']=9
+                    if change=='counter':vm.counters[1]=dict(vm.counters[1])
+                    if change=='counter_max':vm.counters[1]['nMaxAmount']-=1
+                    if change=='owner':vm.weapon['cOwner']={'class':'foreign'}
+                    if change=='ticket':vm.player['cojvrReloadProbeWeapon']={'class':'foreign'}
+                    if change=='state':vm.machine['m_sCurrentState']=vm.states[1]
+                    if change=='hand_machine':
+                        vm.player['m_aHandStateMashine'][vm.hand]['m_cStateMashine']=vm.other
+                    if change=='reentry':replies.append(vm.insert())
+                    if change=='exception':raise JVMThrown(exception)
+                vm.on_close=close
+                if change=='exception':
+                    with self.assertRaises(JVMThrown) as caught:vm.insert()
+                    self.assertIs(caught.exception.value,exception)
+                else:self.assertEqual(bool(vm.insert()),change=='reentry')
+                self.assertEqual(vm.events,1)
+                self.assertEqual(vm.automatic_transfers,0)
+                self.assertFalse(vm.player['cojvrIndexedSessionBusy'])
+                self.assertFalse(vm.player['cojvrIndexedSessionDispatch'])
+                if change=='reentry':
+                    self.assertEqual(replies,[False])
+                    self.assertFalse(vm.player.get('cojvrIndexedFaulted',False))
+                else:
+                    self.assertTrue(vm.player['cojvrIndexedFaulted'])
+                    vm.on_close=None;before=vm.vector()
+                    self.assertFalse(vm.insert())
+                    self.assertEqual(vm.vector(),before)
+                    self.assertFalse(vm.run('ArmedPlayerBeing','cojvrKeepManualReloadAlive',
+                                            '()Z',vm.player))
 
     def test_exhausted_wait_closes_even_when_no_unit_can_be_inserted(self):
         for full in (False,True):
