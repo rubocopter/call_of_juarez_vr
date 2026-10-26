@@ -3,8 +3,8 @@
 #include <algorithm>
 
 namespace cojvr::games::call_of_juarez {
-// WpnLogicRifle.GetAttackMode returns -2 (aim) for button0. A stable scoped
-// Winchester needs button1 through native action9, whose native other-hand
+// WpnLogicRifle.GetAttackMode returns -2 (aim) for button0. Both exact
+// Winchester models need button1 through native action9, whose native other-hand
 // retry selects the right rifle. This grants no attack/ammo/state permission.
 class CoJScopedRifleFire final {
 public:
@@ -15,7 +15,7 @@ public:
         const bool generation=raw.input_context_generation!=generation_;
         const bool fresh=sequence&&(generation||sequence>sequence_);
         const bool regression=!generation&&sequence<sequence_;
-        const bool changed=generation||owner.scoped_right_weapon!=weapon_||player!=player_||context!=context_;
+        const bool changed=generation||owner.right_button1_weapon!=weapon_||player!=player_||context!=context_;
         // L1 held by the support grip has already consumed world Action.
         // Only the remaining mapped Action conflicts with firing.
         const bool conflict=raw.reload||mapped.interact||raw.weapon_radial||raw.alternate_fire||
@@ -26,7 +26,7 @@ public:
         if(changed||!available)Interrupt();
         if(fresh){generation_=raw.input_context_generation;sequence_=sequence;}
         const bool was_scoped=weapon_!=0;
-        weapon_=owner.scoped_right_weapon;player_=player;context_=context;
+        weapon_=owner.right_button1_weapon;player_=player;context_=context;
         // Retain claims through unknown ownership, focus loss and replacement.
         // Only a fresh, available physical release retires a consumed hold.
         const bool held[]{raw.fire_left,raw.fire_right};

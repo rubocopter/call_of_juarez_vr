@@ -319,6 +319,32 @@ int main() {
             }
         }
     }
+    // A rifle-owned view must stop the upstream actor/head feedback too. A
+    // controller-owned camera alone cannot compensate a damped native scope
+    // camera whose yaw no longer follows the actor's complete yaw change.
+    for(float prior:{-179.F,-30.F,0.F,60.F,179.F}){
+        for(float physical:{-179.F,-60.F,0.F,45.F,179.F}){
+            auto head=HeadPoseAtPhysicalYaw(physical);
+            const auto scoped=BuildBodyYawOwnershipUpdate(head,prior,true,false,true,true);
+            if(!scoped.valid||scoped.actor_update_allowed||
+                !Near(scoped.actor_target_degrees,prior)||!Near(scoped.actor_delta_degrees,0)||
+                !Near(scoped.camera_compensation_degrees,prior)||
+                !Near(scoped.head_residual_degrees,0)||!Near(scoped.spine_residual_degrees,0)||
+                !Near(scoped.head_relative_move_yaw_degrees,0)){
+                std::cerr<<"head rotation still drove the rifle-owned native camera reference\n";return 1;
+            }
+            const auto exited=BuildBodyYawOwnershipUpdate(head,prior,true,false,true,false);
+            if(!exited.actor_update_allowed||
+                !Near(exited.actor_delta_degrees,std::remainder(-physical-prior,360.F))){
+                std::cerr<<"scope exit failed to resume ordinary head/body following\n";return 1;
+            }
+        }
+    }
+    const auto scope_recenter=BuildBodyYawOwnershipUpdate(right_turn_head,-30,true,true,true,true);
+    if(!scope_recenter.valid||scope_recenter.actor_update_allowed||
+        !Near(scope_recenter.camera_compensation_degrees,0)){
+        std::cerr<<"scope recenter kept an obsolete body yaw reference\n";return 1;
+    }
     const auto mounted_recenter = BuildBodyYawOwnershipUpdate(right_turn_head, -30, true, true, false);
     if (!mounted_recenter.valid || mounted_recenter.actor_update_allowed ||
         !Near(mounted_recenter.camera_compensation_degrees, 0)) {

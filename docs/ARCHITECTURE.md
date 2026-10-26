@@ -6,8 +6,9 @@ Call of Juarez (2006), Windows x86, is the reference implementation for native
 stereo PCVR through D3D9 and OpenVR/SteamVR. The current presentation combines
 tracked head and independent native hands with the game's torso and legs.
 Connected-arm IK remains a rejected diagnostic presentation. The current
-revolver session preserves native ammunition authority; other manual-reload
-families need separate exact-class admission. Launcher installation defaults
+manual session preserves native ammunition authority with separate exact-class
+unit, indexed and clip policies. New families remain host candidates pending
+live and physical qualification. Launcher installation defaults
 and operator opt-out are described in the distribution contract below.
 D3D10, OpenXR and additional games are separate future/experimental tracks.
 
@@ -657,22 +658,35 @@ optics. The exact scoped Winchester additionally reads the already-existing
 module TreeMap parameter and cached default-camera FOV, bracketing parameter,
 camera, module, state and weapon identities. Its native scope-visibility predicate
 and camera-normalized magnification govern a binocular scene-scope fallback;
-no parameter factory or native camera/zoom update executes. One binocular-centre
-angular shift aims both parallel frusta toward the verified muzzle ray's existing
-reticle reference plane, after admitting it through both physical optical views.
+no parameter factory or native camera/zoom update executes. While native scope
+visibility is active, a virtual scene yaw/pitch follows the verified rifle ray in
+the compensated tracking reference. HMD orientation remains validated and is
+submitted physically to the compositor, but does not steer the scope image.
+This angular policy also suspends HMD-driven actor/upper-body yaw and
+gaze-relative movement while the exact cached native scope owner is visible.
+The last actor-owned yaw remains the camera/hand reference. A fresh post-input
+scope observation prevents a queued actor turn on the frame that Focus enters;
+scope exit resumes ordinary body following. Recenter and player-generation
+invalidation retain their existing reset boundaries. Native scoped camera yaw
+need not follow a written actor yaw one-to-one, so replacing only the final
+render quaternion is insufficient to isolate the controller's upstream ray.
+Head translation retains its existing mapping. Scope pose and eye frusta commit
+together; failure or scope exit restores ordinary head-driven view. One
+binocular-centre angular shift aims both parallel frusta toward the verified
+muzzle ray's existing reticle reference plane in that scene orientation.
 Each original asymmetric principal point is preserved; independent UV=.5
 convergence is rejected because it changes the displayed binocular alignment.
-Normal camera transactions restore shifted frusta/scene offsets. Looking away or losing
+Normal camera transactions restore shifted frusta/scene offsets. Losing
 verified ownership uses physical optics. The complete current right-reticle pair
 authorizes per-eye lens centres/radii projected from one shared angular aperture,
 with black exterior and a thin post-filter sniper rim/cross, even
 when optional colour processing is off; stale/partial pairs cannot activate it.
 The original FPPCamera mask update is suppressed only for the locally tracked
 stable exact rifle; ordinary updates retain its complete native object lifecycle.
-This is a scene-scope fallback, not a telescope texture or physical qualification.
-Scoped grip/fire have operator acceptance where exercised; optics/fusion are
-physically rejected in the preceding candidate. The revised fusion and renderer
-presentation remain host-tested only, independent of bow cache acceptance.
+This is a scene-scope fallback, not a telescope texture. Validation owns scoped
+acceptance and the head-input defect; the controller-only orientation correction
+alone failed physical head-yaw isolation. The subsequent body-yaw policy has
+host regression coverage only, independently of bow cache acceptance.
 The admitted current native protected-target flag colors the scope sight red
 after scene filtering; it cannot be discarded by suppressing the old reticle.
 
@@ -727,13 +741,21 @@ grant an insertion. Native hint/interaction text takes priority. Each stage last
 at most three seconds; stale samples, changed player/weapon/input/binding identity,
 closing or invalid tracking hide it. Queued instructions additionally require the
 current reload-owner epoch, unexpired deadline and enabled guide preference at
-composition. The presenter also retires expired controlled text before repeated
+composition. Text deadlines share the presenter's GetTickCount64 clock; the
+independent high-resolution gesture clock never authors presentation deadlines.
+The presenter also retires expired controlled text before repeated
 eye submissions: at most four small renderer-owned background rectangles preserve
 the world and other HUD underneath. Their total backing is capped at 16 MiB,
 reused by extent/format and released on reset; whole-eye preimages are excluded.
 Controlled text is drawn last, after both eye backups are prepared; unavailable
 backup suppresses that controlled text rather than painting an unretirable label.
 Device/context/target mismatches discard identity without restoring elsewhere.
+Optional button-art expiry alone restores those controlled layers and redraws
+their still-current semantic text, using one owned capture for the original
+layout. Other HUD is not drawn twice. The refresh cannot extend the instruction
+deadline or survive binding, owner, guide-preference or device/target invalidation.
+This prevents an expired icon from blanking a valid sentence until a fresh world
+frame; physical stability remains a separate gate.
 A new successful world upload discards the previous preimage, while a rejected
 no-write upload keeps its retirement fence. Fixed-output writes retain frame
 authority. Physical readability, resource pressure and gesture fit remain separate
@@ -833,8 +855,9 @@ Native animation owns conventional reload. The persistent manual route keeps
 scoped weapon/independent-hand presentation only under positively verified native
 reload ownership. Its exact policy is `READY -> OPENING -> MANUAL_LOAD -> CLOSING
 -> READY`: fresh Square prepares/closes, free-hand trigger pickup/journey/release
-requests one synchronous native unit insertion, and armed-trigger closing cannot
-shoot. Native ammunition, reserve, capacity and mechanical animation remain
+requests one synchronous operation, and armed-trigger closing cannot shoot.
+Exact profiles distinguish one native unit, a selected indexed unit and one
+native whole-clip operation. Native ammunition, reserve, capacity and mechanical animation remain
 authoritative. Invalid/unknown ownership cannot fall through to conventional
 reload; only positively identified unsupported contexts use that fallback.
 The [reload owner](research/COJ_RELOAD_OWNERSHIP.md#persistent-manual-candidate--scoped-headset-acceptance)
@@ -852,9 +875,34 @@ never retries. Completion, failed preparation and fresh sessions clear old token
 
 The public launcher enables manual reload on fresh installs and preserves the
 installed choice on updates; option 8 changes it transactionally while closed.
-Developer candidates explicitly select `-ManualReload`; long guns retain native
-conventional reload. Exact profile admission belongs to the
-[revolver table](research/COJ_RELOAD_OWNERSHIP.md#exact-revolver-profiles), not a
+Developer candidates explicitly select `-ManualReload`. Current source includes
+fifteen exact manual firearm profiles in the prealpha.6 package line; archived
+prealpha.5 retains its earlier admission. Winchester and scoped Winchester restart the authored body21 cycle
+after one verified native unit; Volcanic uses the same policy with pistol reserve.
+The pending/consumed ticket, veto owner, watchdog, retained callback references,
+fault quarantine and native20/21/22 closing remain shared. A replay withdraws
+cartridge presentation until native body completion reaches waiting again.
+Remington/SawOff and Derringer retain two one-round indices, while Lemant retains
+one rifle round and eight pistol rounds. The lowest eligible index is proposed
+at pickup and frozen across carry/release; becoming full/reserve-empty withdraws
+the carry instead of redirecting it. The guarded indexed composite calls original
+count/reserve setters for that one index, verifies both loaded counts and all
+distinct reserve pools, and publishes one event. It is explicitly separate from
+the original ascending native reload loop. Indexed empty-trigger preparation is
+disabled until native firing-index ownership is proven; Square prepares normally.
+Schofield base/A/B use one original whole-clip authority call with exact
+`min(6-loaded,pistol reserve)` readback and immediate retained native close. A
+bundle depicts that many rounds using repeated copies of the imported textured
+cartridge. Capture retains one mesh and at most six head-space instance offsets;
+the renderer globally orders their faces and uploads bounded chunks without
+exceeding its original constant-buffer limit. The bundle is a provisional count
+presentation, not an exact-calibre speedloader. Single-cartridge proximity
+diagnostics do not qualify bundle contact and are withheld for bundle samples.
+Shared transaction guards prevent cross-family callback reentry.
+All new paths remain source/host candidates with generic grip-zone interaction;
+per-model ports, shell/calibre fidelity, mechanical replay and physical acceptance
+remain separate gates. Exact profile admission belongs to the
+[reload profiles](research/COJ_RELOAD_OWNERSHIP.md#exact-revolver-profiles), not a
 model-name prefix or inherited pistol class. Scoped accepted Peacemaker flow and
 port visibility do not qualify new profiles, cartridge contact, precise loading
 mouths, mechanical writers, ejection or broad interruption recovery.
@@ -899,7 +947,7 @@ offline analyzers reject incomplete intervals and invalid identity/count/clock
 claims; sparse samples or numeric IDs never prove a transfer or cross-poll object
 identity. The synchronous vector classifier requires a caller-held identity
 lease. These implemented/host-tested tools add no manual weapon or mechanical
-writer. [Reload ownership](research/COJ_RELOAD_OWNERSHIP.md#unimplemented-families-original-archive-reload-contracts)
+writer. [Reload ownership](research/COJ_RELOAD_OWNERSHIP.md#additional-families-original-archive-reload-contracts)
 owns storage/pool mappings and remaining native correlation prerequisites.
 
 ## Weapon ownership

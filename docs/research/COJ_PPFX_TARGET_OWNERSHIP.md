@@ -340,7 +340,7 @@ The subsequent producer evidence observes RGB-only geometry and occasional
 blend-enabled alpha draws in complete copied scopes. It does not prove blend
 corruption: state counts cannot distinguish destination preservation from source
 replacement or other alpha algebra, and no material/pixel association follows.
-The next bounded observer records the first blend-enabled alpha draw per existing
+The bounded observer records the first blend-enabled alpha draw per existing
 producer entry: effective separate/non-separate alpha factors/operation, blend
 factor and up to1024DWORDs of the currently owned pixel shader. Read/size failures
 stay explicit, fixed function is distinct from failed shader access, and no saved
@@ -348,8 +348,25 @@ pointer is dereferenced later. The native-copy snapshot freezes those values.
 The analyzer validates the bounded record, hashes complete little-endian program
 bytes and describes alpha algebra while preserving missing historical data as
 unknown. Additional blend draws remain counted, not silently covered by the first
-witness. Host GPU/state/analyzer regressions pass; actual delivery, shader alpha
-semantics and material/hand/sky/transparent coverage remain separate gates.
+witness. Subsequent inventoried evidence delivers complete first-blend state and
+shader programs in matching post-copy eye scopes. The observed paths include
+additive alpha (`ONE, ONE, ADD`) and source-alpha interpolation
+(`SRCALPHA, INVSRCALPHA, ADD` with separate alpha disabled). These state witnesses
+do not qualify the copied channel as axial depth. Exact disassembly of the
+captured programs now establishes two output paths: the additive program writes
+interpolated `v0` to RGBA, yielding `Aout = v0.w + Ad`; the source-alpha program
+writes saturated texture alpha, yielding `Aout = As*As + Ad*(1-As)` when separate
+alpha is disabled. The latter cannot preserve arbitrary depth-like destination
+values for nonzero covered alpha. Actual corruption still requires the matching
+covered fragments, input alpha, pre-draw destination and later-write history;
+program algebra alone does not demonstrate a corrupted final pixel.
+RGB-only producer draws remain observed in every sampled scope of an additional
+complete post-copy capture, with no blend-enabled producer draw in that capture.
+Absent blending there does not refute the earlier paths or qualify other scenes.
+Material/pixel association, exact hand/sky/transparent
+coverage and same-eye full-size depth transport are still required before NGX
+presentation; finite grids alone cannot close those gates. Raw grids, shader
+hashes and sample counts remain in local evidence under `work/`.
 
 ## Remaining Q0 work and implementation order
 

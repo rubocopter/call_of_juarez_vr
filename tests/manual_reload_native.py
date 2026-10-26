@@ -11,14 +11,41 @@ from reload_wait_probe import VM, original, patch
 from inspect_java_bytecode import parse_class, disassemble
 
 
+class ManualHandFields(dict):
+    """Original backing fields agree with the existing native getter fixtures."""
+    def __init__(self,vm,hand):self.vm,self.hand=vm,hand
+    def get(self,key,default=None):
+        if key=='m_cStateMashine':return self.vm.machine if self.hand==0 else self.vm.other
+        if key in ('m_cActualState','m_cDesiredState'):
+            desired=key=='m_cDesiredState'
+            return {'m_cWeapon':self.vm.player['desired' if desired else 'actual'] if self.hand==0 else self.vm.other_weapon,
+                    'm_iState':self.vm.player['desired_state']}
+        return super().get(key,default)
+
+
+class ManualActiveWeapons:
+    def __init__(self,vm):self.vm=vm
+    def __getitem__(self,hand):return self.vm.player['actual'] if hand==0 else self.vm.other_weapon
+
+
 class ManualVM(VM):
     def __init__(self):
         super().__init__()
+        self.weapon['cOwner']=self.player
+        for state in self.states.values():state.update(m_iStateID=state['id'],**{'class':'PlayerState'})
+        self.player['m_aHandStateMashine']=[ManualHandFields(self,hand) for hand in (0,1)]
+        self.player['ActiveWeapon']=ManualActiveWeapons(self)
         if hasattr(patch, 'patch_manual_reload_classes'):
             armed, machine = patch.patch_manual_reload_classes(original('ArmedPlayerBeing'), original('StateMashine'))
             for name, data in [('ArmedPlayerBeing', armed), ('StateMashine', machine)]:
                 pool, methods = parse_class(data)
                 self.classes[name] = pool, {(m.name, m.descriptor): m for m in methods}
+
+    def run(self,cls,name,desc,owner,args=()):
+        if name in ('cojvrInsertManualRevolverRound','cojvrFenceManualWaitBody') or name.startswith(('cojvrRevolverDebt','cojvrClipDebt','cojvrHeartbeatDebt')):
+            from indexed_manual_reload import IndexedVM
+            return IndexedVM.execute(self,cls,name,desc,owner,args)
+        return super().run(cls,name,desc,owner,args)
 
     def native(self, owner, name, args):
         if name == 'GetAmmoTypeCount': return self.weapon.get('ammo_types',1)
@@ -46,8 +73,8 @@ class ManualReloadNativeTests(unittest.TestCase):
                 self.assertIsNone(vm.machine['cojvrReloadProbeOwner'])
 
     def test_unqualified_variants_never_arm_or_transfer(self):
-        for kind in ('WeaponPistolSchofield','WeaponPistolSchofield_A','WeaponPistolSchofield_B',
-                     'WeaponPistolLemant','WeaponPistolDerringer','DerivedWalker','WeaponPistolFrontier1878_Regular_Old'):
+        for kind in ('WeaponPistolDoubleAmmo','DerivedWalker','WeaponPistolFrontier1878_Regular_Old',
+                     'WeaponPistolSchofield_A_Old','WeaponPistolSchofield_B_Old'):
             with self.subTest(kind=kind):
                 vm=ManualVM();vm.weapon['class']=kind;vm.wait()
                 self.assertFalse(vm.call('cojvrInsertManualRound'))
@@ -137,7 +164,11 @@ class ManualReloadNativeTests(unittest.TestCase):
         vm=ManualVM(); pool,methods=vm.classes['ArmedPlayerBeing']
         code='\n'.join(line for (name,_),m in methods.items() if 'Manual' in name and m.code
                        for line in disassemble(m.code,pool))
-        self.assertEqual(code.count('WeaponReload(LWeapon;)Z'),1)
+        self.assertEqual(code.count('WeaponReload(LWeapon;)Z'),3)
+        for name in ('cojvrInsertManualRevolverRoundImpl','cojvrInsertManualNativeCycleRound','cojvrInsertManualClip'):
+            body=methods[name,'()Z'].code
+            self.assertEqual('\n'.join(disassemble(body,pool)).count('WeaponReload(LWeapon;)Z'),1)
+        self.assertNotIn('WeaponReload(LWeapon;)Z','\n'.join(disassemble(methods['cojvrInsertManualRound','()Z'].code,pool)))
         self.assertNotIn('SetAmmoCount',code); self.assertNotIn('SetAmount',code)
 
     def test_archive_manual_variant_is_explicit_and_unrelated_payloads_unchanged(self):
@@ -153,6 +184,17 @@ class ManualReloadNativeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             output=Path(temp)/'manual.pak'
             patch.patch_archive(source,output,manual_reload=True)
+            # Verify the final archive after melee/settings/optics composition,
+            # not only the standalone reload class. forName(false) and method
+            # reflection do not initialize the player or launch the game.
+            java=source.parent/'jre/bin/java.exe'
+            if java.is_file():
+                from clip_manual_reload import clip_verifier_class
+                import subprocess
+                (Path(temp)/'VerifyManualClip.class').write_bytes(clip_verifier_class())
+                verified=subprocess.run([str(java),'-Xverify:all','-cp',temp+';'+str(output),
+                    'VerifyManualClip'],capture_output=True,text=True,timeout=30)
+                self.assertEqual(verified.returncode,0,verified.stdout+verified.stderr)
             with zipfile.ZipFile(source) as before,zipfile.ZipFile(output) as after:
                 self.assertEqual(before.namelist(),after.namelist())
                 changed={n for n in before.namelist() if before.read(n)!=after.read(n)}

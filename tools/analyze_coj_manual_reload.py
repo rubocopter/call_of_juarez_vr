@@ -49,7 +49,7 @@ def trace_reserve_kind(fields, phase):
     # each copied reserve to a named exact-game pool; incomplete tags reject.
     if any('reserve_'+part+'_'+phase in fields for part in ('kind', 'count')):
         kind = fields.get('reserve_kind_'+phase)
-        return kind if kind in ('pistol', 'rifle') else None
+        return kind if kind in ('pistol', 'rifle', 'shotgun') else None
     return 'pistol'
 
 
@@ -592,15 +592,18 @@ def rifle_support_observations(events):
                                    ('sample_us','sample_gap_us','sample_index','frame_sequence'))
         if (event['result'] != 'observed' or any(f.get(k) != v for k,v in fixed.items()) or
                 f.get('weapon_class') not in ('WeaponRifleWinchester','WeaponRifleRemington',
-                                             'WeaponRifleRemingtonSawOff') or
+                                             'WeaponRifleRemingtonSawOff','WeaponRifleWinchesterScope') or
                 any(v is None or v <= 0 for v in identity) or
                 any(v is None or v <= 0 for v in (stamp,index,frame)) or
                 gap is None or gap < 0 or index > 240 or
                 any(v >= 0xffffffff for v in identity[2:])):
             raise ValueError('Invalid or overclaimed rifle support sample')
         right = tuple(int(v) for v in f['states_right'].split(','))
-        firing = any(v != 1 for v in right)
-        if (len(right) != 4 or any(v != 1 and not 30 <= v <= 38 for v in right) or
+        scoped = f['weapon_class'] == 'WeaponRifleWinchesterScope'
+        idle = (1,129) if scoped else (1,)
+        firing = any(v not in idle for v in right)
+        if (len(right) != 4 or any(v not in idle and not 30 <= v <= 38 and
+                not (scoped and 158 <= v <= 166) for v in right) or
                 f.get('phase') != ('ordinary_fire_tuple' if firing else 'ordinary_idle_tuple')):
             raise ValueError('Unqualified rifle support phase')
         def vector(key):
@@ -951,6 +954,46 @@ def bow_draw_observations(events):
                         'Absent cancellation events do not establish recovery or physical acceptance.'])
 
 
+def family_readback_reported(f):
+    """Check reported synchronous vectors, never infer a Java lease or accept VR."""
+    mode=f.get('reload_mode')
+    profiles={'WeaponRifleRemington':((1,1),(2,2)),
+              'WeaponRifleRemingtonSawOff':((1,1),(2,2)),
+              'WeaponPistolDerringer':((1,1),(0,0)),
+              'WeaponPistolLemant':((1,8),(1,0)),
+              **{name:((6,0),(0,0)) for name in
+                 ('WeaponPistolSchofield','WeaponPistolSchofield_A','WeaponPistolSchofield_B')}}
+    profile=profiles.get(f.get('weapon_class'))
+    if profile is None or mode not in ('indexed','clip'):return False
+    indexed=mode=='indexed'
+    if indexed!=(f.get('weapon_class') in ('WeaponRifleRemington','WeaponRifleRemingtonSawOff',
+                                          'WeaponPistolDerringer','WeaponPistolLemant')):return False
+    def vector(key,size):
+        parts=f.get(key,'').split(',')
+        if len(parts)!=size or any(not re.fullmatch(r'-?\d+',p) for p in parts):raise ValueError(key)
+        return tuple(int(p) for p in parts)
+    try:
+        before,after=vector('loaded_before',2),vector('loaded_after',2)
+        reserve,next_reserve=vector('reserves_before',3),vector('reserves_after',3)
+        capacities,pools=vector('capacities',2),vector('reserve_indices',2)
+        if (capacities,pools)!=profile:return False
+        raw_index=integer(f,'selected_index')
+        if raw_index not in ((0,1) if indexed else (-1,0)):return False
+        index=raw_index if indexed else 0;pool=pools[index]
+        if any(v<0 for v in before+after+reserve+next_reserve):return False
+        if any(a>cap or b>cap for a,b,cap in zip(before,after,capacities)):return False
+        amount=1 if indexed else min(capacities[index]-before[index],reserve[pool])
+        if amount<=0 or before[index]>=capacities[index] or reserve[pool]<amount:return False
+        if tuple(b-a for a,b in zip(before,after))!=tuple(amount if i==index else 0 for i in range(2)):return False
+        if tuple(b-a for a,b in zip(reserve,next_reserve))!=tuple(-amount if i==pool else 0 for i in range(3)):return False
+        if [integer(f,k) for k in ('ammo_before','ammo_after','reserve_before','reserve_after')]!=[
+                before[index],after[index],reserve[pool],next_reserve[pool]]:return False
+        if f.get('reserve_kind')!=('pistol','rifle','shotgun')[pool]:return False
+        return (yes(f,'after_valid') and yes(f,'native_call_completed') and yes(f,'feedback_qualified') and
+                integer(f,'probe_status_after') in ((2,3) if indexed else (3,)))
+    except (ValueError,TypeError,IndexError):return False
+
+
 def analyze_evidence(directory):
     root = Path(directory).resolve()
     evidence, run, paths = verify_inventory(root)
@@ -1010,7 +1053,9 @@ def analyze_evidence(directory):
                               yes(after['fields'], 'manual_session_enabled') and
                               yes(after['fields'], 'wait_probe_observed') and
                               # The final round may synchronously start native closing.
-                              integer(after['fields'], 'wait_probe_status_after') in (2, 3) and
+                              (integer(after['fields'], 'wait_probe_status_after') in (2, 3) or
+                               (integer(after['fields'], 'wait_probe_status_after')==1 and
+                                yes(f,'native_body_cycle') and yes(after['fields'],'native_body_cycle_after'))) and
                               readable and
                               f.get('reserve_kind', 'pistol') in ('pistol', 'rifle') and
                               trace_reserve_kind(before['fields'], 'after') == f.get('reserve_kind', 'pistol') ==
@@ -1024,11 +1069,28 @@ def analyze_evidence(directory):
                     assessment = 'unit_readback_observed' if delta == [1, -1] else 'non_unit_readback'
                 elif e['result'] == 'rejected':
                     assessment = 'no_transfer_readback_observed' if delta == [0, 0] else 'readback_changed_after_rejection'
+            mode=f.get('reload_mode','unit')
+            if mode in ('indexed','clip'):
+                # Scalar adjacent traces may describe another eligible index.
+                # Keep this as a reported synchronous vector, not a reconstructed
+                # transaction or a promotion of sparse samples to native leases.
+                correlated=bool(manual and before and after and frame is not None and
+                    coherent_trace(before['fields']) and coherent_trace(after['fields']) and
+                    owner(before['fields'])==owner(after['fields']) and
+                    owner(after['fields'])[2]==integer(f,'weapon_id') and
+                    integer(after['fields'],'frame_sequence')==frame and
+                    integer(before['fields'],'frame_sequence') is not None and
+                    integer(before['fields'],'frame_sequence')<frame and
+                    yes(before['fields'],'manual_session_enabled') and yes(after['fields'],'manual_session_enabled'))
+                assessment='inconclusive'
+                if correlated and e['result']=='accepted':
+                    assessment=('indexed_unit_readback_reported' if mode=='indexed' else 'clip_readback_reported') if family_readback_reported(f) else 'invalid_family_readback'
             insertions.append(dict(line=e['line'], frame=frame, weapon_id=integer(f, 'weapon_id'),
                                    result=e['result'], assessment=assessment, delta=delta,
+                                   reload_mode=mode,selected_index=integer(f,'selected_index'),
                                    owner_correlated=correlated,
                                    native_call_completed=yes(f, 'native_call_completed')))
-            if assessment in ('non_unit_readback', 'readback_changed_after_rejection'):
+            if assessment in ('non_unit_readback', 'readback_changed_after_rejection','invalid_family_readback'):
                 issues.append(dict(line=e['line'], kind=assessment))
         elif e['event'] == 'manual_reload_geometry' and (
                 yes(f, 'manual_session') or yes(f, 'reference_pose') or
@@ -1131,6 +1193,8 @@ def analyze_evidence(directory):
                 summary=dict(accepted_insertions=reported['manual_reload_insertion', 'accepted'],
                     rejected_insertions=reported['manual_reload_insertion', 'rejected'],
                     unit_readbacks=sum(r['assessment'] == 'unit_readback_observed' for r in insertions),
+                    indexed_unit_readbacks_reported=sum(r['assessment']=='indexed_unit_readback_reported' for r in insertions),
+                    clip_readbacks_reported=sum(r['assessment']=='clip_readback_reported' for r in insertions),
                     native_wait_entries=waiting_entries, issue_count=len(issues),
                     zone_entries=reported['manual_reload_zone','entered'],
                     zone_exits=reported['manual_reload_zone','exited'],

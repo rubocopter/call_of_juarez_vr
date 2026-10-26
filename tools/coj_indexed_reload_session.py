@@ -81,6 +81,47 @@ def _emit_retained_wait(e,c,weapon,hand,machine,failure,*,desired=True,move_loca
         else:local(weapon);c.branch(0xa6,failure)
 
 
+def _emit_retained_closed(e,c,weapon,hand,machine,failure):
+    """Field-only post-close ownership proof; no mutable-probe retargeting."""
+    own='ArmedPlayerBeing'
+    def field(owner,name,desc):return e.ref(owner,name,desc,9)
+    def local(slot,integer=False):c.emit(0x15 if integer else 0x19,slot)
+    for name,desc,slot in (('Weapon','LWeapon;',weapon),('Hand','I',hand),
+                           ('Machine','LPlayerStateMashine;',machine)):
+        c.emit(0x2a);c.ref(0xb4,field(own,'cojvrReloadProbe'+name,desc));local(slot,name=='Hand')
+        c.branch(0xa0 if name=='Hand' else 0xa6,failure)
+    c.emit(0x2a);c.ref(0xb4,field(own,'cojvrReloadProbeStatus','I'));c.emit(0x06);c.branch(0xa0,failure)
+    c.emit(0x2a);c.ref(0xb4,field(own,'cojvrReloadProbeCancelled','Z'));c.branch(0x99,failure)
+    local(weapon);c.ref(0xb4,field('Weapon','cOwner','LPawnInventory;'));c.emit(0x2a);c.branch(0xa6,failure)
+    local(machine);c.ref(0xb4,field('StateMashine','cojvrReloadProbeOwner','LArmedPlayerBeing;'))
+    c.emit(0x2a);c.branch(0xa6,failure)
+    current=field('StateMashine','m_sCurrentState','LBaseState;')
+    local(machine);c.ref(0xb4,current);c.branch(0xc6,failure)
+    local(machine);c.ref(0xb4,current);c.ref(0xc0,e.cls('PlayerState'))
+    c.ref(0xb4,field('PlayerState','m_iStateID','I'));c.emit(0x10,22);c.branch(0xa0,failure)
+    def slot(other=False):
+        c.emit(0x2a);c.ref(0xb4,field(own,'m_aHandStateMashine','[LArmedPlayerBeing$HandStateMashine;'))
+        if other:c.emit(0x04)
+        local(hand,True)
+        if other:c.emit(0x64)
+        c.emit(0x32)
+    slot();c.ref(0xb4,field('ArmedPlayerBeing$HandStateMashine','m_cStateMashine','LPlayerStateMashine;'))
+    local(machine);c.branch(0xa6,failure)
+    for other in (False,True):
+        for state in ('m_cActualState','m_cDesiredState'):
+            slot(other);c.ref(0xb4,field('ArmedPlayerBeing$HandStateMashine',state,'LArmedPlayerBeing$HandState;'))
+            c.ref(0xb4,field('ArmedPlayerBeing$HandState','m_cWeapon','LWeapon;'))
+            if other:c.branch(0xc7,failure)
+            else:local(weapon);c.branch(0xa6,failure)
+        c.emit(0x2a);c.ref(0xb4,field(own,'ActiveWeapon','[LWeapon;'))
+        if other:c.emit(0x04)
+        local(hand,True)
+        if other:c.emit(0x64)
+        c.emit(0x32)
+        if other:c.branch(0xc7,failure)
+        else:local(weapon);c.branch(0xa6,failure)
+
+
 def build_indexed_session_lab(original_archive:bytes,weapon:str)->tuple[bytes,bytes]:
     _profile(weapon)
     if hashlib.sha256(original_archive).hexdigest()!=ORIGINAL_ARCHIVE_SHA256:
@@ -89,6 +130,16 @@ def build_indexed_session_lab(original_archive:bytes,weapon:str)->tuple[bytes,by
     with zipfile.ZipFile(io.BytesIO(original_archive)) as archive:
         player,machine=patch_manual_classes(archive.read('ArmedPlayerBeing.class'),
             archive.read('StateMashine.class'),_offline_indexed=weapon)
+    return _append_indexed_session(player),machine
+
+
+def _append_indexed_session(player:bytes,*,helper_name='cojvrLabInsertWaitingIndexedUnit',runtime=False)->bytes:
+    """Append all exact indexed transactions to one already-emitted probe.
+
+    Admission/validity is owned by the caller. Public lab builders retain their
+    original hash checks and exact-family validity; runtime supplies a mixed
+    exact-class validator and adds the foreign-family entry guards afterwards.
+    """
     declarations=ClassEdit(player)
     declarations.field('cojvrIndexedSessionBusy','Z')
     declarations.field('cojvrIndexedSessionDispatch','Z')
@@ -123,11 +174,34 @@ def build_indexed_session_lab(original_archive:bytes,weapon:str)->tuple[bytes,by
     c.emit(0x1b);c.branch(0x9b,'reject');c.emit(0x1b,0x04);c.branch(0xa3,'reject')
     for field in (busy,fault):read(c,field);c.branch(0x9a,'reject')
     put(c,busy,True);c.label('try')
-    c.emit(0x2a);c.ref(0xb6,ref('cojvrManualReloadValid','()Z'));c.branch(0x99,'not_ready')
     probe(c,'Status','I');c.emit(0x05);c.branch(0xa0,'not_ready')
     probe(c,'Weapon','LWeapon;');c.emit(0x4d)
     probe(c,'Hand','I');c.emit(0x3e)
     probe(c,'Machine','LPlayerStateMashine;');c.emit(0x3a,4)
+    c.emit(0x2c);c.branch(0xc6,'not_ready')
+    c.emit(0x19,4);c.branch(0xc6,'not_ready')
+    c.emit(0x1d);c.branch(0x9b,'not_ready');c.emit(0x1d,0x04);c.branch(0xa3,'not_ready')
+    _emit_retained_wait(e,c,2,3,4,'not_ready')
+    # The outer session owns callbacks before and after the inner writer too.
+    # Keep the lease through remaining-query/close exceptions and probe loss.
+    for name,slot,desc in (('Weapon',2,'LWeapon;'),('Hand',3,'I'),
+                           ('Machine',4,'LPlayerStateMashine;')):
+        c.emit(0x2a,0x15 if name=='Hand' else 0x19,slot)
+        c.ref(0xb5,ref('cojvrIndexedDebt'+name,desc,9))
+    c.emit(0x2a,0x19,4)
+    c.ref(0xb4,e.ref('StateMashine','m_sCurrentState','LBaseState;',9))
+    c.ref(0xb5,ref('cojvrIndexedDebtBody','LBaseState;',9))
+    c.emit(0x2a);c.ref(0xb6,ref('cojvrManualReloadValid','()Z'));c.branch(0x99,'not_ready')
+    if runtime:
+        # Mixed production validity also admits one-index families. Reject them
+        # before the outer session reads either indexed slot or counter vector.
+        for name,_,_,_,_ in PROFILES:
+            c.emit(0x2c);c.ref(0xb6,e.ref('java/lang/Object','getClass','()Ljava/lang/Class;'))
+            c.ref(0xb6,e.ref('java/lang/Class','getName','()Ljava/lang/String;'))
+            literal=e.append(b'\x08'+e.utf8(name).to_bytes(2,'big'))
+            c.ref(0x13,literal);c.ref(0xb6,e.ref('java/lang/String','equals','(Ljava/lang/Object;)Z'))
+            c.branch(0x9a,'indexed_class')
+        c.branch(0xa7,'not_ready');c.label('indexed_class')
     put(c,dispatch,True)
     c.emit(0x2a,0x2c,0x1d,0x1b)
     c.ref(0xb6,ref('cojvrLabInsertIndexedUnit','(LWeapon;II)Z'));c.emit(0x36,7)
@@ -260,12 +334,15 @@ def build_indexed_session_lab(original_archive:bytes,weapon:str)->tuple[bytes,by
     closed_ticket('fault')
     same_vector('fault')
     closed_ticket('fault')
-    c.label('accepted');c.label('try_end');cleanup(c);c.emit(0x15,7,0xac)
+    c.label('accepted');c.label('try_end')
+    for name, desc in (('Weapon','LWeapon;'),('Machine','LPlayerStateMashine;'),('Body','LBaseState;')):
+        c.emit(0x2a,0x01);c.ref(0xb5,ref('cojvrIndexedDebt'+name,desc,9))
+    cleanup(c);c.emit(0x15,7,0xac)
     c.label('fault');put(c,fault,True)
     c.label('not_ready');cleanup(c);c.emit(0x03,0xac)
     c.label('catch');c.emit(0x3a,6);put(c,fault,True);cleanup(c);c.emit(0x19,6,0xbf)
     c.label('reject');c.emit(0x03,0xac)
-    e.helper('cojvrLabInsertWaitingIndexedUnit','(I)Z',c.finish(),19,
+    e.helper(helper_name,'(I)Z',c.finish(),19,
         exception_table=((c.labels['try'],c.labels['try_end'],c.labels['catch'],0),))
     def heartbeat(code):
         c=Code()
@@ -273,4 +350,4 @@ def build_indexed_session_lab(original_archive:bytes,weapon:str)->tuple[bytes,by
         c.branch(0xa7,'native');c.label('reject');c.emit(0x03,0xac);c.label('native')
         prefix=c.finish();return prefix+b'\0'*(-len(prefix)%4)+code
     e.changes['cojvrKeepManualReloadAlive','()Z']=heartbeat
-    return e.finish(),machine
+    return e.finish()

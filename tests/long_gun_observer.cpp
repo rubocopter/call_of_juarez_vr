@@ -116,16 +116,19 @@ void Reject(bool geometry=false){CoJLongGunSupportSnapshot out{};out.valid=true;
     if(!geometry)Require(frames==0,"geometry callback on rejected owner/state");}
 void ScopedFireIdentity(){
     CoJLongGunFireRouting routing{};
-    for(auto id:{0x12340001u,0x80000000u,0xf1234001u,0xfffffffeu}){
-        Reset();kind=3;weapon_id=id;
+    Reset();kind=0;
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&routing.right_button1_weapon==weapon_id,
+        "ordinary Winchester R2 still reaches native aim/zoom instead of button1 fire");
+    for(int model:{0,3})for(auto id:{0x12340001u,0x80000000u,0xf1234001u,0xfffffffeu}){
+        Reset();kind=model;weapon_id=id;
         Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&routing.block_left&&!routing.block_right&&
-            routing.scoped_right_weapon==id,"stable exact scoped right-hand fire identity unavailable");
+            routing.right_button1_weapon==id,"stable exact scoped right-hand fire identity unavailable");
         Require(refs.empty()&&!pending&&frames==0,"scoped fire read leaked JNI or read support geometry");
     }
     const int total=steps;
     const auto reject=[&](const char* reason="failed scoped fire read leaked identity/routing/JNI state"){routing={true,true,123};
         Require(!ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.block_left&&!routing.block_right&&
-            !routing.scoped_right_weapon&&refs.empty()&&!pending&&frames==0,
+            !routing.right_button1_weapon&&refs.empty()&&!pending&&frames==0,
             reason);};
     for(int i=1;i<=total;++i){Reset();kind=3;fail_step=i;reject();}
     for(auto id:{0u,0xffffffffu}){Reset();kind=3;weapon_id=id;reject();}
@@ -134,21 +137,21 @@ void ScopedFireIdentity(){
     Reset();kind=3;replace_on_id_read=true;reject();
     Reset();kind=3;replace_on_weapon_class=true;reject();
     Reset();kind=3;alias_desired=true;
-    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&routing.scoped_right_weapon==weapon_id,
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&routing.right_button1_weapon==weapon_id,
         "scoped fire identity rejected a JNI alias");
     for(int h=0;h<2;++h)for(int slot=0;slot<3;++slot){
         Reset();kind=3;weapons[h][slot]=h?P(foreign):nullptr;reject();
     }
     for(int k=0;k<5;++k){
         Reset();kind=k;
-        if(k==3)for(int slot=0;slot<3;++slot){weapons[0][slot]=nullptr;weapons[1][slot]=P(weapon);}
+        if(k==0||k==3)for(int slot=0;slot<3;++slot){weapons[0][slot]=nullptr;weapons[1][slot]=P(weapon);}
         auto saved=table[51];table[51]=nullptr;
-        Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.scoped_right_weapon&&
+        Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.right_button1_weapon&&
             !weapon_id_reads&&refs.empty()&&!pending,"non-scoped-right route required GetThisID/JNI51 or leaked scope identity");
         table[51]=saved;
     }
     Reset();kind=3;for(int i=0;i<3;++i)weapons[1][i]=P(foreign);
-    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.scoped_right_weapon&&!weapon_id_reads,
+    Require(ReadCoJLongGunFireOwnership(&env,P(player),routing)&&!routing.right_button1_weapon&&!weapon_id_reads,
         "occupied support hand admitted scoped right ownership");
 }
 template<class T>void Set(int i,T f){table[i]=reinterpret_cast<void*>(f);}

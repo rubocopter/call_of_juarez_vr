@@ -18,6 +18,135 @@ Vec3 Sub(Vec3 a,Vec3 b){return {a.x-b.x,a.y-b.y,a.z-b.z};}
 bool Near(float a,float b){return std::abs(a-b)<1e-5F;}
 bool Near(Vec3 a,Vec3 b){return Near(a.x,b.x)&&Near(a.y,b.y)&&Near(a.z,b.z);}
 
+bool SameSurface(const ReloadCartridgeSurface& a,const ReloadCartridgeSurface& b){
+    if(!Near(a.material_uv.x,b.material_uv.x)||!Near(a.material_uv.y,b.material_uv.y)||
+        !Near(a.shade,b.shade))return false;
+    for(unsigned i=0;i<4;++i)
+        if(!Near(a.head_corners[i],b.head_corners[i])||
+            !Near(a.corner_uv[i].x,b.corner_uv[i].x)||!Near(a.corner_uv[i].y,b.corner_uv[i].y)||
+            !Near(a.corner_shade[i],b.corner_shade[i])||!Near(a.corner_normal[i],b.corner_normal[i]))return false;
+    return true;
+}
+void RequireClearedCartridge(const StereoHudTextOverlay& out){
+    Require(!out.reload_cartridge_visible&&!out.reload_cartridge_textured&&
+        out.reload_cartridge_surface_count==0&&out.reload_cartridge_instance_count==0,
+        "rejected bundle retained visible/count/material state");
+    for(auto p:out.reload_cartridge_instance_offsets)Require(Near(p,{}),"rejected bundle retained offsets");
+    for(auto p:out.reload_cartridge_head_corners)Require(Near(p,{}),"rejected bundle retained legacy sprite");
+    for(const auto& surface:out.reload_cartridge_surfaces)
+        Require(SameSurface(surface,{}),"rejected bundle retained partial or stale surfaces");
+}
+
+// Catch single-proxy substitution, lost faces/materials, overlapping rounds,
+// anchor/head-space confusion, per-cartridge sorting and partial publication.
+void CartridgeBundleGeometry(){
+    Pose head{},anchor{};head.position_valid=head.orientation_valid=true;
+    anchor=head;anchor.position={.1F,-.1F,-.4F};
+    StereoHudTextOverlay out{};
+    // Hand-checked centres: 13.06mm diameter plus 2mm visual clearance.
+    constexpr float pitch=.01506F,half=.00753F;
+    for(unsigned count:{2U,6U,1U,3U,4U,5U}){
+        std::array<Vec3,6> centres{};
+        switch(count){
+        case 1:break;
+        case 2:centres={Vec3{-half,0,0},Vec3{half,0,0}};break;
+        case 3:centres={Vec3{-pitch,0,0},Vec3{0,0,0},Vec3{pitch,0,0}};break;
+        case 4:centres={Vec3{-pitch,half,0},Vec3{0,half,0},Vec3{pitch,half,0},Vec3{0,-half,0}};break;
+        case 5:centres={Vec3{-pitch,half,0},Vec3{0,half,0},Vec3{pitch,half,0},
+            Vec3{-half,-half,0},Vec3{half,-half,0}};break;
+        case 6:centres={Vec3{-pitch,half,0},Vec3{0,half,0},Vec3{pitch,half,0},
+            Vec3{-pitch,-half,0},Vec3{0,-half,0},Vec3{pitch,-half,0}};break;
+        }
+        for(const auto rotation:std::array<Quaternion,3>{{{0,0,0,1},{.5F,.5F,.5F,.5F},
+            {0,0,.70710678F,.70710678F}}}){
+            anchor.orientation=rotation;
+            Require(BuildReloadCartridgeOverlay(head,anchor,true,out),"bundle stale textured fixture rejected");
+            out.frame_sequence=123;out.feedback_context_token=77;
+            out.reload_feedback.owner_token=91;out.text.hint.characters[0]=u'H';out.text.hint.length=1;
+            out.eyes[0].eye_to_head.position.x=-.032F;
+            Require(BuildReloadCartridgeBundleOverlay(head,anchor,count,true,out),"valid bundle rejected");
+            Require(out.reload_cartridge_visible&&out.reload_cartridge_textured&&
+                out.reload_cartridge_surface_count==92&&out.reload_cartridge_instance_count==count,
+                "bundle must repeat the imported textured mesh, never the old proxy");
+            Require(out.frame_sequence==123&&out.feedback_context_token==77&&
+                out.reload_feedback.owner_token==91&&out.text.hint.view()==u"H"&&
+                out.eyes[0].eye_to_head.position.x==-.032F,"bundle changed non-cartridge capture metadata");
+            for(auto p:out.reload_cartridge_head_corners)Require(Near(p,{}),"bundle kept legacy sprite");
+            for(std::size_t i=out.reload_cartridge_surface_count;i<out.reload_cartridge_surfaces.size();++i)
+                Require(SameSurface(out.reload_cartridge_surfaces[i],{}),"bundle kept textured or unused tail surfaces");
+            for(unsigned cartridge=0;cartridge<count;++cartridge){
+                auto offset=RotateVector(rotation,centres[cartridge]);
+                Pose placed=anchor;placed.position={anchor.position.x+offset.x,
+                    anchor.position.y+offset.y,anchor.position.z+offset.z};
+                StereoHudTextOverlay expected{};
+                Require(BuildReloadCartridgeOverlay(head,placed,true,expected),"expected bundle component rejected");
+                std::array<bool,92> matched{};
+                const auto shift=out.reload_cartridge_instance_offsets[cartridge];
+                Require(Near(shift,offset),"bundle instance did not follow its anchor rotation");
+                for(unsigned f=0;f<92;++f){
+                    bool found=false;
+                    for(unsigned j=0;j<92;++j)if(!matched[j]){
+                        auto actual=out.reload_cartridge_surfaces[j];
+                        for(auto& p:actual.head_corners){p.x+=shift.x;p.y+=shift.y;p.z+=shift.z;}
+                        if(SameSurface(expected.reload_cartridge_surfaces[f],actual)){
+                            matched[j]=true;found=true;break;
+                        }
+                    }
+                    Require(found,"bundle lost, duplicated or moved an imported surface/UV/normal");
+                }
+            }
+            // A common tracking-space transform must leave captured geometry unchanged.
+            auto moved_head=head,moved_anchor=anchor;
+            moved_head.position={1,2,3};moved_head.orientation={0,.70710678F,0,.70710678F};
+            const auto delta=RotateVector(moved_head.orientation,anchor.position);
+            moved_anchor.position={1+delta.x,2+delta.y,3+delta.z};
+            const auto q=rotation;const float s=.70710678F;
+            moved_anchor.orientation={s*(q.x+q.z),s*(q.y+q.w),s*(q.z-q.x),s*(q.w-q.y)};
+            StereoHudTextOverlay transformed{};
+            Require(BuildReloadCartridgeBundleOverlay(moved_head,moved_anchor,count,true,transformed),
+                "commonly transformed bundle rejected");
+            for(unsigned i=0;i<count;++i)Require(Near(out.reload_cartridge_instance_offsets[i],
+                transformed.reload_cartridge_instance_offsets[i]),"common transform changed bundle offsets");
+            for(unsigned i=0;i<out.reload_cartridge_surface_count;++i){
+                bool found=false;
+                for(unsigned j=0;j<transformed.reload_cartridge_surface_count;++j)found|=SameSurface(
+                    out.reload_cartridge_surfaces[i],transformed.reload_cartridge_surfaces[j]);
+                Require(found,"common tracking transform changed captured bundle geometry");
+            }
+        }
+    }
+    anchor.orientation={};
+    const auto reject=[&](const Pose& h,const Pose& a,unsigned count,bool visible){
+        Require(BuildReloadCartridgeOverlay(head,anchor,true,out),"rejection seed rejected");
+        Require(!BuildReloadCartridgeBundleOverlay(h,a,count,visible,out),"invalid bundle accepted");
+        RequireClearedCartridge(out);
+    };
+    for(unsigned count:{0U,7U,224U,std::numeric_limits<unsigned>::max()})reject(head,anchor,count,true);
+    reject(head,anchor,6,false);
+    for(bool bad_head:{false,true})for(unsigned fault=0;fault<9;++fault){
+        auto h=head,a=anchor;auto& invalid=bad_head?h:a;
+        switch(fault){
+        case 0:invalid.position_valid=false;break;
+        case 1:invalid.orientation_valid=false;break;
+        case 2:invalid.position.x=std::numeric_limits<float>::quiet_NaN();break;
+        case 3:invalid.position.y=std::numeric_limits<float>::infinity();break;
+        case 4:invalid.position.z=-std::numeric_limits<float>::infinity();break;
+        case 5:invalid.orientation.x=std::numeric_limits<float>::quiet_NaN();break;
+        case 6:invalid.orientation.y=std::numeric_limits<float>::infinity();break;
+        case 7:invalid.orientation={0,0,0,0};break;
+        case 8:invalid.orientation.w=2;break;
+        }
+        reject(h,a,6,true);
+    }
+    auto clipped=anchor;clipped.position.z=-.02F;reject(head,clipped,6,true);
+    clipped.position.z=.5F;reject(head,clipped,6,true);
+    clipped=anchor;clipped.position.z=-.06F;clipped.orientation={-.70710678F,0,0,.70710678F};
+    // First row is valid; the last row crosses the near plane. No partial bundle may escape.
+    auto first=clipped;first.position.z-=half;
+    Require(BuildReloadCartridgeOverlay(head,first,true,out),"late near-clip fixture must admit first row");
+    reject(head,clipped,6,true);
+}
+
 // Exercise the exported visual tip against the real explicit-socket policy.
 // The negative journey changes only tip orientation, never its rendered apex.
 void RenderedTipInsertionJourneys(){
@@ -87,6 +216,7 @@ void RenderedTipInsertionJourneys(){
     }
 }
 int main(){
+    CartridgeBundleGeometry();
     {
         Pose head{}, hand{};
         head.position_valid=head.orientation_valid=true;
@@ -349,6 +479,63 @@ int main(){
             "invalid optional cartridge UV must suppress both eyes");
         out=imported;
     }
+    std::array<unsigned,3> bundle_coverage{};
+    std::array<std::uint64_t,3> bundle_hash{};
+    grip.position={0,-.1F,-.22F};grip.orientation={};
+    for(unsigned i=0;i<3;++i){
+        const unsigned count=std::array<unsigned,3>{1,2,6}[i];
+        Require(BuildReloadCartridgeBundleOverlay(head,grip,count,true,out),"renderer bundle capture failed");
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(!compositor.Draw(device.Get(),context.Get(),out,124,raw),"bundle admitted wrong frame metadata");
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)>0&&coverage(1)>0,
+            "complete bounded bundle must render in both eyes");
+        bundle_coverage[i]=coverage(0);bundle_hash[i]=fingerprint[0];
+        const auto bundle=out;
+        Require(out.reload_cartridge_textured&&lead_pixels[0]>0&&lead_pixels[1]>0,
+            "bundle must retain the imported lead material in both eyes");
+        for(unsigned fault=0;fault<7;++fault){
+            out=bundle;
+            if(fault==0)out.reload_cartridge_surface_count=out.reload_cartridge_max_surfaces+1;
+            else if(fault==1)out.reload_cartridge_surfaces[out.reload_cartridge_surface_count-1].corner_uv[0].x=
+                std::numeric_limits<float>::quiet_NaN();
+            else if(fault==2)out.reload_cartridge_surfaces[out.reload_cartridge_surface_count-1].head_corners[0].z=0;
+            else if(fault==3)out.reload_cartridge_instance_count=0;
+            else if(fault==4)out.reload_cartridge_instance_count=out.reload_cartridge_max_instances+1;
+            else if(fault==5)out.reload_cartridge_instance_offsets[count-1].x=std::numeric_limits<float>::infinity();
+            else out.reload_cartridge_instance_offsets[count-1].z=.4F;
+            for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+            Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)==0&&coverage(1)==0,
+                "malformed bundle metadata or final surface must suppress the whole bundle in both eyes");
+        }
+        out=bundle;
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)>0&&coverage(1)>0,
+            "bundle reference redraw failed");
+        const auto ordered_pixels=fingerprint;
+        std::reverse(out.reload_cartridge_surfaces.begin(),
+            out.reload_cartridge_surfaces.begin()+out.reload_cartridge_surface_count);
+        std::reverse(out.reload_cartridge_instance_offsets.begin(),
+            out.reload_cartridge_instance_offsets.begin()+out.reload_cartridge_instance_count);
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)>0&&coverage(1)>0&&
+            fingerprint==ordered_pixels,"bundle appearance depends on face/instance submission order");
+    }
+    Require(bundle_coverage[1]>bundle_coverage[0]&&bundle_coverage[2]>bundle_coverage[1]&&
+        bundle_hash[0]!=bundle_hash[1]&&bundle_hash[1]!=bundle_hash[2],
+        "two/six-cartridge bundle pixels must differ from a single cartridge");
+    for(float tilt:{-.38268343F,.38268343F}){
+        grip.orientation={tilt,0,0,.92387953F};
+        Require(BuildReloadCartridgeOverlay(head,grip,true,out),"tilted imported reference capture failed");
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)>0&&coverage(1)>0,
+            "tilted primer reference must render in both eyes");
+        const auto reference_pixels=fingerprint;
+        Require(BuildReloadCartridgeBundleOverlay(head,grip,1,true,out),"tilted bundle capture failed");
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw)&&coverage(0)>0&&coverage(1)>0&&
+            fingerprint==reference_pixels,
+            "single-round bundle must match the imported cartridge in both eyes");
+    }
     grip.orientation={0,.70710678F,0,.70710678F};
     for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
     Require(BuildReloadCartridgeOverlay(head,grip,true,out)&&compositor.Draw(device.Get(),context.Get(),out,123,raw),
@@ -359,15 +546,24 @@ int main(){
         "textured cartridge case must render as brass rather than the orange source palette");
     if(const auto* destination=std::getenv("COJVR_RELOAD_RENDER_OUTPUT")){
         std::filesystem::create_directories(destination);
+        grip.position={0,0,-.16F};grip.orientation=NormalizeQuaternion({.2F,.3F,.1F,.9F});
+        for(unsigned variant=0;variant<3;++variant){
+        for(auto& v:views)context->ClearRenderTargetView(v.Get(),clear);
+        Require(variant==1?BuildReloadCartridgeProxyOverlay(head,grip,true,out):variant==2?
+            BuildReloadCartridgeBundleOverlay(head,grip,6,true,out):
+            BuildReloadCartridgeOverlay(head,grip,true,out),"preview geometry rejected");
+        Require(compositor.Draw(device.Get(),context.Get(),out,123,raw),"preview draw failed");
         for(int eye=0;eye<2;++eye){
             context->CopyResource(readback.Get(),targets[eye].Get());D3D11_MAPPED_SUBRESOURCE mapped{};
             Require(SUCCEEDED(context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped)),"reference image map failed");
-            std::ofstream image(std::filesystem::path(destination)/(eye?"right.ppm":"left.ppm"),std::ios::binary);
+            const std::string prefix=variant==1?"proxy-":variant==2?"bundle6-":"";
+            std::ofstream image(std::filesystem::path(destination)/(prefix+(eye?"right.ppm":"left.ppm")),std::ios::binary);
             image<<"P6\n1024 1024\n255\n";
             for(unsigned y=0;y<1024;++y){const auto* row=reinterpret_cast<const std::uint32_t*>(
                 static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch);
                 for(unsigned x=0;x<1024;++x){const char rgb[]{static_cast<char>(row[x]>>16),static_cast<char>(row[x]>>8),static_cast<char>(row[x])};image.write(rgb,3);}}
             context->Unmap(readback.Get(),0);Require(image.good(),"reference image write failed");
+        }
         }
     }
     std::cout<<"reload visual geometry/raster passed\n";

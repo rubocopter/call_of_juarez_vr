@@ -36,6 +36,65 @@ struct Fixture{
     CoJManualReloadOutput Insert(){Carry(s.left,s.right);s.raw.fire_left=false;return Poll();}
 };
 int main(){
+    {
+        Fixture indexed;
+        indexed.s.native.kind=indexed.s.admission.kind=indexed.s.recovery.kind=CoJManualReloadKind::indexed;
+        indexed.s.admission.single_round_supported=indexed.s.recovery.single_round_supported=false;
+        indexed.s.admission.manual_supported=indexed.s.recovery.manual_supported=true;
+        indexed.s.native.index_count=2;indexed.s.native.selected_index=1;
+        indexed.s.native.capacities={1,8};indexed.s.native.loaded={0,2};
+        indexed.s.native.reserves={10,10,0};
+        indexed.s.native.reserve_kinds={CoJReloadReserveKind::rifle,CoJReloadReserveKind::pistol};
+        indexed.Open();indexed.Claim();
+        indexed.s.native.selected_index=0; // A later suggestion cannot redirect the held unit.
+        auto inserted=indexed.Insert();
+        Check(inserted.insert&&inserted.selected_index==1,
+            "indexed pickup did not retain its selected native ammo slot");
+        indexed.session.CompleteInsertion(true,true,inserted);
+        Check(indexed.session.selected_index()==-1,"completed indexed insertion retained old selection");
+    }
+    {
+        Fixture indexed;
+        indexed.s.native.kind=indexed.s.admission.kind=indexed.s.recovery.kind=CoJManualReloadKind::indexed;
+        indexed.s.native.index_count=2;indexed.s.native.selected_index=1;
+        indexed.s.native.capacities={1,8};indexed.s.native.loaded={0,2};
+        indexed.s.native.reserves={10,10,0};
+        indexed.s.native.reserve_kinds={CoJReloadReserveKind::rifle,CoJReloadReserveKind::pistol};
+        indexed.Open();indexed.Claim();
+        indexed.s.native.loaded[1]=8;indexed.s.native.selected_index=0;
+        const auto lost=indexed.Poll();
+        Check(!lost.insert&&!lost.gesture.cartridge_held,
+            "full captured slot silently redirected its cartridge to another eligible slot");
+        indexed.s.left=indexed.s.right;indexed.s.raw.fire_left=false;
+        Check(!indexed.Poll().insert,"invalidated indexed carry inserted on physical release");
+    }
+    {
+        Fixture indexed;indexed.s.native.kind=indexed.s.admission.kind=CoJManualReloadKind::indexed;
+        indexed.s.native.ammo_readback=0;(void)indexed.Poll();indexed.s.raw.fire_right=true;
+        Check(!indexed.Poll().start,"indexed empty trigger inferred native fire index from ammo0");
+    }
+    {
+        Fixture clip;clip.s.native.kind=clip.s.admission.kind=clip.s.recovery.kind=CoJManualReloadKind::clip;
+        clip.s.admission.single_round_supported=clip.s.recovery.single_round_supported=false;
+        clip.s.admission.manual_supported=clip.s.recovery.manual_supported=true;
+        clip.Open();clip.Claim();auto inserted=clip.Insert();Check(inserted.insert,"clip gesture missing");
+        clip.session.CompleteInsertion(true,true,inserted);
+        Check(clip.session.phase()==CoJManualReloadPhase::closing&&!inserted.supervise,
+            "successful clip insertion incorrectly offered another unit");
+    }
+    {
+        Fixture cycle;cycle.Open();cycle.Claim();
+        auto inserted=cycle.Insert();Check(inserted.insert,"missing cycle insertion");
+        cycle.session.CompleteInsertion(true,true,inserted);
+        cycle.s.native.probe_status=1; // Native body replay after a unit.
+        const auto replay=cycle.Poll();
+        Check(replay.tracked&&replay.supervise&&!replay.insert&&!replay.gesture.cartridge_held&&
+            cycle.session.phase()==CoJManualReloadPhase::opening,
+            "native per-cartridge body replay still offers a waiting-state cartridge");
+        cycle.s.native.probe_status=2;(void)cycle.Poll();
+        Check(cycle.session.phase()==CoJManualReloadPhase::manual_load,
+            "body replay failed to return to supervised manual loading");
+    }
     for(int hand:{0,1}) {
         Fixture empty;empty.s.admission.armed_hand=empty.s.recovery.armed_hand=empty.s.native.armed_hand=hand;
         empty.s.native.ammo_readback=0;empty.s.native.reserve_readback=6;
@@ -45,7 +104,18 @@ int main(){
         Check(out.start&&empty.mapped.reload&&!empty.mapped.fire_left&&!empty.mapped.fire_right&&
             std::strcmp(out.reason,"empty_trigger")==0,"empty armed trigger bypassed manual preparation");
         empty.session.NoteStart(true);
-        Check(!empty.Poll().start,"held empty trigger repeatedly started reload");
+        empty.s.native.probe_status=1;empty.s.native.reloading=true;
+        empty.s.native.states[0]={20,21,21,21};
+        out=empty.Poll();
+        Check(!out.start&&!out.cancel&&empty.session.phase()==CoJManualReloadPhase::opening,
+            "the opening empty-trigger hold immediately closed its own reload");
+        for(unsigned i=0;i<3;++i)Check(!empty.Poll().cancel,"continued opening hold closed manual session");
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=false;
+        (void)empty.Poll();
+        (hand==0?empty.s.raw.fire_right:empty.s.raw.fire_left)=true;
+        out=empty.Poll();
+        Check(out.cancel&&std::strcmp(out.reason,"fire_close")==0,
+            "release and fresh armed trigger failed to close the prepared reload");
     }
     {
         Fixture ordinary;ordinary.s.admission.single_round_supported=false;

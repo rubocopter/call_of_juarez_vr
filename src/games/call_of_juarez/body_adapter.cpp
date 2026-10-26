@@ -566,7 +566,8 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
     const float previously_owned_degrees,
     const bool previous_owned_valid,
     const bool recentered,
-    const bool on_foot_owner_verified) noexcept {
+    const bool on_foot_owner_verified,
+    const bool rifle_scope_owned) noexcept {
     BodyYawOwnershipUpdate result{};
     if (!relative_head_pose.orientation_valid ||
         !std::isfinite(previously_owned_degrees)) {
@@ -575,7 +576,7 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
 
     if (recentered) {
         result.valid = true;
-        result.actor_update_allowed = on_foot_owner_verified;
+        result.actor_update_allowed = on_foot_owner_verified && !rifle_scope_owned;
         return result;
     }
 
@@ -597,6 +598,18 @@ BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
         ? std::remainder(previously_owned_degrees, 360.0F)
         : 0.0F;
     const float residual = std::remainder(game_yaw - previous_owned, 360.0F);
+
+    // The exact rifle scope camera need not follow the actor's full yaw. If
+    // HMD yaw keeps rotating that actor, subtracting the full owned angle from
+    // the damped native camera contaminates the controller's world reference.
+    // Retain the existing reference while the rifle owns angular view; resume
+    // ordinary following on exit. Mounted/unknown-owner policy stays separate.
+    if (rifle_scope_owned) {
+        result.actor_target_degrees = previous_owned;
+        result.camera_compensation_degrees = previous_owned;
+        result.valid = true;
+        return result;
+    }
 
     // Verified on-foot gameplay keeps the actor aligned with every HMD yaw change.
     // Commit only after stereo restoration: this frame's camera, hands and

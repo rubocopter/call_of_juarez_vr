@@ -26,22 +26,40 @@ inline bool BuildCoJScopeLenses(const std::array<runtime::EyeView,2>& physical,
     }
     return true;
 }
-// One angular aim shift from the binocular centre, shared by both parallel
-// scene eyes. Preserve each physical optical principal point and the zoom's
-// compensated virtual baseline. Never converge the two texture centres.
+// While the native scope is active, the rifle alone owns angular aim. A virtual
+// scene orientation follows its verified ray, independently of head rotation.
+// Physical HMD poses remain with the compositor
+// and ordinary view resumes on exit. Keep physical optical principal points
+// and the compensated virtual baseline; never converge the texture centres.
 inline bool BuildCoJScopedRifleRenderEyes(CameraProbeBasis natural,CameraProbeVector position,
     const runtime::Pose& head,float yaw,const std::array<runtime::EyeView,2>& physical,
     const std::array<runtime::EyeView,2>& zoomed,const CameraProbeWeaponRay& ray,
-    float near_plane,float far_plane,std::array<runtime::EyeView,2>& out) noexcept {
-    out=zoomed;
+    float near_plane,float far_plane,std::array<runtime::EyeView,2>& out,
+    runtime::Pose& scene_head) noexcept {
+    out=zoomed;scene_head=head;
     const auto& q=head.orientation;
     const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
     if(!ray.origin_valid||!ray.direction_valid||!ray.muzzle_verified||
         !head.position_valid||!head.orientation_valid||!std::isfinite(norm)||std::abs(norm-1.F)>.01F||
         !std::isfinite(yaw)||!IsCameraProbeBasisRigidRightHanded(natural))return false;
-    const auto basis=ApplyCameraPoseOrientation(natural.forward,natural.up,q,yaw);
     const auto reference=BuildTrackingReferenceBasis(natural.forward,natural.up,yaw);
-    if(!IsCameraProbeBasisRigidRightHanded(basis)||!IsCameraProbeBasisRigidRightHanded(reference))return false;
+    if(!IsCameraProbeBasisRigidRightHanded(reference))return false;
+    const auto dot=[](CameraProbeVector a,CameraProbeVector b){return a.x*b.x+a.y*b.y+a.z*b.z;};
+    const float x_direction=dot(ray.direction,reference.right);
+    const float y_direction=dot(ray.direction,reference.up);
+    const float z_direction=dot(ray.direction,reference.forward);
+    const float horizontal=std::hypot(x_direction,z_direction);
+    if(!std::isfinite(horizontal)||!std::isfinite(y_direction)||
+        std::hypot(horizontal,y_direction)<1.e-5F)return false;
+    // HeadAngles and the CoJ adapter have opposite yaw signs. Construct a
+    // virtual XR yaw/pitch in the tracking reference; never reuse HMD angles.
+    const float half_yaw=-.5F*std::atan2(x_direction,-z_direction);
+    const float half_pitch=.5F*std::atan2(y_direction,horizontal);
+    const runtime::Quaternion aim_orientation{
+        std::cos(half_yaw)*std::sin(half_pitch),std::sin(half_yaw)*std::cos(half_pitch),
+        -std::sin(half_yaw)*std::sin(half_pitch),std::cos(half_yaw)*std::cos(half_pitch)};
+    const auto basis=ApplyCameraPoseOrientation(natural.forward,natural.up,aim_orientation,yaw);
+    if(!IsCameraProbeBasisRigidRightHanded(basis))return false;
     const auto head_position=ApplyCameraTrackingOffset(position,reference,head.position);
     const float distance=std::min(5000.F,far_plane*.95F);
     const runtime::Vec3 eye_centre{
@@ -68,6 +86,6 @@ inline bool BuildCoJScopedRifleRenderEyes(CameraProbeBasis natural,CameraProbeVe
         CameraProbeFrustum check{};
         if(!BuildCameraProbeFrustum(candidate[eye].fov,near_plane,far_plane,check))return false;
     }
-    out=candidate;return true;
+    out=candidate;scene_head.orientation=aim_orientation;return true;
 }
 }

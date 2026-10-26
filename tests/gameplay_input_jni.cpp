@@ -997,7 +997,7 @@ int main() {
             "scoped R2 must fire action9 instead of native button0 zoom");
         physical.fire_left=true;mapped=poll(3);
         ok &= Check(mapped.fire_left&&!mapped.fire_right,"physical L2 changed scoped R2 ownership");
-        owner.scoped_right_weapon++;mapped=poll(4);
+        owner.right_button1_weapon++;mapped=poll(4);
         ok &= Check(!mapped.fire_left&&!mapped.fire_right,"held R2 fired replacement scoped rifle");
         physical.fire_left=physical.fire_right=false;(void)poll(5);physical.fire_right=true;
         ok &= Check(poll(6).fire_left,"scoped rifle failed to recover after release");

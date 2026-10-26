@@ -10,7 +10,7 @@ import unittest
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).parent))
-from manual_reload_native import ManualVM
+from manual_reload_native import ManualVM, ManualHandFields as CycleHandFields
 from reload_wait_probe import original, JVMThrown
 from inspect_java_bytecode import parse_class
 from coj_offline_manual_reload import patch_offline_classes
@@ -36,6 +36,15 @@ class CycleVM(ManualVM):
         self.on_capacity = None
         self.on_remaining = None
         self.started = self.zero_reloads = self.important_states = 0
+        self.player['m_aHandStateMashine'] = [CycleHandFields(self, hand) for hand in (0, 1)]
+
+    def run(self, cls, name, desc, owner, args=()):
+        if name.startswith(('cojvrManualCycleDebt', 'cojvrIndexedDebt','cojvrRevolverDebt','cojvrClipDebt')):
+            # This existing interpreter also implements aaload for direct native
+            # field proofs; execute emitted helpers rather than modeling them.
+            from indexed_manual_reload import IndexedVM
+            return IndexedVM.execute(self, cls, name, desc, owner, args)
+        return super().run(cls, name, desc, owner, args)
 
     def fault(self, point):
         if self.fault_at == point:
@@ -84,6 +93,76 @@ class ManualReloadCycleTests(unittest.TestCase):
                       'Missing safe per-cartridge animation transaction')
         vm = CycleVM(weapon); vm.wait()
         return vm
+
+    def test_probe_loss_then_throw_keeps_late_completion_zero_and_native_reload_recovers(self):
+        for point in ('event', 'body'):
+            with self.subTest(point=point):
+                vm = self.make(); exception = {'class': 'Throwable', 'unique': object()}
+                def fail():
+                    vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [0])
+                    raise JVMThrown(exception)
+                setattr(vm, 'on_' + point, fail)
+                with self.assertRaises(JVMThrown) as caught: vm.call('cojvrInsertManualRound')
+                self.assertIs(caught.exception.value, exception)
+                vm.on_event = vm.on_body = None
+                before = vm.ammo, vm.counter['amount'], vm.events
+                self.assertEqual(before, (3, 9, 1))
+                self.assertFalse(vm.call('cojvrInsertManualRound'))
+                vm.update(1.0)
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), before)
+                self.assertEqual(vm.player['desired_state'], 1)
+                vm.update(1.4)
+                vm.player['cojvrManualReloadWeapon'] = None
+                vm.run('ArmedPlayerBeing', 'ReloadWeapon', '(I)V', vm.player, [0])
+                vm.machine['m_sCurrentState'] = vm.states[20]
+                vm.machine['start'] = 1.4
+                vm.update(1.8); vm.update(2.2)
+                self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (4, 8, 2))
+
+    def test_fault_abort_throw_cleans_transient_scope_and_keeps_late_completion_zero(self):
+        vm = self.make(); exception = {'class': 'Throwable', 'unique': object()}
+        vm.on_event = lambda: setattr(vm, 'ammo', vm.ammo + 1)
+        native = vm.native
+        def fail_abort(owner, name, args):
+            if name == 'Clear': raise JVMThrown(exception)
+            return native(owner, name, args)
+        vm.native = fail_abort
+        with self.assertRaises(JVMThrown) as caught: vm.call('cojvrInsertManualRound')
+        self.assertIs(caught.exception.value, exception)
+        for field in ('Active', 'SelfClear', 'SawClear'):
+            self.assertFalse(vm.player.get('cojvrManualCycle' + field), field)
+        for field in ('Weapon', 'Machine'):
+            self.assertIsNone(vm.player.get('cojvrManualCycle' + field), field)
+        self.assertTrue(vm.player['cojvrManualCycleFaulted'])
+        vm.native = native; vm.on_event = None
+        vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [0])
+        vm.update(1.0)
+        self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (4, 9, 1))
+        self.assertEqual(vm.player['desired_state'], 1)
+        vm.update(1.4)
+        vm.player['cojvrManualReloadWeapon'] = None
+        vm.run('ArmedPlayerBeing', 'ReloadWeapon', '(I)V', vm.player, [0])
+        vm.machine['m_sCurrentState'] = vm.states[20]; vm.machine['start'] = 1.4
+        vm.update(1.8); vm.update(2.2)
+        self.assertEqual((vm.ammo, vm.counter['amount'], vm.events), (5, 8, 2))
+
+    def test_initial_validator_probe_loss_throw_never_attempts_throwing_abort(self):
+        vm = self.make(); original = {'class':'Throwable','unique':object()}
+        secondary = {'class':'Throwable','unique':object()}; native = vm.native
+        def fail(owner, name, args):
+            if name == 'GetAmmoTypeCount' and vm.player.get('cojvrManualCycleActive'):
+                vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[0])
+                raise JVMThrown(original)
+            if name == 'Clear': raise JVMThrown(secondary)
+            return native(owner,name,args)
+        vm.native = fail
+        with self.assertRaises(JVMThrown) as caught: vm.call('cojvrInsertManualRound')
+        self.assertIs(caught.exception.value,original)
+        self.assertFalse(vm.player['cojvrManualCycleSelfClear'])
+        self.assertFalse(vm.player['cojvrManualCycleActive'])
+        vm.native = native; vm.update(1.0)
+        self.assertEqual((vm.ammo,vm.counter['amount'],vm.events),(2,10,0))
+        self.assertEqual(vm.player['desired_state'],1)
 
     def test_one_native_unit_restarts_body_without_terminating_desired_reload(self):
         for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):

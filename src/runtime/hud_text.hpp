@@ -117,6 +117,11 @@ struct StereoHudTextOverlay {
     // Controller-oriented presentation only: never native ammo/inventory.
     bool reload_cartridge_visible = false;
     bool reload_cartridge_textured = false;
+    // Repeated copies of one captured mesh. Keep the per-draw constant buffer
+    // below D3D11's 64 KiB limit instead of multiplying the capture surfaces.
+    static constexpr std::size_t reload_cartridge_max_instances = 6;
+    std::uint32_t reload_cartridge_instance_count = 1;
+    std::array<Vec3,reload_cartridge_max_instances> reload_cartridge_instance_offsets{};
     std::array<Vec3,4> reload_cartridge_head_corners{};
     static constexpr std::size_t reload_cartridge_max_surfaces = 224;
     std::uint32_t reload_cartridge_surface_count = 0;

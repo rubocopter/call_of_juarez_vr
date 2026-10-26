@@ -11,6 +11,7 @@
 #include "games/call_of_juarez/gameplay_ui_reader.hpp"
 #include "games/call_of_juarez/focus_zoom.hpp"
 #include "games/call_of_juarez/motion_reload_owner.hpp"
+#include "finger_fixture.hpp"
 #define private public
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #undef private
@@ -36,6 +37,11 @@ int player, weapon, replacement, player_class, pistol_class, other_class, except
 int schofield_a_class, schofield_b_class;
 int peacemaker_class, derringer_class;
 int frontier_class,walker_class,cogswell_class,schofield_class;
+int winchester_class,scoped_class,volcanic_class;
+int remington_class,sawoff_class,lemant_class;
+bool net_game=false,foreign_owner=false;
+JavaPlayerBridge* ticket_fault_bridge=nullptr;
+bool ticket_generation_fault=false;
 int weapon_alias;
 void* table[174]{};
 void** ticket_env_holder = table;
@@ -82,6 +88,12 @@ void* JNI_CALL Find(void*, const char* name) {
     if (!std::strcmp(name,"WeaponPistolWalker"))return Ref(&walker_class);
     if (!std::strcmp(name,"WeaponPistolCogswell"))return Ref(&cogswell_class);
     if (!std::strcmp(name,"WeaponPistolSchofield"))return Ref(&schofield_class);
+    if (!std::strcmp(name,"WeaponRifleWinchester"))return Ref(&winchester_class);
+    if (!std::strcmp(name,"WeaponRifleWinchesterScope"))return Ref(&scoped_class);
+    if (!std::strcmp(name,"WeaponPistolVolcanic"))return Ref(&volcanic_class);
+    if (!std::strcmp(name,"WeaponRifleRemington"))return Ref(&remington_class);
+    if (!std::strcmp(name,"WeaponRifleRemingtonSawOff"))return Ref(&sawoff_class);
+    if (!std::strcmp(name,"WeaponPistolLemant"))return Ref(&lemant_class);
 
     if (!std::strcmp(name, "WeaponPistolDerringer")) return Ref(&derringer_class);
     const bool whitelisted = !std::strcmp(name, "WeaponPistolFrontier1878_Regular") ||
@@ -110,6 +122,7 @@ void* JNI_CALL Lookup(void*, void*, const char* name, const char* signature) {
     const bool object = !std::strcmp(name, "GetActualWeaponNotEmpty") ||
         !std::strcmp(name, "GetActiveWeapon") || !std::strcmp(name, "GetDesiredWeapon");
     const bool boolean = !std::strcmp(name, "HasSomethingInHand") ||
+        !std::strcmp(name,"IsCarrying") || !std::strcmp(name,"IsNetGame") ||
         !std::strcmp(name, "IsNotAlive") || !std::strcmp(name, "IsWeaponReloading") ||
         !std::strcmp(name, "GetAttackState") ||
         !std::strcmp(name, "IsActualWeaponOperatedTwoHand") ||
@@ -122,7 +135,8 @@ void* JNI_CALL Lookup(void*, void*, const char* name, const char* signature) {
     Require(object || boolean || integer, "unapproved helper lookup");
     Require(!std::strcmp(signature, object ? "(I)LWeapon;" :
         !std::strcmp(name, "GetThisID") ? "()I" :
-        !std::strcmp(name, "IsNotAlive") || !std::strcmp(name, "IsWeaponReloading") ? "()Z" :
+        !std::strcmp(name, "IsNotAlive") || !std::strcmp(name, "IsWeaponReloading") ||
+        !std::strcmp(name,"IsCarrying") || !std::strcmp(name,"IsNetGame") ? "()Z" :
         boolean ? "(I)Z" : "(I)I"), "wrong method descriptor");
     return const_cast<char*>(name);
 }
@@ -137,6 +151,7 @@ int JNI_CALL Integer(void*, void*, void* method, const Value* args) {
     if (Fail()) return 0;
     const auto name = static_cast<char*>(method);
     if (!std::strcmp(name, "GetThisID")) {
+        if(ticket_generation_fault&&ticket_fault_bridge){++ticket_fault_bridge->being_generation_;ticket_generation_fault=false;}
         if (replace_on_id) {
             for (int h = 0; h < 2; ++h) if (actual[h])
                 actual[h] = active[h] = desired[h] = &replacement;
@@ -153,6 +168,8 @@ std::uint8_t JNI_CALL Boolean(void*, void*, void* method, const Value* args) {
     const auto name = static_cast<char*>(method);
     if (!std::strcmp(name, "IsNotAlive")) return dead;
     if (!std::strcmp(name, "IsWeaponReloading")) return reload;
+    if (!std::strcmp(name,"IsCarrying"))return carry[0]||carry[1];
+    if (!std::strcmp(name,"IsNetGame"))return net_game;
     return !std::strcmp(name, "HasSomethingInHand") ? carry[args[0].integer] :
         !std::strcmp(name, "GetAttackState") ? attack[args[0].integer] :
         two[!std::strcmp(name, "IsActualWeaponOperatedTwoHand") ? 0 :
@@ -160,6 +177,8 @@ std::uint8_t JNI_CALL Boolean(void*, void*, void* method, const Value* args) {
 }
 template<class T> void Set(int slot, T fn) { table[slot] = reinterpret_cast<void*>(fn); }
 void Reset(int hand = 0) {
+    ticket_fault_bridge=nullptr;ticket_generation_fault=false;
+    net_game=foreign_owner=false;
     actual = active = desired = {}; current = destiny = wanted = actual_state = {};
     actual[hand] = active[hand] = desired[hand] = &weapon;
     current[hand] = destiny[hand] = wanted[hand] = actual_state[hand] = 1;
@@ -207,10 +226,18 @@ void* JNI_CALL TicketLookup(void* env, void* cls, const char* name, const char* 
 }
 void* JNI_CALL TicketField(void*, void*, const char* name, const char* signature) {
     if (Fail()) return nullptr;
+    if(!std::strcmp(name,"cOwner")){
+        Require(!std::strcmp(signature,"LPawnInventory;"),"wrong native cOwner type");
+        return const_cast<char*>(name);
+    }
     Require(!std::strcmp(name, "cojvrManualReloadWeapon") &&
         !std::strcmp(signature, "LWeapon;"), "bridge touched native-owned active ticket");
     if (missing_field) { pending = true; return nullptr; }
     return &ticket_field;
+}
+void* JNI_CALL TicketOwner(void*,void*,void* field) {
+    Require(!std::strcmp(static_cast<char*>(field),"cOwner"),"unapproved owner read");
+    if(Fail())return nullptr;return Ref(foreign_owner?&replacement:&player);
 }
 void JNI_CALL TicketWrite(void*, void* object, void* field, void* value) {
     Require(object == &player && field == &ticket_field, "wrong pending field owner");
@@ -229,14 +256,48 @@ void TicketReset(JavaPlayerBridge& bridge, int hand = 0) {
     pending_ticket = nullptr;
     native_active_ticket = &active_ticket_object;
 }
-int ArmCheck(JavaPlayerBridge& bridge, bool expected, int hand = 0, std::uint32_t expected_id = 123) {
-    const bool result = bridge.TryArmSingleRoundReload({hand, expected_id, true, true});
+int ArmCheck(JavaPlayerBridge& bridge, bool expected, int hand = 0, std::uint32_t expected_id = 123,
+    CoJManualReloadKind kind=CoJManualReloadKind::unit) {
+    const bool result = bridge.TryArmSingleRoundReload({hand, expected_id, true,
+        kind==CoJManualReloadKind::unit,kind,kind!=CoJManualReloadKind::unit});
     Require(result == expected, "pending arm result mismatch");
     Require(refs == 0 && !pending, "pending arm leaked local reference or exception");
     Require(expected ? pending_ticket == &weapon : pending_ticket == nullptr,
         "pending field incorrectly published");
     Require(native_active_ticket == &active_ticket_object, "native active ticket modified");
     return step;
+}
+void RemainingFamilyTickets(JavaPlayerBridge& bridge) {
+    for(void* cls:{static_cast<void*>(&remington_class),static_cast<void*>(&sawoff_class),
+            static_cast<void*>(&derringer_class),static_cast<void*>(&lemant_class),
+            static_cast<void*>(&schofield_class),static_cast<void*>(&schofield_a_class),
+            static_cast<void*>(&schofield_b_class)})for(int hand:{0,1}) {
+        const bool clip=cls==&schofield_class||cls==&schofield_a_class||cls==&schofield_b_class;
+        const auto kind=clip?CoJManualReloadKind::clip:CoJManualReloadKind::indexed;
+        const auto setup=[&](){TicketReset(bridge,hand);weapon_class=cls;
+            if(cls==&remington_class)for(auto& flags:two)flags[hand]=true;};
+        setup();const bool expected=cls!=&remington_class||hand==0;
+        const int calls=ArmCheck(bridge,expected,hand,123,kind);
+        if(!expected)continue;
+        for(int op=1;op<=calls;++op){setup();fail_step=op;ArmCheck(bridge,false,hand,123,kind);}
+        setup();ticket_fault_bridge=&bridge;ticket_generation_fault=true;
+        Require(!bridge.TryArmSingleRoundReload({hand,123,true,false,kind,true})&&pending_ticket==nullptr,
+            "ticket publication credited a changed player generation");
+        for(std::uint32_t id:{0x80000000U,0x86e8fca8U}){
+            setup();weapon_id=static_cast<std::int32_t>(id);ArmCheck(bridge,true,hand,id,kind);
+        }
+        for(int fault=0;fault<5;++fault){setup();
+            if(fault==0)net_game=true;
+            if(fault==1)foreign_owner=true;
+            if(fault==2)carry[1-hand]=true;
+            if(fault==3)active[hand]=&replacement;
+            if(fault==4)actual[1-hand]=active[1-hand]=desired[1-hand]=&weapon;
+            ArmCheck(bridge,false,hand,123,kind);
+        }
+        for(int slot:{95,113,119}){setup();auto saved=table[slot];table[slot]=nullptr;
+            ArmCheck(bridge,false,hand,123,kind);table[slot]=saved;}
+    }
+    TicketReset(bridge);
 }
 }
 namespace {
@@ -291,13 +352,15 @@ void NativeFallbackBridgeTests(JavaPlayerBridge& bridge) {
 }
 bool manual_result=true;
 int manual_calls=0, manual_cancels=0;
+int manual_index=-1;
 JavaPlayerBridge* manual_scoped_owner=nullptr;
 JavaPlayerBridge* manual_fault_owner=nullptr;
 int manual_callback_fault=0;
 void* JNI_CALL ManualLookup(void* env,void* cls,const char* name,const char* signature){
     if(std::string_view(name).starts_with("cojvr")){
         if(Fail()||(fail_lookup&&!std::strcmp(name,fail_lookup))){pending=!null_failure;return nullptr;}
-        Require(!std::strcmp(signature,!std::strcmp(name,"cojvrCancelReloadProbe")?"()V":"()Z"),"wrong manual descriptor");
+        Require(!std::strcmp(signature,!std::strcmp(name,"cojvrCancelReloadProbe")?"()V":
+            !std::strcmp(name,"cojvrInsertManualIndexedRound")?"(I)Z":"()Z"),"wrong manual descriptor");
         if(manual_fault_owner&&manual_callback_fault==4)++manual_fault_owner->being_generation_;
         return const_cast<char*>(name);
     }
@@ -305,9 +368,11 @@ void* JNI_CALL ManualLookup(void* env,void* cls,const char* name,const char* sig
 }
 std::uint8_t JNI_CALL ManualBoolean(void* env,void* object,void* method,const Value* args){
     if(!std::string_view(static_cast<char*>(method)).starts_with("cojvr"))return Boolean(env,object,method,args);
-    Require(object==&player&&!args,"manual helper has wrong owner/arguments");
+    const bool indexed=!std::strcmp(static_cast<char*>(method),"cojvrInsertManualIndexedRound");
+    Require(object==&player&&(indexed?args!=nullptr:args==nullptr),"manual helper has wrong owner/arguments");
     if(Fail())return 0;
     ++manual_calls;
+    manual_index=indexed?args[0].integer:-1;
     if(manual_fault_owner&&manual_callback_fault==1)manual_fault_owner->being_=&replacement;
     if(manual_fault_owner&&manual_callback_fault==2)++manual_fault_owner->being_generation_;
     if(manual_callback_fault==3)pending=true;
@@ -323,8 +388,23 @@ void JNI_CALL ManualVoid(void*,void* object,void* method,const Value* args){
 }
 void ManualReset(JavaPlayerBridge& bridge){TicketReset(bridge);bridge.manual_reload_owned_=false;
     manual_fault_owner=nullptr;manual_callback_fault=0;
-    manual_result=true;manual_calls=manual_cancels=0;Set(33,ManualLookup);Set(39,ManualBoolean);Set(63,ManualVoid);}
+    manual_result=true;manual_index=-1;manual_calls=manual_cancels=0;Set(33,ManualLookup);Set(39,ManualBoolean);Set(63,ManualVoid);}
 void ManualReloadJniTests(JavaPlayerBridge& bridge){
+    for(int index:{0,1}){
+        ManualReset(bridge);bridge.NoteManualReloadRequest();bool inserted=false;
+        Require(bridge.TryInsertManualRound(inserted,nullptr,index)&&inserted&&manual_index==index,
+            "captured ammo index did not reach exact (I)Z native helper");
+        for(int fault=1;fault<=4;++fault){
+            ManualReset(bridge);bridge.NoteManualReloadRequest();manual_fault_owner=&bridge;manual_callback_fault=fault;
+            Require(!bridge.TryInsertManualRound(inserted,nullptr,index)&&!inserted&&refs==0&&!pending,
+                "indexed helper credited replaced owner/exception");
+        }
+    }
+    for(int index:{-2,2}){
+        ManualReset(bridge);bridge.NoteManualReloadRequest();bool inserted=true;
+        Require(!bridge.TryInsertManualRound(inserted,nullptr,index)&&!inserted&&environment_calls==0,
+            "invalid captured index reached JNI");
+    }
     ManualReset(bridge);std::string error;
     Require(bridge.CancelManualReload()&&environment_calls==0,"unowned manual cancellation touched VM");
     bool accepted=true;
@@ -554,6 +634,156 @@ int GeometryCheck(JavaPlayerBridge& bridge,bool expected,int hand,bool peacemake
     }
     return step;
 }
+// Full bridge path: recovery + trace + manual finger policy + retained curled
+// overlay verification + JNI world-frame reads. No predicate/reader is mocked.
+CoJHandFrames pinch_live{};
+int pinch_machines[2]{},pinch_machine_class,pinch_status=2,pinch_frame_reads=0,pinch_writes=0;
+int pinch_weapon_class_reads=0;
+bool pinch_kind_mismatch=false,pinch_frame_failure=false;
+bool PinchRead(void*,int element,ElementWorldBasisTarget& out) noexcept {
+    if(element<0||element>=20)return false;out=pinch_live[element].frame;return true;
+}
+bool PinchWrite(void*,int element,const ElementWorldBasisTarget& value) noexcept {
+    if(element<0||element>=20)return false;pinch_live[element].frame=value;++pinch_writes;return true;
+}
+void* JNI_CALL PinchClass(void* env,void* object) {
+    if(object==&pinch_machines[0]||object==&pinch_machines[1]){
+        if(Fail())return nullptr;return Ref(&pinch_machine_class);
+    }
+    if(object==&weapon&&++pinch_weapon_class_reads>1&&pinch_kind_mismatch){
+        if(Fail())return nullptr;return Ref(weapon_class==&schofield_a_class?&lemant_class:&schofield_a_class);
+    }
+    return Class(env,object);
+}
+void* JNI_CALL PinchLookup(void* env,void* cls,const char* name,const char* desc) {
+    const bool machine=!std::strcmp(name,"GetHandStateMashine");
+    const bool advance=!std::strcmp(name,"GetMinAnimAdvance")||!std::strcmp(name,"GetMaxAnimAdvance");
+    if(machine||advance){
+        Require(!std::strcmp(desc,machine?"(I)LPlayerStateMashine;":"()F"),"wrong pinch trace descriptor");
+        if(Fail())return nullptr;return const_cast<char*>(name);
+    }
+    return TicketLookup(env,cls,name,desc);
+}
+void* JNI_CALL PinchObject(void* env,void* object,void* method,const Value* args) {
+    if(!std::strcmp(static_cast<char*>(method),"GetHandStateMashine")){
+        if(Fail())return nullptr;
+        Require(object==&player&&args&&(args[0].integer==0||args[0].integer==1),"wrong pinch machine owner/hand");
+        return Ref(&pinch_machines[args[0].integer]);
+    }
+    return Object(env,object,method,args);
+}
+void* JNI_CALL PinchField(void*,void*,const char* name,const char* desc) {
+    if(Fail())return nullptr;
+    const bool owner=!std::strcmp(name,"cOwner");
+    const bool integer=!std::strcmp(name,"m_iAnimID0")||!std::strcmp(name,"m_iAmmo0Count")||
+        !std::strcmp(name,"m_iAmmo1Count")||!std::strcmp(name,"nAmmoPistol")||
+        !std::strcmp(name,"nAmmoRifle")||!std::strcmp(name,"nAmmoShotgun")||!std::strcmp(name,"cojvrReloadProbeStatus");
+    const bool real=!std::strcmp(name,"m_fCurrentTime")||!std::strcmp(name,"m_fTime0")||
+        !std::strcmp(name,"m_fPlayTime")||!std::strcmp(name,"m_fDuration")||
+        !std::strcmp(name,"m_fRotate")||!std::strcmp(name,"cojvrReloadProbeUntil");
+    Require((owner||integer||real)&&!std::strcmp(desc,owner?"LPawnInventory;":integer?"I":"F"),
+        "unexpected pinch native field/type");
+    return const_cast<char*>(name);
+}
+int JNI_CALL PinchIntField(void*,void* object,void* field) {
+    if(Fail())return 0;const char* name=static_cast<char*>(field);
+    if(!std::strcmp(name,"cojvrReloadProbeStatus")){Require(object==&player,"wrong pinch probe owner");return pinch_status;}
+    if(!std::strcmp(name,"m_iAnimID0")){Require(object==&pinch_machines[0]||object==&pinch_machines[1],"wrong pinch animation owner");return 77;}
+    if(!std::strcmp(name,"m_iAmmo0Count")||!std::strcmp(name,"m_iAmmo1Count")){
+        Require(object==&weapon,"wrong pinch loaded owner");return 0;
+    }
+    Require(object==&player,"wrong pinch reserve owner");return 10;
+}
+float JNI_CALL PinchFloat(void* env,void* object,void* field) {
+    if(object==&geometry_vector)return GeometryFloat(env,object,field);
+    if(Fail())return 0;const char* name=static_cast<char*>(field);
+    return !std::strcmp(name,"m_fCurrentTime")?4.F:!std::strcmp(name,"m_fTime0")?3.F:
+        !std::strcmp(name,"m_fRotate")?0.F:!std::strcmp(name,"cojvrReloadProbeUntil")?10.F:2.F;
+}
+float JNI_CALL PinchAdvance(void*,void*,void*,const Value*) {return Fail()?0.F:.5F;}
+std::uint8_t JNI_CALL PinchBoolean(void* env,void* object,void* method,const Value* args) {
+    const char* name=static_cast<char*>(method);
+    if(!std::strcmp(name,"HasSomethingInHand")){
+        if(Fail())return 0;const int h=args[0].integer;
+        return carry[0]||carry[1]||current[h]!=0||(current[1-h]!=0&&two[2][1-h]);
+    }
+    if(std::strcmp(name,"GetElementPos")&&std::strcmp(name,"GetElementLeftVector")&&std::strcmp(name,"GetElementUpVector"))
+        return Boolean(env,object,method,args);
+    Require(object==&player&&args&&args[0].integer>=0&&args[0].integer<20&&args[1].object==&geometry_vector,
+        "pinch JNI frame read wrong player/index/vector");
+    if(Fail()||pinch_frame_failure)return 0;
+    ++pinch_frame_reads;const auto& frame=pinch_live[args[0].integer].frame;
+    const auto v=!std::strcmp(name,"GetElementPos")?frame.position:!std::strcmp(name,"GetElementUpVector")?frame.up:
+        cojvr::runtime::Vec3{frame.up.y*frame.forward.z-frame.up.z*frame.forward.y,
+            frame.up.z*frame.forward.x-frame.up.x*frame.forward.z,frame.up.x*frame.forward.y-frame.up.y*frame.forward.x};
+    geometry_vector={v.x,v.y,v.z};return 1;
+}
+void ManualPinchBridgeTests(JavaPlayerBridge& bridge) {
+    // Schofield_A is mirrored; Lemant and Winchester cover the other two modes.
+    for(void* cls:{static_cast<void*>(&schofield_a_class),static_cast<void*>(&lemant_class),
+            static_cast<void*>(&winchester_class)})for(int armed:{0,1}) {
+        if(cls==&winchester_class&&armed==1)continue;
+        const int support=1-armed;
+        for(int status:{1,2})for(int fault=-1;fault<10;++fault){
+            TicketReset(bridge,armed);weapon_class=cls;
+            bridge.hand_overlays_={};bridge.weapon_overlays_={};bridge.independent_hand_faulted_=false;
+            bridge.manual_reload_owned_=true;
+            current[armed]=destiny[armed]=wanted[armed]=actual_state[armed]=21;reload=true;
+            for(auto& flags:two)flags[armed]=true;
+            pinch_status=status;pinch_kind_mismatch=pinch_frame_failure=false;
+            pinch_weapon_class_reads=pinch_frame_reads=pinch_writes=0;
+            const auto& rest=support==0?finger_fixture::R_rest:finger_fixture::L_rest;
+            pinch_live=rest;
+            cojvr::runtime::FingerTrackingState curls{};curls.available=true;
+            curls.quality=cojvr::runtime::FingerTrackingQuality::estimated;curls.curls={.7F,.7F,.88F,.88F,.82F};
+            auto& overlay=bridge.hand_overlays_[support];overlay.object=&player;
+            Require(overlay.frames.Apply(rest,rest[3].frame,rest[3].frame,{},nullptr,PinchRead,PinchWrite,
+                &curls,support)&&overlay.frames.fingers_active(),"manual pinch fixture failed to apply real curled overlay");
+            bridge.element_world_read_lookup_attempted_=true;
+            bridge.get_element_position_method_=const_cast<char*>("GetElementPos");
+            bridge.get_element_left_method_=const_cast<char*>("GetElementLeftVector");
+            bridge.get_element_up_method_=const_cast<char*>("GetElementUpVector");
+            bridge.vector_class_=&geometry_vector_class;bridge.vector_constructor_=&geometry_constructor;
+            bridge.vector_x_field_=&geometry_x;bridge.vector_y_field_=&geometry_y;bridge.vector_z_field_=&geometry_z;
+            Set(30,GeometryNew);Set(31,PinchClass);Set(33,PinchLookup);Set(36,PinchObject);Set(39,PinchBoolean);
+            Set(51,Integer);Set(57,PinchAdvance);Set(94,PinchField);Set(95,TicketOwner);
+            Set(100,PinchIntField);Set(102,PinchFloat);Set(113,Lookup);Set(119,Boolean);
+            if(fault==0)bridge.manual_reload_owned_=false;
+            if(fault==1)foreign_owner=true;
+            if(fault==2)overlay.object=nullptr;
+            if(fault==3)Require(overlay.frames.Restore({},nullptr,PinchRead,PinchWrite),"pinch setup restore failed");
+            if(fault==4)pinch_live[6].frame.position.x+=1.F;
+            if(fault==5)pinch_frame_failure=true;
+            if(fault==6)pinch_status=3;
+            if(fault==7)pinch_kind_mismatch=true;
+            if(fault==8)bridge.being_=nullptr;
+            if(fault==9)desired[armed]=&replacement;
+            const int setup_writes=pinch_writes;
+            ElementWorldBasisTarget frame{{1,2,3},{0,1,0},{0,0,1},true};float gap=-1.F;
+            const bool observed=bridge.TryReadReloadPinchFrame(support,frame,&gap);
+            if(observed!=(fault==-1))std::cerr<<"pinch bridge mismatch mode="<<
+                (cls==&schofield_a_class?"clip":cls==&lemant_class?"indexed":"cycle")<<
+                " armed="<<armed<<" status="<<status<<" fault="<<fault<<'\n';
+            Require(observed==(fault==-1),"manual-only real bridge pinch admission mismatch");
+            Require(refs==0&&!pending&&pinch_writes==setup_writes&&writes==0,
+                "pinch observation leaked JNI or wrote native frames/tickets");
+            if(observed)Require(frame.valid&&std::isfinite(frame.position.x)&&std::isfinite(frame.position.y)&&
+                std::isfinite(frame.position.z)&&std::isfinite(gap)&&gap>=.6F&&gap<=1.8F&&
+                overlay.frames.fingers_active()&&pinch_frame_reads>0,"manual pinch omitted verified live finger frames");
+            else Require(!frame.valid&&frame.position.x==0&&frame.position.y==0&&frame.position.z==0&&gap==0,
+                "rejected manual pinch retained stale anchor/gap");
+            // Explicit fixture ownership: restore through our backed frame IO,
+            // then detach without invoking unrelated native actor teardown.
+            if(overlay.frames.active())Require(overlay.frames.Restore({},nullptr,PinchRead,PinchWrite),"manual pinch cleanup failed");
+            overlay={};bridge.manual_reload_owned_=false;bridge.being_=&player;
+        }
+    }
+    geometry_mode=false;TicketReset(bridge);
+    Set(30,static_cast<void*>(nullptr));Set(31,Class);Set(33,TicketLookup);Set(36,Object);Set(39,Boolean);
+    Set(51,Integer);Set(57,static_cast<void*>(nullptr));Set(94,TicketField);Set(95,TicketOwner);
+    Set(100,static_cast<void*>(nullptr));Set(102,static_cast<void*>(nullptr));
+    bridge.vector_class_=bridge.vector_constructor_=nullptr;
+}
 void ReloadGeometryTests(JavaPlayerBridge& bridge) {
     for(const auto source_up:{cojvr::runtime::Vec3{0,2,0},cojvr::runtime::Vec3{.2F,1,0}}) {
         GeometryReset(bridge,0,true);
@@ -661,8 +891,10 @@ int main() {
     Set(24, Same); Set(31, Class); Set(33, TicketLookup);
     Set(36, Object); Set(39, Boolean); Set(51, Integer);
     Set(94, TicketField); Set(104, TicketWrite); Set(22, TicketDeleteGlobal);
+    Set(95,TicketOwner);Set(113,Lookup);Set(119,Boolean);
     vm_table[6] = reinterpret_cast<void*>(TicketGetEnv);
     JavaPlayerBridge bridge;
+    RemainingFamilyTickets(bridge);
     TicketReset(bridge);
     Set(21, TicketGlobal);
     // FindClass(Vector) in this focused fixture returns null WITH an exception.
@@ -788,4 +1020,5 @@ int main() {
     ManualReloadJniTests(bridge);
     NativeFallbackBridgeTests(bridge);
     ReloadGeometryTests(bridge);
+    ManualPinchBridgeTests(bridge);
 }

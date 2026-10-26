@@ -264,13 +264,20 @@ parameter-cache/default-camera reader, reproducing native scope visibility and
 camera-normalized magnification. Copied scene-eye separation is divided by zoom
 about the physical binocular centre to preserve displayed disparity. One common
 aim shift references the verified weapon ray without replacing each headset's
-asymmetric principal point. Hardware IPD/tracking and UI optics stay physical.
+asymmetric principal point. Scope scene yaw/pitch now derives only from the
+verified rifle ray in the compensated tracking reference, independent of HMD
+angular input; physical head translation, runtime pose submission and UI optics
+retain their existing mappings. Scope pose/frusta commit together. Hardware IPD
+and tracking stay physical.
 Per-eye projected lens centres/radii share one angular aperture with black exterior
 and a crisp scope rim/cross; the reticle uses its actual ray projection.
-Looking away or losing verified ownership
-returns to physical optics. This is a host-tested scene-scope fallback.
+Scope exit or lost verified ownership returns to ordinary head-driven physical
+optics. This is a scene-scope fallback. Controller-only render orientation alone
+did not remove inverse horizontal head response in physical testing; source now
+also freezes HMD-driven actor yaw during exact native scope visibility, retaining
+the controller reference until exit. That upstream correction is host-tested only.
 
-For this model, inherited `WpnLogicRifle.GetAttackMode` returns -2 (aim) for
+For both exact ordinary and scoped Winchester, inherited `WpnLogicRifle.GetAttackMode` returns -2 (aim) for
 button0; R2 therefore routes through native action9/Attack(1), whose original
 other-hand fallback attacks the right rifle with button1. R3 retains native Focus
 and Square retains automatic native reload. No direct attack, ammo/state write or
@@ -279,9 +286,13 @@ fresh release. A hash-pinned FPPCamera derivative suppresses only the detached
 desktop mask for a locally tracked stable exact scoped rifle, preserving the
 original Show/Hide/transform lifecycle on the next ordinary update. It does not
 change `Being.IsScopeVisible`, native alternate-fire rules or the weapon's scope
-mesh. The operator accepts scoped support/discharge in the exercised scene;
-the preceding zoom is rejected for binocular fusion. Revised fusion, zoom
-readability, native reload, precise shot agreement and recovery remain gates.
+mesh. The ordinary Winchester was previously omitted from the guarded R2 remap,
+explaining its reported fire-to-zoom behavior. Both models now retain a bracketed
+right-button1 identity; other exact rifles and unknown subclasses gain no remap.
+The operator accepts scoped support/discharge and the revised large scope/sight
+with controller aiming. Inverted head yaw and absent head pitch are rejected;
+controller-only scope correction and ordinary Winchester R2 are host-tested only.
+Native reload usability, precise shot agreement and recovery remain gates.
 
 The reproducible original-archive presentation inventory distinguishes weapon
 `WinchesterScope.msh` element `Scope` (index 9, parent GunBody) from the separate
@@ -293,7 +304,8 @@ the existing TreeMap entry directly. Native post-being update owns overlay pose 
 scale, activation/visibility and replacement. Offline tangent/position math and
 material declarations do not qualify actual per-eye coverage, alpha, shader
 consumption or retained-object restoration for a telescope texture. Measured
-scoped support is now host-tested; physical manual loading remains excluded.
+scoped support and the current source manual route have host coverage; physical
+manual playback, loading-mouth geometry and recovery remain unqualified.
 
 Default slow movement needs no synthesized Shift: the native float path preserves
 the shipped independent 0.04-per-axis deadzone and remapping to actions 4-7.

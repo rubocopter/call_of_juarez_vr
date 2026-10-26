@@ -46,10 +46,15 @@ def build_offline_clip_lab(original_archive: bytes, weapon: str) -> tuple[bytes,
                                           archive.read('StateMashine.class'), weapon)
 
 
-def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
-    if weapon_class not in CLIP_WEAPONS:
+def _add_offline_clip(player: bytes, weapon_class, *, helper_name='cojvrInsertManualClip',
+                      retained_close=False) -> bytes:
+    profiles=(weapon_class,) if isinstance(weapon_class,str) else tuple(weapon_class)
+    if not profiles or any(name not in CLIP_WEAPONS for name in profiles):
         raise ValueError('No exact offline clip profile')
     e = ClassEdit(player)
+    if retained_close:
+        from coj_reload_cycle import _retained_completion_veto
+        arm_completion, release_completion = _retained_completion_veto(e,'cojvrClipDebt')
     busy = e.field('cojvrClipBusy', 'Z')
     faulted = e.field('cojvrClipFaulted', 'Z')
 
@@ -81,15 +86,22 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
     probe_cancelled = e.ref('ArmedPlayerBeing', 'cojvrReloadProbeCancelled', 'Z', 9)
     probe_machine = e.ref('ArmedPlayerBeing', 'cojvrReloadProbeMachine', 'LPlayerStateMashine;', 9)
     probe_hand = e.ref('ArmedPlayerBeing', 'cojvrReloadProbeHand', 'I', 9)
-    exact_name = e.append(b'\x08' + e.utf8(weapon_class).to_bytes(2, 'big'))
+    exact_names = [e.append(b'\x08' + e.utf8(name).to_bytes(2, 'big')) for name in profiles]
+    class_check_id=0
 
     def check_class(c, label):
-        load(c, 1)
-        c.ref(0xb6, e.ref('java/lang/Object', 'getClass', '()Ljava/lang/Class;'))
-        c.ref(0xb6, e.ref('java/lang/Class', 'getName', '()Ljava/lang/String;'))
-        c.ref(0x13, exact_name)
-        c.ref(0xb6, e.ref('java/lang/String', 'equals', '(Ljava/lang/Object;)Z'))
-        c.branch(0x99, label)
+        nonlocal class_check_id
+        class_check_id+=1
+        matched='clip_class_'+str(class_check_id)
+        for exact_name in exact_names:
+            load(c, 1)
+            c.ref(0xb6, e.ref('java/lang/Object', 'getClass', '()Ljava/lang/Class;'))
+            c.ref(0xb6, e.ref('java/lang/Class', 'getName', '()Ljava/lang/String;'))
+            c.ref(0x13, exact_name)
+            c.ref(0xb6, e.ref('java/lang/String', 'equals', '(Ljava/lang/Object;)Z'))
+            c.branch(0x9a, matched)
+        c.branch(0xa7,label)
+        c.label(matched)
         # The Java reload probe retains the weapon reference, but cOwner can
         # change independently across native inventory and event callbacks.
         load(c, 1)
@@ -108,6 +120,18 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
         c.branch(0x99, label)
         emit_field(c, probe_status); c.emit(0x05); c.branch(0xa0, label)
 
+    if retained_close:
+        # Own the pending body before a virtual validator can clear the probe
+        # and throw. This proof reads only retained native fields.
+        from coj_indexed_reload_session import _emit_retained_wait
+        emit_field(c,probe_weapon);c.emit(0x4c)
+        emit_field(c,probe_machine);c.emit(0x3a,7)
+        emit_field(c,probe_hand);c.emit(0x36,8)
+        for slot in (1,7):load(c,slot);c.branch(0xc6,'not_ready')
+        number(c,8);c.branch(0x9b,'not_ready')
+        number(c,8);c.emit(0x04);c.branch(0xa3,'not_ready')
+        _emit_retained_wait(e,c,1,8,7,'not_ready')
+        arm_completion(c,1,8,7)
     check_wait('not_ready')
     emit_field(c, probe_weapon); c.emit(0x4c)  # retained weapon, local 1
     load(c, 1); c.branch(0xc6, 'not_ready')
@@ -122,8 +146,15 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
     number(c, 3); c.emit(0x10, 6); c.branch(0xa2, 'not_ready')
     c.emit(0x2a, 0x05); c.ref(0xb6, find_counter); c.emit(0x4d)  # local 2
     load(c, 2); c.branch(0xc6, 'not_ready')
+    if retained_close:
+        load(c,2);c.ref(0xb4,e.ref('InventoryAmmoCounter','cOwner','LPawnInventory;',9))
+        c.emit(0x2a);c.branch(0xa6,'not_ready')
+        load(c,2);c.ref(0xb4,e.ref('InventoryAmmoCounter','nMaxAmount','I',9));c.emit(0x36,11)
+        number(c,11);c.branch(0x9b,'not_ready')
     load(c, 2); c.ref(0xb6, amount); c.emit(0x36, 4)  # local 4
     number(c, 4); c.branch(0x9e, 'not_ready')
+    if retained_close:
+        number(c,4);number(c,11);c.branch(0xa3,'not_ready')
 
     c.emit(0x10, 6); number(c, 3); c.emit(0x64); c.emit(0x36, 5)
     number(c, 4); number(c, 5); c.branch(0xa2, 'expected_ready')
@@ -135,8 +166,28 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
     # Hold the admitted machine/hand across native inventory and callbacks.
     # Closing changes the ticket status, so a post-close verification must use
     # these original references instead of the now-invalid waiting predicate.
-    emit_field(c, probe_machine); c.emit(0x3a, 7)
-    emit_field(c, probe_hand); c.emit(0x36, 8)
+    if not retained_close:
+        emit_field(c, probe_machine); c.emit(0x3a, 7)
+        emit_field(c, probe_hand); c.emit(0x36, 8)
+
+    def final_fields(label,*,closed=False,transferred=True):
+        from coj_indexed_reload_session import _emit_retained_wait, _emit_retained_closed
+        ( _emit_retained_closed if closed else _emit_retained_wait )(e,c,1,8,7,label)
+        load(c,2);c.ref(0xb4,e.ref('InventoryAmmoCounter','cOwner','LPawnInventory;',9))
+        c.emit(0x2a);c.branch(0xa6,label)
+        load(c,2);c.ref(0xb4,e.ref('InventoryAmmoCounter','nMaxAmount','I',9))
+        number(c,11);c.branch(0xa0,label)
+        load(c,1);c.ref(0xc0,e.cls('WeaponFireAmmo'))
+        c.ref(0xb4,e.ref('WeaponFireAmmo','m_iAmmo0Count','I',9));number(c,3)
+        if transferred:number(c,5);c.emit(0x60)
+        c.branch(0xa0,label)
+        c.emit(0x2a);c.ref(0xb4,e.ref('PawnInventory','nAmmoPistol','I',9));number(c,4)
+        if transferred:number(c,5);c.emit(0x64)
+        c.branch(0xa0,label)
+
+    if retained_close:
+        c.emit(0x2a,0x05);c.ref(0xb6,find_counter);load(c,2);c.branch(0xa6,'not_ready')
+        final_fields('not_ready',transferred=False)
 
     c.emit(0x2a); load(c, 1)
     c.ref(0xb6, method('WeaponReload', '(LWeapon;)Z'))
@@ -165,6 +216,7 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
         load(c, 2); c.branch(0xa6, label)
         load(c, 2); c.ref(0xb6, amount)
         number(c, 4); number(c, 5); c.emit(0x64); c.branch(0xa0, label)
+        if retained_close:final_fields(label,closed=closed)
 
     readback('fault')
     singleton = e.ref('GameMode', 'cSingleton', 'LGameMode;', 9)
@@ -175,11 +227,28 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
     c.label('after_event')
     readback('fault')
     # Always close after one whole-clip operation, even when reserve is short.
-    c.emit(0x2a); c.ref(0xb6, method('cojvrCancelReloadProbe', '()V'))
+    if retained_close:
+        from coj_indexed_reload_session import _emit_retained_wait
+        load(c,7);c.emit(0x10,22)
+        c.ref(0xb6,e.ref('PlayerStateMashine','FindStateByID','(I)LPlayerState;'))
+        c.emit(0x3a,9);load(c,9);c.branch(0xc6,'fault')
+        c.emit(0x2a);load(c,1);c.ref(0xb6,method('GetWeaponMoveState','(LWeapon;)I'))
+        c.emit(0x36,10)
+        _emit_retained_wait(e,c,1,8,7,'fault')
+        c.emit(0x2a);number(c,8);number(c,10)
+        c.ref(0xb6,method('SetDesiredWeaponState','(II)V'))
+        _emit_retained_wait(e,c,1,8,7,'fault',desired=False,move_local=10)
+        set_field(c,probe_cancelled,True)
+        c.emit(0x2a,0x06);c.ref(0xb5,probe_status)
+        load(c,7);load(c,9)
+        c.ref(0xb6,e.ref('StateMashine','SetCurrentState','(LBaseState;)V'))
+    else:
+        c.emit(0x2a); c.ref(0xb6, method('cojvrCancelReloadProbe', '()V'))
     # End-state callbacks may still mutate ammo or ownership. Publish success
     # only when the same clip delta survives the original native close.
     readback('fault', closed=True)
     c.label('accepted'); c.label('try_end')
+    if retained_close:release_completion(c)
     set_field(c, busy, False); c.emit(0x04, 0xac)
     c.label('fault'); set_field(c, faulted, True)
     c.label('not_ready'); set_field(c, busy, False); c.emit(0x03, 0xac)
@@ -187,7 +256,7 @@ def _add_offline_clip(player: bytes, weapon_class: str) -> bytes:
     set_field(c, faulted, True); set_field(c, busy, False)
     load(c, 6); c.emit(0xbf)
     c.label('reject'); c.emit(0x03, 0xac)
-    e.helper('cojvrInsertManualClip', '()Z', c.finish(), 9,
+    e.helper(helper_name, '()Z', c.finish(), 12 if retained_close else 9,
              exception_table=((c.labels['try'], c.labels['try_end'], c.labels['catch'], 0),))
     # Once native inventory/event callbacks leave an uncertain result, no
     # further heartbeat may prolong the borrowed reload body. A reentrant

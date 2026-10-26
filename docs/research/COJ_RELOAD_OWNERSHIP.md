@@ -13,10 +13,16 @@ blanket headset verdict.
 Native-only fallback separately checks exact weapon/player identity, state,
 ownership and pending body writes before forwarding the original action 31.
 It admits no new manual profile; uncertainty and JNI failure fail closed.
-The originally reported long-range rifle's fire-to-zoom was never conclusively
-attributed from its sparse trace. Later scoped-Winchester R2 fire/left support
-have narrow operator acceptance; its R3 binocular view was rejected and revised
-optics remain host-tested. Its Square reload and manual loading remain distinct.
+The ordinary Winchester fire-to-zoom report is now attributed to the missing
+exact-class R2/button1 remap; the source correction shares the scoped model's
+guarded native route. Scoped Winchester R2/support and the revised large scope
+have operator acceptance; the later controller-only render correction still
+failed horizontal head-yaw isolation. Current source also suspends upstream
+HMD-driven actor yaw during native scope visibility, pending physical acceptance.
+Passive native reload states and a loaded +1/reserve
+-1 observation exist for ordinary Winchester despite rejected reload usability.
+These sparse witnesses neither override that report nor qualify physical manual
+loading. Native Square reload and manual admission remain distinct.
 
 The exact-game contracts below apply to original Steam Call of Juarez (2006)
 `code.pak` SHA-256
@@ -52,9 +58,10 @@ pistol-ammunition profiles and `nAmmoRifle` for Cogswell. Native parameters,
 capacity and reserve remain authoritative at request/insertion: whole-clip,
 multiple ammo types and network contexts reject the manual path.
 
-`WeaponPistolSchofield`, `_A` and `_B` use the existing native/hybrid whole-clip
-route. LeMat, Derringer, legacy `_Old` classes and unknown subclasses have no
-manual admission. LeMat's two-ammunition logic needs a separate contract.
+Current manual-option source additionally integrates Winchester/Scope/Volcanic,
+selected-index Remington/SawOff/Derringer/Lemant and whole-clip Schofield base/A/B;
+the production composition is described below. Legacy `_Old` classes and unknown
+subclasses have no manual admission. Published .5 behavior remains narrower.
 Square retains its native fallback in positively identified unsupported contexts.
 One later exercised session records an exact Derringer and support-occupied
 contexts, with no admitted manual session or insertion. The operator's report
@@ -82,7 +89,7 @@ the same player and generation. It exposes success only after draining/checking
 JNI exceptions; a stale owner or success followed by an exception produces no
 accepted insertion. Fault injection qualifies host behavior only.
 
-### Unimplemented families: original-archive reload contracts
+### Additional families: original-archive reload contracts
 
 Read-only inspection of the pinned original `code.pak` (2026-10-21) establishes
 the following exact constructor and ammunition boundaries. These are **static
@@ -95,22 +102,82 @@ bytecode offsets 148–152, after the loaded/reserve writes. Thus one whole-clip
 call is not necessarily one physical cartridge, and a non-whole-clip call
 does not expose caller-selected index ownership.
 
-| Exact weapon | Native contract | Manual integration requirement |
+| Exact weapon | Native contract | Remaining physical qualification |
 | --- | --- | --- |
-| `WeaponRifleWinchester` | Whole-clip **false**; index 0 `WpnAmmoRifleWinchester`, 12 rounds from rifle reserve; authored reload begin/loop/end. | First long-gun candidate for single-round transfer. Requires own state/hand admission, release of support grip, qualified loading port/animation and native count/readback. |
-| `WeaponRifleWinchesterScope` | Inherits Winchester's per-round logic; own `WpnAmmoRifleWinchesterScope` index 0. | Separate exact class and optics/hand ownership. Scoped grip/fire have exercised acceptance, but manual reload remains excluded from runtime. |
-| `WeaponRifleRemington` | Whole-clip **true**, `WeaponRifleDoubleAmmo` storage; indices 0/1 both use `WpnAmmoShotgunRemington`, capacity 1 per barrel (shotgun reserve). | One native call may fill both barrels. Per-shell insertion needs a demonstrated index-specific transaction and callback/animation ownership. |
-| `WeaponRifleRemingtonSawOff` | Inherits Remington's two ammo indices and slot storage; own logic sets whole-clip **true**, with single-hand/other-hand flags. | Same possible two-barrel transfer, plus either-hand ownership/recovery. |
-| `WeaponPistolVolcanic` | Whole-clip **false**; index 0 `WpnAmmoPistolVolcanic`, capacity 8 (pistol reserve). | Single-round accounting is plausible, but loading mechanism, pose, hand interaction and animation need separate qualification. |
-| `WeaponPistolDerringer` | Whole-clip **true**, `WeaponPistolDoubleAmmo`; indices 0/1 use `WpnAmmoPistolDerringer`, capacity 1 each. | One call may refill both chambers; require per-chamber loading/ejection ownership. |
-| `WeaponPistolLemant` | Exact archive spelling is **Lemant**; whole-clip **false**; rifle index 0 (capacity 1), pistol index 1 (capacity 8). Original transfer stops after the first successful index, preferring 0. | One call transfers at most one unit, but cannot explicitly select index 1 while index 0 remains reloadable. Needs index/reserve readback, mode ownership and distinct loading gestures. |
-| `WeaponPistolSchofield` / `_A` / `_B` | Whole-clip **true**, capacity 6 (pistol reserve). | Keep native/hybrid reload until a full-clip gesture and readback can be qualified. |
+| `WeaponRifleWinchester` | Whole-clip **false**; index 0 `WpnAmmoRifleWinchester`, 12 rounds from rifle reserve; authored reload begin/loop/end. | Native cycle playback, support release/regrip, loading port and live count/readback. |
+| `WeaponRifleWinchesterScope` | Inherits Winchester's per-round logic; own `WpnAmmoRifleWinchesterScope` index 0. | Separate exact class and optics/hand ownership. Scoped grip/fire have exercised acceptance; current source shares the exact native-cycle manual route with ordinary Winchester, pending physical qualification. |
+| `WeaponRifleRemington` | Whole-clip **true**, `WeaponRifleDoubleAmmo` storage; indices 0/1 both use `WpnAmmoShotgunRemington`, capacity 1 per barrel (shotgun reserve). | Per-shell port, gesture, callback/animation playback and live selected-index readback. |
+| `WeaponRifleRemingtonSawOff` | Inherits Remington's two ammo indices and slot storage; own logic sets whole-clip **true**, with single-hand/other-hand flags. | Per-shell playback, either-hand ownership/fit and recovery. |
+| `WeaponPistolVolcanic` | Whole-clip **false**; index 0 `WpnAmmoPistolVolcanic`, capacity 8 (pistol reserve). | Native cycle, loading mechanism/port, pose, hand interaction and ammunition appearance. |
+| `WeaponPistolDerringer` | Whole-clip **true**, `WeaponPistolDoubleAmmo`; indices 0/1 use `WpnAmmoPistolDerringer`, capacity 1 each. | Per-chamber port, loading/ejection presentation, native playback and recovery. |
+| `WeaponPistolLemant` | Exact archive spelling is **Lemant**; whole-clip **false**; rifle index 0 (capacity 1), pistol index 1 (capacity 8). Original transfer stops after the first successful index, preferring 0. | Live index/reserve readback, explicit mode/port ownership and distinct ammunition presentation. |
+| `WeaponPistolSchofield` / `_A` / `_B` | Whole-clip **true**, capacity 6 (pistol reserve). | Bundle gesture, live full-clip readback, native close, model contact and recovery. |
 
 The double-ammo classes store slot 1 in `m_iAmmo1Count`; observing only
-`GetAmmoCount(0)` misses its occupancy. The existing emitted
-`cojvrManualReloadValid()` requires `!IsReloadWholeClipAtOnce()` and
-`GetAmmoTypeCount()==1`. Consequently, none of these two-index or whole-clip
-classes can enter the current paced transfer, even if a gesture is detected.
+`GetAmmoCount(0)` misses its occupancy. The legacy paced route and isolated wait
+experiment retain one-index/non-whole-clip admission. The production manual
+variant instead validates each exact class's original whole-clip flag and
+ammo-type count, then selects its distinct transaction; mixed families never
+share a scalar count or a whole-clip default.
+
+### Production manual family composition
+
+Base Schofield whole-clip loading has exercised functional operator acceptance
+and correlated count/reserve readback; appearance and intermittent retries are
+not accepted. That evidence does not qualify A/B or other families. Source now
+consumes the empty-trigger opening hold until a fresh available release before
+allowing armed-trigger closure, preventing that same opening press from closing
+the session on its next frame. Other failed carries remain unattributed without
+release-pose/continuity evidence; a zero rejected-native-call count is not a
+zero failed-gesture count.
+
+`patch_manual_classes` now emits one combined, original-hash-pinned player and
+one state machine for the manual option. Five admitted revolvers retain native
+unit insertion. Exact Winchester/Scope (12 rifle rounds) and Volcanic (8 pistol
+rounds) share the guarded authored body21 cycle. All three still use original
+`PawnArmed.WeaponReload` once per accepted insertion; native restart is guarded
+against a second transfer and requires another completed body wait.
+
+Remington/SawOff and Derringer (1+1), and Lemant (1 rifle+8 pistol), use
+`cojvrInsertManualIndexedRound(I)Z` with a C++-captured pickup index. The original
+indexed loaded/reserve setters perform a new selected-unit composite; this is
+not the original ascending/whole-clip authority. Both loaded counts, all typed
+reserve counters/maxima, retained ticket/hand/machine and native callback effects
+must match before success. Shared reserves are counted once. The lowest eligible
+index is chosen for each fresh pickup; a carried release never changes index or
+reserve type because another slot becomes eligible. No explicit barrel/LeMat
+mode selector or physical loading-mouth alignment has been qualified.
+
+Schofield base/A/B retain original whole-clip semantics. One deliberate insertion
+calls the original authority for `min(6-loaded,reserve)` rounds, proves the delta
+and native event, then closes on the retained machine and verifies after native
+close callbacks. Its provisional bundle contains the expected number of imported
+textured cartridges, replacing the older 16-surface proxy in the production manual
+clip path. One mesh plus up to six captured instance offsets preserve original
+UVs/normals; bounded renderer chunks stay below the D3D11 constant-buffer limit
+and use deterministic global face ordering. Single imported-mesh proximity
+metrics are not reported as bundle contact. This is not a measured clip/speedloader
+model or exact Schofield calibre. Cartridge calibre and shell fidelity
+for other profiles remain provisional. All paths share the original native
+20/21/22 scheduler, zero-transfer close, watchdog and exact-build rejection.
+
+Shared busy/fault guards exclude entry through any family during another
+transaction, including parameter/event/Clear/Set callbacks. Partial effects or
+exceptions quarantine without retry/refund; Java local references and callback-
+free retained-field proofs remain authoritative inside each call. C++ vectors
+are copied observations/feedback only, not invented cross-poll Java leases.
+Before the first virtual validation callback, each production insertion route
+and waiting heartbeat retains a field-proven body/hand/machine lease, including
+the heartbeat before any cartridge is picked up. Loss of the mutable probe or a
+thrown callback cannot release its zero-transfer fence. The pending original
+completion still performs native movement/end bookkeeping but skips ammunition
+authority, including when the actual weapon changes. Native body retirement
+releases the lease so a later ordinary reload can transfer normally. Transient
+busy/self-Clear scopes clear on exceptional exits; the original Throwable and
+ambiguous-result quarantine survive without compensation.
+Ordinary native/non-manual variants retain their separate behavior. These source
+extensions still require live/headset playback, support release/regrip, loading
+geometry, presentation and recovery qualification before support claims.
 
 ### Indexed transfer boundary — static only
 
@@ -199,17 +266,18 @@ manual-admission claims false. Even apparently matching +1/-1 samples produce
 no insertion or transfer classification. Synthetic inventoried-evidence and CLI
 fixtures are host tests, not native reload or physical acceptance.
 
-For Winchester, the next step is **read-only live observation** of reload
-begin/body/end, free support hand, loaded/reserve delta and natural weapon pose.
-Then establish loading-port geometry and restoration of two-hand support after
-Square, firing and interruption. A dedicated long-gun manual session can reuse
-the reversible native unit-transfer policy only after these gates. For
-Remington/SawOff/Derringer, solve per-slot transfer first; for Lemant, solve
-ammunition-index and mixed-reserve ownership first. Leave native Square
-fallback and exact-build fail-closed behavior unchanged.
+For Winchester, retain the delivered **read-only live observations** of reload
+states, loaded/reserve deltas and natural weapon pose. Correlate them with visible
+begin/body/end and free support-hand behavior, then establish loading-port
+geometry and restoration of two-hand support after
+Square, firing and interruption. Current source integrates the guarded native
+unit-cycle session and selected-index composites described above, using the
+existing provisional grip zone. These implementation paths do not close the
+measured loading-port, native playback or physical acceptance gates. Ordinary
+non-manual Square fallback and exact-build fail-closed behavior remain separate.
 
 The exact `WeaponRifleWinchester` and `WeaponRifleWinchesterScope` read-only
-probe is implemented and host-tested for both concrete classes.
+probe is implemented, host-tested and passively live-observed for both concrete classes.
 With `reloadTraceEnabled` it emits `winchester_native_reload` values before body
 overlays: both hands' four raw state IDs, active/actual/desired occupancy and
 three two-hand flags, native reload/carry/dead status, state-machine animation
@@ -239,11 +307,11 @@ weapon in all nonempty hand slots and a stable read on both sides. Foreign
 weapons, change during the callback, JNI errors and missing native fields fail
 closed; scoped visual maps are never interpreted as natural geometry. Unknown
 reload state numbers remain unclassified until live evidence arrives. Neither
-Square dispatch, tracked rifle grip nor manual admission has changed.
+Square dispatch nor manual admission changes through this observer.
 
-Next physical gate: enable the trace for one fresh reversible headset run;
-observe an ordinary Winchester and scoped Winchester separately at idle, firing
-and during Square reload from partially loaded and nearly empty conditions.
+Remaining physical correlation: preserve the delivered ordinary/scoped idle,
+firing/reload-state and count/reserve witnesses. Observe visible Square reload
+from partially loaded and nearly empty conditions when naturally available.
 Inspect each exact class's support-hand release/reacquisition, interrupt by
 changing weapons or returning to a menu, and correlate raw states, ammunition,
 rifle reserve and animation with visible gameplay. Class-specific native timing,
@@ -263,8 +331,8 @@ expanded emitted-bytecode admission and typed reserve correlation/restoration.
 derivatives for exact `WeaponRifleWinchester` or `WeaponPistolVolcanic`. It
 accepts only pinned original classes/archive and exports `.class.bin` plus an
 explicit unqualified manifest outside the source installation. It has no PAK
-installer, launcher flag or runtime admission. Production revolver patch output
-is unchanged. Host execution of emitted helpers covers native-callback ordering,
+installer, launcher flag or runtime admission of its own. Current production
+manual composition reuses the guarded emitters separately. Host execution of emitted helpers covers native-callback ordering,
 zero-transfer waiting, explicit unit requests, capacity/reserve termination,
 cancel/watchdog cleanup and rejection of changed ownership, occupied support,
 whole-clip and multi-ammunition contexts. Native scheduling, capacity/transfer
@@ -281,7 +349,8 @@ the native call to the remaining empty slot. Lemant still prefers eligible rifle
 index 0 before pistol index 1. Predictions never authorize calls or gestures,
 change counts/parameters, or replace same-lease post-call readback. Passive
 observer samples cannot obtain a prediction. General selective transfer remains
-outside the production path.
+outside the original whole-clip authority path; current manual source instead
+uses the separate guarded indexed composite described below.
 
 `tools/coj_indexed_reload.py` separately emits an uncalled in-memory helper from
 the complete pinned original archive. It selects one explicit ammo index for
@@ -320,8 +389,9 @@ already committed. All four emitted exact-class derivatives pass the game's
 shipped Java 1.4 verifier (`-Xverify:all`), with a corrupted helper rejected by
 `VerifyError`. This composition is interpreted-tested with original state/storage bytecode,
 but scheduling, native skin and mechanical calls remain modeled. It adds no
-runtime gesture, loading mouth or per-unit body replay; production stays native
-automatic for these families.
+loading mouth or per-unit body replay. The isolated output has no runtime
+gesture; production manual source separately composes its guarded transaction
+with the shared input and presentation path.
 
 The three exact Schofield classes now have a separate **offline whole-clip**
 derivative in `tools/coj_clip_reload.py`. The profile accepts only the original
@@ -344,9 +414,11 @@ transfer. All three exact class derivatives pass the shipped Java 1.4 JVM's
 `-Xverify:all`; deliberately corrupting the clip helper produces `VerifyError`.
 This is modeled bytecode execution with native scheduling/skin stand-ins.
 JVM verification establishes class validity, not native game behavior.
-It has no installable PAK, runtime caller,
-physical clip prop, release/reacquisition gesture or animation qualification.
-Schofield's complete-cylinder reload therefore remains native in production.
+The isolated output has no installable PAK or runtime caller. Production manual
+source separately composes the clip helper with retained closing and a shared
+pickup/carry/release gesture. Its provisional round bundle is not a qualified
+physical clip prop or animation; the original native transfer still supplies
+the complete remaining cylinder amount.
 
 The shared long-gun grip policy also has an exact-family host regression for
 `WeaponRifleWinchester`, `WeaponRifleWinchesterScope`, `WeaponRifleRemington`
@@ -356,9 +428,9 @@ invalidates the two-hand render mapping, cancels support and consumes the old
 L1/L2 claims. Returning to idle while L1 is still held cannot reattach;
 release and a new physical L1 press are required. This qualifies input/owner
 policy in C++ only, not the natural in-game reload pose, finger animation,
-loading port or live support-hand recovery. The free hand is available to a
-future manual loader only after its separate native transaction and physical
-gesture gates are established.
+loading port or live support-hand recovery. The manual source paths above use
+separate native transactions and the shared free-hand gesture; support admission
+alone does not qualify their loading geometry or physical playback.
 
 All these current families select `PlayerGunStateMashine`, whose ordinary
 reload graph is `20 PlayerSubPairState -> 21 PlayerSubState -> 22
@@ -444,7 +516,8 @@ machine derivative remains shared. Original ammo model/optics and grip ownership
 are still class-specific; these test doubles do not inspect a physical port.
 The verifier checks class loading and stack safety, while native
 storage/skin/scheduling remain test doubles. This is an offline
-derivative, not production manual admission or validated animation playback.
+derivative; current production composition reuses its guarded transaction with
+separate runtime admission, still without validated game animation playback.
 
 Forcing desired21 back after a callback could overwrite real cancellation. Native reload-frame
 notification absence and audio timing remain unqualified; the demonstrated ammo

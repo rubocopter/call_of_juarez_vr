@@ -26,7 +26,11 @@ class ClassEdit:
                           if entry is not None and entry[0] == 'Utf8'}
         r.u2(); self.this = r.u2(); r.u2(); r.read(r.u2() * 2)
         self.fields_at = r.stream.tell(); self.fields_count = r.u2()
-        for _ in range(self.fields_count): self.member()
+        self.declared_fields=set()
+        for _ in range(self.fields_count):
+            member=self.member()
+            self.declared_fields.add((self.pool.utf8(int.from_bytes(member[2:4],'big')),
+                                      self.pool.utf8(int.from_bytes(member[4:6],'big'))))
         self.fields_end = r.stream.tell()
         self.fields = bytearray(); self.helpers = []; self.changes = {}
 
@@ -56,7 +60,8 @@ class ClassEdit:
 
     def field(self, name, desc):
         owner = self.pool.describe(self.this)
-        if owner + '.' + name + desc in self.refs: raise ValueError('Probe field already exists')
+        if (name,desc) in self.declared_fields: raise ValueError('Probe field already exists')
+        self.declared_fields.add((name,desc))
         self.fields.extend(u2(0x0081) + u2(self.utf8(name)) + u2(self.utf8(desc)) + u2(0))
         return self.ref(owner, name, desc, 9)
 
@@ -102,15 +107,24 @@ class ClassEdit:
 
 
 def patch_probe_classes(original_player, original_machine, *, _offline_weapon=None, _offline_indexed=None,
-                        _offline_clip=None):
+                        _offline_clip=None, _runtime_weapons=None):
     # patch_class owns the original ArmedPlayerBeing hash check. Never augment
     # unknown or already modified input. The second class is checked before any
     # output is created by the archive patcher.
     if hashlib.sha256(original_machine).hexdigest() != STATE_SHA256:
         raise ValueError('Unknown StateMashine.class SHA-256; no mutation')
-    if sum(x is not None for x in (_offline_weapon, _offline_indexed, _offline_clip)) > 1:
+    if sum(x is not None for x in (_offline_weapon, _offline_indexed, _offline_clip, _runtime_weapons)) > 1:
         raise ValueError('Select one exact offline reload family')
-    if _offline_clip is not None:
+    if _runtime_weapons is not None:
+        from patch_coj_weapon_consumers import _patch_class
+        from coj_manual_reload import runtime_reload_policy
+        policy=runtime_reload_policy()
+        expected=tuple(policy)
+        if _runtime_weapons != expected:
+            raise ValueError('Unknown production manual reload admission')
+        patched_player=_patch_class(original_player,expected,
+                                   _whole_clip_expected=tuple(value[0] for value in policy.values()))
+    elif _offline_clip is not None:
         from coj_clip_reload import _patch_clip_player
         patched_player = _patch_clip_player(original_player, _offline_clip)
     elif _offline_indexed is not None:

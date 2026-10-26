@@ -47,9 +47,12 @@ def build_indexed_reload_lab(original_archive: bytes) -> bytes:
     return _append_indexed_helpers(player)
 
 
-def _append_indexed_helpers(player, *, _supervised=False):
+def _append_indexed_helpers(player, *, _supervised=False, helper_name='cojvrLabInsertIndexedUnit'):
     """Internal composition seam; public builders own pinned input admission."""
     e = ClassEdit(player)
+    if _supervised:
+        from coj_reload_cycle import _retained_completion_veto
+        arm_completion, _ = _retained_completion_veto(e, 'cojvrIndexedDebt')
     own = 'ArmedPlayerBeing'
     fields = {name: e.field('cojvrIndexed' + name, 'Z') for name in ('Busy', 'Faulted')}
     def ref(owner, name, desc, tag=10): return e.ref(owner, name, desc, tag)
@@ -285,6 +288,7 @@ def _append_indexed_helpers(player, *, _supervised=False):
             c.branch(0xa0, 'fault')
 
     readback(False, False)
+    if _supervised: arm_completion(c, 1, 2, 4)
     aload(c, 1); iload(c, 3); iload(c, 17); c.emit(0x04, 0x60); call(c, 'Weapon', 'SetAmmoCount', '(II)V')
     readback(True, False)
     aload(c, 19); iload(c, 18); c.emit(0x04, 0x64); call(c, 'InventoryAmmoCounter', 'SetAmount', '(I)V')
@@ -301,7 +305,7 @@ def _append_indexed_helpers(player, *, _supervised=False):
     c.label('catch'); astore(c, 21); put(c, 'Faulted', True); put(c, 'Busy', False); aload(c, 21); c.emit(0xbf)
     c.label('reject'); c.emit(0x03, 0xac)
     code = c.finish()
-    e.helper('cojvrLabInsertIndexedUnit', '(LWeapon;II)Z', code, 23,
+    e.helper(helper_name, '(LWeapon;II)Z', code, 23,
              exception_table=((c.labels['try'], c.labels['try_end'], c.labels['catch'], 0),))
     return e.finish()
 

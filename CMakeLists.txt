@@ -496,6 +496,8 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME manual_reload_native COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/manual_reload_native.py")
     add_test(NAME offline_manual_reload COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/offline_manual_reload.py")
     add_test(NAME clip_manual_reload COMMAND "${COJVR_PYTHON_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tests/clip_manual_reload.py")
+    add_test(NAME runtime_manual_reload COMMAND "${COJVR_PYTHON_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tests/runtime_manual_reload.py")
+    add_test(NAME runtime_manual_families COMMAND "${COJVR_PYTHON_EXECUTABLE}" -B "${CMAKE_SOURCE_DIR}/tests/runtime_manual_families.py")
     add_test(NAME reload_animation_inventory COMMAND "${COJVR_PYTHON_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/reload_animation_inventory.py")
     foreach(offline_test IN ITEMS java_exception_tables manual_reload_cycle animation_channels
             lower_body_profiles equipment_geometry tutorial_hints tutorial_archive

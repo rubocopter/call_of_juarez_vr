@@ -23,6 +23,7 @@ int weapon_alias;
 int scoped_class, winchester_class, remington_class, sawoff_class, volcanic_class, lemant_class;
 int old_frontier_class, old_schofield_a_class, old_schofield_b_class;
 bool foreign_owner=false;
+bool net_game=false;
 void* table[174]{};
 void** holder = table;
 int refs = 0, step = 0, fail_step = -1;
@@ -31,7 +32,8 @@ bool two[3][2]{}, carry[2]{}, attack[2]{};
 bool unexplained_occupied[2]{};
 bool replace_on_id = false;
 enum class RecoveryMutation { none, attack, death, carry, attack_state, alternate_state,
-    support_state, active_weapon, desired_weapon, identity, unexplained_occupation };
+    support_state, active_weapon, desired_weapon, identity, unexplained_occupation,
+    foreign_owner, two_hand_flags, allowed_reload_state };
 RecoveryMutation recovery_mutation = RecoveryMutation::none;
 std::array<void*, 2> actual{}, active{}, desired{};
 std::array<int, 2> current{}, destiny{}, wanted{}, actual_state{};
@@ -101,6 +103,7 @@ void* JNI_CALL Lookup(void*, void*, const char* name, const char* signature) {
         !std::strcmp(name, "GetActiveWeapon") || !std::strcmp(name, "GetDesiredWeapon");
     const bool boolean = !std::strcmp(name, "HasSomethingInHand") ||
         !std::strcmp(name, "IsCarrying") ||
+        !std::strcmp(name, "IsNetGame") ||
         !std::strcmp(name, "IsNotAlive") || !std::strcmp(name, "IsWeaponReloading") ||
         !std::strcmp(name, "GetAttackState") ||
         !std::strcmp(name, "IsActualWeaponOperatedTwoHand") ||
@@ -114,7 +117,7 @@ void* JNI_CALL Lookup(void*, void*, const char* name, const char* signature) {
     Require(!std::strcmp(signature, object ? "(I)LWeapon;" :
         !std::strcmp(name, "GetThisID") ? "()I" :
         !std::strcmp(name, "IsNotAlive") || !std::strcmp(name, "IsWeaponReloading") ||
-        !std::strcmp(name, "IsCarrying") ? "()Z" :
+        !std::strcmp(name, "IsCarrying") || !std::strcmp(name,"IsNetGame") ? "()Z" :
         boolean ? "(I)Z" : "(I)I"), "wrong method descriptor");
     return const_cast<char*>(name);
 }
@@ -148,6 +151,9 @@ int JNI_CALL Integer(void*, void*, void* method, const Value* args) {
         case RecoveryMutation::identity: ++weapon_id; break;
         case RecoveryMutation::unexplained_occupation:
             two[2][armed]=false;unexplained_occupied[1-armed]=true;break;
+        case RecoveryMutation::foreign_owner: foreign_owner=true; break;
+        case RecoveryMutation::two_hand_flags: two[0][armed]=!two[0][armed]; break;
+        case RecoveryMutation::allowed_reload_state: destiny[armed]=22; break;
         }
         recovery_mutation=RecoveryMutation::none;
         return id;
@@ -163,6 +169,7 @@ std::uint8_t JNI_CALL Boolean(void*, void*, void* method, const Value* args) {
     if (!std::strcmp(name, "IsNotAlive")) return dead;
     if (!std::strcmp(name, "IsWeaponReloading")) return reload;
     if (!std::strcmp(name, "IsCarrying")) return carry[0] || carry[1];
+    if (!std::strcmp(name,"IsNetGame")) return net_game;
     if (!std::strcmp(name, "HasSomethingInHand")) {
         const int h=args[0].integer, other=1-h;
         // Shipped ArmedPlayerBeing.HasWeaponInHand includes an opposite-hand
@@ -199,7 +206,7 @@ void Reset(int hand = 0) {
     attack[0] = attack[1] = false;
     weapon_class = &pistol_class; weapon_id = 123;
     step = 0; fail_step = -1; fail_lookup = nullptr;
-    foreign_owner=false;
+    foreign_owner=net_game=false;
 }
 int Check(bool expected, int hand = 0) {
     CoJMotionReloadOwner out{1, 999, true};
@@ -223,7 +230,7 @@ int CheckRecovery(bool expected, int hand=0) {
     Require(ReadCoJNativeReloadRecoveryOwner(&holder,&player,out,&diagnostic)==expected,
         "passive native reload recovery eligibility mismatch");
     Require(refs==0 && !pending,"recovery reader leaked exception/local reference");
-    Require(expected ? out.valid && out.single_round_supported && out.armed_hand==hand &&
+    Require(expected ? out.valid && out.SupportsManual() && out.armed_hand==hand &&
         out.weapon_id==static_cast<std::uint32_t>(weapon_id) && diagnostic.reason==CoJMotionReloadRejectReason::none :
         !out.valid && !out.single_round_supported && out.armed_hand==-1 && out.weapon_id==0,
         "recovery reader published stale or wrong ownership");
@@ -306,8 +313,7 @@ void NativeReloadRecovery() {
             ReloadRecovery(hand); (*weapons)[hand]=&replacement; CheckRecovery(false);
             ReloadRecovery(hand); (*weapons)[1-hand]=&weapon; CheckRecovery(false);
         }
-        for (void* cls : {static_cast<void*>(&schofield_a_class),static_cast<void*>(&schofield_b_class),
-                static_cast<void*>(&other_class),static_cast<void*>(&derringer_class)}) {
+        for (void* cls : {static_cast<void*>(&other_class),static_cast<void*>(&old_frontier_class)}) {
             ReloadRecovery(hand); weapon_class=cls; CheckRecovery(false);
         }
         ReloadRecovery(hand); dead=true; CheckRecovery(false);
@@ -410,7 +416,8 @@ void NativeFallbackRegression() {
             Reset(hand);weapon_class=cls;current[hand]=destiny[hand]=wanted[hand]=actual_state[hand]=state;
             CoJMotionReloadOwner manual{};CoJMotionReloadDiagnostic diagnostic{};
             (void)ReadCoJMotionReloadOwner(&holder,&player,manual,&diagnostic);
-            Require(!manual.single_round_supported,"native fallback enabled a new manual profile");
+            Require(!manual.single_round_supported,
+                "native fallback enabled an unsupported manual profile/state");
             const bool allowed=ReadCoJNativeReloadFallback(&holder,&player);
             Require(allowed&&refs==0&&!pending,"alternate/native-only firearm lost native reload");
             CoJManualReloadSession session;CoJManualReloadInput s{};s.enabled=s.allowed=true;
@@ -473,12 +480,161 @@ void NativeFallbackRegression() {
         Reset();weapon_class=&scoped_class;auto saved=table[slot];table[slot]=nullptr;fallback(false);table[slot]=saved;
     }
 }
+void ExactNativeBodyProfiles() {
+    // Winchester's sole right slot owns all three native two-hand flags; its
+    // empty left slot is occupied only by HasSomethingInHand's fallback.
+    const auto rifle=[](void* cls,int hand=0) {
+        Reset(hand);weapon_class=cls;
+        for(auto& flags:two)flags[hand]=true;
+    };
+    for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class)}) {
+        rifle(cls);const int calls=Check(true);
+        CoJMotionReloadOwner owner{};
+        Require(ReadCoJMotionReloadOwner(&holder,&player,owner)&&owner.SupportsManual()&&!owner.single_round_supported,
+            "exact Winchester must admit manual native unit loading");
+        rifle(cls,1);Check(false);
+        Reset();weapon_class=cls;Check(false); // Missing native rifle flags.
+        for(int h:{0,1})for(int flag=0;flag<3;++flag) {
+            rifle(cls);two[flag][h]=!two[flag][h];Check(false);
+        }
+        for(int op=1;op<=calls;++op){rifle(cls);fail_step=op;Check(false);}
+        for(auto states:{&current,&destiny,&wanted,&actual_state}) {
+            for(int value:{0,20,21,22,32,129,148,149,150}) {
+                rifle(cls);(*states)[0]=value;Check(false);
+            }
+            rifle(cls);(*states)[1]=1;Check(false);
+        }
+        for(auto slots:{&actual,&active,&desired}) {
+            rifle(cls);(*slots)[0]=&replacement;Check(false);
+            rifle(cls);(*slots)[1]=&weapon;Check(false);
+        }
+        for(int hand:{0,1}){rifle(cls);carry[hand]=true;Check(false);}
+        for(auto mutation:{RecoveryMutation::carry,RecoveryMutation::identity,
+                RecoveryMutation::foreign_owner,RecoveryMutation::two_hand_flags}) {
+            rifle(cls);recovery_mutation=mutation;Check(false);
+        }
+        rifle(cls);foreign_owner=true;Check(false);
+        for(const char* lookup:{"IsCarrying","cOwner"})for(bool null_only:{false,true}) {
+            rifle(cls);fail_lookup=lookup;null_failure=null_only;Check(false);
+        }
+        for(auto states:{std::array<int,4>{20,21,21,21},std::array<int,4>{21,22,21,21},
+                std::array<int,4>{22,1,1,1}}) {
+            rifle(cls);current[0]=states[0];destiny[0]=states[1];
+            wanted[0]=states[2];actual_state[0]=states[3];reload=true;
+            const int recovery_calls=CheckRecovery(true);
+            for(int op=1;op<=recovery_calls;++op) {
+                rifle(cls);current[0]=states[0];destiny[0]=states[1];
+                wanted[0]=states[2];actual_state[0]=states[3];reload=true;
+                fail_step=op;CheckRecovery(false);
+            }
+        }
+        for(auto mutation:{RecoveryMutation::carry,RecoveryMutation::identity,
+                RecoveryMutation::foreign_owner,RecoveryMutation::two_hand_flags,
+                RecoveryMutation::allowed_reload_state,RecoveryMutation::active_weapon,
+                RecoveryMutation::support_state,RecoveryMutation::alternate_state}) {
+            rifle(cls);current[0]=wanted[0]=actual_state[0]=destiny[0]=21;
+            recovery_mutation=mutation;CheckRecovery(false);
+        }
+        rifle(cls);CheckRecovery(false); // Idle is not an ongoing native reload.
+        rifle(cls,1);current[1]=21;CheckRecovery(false);
+    }
+    for(int hand:{0,1}) {
+        Reset(hand);weapon_class=&volcanic_class;Check(true,hand);
+        CoJMotionReloadOwner owner{};
+        Require(ReadCoJMotionReloadOwner(&holder,&player,owner)&&owner.SupportsManual()&&!owner.single_round_supported,
+            "Volcanic must admit single-pistol native unit loading");
+        for(int h:{0,1})for(int flag=0;flag<3;++flag) {
+            Reset(hand);weapon_class=&volcanic_class;two[flag][h]=true;Check(false);
+        }
+        ReloadRecovery(hand);weapon_class=&volcanic_class;CheckRecovery(true,hand);
+        Reset(hand);weapon_class=&volcanic_class;foreign_owner=true;Check(false);
+        Reset(hand);weapon_class=&volcanic_class;recovery_mutation=RecoveryMutation::carry;Check(false);
+        Reset(hand);weapon_class=&volcanic_class;recovery_mutation=RecoveryMutation::identity;Check(false);
+    }
+    // Neither the new profile nor the rifle exception generalizes to other guns.
+    for(void* cls:{static_cast<void*>(&pistol_class),static_cast<void*>(&peacemaker_class),
+            static_cast<void*>(&old_frontier_class),
+            static_cast<void*>(&other_class)}) {rifle(cls);Check(false);}
+}
+void RemainingManualFamilies() {
+    for(void* cls:{static_cast<void*>(&remington_class),static_cast<void*>(&sawoff_class),
+            static_cast<void*>(&derringer_class),static_cast<void*>(&lemant_class),
+            static_cast<void*>(&schofield_class),static_cast<void*>(&schofield_a_class),
+            static_cast<void*>(&schofield_b_class)})for(int hand:{0,1}) {
+        const auto setup=[&]() {Reset(hand);weapon_class=cls;
+            if(cls==&remington_class)for(auto& flags:two)flags[hand]=true;};
+        const bool expected=cls!=&remington_class||hand==0;
+        setup();const int calls=Check(expected,hand);
+        if(!expected)continue;
+        CoJMotionReloadOwner owner{};
+        Require(ReadCoJMotionReloadOwner(&holder,&player,owner)&&owner.SupportsManual()&&
+            !owner.single_round_supported&&owner.kind==(cls==&schofield_class||cls==&schofield_a_class||
+                cls==&schofield_b_class?CoJManualReloadKind::clip:CoJManualReloadKind::indexed),
+            "indexed/clip admission must not enable legacy unit pacing");
+        for(int op=1;op<=calls;++op){setup();fail_step=op;Check(false);}
+        for(bool null_only:{false,true})for(const char* name:{"IsCarrying","cOwner","IsNetGame"}) {
+            setup();fail_lookup=name;null_failure=null_only;Check(false);
+        }
+        setup();net_game=true;Check(false);
+        setup();foreign_owner=true;Check(false);
+        setup();carry[1-hand]=true;Check(false);
+        setup();current[hand]=destiny[hand]=wanted[hand]=actual_state[hand]=21;
+        reload=true;CheckRecovery(true,hand);
+        for(std::uint32_t id:{0x80000000U,0xfffe0000U}) {
+            setup();weapon_id=static_cast<std::int32_t>(id);Check(true,hand);
+        }
+    }
+}
+void CycleProfilesDoNotArmLegacyPacing() {
+    using namespace cojvr::runtime;
+    for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class),
+            static_cast<void*>(&volcanic_class),static_cast<void*>(&pistol_class),
+            static_cast<void*>(&peacemaker_class),static_cast<void*>(&frontier_class),
+            static_cast<void*>(&walker_class),static_cast<void*>(&cogswell_class)}) {
+        Reset();weapon_class=cls;
+        if(cls==&winchester_class||cls==&scoped_class)for(auto& flags:two)flags[0]=true;
+        CoJMotionReloadOwner owner{};CoJMotionReloadDiagnostic diagnostic{};
+        Require(ReadCoJMotionReloadOwner(&holder,&player,owner,&diagnostic)&&owner.SupportsManual(),
+            "fresh exact owner lost manual admission");
+        const bool cycle=cls==&winchester_class||cls==&scoped_class||cls==&volcanic_class;
+        CoJMotionReloadAdapter adapter;
+        GameplayInputState raw{},mapped{};raw.active=true;raw.input_context_generation=4;
+        const auto at=[](Vec3 position){Pose p{};p.position=position;
+            p.position_valid=p.orientation_valid=true;return p;};
+        const auto head=at({0,1.6F,0}),right=at({.2F,1.35F,-.35F});
+        auto left=at({-.2F,1.05F,-.1F});
+        std::uint64_t sequence=0,now=1000;
+        const auto poll=[&](){mapped=raw;++sequence;now+=50;
+            return adapter.Update(mapped,raw,owner,diagnostic,7,head,left,right,
+                true,false,sequence,now,3);};
+        (void)poll();raw.fire_left=true;
+        Require(poll().consume_free_trigger,"legacy fixture failed to claim pickup");
+        const auto start=left.position;
+        for(int sample=1;sample<=8;++sample){const float t=static_cast<float>(sample)/8.F;
+            left=at({start.x+(right.position.x-start.x)*t,start.y+(right.position.y-start.y)*t,
+                start.z+(right.position.z-start.z)*t});(void)poll();}
+        raw.fire_left=false;Require(poll().reload,"legacy fixture did not reach native dispatch");
+        adapter.NoteSingleRoundDispatch(true);
+        const auto fresh=owner;owner={};diagnostic.weapon_reloading=true;
+        diagnostic.reason=CoJMotionReloadRejectReason::dead_or_reloading;(void)poll();
+        owner=fresh;diagnostic={};
+        Require(poll().cartridge_held==!cycle,
+            "manual-only cycle profile armed legacy paced continuation");
+        Require(owner.single_round_supported==!cycle&&owner.SupportsManual()&&
+            owner.kind==CoJManualReloadKind::unit,"cycle/legacy owner flags disagree with route eligibility");
+        Require(refs==0&&!pending,"legacy cycle eligibility leaked JNI state");
+    }
+}
 }
 int main() {
     Set(6, Find); Set(15, Exception); Set(17, Clear); Set(23, Delete);
     Set(24, Same); Set(31, Class); Set(33, Lookup);
     Set(36, Object); Set(39, Boolean); Set(51, Integer);
     Set(94,OwnerField);Set(95,OwnerObject);
+    Set(113,Lookup);Set(119,Boolean);
+    CycleProfilesDoNotArmLegacyPacing();
+    RemainingManualFamilies();
+    ExactNativeBodyProfiles();
     NativeFallbackRegression();
     for(int hand=0;hand<2;++hand)for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){
         Reset(hand);weapon_id=static_cast<std::int32_t>(id);Check(true,hand);
@@ -540,7 +696,7 @@ int main() {
                 "diagnostic class lookup did not identify exact peacemaker class");
             Require(refs == 0 && !pending, "diagnostic class lookup leaked JNI state");
         }
-        Reset(hand); weapon_class = &derringer_class;
+        Reset(hand); weapon_class = &old_frontier_class;
         {
             CoJMotionReloadOwner out{};
             CoJMotionReloadDiagnostic diagnostic{};
@@ -550,7 +706,7 @@ int main() {
                 "known unsupported pistol lost strict rejection");
             const char* class_name = nullptr;
             Require(ReadCoJMotionReloadWeaponClassName(&holder, &player, hand, class_name) &&
-                class_name && !std::strcmp(class_name, "WeaponPistolDerringer"),
+                class_name && !std::strcmp(class_name, "WeaponPistolFrontier1878_Regular_Old"),
                 "diagnostic class lookup did not identify exact unsupported pistol class");
             Require(refs == 0 && !pending, "diagnostic class lookup leaked JNI state");
         }

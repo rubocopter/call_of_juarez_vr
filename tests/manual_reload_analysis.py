@@ -553,7 +553,7 @@ class ReloadAnalysisTests(unittest.TestCase):
         for change in ({'attachment_admission':'true'}, {'cycle_qualified':'true'},
                        {'support_in_weapon':'(nan,0,0)'}, {'states_right':'129,1,1,1'},
                        {'support_up':'(0,2,0)'}, {'two_handed_left':'true,false,false'},
-                       {'weapon_class':'WeaponRifleWinchesterScope'},
+                       {'weapon_class':'WeaponRifleWinchesterScopeUnknown'},
                        {'sample_gap_us':1}, {'sample_us':100000}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.evidence([sample(100000,'(1,2,3)'),
@@ -563,6 +563,18 @@ class ReloadAnalysisTests(unittest.TestCase):
         self.assertIsNone(report['rifle_support_observations'][1]['support_displacement_from_first_cm'])
         with self.assertRaises(ValueError):
             self.evidence([sample(150000,'(4,6,3)')])
+        for states, phase in [('1,1,1,1','ordinary_idle_tuple'),
+                              ('129,129,129,129','ordinary_idle_tuple'),
+                              ('159,1,1,1','ordinary_fire_tuple'),
+                              ('160,129,129,129','ordinary_fire_tuple')]:
+            report=self.evidence([sample(100000,'(1,2,3)',phase,
+                weapon_class='WeaponRifleWinchesterScope',states_right=states)])
+            self.assertEqual(report['summary']['rifle_support_samples'],1)
+            self.assertFalse(report['rifle_support_observations'][0]['cycle_qualified'])
+        for weapon in ('WeaponRifleWinchester','WeaponRifleRemington','WeaponRifleRemingtonSawOff'):
+            with self.subTest(weapon=weapon),self.assertRaises(ValueError):
+                self.evidence([sample(100000,'(1,2,3)','ordinary_fire_tuple',
+                    weapon_class=weapon,states_right='159,1,1,1')])
 
     def test_winchester_native_samples_preserve_both_hands_and_raw_readback_only(self):
         rows = [winchester_sample(), winchester_sample(2, states_right='21,21,21,21',
@@ -930,6 +942,31 @@ class ReloadAnalysisTests(unittest.TestCase):
         report = self.evidence([trace(2), insertion(ammo_after=4, reserve_after=8),
                                trace(3, ammo_readback_after=4, pistol_reserve_after=8)])
         self.assertEqual(report['insertions'][0]['assessment'], 'non_unit_readback')
+
+    def test_explicit_clip_is_not_misreported_as_duplicate_unit_loading(self):
+        fields=dict(reload_mode='clip',weapon_class='WeaponPistolSchofield',selected_index=-1,
+            loaded_before='2,0',loaded_after='6,0',reserves_before='10,0,0',reserves_after='6,0,0',
+            capacities='6,0',reserve_indices='0,0',probe_status_after=3,feedback_qualified=1,reserve_kind='pistol')
+        report=self.evidence([trace(2),insertion(ammo_after=6,reserve_after=6,**fields),
+            trace(3,status=3,ammo_readback_after=6,pistol_reserve_after=6)])
+        self.assertEqual(report['insertions'][0]['assessment'],'clip_readback_reported')
+        self.assertFalse(report['headset_validated'])
+        bad=dict(fields,loaded_after='5,0')
+        report=self.evidence([trace(2),insertion(ammo_after=6,reserve_after=6,**bad),
+            trace(3,status=3,ammo_readback_after=6,pistol_reserve_after=6)])
+        self.assertEqual(report['insertions'][0]['assessment'],'invalid_family_readback')
+
+    def test_indexed_shell_readback_retains_other_slot_and_shared_reserve(self):
+        fields=dict(reload_mode='indexed',weapon_class='WeaponRifleRemington',selected_index=1,
+            loaded_before='0,0',loaded_after='0,1',reserves_before='0,0,3',reserves_after='0,0,2',
+            capacities='1,1',reserve_indices='2,2',probe_status_after=2,feedback_qualified=1,
+            reserve_kind='shotgun')
+        report=self.evidence([trace(2),insertion(ammo_before=0,ammo_after=1,reserve_before=3,reserve_after=2,**fields),trace(3)])
+        self.assertEqual(report['insertions'][0]['assessment'],'indexed_unit_readback_reported')
+        for change in (dict(loaded_after='1,1'),dict(reserves_after='0,0,1'),dict(selected_index=0)):
+            report=self.evidence([trace(2),insertion(ammo_before=0,ammo_after=1,reserve_before=3,reserve_after=2,
+                **dict(fields,**change)),trace(3)])
+            self.assertEqual(report['insertions'][0]['assessment'],'invalid_family_readback')
 
     def test_invalid_after_snapshot_cannot_confirm_any_transfer(self):
         report = self.evidence([trace(2), insertion(after_valid=0), trace(3)])

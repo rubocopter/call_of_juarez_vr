@@ -704,12 +704,15 @@ private:
 // Recenter promotes the actor's current orientation to the new baseline.
 // Mounted/unknown owners keep the committed camera reference and free look,
 // but neither HMD body following nor gaze-relative movement may steer a horse.
+// Exact native rifle scope ownership freezes HMD-driven actor/upper-body yaw;
+// the scope camera and controller ray share that retained reference until exit.
 [[nodiscard]] BodyYawOwnershipUpdate BuildBodyYawOwnershipUpdate(
     const cojvr::runtime::Pose& relative_head_pose,
     float previously_owned_degrees,
     bool previous_owned_valid,
     bool recentered,
-    bool on_foot_owner_verified = true) noexcept;
+    bool on_foot_owner_verified = true,
+    bool rifle_scope_owned = false) noexcept;
 
 // Room-scale HMD translation is rendered by the camera. Directly writing the
 // Java actor position bypasses native collision/grounding and, in physical

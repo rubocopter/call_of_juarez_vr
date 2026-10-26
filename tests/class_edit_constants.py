@@ -9,6 +9,14 @@ from inspect_java_bytecode import Reader,parse_constant_pool
 
 
 class ConstantTests(unittest.TestCase):
+    def test_forward_field_reference_can_be_declared_once(self):
+        edit=ClassEdit(original('ArmedPlayerBeing'))
+        reference=edit.ref('ArmedPlayerBeing','cojvrForwardFixture','Z',9)
+        self.assertEqual(edit.field('cojvrForwardFixture','Z'),reference)
+        with self.assertRaises(ValueError):edit.field('cojvrForwardFixture','Z')
+        reparsed=ClassEdit(edit.finish())
+        with self.assertRaises(ValueError):reparsed.field('cojvrForwardFixture','Z')
+
     def test_literal_does_not_replace_utf8_symbol_when_editing_a_derivative(self):
         first=ClassEdit(original('ArmedPlayerBeing'))
         name='cojvrFixtureSharedLiteral'

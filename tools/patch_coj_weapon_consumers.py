@@ -38,6 +38,15 @@ SINGLE_ROUND_REVOLVERS = ("WeaponPistolFrontier1878_Regular", "WeaponPistolPeace
 
 def reload_class_guard(c, local, get_class, get_name, equals, class_names, whole_clip,
                        whole_clip_expected=False):
+    if isinstance(whole_clip_expected,tuple):
+        if len(whole_clip_expected)!=len(class_names):
+            raise ValueError('Incomplete exact reload policy')
+        for index,(name,expected) in enumerate(zip(class_names,whole_clip_expected)):
+            c.emit(0x19,local);c.ref(0xb6,get_class);c.ref(0xb6,get_name)
+            c.ref(0x13,name);c.ref(0xb6,equals);c.branch(0x99,'reload_class_next_'+str(index))
+            c.emit(0x19,local);c.ref(0xb6,whole_clip);c.branch(0x99 if expected else 0x9a,'done')
+            c.branch(0xa7,'consume');c.label('reload_class_next_'+str(index))
+        c.branch(0xa7,'done');c.label('consume');return
     c.emit(0x19,local);c.ref(0xb6,whole_clip);c.branch(0x99 if whole_clip_expected else 0x9a,'done')
     # Java 1.4 has no ldc Class literal; compare exact runtime class names.
     for name in class_names:

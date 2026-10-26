@@ -498,15 +498,61 @@ int main() {
             auto f=physical[i].fov;zoomed[i].fov={scale(f.angle_left),scale(f.angle_right),scale(f.angle_up),scale(f.angle_down)};
         }
         CameraProbeWeaponRay ray{{15,-8,-40},{.1F,.03F,-1},true,true,true};
-        if(!BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,ray,1,500,scoped)){
+        auto scene_head=head;
+        if(!BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,ray,1,500,scoped,scene_head)){
             std::cerr<<"scoped rifle view did not centre both eye frusta on verified aim\n";return 1;
+        }
+        const auto scope_orientation=scene_head.orientation;
+        const auto scene_basis=ApplyCameraPoseOrientation(native_identity.forward,native_identity.up,scope_orientation,0);
+        const auto followed_body=ApplyCameraProbeOrientation(native_identity.forward,native_identity.up,35,0);
+        auto compensated=zoomed;
+        if(!BuildCoJScopedRifleRenderEyes(followed_body,{},head,35,physical,zoomed,ray,1,500,compensated,scene_head)||
+            !Near(compensated[0].fov.angle_left,scoped[0].fov.angle_left)||
+            !Near(compensated[0].fov.angle_up,scoped[0].fov.angle_up)||
+            !Near(scene_head.orientation.y,scope_orientation.y)){
+            std::cerr<<"body-follow compensation leaked head yaw into rifle scope\n";return 1;
+        }
+        // Scope aim belongs to the rifle. With a stationary controller, yaw,
+        // pitch and roll of the HMD must leave the rendered scope unchanged.
+        for(auto orientation:std::array<cojvr::runtime::Quaternion,3>{{
+            {0,.173648F,0,.984808F},{.173648F,0,0,.984808F},{0,0,.173648F,.984808F}}}){
+            auto turned=head;turned.orientation=orientation;
+            auto moved=zoomed;
+            if(!BuildCoJScopedRifleRenderEyes(native_identity,{},turned,0,physical,zoomed,ray,1,500,moved,scene_head)||
+                !Near(moved[0].fov.angle_left,scoped[0].fov.angle_left)||
+                !Near(moved[0].fov.angle_up,scoped[0].fov.angle_up)||
+                !Near(scene_head.orientation.x,scope_orientation.x)||!Near(scene_head.orientation.y,scope_orientation.y)||
+                !Near(scene_head.orientation.z,scope_orientation.z)||!Near(scene_head.orientation.w,scope_orientation.w)||
+                !Near(turned.orientation.w,orientation.w)){
+                std::cerr<<"head rotation changed the controller-owned scope view\n";return 1;
+            }
+        }
+        for(unsigned axis=0;axis<2;++axis){
+            auto aimed=ray;auto moved=zoomed;
+            if(axis==0)aimed.direction.x+=.05F;else aimed.direction.y+=.05F;
+            if(!BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,aimed,1,500,moved,scene_head))return 1;
+            const auto aimed_basis=ApplyCameraPoseOrientation(native_identity.forward,native_identity.up,scene_head.orientation,0);
+            if(axis==0?aimed_basis.forward.x>=scene_basis.forward.x:aimed_basis.forward.y>=scene_basis.forward.y){
+                std::cerr<<"controller yaw/pitch failed to move scope in the aim direction\n";return 1;
+            }
+        }
+        for(auto direction:std::array<CameraProbeVector,4>{{{1,0,0},{0,0,1},{-1,.5F,0},{0,.8F,-.6F}}}){
+            auto sideways=ray;sideways.origin={};sideways.direction=direction;
+            auto side_eyes=zoomed;
+            if(!BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,sideways,1,500,side_eyes,scene_head)){
+                std::cerr<<"rifle-controlled scope was limited to the original head heading\n";return 1;
+            }
+            const auto aimed=ApplyCameraPoseOrientation(native_identity.forward,native_identity.up,scene_head.orientation,0);
+            if(-Dot(aimed.forward,direction)/Length(direction)<.9999F){
+                std::cerr<<"scope camera did not follow the verified controller ray\n";return 1;
+            }
         }
         for(unsigned eye=0;eye<2;++eye){
             CameraProbeFrustum f{},before{};CameraProbeReticlePoint point{};
-            const auto eye_pos=ApplyCameraEyeOffset({},native_identity,scoped[eye].eye_to_head.position);
+            const auto eye_pos=ApplyCameraEyeOffset({},scene_basis,scoped[eye].eye_to_head.position);
             if(!BuildCameraProbeFrustum(scoped[eye].fov,1,500,f)||
                 !BuildCameraProbeFrustum(zoomed[eye].fov,1,500,before)||
-                !ProjectWorldAimRayToEyeReticle(ray.origin,ray.direction,eye_pos,native_identity,f,475,point)||
+                !ProjectWorldAimRayToEyeReticle(ray.origin,ray.direction,eye_pos,scene_basis,f,475,point)||
                 !Near(f.right-f.left,before.right-before.left)||
                 !Near(f.top-f.bottom,before.top-before.bottom)||
                 !Near(scoped[eye].eye_to_head.position.x,zoomed[eye].eye_to_head.position.x)){
@@ -523,8 +569,8 @@ int main() {
                 CameraProbeFrustum f{},o{};CameraProbeReticlePoint p{};
                 if(!BuildCameraProbeFrustum(scoped[eye].fov,1,500,f)||
                     !BuildCameraProbeFrustum(physical[eye].fov,1,500,o))return 1;
-                const auto eye_pos=ApplyCameraEyeOffset({},native_identity,scoped[eye].eye_to_head.position);
-                if(!ProjectWorldAimRayToEyeReticle({0,0,0},{.1F,.03F,-1},eye_pos,native_identity,f,depth,p))return 1;
+                const auto eye_pos=ApplyCameraEyeOffset({},scene_basis,scoped[eye].eye_to_head.position);
+                if(!ProjectWorldAimRayToEyeReticle({0,0,0},{.1F,.03F,-1},eye_pos,scene_basis,f,depth,p))return 1;
                 retinal[eye]=o.left+p.u*(o.right-o.left);
             }
             if(std::abs((retinal[0]-retinal[1])-6.4F/depth)>2e-5F){
@@ -536,7 +582,7 @@ int main() {
             CameraProbeFrustum f{};
             if(!BuildCameraProbeFrustum(scoped[eye].fov,1,500,f)||
                 !ProjectWorldAimRayToEyeReticle(ray.origin,ray.direction,
-                    ApplyCameraEyeOffset({},native_identity,scoped[eye].eye_to_head.position),native_identity,f,475,marker.eyes[eye]))return 1;
+                    ApplyCameraEyeOffset({},scene_basis,scoped[eye].eye_to_head.position),scene_basis,f,475,marker.eyes[eye]))return 1;
         }
         std::array<cojvr::runtime::ScopeLens,2> lenses{};
         if(!BuildCoJScopeLenses(physical,marker,lenses)||
@@ -555,13 +601,13 @@ int main() {
         marker.eyes[1].valid=false;
         if(BuildCoJScopeLenses(physical,marker,lenses)||lenses[0].valid||lenses[1].valid)return 1;
         for(auto bad:std::array<CameraProbeWeaponRay,3>{{
-            {{},{0,0,1},true,true,true},{{},{20,0,-1},true,true,true},{{},{0,0,-1},true,true,false}}}){
-            if(BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,bad,1,500,scoped)){
-                std::cerr<<"unverified, backwards or outside-physical-view scope ray admitted\n";return 1;
+            {{},{0,0,0},true,true,true},{{},{std::numeric_limits<float>::infinity(),0,-1},true,true,true},{{},{0,0,-1},true,true,false}}}){
+            if(BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,bad,1,500,scoped,scene_head)){
+                std::cerr<<"unverified or invalid scope ray admitted\n";return 1;
             }
         }
         head.position_valid=false;
-        if(BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,ray,1,500,scoped))return 1;
+        if(BuildCoJScopedRifleRenderEyes(native_identity,{},head,0,physical,zoomed,ray,1,500,scoped,scene_head))return 1;
     }
     const CameraProbeVector head_position{10.0F, 20.0F, 30.0F};
     const CameraProbeVector left_eye = ApplyCameraEyeOffset(

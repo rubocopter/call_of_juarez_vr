@@ -164,6 +164,21 @@ bool TestInsertionPose() {
 }
 
 int main() {
+    for(const auto& profile:kCoJRevolvers){
+        if(!profile.manual_supported)continue;
+        for(int hand:{0,1})for(int status:{1,2}){
+            CoJMotionReloadOwner recovery{hand,42,true,false,profile.kind,true};
+            CoJReloadTraceSnapshot trace{};trace.valid=trace.probe_valid=true;
+            trace.armed_hand=hand;trace.weapon_id=42;trace.probe_status=status;trace.kind=profile.kind;
+            if(!CoJManualSupportFingersAllowed(true,1-hand,recovery,trace)){
+                std::cerr<<"manual-only profile cannot obtain support pinch/cartridge anchor: "<<profile.class_name<<'\n';return 1;
+            }
+            trace.kind=profile.kind==CoJManualReloadKind::unit?CoJManualReloadKind::clip:CoJManualReloadKind::unit;
+            if(CoJManualSupportFingersAllowed(true,1-hand,recovery,trace)){
+                std::cerr<<"different native/manual reload kinds shared a pinch anchor\n";return 1;
+            }
+        }
+    }
     CoJMotionReloadOwner owner{0,42,true,true};
     CoJReloadTraceSnapshot native{};native.valid=native.probe_valid=true;
     native.armed_hand=0;native.weapon_id=42;native.probe_status=2;

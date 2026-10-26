@@ -1,4 +1,5 @@
 #pragma once
+#include "games/call_of_juarez/revolver_profile.hpp"
 #include <array>
 #include <cstdint>
 
@@ -42,20 +43,31 @@ struct CoJMotionReloadOwner {
     int armed_hand = -1;
     std::uint64_t weapon_id = 0;
     bool valid = false;
-    bool single_round_supported = false; // Exact profile; Schofield stays native/hybrid.
+    bool single_round_supported = false; // Legacy unit pacing only; never indexed/clip.
+    CoJManualReloadKind kind = CoJManualReloadKind::unit;
+    bool manual_supported = false;
+    [[nodiscard]] bool SupportsManual() const noexcept {
+        return single_round_supported || manual_supported;
+    }
 };
 // Exact-build, local-player game-owner caller only. Observation never requests
-// reload or reads weapon parameters; action 31 retains ammunition authority.
+// reload or reads weapon parameters; native reload retains ammunition authority.
+// Exact Winchester/WinchesterScope/Remington admission is right-owned only, with all
+// right two-hand flags set, all left flags/slots/states empty and IsCarrying
+// false. HasSomethingInHand may reflect only that right state-machine fallback.
+// New native-body and indexed/clip profiles additionally retain cOwner, ID,
+// flags and states across both observations; indexed/clip reject network play.
+// Volcanic/SawOff keep either-hand single-weapon idle semantics.
 bool ReadCoJMotionReloadOwner(void* env, void* player,
     CoJMotionReloadOwner& out, CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
 // Passive ongoing animation observation, not eligibility for a new request.
-// Exact single-round profile, coherent actual/active/desired identity, empty
+// Exact manual profile, coherent actual/active/desired identity, empty
 // support and armed states drawn only from 1/20/21/22 with a reload state still
 // present. Native two-hand animation flags may be ignored only in that boundary.
 // A positive support HasSomethingInHand requires the armed state-machine
 // two-hand fallback plus passive IsCarrying=false in both observations; support
 // actual/active/desired weapons remain null and all support states remain0.
-// Initial admission retains the original occupied-hand rejection unchanged.
+// Initial pistol admission retains the original occupied-hand rejection.
 // Caller retains exact-build/local-player generation and gameplay-context gates;
 // the adapter must match the result to its accepted continuation owner.
 bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player,

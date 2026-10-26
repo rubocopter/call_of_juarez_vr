@@ -70,7 +70,8 @@ public:
     void RetireStaleText(ID3D11Device* device, ID3D11DeviceContext* context,
         const std::array<ID3D11Texture2D*, 2>& targets,
         bool show_holster_guides, std::uint64_t reload_owner_token) noexcept;
-    // Draw is for a newly copied world frame, never a repeated submission.
+    // Public Draw is for a newly copied world frame. RetireStaleText may
+    // internally redraw only its controlled layers after expiring icon art.
     [[nodiscard]] bool Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const runtime::StereoHudTextOverlay& overlay, std::uint64_t capture_sequence,
         const std::array<ID3D11Texture2D*, 2>& targets,

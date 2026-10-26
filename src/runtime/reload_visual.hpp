@@ -56,6 +56,8 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
     const Pose& support, bool visible, StereoHudTextOverlay& out) noexcept {
     out.reload_cartridge_visible=false;
     out.reload_cartridge_textured=false;
+    out.reload_cartridge_instance_count=0;
+    out.reload_cartridge_instance_offsets={};
     out.reload_cartridge_head_corners={}; // Legacy sprite only; new captures use surfaces.
     out.reload_cartridge_surface_count=0;
     out.reload_cartridge_surfaces={};
@@ -101,6 +103,49 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
     out.reload_cartridge_surfaces=faces;
     out.reload_cartridge_surface_count=count;
     out.reload_cartridge_visible=true;
+    out.reload_cartridge_instance_count=1;
+    return true;
+}
+
+[[nodiscard]] inline bool BuildReloadCartridgeOverlay(const Pose& head,
+    const Pose& anchor,bool visible,StereoHudTextOverlay& out) noexcept;
+
+// Repeat the imported loose cartridge, retaining UVs/normals and materials.
+// This is presentation of the caller's transaction count, not a measured clip
+// or exact Schofield calibre. One captured mesh plus six bounded head-space
+// offsets avoids enlarging every frame and exceeding D3D11 constant-buffer size.
+[[nodiscard]] inline bool BuildReloadCartridgeBundleOverlay(const Pose& head,
+    const Pose& anchor,unsigned count,bool visible,StereoHudTextOverlay& out) noexcept {
+    out.reload_cartridge_visible=false;
+    out.reload_cartridge_textured=false;
+    out.reload_cartridge_instance_count=0;
+    out.reload_cartridge_instance_offsets={};
+    out.reload_cartridge_head_corners={};
+    out.reload_cartridge_surface_count=0;
+    out.reload_cartridge_surfaces={};
+    using namespace reload_visual_detail;
+    if(!visible||count<1||count>6||!Valid(head)||!Valid(anchor))return false;
+    constexpr float spacing=2.F*radius+.002F;
+    const unsigned rows=(count+2)/3;
+    StereoHudTextOverlay component{};
+    if(!BuildReloadCartridgeOverlay(head,anchor,true,component))return false;
+    const auto q=head.orientation;const Quaternion inverse{-q.x,-q.y,-q.z,q.w};
+    std::array<Vec3,StereoHudTextOverlay::reload_cartridge_max_instances> offsets{};
+    for(unsigned i=0;i<count;++i){
+        const unsigned row=i/3,column=i%3,columns=std::min(3U,count-row*3);
+        const Vec3 local{(static_cast<float>(column)-static_cast<float>(columns-1)*.5F)*spacing,
+            (static_cast<float>(rows-1)*.5F-static_cast<float>(row))*spacing,0};
+        const auto offset=RotateVector(inverse,RotateVector(anchor.orientation,local));
+        offsets[i]=offset;
+        for(unsigned f=0;f<component.reload_cartridge_surface_count;++f)
+            for(const auto p:component.reload_cartridge_surfaces[f].head_corners)
+                if(!std::isfinite(p.x+offset.x)||!std::isfinite(p.y+offset.y)||
+                    !std::isfinite(p.z+offset.z)||p.z+offset.z>=-.05F)return false;
+    }
+    out.reload_cartridge_surfaces=component.reload_cartridge_surfaces;
+    out.reload_cartridge_surface_count=component.reload_cartridge_surface_count;
+    out.reload_cartridge_instance_offsets=offsets;out.reload_cartridge_instance_count=count;
+    out.reload_cartridge_textured=out.reload_cartridge_visible=true;
     return true;
 }
 
@@ -111,6 +156,7 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
     const Pose& anchor,bool visible,StereoHudTextOverlay& out) noexcept {
     out.reload_cartridge_visible=false;out.reload_cartridge_surface_count=0;
     out.reload_cartridge_textured=false;
+    out.reload_cartridge_instance_count=0;out.reload_cartridge_instance_offsets={};
     out.reload_cartridge_head_corners={};out.reload_cartridge_surfaces={};
     using namespace reload_visual_detail;
     if(!visible||!Valid(head)||!Valid(anchor))return false;
@@ -145,6 +191,7 @@ inline constexpr std::array<Vec3,6> ring{{{radius,0,0},{radius*.5F,radius*.86602
         return depth(a)<depth(b);
     });
     out.reload_cartridge_surface_count=static_cast<std::uint32_t>(mesh::triangles.size());
+    out.reload_cartridge_instance_count=1;
     out.reload_cartridge_textured=out.reload_cartridge_visible=true;return true;
 }
 }

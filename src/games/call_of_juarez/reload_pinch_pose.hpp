@@ -61,8 +61,9 @@ struct CoJReloadPinchInput {
 // may use this exception to the ordinary empty-idle finger gate.
 [[nodiscard]] inline bool CoJManualSupportFingersAllowed(bool owned,int hand,
     const CoJMotionReloadOwner& recovery,const CoJReloadTraceSnapshot& native) noexcept {
-    return owned&&hand>=0&&hand<2&&recovery.valid&&recovery.single_round_supported&&
+    return owned&&hand>=0&&hand<2&&recovery.valid&&recovery.SupportsManual()&&
         native.valid&&native.probe_valid&&native.weapon_id!=0&&
+        recovery.kind==native.kind&&
         recovery.weapon_id==native.weapon_id&&recovery.armed_hand==native.armed_hand&&
         native.armed_hand==1-hand&&(native.probe_status==1||native.probe_status==2);
 }

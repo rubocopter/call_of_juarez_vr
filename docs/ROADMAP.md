@@ -8,12 +8,13 @@ acceptance or supported hardware.
 
 ## Current gate
 
-The next headset session should exercise the existing **combined, locally
-staged candidate** when useful campaign scenes are available; preparation and
-host evidence cannot promote a visor verdict. [Validation's snapshot and
+The next candidate should combine corrections from the exercised scope/rifle
+session with other eligible improvements; preparation and host evidence cannot
+promote a visor verdict. [Validation's snapshot and
 checklist](VALIDATION.md#pending-headset-checks) own accepted and pending physical
-behavior, including the revised scoped-Winchester view, ordinary weapon zoom,
-revolver contact, mounted controls, reload and recovery.
+behavior, including the upstream body-yaw correction after rejected scoped
+head-yaw isolation, ordinary Winchester firing/reload, textured Schofield bundles,
+empty-trigger release before manual closure, mounted controls and recovery.
 
 Continue offline engineering by dependency: native owner and phase evidence,
 then measured weapon geometry/hand contact, followed by narrowly admitted
@@ -22,8 +23,9 @@ features from observers and separately verified laboratory derivatives.
 
 For DLAA/DLSS, verify source-owned per-eye color/depth and material coverage
 before further reconstruction work; no game image reconstruction is active.
-Independent-resolution B0 remains rejected/default-off. The latest *public*
-package is `v0.1.0-prealpha.5`; later source changes await testing and release.
+Independent-resolution B0 remains rejected/default-off. The current incremental
+package line is `v0.1.0-prealpha.6`, carrying the accumulated source batch with
+its documented experimental limits. Archived `.5` artifacts remain unchanged.
 Accepted functionality stays scoped to the evidence in Validation. Candidate
 identities and run histories remain in ignored `work/`.
 
@@ -65,13 +67,13 @@ Exact capacities, classes, reserve types and callback ownership belong in
 | --- | --- | --- |
 | Peacemaker / admitted Frontier1878 | Persistent native unit-loading route with scoped acceptance. | Contact/occlusion, precise mouth, sound, mechanics and broader interruption recovery. |
 | Additional Frontier, Walker, Cogswell | Manual profiles host-tested; Cogswell uses rifle reserve. | Per-model physical unit transfer, geometry, ammunition appearance and recovery. Existing acceptance does not promote these extensions. |
-| Winchester | Support/passive observer and isolated offline unit-loading derivative host-tested. Ten consecutive modeled unit transfers and body waits close through native end22; the derivative passes shipped Java 1.4 verification. Native remaining-count and canceled-probe callbacks now have readback/guarded-end22 recovery against duplicate native transfers in interpreted fixtures. Square reload remains native. | Correlate live native phases, HUD/ammo/reserve, animation and support release/regrip; measure a loading port before admitting a gesture/runtime manual session. JVM verification does not qualify playback. |
-| Remington / SawOff | Remington grasp accepted; SawOff support host-tested. Two-index observation/classifier and native index-choice prediction host-tested; isolated selected-unit and supervised-wait session derivatives interpreted-tested. | Runtime selective loading, per-barrel mechanism/port/gesture and animation; untested fit, firing/cycling and recovery. Lab sessions do not admit gameplay gestures. |
-| Scoped Winchester | Grip/discharge accepted in the exercised scene; corrected virtual-baseline/asymmetric scope optics and sight host-tested. Exact-class native reload state/hand/ammunition observer host-tested with history isolated from ordinary Winchester. Exact-class offline 12-round/body-cycle derivative shares Winchester policy, with separate ten-unit callback/fault regressions and shipped Java 1.4 verifier acceptance. Square remains native; physical manual loading excluded. | Confirm scope-specific native ammo/animation ownership, loading mouth, support-hand release/regrip and actual playback before runtime manual admission. Binocular fusion/quality rejected on the preceding candidate; verify revised optics, precise shot agreement, Square/native transfer, plot progression and recovery. |
-| Volcanic | Native fallback; isolated offline unit-loading derivative and authored-animation inventory host-tested. | Native phase/readback, hand/port qualification and runtime manual profile. No live admission follows from the lab. |
-| Derringer | Native whole-clip fallback; observer/prediction and isolated selected-unit/supervised-session derivatives interpreted-tested. | Native chamber phase/readback, animation, port/gesture and runtime integration before representing one cartridge. |
-| Lemant / LeMat | Native fallback; typed observer/classifier/prediction and isolated selected-unit/supervised-session derivatives interpreted-tested. | Native index ownership/readback, separate ammo/geometry, animation and runtime integration. Original native reload still prefers eligible rifle index 0. |
-| Schofield base/A/B | Native/hybrid whole-clip behavior; isolated whole-clip transaction interpreted-tested with exact-class, ammo/reserve, event and post-native-close guards; all three derivatives verified on the shipped JVM. | Deliberate clip UX, model/animation and hand ownership, native live readback; no production manual admission. |
+| Winchester | Production manual-option source integrates the exact 12-round native unit/body-cycle transaction and shared hand gesture; passive live reload phases/count deltas precede this change. Corrected R2 uses the scoped model’s guarded button1 route. | Physically qualify firing/manual playback, generic insertion gesture, support release/fresh regrip, callback recovery, cartridge presentation and measured loading port. No headset acceptance follows from host checks. |
+| Remington / SawOff | Remington grasp accepted; current manual source integrates captured-index single-shell accounting, shared shotgun reserve, input and supervised native close. SawOff retains its exact single-hand/either-hand policy. | Physical shell appearance, per-barrel port, native hand ownership and mechanical playback/recovery. Indexed per-unit animation replay is not implemented; generic grip-zone loading is provisional. |
+| Scoped Winchester | Grip/discharge and the revised large scope/reticle have scoped acceptance. Current source shares Winchester manual unit/body-cycle accounting with separate exact-class admission; controller-only scope aim remains a host candidate. | Qualify manual loading outside scope, Focus exit/head tracking, precise shot agreement, support regrip and recovery; measure its own loading mouth. Existing scope acceptance does not accept manual reload. |
+| Volcanic | Current manual source integrates the exact 8-round native unit/body-cycle route with pistol reserve and the shared pickup/carry/release gesture. | Physical animation, hand/port, per-model cartridge and recovery qualification. |
+| Derringer | Current manual source integrates captured-index unit loading for two 1-round slots and one pistol reserve pool, preserving original whole-clip parameters. | Physical port/barrel presentation and recovery. Original setters implement a guarded selected-index composite; the native whole-clip loop is not used for each cartridge. |
+| Lemant / LeMat | Current manual source integrates captured-index loading, capacities1/8 and rifle/pistol reserves. Fresh pickup chooses the lowest eligible index and retains it until insertion/cancellation. | Explicit mode/port UX, distinct ammunition presentation, native playback and recovery. No automatic redirect of a held cartridge to the other pool; no empty-trigger index inference. |
+| Schofield base/A/B | Base has exercised manual whole-clip functional acceptance and correlated native readback. Source replaces the rejected proxy bundle with imported textured cartridge instances and fixes held empty-trigger opening/closure. A/B remain host candidates. | Retry friction, textured bundle appearance/contact, native animation and broader recovery. No per-chamber insertion, exact-calibre model or measured speedloader is claimed. |
 | Bow | Physical grab/pull/release has scoped functional acceptance. | Mesh/string/arrow/reticle, haptics, concentration optics and interruption evidence. Preserve native trajectory, ammo and concentration lifecycle. |
 | Hands / Bible / whip / dynamite / mounted weapons | Scoped Hands and Ray Bible/on-foot kick acceptance; other native routes retained. | Fist volume/guard/AI anticipation and exact permissions/contact for additional physical mechanics. |
 
@@ -82,8 +84,7 @@ native graph. Naive replay remains rejected because completion changes the
 desired state to movement. The isolated Winchester/Volcanic derivative now
 implements a scoped per-cartridge body cycle with retained ownership, unit
 readback, one guarded self-Clear and exception quarantine. Interpreted fixtures
-exercise original callback bytecode; real JVM scheduling/playback, runtime
-integration, mechanical presentation and loading mouths remain unqualified.
+exercise original callback bytecode; the combined production derivative now integrates native cycle, selected-index and clip paths. Real JVM scheduling/playback, mechanical presentation and loading mouths remain physically unqualified.
 
 | Area | Remaining work |
 | --- | --- |

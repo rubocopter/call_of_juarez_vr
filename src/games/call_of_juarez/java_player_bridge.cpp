@@ -1731,12 +1731,12 @@ bool JavaPlayerBridge::TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
 }
 
 bool JavaPlayerBridge::TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
-    const bool include_wait_probe) noexcept {
+    const bool include_wait_probe, const int selected_index) noexcept {
     trace={};
     if (!being_) return false;
     const auto player=being_;
     const auto generation=being_generation_;
-    const bool observed=ReadCoJReloadTrace(Environment(nullptr),player,trace,include_wait_probe);
+    const bool observed=ReadCoJReloadTrace(Environment(nullptr),player,trace,include_wait_probe,selected_index);
     if (player!=being_ || generation!=being_generation_) { trace={}; return false; }
     return observed;
 }
@@ -1753,7 +1753,8 @@ bool JavaPlayerBridge::TryObserveNativeReloadFallback() noexcept {
     return observed && player==being_ && generation==being_generation_;
 }
 
-bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error) noexcept {
+bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error,
+    const int selected_index) noexcept {
     result=false;
     if(!being_)return false;
     void* const player=being_;
@@ -1774,10 +1775,11 @@ bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std
     if(!env||!cls_fn||!lookup||!call||ClearException(env,error,"manual reload entry")||!same_owner())return false;
     void* cls=cls_fn(env,player);
     if(ClearException(env,error,"manual reload class")||!cls){DeleteLocal(env,cls);return false;}
-    void* method=lookup(env,cls,name,"()Z");
+    void* method=lookup(env,cls,name,selected_index>=0?"(I)Z":"()Z");
     const bool failed=ClearException(env,error,"manual reload helper unavailable")||!method;
     DeleteLocal(env,cls);if(failed||!same_owner())return false;
-    const bool accepted=call(env,player,method,nullptr)!=0;
+    JValue index{};index.i=selected_index;
+    const bool accepted=call(env,player,method,selected_index>=0?&index:nullptr)!=0;
     if(ClearException(env,error,"manual reload helper failed")||!same_owner())return false;
     result=accepted;return true;
 }
@@ -1789,9 +1791,11 @@ bool JavaPlayerBridge::TryKeepManualReloadAlive(std::string* error) noexcept {
     return read&&valid;
 }
 
-bool JavaPlayerBridge::TryInsertManualRound(bool& accepted,std::string* error) noexcept {
+bool JavaPlayerBridge::TryInsertManualRound(bool& accepted,std::string* error,const int selected_index) noexcept {
     accepted=false;
-    return manual_reload_owned_&&CallManualReloadBoolean("cojvrInsertManualRound",accepted,error);
+    if(selected_index < -1 || selected_index > 1)return false;
+    return manual_reload_owned_&&CallManualReloadBoolean(selected_index>=0?
+        "cojvrInsertManualIndexedRound":"cojvrInsertManualRound",accepted,error,selected_index);
 }
 
 bool JavaPlayerBridge::CancelManualReload(std::string* error) noexcept {
@@ -1903,11 +1907,14 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     // is consumed by accepted ReloadWeapon(I); the parent clears pending after
     // immediate action31 dispatch (including failure), Square or cancellation.
     if (single_round_reload_pending_ && !ClearSingleRoundReload(error)) return false;
-    if (!being_ || !owner.valid || !owner.single_round_supported ||
+    if (!being_ || !owner.valid || !owner.SupportsManual() ||
         owner.armed_hand < 0 || owner.armed_hand > 1 ||
         owner.weapon_id == 0) {
         SetError(error, "invalid pending reload owner"); return false;
     }
+    void* const player=being_;
+    const auto generation=being_generation_;
+    const auto same_player=[&]() noexcept {return being_==player&&being_generation_==generation;};
     void* env = Environment(error);
     constexpr std::size_t required[]{kFindClass, kGetObjectClass, kGetMethodId,
         kCallObjectMethodA, kCallIntMethodA, kIsSameObject, kGetFieldId,
@@ -1916,8 +1923,9 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
         SetError(error, "pending reload ticket JNI functions unavailable"); return false;
     }
     CoJMotionReloadOwner fresh{};
-    if (!ReadCoJMotionReloadOwner(env, being_, fresh) || !fresh.valid || !fresh.single_round_supported ||
-        fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
+    if (!same_player() || !ReadCoJMotionReloadOwner(env, player, fresh) || !same_player() ||
+        !fresh.valid || !fresh.SupportsManual() ||
+        fresh.kind!=owner.kind || fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
         SetError(error, "pending reload owner changed or ineligible"); return false;
     }
     struct Locals {
@@ -1928,13 +1936,15 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
         ~Locals() { while (count) DeleteLocal(env, refs[--count]); }
     } locals{env};
     const auto clean = [&]() noexcept {
-        return !ClearException(env, error, "pending reload ticket JNI operation failed");
+        const bool operation_clean=!ClearException(env, error, "pending reload ticket JNI operation failed");
+        if(!same_player()){SetError(error,"pending reload player changed during publication");return false;}
+        return operation_clean;
     };
     const auto get_class = EnvFunction<GetObjectClassFn>(env, kGetObjectClass);
     const auto get_method = EnvFunction<GetMethodIdFn>(env, kGetMethodId);
     const auto call_object = EnvFunction<CallObjectMethodAFn>(env, kCallObjectMethodA);
     const auto same = EnvFunction<IsSameObjectFn>(env, kIsSameObject);
-    void* cls = locals.Keep(get_class(env, being_));
+    void* cls = locals.Keep(get_class(env, player));
     if (!clean() || !cls) return false;
     void* field = EnvFunction<GetFieldIdFn>(env, kGetFieldId)(
         env, cls, "cojvrManualReloadWeapon", "LWeapon;");
@@ -1945,7 +1955,7 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     for (std::size_t i = 0; i < weapons.size(); ++i) {
         void* method = get_method(env, cls, getters[i], "(I)LWeapon;");
         if (!clean() || !method) return false;
-        weapons[i] = locals.Keep(call_object(env, being_, method, &hand));
+        weapons[i] = locals.Keep(call_object(env, player, method, &hand));
         if (!clean() || !weapons[i]) return false;
     }
     for (std::size_t i = 1; i < weapons.size(); ++i) {
@@ -1956,7 +1966,7 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     if (!clean() || !weapon_class) return false;
     bool allowed = false;
     for (const auto& profile : kCoJRevolvers) {
-        if(!profile.single_round)continue;
+        if(!profile.single_round&&!profile.manual_supported)continue;
         void* candidate = EnvFunction<FindClassFn>(env, kFindClass)(env, profile.class_name);
         if (!clean() || !candidate) { DeleteLocal(env,candidate);return false; }
         const bool equal = same(env, weapon_class, candidate) != 0;
@@ -1964,9 +1974,9 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
         // growing profile list would exhaust the bounded eight-reference scope.
         DeleteLocal(env,candidate);
         if (!clean()) return false;
-        allowed = allowed || equal;
+        allowed = allowed || (equal && profile.kind==owner.kind);
     }
-    if (!allowed) { SetError(error, "weapon does not support single-round reload ticket"); return false; }
+    if (!allowed) { SetError(error, "weapon does not support this manual reload ticket kind"); return false; }
     void* id_method = get_method(env, weapon_class, "GetThisID", "()I");
     if (!clean() || !id_method) return false;
     const auto id = EnvFunction<CallIntMethodAFn>(env, kCallIntMethodA)(env, weapons[0], id_method, nullptr);
@@ -1976,21 +1986,22 @@ bool JavaPlayerBridge::TryArmSingleRoundReload(CoJMotionReloadOwner owner,
     }
     // Recheck state after the acquisition and class/ID reads, then verify that
     // the acquired actual reference still denotes the freshly read actual.
-    if (!ReadCoJMotionReloadOwner(env, being_, fresh) || !fresh.valid || !fresh.single_round_supported ||
-        fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
+    if (!ReadCoJMotionReloadOwner(env, player, fresh) || !same_player() ||
+        !fresh.valid || !fresh.SupportsManual() ||
+        fresh.kind!=owner.kind || fresh.armed_hand != owner.armed_hand || fresh.weapon_id != owner.weapon_id) {
         SetError(error, "pending reload owner changed before publication"); return false;
     }
     void* actual_method = get_method(env, cls, getters[0], "(I)LWeapon;");
     if (!clean() || !actual_method) return false;
-    void* actual = locals.Keep(call_object(env, being_, actual_method, &hand));
+    void* actual = locals.Keep(call_object(env, player, actual_method, &hand));
     if (!clean() || !actual) return false;
     const bool equal = same(env, weapons[0], actual) != 0;
     if (!clean() || !equal) { SetError(error, "pending reload actual weapon replaced"); return false; }
     // Even an exceptional write may need cancellation; retain the owner until
     // a null write succeeds. Java's field owns its reference, no native global.
     single_round_reload_pending_ = true;
-    EnvFunction<SetObjectFieldFn>(env, kSetObjectField)(env, being_, field, weapons[0]);
-    if (!clean()) { (void)ClearSingleRoundReloadField(env, nullptr); return false; }
+    EnvFunction<SetObjectFieldFn>(env, kSetObjectField)(env, player, field, weapons[0]);
+    if (!clean()) { if(same_player())(void)ClearSingleRoundReloadField(env, nullptr); return false; }
     SetError(error, "");
     return true;
 }

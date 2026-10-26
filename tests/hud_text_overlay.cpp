@@ -670,9 +670,19 @@ int main(int argc, char** argv) {
         if(after_glyph<prompts.glyph_deadline_ms)
             Sleep(static_cast<DWORD>(prompts.glyph_deadline_ms-after_glyph+1));
         compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
-        expect_pixels(glyph_background,"expired glyph repeat damaged world/native subtitle or retained coaching");
+        // Expiring optional artwork must not blank a still-current instruction
+        // on repeated eye textures. Compare with a fresh semantic-only render.
+        const std::array<std::vector<std::uint32_t>,2> retired_glyph{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        Require(retired_glyph!=glyph_background,"icon expiry hid the live reload instruction");
         compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,42);
-        expect_pixels(glyph_background,"glyph retirement replayed consumed backing");
+        expect_pixels(retired_glyph,"semantic fallback blinked on the next repeated frame");
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,0);
+        expect_pixels(glyph_background,"semantic fallback survived reload owner loss");
+        clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42),
+            "semantic-only expiry reference failed");
+        expect_pixels(retired_glyph,"repeat icon expiry did not preserve semantic text/native subtitle");
         draw_reload();expect_pixels(full_text,"fresh expired-glyph capture did not retain full coaching text fallback");
         for(unsigned reason=0;reason<3;++reason){
             refresh_glyph();draw_reload();

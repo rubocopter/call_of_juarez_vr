@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from manual_reload_native import ManualVM
-from reload_wait_probe import ARCHIVE, original
+from reload_wait_probe import ARCHIVE, original, VM
 from inspect_java_bytecode import parse_class
 import patch_coj_weapon_consumers as production
 
@@ -135,13 +135,18 @@ class OfflineManualReloadTests(unittest.TestCase):
                 self.assertFalse(vm.call('cojvrInsertManualRound'))
                 self.assertEqual((vm.ammo, vm.reserve, vm.events), (2, 10, 0))
 
-    def test_production_derivative_is_byte_identical_and_rejects_new_profiles(self):
+    def test_lab_does_not_change_probe_only_admission(self):
+        # Production manual now intentionally integrates these native cycles;
+        # the separate wait-probe experiment must retain its earlier whitelist.
         player, machine = production.patch_manual_reload_classes(original('ArmedPlayerBeing'), original('StateMashine'))
-        self.assertEqual(hashlib.sha256(player).hexdigest(), '544293062a55fd97fc8e170a4ca20e145ff5ff277afb14423c13cd3aa7a2a910')
+        pool, methods = parse_class(player)
+        self.assertIn(('cojvrInsertManualNativeCycleRound','()Z'),{(m.name,m.descriptor) for m in methods})
         self.assertEqual(hashlib.sha256(machine).hexdigest(), 'd9103cc2b9b10e7e81eeafb03b864d621be0358b5541184ecec0ade59d9c53d4')
+        player,machine=production.patch_reload_probe_classes(original('ArmedPlayerBeing'),original('StateMashine'))
         for weapon in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope', 'WeaponPistolVolcanic'):
-            vm = ManualVM(); vm.weapon['class'] = weapon; vm.wait()
-            self.assertFalse(vm.call('cojvrInsertManualRound'))
+            vm = VM(); vm.weapon['class'] = weapon
+            vm.arm();vm.update(.31);vm.update(.62)
+            self.assertIsNone(vm.player.get('cojvrReloadProbeWeapon'))
             self.assertEqual((vm.ammo, vm.reserve, vm.events), (2, 10, 0))
 
     def test_unknown_profile_or_modified_native_classes_reject(self):

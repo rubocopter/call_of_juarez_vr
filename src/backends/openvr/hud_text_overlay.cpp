@@ -224,11 +224,17 @@ struct HudTextCompositor::Impl {
     std::uint64_t text_generation=0,text_reload_owner=0,text_until_ms=0;
     std::uint64_t text_glyph_sample_ms=0,text_glyph_until_ms=0;
     bool text_reload=false;
+    // One value-only capture for refreshing controlled text when optional icon
+    // art expires between fresh world frames. Native HUD is used for layout,
+    // never drawn twice over the restored controlled-text preimages.
+    std::unique_ptr<runtime::StereoHudTextOverlay> text_replay;
+    bool text_replay_valid=false,replaying_controls=false;
     void DiscardText() noexcept {
         for(auto& patch:text_patches){patch.saved=false;patch.rectangle={};}
         text_context.Reset();text_targets={};
         text_generation=text_reload_owner=text_until_ms=0;text_reload=false;
         text_glyph_sample_ms=text_glyph_until_ms=0;
+        text_replay_valid=false;
     }
     bool PrepareTextPatches(ID3D11Device* device,ID3D11DeviceContext* context,
         const std::array<ID3D11Texture2D*,2>& outputs,std::size_t part,
@@ -376,6 +382,11 @@ void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext
     const bool stale_glyph=impl_->text_glyph_until_ms&&
         (now<impl_->text_glyph_sample_ms||now>=impl_->text_glyph_until_ms);
     if(!stale_generation&&!stale_reload&&!stale_glyph)return;
+    std::unique_ptr<runtime::StereoHudTextOverlay> refresh;
+    if(stale_glyph&&!stale_generation&&!stale_reload&&impl_->text_replay_valid){
+        try{refresh=std::make_unique<runtime::StereoHudTextOverlay>(*impl_->text_replay);}
+        catch(...){/* Retiring stale art remains safe if refresh allocation fails. */}
+    }
     // Retire the complete controlled stack if any layer expires. Reversing the
     // draw order preserves preimages even when its text rectangles overlap.
     for(std::size_t slot=impl_->text_patches.size();slot>0;--slot){
@@ -386,6 +397,12 @@ void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext
         context->CopySubresourceRegion(targets[(slot-1)%2],0,r.left,r.top,0,patch.image.Get(),0,&box);
     }
     DiscardRepeatedText(); // Consume identity once, retain bounded GPU backing.
+    if(refresh){
+        impl_->replaying_controls=true;
+        (void)Draw(device,context,*refresh,refresh->frame_sequence,targets,
+            show_holster_guides,reload_owner_token);
+        impl_->replaying_controls=false;
+    }
 }
 bool HudTextCompositor::Prepare(ID3D11Device* device) noexcept {
     if (!device) return false;
@@ -406,7 +423,11 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     // essential HUD panels or discarding the captured scene.
     const bool cartridge_visible=[&]() noexcept {
         if(!overlay.reload_cartridge_visible||
-            overlay.reload_cartridge_surface_count>overlay.reload_cartridge_max_surfaces)return false;
+            overlay.reload_cartridge_surface_count>overlay.reload_cartridge_max_surfaces||
+            overlay.reload_cartridge_instance_count<1||
+            overlay.reload_cartridge_instance_count>overlay.reload_cartridge_max_instances||
+            (overlay.reload_cartridge_instance_count>1&&
+                (!overlay.reload_cartridge_textured||!overlay.reload_cartridge_surface_count)))return false;
         for(const auto& eye:overlay.eyes){
             const auto& pose=eye.eye_to_head;const auto q=pose.orientation;
             const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
@@ -414,6 +435,9 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 std::abs(norm-1.F)>.001F||!runtime::IsValidEyeFov(eye.fov))return false;
             const runtime::Quaternion inverse{-q.x,-q.y,-q.z,q.w};
             const auto count=overlay.reload_cartridge_surface_count?overlay.reload_cartridge_surface_count:1;
+            for(unsigned instance=0;instance<overlay.reload_cartridge_instance_count;++instance){
+            const auto offset=overlay.reload_cartridge_instance_offsets[instance];
+            if(!std::isfinite(offset.x)||!std::isfinite(offset.y)||!std::isfinite(offset.z))return false;
             for(std::size_t i=0;i<count;++i){
                 const auto& face=overlay.reload_cartridge_surfaces[i];
                 if(overlay.reload_cartridge_surface_count&&(!std::isfinite(face.material_uv.x)||!std::isfinite(face.material_uv.y)||
@@ -429,9 +453,11 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 const auto& corners=overlay.reload_cartridge_surface_count?face.head_corners:
                     overlay.reload_cartridge_head_corners;
                 for(auto p:corners){
-                    p=runtime::RotateVector(inverse,{p.x-pose.position.x,p.y-pose.position.y,p.z-pose.position.z});
+                    p=runtime::RotateVector(inverse,{p.x+offset.x-pose.position.x,
+                        p.y+offset.y-pose.position.y,p.z+offset.z-pose.position.z});
                     if(!std::isfinite(p.x)||!std::isfinite(p.y)||!std::isfinite(p.z)||p.z>=-.05F)return false;
                 }
+            }
             }
         }
         return true;
@@ -537,6 +563,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         // alone move to the end, so their saved backgrounds include all HUD.
         for (std::size_t order = 0; order < placement.size()+2; ++order) {
             const auto part=order<placement.size()?order:order-placement.size();
+            if(impl_->replaying_controls&&(part>=2||!controlled[part]))continue;
             if(part<2&&((order<placement.size())==controlled[part]))continue;
             const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
             const bool ammunition_guide=part>=18,support_guide=part>=15&&!ammunition_guide;
@@ -580,16 +607,52 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             }
             const bool cartridge_surfaces=part==6&&overlay.reload_cartridge_surface_count!=0;
             if(cartridge_surfaces){
-                // One bounded constant upload and draw per eye, even for the
-                // imported mesh. Do not add a Draw/UpdateSubresource per triangle.
+                // Sort all repeated mesh faces together, then upload bounded
+                // chunks. The constant buffer stays under64KiB: at most three
+                // chunks per eye for six imported92-triangle cartridges.
                 constexpr std::size_t corners=runtime::StereoHudTextOverlay::reload_cartridge_max_surfaces*4;
                 struct MeshConstants{std::array<std::array<float,4>,corners> positions{},materials{},normals{},head{};};
+                static_assert(sizeof(MeshConstants)<=65536);
+                struct FaceRef{unsigned surface=0,instance=0;float depth=0;};
+                std::array<FaceRef,runtime::StereoHudTextOverlay::reload_cartridge_max_surfaces*
+                    runtime::StereoHudTextOverlay::reload_cartridge_max_instances> ordered{};
+                unsigned total=0;
+                for(unsigned instance=0;instance<overlay.reload_cartridge_instance_count;++instance)
+                    for(unsigned surface=0;surface<overlay.reload_cartridge_surface_count;++surface){
+                        const auto& c=overlay.reload_cartridge_surfaces[surface].head_corners;
+                        ordered[total++]={surface,instance,(c[0].z+c[1].z+c[2].z)/3.F+
+                            overlay.reload_cartridge_instance_offsets[instance].z};
+                    }
+                if(overlay.reload_cartridge_textured)
+                    std::sort(ordered.begin(),ordered.begin()+total,[&](const auto& a,const auto& b){
+                        if(a.depth!=b.depth)return a.depth<b.depth;
+                        // Canonical geometric ties keep shared/coplanar edges
+                        // independent of the order of captured mesh instances.
+                        const auto& af=overlay.reload_cartridge_surfaces[a.surface];
+                        const auto& bf=overlay.reload_cartridge_surfaces[b.surface];
+                        const auto ao=overlay.reload_cartridge_instance_offsets[a.instance];
+                        const auto bo=overlay.reload_cartridge_instance_offsets[b.instance];
+                        for(unsigned j=0;j<4;++j){
+                            const auto ap=af.head_corners[j],bp=bf.head_corners[j];
+                            const std::array<float,5> av{ap.x+ao.x,ap.y+ao.y,ap.z+ao.z,
+                                af.corner_uv[j].x,af.corner_uv[j].y};
+                            const std::array<float,5> bv{bp.x+bo.x,bp.y+bo.y,bp.z+bo.z,
+                                bf.corner_uv[j].x,bf.corner_uv[j].y};
+                            if(av!=bv)return av<bv;
+                        }
+                        return false;
+                    });
                 for(std::size_t eye=0;eye<2;++eye){
                     if(!targets[eye])return false;
                     D3D11_TEXTURE2D_DESC td{};targets[eye]->GetDesc(&td);
+                    for(unsigned first=0;first<total;first+=overlay.reload_cartridge_max_surfaces){
                     MeshConstants batch{};unsigned faces=0;
-                    for(unsigned surface=0;surface<overlay.reload_cartridge_surface_count;++surface){
-                        const auto& face=overlay.reload_cartridge_surfaces[surface];
+                    const auto last=std::min<unsigned>(total,first+overlay.reload_cartridge_max_surfaces);
+                    for(unsigned index=first;index<last;++index){
+                        const auto ref=ordered[index];
+                        auto face=overlay.reload_cartridge_surfaces[ref.surface];
+                        const auto offset=overlay.reload_cartridge_instance_offsets[ref.instance];
+                        for(auto& p:face.head_corners){p.x+=offset.x;p.y+=offset.y;p.z+=offset.z;}
                         auto capture=placement[part];capture.head_corners=face.head_corners;
                         ProjectedHudPanel projected{};
                         if(!ProjectHudPanel(panel,overlay.eyes[eye],td.Width,td.Height,capture,projected))continue;
@@ -629,6 +692,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     context->Draw(6*faces,0);
                     ID3D11ShaderResourceView* empty=nullptr;context->PSSetShaderResources(0,1,&empty);
                     context->OMSetRenderTargets(0,nullptr,nullptr);
+                    }
                 }
                 continue;
             }
@@ -664,6 +728,11 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     impl_->text_context=context;
                     for(std::size_t eye=0;eye<2;++eye)impl_->text_targets[eye]=targets[eye];
                     impl_->text_generation=overlay.text.controller_prompt_generation;
+                    if(part==1&&overlay.reload_instruction&&
+                        coaching_glyph.kind!=runtime::PromptGlyphKind::none&&!impl_->text_replay_valid){
+                        if(!impl_->text_replay)impl_->text_replay=std::make_unique<runtime::StereoHudTextOverlay>();
+                        *impl_->text_replay=overlay;impl_->text_replay_valid=true;
+                    }
                     if(part==1&&overlay.reload_instruction){
                         impl_->text_reload=true;impl_->text_reload_owner=overlay.reload_feedback.owner_token;
                         impl_->text_until_ms=overlay.reload_instruction_until_ms;

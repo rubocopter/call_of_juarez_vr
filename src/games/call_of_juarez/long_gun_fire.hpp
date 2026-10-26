@@ -5,7 +5,7 @@
 namespace cojvr::games::call_of_juarez {
 struct CoJLongGunFireRouting {
     bool block_left=false,block_right=false;
-    std::uint32_t scoped_right_weapon=0;
+    std::uint32_t right_button1_weapon=0; // Exact right Winchester, ordinary or scoped.
 };
 // Attack(hand, pressed) retries the other hand when the requested one cannot
 // attack. An empty hand must not fire the sole exact rifle in the other hand.
@@ -30,9 +30,9 @@ inline bool ReadCoJLongGunFireOwnership(void* env,void* player,CoJLongGunFireRou
     for(int h=0;h<2;++h){
         for(int i=1;i<3;++i)if(!r.Equal(owners[h*3],owners[h*3+i]))return false;
     }
-    bool rifle=false,scoped=false;
-    std::uint32_t scoped_id=0;
-    void* scoped_id_method=nullptr;
+    bool rifle=false,button1=false;
+    std::uint32_t button1_id=0;
+    void* button1_id_method=nullptr;
     const bool right=owners[0].value!=nullptr,left=owners[3].value!=nullptr;
     if(right!=left){
         auto weapon_class=r.Class(owners[right?0:3]);if(!r.ok)return false;
@@ -40,16 +40,17 @@ inline bool ReadCoJLongGunFireOwnership(void* env,void* player,CoJLongGunFireRou
             auto exact=r.FindClass(name);if(!r.ok)return false;
             if(r.Equal(weapon_class,exact)){
                 rifle=true;
-                scoped=right&&std::strcmp(name,"WeaponRifleWinchesterScope")==0;
+                button1=right&&(!std::strcmp(name,"WeaponRifleWinchester")||
+                    !std::strcmp(name,"WeaponRifleWinchesterScope"));
                 break;
             }
             if(!r.ok)return false;
         }
-        if(scoped){
+        if(button1){
             if(!(*static_cast<void***>(env))[51])return false;
-            scoped_id_method=r.Method(weapon_class,"GetThisID","()I");if(!r.ok)return false;
-            scoped_id=static_cast<std::uint32_t>(r.Int(owners[0],scoped_id_method));
-            if(!r.ok||!ValidId(scoped_id))return false;
+            button1_id_method=r.Method(weapon_class,"GetThisID","()I");if(!r.ok)return false;
+            button1_id=static_cast<std::uint32_t>(r.Int(owners[0],button1_id_method));
+            if(!r.ok||!ValidId(button1_id))return false;
         }
     }
     // Classification may resolve classes; bracket its whole read with the
@@ -58,8 +59,8 @@ inline bool ReadCoJLongGunFireOwnership(void* env,void* player,CoJLongGunFireRou
         auto again=r.Get(player,methods[i],h);
         if(!r.ok||!r.Equal(again,owners[h*3+i]))return false;
     }
-    if(scoped&&(static_cast<std::uint32_t>(r.Int(owners[0],scoped_id_method))!=scoped_id||!r.ok))return false;
-    routing={rifle&&right,rifle&&left,scoped_id};return true;
+    if(button1&&(static_cast<std::uint32_t>(r.Int(owners[0],button1_id_method))!=button1_id||!r.ok))return false;
+    routing={rifle&&right,rifle&&left,button1_id};return true;
 }
 class CoJLongGunFreeTrigger final {
 public:

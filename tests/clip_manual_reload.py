@@ -129,18 +129,34 @@ class OfflineClipTests(unittest.TestCase):
                     self.assertFalse(vm.call('cojvrInsertManualClip'))
                     self.assertEqual(vm.calls, 1)
 
-    def test_unmodified_production_and_exact_archive_pinning(self):
+    def test_production_clip_composition_and_exact_archive_pinning(self):
         p, m = original('ArmedPlayerBeing'), original('StateMashine')
         first, second = patch_manual_reload_classes(p, m)
-        self.assertEqual(hashlib.sha256(first).hexdigest(),
-                         '544293062a55fd97fc8e170a4ca20e145ff5ff277afb14423c13cd3aa7a2a910')
-        self.assertEqual(hashlib.sha256(second).hexdigest(),
-                         'd9103cc2b9b10e7e81eeafb03b864d621be0358b5541184ecec0ade59d9c53d4')
+        signatures=[(method.name,method.descriptor) for method in parse_class(first)[1]]
+        self.assertEqual(len(signatures),len(set(signatures)))
+        self.assertIn(('cojvrInsertManualClip','()Z'),signatures)
+        # Production now deliberately composes clip and unit families. Exercise
+        # that derivative rather than pinning the obsolete revolver-only bytes.
+        from runtime_manual_families import FamilyVM
+        for weapon in clips.CLIP_WEAPONS:
+            vm=FamilyVM(weapon);vm.wait();vm.player['nAmmoPistol']=3
+            self.assertTrue(vm.boolean('cojvrInsertManualRound'))
+            self.assertEqual((vm.weapon['m_iAmmo0Count'],vm.player['nAmmoPistol'],
+                              vm.events,vm.clip_calls),(5,0,1,1))
+            self.assertEqual(vm.machine['m_sCurrentState']['id'],22)
+        for weapon in ('WeaponPistolSchofield_C','WeaponPistolSchofield_A_Old','DerivedSchofield'):
+            vm=FamilyVM(clips.CLIP_WEAPONS[0]);vm.weapon['class']=weapon;vm.wait()
+            self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+            self.assertFalse(vm.insert_clip())
+            self.assertEqual((vm.weapon['m_iAmmo0Count'],vm.player['nAmmoPistol'],
+                              vm.events,vm.clip_calls),(2,10,0,0))
         for weapon in ('WeaponPistolWalker', 'WeaponRifleWinchester', 'WeaponPistolSchofield_C'):
             with self.assertRaises(ValueError): clips.patch_offline_clip_classes(p, m, weapon)
         for bad_p, bad_m in ((p + b'X', m), (p, m + b'X')):
             with self.assertRaises(ValueError):
                 clips.patch_offline_clip_classes(bad_p, bad_m, clips.CLIP_WEAPONS[0])
+            with self.assertRaises(ValueError):patch_manual_reload_classes(bad_p,bad_m)
+        with self.assertRaises(ValueError):patch_manual_reload_classes(first,second)
 
         from reload_wait_probe import ARCHIVE
         source = next((path for path in (ARCHIVE, ARCHIVE.with_name('code.cojvr-backup.pak'))

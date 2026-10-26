@@ -428,17 +428,19 @@ public:
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveNativeReloadFallback() noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
-        bool include_wait_probe = false) noexcept;
+        bool include_wait_probe = false, int selected_index = -1) noexcept;
     // Only the explicitly staged manual derivative has these exact helpers.
     void NoteManualReloadRequest() noexcept { manual_reload_owned_=true; }
     [[nodiscard]] bool TryKeepManualReloadAlive(std::string* error=nullptr) noexcept;
-    [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryInsertManualRound(bool& accepted,std::string* error=nullptr,
+        int selected_index=-1) noexcept;
     [[nodiscard]] bool CancelManualReload(std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveNativeReloadRecoveryOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
     [[nodiscard]] bool TryObserveInteractionSelection(CoJInteractionSelection& selection) noexcept;
     // Exact-build/local game-owner call only, immediately before action 31.
-    // Only the exact single-round profiles support this native per-round ticket.
+    // Exact unit/indexed/clip profiles support manual tickets. The caller must
+    // gate non-manual legacy pacing on single_round_supported, not SupportsManual.
     // Java consumes pending into its native-owned active ticket on admission.
     // Arm, immediately dispatch action31, then clear pending on either outcome.
     // Also clear on Square, failed gesture, context loss or local-owner release.
@@ -664,7 +666,8 @@ private:
     [[nodiscard]] bool ClearSingleRoundReloadField(void* env, std::string* error) noexcept;
     bool single_round_reload_pending_ = false;
     bool manual_reload_owned_ = false;
-    [[nodiscard]] bool CallManualReloadBoolean(const char* name,bool& result,std::string* error) noexcept;
+    [[nodiscard]] bool CallManualReloadBoolean(const char* name,bool& result,std::string* error,
+        int selected_index=-1) noexcept;
 
     [[nodiscard]] bool ReadObjectElementFrame(
         void* object, int element, JavaPlayerPosition& position,

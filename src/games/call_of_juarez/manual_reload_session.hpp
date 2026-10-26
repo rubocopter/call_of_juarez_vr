@@ -14,6 +14,7 @@ struct CoJManualReloadInput {
 };
 struct CoJManualReloadOutput {
     bool start=false,cancel=false,insert=false,tracked=false,supervise=false;
+    int selected_index=-1; // Captured at indexed pickup, never inferred at release.
     runtime::MotionReloadGestureOutput gesture{};
     const char* reason="none";
 };
@@ -48,6 +49,7 @@ public:
         const int armed=s.native.armed_hand;
         const bool empty_fire_edge=available&&fresh&&armed>=0&&armed<2&&fire_ready_[armed]&&
             (armed==0?input.fire_right:input.fire_left)&&s.native.valid&&s.native.probe_valid&&
+            s.native.kind!=CoJManualReloadKind::indexed&&
             !s.native.reloading&&s.native.ammo_readback==0&&s.native.reserve_readback>0;
         if(fresh)for(unsigned h=0;h<2;++h) {
             const bool held=h==0?s.raw.fire_right:s.raw.fire_left;
@@ -72,15 +74,19 @@ public:
         const bool bound=phase_!=CoJManualReloadPhase::ready;
         const bool same=bound&&s.player==player_&&s.context==context_&&
             s.raw.input_context_generation==generation_&&s.native.valid&&s.native.probe_valid&&
-            s.native.weapon_id==weapon_&&s.native.armed_hand==hand_;
-        const bool recovery=s.recovery.valid&&s.recovery.single_round_supported&&
-            s.recovery.weapon_id==weapon_&&s.recovery.armed_hand==hand_;
-        const bool ordinary=s.admission.valid&&s.admission.single_round_supported&&
-            s.admission.weapon_id==weapon_&&s.admission.armed_hand==hand_;
+            s.native.weapon_id==weapon_&&s.native.armed_hand==hand_&&s.native.kind==kind_;
+        const bool recovery=s.recovery.valid&&s.recovery.SupportsManual()&&
+            s.recovery.weapon_id==weapon_&&s.recovery.armed_hand==hand_&&s.recovery.kind==kind_;
+        const bool ordinary=s.admission.valid&&s.admission.SupportsManual()&&
+            s.admission.weapon_id==weapon_&&s.admission.armed_hand==hand_&&s.admission.kind==kind_;
         if(bound&&phase_==CoJManualReloadPhase::closing&&(!same||s.native.probe_status==4||s.native.probe_status==0)){
             phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;
         }else if(bound&&phase_!=CoJManualReloadPhase::closing){
-            const bool fire=hand_==0?input.fire_right:input.fire_left;
+            // Opening on an empty trigger already consumed this physical hold.
+            // Only a verified release can arm a subsequent trigger close; do
+            // not let the opening press close its own session one frame later.
+            const bool fire=(hand_==0?input.fire_right:input.fire_left)&&
+                (trigger_claims_&(1U<<hand_))==0;
             if(!allowed||!same||(!recovery&&!ordinary)||edge||fire||cancel_pending_){
                 const bool operation_failed=cancel_pending_; // Cancel consumes this pending flag.
                 out.cancel=Cancel();out.reason=edge?"reload_button":fire?"fire_close":
@@ -94,14 +100,17 @@ public:
             }else if(s.native.probe_status==4||s.native.probe_status==0){
                 phase_=CoJManualReloadPhase::ready;weapon_=0;hand_=-1;replenish_=false;out.reason="native_finished";
             }else if(s.native.probe_status==2){phase_=CoJManualReloadPhase::manual_load;
+            }else if(s.native.probe_status==1){phase_=CoJManualReloadPhase::opening;
             }
         }
         if(phase_==CoJManualReloadPhase::ready&&allowed&&((edge&&input.reload)||empty_fire_edge)&&
-            s.admission.valid&&s.admission.single_round_supported&&s.player!=0&&
+            s.admission.valid&&s.admission.SupportsManual()&&s.player!=0&&
             s.native.valid&&s.native.probe_valid&&(s.native.probe_status==0||s.native.probe_status==4)&&
-            s.native.armed_hand==s.admission.armed_hand&&s.native.weapon_id==s.admission.weapon_id){
+            s.native.armed_hand==s.admission.armed_hand&&s.native.weapon_id==s.admission.weapon_id&&
+            s.native.kind==s.admission.kind){
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
+            kind_=s.native.kind;cartridge_index_=-1;
             replenish_=false;
             phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;
             out.reason=empty_fire_edge?"empty_trigger":"reload_button";
@@ -127,7 +136,9 @@ public:
         // Reserve is a fresh native observation, never a VR ammunition replica.
         // Keep the native waiting/close route supervised, but withdraw any
         // cartridge offer/carry when no native round remains to transfer.
-        const bool round_available=s.native.valid&&s.native.reserve_readback>0;
+        const int offered_index=cartridge_index_>=0?cartridge_index_:s.native.selected_index;
+        const bool round_available=s.native.valid&&(kind_==CoJManualReloadKind::indexed?
+            IndexedAvailable(s.native,offered_index):s.native.reserve_readback>0);
         if(!round_available)replenish_=false;
         gesture.valid=gesture.eligible=out.tracked&&phase_==CoJManualReloadPhase::manual_load&&round_available;
         gesture.player_identity=player_;gesture.weapon_identity=weapon_;
@@ -136,10 +147,16 @@ public:
         gesture.trigger_available={s.raw.active&&(s.raw.digital_available&2U)!=0,s.raw.active&&(s.raw.digital_available&1U)!=0};
         gesture.trigger_held={s.raw.fire_right,s.raw.fire_left};gesture.input_generation=s.raw.input_context_generation;
         gesture.pose_sequence=s.sequence;gesture.monotonic_ms=s.now;
-        gesture.replenish_cartridge=replenish_&&fresh&&gesture.valid;
+        gesture.replenish_cartridge=replenish_&&fresh&&gesture.valid&&kind_==CoJManualReloadKind::unit;
         out.gesture=gesture_.Update(gesture);
+        if(kind_==CoJManualReloadKind::indexed&&out.gesture.cartridge_held&&cartridge_index_<0)
+            cartridge_index_=offered_index;
         if(gesture.replenish_cartridge)replenish_=false;
         out.insert=out.gesture.reload&&gesture.valid&&!out.cancel;
+        if(kind_==CoJManualReloadKind::indexed){
+            out.selected_index=cartridge_index_;
+            if(!out.insert&&!out.gesture.cartridge_held&&out.gesture.claimed_hand>=2)cartridge_index_=-1;
+        }
         trigger_claims_|=out.gesture.consumed_trigger_mask;
         if((trigger_claims_&1U)!=0)input.fire_right=false;
         if((trigger_claims_&2U)!=0)input.fire_left=false;
@@ -153,6 +170,14 @@ public:
     // ownership/feedback. The insertion flag records intent, never ammo credit.
     void CompleteInsertion(bool completed,bool accepted,CoJManualReloadOutput& out) noexcept {
         NoteInsertion(completed&&accepted);
+        if(completed&&accepted){
+            cartridge_index_=-1;
+            if(kind_!=CoJManualReloadKind::unit)replenish_=false;
+            if(kind_==CoJManualReloadKind::clip){
+                phase_=CoJManualReloadPhase::closing;out.supervise=false;
+                out.gesture={};out.reason="native_clip_closed";
+            }
+        }
         if(!completed||!accepted){
             (void)Cancel();out.cancel=true;out.tracked=false;out.supervise=false;
             out.reason=completed?"native_insertion_rejected":"native_insertion_failed";
@@ -163,11 +188,18 @@ public:
     bool Cancel() noexcept {
         cancel_pending_=false;
         if(phase_==CoJManualReloadPhase::ready||phase_==CoJManualReloadPhase::closing)return false;
-        phase_=CoJManualReloadPhase::closing;replenish_=false;return true;
+        phase_=CoJManualReloadPhase::closing;replenish_=false;cartridge_index_=-1;return true;
     }
     CoJManualReloadPhase phase() const noexcept {return phase_;}
+    int selected_index() const noexcept {return cartridge_index_;}
     runtime::MotionReloadGestureStage gesture_stage() const noexcept {return gesture_.stage();}
 private:
+    static bool IndexedAvailable(const CoJReloadTraceSnapshot& n,int index) noexcept {
+        if(n.index_count!=2||index<0||index>=2)return false;
+        const int slot=CoJReloadReserveSlot(n.reserve_kinds[index]);
+        return slot>=0&&slot<3&&n.loaded[index]>=0&&n.capacities[index]>0&&
+            n.loaded[index]<n.capacities[index]&&n.reserves[slot]>0;
+    }
     static bool Valid(const runtime::Pose& p) noexcept {
         const auto q=p.orientation;const auto v=p.position;
         return p.position_valid&&p.orientation_valid&&std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z)&&
@@ -180,6 +212,8 @@ private:
     std::uint64_t reload_player_=0,reload_context_=0,reload_generation_=0,reload_weapon_=0;
     int reload_hand_=-1;
     int hand_=-1;
+    int cartridge_index_=-1;
+    CoJManualReloadKind kind_=CoJManualReloadKind::unit;
     std::uint8_t trigger_claims_=0;
     std::array<bool,2> fire_ready_{};
     bool have_sample_=false,reload_available_=false,reload_ready_=false,reload_claim_=false,replenish_=false,cancel_pending_=false;
