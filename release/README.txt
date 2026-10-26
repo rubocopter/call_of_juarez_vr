@@ -1,25 +1,26 @@
-Call of Juarez VR 0.1.0-prealpha.5 - experimental player package
+Call of Juarez VR 0.1.0-prealpha.6 - experimental player package
 Experimental community-testing prerelease
 
 The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
 
-This release is cumulative from .4/.3/.2/.1. It adds physical bow drawing,
-bimanual rifle support, virtual holsters/guides, native VR options, physical
-duel posture checks and continuous body following. Exercised PS VR2 play has
-scoped acceptance of the corrected Remington grasp, ordinary holsters/guides,
-option usability, duel gestures and body following, with very good bow feedback.
-Winchester/SawOff support and broader timing/recovery remain unqualified.
-Auto remains the missing resolution preference. Manual reload starts on for
-fresh installation; updates preserve its choice. Earlier projection and stereo
-recovery corrections are retained. Community Beyond/unspecified Quest feedback
-does not establish general hardware support. Archived packages and verdicts
-are unchanged. RELEASE_NOTES.md lists all changes since .4 and their limits.
+This release is cumulative from .5 and earlier versions. It expands experimental
+manual loading to 15 exact firearm classes, adds scoped Winchester support and
+revised optics, binding-aware floating hints, reload assistance and optional
+graphics/horse comfort controls. Pause/movie input, rifle triggers, mounted
+steering and recovery also change. Bow drawing, holsters, duels and continuous
+body following are retained from .5. Auto remains the missing resolution
+preference; manual reload starts on for fresh installs and updates preserve it.
+Earlier projection/stereo corrections and archived verdicts remain unchanged.
+RELEASE_NOTES.md lists changes since .5 and their acceptance limits.
 
-IMPORTANT: MANUAL RELOAD FOR LONG GUNS IS NOT IMPLEMENTED. Rifles/shotguns
-retain automatic native reload and its original animation (Sense: Square).
-Manual cartridge loading is limited to the admitted revolver profiles.
+IMPORTANT: NEW MANUAL RELOAD PATHS ARE EXPERIMENTAL. Earlier single-round
+revolver loading and base Schofield whole-clip loading have scoped functional
+operator feedback. New model paths, the new textured Schofield bundle and the
+latest scope/body correction have host tests only. Use launcher option 8 to
+disable manual reload for conventional native handling. This release does not
+establish general hardware or campaign support.
 
 REQUIREMENTS
 
@@ -56,8 +57,10 @@ PS VR2 Sense is the only physically validated reference, limited to exercised
 scenes. Additional packaged bindings are experimental; supplying a binding
 does not establish compatibility with another controller, headset or PC.
 The included payload's OpenVR binding files identify the available profiles.
-Custom SteamVR bindings are allowed. Known limitation: displayed prompts still
-use Sense labels, including Square, Triangle, Create and Options.
+Custom SteamVR bindings are allowed. Adapted floating prompts use reported
+controller bindings where unambiguous, with semantic fallback otherwise.
+Native blocking tutorials still show PC keys; arbitrary binding chords and
+every controller label/glyph are not qualified in the headset.
 
 DEFAULT CONTROLS CHEAT SHEET (L = left hand, R = right hand)
 
@@ -71,9 +74,8 @@ WMR              L application-menu button   R application-menu button
 UP + click means deflect upward AND press the stick, not a centered click.
 Keep it upward while holding the click. For Objectives, tap and RELEASE before
 800 ms in gameplay. Hold 800 ms to recenter once; releasing after the hold does
-not also show Objectives. In post-.5 source, Pause acts once on a fresh PRESS;
+not also show Objectives. Pause acts once on a fresh PRESS;
 holding it does not open a quick panel. Use native Options > Game for VR settings.
-The published .5 package retains its earlier Pause tap/hold behavior.
 Release buttons and center sticks before resuming.
 
 Controller       Reload / hold wheel         Jump / alternate fire
@@ -105,9 +107,16 @@ profile and the startup sequence. Custom SteamVR bindings may differ.
 Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
 Ordinary turning is smooth and proportional, up to 90 degrees/second in native
 normal-look mode. Center the stick after a menu, lost input or long frame gap.
-Native Options > Game exposes cinematic presentation, smooth/snap turning and
-weapon guides. Saved preferences survive removal of the held-Pause/Options
-quick panel in post-.5 source. Guides default off; default smooth turning retains scoped acceptance.
+Native Options > Game exposes cinematic presentation, smooth/snap turning,
+weapon guides and experimental graphics/comfort choices. Saved preferences
+survive removal of the held-Pause/Options quick panel. Guides default off and
+also enable ammunition pickup markers and brief reload coaching. Floating
+reload hints were reported to flicker. This version corrects a reproduced
+icon-expiry case that removed still-current instruction text; physical
+stability/readability still need confirmation.
+Disable weapon guides/coaching if needed. Default smooth turning retains scoped
+acceptance. In immersive cinematics, fresh Pause/Back/Accept or trigger selection
+requests native skip when permitted; physical verification remains pending.
 Experimental duel controls: center the right stick after entering the duel;
 place the right hand at the hip and pull down to draw when the game allows,
 then physically raise the hand and push up to raise the weapon. Left/right
@@ -124,16 +133,26 @@ manual reload, enabled by default.
 Bow: aim with the left hand; bring the right hand to the string, freshly hold
 R2, draw back, then release R2 to shoot. Slack/off-axis motion relaxes tension
 without losing the grab; native ammo, timing and concentration rules apply.
-Bimanual long guns: with an idle right-held Remington, Winchester or SawOff
+Bimanual long guns: with an idle right-held Remington, Winchester, scoped
+Winchester or SawOff
 and an empty left hand, freshly hold L1 near the wooden fore-end. Release L1
-to detach; Square cancels support for native reload. Enable weapon guides to
-locate contact. Scoped Winchester is excluded. Only the exercised corrected
-Remington grasp has physical acceptance; other models remain experimental.
+to detach; Square cancels support and prepares the selected reload mode.
+Manual loading requires the support hand empty and L1 support released;
+freshly regrip after closing. Enable weapon guides to locate contact. Corrected
+Remington grasp and scoped Winchester grip/fire have exercised acceptance.
+Ordinary Winchester R2 now requests fire rather than basic zoom, but was not
+retested in the latest session. The large R3 scope/reticle has scoped acceptance;
+the new controller-only scope/body-yaw correction is host-tested only.
+Mounted Gatling: R2 fires; right stick aims horizontally and vertically.
+Exercised firing/traversal works; precise aiming and recovery remain open.
+Horse: left stick supplies forward/backward and reins; right stick is rider
+free look, R1 gallop. Head-gaze steering/retained-reins corrections and optional
+peripheral comfort remain physically unqualified.
 Virtual holsters (on foot outside duels): freshly press R1 at the right hip
 or L1 at the left hip for pistols; R1 above/behind the right shoulder for the
 long weapon, L1 above/behind the left shoulder for the bow. Release between
 gestures. Zones require native inventory permissions; guides are optional.
-Visible holstered weapon models and physical long-gun reload are not added.
+Visible holstered weapon models are not added.
 Directional clicks can coincide with movement/turning: Touch/Index UP-clicks
 deflect their sticks, Vive pads also move/turn, and WMR's separate movement/turn
 sticks can remain deflected. Center those inputs when you want to stand still.
@@ -173,11 +192,44 @@ session. Tracked head/body, independent hands and physical melee remain enabled.
 Ordinary updates preserve the installed choice, and Prepare session respects it
 without repatching the archives. Start SteamVR first for Auto/percentage profiles.
 
-With an eligible revolver, missing rounds, reserve and an empty free hand:
+With an admitted firearm, missing rounds, matching reserve and an empty free hand:
 press Reload (Sense: Square) to open; press/hold the free-hand trigger at your
-hip to grab a round; bring it to the gun and release; press Reload to close.
-Accepted insertions give haptic feedback. Grip/contact and precise chamber
-loading remain unfinished; unsupported weapons retain native reload handling.
+hip to grab ammunition; bring it to the gun's generic grip zone and release.
+Repeat for individual rounds as applicable, then press Reload to close. The
+armed-hand trigger can also close; release it before a fresh press to fire.
+Release a trigger used to open an empty gun before trying to close. For long
+guns, release L1 support before loading and freshly regrip after closing.
+Indexed weapons require Square preparation; do not rely on an empty trigger
+to select a chamber. Native ammunition/reserves remain authoritative.
+
+The 15 admitted exact classes are:
+- Single-round revolvers: Frontier1878_Regular, Peacemaker, Frontier, Walker
+  and Cogswell. Cogswell uses native rifle reserve; the others use pistol reserve.
+- Winchester and WinchesterScope: up to 12 rifle rounds; Volcanic: up to 8
+  pistol rounds. Each accepted insertion loads one, with a supervised native
+  animation cycle between rounds.
+- Remington and RemingtonSawOff: one selected barrel at a time, two shells total,
+  from shared shotgun reserve. Derringer: one selected chamber at a time, two
+  rounds total, from pistol reserve. These do not load both slots on one release.
+- Lemant (LeMat): one rifle-reserve round in its first slot and up to eight
+  pistol-reserve rounds in its second. Pickup chooses the first eligible slot
+  and keeps that choice until insertion/cancellation; a held cartridge is not
+  redirected if another pool becomes available.
+- Schofield base, Schofield_A and Schofield_B: one deliberate bundle loads the
+  missing portion of the six-round clip, limited by pistol reserve, then closes.
+  The new textured bundle depicts that offered amount. This is whole-clip loading,
+  not individual chamber insertion or a measured speedloader/calibre model.
+
+Earlier single-round revolver loading and base Schofield whole-clip loading have
+scoped functional operator feedback. Schofield retry friction remains unresolved;
+its textured replacement and opening-trigger correction await headset checks.
+A/B and the other newly integrated model paths have host tests only. These
+results do not accept every revolver or the complete combined reload variant.
+Accepted insertions retain native-confirmed feedback. Cartridge grip/occlusion,
+precise loading mouths, per-model ammunition visuals and broader interruptions
+remain unfinished. Indexed per-unit mechanical animation is not implemented.
+Unsupported weapons retain native reload handling; turn manual reload off via
+option 8 if these experimental interactions are unusable.
 
 IMAGE RESOLUTION
 
@@ -198,8 +250,8 @@ saved; the next preparation retries Auto/percentages. SteamVR must already be
 running for those profiles; Manual needs no recommendation.
 The query helper's application scaling equivalence to the game remains unqualified.
 
-The existing engine renders at the applied native size; no post-capture upscaler
-is added. Menu/theater sources also change. Dimensions are fixed for the session;
+The existing engine renders at the applied native size; no upscaler is added.
+Menu/theater sources also change. Dimensions are fixed for the session;
 saving a profile never resizes a running game. Higher sizes can increase GPU and
 32-bit game memory use. Caps do not qualify total memory or every headset.
 Manual 2804x2860 per eye is the accepted local PS VR2 reference: repeated
@@ -208,6 +260,15 @@ performance issues in the exercised scenarios, with prior measured native
 raster/capture/output dimensions. It is not a universal default or sustained
 performance guarantee. Inspect the reported applied size; configured dimensions
 alone do not prove actual eye raster.
+
+Optional native Options > Game controls add sharpening, diagonal-edge smoothing,
+contrast, saturation and gamma on fresh native stereo images, plus Off/Mild/Strong
+mounted peripheral comfort. Effects default off. Menu layout, image quality,
+comfort and sustained cost have host tests only. Theater and VR overlays are
+outside the spatial filter pass. DLAA/DLSS selections save a request but keep
+native rendering active; there is no integrated game reconstruction or measured
+performance gain. Use launcher option 7 then 6 for this package's resolution:
+the native menu's saved render-scale request does not replace that profile.
 
 Profile intent persists across update/uninstall, independently of cinematic
 preferences. Each preparation restores the prior session override first.
@@ -282,11 +343,21 @@ KNOWN LIMITATIONS
 - Tracking/dashboard/held-input recovery, broader death/retry, save/load,
   abnormal exit, device loss and sustained/recorded performance remain open.
 - Mounted controls, other weapons, special optics, duels and climbing lack full
-  campaign coverage. Manual reload lacks convincing cartridge contact, precise
-  chamber loading and broad interruption acceptance.
-- Long guns do not have physical manual reload. Square uses the original
-  automatic reload and its native animation. The support-hand correction is
+  campaign coverage. Horse steering/comfort and broader Gatling precision/recovery
+  remain open. The new left-hand interaction ray also awaits physical acceptance.
+- New manual reload families, per-model animations/ports, provisional ammunition
+  visuals and the textured Schofield bundle remain physically unqualified.
+  Retry friction, convincing contact/occlusion, precise chamber loading, ejection
+  and broad interruption recovery are unfinished. The support-hand correction is
   limited to normal weapon states; firing/alternate/reload can keep native fingers.
+- Render-only scoped head-yaw isolation still failed physically. The additional
+  body-yaw freeze and ordinary Winchester R2 correction have host tests only;
+  the ordinary rifle was not retested in the latest session. Scope-exit recovery,
+  precise shot agreement and other weapon zoom sharpness remain open.
+- Floating reload hints have a host-tested icon-expiry correction. Physical stability,
+  binding-aware readability and immersive skip require physical checks.
+- Spatial graphics/comfort controls are host-tested only. DLAA/DLSS requests
+  leave game rendering native; no reconstruction or performance gain is claimed.
 - Native tutorial windows still show keyboard labels. Use the controls guide
   above; R3 zoom, Ray concentration and Circle/alternate fire are different actions.
 - OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.

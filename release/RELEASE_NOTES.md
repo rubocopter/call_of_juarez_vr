@@ -1,3 +1,158 @@
+# v0.1.0-prealpha.6 — Experimental firearm loading, scope and control updates
+
+Incremental community-testing prerelease for **original Steam Call of Juarez
+(2006), D3D9/OpenVR, Windows 10/11 x64**, cumulative from prealpha.5. Back up
+saves. This release includes host-tested experiments alongside narrowly
+exercised gameplay; publication does not establish full campaign or general
+headset/controller support. PS VR2 Sense remains the physical reference.
+
+## Manual firearm loading
+
+- **15 exact firearm classes** now share Square preparation and the free-hand
+  trigger pickup/carry/release gesture, with separate native ammunition rules.
+  Native opening, closing, capacity and reserves remain authoritative. Release
+  long-gun L1 support before loading; freshly regrip after closing. Unsupported
+  weapons keep native handling. Launcher **8 — Manual reload on/off** restores
+  conventional reload while the game is closed; fresh installs default on and
+  updates preserve the installed choice.
+- **Individual rounds:** retain Frontier1878_Regular, Peacemaker, Frontier,
+  Walker and Cogswell profiles. Add Winchester/scoped Winchester rifle rounds
+  and Volcanic pistol rounds, with a supervised native animation cycle between
+  insertions. Winchester holds up to 12 rounds; Volcanic up to eight.
+- **Selected chambers:** Remington/SawOff load one barrel from shared shotgun
+  reserve; Derringer loads one chamber from pistol reserve. Lemant (LeMat) keeps
+  its separate one-round rifle and eight-round pistol pools. Pickup retains the
+  selected eligible slot until insertion/cancellation; one release cannot fill
+  both slots or redirect a held cartridge. These weapons require Square
+  preparation. Per-unit indexed mechanical animation is not implemented.
+- **Schofield base/A/B:** one deliberate whole-clip insertion loads the missing
+  portion of the six-round clip, limited by reserve, then closes. A new bundle
+  repeats the imported textured cartridge to match the offered amount. It is
+  provisional presentation, not a measured speedloader or exact-calibre model.
+  A trigger held from empty-gun opening now requires release before it can close
+  the session; a later press still closes deliberately.
+- **Reload recovery:** empty/invalid reserves withdraw offers and carried rounds;
+  optional coaching explains zero reserve. Tighten release requirements after
+  tracking/input/ownership loss, discard stale continuation rounds across
+  closure/reopening, and preserve conventional Square recovery after disabling
+  manual loading. Native callback failures and changed weapons reject stale
+  transfers. These corrections have host coverage; broad physical interruption
+  and save/load recovery remain open.
+
+**Acceptance boundary:** earlier single-round revolver loading is retained.
+Base Schofield whole-clip loading has scoped functional operator feedback,
+including offered missing-round amounts and matching native reserve debits.
+Retry friction remains unresolved. That feedback predates the textured bundle
+and opening-trigger correction; neither has a headset verdict. Schofield A/B
+and the other newly integrated model paths have host tests only. No acceptance
+extends to every revolver, the complete combined variant, precise loading mouths,
+convincing finger/scene occlusion, calibre/shell visuals or ejection.
+
+## Weapons, controls and assistance since .5
+
+- **Scoped Winchester:** add measured two-hand support, native R2 firing and a
+  revised large binocular scope/reticle. Exercised grip, discharge, scope view
+  and controller aiming have scoped operator acceptance. Render-only isolation
+  still left inverted horizontal head response; the subsequent correction also
+  suspends head-driven body yaw while the native scope is visible, so angular
+  aim follows the rifle. This new correction is host-tested only. Scope-exit
+  recovery, precise shot agreement and manual reload remain separate gates.
+- **Ordinary Winchester:** correct R2 requesting basic zoom instead of firing
+  through the native rifle fire channel. This correction has host tests and was
+  not retested in the latest headset session. Rifle reload usability remains
+  physically unqualified for the new manual paths.
+- **Mounted Gatling:** restore contextual R2 firing and right-stick horizontal/
+  vertical traversal, with a directional reticle. Firing and X/Y progression
+  work in one exercised section; precise aiming, reticle/impact agreement and
+  exit/interruption recovery remain open.
+- **Rifle trigger ownership:** protect either-hand single-rifle ownership from
+  the empty hand's trigger, retaining consumed holds until physical release and
+  rejecting changed equipment. Earlier Remington free-L2 acceptance does not
+  accept every mirrored route, including a left-held SawOff/free-R2 case.
+- **Pause and movie skip:** Options now pauses on a fresh press; holding it no
+  longer opens a second settings panel. Native **Options > Game** is the VR
+  settings editor and preserves saved preferences. Fresh Options/Circle/Cross
+  or trigger selection can request the game's own skip during immersive movies,
+  respecting native unskippable scenes. Changed press timing and immersive skip
+  are host-tested; earlier cinematic stereo recovery remains accepted in scope.
+- **Binding-aware help:** adapted floating hints can name the reported connected
+  controller input, with semantic fallback for ambiguity. Optional glyphs are
+  limited to recognized inputs. Native blocking tutorials still show PC keys;
+  arbitrary chords/custom PC mappings are not fully described.
+- **Reload assistance:** the default-off weapon-guide setting also enables
+  supervised ammunition pickup markers and brief English/Spanish pickup, carry,
+  insertion and empty-reserve coaching. Native hints retain priority. Floating
+  reload hints were reported to flicker. Fix a reproduced case where an expired
+  button icon erased a still-current instruction on repeated eye images: retain
+  the semantic text until its own deadline, preserving native HUD and immediate
+  ownership/rebinding invalidation. Align text expiry with the presenter clock.
+  This is host-tested; physical stability/readability remain pending. Disable
+  weapon guides/coaching in Options > Game if needed.
+- **Interaction and HUD:** contextual L1 uses the left controller ray with a
+  cyan reference only while held. Refine wrist health/concentration/horse
+  indicators and protected-target reticle feedback. These latest presentations
+  have host tests, not new blanket headset acceptance or complete graphical HUD
+  coverage. Bow concentration optics are refined without changing the retained
+  physical bow draw into a new .6 feature.
+- **Horse control:** separate mounted forward/reins input and rider free look
+  from HMD-directed on-foot movement/body yaw. Correct retained tiny steering
+  after centering and analog recovery after partial delivery. These changes
+  have host tests; straight riding, free look, gallop and broader recovery still
+  need physical checks. Existing mount/dismount feedback remains narrowly scoped.
+
+## Optional graphics and reliability
+
+- Native **Options > Game** adds optional sharpening, diagonal-edge smoothing,
+  contrast, saturation, gamma, reconstruction requests, startup scale and
+  Off/Mild/Strong mounted peripheral comfort. Effects default off; spatial
+  processing applies to fresh native stereo before VR overlays. Expanded layout,
+  persistence and image controls have host tests only; visor quality, comfort,
+  resource-loss fallback and sustained cost are unqualified. For the player
+  package, launcher **7**, then **6**, remains the startup-resolution route;
+  the native menu scale request does not replace that saved launcher profile.
+- **DLAA/DLSS is not integrated into game rendering.** Those selections save a
+  request and explicitly retain native output. Standalone GPU experiments do
+  not establish game reconstruction, image quality or a performance gain. The
+  rejected independent-eye-resolution prototype remains off.
+- Correct the loading continuation key-down route and suppress optional pause/
+  save-thumbnail capture paths while preserving native save serialization.
+  Original-campaign New Game/loading and save/load have scoped positive feedback;
+  other transitions, held-control cases and allocation pressure remain open.
+- Correct exact-build high-address fire-definition handling. A distant campfire
+  has scoped positive feedback; this does not prove the cause or resolution of
+  every invisible-fire report. The retained chest/scroll mitigation still lacks
+  campaign confirmation.
+- Further gate successful allocation/resource and inactive body diagnostics
+  behind opt-in probes. Preserve compatibility checks, restoration and failure
+  diagnostics. This removes unwanted ordinary-session work; it does **not**
+  establish a fix for Pico 4/Virtual Desktop rhythmic stutters, recording
+  microskips, crashes or measured frame-rate gains.
+
+## Installation and remaining limits
+
+Extract the complete **Windows player ZIP**, close the game, start SteamVR for
+Auto/percentage resolution profiles and choose **1 — Install/update** in
+`CoJ-VR.cmd`. Saved resolution and manual-reload choices persist. Before later
+plays, choose **6 — Prepare session** while closed; start/close SteamVR and the
+D3D9 game manually. Virtual Desktop users need its SteamVR route, not VDXR.
+The accepted local Manual 2804×2860 PS VR2 reference is retained, not imposed
+on other users. Auto remains the missing-preference default.
+
+Physical bow drawing, holsters/guides, duels, continuous body following, native
+stereo and earlier cinematic recovery are retained from .5 and prior versions.
+They are not newly introduced or broadly revalidated by this release. Open
+limits include full campaign/hardware coverage; secret-scroll crashes; tracking,
+dashboard, held-input, death/retry, save/load and device-loss recovery; manual
+reload presentation/mechanics; scope/head stability; mounted comfort; physical-
+walk leg animation; complete HUD capture; and sustained/recorded performance.
+OpenXR, D3D10, Bound in Blood and Gunslinger remain outside this release.
+
+Reports stay local until inspected and manually shared. Include the version,
+weapon/checkpoint, hardware and reproduction steps. Original code remains
+GPL-3.0-or-later; the ZIP retains licenses, notices and `SOURCE_COMMIT.txt`,
+without redistributing game archives. Published .5 artifacts, historical notes
+and canonical verdicts are unchanged. [All source changes since prealpha.5](https://github.com/rubocopter/call_of_juarez_vr/compare/v0.1.0-prealpha.5...v0.1.0-prealpha.6).
+
 # v0.1.0-prealpha.5 — Physical bow, rifle support and virtual holsters
 
 Experimental community prerelease for **original Steam Call of Juarez (2006),
