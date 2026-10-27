@@ -23,16 +23,38 @@ public:
     // UI/native ownership and ammunition are observations, not state replicas.
     CoJManualReloadOutput Update(runtime::GameplayInputState& input,const CoJManualReloadInput& s) noexcept {
         CoJManualReloadOutput out{};
-        const bool regression=have_sample_&&(s.sequence<sequence_||s.now<observed_);
-        const bool fresh=!have_sample_||s.sequence>sequence_;
-        const bool gap=have_sample_&&s.now>=fresh_at_&&s.now-fresh_at_>250;
-        if(!regression)observed_=s.now;
+        const bool source_valid=s.context&&s.raw.input_context_generation&&s.player&&s.sequence&&s.now;
+        const std::array<std::uint64_t,3> source{s.context,s.raw.input_context_generation,s.player};
+        if(source_valid&&source<trigger_source_){
+            out.cancel=Cancel();out.reason="retired_trigger_source";
+            input.fire_left=input.fire_right=input.reload=false;
+            out.gesture.consumed_trigger_mask=trigger_claims_;
+            out.gesture.consume_free_trigger=trigger_claims_!=0;
+            return out;
+        }
+        const bool source_changed=source_valid&&source!=trigger_source_;
+        const bool replacement=source_changed&&trigger_source_!=std::array<std::uint64_t,3>{};
+        if(source_changed){
+            trigger_source_=source;have_sample_=false;
+            // Retire old gesture clocks/authority, but keep physical holds.
+            // The replacement baseline cannot release them or rearm Square.
+            gesture_={};replenish_=false;cartridge_index_=-1;
+            reload_ready_=reload_available_=false;fire_ready_.fill(false);
+        }
+        const bool regression=source_valid&&have_sample_&&(s.sequence<sequence_||s.now<observed_);
+        const bool fresh=source_valid&&(!have_sample_||s.sequence>sequence_);
+        const bool gap=source_valid&&have_sample_&&s.now>=fresh_at_&&s.now-fresh_at_>250;
+        if(fresh&&!regression)observed_=s.now;
         if(fresh&&!regression){have_sample_=true;sequence_=s.sequence;fresh_at_=s.now;}
+        const auto prior_trigger_claims=trigger_claims_;
+        std::uint8_t released_triggers=0;
         for(unsigned h=0;h<2;++h){
             const bool held=h==0?s.raw.fire_right:s.raw.fire_left;
             const auto binding=h==0?2U:1U;
-            if(fresh&&!regression&&!gap&&s.raw.active&&(s.raw.digital_available&binding)!=0&&!held)
+            if(!source_changed&&fresh&&!regression&&!gap&&s.raw.active&&(s.raw.digital_available&binding)!=0&&!held){
                 trigger_claims_&=static_cast<std::uint8_t>(~(1U<<h));
+                released_triggers|=static_cast<std::uint8_t>(1U<<h);
+            }
         }
         const bool poses=Valid(s.head)&&Valid(s.left)&&Valid(s.right);
         const bool conflict=input.interact||input.quick_save||input.quick_load||input.weapon_next||
@@ -40,7 +62,7 @@ public:
             input.alternate_fire||s.raw.weapon_radial||input.weapon_radial||
             std::any_of(input.equipment_select.begin(),input.equipment_select.end(),[](bool x){return x;});
         const bool allowed=s.enabled&&s.allowed&&input.active&&s.raw.active&&poses&&!s.recentered&&!conflict&&
-            !regression&&!gap&&(s.context&1U)!=0&&(s.raw.digital_available&3U)==3U;
+            source_valid&&!replacement&&!regression&&!gap&&(s.context&1U)!=0&&(s.raw.digital_available&3U)==3U;
         const bool available=allowed&&(s.raw.digital_available&8U)!=0&&s.player!=0;
         const bool reload_owner_changed=s.player!=reload_player_||s.context!=reload_context_||
             s.raw.input_context_generation!=reload_generation_||s.native.weapon_id!=reload_weapon_||
@@ -61,7 +83,7 @@ public:
         if(!available||!reload_available_||reload_owner_changed)reload_ready_=false;
         // Discharging an existing physical claim is independent of admitting a
         // new manual session, including after disabling the feature.
-        if(fresh&&!regression&&!gap&&s.raw.active&&(s.raw.digital_available&8U)!=0&&!s.raw.reload)
+        if(!source_changed&&fresh&&!regression&&!gap&&s.raw.active&&(s.raw.digital_available&8U)!=0&&!s.raw.reload)
             reload_claim_=false;
         const bool edge=fresh&&!regression&&!gap&&available&&s.raw.reload&&reload_ready_;
         if(fresh&&!regression){
@@ -157,7 +179,11 @@ public:
             out.selected_index=cartridge_index_;
             if(!out.insert&&!out.gesture.cartridge_held&&out.gesture.claimed_hand>=2)cartridge_index_=-1;
         }
-        trigger_claims_|=out.gesture.consumed_trigger_mask;
+        out.gesture.consumed_trigger_mask|=prior_trigger_claims&released_triggers;
+        out.gesture.consume_free_trigger=out.gesture.consumed_trigger_mask!=0;
+        // Gesture output consumes its final release sample, but that verified
+        // release must not recreate a persistent hold after cancellation.
+        trigger_claims_|=out.gesture.consumed_trigger_mask&static_cast<std::uint8_t>(~released_triggers);
         if((trigger_claims_&1U)!=0)input.fire_right=false;
         if((trigger_claims_&2U)!=0)input.fire_left=false;
         if(!out.start&&(reload_claim_||owned||
@@ -215,6 +241,7 @@ private:
     int cartridge_index_=-1;
     CoJManualReloadKind kind_=CoJManualReloadKind::unit;
     std::uint8_t trigger_claims_=0;
+    std::array<std::uint64_t,3> trigger_source_{};
     std::array<bool,2> fire_ready_{};
     bool have_sample_=false,reload_available_=false,reload_ready_=false,reload_claim_=false,replenish_=false,cancel_pending_=false;
 };

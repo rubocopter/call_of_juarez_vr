@@ -32,7 +32,7 @@
 </p>
 
 > [!IMPORTANT]
-> **Supported game edition: Steam only (original Call of Juarez, 2006, Direct3D 9). GOG and other non-Steam releases are not supported or validated; the installer may reject them.**
+> **Game editions: original Steam Call of Juarez (2006, Direct3D 9) is the reference. Prealpha.7 also admits the exact tested GOG build experimentally, using the same mod. Other or modified builds are rejected; GOG is not a second fully supported target.**
 >
 > **Experimental pre-alpha, intended for community testing.** The full campaign is not verified; crashes may interrupt progress. PS VR2 Sense through SteamVR is the only physically tested reference, in specific scenes. Other headset and controller profiles remain experimental.
 
@@ -51,17 +51,17 @@ The mod currently targets **only the first Call of Juarez (2006)**. It is a work
 
 ## Download and play
 
-**[Download Call of Juarez VR v0.1.0-prealpha.6 for Windows](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.6/CoJ-VR-0.1.0-prealpha.6-windows-x64.zip)** · [Release notes & checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.6)
+**[Download Call of Juarez VR v0.1.0-prealpha.7 for Windows](https://github.com/rubocopter/call_of_juarez_vr/releases/download/v0.1.0-prealpha.7/CoJ-VR-0.1.0-prealpha.7-windows-x64.zip)** · [Release notes & checksums](https://github.com/rubocopter/call_of_juarez_vr/releases/tag/v0.1.0-prealpha.7)
 
-You need the **original Steam PC game**, Windows 10/11 x64, SteamVR, and a PCVR headset. The mod does not include the game.
+You need the **original Steam PC game or the exact verified GOG build (experimental)**, Windows 10/11 x64, SteamVR, and a PCVR headset. The mod does not include the game.
 
 **Virtual Desktop:** use its SteamVR route for this OpenVR build. Selecting
 VDXR does not switch the mod's backend; a direct OpenXR/VDXR path is not implemented.
 
 1. Back up your saves, launch the original game in **Direct3D 9** once, then close it.
 2. Extract the **player ZIP** (not GitHub's automatic source ZIP) and open **`CoJ-VR.cmd`**.
-3. Choose **1 — Install/update**, point to the game directory and follow the prompts. Start SteamVR manually first if using an Auto or percentage resolution profile.
-4. Launch the game manually in **D3D9 mode**. For later sessions, run **6 — Prepare session** from the mod launcher before playing.
+3. Select the detected Steam/GOG game folder (or use Browse), then **Install / update**. Start SteamVR manually first if using an Auto or percentage resolution profile.
+4. Launch the game manually in **D3D9 mode**. For later sessions, select **Prepare play session** from the mod launcher before playing.
 
 No compiler or development tools are required. The launcher includes resolution profiles, controller help, diagnostics and recovery. Full instructions are below for those who need them.
 
@@ -72,34 +72,34 @@ For testing, use the [current validation scope and focused checklist](docs/VALID
 
 <br>
 
-**v0.1.0-prealpha.6** is an incremental community-testing release, cumulative from .5. It expands experimental manual loading, adds scoped Winchester support and revised optics, binding-aware hints and reload assistance, and optional graphics/horse comfort controls. It also revises pause/movie input, rifle triggers, mounted steering and recovery. Physical bow drawing, holsters, duels and continuous body following are retained from .5. See the [complete changes and validation limits](release/RELEASE_NOTES.md).
+**v0.1.0-prealpha.7** adds the graphical installer, experimental GOG detection/admission, indexed reload feedback, held-input recovery and a corrected binocular horse effect. It retains .6 and earlier features. It expands experimental manual loading, adds scoped Winchester support and revised optics, binding-aware hints and reload assistance, and optional graphics/horse comfort controls. It also revises pause/movie input, rifle triggers, mounted steering and recovery. Physical bow drawing, holsters, duels and continuous body following are retained from .5. See the [complete changes and validation limits](release/RELEASE_NOTES.md).
 
-**Experimental manual reload:** the option now admits 15 exact firearm classes, including long guns, selected-chamber loading and Schofield whole-clip loading. New paths have host tests, with only limited revolver headset evidence; this is not acceptance of every model. Use launcher **8 — Manual reload on/off** for conventional reload.
+**Experimental manual reload:** the option now admits 15 exact firearm classes, including long guns, selected-chamber loading and Schofield whole-clip loading. New paths have host tests, with only limited revolver headset evidence; this is not acceptance of every model. Use **Advanced > Manual reload Off**, then Install/update, for conventional reload.
 
 ### Detailed quickstart
 
-You need **Windows 10/11 x64**, the **original Steam Call of Juarez (2006), D3D9 mode**, SteamVR and GPU/headset drivers. Unknown game builds are rejected. OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
+You need **Windows 10/11 x64**, the **original Steam Call of Juarez (2006) or exact verified GOG build (experimental), D3D9 mode**, SteamVR and GPU/headset drivers. Unknown game builds are rejected. OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
 
 1. **Back up your saves.** Run the original game in D3D9 mode once, then close it.
 2. Download and extract the complete **Windows player ZIP** above. Keep its folders together; GitHub's automatic source-code ZIP is for development.
 3. Start **SteamVR manually before Install/update** for Auto or percentage profiles. **Auto** is used when no resolution preference is saved.
-4. Double-click **CoJ-VR.cmd**, choose **1 — Install/update** and select the game folder containing `CoJ.exe`. Stereo, independent hands, native torso/legs and physical Hands combat are enabled. Experimental manual reload defaults on for a fresh installation; **8 — Manual reload on/off** changes it while the game is closed.
-5. Installation prepares the first session using the saved profile. Resolution selection is optional: choose **7 — Resolution profiles**, then **6 — Prepare session** only if you change it afterward. Start the **D3D9 game manually**.
-6. Before **every subsequent play session**, close the game, start SteamVR manually for Auto/percentages, optionally change the profile with **7**, then choose **6 — Prepare session** for fresh provenance. It retains installed features. Start the game manually; the launcher never starts, closes or changes its focus.
+4. Double-click **CoJ-VR.cmd**, select the detected game folder containing `CoJ.exe` (or Browse) and choose **Install / update**. Stereo, independent hands, native torso/legs and physical Hands combat are enabled. Experimental manual reload defaults on for a fresh installation; **Advanced > Manual reload** changes it through Install/update while the game is closed.
+5. Installation prepares the first session using the saved profile. Resolution selection is optional: save the **Startup resolution** choice, then **Prepare play session** only if you change it afterward. Start the **D3D9 game manually**.
+6. Before **every subsequent play session**, close the game, start SteamVR manually for Auto/percentages, optionally save a **Startup resolution** choice, then select **Prepare play session** for fresh provenance. It retains installed features. Start the game manually; the launcher never starts, closes or changes its focus.
 
 No compiler, Git, system Python or PowerShell 7 is needed. The package bundles Python and the VC++ x86 runtime for offline installation and uses Windows PowerShell 5.1.
 
-To update, close the game, extract a newer player ZIP, start SteamVR manually for Auto/percentages and choose **1 — Install/update**. Explicit resolution preferences and the installed manual-reload on/off choice persist. **8** changes reload transactionally; **9 — Controls and startup help** explains launch, pause and save-menu controls for each packaged profile. Installation prepares the updated session. Use **2 — Uninstall/recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **5 — Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
+To update, close the game, extract a newer player ZIP, start SteamVR manually for Auto/percentages and select **Install / update**. Explicit resolution preferences and the installed manual-reload on/off choice persist. The advanced reload choice changes reload transactionally; the package guide explains launch, pause and save-menu controls. Installation prepares the updated session. Use **Uninstall / recover** to restore original files and keep backups/recovery data until it succeeds. For **Access denied** in a protected game folder, run **CoJ-VR.cmd** as administrator and retry. **Verify package** checks package files; it does not prepare a session. [Full package instructions](release/README.txt).
 
 ### Image quality
 
-**Image resolution:** The player package includes [saved startup profiles](docs/research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md): **Preserve, Auto, 75%, 100%, 125% and Manual** width/height per eye. With the game closed, use **CoJ-VR.cmd → 7**, then **6** to apply a change. Missing preferences default to **Auto**; all explicit saved choices persist. Auto and 100% use the **SteamVR helper's recommended per-eye extent, not panel-native pixels**. Percentages scale total pixel count while approximately preserving aspect ratio. Start SteamVR manually before Install/update or Prepare session queries it. If the helper is unavailable or caps are incompatible, preparation keeps the selected game size and explains why; it retains profile intent and retries on the next preparation. Background/Scene recommendation identity remains unqualified.
+**Image resolution:** The player package includes [saved startup profiles](docs/research/COJ_VR_RELEASE_RESOLUTION_PROFILES.md): **Preserve, Auto, 75%, 100%, 125% and Manual** width/height per eye. With the game closed, save **Startup resolution** in the graphical installer, then **Prepare play session** to apply a change. Missing preferences default to **Auto**; all explicit saved choices persist. Auto and 100% use the **SteamVR helper's recommended per-eye extent, not panel-native pixels**. Percentages scale total pixel count while approximately preserving aspect ratio. Start SteamVR manually before Install/update or Prepare session queries it. If the helper is unavailable or caps are incompatible, preparation keeps the selected game size and explains why; it retains profile intent and retries on the next preparation. Background/Scene recommendation identity remains unqualified.
 
 **Validated local reference:** Manual **2804×2860 per eye** has measured native raster/capture/output dimensions and repeated positive PS VR2 operator feedback. That exercised profile needs no repeat acceptance test; a later candidate may use a different startup size. Auto does not impose that size on other users. Other profiles remain experimental. Higher sizes can increase GPU and x86 memory pressure; recommendation equivalence, sustained timings and broad recovery remain separate [validation limits](docs/VALIDATION.md#image-quality-profile-acceptance).
 
 Profiles change native rendering at startup, including menu/theater sources, and never resize a running game. There is no new upscaler. At **2804×2860**, the accepted main-menu GPU presentation preserves its angular reference, proportions and native pointer coordinates; this targeted correction is not enabled for other sizes. SteamVR's slider alone does not enlarge the game's native render targets.
 
-**Optional image controls:** native **Options > Game** adds sharpening, diagonal-edge smoothing, contrast, saturation, gamma and mounted peripheral comfort. Effects default off and have host tests only; visual quality, comfort and sustained cost still need headset checks. The DLAA/DLSS selections save a request but leave game rendering native. For this player package, use launcher **7**, then **6** for startup resolution; the native menu's saved render-scale request does not replace the launcher's profile.
+**Optional image controls:** native **Options > Game** adds sharpening, diagonal-edge smoothing, contrast, saturation, gamma and mounted peripheral comfort. Effects default off. The corrected horse peripheral effect has scoped PS VR2 visual acceptance; broader graphics quality, mounted comfort and sustained cost remain unqualified. The DLAA/DLSS selections save a request but leave game rendering native. For this player package, save the launcher's **Startup resolution**, then **Prepare play session**; the native menu's saved render-scale request does not replace the launcher's profile.
 
 </details>
 
@@ -118,7 +118,7 @@ Acceptance is limited to exercised scenes. Cartridge contact/chamber mechanics, 
 
 **Manual reload in .6:** Winchester/scoped Winchester/Volcanic load individual rounds with a native animation cycle; Remington/SawOff/Derringer/Lemant load one selected chamber at a time; Schofield base/A/B use deliberate whole-clip loading. Base Schofield has functional operator feedback for loading the missing amount. Its new textured cartridge bundle and opening-trigger correction remain host-tested only, as do the other new model paths. Finger contact, physical ports, ammunition appearance and interruption recovery are provisional. [Exact profiles and instructions](release/README.txt).
 
-**Still awaiting headset checks:** render-only scope changes did not eliminate inverted head-yaw response. The new correction also suspends head-driven body yaw while scoped so angular aim follows the rifle; it is host-tested only. The ordinary Winchester's corrected R2 fire route was not retested in the latest session. Manual rifle loading, horse steering/recovery, ammunition assistance, reload coaching and immersive skip retain their own pending checks. [Current status and remaining checks](docs/VALIDATION.md#pending-headset-checks).
+**Still awaiting headset checks:** render-only scope changes did not eliminate inverted head-yaw response. The new correction also suspends head-driven body yaw while scoped so angular aim follows the rifle; it is host-tested only. Ordinary Winchester R2 firing is operator-accepted; precise insertion and intermittent unnatural support-hand poses remain unresolved. Manual rifle loading, horse steering/recovery, ammunition assistance, reload coaching and immersive skip retain their own pending checks. [Current status and remaining checks](docs/VALIDATION.md#pending-headset-checks).
 
 <details>
 <summary><strong>PS VR2 Sense controls, manual reload and special actions</strong></summary>
@@ -148,7 +148,7 @@ PS VR2 Sense defaults for .6. Options pauses on a fresh press; holding it adds n
 
 **Options > Game** exposes cinematic presentation, smooth/snap turning, weapon guides and experimental graphics/comfort choices, preserving saved preferences. Guides default off and also enable ammunition pickup markers and brief reload coaching. Fresh Options/Circle/Cross or trigger selection reaches the game's own skip consumer during immersive cinematics; native skip restrictions remain authoritative and physical verification is pending.
 
-**Bow (retained):** aim with the left hand, bring the right hand to the string, freshly hold R2, draw back and release R2 to shoot. **Bimanual long guns:** with an idle right-held Remington, Winchester, scoped Winchester or SawOff and an empty left hand, freshly hold L1 near the wooden fore-end; release L1 to detach. Enable guides to locate contact. Square cancels support and prepares the selected reload mode; manual loading requires an empty support hand. Scoped grip/fire and the large R3 scope/reticle have scoped acceptance. Head-independent scope aiming, corrected ordinary Winchester R2 and manual rifle loading still need their applicable checks.
+**Bow (retained):** aim with the left hand, bring the right hand to the string, freshly hold R2, draw back and release R2 to shoot. **Bimanual long guns:** with an idle right-held Remington, Winchester, scoped Winchester or SawOff and an empty left hand, freshly hold L1 near the wooden fore-end; release L1 to detach. Enable guides to locate contact. Square cancels support and prepares the selected reload mode; manual loading requires an empty support hand. Scoped grip/fire and the large R3 scope/reticle have scoped acceptance. Head-independent scope aiming and manual rifle-loading ergonomics still need their applicable checks; ordinary Winchester R2 firing has scoped acceptance.
 
 **Virtual holsters:** freshly press R1 at the right hip or L1 at the left hip for pistols; R1 above/behind the right shoulder selects/stows the long weapon, L1 above/behind the left shoulder the bow. Release between gestures. These zones use native inventory permissions and operate on foot outside duels; no visible holstered weapon models are added.
 
@@ -164,14 +164,14 @@ PS VR2 with Sense through SteamVR is the only physically validated reference, li
 - Full campaign cinematic coverage remains open. Immersive subtitle transport is implemented, with broader mode/timing checks pending; theater remains the default. Earlier intermittent full-scene flashes have not recurred in later exercised sessions, but their cause remains unresolved.
 - Tracking/dashboard/held-control recovery, broader death/retry and save/load, device loss and abnormal exit remain incompletely tested. Normal quit acceptance does not establish crash recovery.
 - Other weapons, mounted controls, duels, climbing, special optics, sustained performance and recording compatibility need broader campaign coverage.
-- The large scoped Winchester R3 view/reticle and controller aiming have scoped operator acceptance. Render-only head-yaw isolation still failed; the new body-yaw freeze is host-tested only. Precise shot alignment, manual rifle reload and scope-exit recovery remain pending. Ordinary Winchester R2 firing is corrected after a fire-to-zoom report but was not retested in the latest session. Other weapon zoom sharpness is unresolved.
-- DLAA/DLSS selections save a request but leave native game rendering active. There is no integrated game reconstruction or demonstrated performance gain. Optional spatial filters, expanded graphics menus and mounted comfort have host tests only.
+- The large scoped Winchester R3 view/reticle and controller aiming have scoped operator acceptance. Render-only head-yaw isolation still failed; the new body-yaw freeze is host-tested only. Precise shot alignment, manual rifle reload and scope-exit recovery remain pending. Ordinary Winchester R2 firing is operator-accepted after the earlier fire-to-zoom defect; insertion ergonomics and hand posture remain unresolved. Other weapon zoom sharpness is unresolved.
+- DLAA/DLSS selections save a request but leave native game rendering active. There is no integrated game reconstruction or demonstrated performance gain. Spatial filters and expanded graphics menus retain host coverage. The corrected horse peripheral effect has scoped visual acceptance; steering, speed and overall mounted comfort remain unresolved.
 - Manual reload has scoped single-round revolver and base Schofield whole-clip feedback. New model paths, the textured bundle, convincing cartridge grip, precise chamber loading and broader interruption recovery remain unqualified. Ammunition visuals are provisional, with no per-barrel port or indexed per-unit animation claim. Use launcher option 8 to turn manual reload off. The latest hand-directed interaction also awaits physical acceptance.
 - Floating reload hints have a host-tested correction for icon expiry erasing a still-current instruction. Physical stability/readability still need confirmation; weapon guides/coaching can be disabled in Options > Game.
 - Native tutorial windows still show PC keys. The long-gun support-hand correction applies in normal weapon states; firing/alternate/reload/transitions can retain native fingers.
 - Community feedback confirms the retained .3 projection correction on Beyond and reports a good Quest view without specifying its model. Menu gaze alignment and broader headset/controller support remain unqualified. The rejected independent eye RT prototype and investigation probes remain off.
 
-**v0.1.0-prealpha.6** is cumulative from .5 and earlier releases. See [release notes](release/RELEASE_NOTES.md) for changes since .5 and [Validation](docs/VALIDATION.md) for acceptance limits. The Pico 4/Virtual Desktop rhythmic-stutter report remains unresolved; reduced diagnostic work does not establish a performance fix. Archived packages and canonical verifier outcomes remain unchanged.
+**v0.1.0-prealpha.7** is cumulative from .6 and earlier releases. See [release notes](release/RELEASE_NOTES.md) for changes since .6 and [Validation](docs/VALIDATION.md) for acceptance limits. The Pico 4/Virtual Desktop rhythmic-stutter report remains unresolved; reduced diagnostic work does not establish a performance fix. Archived packages and canonical verifier outcomes remain unchanged.
 
 ## Feedback
 
@@ -204,7 +204,7 @@ ctest --preset release
 
 Physical candidates use `tools/vr_test.ps1 prepare` and `finish`; add `-BodyIkAtStart -LargeAddressAware -ManualReload` for the manual-reload candidate. The operator starts/closes SteamVR and the game. Read [AGENTS.md](AGENTS.md) and the [validation workflow](docs/VALIDATION.md#evidence-policy) before integration work.
 
-The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.6` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
+The distribution build uses `powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_release.ps1 -Version 0.1.0-prealpha.7` from clean committed source. It builds/tests the isolated OpenVR Release tree and emits the player ZIP plus SHA-256 checksum. The GitHub release workflow accepts a Version through `workflow_dispatch` and prepares a draft prerelease with separate developer symbols; review it and select Publish when ready. Update `release/RELEASE_NOTES.md` for each version. Package checks do not establish additional hardware validation.
 
 </details>
 

@@ -11,6 +11,7 @@ param(
     [string]$ValidationProfile = "full",
     [switch]$IndependentHands,
     [switch]$LargeAddressAware,
+    [switch]$ExperimentalGog,
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
@@ -22,6 +23,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "deployment_transaction.ps1")
 . (Join-Path $PSScriptRoot "openvr_input_manifest.ps1")
+. (Join-Path $PSScriptRoot "coj_executable_identity.ps1")
 
 function Get-PeMachine([string]$Path) {
     $Stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -60,8 +62,6 @@ if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
     $ProxyPath = Join-Path $PSScriptRoot "..\build\win32-debug\Release\d3d9.dll"
 }
 
-$ExpectedCoJHash = "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE"
-$ExpectedLaaCoJHash = "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9"
 $ExpectedChromeEngineHash = "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8"
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $ProxyPath = [System.IO.Path]::GetFullPath($ProxyPath)
@@ -241,9 +241,15 @@ if ($IsNativeStereo) {
 }
 
 $ActualHash = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash.ToUpperInvariant()
-if ($ActualHash -ne $ExpectedCoJHash) {
-    throw "CoJ.exe SHA-256 is not the known exact build. Expected $ExpectedCoJHash, got $ActualHash."
+$ExactBuild = Get-CoJExactExecutableBuild $ActualHash
+if ($null -eq $ExactBuild) {
+    throw "CoJ.exe SHA-256 is not a recognized exact original build: $ActualHash."
 }
+if (($ExactBuild.Edition -eq 'gog') -ne $ExperimentalGog.IsPresent) {
+    throw 'GOG requires the explicit -ExperimentalGog switch; Steam must not use that switch.'
+}
+$ExpectedCoJHash = $ExactBuild.Original
+$ExpectedLaaCoJHash = $ExactBuild.Derived
 Assert-Win32Pe $Executable "Game executable"
 Assert-Win32Pe $ProxyPath "Proxy artifact"
 if ($IsOpenVrIntegration) {
@@ -298,7 +304,7 @@ if ($IsNativeStereo) {
 if ($ManagePlayerArchive) {
     if (Test-Path -LiteralPath $PlayerBackup) { throw "An original Data0.pak backup already exists; refusing to overwrite it." }
     $OriginalPlayerHash = Get-CojvrFileSha256 $PlayerArchive
-    if ($OriginalPlayerHash -ne "5EB6EC4856E53226DFABAD929522706A21F02D428923A8C9C38804CC2CF11A94") {
+    if ($OriginalPlayerHash -ne $ExactBuild.Data0) {
         throw "Unknown Data0.pak SHA-256; refusing player geometry mutation."
     }
 }

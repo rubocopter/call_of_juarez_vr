@@ -10,7 +10,7 @@ the source checkout may have more features than that release.
 | [Validation](VALIDATION.md) | Accepted behavior in specified contexts, rejected gates, physical checklist and evidence policy | Planned implementation order |
 | [Roadmap](ROADMAP.md) | Next implementation work, priorities, prerequisite gates and deferred tracks | Independent proof of headset acceptance |
 | [Agent instructions](../AGENTS.md) | Editing, provenance and physical workflow rules | Alternative technical implementation contracts |
-| [Player package instructions](../release/README.txt) | Installation, update, recovery and controls **for the published player ZIP** | Unreleased source behavior |
+| [Player package instructions](../release/README.txt) | Installation, update, recovery and controls for the **package built from this source**; check the README inside previously published ZIPs for their actual launcher | Current acceptance/roadmap and older package behavior |
 | [Release notes](../release/RELEASE_NOTES.md) | Immutable chronological behavior of published versions | Current local-development status |
 | [Copyright and reuse](../COPYRIGHT_AND_REUSE.md), [third-party notices](../release/THIRD_PARTY_NOTICES.txt) | Attribution and distribution terms | Game-specific acceptance |
 

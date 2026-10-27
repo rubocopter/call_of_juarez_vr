@@ -1,6 +1,7 @@
 """Append exact indexed/whole-clip transactions to one production reload probe.
 
-No archive admission, install, gesture, mechanical replay or native lifecycle.
+No archive admission, install or gesture policy. Indexed replay uses the
+existing native body lifecycle after a verified selected-unit transaction.
 The canonical builder verifies originals and owns mixed-class admission/validity.
 """
 from coj_indexed_reload import PROFILES as INDEXED_PROFILES
@@ -82,7 +83,8 @@ def append_runtime_families(player:bytes)->bytes:
     e.field('cojvrManualFamiliesActive','Z')
     e.field('cojvrManualFamiliesFaulted','Z')
     player=e.finish()
-    player=_append_indexed_session(player,helper_name='cojvrInsertManualIndexedRound',runtime=True)
+    player=_append_indexed_session(player,helper_name='cojvrInsertManualIndexedRound',
+                                   runtime=True,cycle_animation=True)
     player=_add_offline_clip(player,CLIP_WEAPONS,retained_close=True)
     targets={
         ('cojvrInsertManualIndexedRound','(I)Z'):RUNTIME_GUARD_FIELDS,

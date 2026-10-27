@@ -6,7 +6,11 @@ if not exist "%COJVR_PS%" (
   pause
   exit /b 1
 )
-"%COJVR_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0cojvr.ps1" %*
+if "%~1"=="" (
+  "%COJVR_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0cojvr-gui.ps1"
+) else (
+  "%COJVR_PS%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0cojvr.ps1" %*
+)
 set "COJVR_RESULT=%ERRORLEVEL%"
 if not "%COJVR_RESULT%"=="0" pause
 exit /b %COJVR_RESULT%

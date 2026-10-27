@@ -1,5 +1,6 @@
 #include "backends/openvr/spatial_image_processor.hpp"
 #include <d3dcompiler.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <utility>
@@ -13,7 +14,8 @@ cbuffer Parameters : register(b0) {
     int2 extent; float sharpness; float contrast;
     float saturation; float inverseGamma; float smoothEdges; float peripheralDimming;
     float scopeView; float scopeReticle; float2 scopeCenter;
-    float2 scopeRadius; float scopeWarning; float padding;
+    float2 scopeRadius; float scopeWarning; float comfortInverseRadius;
+    float4 comfortTangents; float4 comfortRotation;
 };
 Texture2D<float4> image : register(t0);
 struct Vertex {float4 position:SV_Position;};
@@ -46,13 +48,8 @@ float4 PS(Vertex v):SV_Target {
     c=saturate((c-.5)*contrast+.5);
     c=saturate(lerp(Luma(c).xxx,c,saturation));
     if(inverseGamma!=1)c=pow(c,inverseGamma);
-    float2 uv=v.position.xy/float2(extent)*2-1;
-    float radius=length(uv);
-    // Full-eye UVs: the compositor submits the complete texture, but its
-    // corners are not a useful proxy for lens-visible periphery. Mild and
-    // Strong keep distinct clear apertures and finish their feather inside
-    // the eye, rather than only increasing opacity near invisible corners.
-    // Preserve the presenter's .55/.85 strengths and motion-lease admission.
+    // Keep the existing strengths and clear/feather fractions. Their reference
+    // is now a common angular cone through physical eye optics, not equal UVs.
     float comfortProfile=saturate((peripheralDimming-.55)/.30);
     float clearRadius=lerp(.42,.28,comfortProfile);
     float outerRadius=lerp(.78,.60,comfortProfile);
@@ -92,16 +89,24 @@ float4 PS(Vertex v):SV_Target {
             float distance=length(delta);
             c*=1-smoothstep(apertureRadius-min(1.0,apertureRadius),apertureRadius,distance);
         }
-    } else c*=1-peripheralDimming*smoothstep(clearRadius,outerRadius,radius);
+    } else if(peripheralDimming>0) {
+        float2 tangent=comfortTangents.xy+(v.position.xy/float2(extent))*comfortTangents.zw;
+        float3 eyeRay=float3(tangent,-1);
+        float3 t=2*cross(comfortRotation.xyz,eyeRay);
+        float3 headRay=eyeRay+comfortRotation.w*t+cross(comfortRotation.xyz,t);
+        float radius=headRay.z<0?length(headRay.xy)*comfortInverseRadius/(-headRay.z):2;
+        c*=1-peripheralDimming*smoothstep(clearRadius,outerRadius,radius);
+    }
     return float4(c,original.a);
 }
 )";
 struct Parameters {
     std::int32_t width,height;
     float sharpness,contrast,saturation,inverse_gamma,smooth_edges,peripheral_dimming;
-    float scope_view,scope_reticle,scope_center[2],scope_radius[2],scope_warning,padding;
+    float scope_view,scope_reticle,scope_center[2],scope_radius[2],scope_warning,comfort_inverse_radius;
+    float comfort_tangents[4],comfort_rotation[4];
 };
-static_assert(sizeof(Parameters)==64);
+static_assert(sizeof(Parameters)==96);
 struct ScopedContextState {
     ID3D11DeviceContext1* context;
     Microsoft::WRL::ComPtr<ID3DDeviceContextState> previous;
@@ -166,7 +171,8 @@ bool SpatialImageProcessor::Prepare(ID3D11Device* device,
 
 bool SpatialImageProcessor::Process(ID3D11Device* device,ID3D11DeviceContext* context,
     const std::array<ID3D11Texture2D*,2>& eyes,const runtime::GraphicsSettings& requested,
-    float peripheral_dimming,bool scope_view,const std::array<runtime::ScopeLens,2>* scope_lenses,bool scope_no_shoot) noexcept {
+    float peripheral_dimming,bool scope_view,const std::array<runtime::ScopeLens,2>* scope_lenses,bool scope_no_shoot,
+    const std::array<runtime::EyeView,2>* comfort_eyes) noexcept {
     result_=E_INVALIDARG;queue_ms_=0;
     if(!std::isfinite(peripheral_dimming)||peripheral_dimming<0||peripheral_dimming>1)return false;
     if(!runtime::ValidGraphicsSettings(requested))return false;
@@ -174,6 +180,9 @@ bool SpatialImageProcessor::Process(ID3D11Device* device,ID3D11DeviceContext* co
     // eye writes. An absent lens never borrows the other eye's geometry.
     if(scope_view&&scope_lenses)
         for(const auto& lens:*scope_lenses)if(!runtime::ValidScopeLens(lens))return false;
+    std::array<runtime::ComfortEyeProjection,2> comfort{};
+    if(peripheral_dimming>0&&!scope_view&&
+        (!comfort_eyes||!runtime::BuildComfortEyeProjections(*comfort_eyes,comfort)))return false;
     const auto settings=requested.enabled?requested:runtime::GraphicsSettings{};
     if(!runtime::ValidGraphicsSettings(settings))return false;
     if(!runtime::GraphicsEffectsActive(settings)&&peripheral_dimming==0&&!scope_view){result_=S_OK;return true;}
@@ -207,7 +216,8 @@ bool SpatialImageProcessor::Process(ID3D11Device* device,ID3D11DeviceContext* co
         ScopedContextState scope(context1.Get(),state_.Get());
         Parameters parameters{static_cast<std::int32_t>(width_),static_cast<std::int32_t>(height_),
             settings.sharpness,settings.contrast,settings.saturation,1.F/settings.gamma,settings.edge_smoothing?1.F:0.F,
-            peripheral_dimming,scope_view?1.F:0.F,scope_view&&scope_lenses?1.F:0.F,{.5F,.5F},{},scope_no_shoot?1.F:0.F,0};
+            peripheral_dimming,scope_view?1.F:0.F,scope_view&&scope_lenses?1.F:0.F,{.5F,.5F},{},scope_no_shoot?1.F:0.F,0,
+            {},{0,0,0,1}};
         auto* constants=constants_.Get();
         context->IASetInputLayout(nullptr);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->VSSetShader(vertex_.Get(),nullptr,0);context->PSSetShader(pixel_.Get(),nullptr,0);
@@ -215,6 +225,13 @@ bool SpatialImageProcessor::Process(ID3D11Device* device,ID3D11DeviceContext* co
         context->OMSetDepthStencilState(depth_.Get(),0);context->OMSetBlendState(blend_.Get(),nullptr,0xFFFFFFFF);
         const D3D11_VIEWPORT viewport{0,0,float(width_),float(height_),0,1};context->RSSetViewports(1,&viewport);
         for(unsigned eye=0;eye<2;++eye) {
+            if(peripheral_dimming>0&&!scope_view) {
+                const auto& c=comfort[eye];
+                parameters.comfort_inverse_radius=c.inverse_radius;
+                std::copy(c.tangents.begin(),c.tangents.end(),parameters.comfort_tangents);
+                parameters.comfort_rotation[0]=c.eye_to_head.x;parameters.comfort_rotation[1]=c.eye_to_head.y;
+                parameters.comfort_rotation[2]=c.eye_to_head.z;parameters.comfort_rotation[3]=c.eye_to_head.w;
+            }
             if(scope_view&&scope_lenses) {
                 const auto& lens=(*scope_lenses)[eye];
                 parameters.scope_center[0]=lens.center_u;parameters.scope_center[1]=lens.center_v;

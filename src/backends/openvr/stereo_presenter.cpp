@@ -466,7 +466,7 @@ struct OpenVrStereoPresenter::Impl {
             }
             const std::array<ID3D11Texture2D*,2> targets{textures[0].Get(),textures[1].Get()};
             if(!spatial_processor.Process(d3d11.device(),d3d11.context(),targets,graphics,horse_dimming,scope_view,
-                    scope_view?&frame.gameplay_reticle.scope_lenses:nullptr,scope_view&&scope_marker.no_shoot)) {
+                    scope_view?&frame.gameplay_reticle.scope_lenses:nullptr,scope_view&&scope_marker.no_shoot,&eyes)) {
                 const auto failure=spatial_processor.last_result();
                 spatial_disabled=true;
                 report_horse(5,"processing_failed",0);

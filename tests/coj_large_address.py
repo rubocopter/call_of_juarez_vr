@@ -1,6 +1,7 @@
 """Fail-closed LAA patch checks; the exact binary fixture is optional."""
 import importlib.util
 import hashlib
+import os
 from pathlib import Path
 import sys
 import subprocess
@@ -57,7 +58,26 @@ class LargeAddressPatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             helper.patch_image(altered)
 
+    def test_exact_gog_image_changes_only_large_address_header_bit(self):
+        helper = self.load_helper()
+        if not GOG_FIXTURE:
+            self.skipTest("Set COJ_GOG_FIXTURE to the preserved GOG CoJ.exe")
+        original = GOG_FIXTURE.read_bytes()
+        patched = helper.patch_image(original)
+        self.assertEqual(hashlib.sha256(original).hexdigest().upper(), helper.GOG_ORIGINAL_SHA256)
+        self.assertEqual(hashlib.sha256(patched).hexdigest().upper(), helper.GOG_LAA_SHA256)
+        self.assertEqual(len(original), len(patched))
+        self.assertEqual([i for i, pair in enumerate(zip(original, patched)) if pair[0] != pair[1]], [0x56])
+        self.assertEqual(original[0x56] ^ patched[0x56], 0x20)
+        with self.assertRaises(ValueError):
+            helper.patch_image(patched)
+        altered = bytearray(original)
+        altered[-1] ^= 1
+        with self.assertRaises(ValueError):
+            helper.patch_image(altered)
+
 
 FIXTURE = Path(sys.argv.pop(1)) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else None
+GOG_FIXTURE = Path(os.environ["COJ_GOG_FIXTURE"]) if os.environ.get("COJ_GOG_FIXTURE") else None
 if __name__ == "__main__":
     unittest.main()

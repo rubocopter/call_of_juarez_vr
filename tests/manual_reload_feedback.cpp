@@ -3,6 +3,7 @@
 // game, native finger writer or physical acceptance is implied by this test.
 #include "games/call_of_juarez/manual_reload_session.hpp"
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
+#include "games/call_of_juarez/ammunition_pickup_guide.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -48,7 +49,7 @@ struct Fixture {
         feedback.left=input.left;feedback.right=input.right;
         left={};right={};return pulse.Apply(feedback,left,right);
     }
-    void OpenAndInsert(){
+    void OpenAndInsert(bool replay=false){
         (void)Poll();input.raw.reload=true;Check(Poll().start,"manual session did not open");
         session.NoteStart(true);input.raw.reload=false;input.admission={};
         input.native.probe_status=2;input.native.states[input.native.armed_hand]={21,21,21,21};
@@ -61,12 +62,60 @@ struct Fixture {
             Check(!Poll().insert,"held carry inserted before release");
         }
         Trigger()=false;auto out=Poll();Check(out.insert,"sampled release did not insert");
+        const auto before=input.native;
         session.CompleteInsertion(true,true,out);
-        Check(PoseFeedback(out,1)==1-input.native.armed_hand,"native-confirmed thumb did not start");
+        if(replay) {
+            if(input.native.kind==CoJManualReloadKind::indexed) {
+                Check(out.selected_index==1,"feedback release lost captured indexed slot");
+                ++input.native.loaded[1];--input.native.reserves[input.native.reserve_indices[1]];
+            }else{++input.native.ammo_readback;--input.native.reserve_readback;}
+            input.native.probe_status=1;
+            Check(CoJUnitManualInsertionObserved(true,true,before,input.native,out.selected_index),
+                "native replay failed complete typed insertion feedback proof");
+            Check(PoseFeedback(out,1)==-1,"native replay retained waiting-state thumb presentation");
+            StereoHudTextOverlay overlay{};auto old_input=input;old_input.native=before;
+            Check(!AppendCoJAmmunitionPickupGuide(old_input,out,true,overlay)&&
+                !out.gesture.cartridge_held&&!out.gesture.pickup_hint.visible,
+                "completed cycle insertion retained a same-frame waiting cartridge offer");
+        }else Check(PoseFeedback(out,1)==1-input.native.armed_hand,"native-confirmed thumb did not start");
     }
 };
 }
 int main(){
+    for(int armed:{0,1})for(int family:{0,1,2}) {
+        Fixture f(armed);f.input.native.native_body_cycle=true;
+        if(family!=0) {
+            f.input.native.kind=f.input.admission.kind=f.input.recovery.kind=CoJManualReloadKind::indexed;
+            f.input.admission.single_round_supported=f.input.recovery.single_round_supported=false;
+            f.input.admission.manual_supported=f.input.recovery.manual_supported=true;
+            f.input.native.selected_index=1;f.input.native.index_count=2;
+            f.input.native.capacities=family==1?std::array<int,2>{1,1}:std::array<int,2>{1,8};
+            f.input.native.loaded=family==1?std::array<int,2>{0,0}:std::array<int,2>{0,3};
+            f.input.native.reserves={5,7,9};
+            f.input.native.reserve_kinds=family==1?
+                std::array{CoJReloadReserveKind::shotgun,CoJReloadReserveKind::shotgun}:
+                std::array{CoJReloadReserveKind::rifle,CoJReloadReserveKind::pistol};
+            f.input.native.reserve_indices=family==1?std::array<int,2>{2,2}:std::array<int,2>{1,0};
+        }
+        f.OpenAndInsert(true);
+        f.Trigger()=true;auto replay=f.Poll();
+        Check(replay.tracked&&!replay.gesture.cartridge_held&&!replay.gesture.pickup_hint.visible&&
+            !CoJReloadInsertionHasCartridge(replay.gesture,armed,true)&&f.PoseFeedback(replay)==-1,
+            "native replay presented an offered/held round or replayed thumb feedback");
+        Check(!(armed==0?f.mapped.fire_left:f.mapped.fire_right),"replay support claim leaked native fire");
+        if(family!=0)f.input.native.selected_index=0; // Fresh native lowest-eligible proposal.
+        f.input.native.probe_status=2;
+        auto wait=f.Poll();Check(!wait.insert&&f.PoseFeedback(wait)==-1&&f.inserts==1,
+            "next native wait replayed old insertion feedback or inserted another unit");
+        if(family!=0)Check(!wait.gesture.cartridge_held,"indexed cycle used unit-style continuation token");
+        f.Trigger()=false;(void)f.Poll();
+        f.Support()=At(armed==0?Vec3{-.2F,1.05F,-.1F}:Vec3{.2F,1.05F,-.1F});
+        (void)f.Poll();f.Trigger()=true;const auto pickup=f.Poll();
+        const bool held_cartridge=CoJReloadInsertionHasCartridge(pickup.gesture,armed,true);
+        const int pickup_pose=f.PoseFeedback(pickup);
+        Check(held_cartridge&&pickup_pose==-1,
+            "fresh waist pickup failed or borrowed an old insertion thumb");
+    }
     for(int armed=0;armed<2;++armed){
         Fixture f(armed);f.OpenAndInsert();
         std::uint64_t previous=0;

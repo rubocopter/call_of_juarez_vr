@@ -461,7 +461,7 @@ bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept {
     return Clean(env) && second_id==id;
 }
 bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
-    const bool include_wait_probe, const int selected_index) noexcept {
+    const bool include_wait_probe, const int selected_index, void* expected_weapon) noexcept {
     out = {};
     if (!env || !player || selected_index < -1 || selected_index > 1 || !*static_cast<void***>(env)) return false;
     constexpr int required[]{6,15,17,23,24,31,33,36,39,51,57,94,95,100,102};
@@ -520,6 +520,7 @@ bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     if (!ok || (weapons[0][0]!=nullptr)==(weapons[1][0]!=nullptr)) return false;
     const int armed = weapons[0][0] ? 0 : 1;
     void* weapon = weapons[armed][0];
+    if(expected_weapon && !same(weapon,expected_weapon))return false;
     for (int i=0;i<3;++i)
         if (weapons[1-armed][i] || !same(weapon,weapons[armed][i])) return false;
     void* weapon_type = type(weapon);

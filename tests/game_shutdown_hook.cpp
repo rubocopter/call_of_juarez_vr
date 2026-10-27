@@ -103,6 +103,20 @@ int main() {
     if (memory.Protect != PAGE_READONLY) return Fail("restore lost IAT protection");
     if (install("C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9", engine_hash) != GameShutdownHookStatus::installed)
         return Fail("exact LAA-derived executable shutdown installation failed");
+    if (!RestoreGameShutdownHook() || *slot != &OriginalDestroy)
+        return Fail("LAA shutdown hook restoration failed");
+    for (const auto hash : {
+        "8BAB3D109BD4C08BF356D30DE1B746CDC3A89DEBF4C953763B1305FE0C8285BD",
+        "E9D06B14EB70BBC57135C1C63000E5EC7E16C277B8115184CABF29F733729C19"}) {
+        if (install(hash, engine_hash) != GameShutdownHookStatus::installed)
+            return Fail("exact GOG executable shutdown installation failed");
+        if (!RestoreGameShutdownHook() || *slot != &OriginalDestroy)
+            return Fail("GOG shutdown hook restoration failed");
+    }
+    if (install("E9D06B14EB70BBC57135C1C63000E5EC7E16C277B8115184CABF29F733729C10", engine_hash) != GameShutdownHookStatus::unsupported_build)
+        return Fail("near-GOG image was accepted for shutdown hook");
+    if (install(exe_hash, engine_hash) != GameShutdownHookStatus::installed)
+        return Fail("shutdown hook failed to reinstall after variant checks");
     VirtualProtect(data + 0x9000, 0x1000, PAGE_READWRITE, &old_protection);
     *slot = &ForeignDestroy;
     VirtualProtect(data + 0x9000, 0x1000, PAGE_READONLY, &old_protection);

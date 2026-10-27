@@ -11,6 +11,7 @@
 #include "games/call_of_juarez/focus_zoom.hpp"
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_geometry.hpp"
+#include "games/call_of_juarez/winchester_loading_geometry.hpp"
 #include "games/call_of_juarez/long_gun_observer.hpp"
 #include "games/call_of_juarez/long_gun_fire.hpp"
 #include "games/call_of_juarez/stationary_weapon.hpp"
@@ -33,6 +34,7 @@
 #include <vector>
 
 namespace cojvr::games::call_of_juarez {
+struct CoJWinchesterLoadingSample;
 
 struct JavaPlayerPosition {
     float x = 0.0F;
@@ -455,6 +457,11 @@ public:
     // Never admits a physical socket, changes a gate or owns ammunition.
     [[nodiscard]] bool TryObserveReloadGeometry(int hand, CoJReloadGeometrySnapshot& geometry,
         CoJReloadGeometrySource source, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveWinchesterLoadingGeometry(int hand, CoJWinchesterLoadingGeometry& geometry,
+        CoJReloadGeometrySource source, std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveWinchesterLoadingSample(CoJReloadGeometrySource source,
+        std::uint64_t frame,std::uint64_t context,bool physical_cartridge,
+        CoJWinchesterLoadingSample& out,std::string* error = nullptr) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;

@@ -11,6 +11,7 @@ param(
     [switch]$KeepVideoSettings,
 
     [switch]$LargeAddressAware,
+    [switch]$ExperimentalGog,
 
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
@@ -339,6 +340,7 @@ switch ($Action) {
                 -ValidationProfile $ValidationProfile `
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
+                -ExperimentalGog:$ExperimentalGog `
                 -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe `
                 -IndependentEyeResolution $IndependentEyeResolution
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
@@ -444,7 +446,7 @@ switch ($Action) {
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Cross jumps, Square reloads, Circle toggles alternate fire, L1 performs Action, R1 kicks on foot / holds gallop mounted, L3 toggles crouch and R3 toggles Focus. The sole default table is docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls."
         if ($ManualReload) {
-            Write-Host "Manual reload source candidate: exact revolvers, Winchester/Scope/Volcanic, Remington/SawOff, Derringer, Lemant and Schofield base/A/B require an empty support hand. Fresh Square prepares; wait for MANUAL_LOAD, pick up with the free trigger at waist, carry to the provisional grip zone and release. Units load once; indexed weapons retain the pickup index/reserve; Schofield loads its shown bundle once and closes natively. Rifle native body replay must finish before another unit. Square or armed trigger closes early; release before firing/regripping. Base Schofield has scoped functional acceptance; its textured replacement and other new families remain physically pending. Integrated acceptance: docs/VALIDATION.md#persistent-manual-reload-candidate."
+            Write-Host "Manual reload source candidate: exact revolvers, Winchester/Scope/Volcanic, Remington/SawOff, Derringer, Lemant and Schofield base/A/B require an empty support hand. Fresh Square prepares; wait for MANUAL_LOAD, pick up with the free trigger at waist, carry to the provisional grip zone and release. Units load once; indexed weapons retain the pickup index/reserve; Schofield loads its shown bundle once and closes natively. Native per-unit body replay must finish before another unit. Square or armed trigger closes early; release before firing/regripping. Base Schofield has scoped functional acceptance; its textured replacement and other new families remain physically pending. Integrated acceptance: docs/VALIDATION.md#persistent-manual-reload-candidate."
             Write-Host "Combined candidate batch: inspect finger-derived cartridge axis, native-confirmed thumb gesture, soft held-zone cue then stronger accepted-insertion cue, drop/close/fire, held-input recovery and L1 interaction. New changes are host-tested only; compositor still has no hand/scene occlusion. Ordered batch: docs/VALIDATION.md#consolidated-candidate-batch--host-tested-awaiting-runtime-and-visor. Depth diagnostics collect automatically during pickups; no separate physical probe is needed."
         } else {
             Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental exact-profile cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Legacy paced continuation has bounded live evidence; native animation still owns its hands. Persistent manual reload requires -ManualReload. See docs/VALIDATION.md#cartridge-paced-reload-acceptance."

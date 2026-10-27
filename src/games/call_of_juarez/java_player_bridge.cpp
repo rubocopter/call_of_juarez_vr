@@ -5,6 +5,7 @@
 #include "games/call_of_juarez/presentation_owner.hpp"
 #include "games/call_of_juarez/movie_skip.hpp"
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
+#include "games/call_of_juarez/winchester_loading_probe.hpp"
 
 #include <windows.h>
 
@@ -2846,6 +2847,260 @@ bool JavaPlayerBridge::TryObserveReloadGeometry(const int hand,
         !std::isfinite(phase_after) || phase_after!=phase)return false;
     observed.native_drum_phase_degrees=phase;
     observed.valid=true;geometry=observed;return true;
+}
+
+bool JavaPlayerBridge::TryObserveWinchesterLoadingGeometry(const int hand,
+    CoJWinchesterLoadingGeometry& geometry,const CoJReloadGeometrySource source,
+    std::string* error) noexcept {
+    geometry={};SetError(error,"");
+    const auto reject=[&](const char* reason) noexcept {SetError(error,reason);return false;};
+    // Both exact rifle profiles are right-owned. No mirrored loading geometry
+    // or native phase/socket/clearance contract is inferred by this observer.
+    if(hand!=0 || !being_ || !vm_)return reject("Winchester geometry requires right-hand player ownership");
+    if(source!=CoJReloadGeometrySource::pre_native && source!=CoJReloadGeometrySource::post_overlay)
+        return reject("Winchester geometry source is invalid");
+    const bool applied=source==CoJReloadGeometrySource::post_overlay;
+    const auto& overlay=weapon_overlays_[0];
+    void* const player=being_;void* const vm=vm_;void* const retained=overlay.weapon;
+    const auto generation=being_generation_;
+    const int barrel=overlay.barrel_element;
+    const auto& frames=applied?overlay.targets:overlay.natural;
+    const auto frame_count=frames.size();
+    const auto current=[&]() noexcept {return being_==player && vm_==vm && being_generation_==generation &&
+        overlay.weapon==retained && overlay.active && overlay.applied==applied &&
+        overlay.barrel_element==barrel && frames.size()==frame_count &&
+        !weapon_overlay_faulted_ && !independent_hand_faulted_;};
+    if(!retained || !current() || !frame_count || barrel<0 || static_cast<std::size_t>(barrel)>=frame_count)
+        return reject("Winchester geometry retained overlay is unavailable or in the wrong phase");
+    // Capture already resolved these readers. Observation must not lazily create
+    // cached global Vector references or initialize a new native transaction.
+    if(!element_world_read_lookup_attempted_ || !get_element_position_method_ ||
+        !get_element_left_method_ || !get_element_up_method_ || !vector_class_ ||
+        !vector_constructor_ || !vector_x_field_ || !vector_y_field_ || !vector_z_field_)
+        return reject("Winchester geometry frame readers are not captured");
+    void* env=Environment(error);
+    if(!env || !current())return reject("Winchester geometry player changed while obtaining JNI");
+    constexpr std::size_t required[]{kFindClass,kExceptionOccurred,kExceptionClear,kDeleteLocalRef,
+        kIsSameObject,kGetObjectClass,kGetMethodId,kCallObjectMethodA,kCallIntMethodA,
+        kNewStringUtf,kNewObjectA,kCallBooleanMethodA,kGetFloatField};
+    for(const auto slot:required)if(!EnvFunction<void*>(env,slot))
+        return reject("Winchester geometry required JNI function is unavailable");
+    if(ClearException(env,error,"Winchester geometry entered with a JNI exception"))return false;
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto find_fn=EnvFunction<FindClassFn>(env,kFindClass);
+    const auto method_fn=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto object_fn=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto int_fn=EnvFunction<CallIntMethodAFn>(env,kCallIntMethodA);
+    const auto same_fn=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto string_fn=EnvFunction<NewStringUtfFn>(env,kNewStringUtf);
+    const auto new_fn=EnvFunction<NewObjectAFn>(env,kNewObjectA);
+    const auto boolean_fn=EnvFunction<CallBooleanMethodAFn>(env,kCallBooleanMethodA);
+    const auto float_fn=EnvFunction<GetFloatFieldFn>(env,kGetFloatField);
+    // The actual weapon remains a local JNI lease through all callbacks. The
+    // overlay's existing retained handle is never released or replaced here.
+    struct Locals {
+        void* env;std::array<void*,4> values{};
+        ~Locals(){for(auto value:values)DeleteLocal(env,value);}
+    } locals{env};
+    const auto clean=[&](const char* operation) noexcept {
+        if(ClearException(env,error,operation))return false;
+        return current() || reject("Winchester geometry player/generation or retained overlay changed during JNI");
+    };
+    locals.values[0]=cls_fn(env,player);
+    if(!clean("Winchester geometry player class failed"))return false;
+    if(!locals.values[0])return reject("Winchester geometry player class is null");
+    void* actual_method=method_fn(env,locals.values[0],"GetActualWeaponNotEmpty","(I)LWeapon;");
+    if(!clean("Winchester geometry actual lookup failed"))return false;
+    if(!actual_method)return reject("Winchester geometry actual method is null");
+    void* active_method=method_fn(env,locals.values[0],"GetActiveWeapon","(I)LWeapon;");
+    if(!clean("Winchester geometry active lookup failed"))return false;
+    if(!active_method)return reject("Winchester geometry active method is null");
+    JValue hand_arg[1]{};hand_arg[0].i=0;
+    locals.values[1]=object_fn(env,player,actual_method,hand_arg);
+    if(!clean("Winchester geometry actual read failed"))return false;
+    if(!locals.values[1])return reject("Winchester geometry actual weapon is null");
+    void* const weapon=locals.values[1];
+    const bool retained_same=same_fn(env,weapon,retained)!=0;
+    if(!clean("Winchester geometry retained identity failed"))return false;
+    if(!retained_same)return reject("Winchester geometry actual weapon differs from retained overlay");
+    const auto check_owner=[&](void* method) noexcept {
+        void* now=object_fn(env,player,method,hand_arg);
+        bool ok=clean("Winchester geometry current weapon read failed");
+        bool same=false;
+        if(ok && now){same=same_fn(env,now,weapon)!=0;ok=clean("Winchester geometry current identity failed");}
+        DeleteLocal(env,now);
+        if(!ok)return false;
+        return same || reject("Winchester geometry current actual/active weapon changed");
+    };
+    if(!check_owner(active_method))return false;
+    locals.values[2]=cls_fn(env,weapon);
+    if(!clean("Winchester geometry weapon class failed"))return false;
+    if(!locals.values[2])return reject("Winchester geometry weapon class is null");
+    CoJWinchesterLoadingModel model=CoJWinchesterLoadingModel::unknown;
+    constexpr const char* names[]{"WeaponRifleWinchester","WeaponRifleWinchesterScope"};
+    for(std::size_t i=0;i<std::size(names);++i){
+        void* candidate=find_fn(env,names[i]);
+        bool ok=clean("Winchester geometry exact class lookup failed");
+        bool same=false;
+        if(ok && candidate){same=same_fn(env,locals.values[2],candidate)!=0;ok=clean("Winchester geometry exact class identity failed");}
+        DeleteLocal(env,candidate);
+        if(!ok)return false;
+        if(!candidate)return reject("Winchester geometry exact class is unavailable");
+        if(same)model=i==0?CoJWinchesterLoadingModel::ordinary:CoJWinchesterLoadingModel::scoped;
+    }
+    if(model==CoJWinchesterLoadingModel::unknown)return reject("Winchester geometry requires an exact admitted rifle class");
+    void* id_method=method_fn(env,locals.values[2],"GetElementID","(Ljava/lang/String;)I");
+    if(!clean("Winchester geometry element lookup failed"))return false;
+    if(!id_method)return reject("Winchester geometry element method is null");
+    const auto close=[](runtime::Vec3 a,runtime::Vec3 b,float e) noexcept {return
+        std::abs(a.x-b.x)<=e && std::abs(a.y-b.y)<=e && std::abs(a.z-b.z)<=e;};
+    const auto read_frame=[&](int index,ElementWorldBasisTarget& frame) noexcept {
+        if(!current() || index<0 || static_cast<std::size_t>(index)>=frame_count)
+            return reject("Winchester geometry element index or retained source changed");
+        const auto target=frames[static_cast<std::size_t>(index)];
+        CoJReloadLocalFrame rigid{};
+        if(!BuildCoJReloadLocalFrame(target,target,rigid))return reject("Winchester geometry captured frame is not rigid");
+        // CaptureTrackedWeapon normalizes its cache. Both sources must prove
+        // the current native +X/up rows are rigid before normalization; the
+        // pre-native caller brackets this read before tracked hand writes.
+        // Read through the already captured accessors, checking ownership after
+        // every JNI callback. Calling the general lazy reader here could create
+        // a global Vector reference after a callback cleared the bridge cache.
+        void* vector=new_fn(env,vector_class_,vector_constructor_,nullptr);
+        bool ok=clean("Winchester geometry Vector construction failed");
+        if(!ok || !vector){DeleteLocal(env,vector);return ok?reject("Winchester geometry Vector is null"):false;}
+        const auto read_vector=[&](void* method,runtime::Vec3& value) noexcept {
+            JValue args[2]{};args[0].i=index;args[1].l=vector;
+            const bool available=boolean_fn(env,weapon,method,args)!=0;
+            if(!clean("Winchester geometry element vector read failed"))return false;
+            if(!available)return reject("Winchester geometry element vector is unavailable");
+            value.x=float_fn(env,vector,vector_x_field_);
+            if(!clean("Winchester geometry Vector X read failed"))return false;
+            value.y=float_fn(env,vector,vector_y_field_);
+            if(!clean("Winchester geometry Vector Y read failed"))return false;
+            value.z=float_fn(env,vector,vector_z_field_);
+            if(!clean("Winchester geometry Vector Z read failed"))return false;
+            return true;
+        };
+        runtime::Vec3 p{},x{},u{};
+        ok=read_vector(get_element_position_method_,p) && read_vector(get_element_left_method_,x) &&
+            read_vector(get_element_up_method_,u);
+        DeleteLocal(env,vector);if(!ok)return false;
+        if(!IsCoJLongGunSourceFrameRigid(p,x,u))return reject("Winchester geometry actual source is not rigid");
+        // Same exact element convention as ReadObjectElementFrame: +X/up are
+        // the native rows; its shipped forward getter has a broken Boolean.
+        const float u_scale=1.F/std::sqrt(u.x*u.x+u.y*u.y+u.z*u.z);
+        u={u.x*u_scale,u.y*u_scale,u.z*u_scale};
+        const float dot=x.x*u.x+x.y*u.y+x.z*u.z;
+        x={x.x-u.x*dot,x.y-u.y*dot,x.z-u.z*dot};
+        const float x_scale=1.F/std::sqrt(x.x*x.x+x.y*x.y+x.z*x.z);
+        x={x.x*x_scale,x.y*x_scale,x.z*x_scale};
+        const runtime::Vec3 f{x.y*u.z-x.z*u.y,x.z*u.x-x.x*u.z,x.x*u.y-x.y*u.x};
+        frame={p,u,f,true};
+        if(!BuildCoJReloadLocalFrame(frame,frame,rigid) || !close(frame.position,target.position,.1F) ||
+            !close(frame.up,target.up,.001F) || !close(frame.forward,target.forward,.001F))
+            return reject("Winchester geometry actual frame differs from captured source");
+        return true;
+    };
+    const auto read=[&](const char* name,ElementWorldBasisTarget& frame) noexcept {
+        void* text=string_fn(env,name);
+        bool ok=clean("Winchester geometry element name failed");
+        if(!ok || !text){DeleteLocal(env,text);return ok?reject("Winchester geometry element name is null"):false;}
+        JValue args[1]{};args[0].l=text;
+        const int index=int_fn(env,weapon,id_method,args);
+        ok=clean("Winchester geometry element ID failed");DeleteLocal(env,text);
+        return ok && read_frame(index,frame);
+    };
+    CoJWinchesterLoadingGeometry observed{};observed.model=model;observed.source=source;
+    if(!read_frame(0,observed.root) || !read_frame(barrel,observed.barrel) ||
+        !read("GunBody",observed.body) || !read("GunLoader",observed.loader) ||
+        !read("Holder",observed.holder))return false;
+    if(!BuildCoJWinchesterLoadingLip(model,observed.body,observed.lip))
+        return reject("Winchester geometry measured lip could not be transformed");
+    if(!check_owner(actual_method) || !check_owner(active_method) || !current())return false;
+    observed.valid=true;geometry=observed;SetError(error,"");return true;
+}
+
+bool JavaPlayerBridge::TryObserveWinchesterLoadingSample(const CoJReloadGeometrySource source,
+    const std::uint64_t frame,const std::uint64_t context,const bool physical_cartridge,
+    CoJWinchesterLoadingSample& out,std::string* error) noexcept {
+    out={};SetError(error,"");
+    const auto reject=[&](const char* reason) noexcept {SetError(error,reason);return false;};
+    if(!frame || !(context&1U) || !being_ || !vm_ || !being_generation_ ||
+        (source!=CoJReloadGeometrySource::pre_native && source!=CoJReloadGeometrySource::post_overlay))
+        return reject("Winchester sample frame/context/player/source is unavailable");
+    void* const player=being_;void* const vm=vm_;const auto generation=being_generation_;
+    const auto& overlay=weapon_overlays_[0];void* const retained=overlay.weapon;
+    const bool applied=source==CoJReloadGeometrySource::post_overlay;
+    const auto natural_count=overlay.natural.size(),target_count=overlay.targets.size();
+    const int barrel=overlay.barrel_element;
+    const auto current=[&]() noexcept {return being_==player && vm_==vm && being_generation_==generation &&
+        overlay.weapon==retained && overlay.active && overlay.applied==applied &&
+        overlay.barrel_element==barrel && overlay.natural.size()==natural_count && overlay.targets.size()==target_count &&
+        !weapon_overlay_faulted_ && !independent_hand_faulted_;};
+    if(!retained || !current())return reject("Winchester sample retained overlay is unavailable");
+    void* env=Environment(error);
+    if(!env || !current())return reject("Winchester sample player changed while obtaining JNI");
+    constexpr std::size_t required[]{kExceptionOccurred,kExceptionClear,kDeleteLocalRef,kIsSameObject,
+        kGetObjectClass,kGetMethodId,kCallObjectMethodA};
+    for(auto slot:required)if(!EnvFunction<void*>(env,slot))return reject("Winchester sample required JNI function is unavailable");
+    const auto cls_fn=EnvFunction<GetObjectClassFn>(env,kGetObjectClass);
+    const auto method_fn=EnvFunction<GetMethodIdFn>(env,kGetMethodId);
+    const auto object_fn=EnvFunction<CallObjectMethodAFn>(env,kCallObjectMethodA);
+    const auto same_fn=EnvFunction<IsSameObjectFn>(env,kIsSameObject);
+    const auto clean=[&]() noexcept {
+        if(ClearException(env,error,"Winchester sample JNI observation failed"))return false;
+        return current() || reject("Winchester sample player/generation or retained overlay changed");
+    };
+    if(!clean())return false;
+    struct Locals {
+        void* env;void* cls=nullptr;void* weapon=nullptr;
+        ~Locals(){DeleteLocal(env,weapon);DeleteLocal(env,cls);}
+    } locals{env};
+    locals.cls=cls_fn(env,player);
+    if(!clean())return false;
+    if(!locals.cls)return reject("Winchester sample player class is null");
+    constexpr const char* names[]{"GetActualWeaponNotEmpty","GetActiveWeapon","GetDesiredWeapon"};
+    std::array<void*,3> methods{};
+    for(std::size_t i=0;i<methods.size();++i){
+        methods[i]=method_fn(env,locals.cls,names[i],"(I)LWeapon;");
+        if(!clean())return false;
+        if(!methods[i])return reject("Winchester sample weapon getter is unavailable");
+    }
+    JValue args[1]{};args[0].i=0;
+    // Keep the real actual weapon's local reference through geometry, the
+    // displayed pinch and both native trace reads. Numeric IDs are not leases.
+    locals.weapon=object_fn(env,player,methods[0],args);
+    if(!clean())return false;
+    if(!locals.weapon)return reject("Winchester sample actual weapon is null");
+    const bool same=same_fn(env,locals.weapon,retained)!=0;
+    if(!clean())return false;
+    if(!same)return reject("Winchester sample actual weapon differs from retained overlay");
+    CoJReloadTraceSnapshot before{},after{};CoJWinchesterLoadingGeometry geometry{};
+    ElementWorldBasisTarget pinch{};
+    if(!ReadCoJReloadTrace(env,player,before,true,-1,locals.weapon) || !current())
+        return reject("Winchester sample initial native trace or owner is unavailable");
+    if(!TryObserveWinchesterLoadingGeometry(0,geometry,source,error))return false;
+    if(!current())return reject("Winchester sample owner changed after geometry");
+    if(physical_cartridge && applied){
+        if(!TryReadReloadPinchFrame(1,pinch) || !current())
+            return reject("Winchester sample displayed pinch or owner is unavailable");
+    }
+    if(!ReadCoJReloadTrace(env,player,after,true,-1,locals.weapon) || !current())
+        return reject("Winchester sample final native trace or owner is unavailable");
+    // Catch a replacement in a trace's final count/owner callback as well.
+    for(auto method:methods){
+        void* actual=object_fn(env,player,method,args);
+        bool ok=clean(),equal=false;
+        if(ok && actual){equal=same_fn(env,actual,locals.weapon)!=0;ok=clean();}
+        DeleteLocal(env,actual);
+        if(!ok)return false;
+        if(!equal)return reject("Winchester sample final actual/active/desired weapon changed");
+    }
+    CoJWinchesterLoadingSample sample{};
+    if(!current() || !BuildCoJWinchesterLoadingSample(geometry,before,after,frame,generation,context,pinch,sample))
+        return reject("Winchester sample geometry/native brackets are incoherent");
+    out=sample;return true;
 }
 
 bool JavaPlayerBridge::ValidateTrackedBowOwner(const int hand,std::string* error) noexcept {

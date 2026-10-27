@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$PackageDirectory,
     [Parameter(Mandatory=$true)][string]$OriginalGameDirectory,
-    [string]$SourceDirectory = ''
+    [string]$SourceDirectory = '',
+    [switch]$UseGuiCommands
 )
 $ErrorActionPreference = 'Stop'
 if (-not $SourceDirectory) { $SourceDirectory = Split-Path $PSScriptRoot -Parent }
@@ -19,10 +20,33 @@ $Root = Join-Path $SourceDirectory ('work/release-installation-' + [guid]::NewGu
 $Game = Join-Path $Root ('Game ' + [char]0x00F1 + ' sandbox')
 $Preference=Join-Path $Root 'user/resolution.json'
 New-Item -ItemType Directory -Path $Game -Force | Out-Null
+$OriginalLocalAppData = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = Join-Path $Root 'user'
+if ($UseGuiCommands) { . (Join-Path $SourceDirectory 'release/cojvr-gui.ps1') -LibraryOnly }
 function Assert-True($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Invoke-Frontend([string[]]$Arguments, [bool]$ShouldPass=$true) {
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDirectory 'cojvr.ps1') @Arguments -GameDirectory $Game -ResolutionSettingsPath $Preference
-    Assert-True (($LASTEXITCODE -eq 0) -eq $ShouldPass) "Unexpected frontend exit code $LASTEXITCODE for $Arguments."
+    if ($UseGuiCommands) {
+        $Values = @{}
+        for ($Index=0; $Index -lt $Arguments.Count; $Index+=2) { $Values[$Arguments[$Index].TrimStart('-')]=$Arguments[$Index+1] }
+        $Command = @{ScriptPath=(Get-CojvrGuiActionScript (Join-Path $SourceDirectory 'release') $Values.Action);Action=$Values.Action;ResolutionSettingsPath=$Preference}
+        if ($Values.Action -notin @('Verify','ConfigureResolution')) { $Command.GameDirectory=$Game }
+        foreach ($Name in @('VideoSettingsPath','ResolutionProfile','ResolutionWidth','ResolutionHeight')) {
+            if ($Values.ContainsKey($Name)) { $Command[$Name]=$Values[$Name] }
+        }
+        $OutFile=Join-Path $Root 'gui.stdout.txt'; $ErrFile=Join-Path $Root 'gui.stderr.txt'
+        $Child=Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList (New-CojvrGuiCommand @Command) -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru -WindowStyle Hidden
+        $null=$Child.Handle
+        $Child.WaitForExit(); $Child.Refresh()
+        $Code=$Child.ExitCode
+        $Text=[IO.File]::ReadAllText($OutFile)+[IO.File]::ReadAllText($ErrFile)
+        Write-Host $Text
+        Assert-True ($Text -notmatch 'CLIXML|<Objs|_x000D_') 'GUI action emitted serialized PowerShell output.'
+        $Child.Dispose()
+    } else {
+        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PackageDirectory 'cojvr.ps1') @Arguments -GameDirectory $Game -ResolutionSettingsPath $Preference
+        $Code=$LASTEXITCODE
+    }
+    Assert-True (($Code -eq 0) -eq $ShouldPass) "Unexpected frontend exit code $Code for $Arguments."
 }
 function Assert-Originals {
     foreach ($Name in $OriginalHashes.Keys) {
@@ -39,6 +63,17 @@ try {
         Copy-Item -LiteralPath (Join-Path $OriginalGameDirectory $Name) -Destination (Join-Path $Game $Name)
         $OriginalHashes[$Name] = (Get-FileHash -LiteralPath (Join-Path $Game $Name) -Algorithm SHA256).Hash
     }
+    . (Join-Path $PackageDirectory 'tools/coj_executable_identity.ps1')
+    $ExpectedEdition = (Get-CoJExactExecutableBuild $OriginalHashes['CoJ.exe']).Edition
+    Assert-True ((Assert-CojvrPublicGame $Game).Edition -eq $ExpectedEdition) 'Edition did not come from the exact executable identity.'
+    # A known executable with modified archives must fail before any deployment.
+    $Archive = Join-Path $Game 'Data0.pak'
+    [IO.File]::AppendAllText($Archive,'modified')
+    $Rejected = $false
+    try { Assert-CojvrPublicGame $Game | Out-Null } catch { $Rejected = $true }
+    Assert-True $Rejected 'Modified Data0 admitted under a recognized edition.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $Game 'd3d9.dll'))) 'Identity preflight deployed a proxy.'
+    Copy-Item -LiteralPath (Join-Path $OriginalGameDirectory 'Data0.pak') -Destination $Archive -Force
     $VideoFolder = Join-Path $Root ('OneDrive - User ' + [char]0x00E9 + '/Documents/call of juarez/out/Settings')
     New-Item -ItemType Directory -Path $VideoFolder -Force | Out-Null
     $Video = Join-Path $VideoFolder 'Video.scr'
@@ -48,6 +83,9 @@ try {
     $Control = Get-Content -LiteralPath (Join-Path $Game 'cojvr-camera-control.json') -Raw | ConvertFrom-Json
     Assert-True ($Control.trackingEnabled -and $Control.bodyIkEnabled -and $Control.independentHandsEnabled) 'Public installation does not enable tracked head/body/independent hands.'
     Assert-True $Control.manualReloadInstalled 'Default installation omitted manual reload.'
+    Invoke-Frontend @('-Action','Status')
+    Invoke-Frontend @('-Action','Diagnose')
+    Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'CoJVR/Reports') -Filter '*.zip').Count -eq 1) 'Diagnostics did not create a local report.'
     $Python=Join-Path $PackageDirectory 'dependencies/python/python.exe'
     $MenuVerifier=Join-Path $Root 'verify_native_options.py'
     [IO.File]::WriteAllText($MenuVerifier, @'
@@ -137,6 +175,7 @@ for archive, entry, transform in (
     Invoke-Frontend @('-Action','Verify')
     Write-Host 'PASS isolated exact-game defaults, Auto resolution, reload on/off selector, preserved update/session preferences, all controllers, saved Manual size, uninstall and failure restoration. Host-only.'
 } finally {
+    $env:LOCALAPPDATA = $OriginalLocalAppData
     $Allowed = [IO.Path]::GetFullPath((Join-Path $SourceDirectory 'work')).TrimEnd('\') + '\'
     $Resolved = [IO.Path]::GetFullPath($Root)
     if ($Resolved.StartsWith($Allowed, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $Resolved -Recurse -Force }

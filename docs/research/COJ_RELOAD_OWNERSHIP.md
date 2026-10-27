@@ -62,6 +62,10 @@ Current manual-option source additionally integrates Winchester/Scope/Volcanic,
 selected-index Remington/SawOff/Derringer/Lemant and whole-clip Schofield base/A/B;
 the production composition is described below. Legacy `_Old` classes and unknown
 subclasses have no manual admission. Published .5 behavior remains narrower.
+`WeaponHenry1863` is an exact original alias whose sole constructor calls
+`WeaponRifleWinchester.<init>()`; it has no declared logic/ammunition override.
+That static inheritance does not establish campaign use, native trigger/owner
+behavior or a qualified model route, so it remains outside manual admission.
 Square retains its native fallback in positively identified unsupported contexts.
 One later exercised session records an exact Derringer and support-occupied
 contexts, with no admitted manual session or insertion. The operator's report
@@ -147,6 +151,28 @@ must match before success. Shared reserves are counted once. The lowest eligible
 index is chosen for each fresh pickup; a carried release never changes index or
 reserve type because another slot becomes eligible. No explicit barrel/LeMat
 mode selector or physical loading-mouth alignment has been qualified.
+
+Production indexed insertion now composes the guarded body21 replay after its
+selected-unit/event readbacks when another native unit remains. The native
+Started callback retains zero-unit `Reload(index,0)` over both indices. Complete
+typed vectors, retained ticket/body/hand/machine, counter objects/maxima and
+callback effects are rechecked; only its scoped self-Clear skips termination.
+Body identity is checked after virtual readers and before replay or close;
+another object with the same state ID cannot inherit the transaction. If a
+callback substitutes body21 on the retained hand/machine, a separate field-only
+completion lease withholds that object's ammunition authority through natural
+retirement, including probe loss and exceptions. It never forces a replacement
+body to close or replaces the original Throwable. Ordinary reload recovers after
+the retained bodies retire.
+Readiness changes to Status1 until the next natural body wait returns Status2;
+full/exhausted weapons instead close natively. C++ exact indexed profiles and
+typed readback feedback recognize that Status1 only with matching cycle flags,
+while clip remains a closing-only route. The gesture withdraws presentation
+during replay and requires a fresh available release/pickup after waiting.
+The evidence analyzer reports this exact typed cycle readback without granting
+physical acceptance. Combined interpreted/native-host fixtures and shipped JVM
+verification qualify source behavior only; actual mechanical playback and
+per-model recovery remain unqualified.
 
 Schofield base/A/B retain original whole-clip semantics. One deliberate insertion
 calls the original authority for `min(6-loaded,reserve)` rounds, proves the delta
@@ -388,10 +414,41 @@ unexpected callback changes quarantine the session even if the native close
 already committed. All four emitted exact-class derivatives pass the game's
 shipped Java 1.4 verifier (`-Xverify:all`), with a corrupted helper rejected by
 `VerifyError`. This composition is interpreted-tested with original state/storage bytecode,
-but scheduling, native skin and mechanical calls remain modeled. It adds no
-loading mouth or per-unit body replay. The isolated output has no runtime
+but scheduling, native skin and mechanical calls remain modeled. Its default
+route adds no loading mouth or per-unit body replay. The isolated output has no runtime
 gesture; production manual source separately composes its guarded transaction
 with the shared input and presentation path.
+
+An explicit `cycle_animation=True` indexed laboratory variant restarts
+body21 after one verified selected unit when another native unit remains.
+Remington, SawOff, Derringer and Lemant each retain their exact profile and
+whole-clip flag. Only the synchronous same-hand, retained-machine/body Clear
+skips its terminating handler; ordinary or foreign completion remains native.
+The original Started callback executes `Reload(index,0)` over both indices,
+with selected counts, all typed reserve amounts, counter identities/maxima and
+ticket/owner fields checked afterward. Readiness returns to Status1 until the
+next native pre-Clear wait establishes Status2, so the completed insertion
+cannot authorize an immediate second unit. Full/exhausted weapons close without
+restarting. This variant writes probe readiness, not native animation clocks.
+
+The retained completion debt survives replay, probe loss and partial exceptions
+until native retirement. Reentry cannot transfer, partial effects are quarantined
+without compensation, and the original Throwable propagates after transient
+scopes clear. Interpreted fixtures execute original Started and storage bytecode,
+including nine distinct Lemant units (eight pistol and one rifle), shared pools,
+native waiting/close, watchdog, foreign Clear and later ordinary-reload recovery.
+All four cycle derivatives pass the shipped Java 1.4 `-Xverify:all`; corrupted
+helpers reject. Audio, skin and scheduler endpoints remain modeled, so none of
+these checks establishes actual mechanical playback.
+
+`coj_offline_manual_reload.py --indexed-body-cycle --weapon <exact class>`
+exports only non-installable `.class.bin` files and an explicit unqualified
+manifest outside the original installation. Combining this opt-in with the unit
+cycle flag rejects. Production composition reuses the same guarded emitter only
+through its canonical indexed endpoint and shared family exclusion/fault guards;
+the isolated default builder retains its earlier non-cycle behavior. Integrated
+Status1 feedback/gesture recovery has host coverage, while native playback,
+per-barrel mouth, ejection and physical acceptance remain separate gates.
 
 The three exact Schofield classes now have a separate **offline whole-clip**
 derivative in `tools/coj_clip_reload.py`. The profile accepts only the original
@@ -751,6 +808,87 @@ analyzer have host tests; the ranking also has **bounded live observations**,
 without headset validation of a usable socket.
 No insertion-zone change, independent gate writer or chamber selection is
 enabled. The previously accepted ~14 cm grip zone stays active.
+
+## Measured Winchester receiver lip — observation only
+
+The original ordinary/scoped Winchester meshes independently expose the same
+eight-corner right receiver exterior lip in full-detail `GunBody` (element 1,
+LOD0). Exact mesh SHA-256 identities are
+`be1f0508ea41e809a413256c295ba75b02eeaf7df935c3c1dfb6e623a8ee320e`
+and `a989d5c4bcaad39e250a0fcaa070c985ec832ec51e2f48e6f2d62eb580d532cd`.
+This is a decoded shell/cavity boundary with each selected edge shared by two
+real triangles. It supersedes pivot-distance guessing as an offline geometric
+reference, **not** as a qualified runtime insertion socket.
+
+| Corner | GunBody-local (X,Y,Z), native cm |
+| --- | --- |
+| 0 | (1.234539, -14.823872, -5.256762) |
+| 1 | (1.234539, -20.068767, -5.249094) |
+| 2 | (1.211536, -20.068767, -3.422199) |
+| 3 | (1.213453, -14.846876, -3.447120) |
+| 4 | (1.234539, -14.844959, -3.792179) |
+| 5 | (1.234539, -14.488398, -3.792179) |
+| 6 | (1.244124, -14.496066, -4.905952) |
+| 7 | (1.244124, -14.821955, -4.913620) |
+
+Ordinary source vertex cycle: 264,280,282,286,296,284,265,266; scoped:
+300,316,318,322,332,320,301,302. Projected YZ extent is 5.580370 by
+1.834563 cm, area 9.899701 cm². The projected area centroid with best-fit-plane
+X is (1.228641,-17.347876,-4.344577) cm. The polygon is slightly nonplanar
+(maximum plane residual 0.010530 cm); its measured boundary, rather than this
+summary point, owns the shape. The summary is 2.656040 cm from the GunLoader
+pivot and 18.516716 cm from Holder in bind geometry. These distances do not
+define a tracked grip-to-mouth offset or an insertion direction.
+
+The original `Ray_Winchester_Reload.anm` SHA-256 is
+`f84455465d861479153a003f9df566f0db7e1d6ab8b580b3b8147276668f2fb5`.
+The supported weapon records gunslider/gunbody/guncock/gunlock/barrel/holder/
+gunloader/gunlever have equal start/end pairs for all six descriptors and stay
+constant over frames 0..84. Isolated execution of the exact original engine
+reader at `+0x253190` independently agrees with their decoded transforms at
+nine frames (72 comparisons). This clip does not demonstrate gate opening;
+declared equipment/player phase ranges remain distinct. Native resource
+resolution, blending/skin callbacks and the displayed manual-wait pose still
+require same-frame correlation.
+
+At the lip centroid's YZ, a -X diagnostic inspection ray intersects GunLoader
+triangle 45 behind the outer lip. The bind surface therefore blocks that access
+path; empty cavity geometry cannot admit clearance. LOD1, actual cartridge
+approach, tip/axis and opening phase remain unqualified. The active gesture
+still compares raw support and armed controller grips within 14 cm, independent
+of the displayed lip and textured cartridge tip. No radius/offset adjustment or
+runtime socket has been introduced from these offline measurements.
+
+The source now implements an optional, bounded `winchester_loading_geometry`
+observer under the existing reload trace. Exact ordinary/scoped profiles copy
+captured natural or verified displayed root, GunBody, GunLoader, Holder and
+barrel frames from the retained right-hand weapon. Native identity, active/actual
+ownership and player/generation bracket JNI callbacks; strict source-frame
+validation rejects scale/shear rather than normalizing it into evidence. The
+full eight-corner polygon follows that source's GunBody frame. Natural and
+displayed observations remain separate.
+
+Both sides of each synchronous sample must agree on native hand states,
+animation IDs/clocks, manual status and ammunition observations. During an actual
+held cartridge, the current displayed support-finger frame supplies the imported
+mesh's axial nose-plane centre and direction, including its mesh-centre offset.
+No previous-frame anchor or legacy controller-tip proxy substitutes for a missing
+pinch. Displayed samples report body-local tip/axis, signed best-fit-plane distance,
+nearest projected edge distance and concave-polygon inclusion. These are
+diagnostics, not clearance, insertion direction or an ergonomic acceptance region.
+Publication requires the same frame/generation/context, accepted stereo
+submission/mirroring and successful native/graphics restoration. A suppressed
+cartridge overlay removes every displayed-tip field while retaining qualified
+receiver observations; failed attempts and emitted rows are bounded.
+Host geometry, JNI fault and sample-qualification fixtures cover these contracts.
+The evidence analyzer retains accepted and rejected observation records without
+granting live or physical qualification.
+
+Next collect that same-frame correlation in the game and establish displayed
+gate clearance and actual cartridge approach before admitting insertion
+trajectory or tolerance. Native accounting, miss/retry, close/regrip and
+interruption recovery remain separate gates for each exact class. The rejected
+generic grip-zone ergonomics are not fixed by adding this observer.
 
 ## Persistent-session boundary
 

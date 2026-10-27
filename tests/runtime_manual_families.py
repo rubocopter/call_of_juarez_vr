@@ -11,11 +11,13 @@ import zipfile
 
 sys.dont_write_bytecode = True
 sys.path[:0] = [str(Path(__file__).parent), str(Path(__file__).resolve().parents[1] / 'tools')]
-from indexed_reload_session import SessionVM
+import indexed_reload_session as indexed_session
 from indexed_manual_reload import original_archive, ARCHIVE
 from inspect_java_bytecode import parse_class, instruction_offsets, Reader, parse_constant_pool
 from reload_wait_probe import JVMThrown, VM, original
 from patch_coj_weapon_consumers import patch_manual_reload_classes
+from coj_manual_reload import runtime_reload_policy, NATIVE_CYCLE_PROFILES
+from coj_manual_families import INDEXED_WEAPONS, RUNTIME_GUARD_FIELDS
 
 
 @functools.lru_cache(None)
@@ -27,25 +29,30 @@ def production_builder(archive, kind):
     return production_classes()
 
 
-class FamilyVM(SessionVM):
+class FamilyVM(indexed_session.IndexedBodyCycleVM):
     def __init__(self, kind='WeaponPistolLemant', hand=0):
-        # SessionVM supplies the real Java hand/ticket backing fields. Replace
-        # only the constructor fixture for one-index classes after construction.
-        super().__init__(production_builder, kind if kind in (
+        # Reuse original Started/storage execution through the production builder.
+        # Replace the constructor fixture for one-index classes after construction.
+        super().__init__(kind if kind in (
             'WeaponPistolLemant', 'WeaponPistolDerringer',
-            'WeaponRifleRemington', 'WeaponRifleRemingtonSawOff') else 'WeaponPistolLemant', hand)
+            'WeaponRifleRemington', 'WeaponRifleRemingtonSawOff') else 'WeaponPistolLemant', hand,
+            builder=production_builder)
         self.weapon['class'] = kind
         self.clip = kind in ('WeaponPistolSchofield', 'WeaponPistolSchofield_A', 'WeaponPistolSchofield_B')
         if self.clip:
             self.capacities, self.types = [6], [2]
             self.weapon['m_iAmmo0Count'] = 2
+        elif kind in runtime_reload_policy() and kind not in INDEXED_WEAPONS:
+            self.capacities = [NATIVE_CYCLE_PROFILES.get(kind, 6)]
+            self.types = [0 if kind in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope',
+                                       'WeaponPistolCogswell') else 2]
         self.clip_calls = 0
 
     def _native(self, owner, name, args):
-        if name == 'IsReloadWholeClipAtOnce' and self.clip:
-            return True
-        if name == 'WeaponReload' and self.clip:
-            self.clip_calls += 1
+        if name == 'IsReloadWholeClipAtOnce' and self.weapon['class'] in runtime_reload_policy():
+            return runtime_reload_policy()[self.weapon['class']][0]
+        if name == 'WeaponReload' and self.weapon['class'] not in INDEXED_WEAPONS:
+            if self.clip: self.clip_calls += 1
             # Original whole-clip code reaches iinc at its ascending-loop tail.
             # The existing wait/cycle interpreter supports that opcode; the
             # indexed-only interpreter intentionally never needed that loop.
@@ -62,7 +69,250 @@ class FamilyVM(SessionVM):
         return self.boolean('cojvrInsertManualClip')
 
 
+class RuntimeIndexedBodyCycleTests(indexed_session.IndexedBodyCycleTests):
+    # All callback/debt/vector/exception cases run on the COMBINED derivative.
+    def make(self, kind='WeaponPistolLemant', hand=0, cycle=True):
+        # Production always enables the cycle; an unscoped replay must still
+        # invalidate it in the inherited naive-replay regression.
+        vm = FamilyVM(kind, hand); vm.wait(); return vm
+
+
 class RuntimeManualFamiliesTests(unittest.TestCase):
+    def test_changed_body_during_close_resolution_is_not_retargeted(self):
+        for kind in INDEXED_WEAPONS:
+            for hand in (0, 1):
+                for point in ('GetWeaponMoveState', 'SetDesiredWeaponState'):
+                    with self.subTest(kind=kind, hand=hand, point=point):
+                        vm = FamilyVM(kind, hand); vm.wait()
+                        vm.player['nAmmoRifle'] = 0
+                        vm.player['nAmmoShotgun' if 'Remington' in kind else 'nAmmoPistol'] = 1
+                        replacement = dict(vm.states[21]); injected = []
+                        native = vm.native
+                        def replace(owner, name, args):
+                            result = native(owner, name, args)
+                            if (name == point and not injected and
+                                    vm.frames[-1] == ('ArmedPlayerBeing','cojvrCloseIndexedSession')):
+                                injected.append(True)
+                                vm.machine['m_sCurrentState'] = replacement
+                            return result
+                        vm.native = replace
+                        accepted = vm.insert(1)
+                        self.assertEqual(injected, [True])
+                        self.assertFalse(accepted)
+                        self.assertIs(vm.machine['m_sCurrentState'], replacement,
+                                      'Close must not force end22 onto a substituted body')
+                        committed = vm.vector(), vm.events
+                        vm.native = native
+                        vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[hand])
+                        native = vm.native
+                        def natural(owner, name, args):
+                            if name == 'WeaponReload':
+                                return VM.run(vm,'PawnArmed',name,'(LWeapon;)Z',owner,args)
+                            return native(owner,name,args)
+                        vm.native = natural
+                        vm.update(1.); vm.update(1.4)
+                        self.assertEqual((vm.vector(), vm.events), committed)
+
+    def test_replaced_replay_body_is_rejected_and_late_original_completion_has_no_ammo(self):
+        for kind in INDEXED_WEAPONS:
+            for hand in (0, 1):
+                with self.subTest(kind=kind, hand=hand):
+                    vm = FamilyVM(kind, hand); vm.wait()
+                    replacement = dict(vm.states[21])
+                    def swap_body():
+                        vm.on_body = None
+                        vm.machine['m_sCurrentState'] = replacement
+                    vm.on_body = swap_body
+                    accepted = vm.insert(1)
+                    committed = vm.vector(), vm.events
+                    vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[hand])
+                    native = vm.native
+                    def natural(owner, name, args):
+                        if name == 'WeaponReload':
+                            return VM.run(vm, 'PawnArmed', name, '(LWeapon;)Z', owner, args)
+                        return native(owner, name, args)
+                    vm.native = natural
+                    vm.update(1.); vm.update(1.4)
+                    self.assertEqual((vm.vector(), vm.events), committed,
+                                     'Changed body must retain a zero-transfer completion fence')
+                    self.assertFalse(accepted, 'ID21 equality must not accept a different body object')
+                    self.assertIsNone(vm.player['cojvrIndexedDebtMachine'])
+                    vm.player['cojvrManualReloadWeapon'] = None
+                    vm.run('ArmedPlayerBeing','ReloadWeapon','(I)V',vm.player,[hand])
+                    vm.machine.update(m_sCurrentState=vm.states[20], start=1.4)
+                    vm.update(1.8); vm.update(2.2)
+                    self.assertGreater(sum(vm.vector()[0]), sum(committed[0][0]))
+                    self.assertEqual(vm.events, committed[1] + 1)
+
+    def test_body_identity_faults_before_started_and_after_last_getter_fence_late_authority(self):
+        for kind in INDEXED_WEAPONS:
+            for hand in (0, 1):
+                for point in ('parameter', 'clear', 'started', 'last_getter'):
+                    for mode in ('swap', 'probe_loss', 'throw', 'probe_loss_throw'):
+                        with self.subTest(kind=kind, hand=hand, point=point, mode=mode):
+                            vm = FamilyVM(kind, hand); vm.wait()
+                            replacement = dict(vm.states[21])
+                            exception = {'class':'Throwable','point':point,'unique':object()}
+                            injected = []
+                            def swap():
+                                if injected: return
+                                injected.append(True)
+                                vm.machine['m_sCurrentState'] = replacement
+                                if 'probe_loss' in mode:
+                                    vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[hand])
+                                if 'throw' in mode: raise JVMThrown(exception)
+                            def hook(when, name, owner, args):
+                                if when != 'after': return
+                                if point == 'parameter' and name == 'GetAmmoCapacity': swap()
+                                if (point == 'last_getter' and vm.body_starts == 2 and
+                                        name == 'GetAmmoCount' and args == [1] and
+                                        ('ArmedPlayerBeing','cojvrInsertManualIndexedRound') == vm.frames[-1]):
+                                    swap()
+                            vm.hook = hook
+                            if point == 'clear': vm.on_clear = swap
+                            if point == 'started': vm.on_body = swap
+                            native = vm.native
+                            def natural(owner, name, args):
+                                if name == 'WeaponReload':
+                                    return VM.run(vm,'PawnArmed',name,'(LWeapon;)Z',owner,args)
+                                return native(owner,name,args)
+                            vm.native = natural
+                            accepted = False
+                            if 'throw' in mode:
+                                with self.assertRaises(JVMThrown) as caught: vm.insert(1)
+                                self.assertIs(caught.exception.value, exception)
+                            else: accepted = vm.insert(1)
+                            self.assertEqual(injected, [True])
+                            self.assertEqual(vm.weapon['m_iAmmo0Count'], 0,
+                                             'No synchronous unselected unit may escape the fence')
+                            self.assertLessEqual(vm.events, 1)
+                            committed = vm.vector(), vm.events
+                            vm.hook = vm.on_clear = vm.on_body = None
+                            vm.run('ArmedPlayerBeing','cojvrClearReloadProbe','(I)V',vm.player,[hand])
+                            vm.update(1.); vm.update(1.4)
+                            self.assertEqual((vm.vector(),vm.events),committed)
+                            self.assertFalse(accepted)
+                            self.assertFalse(vm.player['cojvrIndexedCycleSelfClear'])
+                            self.assertFalse(vm.player['cojvrIndexedSessionBusy'])
+                            self.assertIsNone(vm.player['cojvrIndexedDebtMachine'])
+                            vm.player['cojvrManualReloadWeapon'] = None
+                            vm.run('ArmedPlayerBeing','ReloadWeapon','(I)V',vm.player,[hand])
+                            vm.machine.update(m_sCurrentState=vm.states[20],start=1.4)
+                            vm.update(1.8);vm.update(2.2)
+                            self.assertGreater(sum(vm.vector()[0]),sum(committed[0][0]))
+                            self.assertEqual(vm.events,committed[1]+1)
+
+    def test_all_fifteen_routes_reject_cross_family_callback_reentry(self):
+        self.assertEqual(len(runtime_reload_policy()), 15)
+        for kind in runtime_reload_policy():
+            for hand in (0, 1):
+                with self.subTest(kind=kind, hand=hand):
+                    vm = FamilyVM(kind, hand); vm.wait(); replies = []
+                    def reenter():
+                        replies.extend((vm.insert(0), vm.insert_clip(),
+                            vm.boolean('cojvrInsertManualNativeCycleRound'),
+                            vm.boolean('cojvrInsertManualRevolverRound'),
+                            vm.boolean('cojvrInsertManualRevolverRoundImpl'),
+                            vm.boolean('cojvrInsertManualRound'),
+                            vm.boolean('cojvrKeepManualReloadAlive')))
+                    vm.on_event = vm.on_body = vm.on_clear = reenter
+                    if kind in INDEXED_WEAPONS: accepted = vm.insert(1)
+                    elif vm.clip: accepted = vm.insert_clip()
+                    else: accepted = vm.boolean('cojvrInsertManualRound')
+                    self.assertTrue(accepted)
+                    self.assertTrue(replies)
+                    self.assertFalse(any(replies))
+                    self.assertEqual(vm.events, 1)
+                    self.assertEqual(vm.automatic_transfers, 0)
+
+    def test_indexed_production_restarts_original_body_and_requires_native_wait(self):
+        for kind in ('WeaponRifleRemington', 'WeaponRifleRemingtonSawOff',
+                     'WeaponPistolDerringer', 'WeaponPistolLemant'):
+            for hand in (0, 1):
+                with self.subTest(kind=kind, hand=hand):
+                    vm = FamilyVM(kind, hand); vm.wait(); starts = vm.body_starts
+                    self.assertTrue(vm.insert(1))
+                    self.assertEqual(vm.body_starts, starts + 1)
+                    self.assertEqual(vm.zero_reloads[-2:], [(0, 0), (1, 0)])
+                    self.assertEqual(vm.player['cojvrReloadProbeStatus'], 1)
+                    before = vm.vector(), vm.events
+                    self.assertFalse(vm.insert(0))
+                    self.assertEqual((vm.vector(), vm.events), before)
+                    vm.update(.8)
+                    self.assertEqual(vm.player['cojvrReloadProbeStatus'], 1)
+                    vm.update(.96)
+                    self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
+                    self.assertTrue(vm.insert(0))
+
+    def test_both_selected_indices_replay_with_typed_readback_in_either_hand(self):
+        for kind in INDEXED_WEAPONS:
+            for hand in (0, 1):
+                for index in (0, 1):
+                    with self.subTest(kind=kind, hand=hand, index=index):
+                        vm = FamilyVM(kind, hand); vm.wait()
+                        counters = tuple(vm.counters)
+                        maxima = tuple(c['nMaxAmount'] for c in counters)
+                        starts = vm.body_starts
+                        self.assertTrue(vm.insert(index))
+                        self.assertEqual(vm.vector(),
+                            (tuple(int(i == index) for i in (0, 1)),
+                             tuple(9 if p == vm.types[index] else 10 for p in range(3))))
+                        self.assertTrue(all(a is b for a, b in zip(counters, vm.counters)))
+                        self.assertEqual(tuple(c['nMaxAmount'] for c in vm.counters), maxima)
+                        self.assertEqual((vm.body_starts, vm.events), (starts + 1, 1))
+                        self.assertEqual(vm.player['cojvrReloadProbeStatus'], 1)
+                        before = vm.vector(), vm.events
+                        self.assertFalse(vm.insert(index))
+                        self.assertEqual((vm.vector(), vm.events), before)
+                        vm.update(.96)
+                        self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
+
+    def test_replay_replacement_probe_loss_throw_retains_debt_until_native_retirement(self):
+        for kind in INDEXED_WEAPONS:
+            for hand in (0, 1):
+                for index in (0, 1):
+                    for point in ('on_body', 'on_clear', 'on_event'):
+                        with self.subTest(kind=kind, hand=hand, index=index, point=point):
+                            vm = FamilyVM(kind, hand); vm.wait(); retained = vm.weapon
+                            exception = {'class': 'Throwable', 'unique': object()}
+                            def replace_and_throw():
+                                setattr(vm, point, None)
+                                vm.weapon = dict(retained, m_iAmmo0Count=0, m_iAmmo1Count=0)
+                                for slot in range(3): vm.slots[hand][slot] = vm.weapon
+                                retained['cOwner'] = {'class': 'foreign'}
+                                vm.run('ArmedPlayerBeing', 'cojvrClearReloadProbe', '(I)V', vm.player, [hand])
+                                raise JVMThrown(exception)
+                            setattr(vm, point, replace_and_throw)
+                            with self.assertRaises(JVMThrown) as caught: vm.insert(index)
+                            self.assertIs(caught.exception.value, exception)
+                            self.assertIs(vm.player['cojvrIndexedDebtMachine'], vm.machine)
+                            self.assertIs(vm.player['cojvrIndexedDebtBody'], vm.states[21])
+                            self.assertTrue(vm.player['cojvrIndexedFaulted'])
+                            for latch in ('cojvrIndexedBusy', 'cojvrIndexedSessionBusy',
+                                          'cojvrIndexedSessionDispatch', 'cojvrIndexedCycleSelfClear'):
+                                self.assertFalse(vm.player.get(latch, False), latch)
+                            self.assertEqual((retained['m_iAmmo0Count'], retained['m_iAmmo1Count']),
+                                             tuple(int(i == index) for i in (0, 1)))
+                            self.assertEqual(vm.events, 1)
+                            before = vm.vector()
+                            native = vm.native
+                            def natural(owner, name, args):
+                                if name == 'WeaponReload':
+                                    return VM.run(vm, 'PawnArmed', name, '(LWeapon;)Z', owner, args)
+                                return native(owner, name, args)
+                            vm.native = natural
+                            self.assertFalse(vm.insert(1-index))
+                            vm.update(1.); vm.update(1.4)
+                            self.assertEqual(vm.vector(), before)
+                            self.assertEqual(vm.events, 1)
+                            self.assertIsNone(vm.player['cojvrIndexedDebtMachine'])
+                            vm.player['cojvrManualReloadWeapon'] = None
+                            vm.run('ArmedPlayerBeing', 'ReloadWeapon', '(I)V', vm.player, [hand])
+                            vm.machine.update(m_sCurrentState=vm.states[20], start=1.4)
+                            vm.update(1.8); vm.update(2.2)
+                            self.assertGreater(sum(vm.vector()[0]), 0)
+                            self.assertEqual(vm.events, 2)
+
     def test_first_heartbeat_probe_loss_throw_fences_original_completion_and_recovers(self):
         cases=[(kind,hand,False) for kind in ('WeaponPistolLemant','WeaponRifleRemington','WeaponPistolSchofield')
                for hand in (0,1)]+[('WeaponPistolLemant',0,True)]
@@ -381,23 +631,24 @@ class RuntimeManualFamiliesTests(unittest.TestCase):
         self.assertEqual((vm.vector(),vm.events,vm.automatic_transfers),(before,0,0))
 
     def test_direct_family_entries_reject_other_active_or_faulted_family_without_callbacks(self):
-        fields = ('cojvrManualCycleActive', 'cojvrManualCycleFaulted', 'cojvrIndexedBusy',
-                  'cojvrIndexedFaulted', 'cojvrIndexedSessionBusy', 'cojvrClipBusy', 'cojvrClipFaulted',
-                  'cojvrManualFamiliesActive','cojvrManualFamiliesFaulted')
-        for field in fields:
-            vm = FamilyVM(); vm.wait(); vm.player[field] = True
+        for kind in runtime_reload_policy():
+            vm = FamilyVM(kind); vm.wait()
             before = vm.vector()
             native = vm.native
             def forbidden(owner, name, args):
                 raise AssertionError('Guard called a native boundary: ' + name)
             vm.native = forbidden
-            for name, desc, args in (('cojvrInsertManualIndexedRound', '(I)Z', [1]),
-                                     ('cojvrInsertManualClip', '()Z', []),
-                                     ('cojvrInsertManualNativeCycleRound', '()Z', []),
-                                     ('cojvrInsertManualRevolverRound','()Z',[]),
-                                     ('cojvrInsertManualRound','()Z',[])):
-                with self.subTest(field=field, name=name):
-                    self.assertFalse(vm.run('ArmedPlayerBeing', name, desc, vm.player, args))
+            for field in RUNTIME_GUARD_FIELDS:
+                vm.player[field] = True
+                for name, desc, args in (('cojvrInsertManualIndexedRound', '(I)Z', [1]),
+                                         ('cojvrInsertManualClip', '()Z', []),
+                                         ('cojvrInsertManualNativeCycleRound', '()Z', []),
+                                         ('cojvrInsertManualRevolverRound','()Z',[]),
+                                         ('cojvrInsertManualRound','()Z',[]),
+                                         ('cojvrKeepManualReloadAlive','()Z',[])):
+                    with self.subTest(kind=kind, field=field, name=name):
+                        self.assertFalse(vm.run('ArmedPlayerBeing', name, desc, vm.player, args))
+                vm.player[field] = False
             vm.native = native
             self.assertEqual(vm.vector(), before)
 
@@ -475,6 +726,15 @@ class RuntimeManualFamiliesTests(unittest.TestCase):
         for player in (original('ArmedPlayerBeing'),production_classes()[0]):
             with self.assertRaises(ValueError):append_runtime_families(player)
 
+    def test_runtime_indexed_cycle_rejects_missing_production_owner_guards(self):
+        from coj_indexed_reload_session import _append_indexed_session
+        from coj_manual_reload import patch_manual_classes
+        lab, _ = patch_manual_classes(original('ArmedPlayerBeing'), original('StateMashine'),
+                                      _offline_indexed='WeaponPistolLemant')
+        with self.assertRaisesRegex(ValueError, 'canonical runtime'):
+            _append_indexed_session(lab,
+                helper_name='cojvrInsertManualIndexedRound', runtime=True, cycle_animation=True)
+
     def test_unscoped_inner_indexed_transfer_cannot_bypass_family_entry(self):
         vm=FamilyVM();vm.wait()
         def inner():
@@ -525,19 +785,22 @@ class RuntimeManualFamiliesTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             # A corrupt appended body must actually be loaded, rather than
             # silently verifying the original class from another class path.
-            code=next(m.code for m in parse_class(player)[1]
-                      if (m.name,m.descriptor)==('cojvrInsertManualIndexedRound','(I)Z'))
-            self.assertEqual(player.count(code),1)
-            damaged=player.replace(code,b'\xfe'+code[1:],1)
-            invalid=root/'invalid.pak'
-            with zipfile.ZipFile(target) as source,zipfile.ZipFile(invalid,'w') as out:
-                for info in source.infolist():
-                    out.writestr(info,damaged if info.filename=='ArmedPlayerBeing.class'
-                                 else source.read(info.filename))
-            rejected=subprocess.run([str(java),'-Xverify:all','-cp',str(root)+';'+str(invalid),
-                                     'VerifyManualClip'],capture_output=True,text=True,timeout=30)
-            self.assertNotEqual(rejected.returncode,0)
-            self.assertIn('VerifyError',rejected.stdout+rejected.stderr)
+            for signature in (('cojvrInsertManualIndexedRound','(I)Z'),
+                              ('cojvrIndexedCycleSuppressCompletion','(II)Z')):
+                with self.subTest(corrupt=signature):
+                    code=next(m.code for m in parse_class(player)[1]
+                              if (m.name,m.descriptor)==signature)
+                    self.assertEqual(player.count(code),1)
+                    damaged=player.replace(code,b'\xfe'+code[1:],1)
+                    invalid=root/'invalid.pak'
+                    with zipfile.ZipFile(target) as source,zipfile.ZipFile(invalid,'w') as out:
+                        for info in source.infolist():
+                            out.writestr(info,damaged if info.filename=='ArmedPlayerBeing.class'
+                                         else source.read(info.filename))
+                    rejected=subprocess.run([str(java),'-Xverify:all','-cp',str(root)+';'+str(invalid),
+                                             'VerifyManualClip'],capture_output=True,text=True,timeout=30)
+                    self.assertNotEqual(rejected.returncode,0)
+                    self.assertIn('VerifyError',rejected.stdout+rejected.stderr)
 
 
 if __name__ == '__main__':

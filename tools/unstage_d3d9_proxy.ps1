@@ -6,6 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "deployment_transaction.ps1")
 . (Join-Path $PSScriptRoot "openvr_input_manifest.ps1")
+. (Join-Path $PSScriptRoot "coj_executable_identity.ps1")
 
 $GameDirectory = [System.IO.Path]::GetFullPath($GameDirectory)
 $Destination = Join-Path $GameDirectory "d3d9.dll"
@@ -45,8 +46,9 @@ $ExecutableManaged = $StageState.PSObject.Properties.Name -contains "executableM
 $Executable = Join-Path $GameDirectory "CoJ.exe"
 $ExecutableBackup = Join-Path $GameDirectory "CoJ.cojvr-backup.exe"
 if ($ExecutableManaged) {
-    if ([string]$StageState.originalExecutableSha256 -ne "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE" -or
-        [string]$StageState.stagedExecutableSha256 -ne "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9" -or
+    $ExactBuild = Get-CoJExactExecutableBuild ([string]$StageState.originalExecutableSha256)
+    if ($null -eq $ExactBuild -or
+        [string]$StageState.stagedExecutableSha256 -ne $ExactBuild.Derived -or
         (Get-CojvrFileSha256 $Executable) -ne [string]$StageState.stagedExecutableSha256 -or
         (Get-CojvrFileSha256 $ExecutableBackup) -ne [string]$StageState.originalExecutableSha256) {
         throw "CoJ.exe or its original backup changed; refusing incomplete restoration."

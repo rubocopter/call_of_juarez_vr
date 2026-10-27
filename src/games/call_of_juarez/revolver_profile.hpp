@@ -41,9 +41,9 @@ inline constexpr std::array<CoJRevolverProfile,15> kCoJRevolvers{{
     {"WeaponRifleWinchesterScope",false,CoJReloadReserveKind::rifle,true,true,CoJManualReloadKind::unit,true,{12,0}},
     // WpnAmmoPistolVolcanic -> WpnAmmoPistol: native type2/pistol reserve.
     {"WeaponPistolVolcanic",false,CoJReloadReserveKind::pistol,true,false,CoJManualReloadKind::unit,true,{8,0}},
-    {"WeaponRifleRemington",false,CoJReloadReserveKind::shotgun,false,true,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::shotgun},
-    {"WeaponRifleRemingtonSawOff",false,CoJReloadReserveKind::shotgun,false,false,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::shotgun},
-    {"WeaponPistolDerringer",false,CoJReloadReserveKind::pistol,false,false,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::pistol},
-    {"WeaponPistolLemant",false,CoJReloadReserveKind::rifle,false,false,CoJManualReloadKind::indexed,true,{1,8},2,CoJReloadReserveKind::pistol}
+    {"WeaponRifleRemington",false,CoJReloadReserveKind::shotgun,true,true,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::shotgun},
+    {"WeaponRifleRemingtonSawOff",false,CoJReloadReserveKind::shotgun,true,false,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::shotgun},
+    {"WeaponPistolDerringer",false,CoJReloadReserveKind::pistol,true,false,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::pistol},
+    {"WeaponPistolLemant",false,CoJReloadReserveKind::rifle,true,false,CoJManualReloadKind::indexed,true,{1,8},2,CoJReloadReserveKind::pistol}
 }};
 }

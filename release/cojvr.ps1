@@ -109,8 +109,10 @@ function Resolve-PublicResolution($Settings) {
 }
 function Assert-PublicNativeResolutionContext([string]$Game) {
     $Stage=Get-Content -LiteralPath (Join-Path $Game '.cojvr-d3d9-stage.json') -Raw | ConvertFrom-Json
-    $Expected='C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9'
-    if ($Stage.stagedExecutableSha256 -ne $Expected -or
+    . (Join-Path $PSScriptRoot 'tools/coj_executable_identity.ps1')
+    $Build = Get-CoJExactExecutableBuild ([string]$Stage.originalExecutableSha256)
+    $Expected = if ($null -ne $Build) { $Build.Derived } else { '' }
+    if (-not $Expected -or -not $Stage.executableManaged -or $Stage.stagedExecutableSha256 -ne $Expected -or
         (Get-FileHash -LiteralPath (Join-Path $Game 'CoJ.exe') -Algorithm SHA256).Hash -ne $Expected -or
         ($Stage.PSObject.Properties['independentEyeResolution'] -and $Stage.independentEyeResolution -ne 'off')) {
         throw 'Resolution profiles require the recognized LAA executable and ordinary native stereo. Recover/install first.'
@@ -367,17 +369,25 @@ function Start-PublicSession([string]$Game, [object]$State) {
     Write-Host "Fresh community session: $RunId. Keep SteamVR running and launch the game manually in D3D9 mode."
 }
 function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Reload, [bool]$ReloadSpecified) {
-    $Manifest = Read-CojvrRelease $PSScriptRoot
-    if ($RequestedAction -eq 'Verify') { Write-Host "Package $($Manifest.version): all files verified."; return }
     if ($RequestedAction -eq 'ConfigureResolution') {
+        # Saving a launcher preference is safe in a source checkout. A packaged
+        # launcher must still validate its complete manifest before execution.
+        if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'release-manifest.json') -PathType Leaf) {
+            [void](Read-CojvrRelease $PSScriptRoot)
+        }
         Assert-GameClosed
-        . (Join-Path $PSScriptRoot 'tools/coj_resolution_settings.ps1')
+        . (Get-CojvrResolutionSettingsHelper $PSScriptRoot)
         $Path=$ResolutionSettingsPath
         if ([string]::IsNullOrWhiteSpace($Path)) {$Path=Get-CoJResolutionSettingsPath}
         [void](Write-CoJResolutionSettings -Path $Path -Profile $ResolutionProfile -Width $ResolutionWidth -Height $ResolutionHeight)
         Write-Host "Saved resolution profile: $ResolutionProfile. Apply through Prepare session while the game is closed."
         return
     }
+    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'release-manifest.json') -PathType Leaf)) {
+        throw 'Complete release package required for this action. Download and extract the release ZIP; source checkout scripts cannot install/update the game.'
+    }
+    $Manifest = Read-CojvrRelease $PSScriptRoot
+    if ($RequestedAction -eq 'Verify') { Write-Host "Package $($Manifest.version): all files verified."; return }
     if ($RequestedAction -eq 'Diagnose') {
         $Reports = Join-Path $env:LOCALAPPDATA 'CoJVR/Reports'
         $Zip = New-CojvrPublicReport -GameDirectory $Game -OutputDirectory $Reports -Version $Manifest.version
@@ -403,7 +413,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
     Assert-GameClosed
     if (-not [Environment]::Is64BitOperatingSystem) { throw 'This package requires 64-bit Windows; the game remains x86.' }
     # Check originals before creating anything in the game directory.
-    if ($RequestedAction -eq 'Install' -and $null -eq $State) { Assert-CojvrPublicGame $Game }
+    if ($RequestedAction -eq 'Install' -and $null -eq $State) { [void](Assert-CojvrPublicGame $Game) }
     $LockPath = Join-Path $Game '.cojvr-public.lock'
     Assert-CojvrNoReparse $LockPath
     $Lock = [IO.File]::Open($LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
@@ -420,7 +430,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
         [void](Read-PublicResolutionSettings)
         if ($RequestedAction -eq 'PrepareSession') {
             if ($null -eq $State -or $State.phase -ne 'installed') { throw 'Install the mod or recover its interrupted installation first.' }
-            Assert-CojvrPublicGame $Game -Installed
+            [void](Assert-CojvrPublicGame $Game -Installed)
             Start-PublicSession $Game $State
             return
         }
@@ -428,7 +438,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             $Reload = if ($null -ne $State) { [bool]$State.manualReload } else { $true }
         }
         if ($null -ne $State) { Assert-PublicStageIdentity $Game $State }
-        if ($null -ne $State -and $State.phase -eq 'installed') { Assert-CojvrPublicGame $Game -Installed }
+        if ($null -ne $State -and $State.phase -eq 'installed') { [void](Assert-CojvrPublicGame $Game -Installed) }
         $VideoPath = $VideoSettingsPath
         if ([string]::IsNullOrWhiteSpace($VideoPath)) {
             $VideoPath = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'call of juarez/out/Settings/Video.scr'
@@ -440,7 +450,10 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
         if ($LASTEXITCODE -ne 0) { throw 'Bundled Python/patcher self-check failed. Extract the complete release again.' }
         Install-PublicRuntime $Manifest
         if ($null -ne $State) { Restore-PublicInstall $Game $State }
-        Assert-CojvrPublicGame $Game
+        $ExactBuild = Assert-CojvrPublicGame $Game
+        $IsGog = $ExactBuild.Edition -eq 'gog'
+        Write-Host ('Verified game edition: ' + $ExactBuild.Edition)
+        if ($IsGog) { Write-Host 'GOG compatibility is experimental and limited to this exact build.' }
         if (Test-Path -LiteralPath (Join-Path $Game 'd3d9.dll')) { throw 'Another d3d9.dll mod is installed. Remove it with its own installer first.' }
         $Build = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'payload/d3d9_native_stereo.build-manifest.json') -Raw | ConvertFrom-Json
         $InstallId = [guid]::NewGuid().ToString('N')
@@ -450,7 +463,7 @@ function Invoke-PublicAction([string]$RequestedAction, [string]$Game, [bool]$Rel
             & (Join-Path $PSScriptRoot 'tools/stage_d3d9_proxy.ps1') -GameDirectory $Game `
                 -ProxyPath (Join-Path $PSScriptRoot 'payload/d3d9_native_stereo.dll') `
                 -BuildManifestPath (Join-Path $PSScriptRoot 'payload/d3d9_native_stereo.build-manifest.json') `
-                -RunId $State.runId -PythonExecutable $Python -IndependentHands -LargeAddressAware -ManualReload:$Reload
+                -RunId $State.runId -PythonExecutable $Python -IndependentHands -LargeAddressAware -ManualReload:$Reload -ExperimentalGog:$IsGog
             & (Join-Path $PSScriptRoot 'tools/set_hmd_camera_control.ps1') -GameDirectory $Game -Mode enable
             & (Join-Path $PSScriptRoot 'tools/set_hmd_camera_control.ps1') -GameDirectory $Game -Mode body-enable
             [void](Apply-CoJVrVideoProfile -VideoPath $VideoPath -StatePath (Join-Path $Game '.cojvr-public-video.json') -BackupPath (Join-Path $Game '.cojvr-public-video.backup'))
@@ -496,9 +509,11 @@ try {
             }
             if ($Choice -eq '7') {
                 try {
-                    [void](Read-CojvrRelease $PSScriptRoot)
+                    if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'release-manifest.json') -PathType Leaf) {
+                        [void](Read-CojvrRelease $PSScriptRoot)
+                    }
                     Assert-GameClosed
-                    . (Join-Path $PSScriptRoot 'tools/coj_resolution_settings.ps1')
+                    . (Get-CojvrResolutionSettingsHelper $PSScriptRoot)
                     Show-PublicResolutionSelector
                 } catch { Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red }
                 continue
@@ -508,4 +523,4 @@ try {
             try { Invoke-PublicAction $Requested $Game $ManualReload.IsPresent $PSBoundParameters.ContainsKey('ManualReload') } catch { Write-Host ("ERROR: " + $_.Exception.Message) -ForegroundColor Red }
         }
     }
-} catch { Write-Error $_; exit 1 }
+} catch { Write-Host ('ERROR: ' + $_.Exception.Message); exit 1 }

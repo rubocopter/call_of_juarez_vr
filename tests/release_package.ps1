@@ -76,7 +76,7 @@ try {
     $Manifest = Assert-ReleaseInventory $Root
     $PlayerManifest = Read-PlayerRelease $Root
     Assert-True ($PlayerManifest.version -ceq $Manifest.version -and $PlayerManifest.files.Count -eq $Manifest.files.Count) 'Shipped validator and independent inventory disagree.'
-    foreach ($Required in @('cojvr.ps1', 'CoJ-VR.cmd', 'dependencies.lock.json', 'THIRD_PARTY_NOTICES.txt',
+    foreach ($Required in @('cojvr.ps1', 'cojvr-gui.ps1', 'CoJ-VR.cmd', 'dependencies.lock.json', 'THIRD_PARTY_NOTICES.txt',
         'licenses/OpenVR-LICENSE.txt', 'LICENSE', 'COPYRIGHT_AND_REUSE.md', 'SOURCE_COMMIT.txt', 'payload/d3d9_native_stereo.dll', 'payload/openvr_api.dll',
         'payload/d3d9_native_stereo.build-manifest.json', 'payload/cojvr_openvr_input/actions.json',
         'payload/cojvr_openvr_input/bindings/psvr2_sense.json', 'dependencies/python/python.exe',
@@ -89,7 +89,7 @@ try {
     Assert-True ($SourceNotice.Contains($Manifest.sourceCommit) -and
         $SourceNotice.Contains("https://github.com/rubocopter/call_of_juarez_vr/tree/$($Manifest.sourceCommit)")) 'Missing exact source revision in release notice.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $Root 'LICENSE') -Raw).Contains('GNU GENERAL PUBLIC LICENSE')) 'Missing GPL license body.'
-    $ExpectedTools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
+    $ExpectedTools = @('coj_executable_identity.ps1', 'deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
         'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_settings.ps1','coj_resolution_session.ps1',
         'coj_resolution_profiles.py','cojvr_openvr_resolution_query.exe','cojvr_d3d9_resolution_limits.exe','openvr_api.dll','patch_coj_weapon_consumers.py',
         'inspect_java_bytecode.py', 'coj_loading_ui.py', 'coj_scoped_rifle.py', 'coj_fx_definitions.py',

@@ -279,6 +279,36 @@ not a native retained-reference/preimage/restore transaction or string endpoints
 The bow-root map does not introduce a writer for that separate object. A coherent
 root ray does not prove drawn-arrow alignment or physical string interaction.
 
+## Scoped rifle optics and shot agreement
+
+The scene-scope adapter and its optical sight currently use the same verified
+pre-spread muzzle ray. The two-hand path rereads the barrel after parent/socket
+and weapon writes; moving the child before the hands would invalidate that
+agreement. The scope retains head translation and a magnification-compensated
+binocular baseline. Its reference point is on that ray at
+`min(5000 cm, 0.95 * far_plane)` camera-forward depth, not a native impact.
+
+Projection characterization demonstrates finite-depth parallax: an off-axis
+muzzle viewed from a head-centred camera moves on screen as the target depth
+changes, even for points on the identical unspread ray. Magnification increases
+that displacement. A common frustum translation or constant crosshair offset
+cannot remove it at arbitrary near and far depths. This identifies a limitation
+of the present optical model, not the cause of the operator's reported miss.
+
+The exact `ArmedPlayerBeing.GetFireDirForWeapon` retains native per-hand accuracy
+and randomized direction; the naturally scheduled `WeaponFire.AttackFire`
+vector overload subsequently receives ballistic/visual origins and directions
+after accuracy/pellet composition. Missile initialization can additionally apply
+owner velocity and gravity. Neither a published tracked cache nor an attack/FX
+counter proves the final projectile ray or impact. Calling the random direction
+getter merely to observe it would change the shot and is forbidden.
+
+Qualify naturally reached firing vectors and the meanings of native hit-vector
+arguments, with same-weapon, capture/pose and target-depth correlation, before
+changing optical zero, viewpoint or native spread. No constant reticle bias or
+ballistic mutation is admitted by this characterization. Actual zoomed shot
+agreement remains physically rejected in Validation.
+
 ## Shot visualization and emitter ownership
 
 Matching hand/weapon readbacks through both views and successful restoration

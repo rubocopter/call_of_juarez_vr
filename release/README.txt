@@ -1,5 +1,22 @@
-Call of Juarez VR 0.1.0-prealpha.6 - experimental player package
+Call of Juarez VR 0.1.0-prealpha.7 - experimental player package
 Experimental community-testing prerelease
+
+These instructions describe a package containing cojvr-gui.ps1. Older downloaded
+archives may still open the numbered launcher; use the README included with
+your particular ZIP. This .7 player package opens the graphical installer.
+
+Players run CoJ-VR.cmd from a completely extracted player release ZIP. Its
+release-manifest.json binds every included file to its hash.
+In the developer repository, the same release/CoJ-VR.cmd graphical entry also
+works: its first action automatically prepares and verifies a local player
+package using the existing native Release build. Progress stays in the window;
+subsequent actions reuse the package after verifying it again. Changed installer
+or native artifact bytes select a new package. No manual copying of manifests
+or switching folders is needed. This developer route requires an existing
+build from tools/package_release.ps1; it does not compile missing native code.
+Local dirty packages are for testing and are not published releases.
+Saving a resolution choice works immediately and applies it on the next
+Install/update or Prepare session. Incomplete player ZIPs still reject safely.
 
 The complete campaign is not tested. Crashes can block or lose progress.
 Back up your saves before testing. This package does not promise support or
@@ -18,14 +35,32 @@ RELEASE_NOTES.md lists changes since .5 and their acceptance limits.
 IMPORTANT: NEW MANUAL RELOAD PATHS ARE EXPERIMENTAL. Earlier single-round
 revolver loading and base Schofield whole-clip loading have scoped functional
 operator feedback. New model paths, the new textured Schofield bundle and the
-latest scope/body correction have host tests only. Use launcher option 8 to
-disable manual reload for conventional native handling. This release does not
+latest scope/body correction have host tests only. In the graphical installer,
+choose Advanced > Off, then Install/update with the game closed, to restore
+conventional native reload. This release does not
 establish general hardware or campaign support.
+
+Current validation: the 27 October PS VR2 Steam session accepts encountered
+campfires/environmental effects and the corrected horse peripheral effect.
+Mounted steering remains difficult; holding R1 also invokes native gallop and
+increases speed. This does not establish reduced nausea or general comfort.
+Winchester insertion requires a precise small target and its support hand can
+adopt unnatural poses; these ergonomics remain unresolved. Scoped shot agreement
+and head-yaw isolation remain separate gates. The latest canonical telemetry
+profile rejects its eye-baseline comparison; scoped operator feedback does not
+override that verdict. See Validation and Roadmap in the corresponding source.
+
+New in .7: graphical Steam/GOG installation selection, experimental exact GOG
+build admission, indexed native per-unit reload feedback/cycles, stronger held-
+trigger recovery, measured Winchester geometry diagnostics and corrected horse
+mask projection. Experimental GOG compatibility includes one successful local
+play/save-load test, not a second general support commitment.
 
 REQUIREMENTS
 
 - Windows 10/11 x64 host; the game and VR game DLL remain x86.
-- Original Steam Call of Juarez (2006), x86 game, D3D9 renderer.
+- Original Steam Call of Juarez (2006), or the verified GOG build (experimental),
+  x86 game, D3D9 renderer. Other builds or modified originals are rejected.
   Installation checks exact game identities and rejects unknown builds.
 - SteamVR (OpenVR), a PCVR headset and its drivers, and GPU drivers.
   You supply the game, SteamVR and drivers; they are not in this ZIP.
@@ -101,8 +136,8 @@ Either hand's trigger selects with that hand's menu pointer.
 To save/load, tap and release the profile's Pause control, then select Save/Load
 in the native pause menu when the campaign permits. Quick Save/Quick Load have
 no default controller binding; optional actions can be assigned in SteamVR.
-Launcher option 9 - Controls and startup help shows pause/menu controls by
-profile and the startup sequence. Custom SteamVR bindings may differ.
+The legacy command-line menu (cojvr.ps1 -Action Menu), option 9, provides
+startup help. Custom SteamVR bindings may differ.
 
 Move: L stick (Vive: L trackpad). Turn: R stick (Vive: R trackpad).
 Ordinary turning is smooth and proportional, up to 90 degrees/second in native
@@ -146,8 +181,8 @@ the new controller-only scope/body-yaw correction is host-tested only.
 Mounted Gatling: R2 fires; right stick aims horizontally and vertically.
 Exercised firing/traversal works; precise aiming and recovery remain open.
 Horse: left stick supplies forward/backward and reins; right stick is rider
-free look, R1 gallop. Head-gaze steering/retained-reins corrections and optional
-peripheral comfort remain physically unqualified.
+free look, R1 gallop. Head-gaze steering/retained-reins recovery remains physically unqualified. The
+corrected peripheral effect has scoped visual acceptance; overall comfort does not.
 Virtual holsters (on foot outside duels): freshly press R1 at the right hip
 or L1 at the left hip for pistols; R1 above/behind the right shoulder for the
 long weapon, L1 above/behind the left shoulder for the bow. Release between
@@ -165,32 +200,46 @@ INSTALL / UPDATE
 2. Back up your saves and close Call of Juarez.
 3. Start SteamVR manually BEFORE Install/update for Auto/percentage profiles.
    Auto is the default when no resolution preference is saved.
-4. Double-click CoJ-VR.cmd, choose Install/update and select the game directory.
-   Ordinary stereo, independent hands, native torso/legs and physical Hands combat
-   are enabled. Manual reload starts on for a fresh installation; updates retain
-   its installed on/off choice. Option 8 - Manual reload on/off changes it through
-   Install/update while the game is closed, without scripting flags.
+4. Double-click CoJ-VR.cmd to open the graphical installer. It looks for the
+   original Call of Juarez (Steam AppID 3020 or registered GOG installation), including additional Steam
+   libraries and a different install-folder name recorded in its Steam manifest.
+   If several installations are found, select the intended folder from the game
+   directory dropdown. Use Find game to scan again, or Browse if no folder is
+   detected. A folder containing CoJ.exe and ChromeEngine3.dll shows a green
+   status hint; this is only discovery, and installation still validates the
+   exact supported game build before changing any game files.
+   Click Verify package, then Install / update. Ordinary stereo, independent
+   hands, native torso/legs and physical Hands combat are enabled. Manual reload
+   starts on for new installations; updates retain the installed on/off choice.
+   The Western-style header depicts a drawn frontier landscape; the package does
+   not include original game artwork. All six actions run in the same window,
+   with progress and command output shown below the settings. The installer
+   does not start SteamVR or Call of Juarez for you.
 5. Installation prepares the first session using the saved resolution profile.
-   Resolution selection is optional: to change it, choose 7 - Resolution profiles,
-   then 6 - Prepare session before starting the D3D9 game manually. No additional
-   preparation is needed if you keep the profile used during installation.
+   To change it, select Preserve, Auto, 75%, 100%, 125% or Manual (per-eye
+   width/height) under Resolution, then click Save resolution choice. Click
+   Prepare play session with the game closed to apply the newly saved profile.
+   No extra preparation is needed if you keep the profile used at installation.
    Start and close the game and SteamVR manually. Avoid switching desktop focus
    while playing: the original game can crash when it loses focus.
 
-Before EVERY subsequent play session, close the game and choose menu option
-6 - Prepare session. This creates a fresh diagnostic identity and applies the
+Before EVERY subsequent play session, close the game and click
+Prepare play session. This creates a fresh diagnostic identity and applies the
 saved resolution profile for that play session. It retains the installed feature
 set without repatching game archives. Start SteamVR manually before preparation
 for Auto/percentage profiles, then start the D3D9 game manually.
 
 MANUAL RELOAD
 
-Choose 8 - Manual reload on/off with the game closed: 1 On enables the motion
-reload below; 2 Off restores conventional reload; 0 Cancel leaves the installation
-unchanged. Choosing On/Off immediately performs Install/update and prepares the
-session. Tracked head/body, independent hands and physical melee remain enabled.
+In the installer, Advanced > manual reload installation mode offers Keep current,
+On (motion-controlled reload) and Off (conventional native reload). With the game
+closed, select the desired choice and click Install / update to apply and prepare
+the session. Changing the dropdown alone does not change the installation.
+Tracked head/body, independent hands and physical melee remain enabled.
 Ordinary updates preserve the installed choice, and Prepare session respects it
 without repatching the archives. Start SteamVR first for Auto/percentage profiles.
+An in-game Options > Game toggle is not currently implemented. Safe runtime
+enable/disable and cancellation of held cartridges require separate validation.
 
 With an admitted firearm, missing rounds, matching reserve and an empty free hand:
 press Reload (Sense: Square) to open; press/hold the free-hand trigger at your
@@ -215,6 +264,9 @@ The 15 admitted exact classes are:
   pistol-reserve rounds in its second. Pickup chooses the first eligible slot
   and keeps that choice until insertion/cancellation; a held cartridge is not
   redirected if another pool becomes available.
+  These indexed weapons replay the native loading cycle after each inserted
+  unit when ammunition remains. Wait for loading to become available again,
+  then use a fresh pickup; a held trigger cannot queue another unit.
 - Schofield base, Schofield_A and Schofield_B: one deliberate bundle loads the
   missing portion of the six-round clip, limited by pistol reserve, then closes.
   The new textured bundle depicts that offered amount. This is whole-clip loading,
@@ -227,9 +279,10 @@ A/B and the other newly integrated model paths have host tests only. These
 results do not accept every revolver or the complete combined reload variant.
 Accepted insertions retain native-confirmed feedback. Cartridge grip/occlusion,
 precise loading mouths, per-model ammunition visuals and broader interruptions
-remain unfinished. Indexed per-unit mechanical animation is not implemented.
-Unsupported weapons retain native reload handling; turn manual reload off via
-option 8 if these experimental interactions are unusable.
+remain unfinished. Indexed per-unit native replay has host tests; its mechanical
+appearance and interruption recovery still need in-game/headset qualification.
+Unsupported weapons retain native reload handling; choose Advanced > Off and
+Install / update if experimental manual reload is unusable.
 
 IMAGE RESOLUTION
 
@@ -238,7 +291,8 @@ resolution. SteamVR supplies headset optics, but increasing SteamVR's render
 resolution percentage alone does not increase native game detail or make the
 game render at SteamVR's recommended per-eye resolution.
 
-Close the game and choose 7 - Resolution profiles, then 6 - Prepare session.
+Close the game, save the resolution choice in the graphical installer, then click
+Prepare play session to apply it.
 Auto is used only when no preference is saved. Every explicitly saved choice,
 including Preserve and Manual, survives updates. Preserve retains the selected
 game size. Auto/100% use the SteamVR helper's recommended per-eye extent, NOT
@@ -267,7 +321,7 @@ mounted peripheral comfort. Effects default off. Menu layout, image quality,
 comfort and sustained cost have host tests only. Theater and VR overlays are
 outside the spatial filter pass. DLAA/DLSS selections save a request but keep
 native rendering active; there is no integrated game reconstruction or measured
-performance gain. Use launcher option 7 then 6 for this package's resolution:
+performance gain. Save the launcher resolution choice and prepare a session:
 the native menu's saved render-scale request does not replace that profile.
 
 Profile intent persists across update/uninstall, independently of cinematic
@@ -276,7 +330,7 @@ Uninstall/recovery restores the session and installation video originals in orde
 intervening game/user edits are retained in verified adjacent conflict copies.
 Retain recovery journals and backups on errors. Avoid live resolution changes.
 
-If a protected Steam game folder causes Access denied, right-click CoJ-VR.cmd,
+If a protected game folder causes Access denied, right-click CoJ-VR.cmd,
 choose Run as administrator and retry the operation.
 
 Redirected Documents folders, including OneDrive provider folders, are accepted
@@ -290,7 +344,7 @@ live OneDrive operation has not been validated.
 
 To update, extract a newer complete ZIP and choose Install/update again.
 There is no auto updater. All explicit resolution preferences persist, as does
-the installed manual reload on/off choice. Use option 8 to change reload safely;
+the installed manual reload on/off choice. Use Advanced > Off/On and Install / update to change reload safely;
 advanced noninteractive Install also accepts -ManualReload:$false or
 -ManualReload:$true. Prepare session retains the installed choice.
 Retain installation backups and recovery
@@ -298,8 +352,8 @@ data until uninstall has succeeded. Do not remove them to bypass an error.
 
 VERIFY / STATUS / DIAGNOSTICS / UNINSTALL
 
-Menu option 5 - Verify package checks package files without preparing a session.
-Use CoJ-VR.cmd for Status or Diagnostics. Diagnostics creates a local report;
+Verify package checks package files without preparing a session. Installation
+status reads the current installed state; Save diagnostics creates a local ZIP;
 it does not upload it. Close the game before choosing Uninstall to restore
 the installation's original files. If restoration fails, preserve the backups,
 recovery data and error output, then generate diagnostics and report the issue.
@@ -308,7 +362,7 @@ recovery across all campaign contexts are not validated.
 
 COMMAND LINE (from the extracted ZIP root)
 
-Replace the example game path with your Steam game directory:
+Replace the example game path with your Steam or GOG game directory:
 
 powershell -NoProfile -ExecutionPolicy Bypass -File .\cojvr.ps1 -Action Install -GameDirectory "C:\path\to\Call of Juarez"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\cojvr.ps1 -Action Uninstall -GameDirectory "C:\path\to\Call of Juarez"
@@ -322,6 +376,9 @@ Verify checks package files; it does not establish game/headset compatibility.
 Fresh Install enables manual reload; default updates preserve its installed
 choice. Advanced noninteractive Install accepts -ManualReload:$false or
 -ManualReload:$true to change it explicitly; menu option 8 provides the same choice.
+In the graphical installer, Advanced > On/Off and Install / update is the
+equivalent action; the old numbered menu remains available with
+powershell -File .\cojvr.ps1 -Action Menu.
 PrepareSession keeps the installed feature set and does not repatch archives.
 These are package-root commands; release\cojvr.ps1 is a source-repository path.
 
@@ -351,12 +408,18 @@ KNOWN LIMITATIONS
   and broad interruption recovery are unfinished. The support-hand correction is
   limited to normal weapon states; firing/alternate/reload can keep native fingers.
 - Render-only scoped head-yaw isolation still failed physically. The additional
-  body-yaw freeze and ordinary Winchester R2 correction have host tests only;
-  the ordinary rifle was not retested in the latest session. Scope-exit recovery,
-  precise shot agreement and other weapon zoom sharpness remain open.
+  body-yaw freeze has host tests only; ordinary Winchester R2 firing was accepted
+  in the 26 October PS VR2 session. Scoped zoom reticle vs actual bullet impact
+  is misaligned and remains rejected. Scope-exit recovery is still open.
+- Ordinary Winchester manual insertion misses the visible loading mouth and is
+  awkward in the exercised session; it requires measured port/contact geometry.
+- Horse riding caused severe nausea/speed/motion. The peripheral comfort mask
+  looked unfused with the setting enabled, so the operator switched it Off.
+  The saved diagnostics only sample Off and cannot explain the enabled mask.
 - Floating reload hints have a host-tested icon-expiry correction. Physical stability,
   binding-aware readability and immersive skip require physical checks.
-- Spatial graphics/comfort controls are host-tested only. DLAA/DLSS requests
+- Spatial graphics controls retain host coverage. The corrected horse effect
+  has scoped visual acceptance; broader comfort remains open. DLAA/DLSS requests
   leave game rendering native; no reconstruction or performance gain is claimed.
 - Native tutorial windows still show keyboard labels. Use the controls guide
   above; R3 zoom, Ray concentration and Circle/alternate fire are different actions.
@@ -376,10 +439,21 @@ https://github.com/rubocopter/call_of_juarez_vr/issues/new?template=bug_report.y
 
 PACKAGE CONTENTS
 
-CoJ-VR.cmd, cojvr.ps1, README.txt, RELEASE_NOTES.md, THIRD_PARTY_NOTICES.txt,
+CoJ-VR.cmd, cojvr-gui.ps1, cojvr.ps1, README.txt, RELEASE_NOTES.md, THIRD_PARTY_NOTICES.txt,
 LICENSE, COPYRIGHT_AND_REUSE.md, SOURCE_COMMIT.txt, payload\, tools\,
 dependencies\ and release-manifest.json.
 
 Unofficial project; not endorsed by Techland, Ubisoft, Valve or Sony.
 Original project code is GPL-3.0-or-later; see LICENSE and COPYRIGHT_AND_REUSE.md.
 Bundled dependencies retain their own terms in THIRD_PARTY_NOTICES.txt.
+
+Steam / GOG selection
+---------------------
+The folder list detects Steam libraries and GOG registered/default locations.
+If both copies are present, select the intended folder; Browse also accepts a
+custom/offline GOG location. The installer verifies the original executable,
+engine and archives by SHA-256 before changing files, then selects the matching
+installation path automatically. Folder names and store labels are not trusted.
+GOG compatibility is experimental, limited to the exact tested build; it does
+not establish full campaign or hardware support. Both editions use the same VR
+payload and reversible workflow. No game or SteamVR process is started for you.

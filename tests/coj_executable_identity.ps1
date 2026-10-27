@@ -13,6 +13,24 @@ function Must-Reject([scriptblock]$Action) {
     try { & $Action } catch { $rejected = $true }
     if (-not $rejected) { throw 'Unproven executable provenance was accepted.' }
 }
+foreach ($build in @(Get-CoJExactExecutableBuilds)) {
+    if ($build.Edition -eq 'steam' -and $build.Data0 -ne '5EB6EC4856E53226DFABAD929522706A21F02D428923A8C9C38804CC2CF11A94') { throw 'Steam Data0 identity drift.' }
+    if ($build.Edition -eq 'gog' -and $build.Data0 -ne 'F516250B98F73C872CA5A8CD0FDDD2C1EB74C8F118B9C99EFFE9C581C5382DD3') { throw 'GOG Data0 identity drift.' }
+    if (-not (Get-CoJExactExecutableBuild $build.Original)) { throw 'Exact original identity was not resolved.' }
+    $run.game.executable = @{sha256=$build.Original; knownExactBuild=$true}
+    $run.deployment = @()
+    Assert-CoJExecutableProvenance $run @{}
+    $run.game.executable = @{sha256=$build.Derived; originalSha256=$build.Original; knownExactBuild=$true; largeAddressAware=$true}
+    $run.deployment = @(@{role='game_executable'; destination='CoJ.exe'; sha256=$build.Derived; originalSha256=$build.Original})
+    $stage = @{executableManaged=$true; stagedExecutableSha256=$build.Derived; originalExecutableSha256=$build.Original}
+    Assert-CoJExecutableProvenance $run $stage
+    $run.game.executable.originalSha256 = $original
+    if ($build.Edition -eq 'gog') { Must-Reject { Assert-CoJExecutableProvenance $run $stage } }
+}
+if (Get-CoJExactExecutableBuild 'unknown') { throw 'Unknown original executable was accepted.' }
+$run.game.executable = @{sha256=$derived;originalSha256=$original;knownExactBuild=$true;largeAddressAware=$true}
+$run.deployment = @(@{role='game_executable';destination='CoJ.exe';sha256=$derived;originalSha256=$original})
+$stage = @{executableManaged=$true;stagedExecutableSha256=$derived;originalExecutableSha256=$original}
 $stage.originalExecutableSha256 = 'unknown'
 Must-Reject { Assert-CoJExecutableProvenance $run $stage }
 $stage.originalExecutableSha256 = $original

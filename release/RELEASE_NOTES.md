@@ -1,3 +1,91 @@
+# v0.1.0-prealpha.7 - Graphical installer, experimental GOG and reload recovery
+
+Community-testing prerelease for **Call of Juarez (2006), D3D9/OpenVR,
+Windows 10/11 x64**. Steam remains the reference edition; the exact verified
+GOG build is now admitted experimentally using the same VR payload. Back up
+saves. This release includes all source changes since prealpha.6 and retains
+its features. Publication does not establish full campaign or hardware support.
+
+## Changes since prealpha.6
+
+- **Graphical installer:** `CoJ-VR.cmd` opens a Western-themed Windows interface
+  for install/update, preparing sessions, status, package verification, local
+  reports and uninstall/recovery. Detect Steam libraries and appmanifest-defined
+  folders, registered/default GOG locations, rescan, choose between multiple
+  installations or Browse/type a custom path. Original executable, engine and
+  archive SHA-256 identities decide admission; folder names do not.
+- **Experimental GOG compatibility:** recognize the tested original and its exact
+  LAA derivative, matching GOG Data0 archive, game hooks and restoration hashes.
+  The operator successfully played and loaded existing Steam saves locally.
+  Unknown/mixed files still reject. This is limited compatibility of one tested
+  build, not parallel full support for a second edition.
+- **Resolution and launcher recovery:** retain saved Auto/percentage/Manual
+  profiles and manual-reload choice through updates and fresh sessions. Correct
+  asynchronous GUI completion/error handling and PowerShell module inheritance.
+  Source-checkout GUI actions prepare a verified local package automatically;
+  incomplete player ZIPs cannot fall back to unverified files. Resolution
+  preparation recognizes both exact edition-specific LAA executables.
+- **Indexed reload feedback and mechanics:** integrate supervised native per-unit
+  body replay and exact-profile Status1 feedback for Remington/SawOff, Derringer
+  and Lemant paths. Preserve selected-slot reserve authority, native closure and
+  interruption guards. These new mechanical paths have host coverage; model-
+  specific physical playback, hand fit and recovery remain unqualified.
+- **Held-input recovery:** keep physical trigger claims across changed input/
+  player sources until a fresh available release; reject retired sources and
+  stale weapon/owner observations. One final release sample cannot recreate a
+  persistent claim. Extend interpreted/JNI regression and evidence analysis.
+- **Winchester observation:** add measured mesh lip/gate/tip diagnostics bound to
+  exact ordinary/scoped weapon identity, native reload phase and retained hand
+  transaction. This gathers evidence; it does not replace the current insertion
+  target or claim a precise functioning loading socket.
+- **Horse peripheral effect:** replace equal-texture-UV masking with a common
+  head-space angular aperture projected through each eye's optics/rotation.
+  Preserve the clear center, alpha, disabled state and scope precedence. This
+  corrects the observed binocular mask presentation in the exercised PS VR2
+  session; native gallop speed and steering are unchanged.
+- **Documentation:** consolidate the current progress, operator feedback and
+  remaining physical gates without publishing local run metadata or recordings.
+
+## Exercised results and known limits
+
+The latest Steam operator session confirms ordinary Winchester R2 firing,
+visible campfires/encountered environmental effects and the corrected horse
+peripheral effect. Winchester loading remains awkward: insertion needs a very
+precise point and the support hand sometimes takes an unnatural pose. Mounted
+steering remains difficult and seems more responsive with R1, which also makes
+the horse gallop faster. Visual mask acceptance does not establish reduced
+nausea or overall mounted comfort.
+
+Scoped Winchester reticle/actual impact agreement remains rejected; its later
+head-yaw isolation correction still needs physical qualification. Other reload
+families retain only their previously stated scoped acceptance; new animation,
+finger contact, occlusion, sound and interruption recovery are not universally
+validated. The latest canonical telemetry profile rejects the eye-baseline
+comparison; collection and operator reports do not turn that verdict into PASS.
+
+The graphical launcher and exact Steam/GOG install/update/session/uninstall and
+failure-restoration paths have host integration coverage in isolated copies.
+This does not qualify every Windows DPI, campaign, headset or controller. Broad
+loading/device loss, sustained pacing, secret-scroll crashes, complete graphical
+HUD capture, physical-walk leg animation and native runtime reload preference
+remain open. DLAA/DLSS requests still leave game rendering native; OpenXR,
+D3D10 and other Call of Juarez games remain outside this release.
+
+## Install and update
+
+Extract the complete **player ZIP**, open `CoJ-VR.cmd`, choose the intended game
+folder and select **Install / update**. Start SteamVR manually first for Auto or
+percentage resolution queries. Later launches use **Prepare play session**.
+Use **Advanced > Manual reload Off** and Install/update for conventional reload.
+Uninstall/recovery restores original game files; retain backups until successful.
+Developer candidates must be restored by their own workflow before using the
+public installer. [Package instructions](README.txt).
+
+The ZIP contains no game archives, saves or developer symbols. GPL-3.0-or-later
+source and notices remain linked through `SOURCE_COMMIT.txt`; optional developer
+symbols are a separate download. Earlier release artifacts and notes are
+unchanged. [Changes since prealpha.6](https://github.com/rubocopter/call_of_juarez_vr/compare/v0.1.0-prealpha.6...v0.1.0-prealpha.7).
+
 # v0.1.0-prealpha.6 — Experimental firearm loading, scope and control updates
 
 Incremental community-testing prerelease for **original Steam Call of Juarez

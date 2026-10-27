@@ -1,4 +1,5 @@
 #include "games/call_of_juarez/manual_reload_session.hpp"
+#include "games/call_of_juarez/ammunition_pickup_guide.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -35,7 +36,178 @@ struct Fixture{
     }
     CoJManualReloadOutput Insert(){Carry(s.left,s.right);s.raw.fire_left=false;return Poll();}
 };
+struct IndexedFixture:Fixture {
+    IndexedFixture(int hand,bool lemant) {
+        s.native.kind=s.admission.kind=s.recovery.kind=CoJManualReloadKind::indexed;
+        s.admission.single_round_supported=s.recovery.single_round_supported=false;
+        s.admission.manual_supported=s.recovery.manual_supported=true;
+        s.native.native_body_cycle=true;
+        s.native.index_count=2;s.native.selected_index=1;
+        s.native.capacities=lemant?std::array<int,2>{1,8}:std::array<int,2>{1,1};
+        s.native.loaded=lemant?std::array<int,2>{0,2}:std::array<int,2>{0,0};
+        s.native.reserves={10,7,9};
+        s.native.reserve_kinds=lemant?
+            std::array{CoJReloadReserveKind::rifle,CoJReloadReserveKind::pistol}:
+            std::array{CoJReloadReserveKind::shotgun,CoJReloadReserveKind::shotgun};
+        s.native.reserve_indices=lemant?std::array<int,2>{1,0}:std::array<int,2>{2,2};
+        s.native.armed_hand=s.admission.armed_hand=s.recovery.armed_hand=hand;
+        s.right=At(hand==0?Vec3{.2F,1.35F,-.35F}:Vec3{.2F,1.05F,-.1F});
+        s.left=At(hand==1?Vec3{-.2F,1.35F,-.35F}:Vec3{-.2F,1.05F,-.1F});
+    }
+    bool& SupportTrigger(){return s.native.armed_hand==0?s.raw.fire_left:s.raw.fire_right;}
+    bool& ArmedTrigger(){return s.native.armed_hand==0?s.raw.fire_right:s.raw.fire_left;}
+    Pose& Support(){return s.native.armed_hand==0?s.left:s.right;}
+    Pose& Armed(){return s.native.armed_hand==0?s.right:s.left;}
+    bool SupportFire()const{return s.native.armed_hand==0?mapped.fire_left:mapped.fire_right;}
+    void Pickup(){SupportTrigger()=false;(void)Poll();SupportTrigger()=true;
+        Check(Poll().gesture.cartridge_held,"indexed fresh waist pickup missing");}
+    CoJManualReloadOutput Release(){Carry(Support(),Armed());SupportTrigger()=false;return Poll();}
+};
+void IndexedCycleSession() {
+    for(int hand:{0,1})for(bool lemant:{false,true}) {
+        IndexedFixture f(hand,lemant);f.Open();f.Pickup();
+        f.s.native.selected_index=0;
+        auto out=f.Release();
+        Check(out.insert&&out.selected_index==1&&f.session.selected_index()==1,
+            "pending indexed native operation lost its captured selection");
+        const auto before=f.s.native;
+        ++f.s.native.loaded[1];--f.s.native.reserves[lemant?0:2];f.s.native.probe_status=1;
+        Check(CoJUnitManualInsertionObserved(true,true,before,f.s.native,out.selected_index),
+            "indexed replay did not prove its selected typed-pool transfer");
+        f.session.CompleteInsertion(true,true,out);
+        Check(f.session.selected_index()==-1,"successful indexed operation retained old selection");
+        StereoHudTextOverlay guide{};
+        auto old_input=f.s;old_input.native=before;
+        Check(!out.gesture.cartridge_held&&!out.gesture.pickup_hint.visible&&
+            !AppendCoJAmmunitionPickupGuide(old_input,out,true,guide),
+            "same-frame completed indexed insertion published a stale waiting offer");
+        f.SupportTrigger()=true;
+        out=f.Poll();
+        Check(out.tracked&&out.supervise&&!out.insert&&!out.gesture.cartridge_held&&
+            !out.gesture.pickup_hint.visible&&!f.SupportFire()&&
+            f.session.phase()==CoJManualReloadPhase::opening&&f.session.selected_index()==-1,
+            "indexed replay offered/carried a round or released its consumed support hold");
+        f.s.native.probe_status=2;
+        out=f.Poll();
+        Check(out.tracked&&out.supervise&&!out.gesture.cartridge_held&&!out.insert&&!f.SupportFire(),
+            "return to native wait rearmed the held indexed pickup");
+        // A new cartridge still requires a released waist pickup, even though
+        // the last insertion ended beside the gun and another slot is eligible.
+        f.SupportTrigger()=false;(void)f.Poll();f.SupportTrigger()=true;
+        Check(!f.Poll().gesture.cartridge_held,"indexed cycle borrowed unit-style in-hand replenishment");
+        f.Support()=At(hand==0?Vec3{-.2F,1.05F,-.1F}:Vec3{.2F,1.05F,-.1F});
+        Check(!f.Poll().gesture.cartridge_held,"held trigger entering waist bypassed fresh pickup release");
+        f.Pickup();Check(f.session.selected_index()==0,"next native wait retained previous pickup index");
+        f.s.native.selected_index=1;
+        out=f.Release();Check(out.insert&&out.selected_index==0,"new indexed carry redirected on release");
+        const auto final_before=f.s.native;
+        ++f.s.native.loaded[0];--f.s.native.reserves[lemant?1:2];f.s.native.probe_status=3;
+        Check(CoJUnitManualInsertionObserved(true,true,final_before,f.s.native,out.selected_index),
+            "indexed final close lost captured slot or typed reserve");
+        f.session.CompleteInsertion(true,true,out);out=f.Poll();
+        Check(out.tracked&&!out.supervise&&!out.insert&&!out.gesture.cartridge_held&&
+            f.session.phase()==CoJManualReloadPhase::closing,"native indexed close offered another round");
+    }
+    for(int hand:{0,1})for(bool carried:{false,true}) {
+        IndexedFixture f(hand,true);f.Open();if(carried)f.Pickup();
+        f.s.native.probe_status=1;f.SupportTrigger()=true;
+        auto out=f.Poll();
+        Check(!out.gesture.cartridge_held&&!out.gesture.pickup_hint.visible&&!out.insert&&!f.SupportFire(),
+            "replay failed to withdraw an indexed offer/carry while retaining support ownership");
+        f.ArmedTrigger()=true;out=f.Poll();
+        Check(out.cancel&&!f.mapped.fire_left&&!f.mapped.fire_right,
+            "armed trigger did not close indexed replay without firing");
+        f.s.enabled=false;f.s.native.probe_status=4;
+        const auto support_binding=hand==0?1U:2U;
+        f.s.raw.digital_available&=~support_binding;(void)f.Poll();
+        Check(!f.SupportFire(),"disabled indexed cleanup released an unavailable held support trigger");
+        f.s.raw.digital_available|=support_binding;
+        Check(!f.Poll().insert&&!f.SupportFire(),"availability recovery rearmed consumed support fire");
+        f.SupportTrigger()=false;f.ArmedTrigger()=false;(void)f.Poll();
+        f.SupportTrigger()=true;f.ArmedTrigger()=true;out=f.Poll();
+        Check(!out.start&&!out.cancel&&!out.insert&&f.mapped.fire_left&&f.mapped.fire_right,
+            "disabled indexed session failed to recover ordinary native fire after physical releases");
+    }
+}
+void IndexedReleaseBarriers() {
+    for(int hand:{0,1})for(int boundary=0;boundary<6;++boundary) {
+        IndexedFixture f(hand,true);f.Open();f.Pickup();
+        f.ArmedTrigger()=true;Check(f.Poll().cancel,"release barrier fixture failed to close");
+        f.s.enabled=false;f.s.native.probe_status=4;(void)f.Poll();
+        const auto saved_sequence=f.s.sequence,saved_now=f.s.now;
+        const auto binding=hand==0?1U:2U;
+        f.SupportTrigger()=false;
+        if(boundary==0){f.mapped=f.s.raw;(void)f.session.Update(f.mapped,f.s);} // Duplicate release.
+        if(boundary==1){f.s.raw.digital_available&=~binding;(void)f.Poll();}
+        if(boundary==2){f.s.raw.active=false;(void)f.Poll();}
+        if(boundary==3){f.s.now+=300;(void)f.Poll();}
+        if(boundary==4){f.s.sequence=0;(void)f.Poll();}
+        if(boundary==5){f.SupportTrigger()=true;f.ArmedTrigger()=false;(void)f.Poll();}
+        f.SupportTrigger()=true;f.s.raw.active=true;f.s.raw.digital_available|=binding;
+        f.s.raw.input_context_generation=8;
+        f.s.sequence=std::max(f.s.sequence,saved_sequence);f.s.now=std::max(f.s.now,saved_now);
+        (void)f.Poll();Check(!f.SupportFire(),"invalid/other-hand release discharged the old support hold");
+        f.SupportTrigger()=false;auto release=f.Poll();
+        Check(!f.SupportFire()&&!release.insert,"physical release sample leaked fire or insertion");
+        f.SupportTrigger()=true;(void)f.Poll();
+        Check(f.SupportFire(),"same-source fresh available release failed to recover native support fire");
+    }
+}
+void IndexedReplacementSource() {
+    for(int hand:{0,1})for(int boundary=0;boundary<4;++boundary)for(bool probe_hold:{false,true}) {
+        IndexedFixture f(hand,true);f.Open();f.Pickup();
+        f.s.sequence=1000;f.ArmedTrigger()=true;Check(f.Poll().cancel,"replacement fixture failed to close");
+        f.s.enabled=false;f.s.native.probe_status=4;(void)f.Poll();
+        const auto old_context=f.s.context,old_player=f.s.player,old_generation=f.s.raw.input_context_generation;
+        if(boundary==0)++f.s.raw.input_context_generation;
+        if(boundary==1)f.s.context+=2;
+        if(boundary==2){f.s.context+=2;f.s.raw.input_context_generation=1;}
+        if(boundary==3)++f.s.player;
+        const auto new_context=f.s.context,new_player=f.s.player,new_generation=f.s.raw.input_context_generation;
+        f.s.sequence=0;f.SupportTrigger()=false;auto baseline=f.Poll();
+        Check(!f.SupportFire()&&!baseline.start&&!baseline.insert,"replacement baseline released physical input authority");
+        f.mapped=f.s.raw;auto duplicate=f.session.Update(f.mapped,f.s);
+        Check(!f.SupportFire()&&!duplicate.insert,"duplicate replacement baseline released support hold");
+        if(probe_hold) {
+            f.SupportTrigger()=true;(void)f.Poll();
+            Check(!f.SupportFire(),"replacement baseline false discharged the old support claim");
+            // An old tuple with a greater sequence cannot replace the current source.
+            f.s.context=old_context;f.s.player=old_player;f.s.raw.input_context_generation=old_generation;
+            const auto seq=f.s.sequence;f.s.sequence=5000;f.SupportTrigger()=false;(void)f.Poll();
+            f.s.context=new_context;f.s.player=new_player;f.s.raw.input_context_generation=new_generation;
+            f.s.sequence=seq;f.SupportTrigger()=true;(void)f.Poll();
+            Check(!f.SupportFire(),"retired source release discharged current support hold");
+        }
+        f.SupportTrigger()=false;f.ArmedTrigger()=false;const auto release=f.Poll();
+        const auto support_mask=hand==0?2U:1U;
+        Check(!f.SupportFire()&&!release.insert&&(release.gesture.consumed_trigger_mask&support_mask)!=0,
+            "fresh replacement release failed to consume its own sample");
+        f.SupportTrigger()=true;f.ArmedTrigger()=true;const auto ordinary=f.Poll();
+        Check(f.mapped.fire_left&&f.mapped.fire_right&&!ordinary.insert&&!ordinary.start,
+            "fresh replacement release failed to recover native fire below old sequence watermark");
+        const auto seq=f.s.sequence;
+        f.s.context=old_context;f.s.player=old_player;f.s.raw.input_context_generation=old_generation;
+        f.s.sequence=5000;f.s.enabled=true;f.s.raw.reload=false;(void)f.Poll();f.s.raw.reload=true;
+        auto retired=f.Poll();
+        Check(!retired.start&&!retired.insert&&!retired.gesture.cartridge_held&&
+            !f.mapped.fire_left&&!f.mapped.fire_right&&!f.mapped.reload,
+            "retired source reacquired manual/native input authority after recovery");
+        f.s.context=new_context;f.s.player=new_player;f.s.raw.input_context_generation=new_generation;
+        f.s.sequence=seq;f.s.enabled=false;f.s.raw.reload=false;(void)f.Poll();
+        Check(f.mapped.fire_left&&f.mapped.fire_right,"retired held sample recreated a current trigger claim");
+        f.s.enabled=true;f.s.admission=f.s.recovery;
+        ++f.s.raw.input_context_generation;f.s.sequence=0;
+        f.SupportTrigger()=f.ArmedTrigger()=false;(void)f.Poll(); // New neutral baseline.
+        f.s.raw.reload=true;
+        Check(!f.Poll().start&&!f.mapped.reload,"replacement baseline rearmed Square without a fresh release");
+        f.s.raw.reload=false;(void)f.Poll();f.s.raw.reload=true;
+        Check(f.Poll().start,"current replacement source failed to rearm Square after fresh release");
+    }
+}
 int main(){
+    IndexedReplacementSource();
+    IndexedReleaseBarriers();
+    IndexedCycleSession();
     {
         Fixture indexed;
         indexed.s.native.kind=indexed.s.admission.kind=indexed.s.recovery.kind=CoJManualReloadKind::indexed;

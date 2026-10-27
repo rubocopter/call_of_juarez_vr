@@ -387,12 +387,94 @@ void ModeFeedback() {
     a=b;a.loaded[1]=4;a.reserves[0]=0;a.probe_status=2;
     Require(CoJUnitManualInsertionObserved(true,true,b,a,1),"Lemant pistol index debited/compared wrong pool");
 }
+// Real exact-profile acquisition supplies the typed vectors and cycle flag;
+// qualification must prove one captured slot and its pool, even if the next
+// eligibility proposal changes after the synchronous native operation.
+void IndexedNativeCycleFeedback() {
+    for(void* cls:{static_cast<void*>(&remington_class),static_cast<void*>(&sawoff_class),
+            static_cast<void*>(&derringer_class),static_cast<void*>(&lemant_class)})
+        for(int hand:{0,1})for(int index:{0,1}) {
+        Reset();exact_class=cls;armed=hand;
+        fixture_loaded=cls==&lemant_class?std::array<int,2>{0,2}:std::array<int,2>{0,0};
+        fixture_reserves={5,7,9};
+        CoJReloadTraceSnapshot b{};
+        Require(ReadCoJReloadTrace(&holder,&player,b,true,index),"indexed cycle profile read failed");
+        const int pool=cls==&lemant_class?(index==0?1:0):cls==&derringer_class?0:2;
+        auto a=b;a.probe_status=1;++a.loaded[index];--a.reserves[pool];a.selected_index=1-index;
+        Require(CoJUnitManualInsertionObserved(true,true,b,a,index)&&
+            CoJUnitManualInsertionObserved(true,true,b,a),
+            "exact indexed selected-unit replay failed native-cycle feedback qualification");
+        Require(refs==0&&!pending,"indexed cycle acquisition leaked JNI state");
+        for(int status:{2,3}) {
+            auto wait=a;wait.probe_status=status;
+            Require(CoJUnitManualInsertionObserved(true,true,b,wait,index),"cycle wait/close lost exact unit feedback");
+            auto legacy=b;legacy.native_body_cycle=false;wait.native_body_cycle=false;
+            Require(CoJUnitManualInsertionObserved(true,true,legacy,wait,index),"legacy indexed wait/close lost compatibility");
+        }
+        for(int fault=0;fault<30;++fault) {
+            auto before=b,after=a;
+            if(fault==0)before.native_body_cycle=false;
+            if(fault==1)after.native_body_cycle=false;
+            if(fault==2)before.native_body_cycle=after.native_body_cycle=false;
+            if(fault==3)after.capacities[index]++;
+            if(fault==4)after.reserve_indices[index]=(pool+1)%3;
+            if(fault==5)after.reserve_kinds[index]=static_cast<CoJReloadReserveKind>(99);
+            if(fault==6)after.loaded[1-index]++;
+            if(fault==7)after.loaded[index]=before.loaded[index];
+            if(fault==8)after.reserves[pool]=before.reserves[pool];
+            if(fault==9)after.reserves[(pool+1)%3]--;
+            if(fault==10)after.index_count=1;
+            if(fault==11)after.weapon_id++;
+            if(fault==12)after.armed_hand=1-hand;
+            if(fault==13)before.probe_status=1;
+            if(fault==14)after.probe_status=4;
+            if(fault==15)after.valid=false;
+            if(fault==16)after.probe_valid=false;
+            if(fault==17)before.weapon_id=after.weapon_id=0;
+            if(fault==18)before.loaded[index]=-1;
+            if(fault==19)after.loaded[index]=after.capacities[index]+1;
+            if(fault==20)before.capacities[index]=after.capacities[index]=0;
+            if(fault==21)before.reserve_indices[index]=after.reserve_indices[index]=(pool+1)%3;
+            if(fault==22)before.reserve_kinds[index]=after.reserve_kinds[index]=static_cast<CoJReloadReserveKind>(99);
+            if(fault==23)before.reserves[(pool+1)%3]=after.reserves[(pool+1)%3]=-1;
+            if(fault==24)after.kind=CoJManualReloadKind::unit;
+            if(fault==25)before.index_count=after.index_count=3;
+            if(fault==26)before.valid=false;
+            if(fault==27)before.probe_valid=false;
+            if(fault==28)after.loaded[index]++; // More than one unit, including Lemant's 8-round slot.
+            if(fault==29){after.reserves[pool]++;after.reserves[(pool+1)%3]--;}
+            Require(!CoJUnitManualInsertionObserved(true,true,before,after,index),
+                "malformed indexed cycle/vector/owner manufactured insertion feedback");
+        }
+        Require(!CoJUnitManualInsertionObserved(false,true,b,a,index)&&
+            !CoJUnitManualInsertionObserved(true,false,b,a,index)&&
+            !CoJUnitManualInsertionObserved(true,true,b,a,1-index)&&
+            !CoJUnitManualInsertionObserved(true,true,b,a,-2)&&
+            !CoJUnitManualInsertionObserved(true,true,b,a,2),"unaccepted or wrong selected operation buzzed");
+        for(int status:{2,3})for(bool before_cycle:{false,true}) {
+            auto before=b,after=a;after.probe_status=status;
+            before.native_body_cycle=before_cycle;after.native_body_cycle=!before_cycle;
+            Require(!CoJUnitManualInsertionObserved(true,true,before,after,index),
+                "wait/close accepted mismatched indexed cycle metadata");
+        }
+    }
+    for(int status:{1,2,3})for(int flags:{1,2,3}) {
+        CoJReloadTraceSnapshot b{};b.valid=b.probe_valid=true;b.weapon_id=123;b.armed_hand=0;
+        b.probe_status=2;b.kind=CoJManualReloadKind::clip;b.capacities={6,0};
+        b.loaded={2,0};b.reserves={4,7,9};
+        auto a=b;a.probe_status=status;a.loaded[0]=6;a.reserves[0]=0;
+        b.native_body_cycle=(flags&1)!=0;a.native_body_cycle=(flags&2)!=0;
+        Require(!CoJUnitManualInsertionObserved(true,true,b,a),"clip cycle flag/replay manufactured feedback");
+    }
+    Reset();
+}
 }
 int main() {
     Set(6,Find); Set(15,Exception); Set(17,Clear); Set(23,Delete); Set(24,Same);
     Set(31,Class); Set(33,Method); Set(36,Object); Set(39,Boolean); Set(51,Integer); Set(57,Float);
     Set(94,Field); Set(95,GetObject); Set(100,GetInt); Set(102,GetFloat);
     ModeFeedback();
+    IndexedNativeCycleFeedback();
     IndexedAndClipReadback();
     NativeBodyProfileReadback();
     for(int hand=0;hand<2;++hand)for(const std::uint32_t id:{0x80000000U,0x86e8fca8U,0xfffe0000U}){

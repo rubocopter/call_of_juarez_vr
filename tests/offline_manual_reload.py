@@ -1,9 +1,11 @@
 """Execute lab bytecode; scheduling/skins remain explicit native stand-ins."""
 import hashlib
 import importlib
+import inspect
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 
@@ -177,6 +179,52 @@ class OfflineManualReloadTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'SHA-256'):
                 lab.export_lab(bad, Path(temp)/'rejected', 'WeaponPistolVolcanic')
             self.assertFalse((Path(temp)/'rejected').exists())
+
+    def test_indexed_cycle_export_requires_explicit_optin_and_preserves_originals(self):
+        self.assertIn('indexed_body_cycle',inspect.signature(lab.export_lab).parameters,
+                      'Missing explicit non-installable indexed cycle export')
+        source=ARCHIVE.with_name('code.cojvr-backup.pak')
+        if not source.exists():source=ARCHIVE
+        before=hashlib.sha256(source.read_bytes()).hexdigest()
+        self.assertEqual(before,production.PAK_SHA256)
+        with tempfile.TemporaryDirectory() as temp:
+            for weapon in ('WeaponPistolLemant','WeaponPistolDerringer',
+                           'WeaponRifleRemington','WeaponRifleRemingtonSawOff'):
+                output=Path(temp)/weapon
+                result=lab.export_lab(source,output,weapon,indexed_body_cycle=True)
+                self.assertEqual({p.name for p in output.iterdir()},
+                    {'ArmedPlayerBeing.class.bin','StateMashine.class.bin','manifest.json'})
+                self.assertFalse(result['runtime_admitted'])
+                self.assertFalse(result['animation_playback_validated'])
+                self.assertTrue(result['indexed_body_cycle_implemented'])
+                self.assertEqual(result['reload_mode'],'indexed')
+                signatures={(m.name,m.descriptor) for m in parse_class((output/'ArmedPlayerBeing.class.bin').read_bytes())[1]}
+                self.assertIn(('cojvrIndexedCycleSuppressCompletion','(II)Z'),signatures)
+                self.assertNotIn(('cojvrInsertManualRound','()Z'),signatures)
+                self.assertEqual(json.loads((output/'manifest.json').read_text()),result)
+            for weapon,flags in [('WeaponPistolLemant',{}),
+                                 ('WeaponRifleWinchester',dict(indexed_body_cycle=True)),
+                                 ('WeaponPistolLemant',dict(indexed_body_cycle=True,cycle_animation=True))]:
+                output=Path(temp)/'rejected'
+                with self.assertRaises(ValueError):lab.export_lab(source,output,weapon,**flags)
+                self.assertFalse(output.exists())
+        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),before)
+
+    def test_cli_indexed_cycle_optin_exports_only_class_bins_and_manifest(self):
+        source=ARCHIVE.with_name('code.cojvr-backup.pak')
+        if not source.exists():source=ARCHIVE
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp)/'lab'
+            base=[sys.executable,'-B',str(Path(__file__).resolve().parents[1]/'tools/coj_offline_manual_reload.py'),
+                  str(source),str(output),'--weapon','WeaponPistolLemant']
+            missing=subprocess.run(base,capture_output=True,text=True,timeout=30)
+            self.assertNotEqual(missing.returncode,0);self.assertFalse(output.exists())
+            result=subprocess.run(base+['--indexed-body-cycle'],capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            report=json.loads(result.stdout)
+            self.assertTrue(report['indexed_body_cycle_implemented'])
+            self.assertFalse(report['runtime_admitted'])
+            self.assertEqual(len(list(output.iterdir())),3)
 
 
 if __name__ == '__main__': unittest.main()

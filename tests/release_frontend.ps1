@@ -15,12 +15,12 @@ function Assert-Rejects([scriptblock]$Operation, [string]$Message) {
 function New-Package {
     $Package = Join-Path $Root ([guid]::NewGuid().ToString('N') + ' paquete')
     New-Item -ItemType Directory -Path $Package | Out-Null
-    $Names = @('cojvr.ps1','release_common.ps1','CoJ-VR.cmd',
+    $Names = @('cojvr.ps1','cojvr-gui.ps1','release_common.ps1','CoJ-VR.cmd',
         'payload/d3d9_native_stereo.dll','payload/openvr_api.dll',
         'payload/d3d9_native_stereo.build-manifest.json','payload/cojvr_openvr_input/actions.json',
         'dependencies/python/python.exe','dependencies/vc_redist.x86.exe',
         'tools/stage_d3d9_proxy.ps1','tools/unstage_d3d9_proxy.ps1',
-        'tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1',
+        'tools/coj_executable_identity.ps1','tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1',
         'tools/coj_resolution_settings.ps1','tools/coj_resolution_session.ps1','tools/coj_resolution_profiles.py',
         'tools/cojvr_openvr_resolution_query.exe','tools/cojvr_d3d9_resolution_limits.exe','tools/openvr_api.dll')
     $Files = @(foreach ($Name in $Names) {
@@ -82,7 +82,7 @@ try {
     Write-Host 'PASS release frontend: inventory, relocation, tampering, traversal, duplicates, unknown game, ownership and private diagnostics.'
     Assert-True (Test-Path -LiteralPath (Join-Path $SourceDirectory 'release/cojvr.ps1')) 'Public installer command is not implemented.'
     $Package = New-Package
-    foreach ($Relative in @('release/cojvr.ps1','release/release_common.ps1','tools/unstage_d3d9_proxy.ps1','tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/openvr_input_manifest.ps1','tools/coj_resolution_settings.ps1')) {
+    foreach ($Relative in @('release/cojvr.ps1','release/cojvr-gui.ps1','release/release_common.ps1','tools/unstage_d3d9_proxy.ps1','tools/coj_executable_identity.ps1','tools/coj_executable_identity.ps1','tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/openvr_input_manifest.ps1','tools/coj_resolution_settings.ps1')) {
         $Destination = if ($Relative.StartsWith('release/')) { $Relative.Substring(8) } else { $Relative }
         Copy-Item -LiteralPath (Join-Path $SourceDirectory $Relative) -Destination (Join-Path $Package $Destination) -Force
     }

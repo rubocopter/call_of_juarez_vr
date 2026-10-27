@@ -43,6 +43,35 @@ def insertion(frame=3, result='accepted', **extra):
     return event('manual_reload_insertion', result, **fields)
 
 
+def indexed_insertion_fields(class_name, index, **changes):
+    capacities, pools, kinds, reserves_after = {
+        'WeaponRifleRemington': ('1,1', '2,2', ('shotgun', 'shotgun'),
+                                ('12,20,29', '12,20,29')),
+        'WeaponRifleRemingtonSawOff': ('1,1', '2,2', ('shotgun', 'shotgun'),
+                                      ('12,20,29', '12,20,29')),
+        'WeaponPistolDerringer': ('1,1', '0,0', ('pistol', 'pistol'),
+                                 ('11,20,30', '11,20,30')),
+        'WeaponPistolLemant': ('1,8', '1,0', ('rifle', 'pistol'),
+                              ('12,19,30', '11,20,30')),
+    }[class_name]
+    kind = kinds[index]
+    reserve_before, reserve_after = {'pistol': (12, 11), 'rifle': (20, 19),
+                                     'shotgun': (30, 29)}[kind]
+    fields = dict(reload_mode='indexed', weapon_class=class_name, selected_index=index,
+                  loaded_before='0,0', loaded_after=('1,0', '0,1')[index],
+                  capacities=capacities, reserve_indices=pools,
+                  reserves_before='12,20,30', reserves_after=reserves_after[index],
+                  reserve_kind=kind, ammo_before=0, ammo_after=1,
+                  reserve_before=reserve_before, reserve_after=reserve_after,
+                  native_body_cycle=1, probe_status_after=1, feedback_qualified=1)
+    fields.update(changes)
+    return fields
+
+
+INDEXED_CLASSES = ('WeaponRifleRemington', 'WeaponRifleRemingtonSawOff',
+                   'WeaponPistolDerringer', 'WeaponPistolLemant')
+
+
 def winchester_sample(index=1, **changes):
     timestamp = 100000 + (index-1)*50000
     fields = dict(schema=1, frame_sequence=index+10, player_generation=7,
@@ -83,6 +112,41 @@ def indexed_sample(**changes):
     return event('indexed_native_reload', **fields)
 
 
+def winchester_loading_sample(result='observed', **changes):
+    fields = dict(schema=1, frame_sequence=11, player_generation=7,
+                  native_context=5, weapon_id=0x80000042,
+                  weapon_class='WeaponRifleWinchester', armed_hand=0,
+                  source='pre_native', units='cm', native_status=2,
+                  native_states_right='21,21,21,21', native_states_left='0,0,0,0',
+                  animation_id_right=31, animation_id_left=-1,
+                  native_time_right=3.2, native_time_left=0,
+                  start_time_right=2.8, start_time_left=0,
+                  play_time_right=0.4, play_time_left=0,
+                  duration_right=0.35, duration_left=0,
+                  loaded=3, reserve=14, native_phase_stable=1,
+                  owner_qualified=1, native_restored=1, pair_verified=1,
+                  socket_admission='false', gate_clearance='unverified',
+                  interaction_enabled='false', tip_valid=0, tip_source='unavailable')
+    for part in ('root', 'body', 'loader', 'holder', 'barrel'):
+        fields.update({part: '(10,20,30)', part+'_up': '(0,1,0)',
+                       part+'_forward': '(0,0,1)'})
+    for index, point in enumerate(('(0,0,0)', '(1,0,0)', '(2,1,0)', '(2,2,0)',
+                                   '(1,3,0)', '(0,3,0)', '(-1,2,0)', '(-1,1,0)')):
+        fields['lip'+str(index)] = point
+    fields.update(changes)
+    return event('winchester_loading_geometry', result, **fields)
+
+
+def winchester_loading_tip(**changes):
+    fields = dict(source='post_overlay', tip_valid=1,
+                  tip_source='displayed_textured_mesh', tip='(10,20,31)',
+                  tip_up='(0,1,0)', tip_forward='(0,0,1)',
+                  tip_body_local='(0,0,1)', tip_axis_body_local='(0,0,1)',
+                  tip_plane_cm=-0.25, tip_edge_cm=0.5, tip_projected_inside=1)
+    fields.update(changes)
+    return winchester_loading_sample(**fields)
+
+
 def depth_sample(frame=2, eye='left', **extra):
     matrix = ','.join('1' if index in (0, 5, 10, 15) else '0' for index in range(16))
     fields = dict(frame_sequence=frame, eye=eye, generation=3, device='0x1234',
@@ -117,6 +181,158 @@ def finger_reference(frame=2, result='observed', **extra):
 
 
 class ReloadAnalysisTests(unittest.TestCase):
+    def test_winchester_loading_observations_preserve_both_classes_and_rotated_frames(self):
+        rotated = dict(root='(5,-2,7)', root_up='(0,0,1)', root_forward='(1,0,0)',
+                       body_up='(0,0,1)', body_forward='(1,0,0)')
+        lines = [winchester_loading_sample(**rotated),
+                 winchester_loading_tip(weapon_class='WeaponRifleWinchesterScope')]
+        report = self.evidence(lines)
+        self.assertEqual([e['event'] for e in report['timeline']],
+                         ['winchester_loading_geometry']*2)
+        rows = report.get('winchester_loading_observations', [])
+        self.assertEqual(len(rows), 2, 'loading geometry was silently discarded')
+        self.assertEqual([r['status'] for r in rows], ['observed', 'observed'])
+        self.assertEqual(report['summary']['winchester_loading_samples'], 2)
+        self.assertEqual(report['summary']['winchester_loading_rejected_samples'], 0)
+        self.assertEqual(rows[0]['weapon_id'], 0x80000042)
+        self.assertEqual(rows[0]['frames']['root']['position'], [5.0, -2.0, 7.0])
+        self.assertEqual(rows[0]['frames']['root']['forward'], [1.0, 0.0, 0.0])
+        self.assertEqual(len(rows[0]['lip']), 8)
+        self.assertIsNone(rows[0]['tip'])
+        self.assertEqual(rows[1]['tip']['body_local'], [0.0, 0.0, 1.0])
+        self.assertEqual(rows[1]['tip']['plane_cm'], -0.25)
+        self.assertIs(rows[1]['tip']['projected_inside'], True)
+        for row in rows:
+            self.assertEqual(row['object_epoch'], 0)
+            self.assertEqual(row['synchronous_scope'], 0)
+            for claim in ('same_object_proven', 'transfer_proven', 'native_phase_proven',
+                          'socket_admitted', 'interaction_enabled', 'headset_validated'):
+                self.assertIs(row[claim], False)
+            self.assertEqual(row['gate_clearance'], 'unverified')
+        self.assertFalse(report['headset_validated'])
+        self.assertEqual(report['summary']['accepted_insertions'], 0)
+
+    def test_winchester_loading_legacy_runs_keep_empty_observation_list(self):
+        report = self.evidence([trace(2)])
+        self.assertEqual(report.get('winchester_loading_observations'), [])
+        self.assertEqual(report['summary']['winchester_loading_samples'], 0)
+        self.assertEqual(report['summary']['winchester_loading_rejected_samples'], 0)
+
+    def assert_loading_rejected(self, line, **options):
+        report = self.evidence([line], **options)
+        rows = report.get('winchester_loading_observations', [])
+        self.assertEqual(len(rows), 1, 'malformed loading geometry was silently discarded')
+        row = rows[0]
+        self.assertEqual(row['status'], 'rejected')
+        self.assertTrue(row['issues'])
+        self.assertEqual(row['raw_detail'], line.split(' detail=', 1)[1])
+        self.assertEqual(report['summary']['winchester_loading_samples'], 0)
+        self.assertEqual(report['summary']['winchester_loading_rejected_samples'], 1)
+        self.assertEqual(report['summary']['issue_count'], 1)
+        self.assertEqual(report['issues'][0]['kind'], 'invalid_winchester_loading_geometry')
+        self.assertFalse(report['headset_validated'])
+
+    def test_winchester_loading_rejects_missing_duplicate_and_partial_metadata(self):
+        sample = winchester_loading_sample()
+        fields = dict(pair.split('=', 1) for pair in sample.split(' detail=')[1].split(';'))
+        malformed = [sample+';schema=1', sample+';broken', sample+';detail=opaque']
+        for key, value in fields.items():
+            malformed.append(sample.replace(f'{key}={value}', f'{key}='))
+            malformed.append(event('winchester_loading_geometry',
+                                   **{k: v for k, v in fields.items() if k != key}))
+        for line in malformed:
+            with self.subTest(line=line):
+                self.assert_loading_rejected(line)
+
+    def test_winchester_loading_rejects_nonfinite_and_nonrigid_geometry_and_bad_numbers(self):
+        changes = []
+        for key in ('frame_sequence', 'player_generation', 'native_context'):
+            changes.extend({key: v} for v in (0, -1, 2**64, '+1', '1.0', 'nan', '１'))
+        changes.extend(dict(weapon_id=v) for v in (0, -1, 0xffffffff, 2**32,
+                                                   '0x80000042', '-2147483648', '9'*5000))
+        changes.extend(dict(native_context=v) for v in (2, 6))
+        changes.extend(dict(armed_hand=v) for v in (1, -1, 2))
+        changes.extend(dict(native_status=v) for v in (0, 4, -1))
+        changes.extend(dict(loaded=v) for v in (-1, 13, '1.5'))
+        changes.extend(dict(reserve=v) for v in (-1, 2**31, 'nan'))
+        for key in ('native_time_right', 'native_time_left', 'start_time_right', 'start_time_left',
+                    'play_time_right', 'play_time_left', 'duration_right', 'duration_left'):
+            changes.extend({key: v} for v in ('nan', 'inf', '-inf', '1e999', 'oops'))
+        changes.extend([
+            dict(native_states_right='21,21,21'), dict(native_states_left='0,0,0,nan'),
+            dict(animation_id_right='1.5'), dict(animation_id_left=-2**31-1),
+            dict(root='(1e999,0,0)'), dict(lip7='(nan,0,0)'), dict(lip0='(0,0)'),
+            dict(root_up='(0,2,0)'), dict(body_up='(0,2,0)'), dict(loader_forward='(0,0,0)'),
+            dict(holder_up='(0,0,1)'), dict(barrel_forward='(0,0,1.1)')])
+        for change in changes:
+            with self.subTest(change=change):
+                self.assert_loading_rejected(winchester_loading_sample(**change))
+
+    def test_winchester_loading_rejects_stale_schema_and_promotion_claims(self):
+        changes = [dict(schema=0), dict(schema=2), dict(source='natural'), dict(units='m'),
+                   dict(weapon_class='WeaponHenry1863'), dict(weapon_class='DerivedWinchester'),
+                   dict(tip_valid=2)]
+        for field in ('native_phase_stable', 'owner_qualified', 'native_restored', 'pair_verified'):
+            changes.extend({field: value} for value in (0, 'true', 'false'))
+        for field in ('socket_admission', 'interaction_enabled'):
+            changes.extend({field: value} for value in ('true', 'False', '0'))
+        changes.extend(dict(gate_clearance=v) for v in ('verified', 'clear', 'false'))
+        changes.extend({field: value} for field, value in
+                       (('object_epoch', 1), ('same_object_proven', 'true'),
+                        ('headset_validated', 'true'), ('native_phase_proven', 'true'),
+                        ('transfer_proven', 'false'), ('manual_admission', 'true')))
+        for change in changes:
+            with self.subTest(change=change):
+                self.assert_loading_rejected(winchester_loading_sample(**change))
+
+    def test_winchester_loading_tip_requires_displayed_complete_current_metadata(self):
+        tip = winchester_loading_tip()
+        fields = dict(pair.split('=', 1) for pair in tip.split(' detail=')[1].split(';'))
+        tip_fields = ('tip', 'tip_up', 'tip_forward', 'tip_body_local', 'tip_axis_body_local',
+                      'tip_plane_cm', 'tip_edge_cm', 'tip_projected_inside')
+        malformed = [winchester_loading_tip(source='pre_native'),
+                     winchester_loading_tip(tip_source='unavailable'),
+                     winchester_loading_tip(tip_valid=0),
+                     winchester_loading_sample(tip_source='displayed_textured_mesh'),
+                     winchester_loading_sample(tip='(0,0,0)'),
+                     winchester_loading_tip(tip_up='(0,0,1)'),
+                     winchester_loading_tip(tip_axis_body_local='(0,0,2)'),
+                     winchester_loading_tip(tip_plane_cm='nan'),
+                     winchester_loading_tip(tip_edge_cm='inf'),
+                     winchester_loading_tip(tip_edge_cm=-0.01),
+                     winchester_loading_tip(tip_body_local='(0,nan,0)'),
+                     winchester_loading_tip(tip_projected_inside='true')]
+        for key in tip_fields:
+            malformed.append(event('winchester_loading_geometry',
+                                   **{k: v for k, v in fields.items() if k != key}))
+        for line in malformed:
+            with self.subTest(line=line):
+                self.assert_loading_rejected(line)
+
+    def test_winchester_loading_nonobserved_and_malformed_results_are_retained(self):
+        for result in ('accepted', 'unavailable', 'rejected', 'invalid-status', '', '?', 'observed accepted'):
+            with self.subTest(result=result):
+                self.assert_loading_rejected(winchester_loading_sample(result=result))
+        self.assert_loading_rejected(winchester_loading_sample(), ended=False)
+
+    def test_winchester_loading_zero_edge_distance_and_signed_plane_are_valid(self):
+        report = self.evidence([winchester_loading_tip(tip_edge_cm=0, tip_plane_cm=-0.25)])
+        row = report['winchester_loading_observations'][0]
+        self.assertEqual(row['status'], 'observed')
+        self.assertEqual(row['tip']['edge_cm'], 0.0)
+        self.assertEqual(row['tip']['plane_cm'], -0.25)
+
+    def test_winchester_loading_sparse_clocks_do_not_infer_phase_or_object_identity(self):
+        report = self.evidence([winchester_loading_sample(),
+                               winchester_loading_sample(native_time_right=0.1, loaded=4,
+                                                         reserve=13, frame_sequence=12)])
+        rows = report.get('winchester_loading_observations', [])
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row['status'] == 'observed' for row in rows))
+        self.assertTrue(all(row['native_phase_proven'] is False for row in rows))
+        self.assertTrue(all(row['same_object_proven'] is False for row in rows))
+        self.assertEqual(report['summary']['unit_readbacks'], 0)
+
     def test_indexed_previously_unregistered_event_reaches_analyzed_timeline(self):
         report = self.evidence([indexed_sample()])
         self.assertEqual([e['event'] for e in report['timeline']], ['indexed_native_reload'])
@@ -967,6 +1183,144 @@ class ReloadAnalysisTests(unittest.TestCase):
             report=self.evidence([trace(2),insertion(ammo_before=0,ammo_after=1,reserve_before=3,reserve_after=2,
                 **dict(fields,**change)),trace(3)])
             self.assertEqual(report['insertions'][0]['assessment'],'invalid_family_readback')
+
+    def test_indexed_body_cycle_status_one_reports_all_exact_classes_and_indices(self):
+        for weapon_class in INDEXED_CLASSES:
+            for index in (0, 1):
+                with self.subTest(weapon_class=weapon_class, index=index):
+                    fields = indexed_insertion_fields(weapon_class, index)
+                    report = self.evidence([trace(2), insertion(**fields),
+                        trace(3, status=1, native_body_cycle_after=1)])
+                    self.assertEqual(report['insertions'][0]['assessment'],
+                                     'indexed_unit_readback_reported')
+                    self.assertEqual(report['summary']['indexed_unit_readbacks_reported'], 1)
+                    self.assertEqual(report['summary']['unit_readbacks'], 0)
+                    self.assertEqual(report['issues'], [])
+                    self.assertFalse(report['headset_validated'])
+                    self.assertEqual(report['indexed_reload_observations'], [])
+                    self.assertIn('interruption_recovery', report['physical_gates_pending'])
+
+    def test_indexed_body_cycle_status_one_requires_explicit_numeric_true_flag(self):
+        for weapon_class in INDEXED_CLASSES:
+            for index in (0, 1):
+                for flag in (None, 0, '', 'false', 'true', 'yes', 2, -1, '01'):
+                    with self.subTest(weapon_class=weapon_class, index=index, flag=flag):
+                        fields = indexed_insertion_fields(weapon_class, index, native_body_cycle=flag)
+                        if flag is None:
+                            del fields['native_body_cycle']
+                        report = self.evidence([trace(2), insertion(**fields), trace(3, status=1)])
+                        self.assertEqual(report['insertions'][0]['assessment'], 'invalid_family_readback')
+                        self.assertEqual(report['summary']['indexed_unit_readbacks_reported'], 0)
+
+    def test_indexed_legacy_wait_and_close_remain_readable_with_optional_numeric_flag(self):
+        for weapon_class in INDEXED_CLASSES:
+            for index in (0, 1):
+                for status in (2, 3):
+                    for flag in (None, 0, 1):
+                        with self.subTest(weapon_class=weapon_class, index=index, status=status, flag=flag):
+                            fields = indexed_insertion_fields(weapon_class, index,
+                                probe_status_after=status, native_body_cycle=flag)
+                            if flag is None:
+                                del fields['native_body_cycle']
+                            report = self.evidence([trace(2), insertion(**fields), trace(3, status=status)])
+                            self.assertEqual(report['insertions'][0]['assessment'],
+                                             'indexed_unit_readback_reported')
+
+    def test_indexed_legacy_status_rejects_malformed_present_cycle_flag(self):
+        for status in (2, 3):
+            for flag in ('true', 'false', 'yes', '', 2, -1, '01'):
+                with self.subTest(status=status, flag=flag):
+                    fields = indexed_insertion_fields('WeaponPistolDerringer', 0,
+                        native_body_cycle=flag, probe_status_after=status)
+                    report = self.evidence([trace(2), insertion(**fields), trace(3, status=status)])
+                    self.assertEqual(report['insertions'][0]['assessment'], 'invalid_family_readback')
+
+    def test_indexed_body_cycle_rejects_wrong_class_mode_vectors_and_status(self):
+        changes = [dict(weapon_class='WeaponRifleRemington_A'),
+                   dict(weapon_class='WeaponRifleWinchester'),
+                   dict(weapon_class='WeaponPistolSchofield'), dict(reload_mode='clip'),
+                   dict(selected_index=-1), dict(selected_index=2),
+                   dict(loaded_before='0'), dict(loaded_after='1,1'),
+                   dict(loaded_after='2,0'), dict(loaded_before='-1,0'),
+                   dict(capacities='1,9'), dict(reserve_indices='2,1'),
+                   dict(reserves_before='12,20'), dict(reserves_after='11,19,29'),
+                   dict(reserves_after='12,20,30'), dict(reserves_after='-1,20,29'),
+                   dict(ammo_before=1), dict(ammo_after=2),
+                   dict(reserve_before=99), dict(reserve_after=99),
+                   dict(reserve_kind='unknown'), dict(after_valid=0),
+                   dict(native_call_completed=0), dict(feedback_qualified=0),
+                   *[dict(probe_status_after=status) for status in (0, 4, -1, '', 'true')]]
+        for weapon_class in INDEXED_CLASSES:
+            for index in (0, 1):
+                for change in changes:
+                    with self.subTest(weapon_class=weapon_class, index=index, change=change):
+                        fields = indexed_insertion_fields(weapon_class, index, **change)
+                        report = self.evidence([trace(2), insertion(**fields), trace(3, status=1)])
+                        self.assertEqual(report['insertions'][0]['assessment'], 'invalid_family_readback')
+                        self.assertEqual(report['summary']['indexed_unit_readbacks_reported'], 0)
+
+    def test_lemant_body_cycle_preserves_other_pool_and_exactly_one_round(self):
+        fields = indexed_insertion_fields('WeaponPistolLemant', 1,
+            loaded_before='1,3', loaded_after='1,4', ammo_before=3, ammo_after=4)
+        report = self.evidence([trace(2), insertion(**fields), trace(3, status=1)])
+        self.assertEqual(report['insertions'][0]['assessment'], 'indexed_unit_readback_reported')
+        for change in (dict(reserves_after='11,19,30'), dict(reserve_kind='rifle'),
+                       dict(loaded_after='1,5', ammo_after=5, reserves_after='10,20,30', reserve_after=10),
+                       dict(loaded_before='1,8', loaded_after='1,9', ammo_before=8, ammo_after=9)):
+            with self.subTest(change=change):
+                report = self.evidence([trace(2), insertion(**dict(fields, **change)), trace(3, status=1)])
+                self.assertEqual(report['insertions'][0]['assessment'], 'invalid_family_readback')
+
+    def test_indexed_body_cycle_requires_complete_typed_and_scalar_readback(self):
+        for weapon_class in INDEXED_CLASSES:
+            for index in (0, 1):
+                for missing in ('weapon_class', 'selected_index', 'loaded_before', 'loaded_after',
+                                'reserves_before', 'reserves_after', 'capacities', 'reserve_indices',
+                                'ammo_before', 'ammo_after', 'reserve_before', 'reserve_after',
+                                'reserve_kind', 'probe_status_after', 'feedback_qualified',
+                                'after_valid', 'native_call_completed'):
+                    with self.subTest(weapon_class=weapon_class, index=index, missing=missing):
+                        line = insertion(**indexed_insertion_fields(weapon_class, index))
+                        line = ';'.join(part for part in line.split(';')
+                                        if not part.startswith(missing+'='))
+                        report = self.evidence([trace(2), line, trace(3, status=1)])
+                        self.assertEqual(report['insertions'][0]['assessment'], 'invalid_family_readback')
+
+    def test_clip_readback_requires_close_and_never_claims_body_cycle(self):
+        for weapon_class in ('WeaponPistolSchofield', 'WeaponPistolSchofield_A', 'WeaponPistolSchofield_B'):
+            for status in (1, 2, 3):
+                for flag in (None, 0, 1, 'true', 'false', 'yes', 2):
+                    with self.subTest(weapon_class=weapon_class, status=status, flag=flag):
+                        fields = dict(reload_mode='clip', weapon_class=weapon_class, selected_index=-1,
+                            loaded_before='2,0', loaded_after='6,0', reserves_before='10,0,0',
+                            reserves_after='6,0,0', capacities='6,0', reserve_indices='0,0',
+                            probe_status_after=status, feedback_qualified=1, reserve_kind='pistol',
+                            ammo_after=6, reserve_after=6, native_body_cycle=flag)
+                        if flag is None:
+                            del fields['native_body_cycle']
+                        report = self.evidence([trace(2), insertion(**fields), trace(3, status=status)])
+                        expected = ('clip_readback_reported' if status == 3 and flag in (None, 0)
+                                    else 'invalid_family_readback')
+                        self.assertEqual(report['insertions'][0]['assessment'], expected)
+                        self.assertFalse(report['headset_validated'])
+
+    def test_indexed_cycle_readback_requires_existing_owner_and_frame_correlation(self):
+        fields = indexed_insertion_fields('WeaponPistolLemant', 0)
+        for lines, manual in (([insertion(**fields)], True),
+                              ([trace(2), insertion(**fields), trace(3, player_generation=8)], True),
+                              ([trace(2), insertion(**fields), trace(4)], True),
+                              ([trace(2), insertion(**fields), trace(3)], False)):
+            with self.subTest(lines=lines, manual=manual):
+                report = self.evidence(lines, manual=manual)
+                self.assertEqual(report['insertions'][0]['assessment'], 'inconclusive')
+                self.assertEqual(report['summary']['indexed_unit_readbacks_reported'], 0)
+
+    def test_existing_unit_native_body_cycle_trace_correlation_is_preserved(self):
+        report = self.evidence([trace(2), insertion(native_body_cycle=1),
+            trace(3, status=1, native_body_cycle_after=1, ammo_readback_after=3,
+                  pistol_reserve_after=9)])
+        self.assertEqual(report['insertions'][0]['assessment'], 'unit_readback_observed')
+        self.assertFalse(report['headset_validated'])
 
     def test_invalid_after_snapshot_cannot_confirm_any_transfer(self):
         report = self.evidence([trace(2), insertion(after_valid=0), trace(3)])

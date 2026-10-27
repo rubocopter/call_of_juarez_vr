@@ -872,6 +872,13 @@ current reload binding without issuing a close command. Helper success requires
 the original player/generation after lookup and callback, with no JNI exception.
 Rejected/faulted insertion stops presentation/supervision before publication and
 never retries. Completion, failed preparation and fresh sessions clear old tokens.
+The gesture's final consumed release sample cannot recreate the session's
+persistent trigger claim. Replacement context/input/player tuples retire old
+gesture clocks and establish a neutral baseline while retaining physical holds;
+only a later fresh available release in that current source discharges them.
+Retired tuples cannot reclaim authority. This permits ordinary-fire recovery
+after cancellation/disable without replaying an insertion or borrowing an old
+source's release, including when the replacement sequence restarts at one.
 
 The public launcher enables manual reload on fresh installs and preserves the
 installed choice on updates; option 8 changes it transactionally while closed.
@@ -888,7 +895,17 @@ at pickup and frozen across carry/release; becoming full/reserve-empty withdraws
 the carry instead of redirecting it. The guarded indexed composite calls original
 count/reserve setters for that one index, verifies both loaded counts and all
 distinct reserve pools, and publishes one event. It is explicitly separate from
-the original ascending native reload loop. Indexed empty-trigger preparation is
+the original ascending native reload loop. After a verified selected unit, the
+indexed route replays its guarded native body21 when another unit remains and
+withdraws readiness until a new native completion reaches waiting. The original
+Started callback keeps its zero-unit per-index skin/audio calls; all count/pool/
+counter identities and maxima remain checked around it. Only the retained
+same-hand/machine/body self-Clear is suppressed. Typed feedback accepts the
+resulting Status1 only with matching exact-profile cycle flags and one verified
+selected unit; no extra carry or native transfer is queued. A same-ID replacement
+body rejects replay/close authority; a separate exact-body completion lease fences
+late ammunition transfer on the retained hand/machine until natural retirement.
+Indexed empty-trigger preparation is
 disabled until native firing-index ownership is proven; Square prepares normally.
 Schofield base/A/B use one original whole-clip authority call with exact
 `min(6-loaded,pistol reserve)` readback and immediate retained native close. A
@@ -900,7 +917,7 @@ presentation, not an exact-calibre speedloader. Single-cartridge proximity
 diagnostics do not qualify bundle contact and are withheld for bundle samples.
 Shared transaction guards prevent cross-family callback reentry.
 All new paths remain source/host candidates with generic grip-zone interaction;
-per-model ports, shell/calibre fidelity, mechanical replay and physical acceptance
+per-model ports, shell/calibre fidelity, native mechanical playback and physical acceptance
 remain separate gates. Exact profile admission belongs to the
 [reload profiles](research/COJ_RELOAD_OWNERSHIP.md#exact-revolver-profiles), not a
 model-name prefix or inherited pistol class. Scoped accepted Peacemaker flow and
@@ -949,6 +966,17 @@ identity. The synchronous vector classifier requires a caller-held identity
 lease. These implemented/host-tested tools add no manual weapon or mechanical
 writer. [Reload ownership](research/COJ_RELOAD_OWNERSHIP.md#additional-families-original-archive-reload-contracts)
 owns storage/pool mappings and remaining native correlation prerequisites.
+
+The bounded Winchester loading-geometry observer separately copies exact
+ordinary/scoped natural and displayed GunBody/GunLoader/Holder/barrel frames
+under retained JNI ownership. It transforms the measured receiver polygon and,
+only with a current held pinch, the actual textured cartridge nose/axis. Native
+phase observations must agree around each read. Same-frame/context/generation,
+stereo capture and successful restoration gate publication. Its projected
+edge/plane measurements do not authorize insertion, clearance or a mechanical
+writer; the existing grip-zone policy remains unchanged. Host verification and
+remaining live/physical prerequisites belong to the
+[measured-mouth contract](research/COJ_RELOAD_OWNERSHIP.md#measured-winchester-receiver-lip--observation-only).
 
 ## Weapon ownership
 
@@ -1348,8 +1376,56 @@ dependency download is required. Game files are patched locally and never shippe
 exact-build transactional stage/unstage boundaries. Updates restore originals
 before deploying a replacement; failure retains recovery data or restores the
 original game. Default Install/update enables manual reload on fresh installs
-and preserves the installed choice on upgrades. Launcher option 8 changes it
-through the same transactional Install/update path while the game is closed;
+and preserves the installed choice on upgrades. `release/cojvr-gui.ps1` provides
+a Windows PowerShell 5.1/WinForms graphical front end: Steam AppID 3020
+discovery through registered Steam roots, `libraryfolders.vdf` and
+`appmanifest_3020.acf` (`installdir`), including moved libraries and renamed
+install directories. GOG discovery uses the original product's registered and
+default locations; custom/offline locations remain selectable with Browse.
+The shared exact-executable catalog owns edition and matching Data0 hashes;
+engine and code originals must also match before mutation. The installer derives
+the explicit experimental GOG staging option from that admitted identity. Both
+editions use the same payload and transactional restoration; unknown or mixed
+originals fail closed. This is experimental compatibility of the tested GOG build,
+not a second fully supported campaign/hardware target.
+Discovery checks for `CoJ.exe` and `ChromeEngine3.dll`,
+deduplicates detected paths and allows choosing between multiple installs,
+explicit rescanning, editing the game path or browsing. Detection is read-only;
+the install transaction still requires exact SHA-256 game identity. The GUI
+also provides package verification, install/update, session preparation, status, local
+diagnostic ZIP and uninstall/recovery. It runs a bounded, encoded invocation of
+the existing `cojvr.ps1` actions in a child PowerShell process and displays the
+output without blocking the window. `CoJ-VR.cmd` opens the GUI with no arguments;
+explicit arguments continue to use the scripted launcher. The GUI preserves
+the SHA-256 game admission, journal, backup/restore and manual game/SteamVR
+lifecycle because these remain owned by the CLI transaction implementation.
+When opened from a recognized source checkout, GUI actions use the repository's
+`tools/cojvr_source_action.ps1` bridge. It prepares a local player package from
+the existing provenance-checked native Release build, verifies its inventory
+and invokes the same packaged backend. A SHA-256 cache key covers current
+installer/patcher inputs, build manifest and native artifact bytes; every reuse
+revalidates the player inventory. Package creation has an exclusive lease and
+rejects linked or incomplete destinations. The original build provenance is
+retained; local dirty packages are not public releases. A missing native build
+requires the development build workflow. Incomplete player ZIPs never gain a
+source fallback. Preference-only saves need no package generation.
+Child streams are formatted to UTF-8 text before redirection, with explicit
+exit-code forwarding and a retained process handle. Built-in utility/security
+modules are selected from the Windows PowerShell host, independent of an
+inherited PowerShell 7 module path.
+The window groups the six actions separately from startup resolution and the
+advanced reload installation choice. Resolution offers Preserve, Auto, 75%,
+100%, 125% and explicit manual per-eye dimensions, persisted through the
+existing `ConfigureResolution` backend; changing the selector alone has no
+effect on a running game. Its Western presentation uses parchment/leather/copper
+colors and an original, runtime-drawn GDI+ frontier scene (sun, mesas, windmill,
+cactus), with distinct Install and Uninstall treatments. No copyrighted game
+image is packaged. Host integration covers all backend actions against an
+isolated exact-game copy, including updates, resolution persistence, recovery
+and byte-exact uninstall. WinForms inspection and operator use remain distinct
+from physical gameplay validation.
+The GUI's advanced On/Off choice changes manual reload only through the same
+transactional Install/update path while the game is closed;
 explicit noninteractive `-ManualReload:$false` remains available. All explicitly saved resolution
 preferences survive updates. Input manifests bind
 every referenced controller JSON, preserving legacy Sense-only restoration.
@@ -1366,6 +1442,10 @@ Files provider reparse tags; junctions, symlinks and unknown tags still reject,
 including ancestors of missing destinations and journaled recovery targets.
 Game/package/backup paths retain the strict rule. This is host-tested path
 compatibility, not physical OneDrive synchronization acceptance.
+Manual reload is presently an installed capability with an On/Off installation
+choice, not a live Options > Game preference. A future native selector needs
+separate capability and persisted runtime preference state, plus safe cancellation
+of active cartridge/weapon ownership when it changes. This is not yet implemented.
 Theater stays the cinematic default; the rejected
 independent eye RT prototype and investigation probes remain off. Community
 reports use a bounded text
@@ -1440,9 +1520,19 @@ input observation publishes a 150 ms lease; unavailable input, loading, frozen
 time or expired lease disables the mask. The compositor dims the periphery of
 fresh native pairs before overlays, independently of color-filter enable. It
 changes neither horse speed nor camera/FOV.
-Mild uses clear/full-dimming eye-normalized radii .42/.78; Strong uses .28/.60,
-retaining .55/.85 maximum dimming. The centre and alpha remain unchanged, with
-annular GPU checks at actual eye extents; corners alone do not qualify effect.
+The mask uses one head-forward angular cone at infinity, projected through each
+physical eye's asymmetric FOV and complete eye-to-head rotation. Its reference
+radius is the largest such cone inside both physical frusta; eye translation
+does not introduce finite-depth disparity. Equal head-space rays receive equal
+attenuation even when their texture UVs differ. Missing/invalid optical pairs
+reject before GPU allocation or either-eye writes. Scope masking retains
+precedence and Off/expired-motion captures retain exact native pixels.
+Mild uses clear/full-dimming fractions .42/.78 of that shared tangent radius;
+Strong uses .28/.60, retaining .55/.85 maximum dimming. The head-forward centre
+and alpha remain unchanged. WARP pixel tests cover asymmetric/canted eye rays,
+both strengths, invalid pairs, non-square/actual eye extents and fresh exit.
+The previous equal-UV circles had a demonstrated binocular geometry mismatch;
+these host checks do not qualify the revised mask's physical appearance.
 Comfort and physical visibility of the compact sixteen-row native editor remain unqualified.
 
 The renderer validates both same-device, distinct, equal-size private BGRA/BGRX

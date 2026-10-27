@@ -2,6 +2,7 @@
 #include "backends/openvr/reticle_pixels.hpp"
 #include "backends/d3d9/stereo_frame.hpp"
 #include "runtime/scope_view.hpp"
+#include "runtime/vr_math.hpp"
 #include <d3d11_1.h>
 #include <algorithm>
 #include <array>
@@ -45,6 +46,81 @@ struct Gpu {
     }
 };
 unsigned Channel(std::uint32_t pixel,unsigned shift){return(pixel>>shift)&255U;}
+std::array<cojvr::runtime::EyeView,2> SymmetricComfortEyes() {
+    using namespace cojvr::runtime;
+    std::array<EyeView,2> eyes{};
+    eyes[0].eye=Eye::left;eyes[1].eye=Eye::right;
+    for(auto& eye:eyes) {
+        eye.eye_to_head.orientation_valid=true;
+        eye.fov={std::atan(-1.F),std::atan(1.F),std::atan(1.F),std::atan(-1.F)};
+    }
+    return eyes;
+}
+void TestAngularComfort() {
+    using namespace cojvr::runtime;
+    Gpu gpu;
+    constexpr unsigned width=640,height=480;
+    std::array<EyeView,2> optical{};
+    optical[0].eye=Eye::left;optical[1].eye=Eye::right;
+    optical[0].fov={std::atan(-1.5F),std::atan(.7F),std::atan(1.F),std::atan(-.8F)};
+    optical[1].fov={std::atan(-.7F),std::atan(1.5F),std::atan(.8F),std::atan(-1.F)};
+    for(auto& eye:optical)eye.eye_to_head.orientation_valid=true;
+    const std::vector<std::uint32_t> a(width*height,0x7FC0C0C0),b(width*height,0x59808080);
+    auto left=gpu.Texture(width,height,a),right=gpu.Texture(width,height,b);
+    const std::array<ID3D11Texture2D*,2> pair{left.Get(),right.Get()};
+    GraphicsSettings settings{};
+    SpatialImageProcessor processor;
+    for(bool canted:{false,true})for(float strength:{.55F,.85F}) {
+    if(canted)for(unsigned eye=0;eye<2;++eye) {
+        const float half_yaw=eye?-.05F:.05F;
+        optical[eye].eye_to_head.orientation={0,std::sin(half_yaw),0,std::cos(half_yaw)};
+    }
+    std::array<ComfortEyeProjection,2> projection{};
+    Require(BuildComfortEyeProjections(optical,projection),"valid angular aperture rejected");
+    const float expected_radius=canted?std::tan(std::atan(.7F)-.1F):.7F;
+    Require(std::abs(projection[0].inverse_radius-1.F/expected_radius)<1.e-5F&&
+        projection[0].inverse_radius==projection[1].inverse_radius,"comfort cone does not fit both physical frusta");
+    gpu.context->UpdateSubresource(pair[0],0,nullptr,a.data(),width*4,0);
+    gpu.context->UpdateSubresource(pair[1],0,nullptr,b.data(),width*4,0);
+    Require(processor.Process(gpu.device.Get(),gpu.context.Get(),pair,settings,strength,false,nullptr,false,&optical),"asymmetric comfort pass");
+    const std::array<std::vector<std::uint32_t>,2> pixels{gpu.Read(left.Get()),gpu.Read(right.Get())};
+    for(const auto ray:{Vec3{0,0,-1},Vec3{.25F,0,-1},Vec3{.45F,.2F,-1},Vec3{-.45F,-.2F,-1}}) {
+        std::array<float,2> transmission{};
+        for(unsigned eye=0;eye<2;++eye) {
+            const auto& fov=optical[eye].fov;const auto& q=optical[eye].eye_to_head.orientation;
+            const auto local=RotateVector({-q.x,-q.y,-q.z,q.w},ray);
+            const float u=(local.x/-local.z-std::tan(fov.angle_left))/(std::tan(fov.angle_right)-std::tan(fov.angle_left));
+            const float v=(std::tan(fov.angle_up)-local.y/-local.z)/(std::tan(fov.angle_up)-std::tan(fov.angle_down));
+            const auto x=std::min(width-1,static_cast<unsigned>(u*width));
+            const auto y=std::min(height-1,static_cast<unsigned>(v*height));
+            const auto pixel=pixels[eye][y*width+x];
+            transmission[eye]=float(Channel(pixel,0))/(eye?128.F:192.F);
+            Require(Channel(pixel,24)==(eye?89U:127U),"angular comfort changed alpha");
+        }
+        Require(std::abs(transmission[0]-transmission[1])<.025F,
+            "equal head-space rays receive different comfort masks under asymmetric optics");
+        if(ray.x==0&&ray.y==0)Require(transmission[0]==1&&transmission[1]==1,"head forward aperture was darkened");
+    }
+    }
+    for(unsigned invalid=0;invalid<6;++invalid) {
+        auto bad=optical;
+        if(invalid==0)bad[1].eye_to_head.orientation_valid=false;
+        if(invalid==1)bad[1].fov.angle_up=std::numeric_limits<float>::quiet_NaN();
+        if(invalid==2)bad[1].eye=Eye::left;
+        if(invalid==3)bad[1].eye_to_head.orientation.w=2;
+        if(invalid==4)bad[1].eye_to_head.orientation={0,1,0,0}; // Head forward is outside this eye.
+        gpu.context->UpdateSubresource(pair[0],0,nullptr,a.data(),width*4,0);
+        gpu.context->UpdateSubresource(pair[1],0,nullptr,b.data(),width*4,0);
+        SpatialImageProcessor rejected;
+        Require(!rejected.Process(gpu.device.Get(),gpu.context.Get(),pair,settings,.85F,false,nullptr,false,invalid==5?nullptr:&bad)&&
+            rejected.scratch_allocations()==0&&gpu.Read(pair[0])==a&&gpu.Read(pair[1])==b,
+            "invalid comfort optics modified/allocated either eye");
+        Require(rejected.Process(gpu.device.Get(),gpu.context.Get(),pair,settings,0,false,nullptr,false,&bad)&&
+            rejected.scratch_allocations()==0&&gpu.Read(pair[0])==a&&gpu.Read(pair[1])==b,
+            "off/idle comfort requires optics or changes source pixels");
+    }
+    std::cout<<"Comfort asymmetric/canted optical fusion, clear head ray, strengths and invalid-pair/idle admission passed\n";
+}
 bool ScopePass(SpatialImageProcessor& processor,Gpu& gpu,const std::array<ID3D11Texture2D*,2>& eyes,
                const GraphicsSettings& options,bool scope=true) {
     return processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options,0.F,scope);
@@ -319,6 +395,7 @@ void ScopePixels() {
 }
 }
 int main() try {
+    TestAngularComfort();
     {
         Gpu warning_gpu;SpatialImageProcessor warning_processor;GraphicsSettings neutral{};
         const std::vector<std::uint32_t> scene(10000,0x7F3979C1U);
@@ -461,7 +538,8 @@ int main() try {
     options={};options.sharpness=1;options.gamma=2;options.horse_comfort=2;
     dark=gpu.Texture(32,32,std::vector<std::uint32_t>(1024,0x7FC0C0C0));
     dark2=gpu.Texture(32,32,std::vector<std::uint32_t>(1024,0x7F808080));eyes={dark.Get(),dark2.Get()};
-    Require(processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options,.85F),"horse comfort GPU pass");
+    const auto comfort_optics=SymmetricComfortEyes();
+    Require(processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options,.85F,false,nullptr,false,&comfort_optics),"horse comfort GPU pass");
     const auto comfort=gpu.Read(dark.Get());
     Require(Channel(comfort[16*32+16],0)==192&&Channel(comfort[0],0)<40&&Channel(comfort[0],24)==127,
         "horse comfort changed center/alpha or failed peripheral dimming");
@@ -484,7 +562,7 @@ int main() try {
             const std::vector<std::uint32_t> a(pixel_count,0x7FC0C0C0),b(pixel_count,0x59808080);
             dark=gpu.Texture(width,height,a);dark2=gpu.Texture(width,height,b);eyes={dark.Get(),dark2.Get()};
             const float strength=mode==1?.55F:mode==2?.85F:0.F;
-            Require(processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options,strength),"comfort choice GPU pass");
+            Require(processor.Process(gpu.device.Get(),gpu.context.Get(),eyes,options,strength,false,nullptr,false,&comfort_optics),"comfort choice GPU pass");
             const auto left_pixels=gpu.Read(dark.Get()),right_pixels=gpu.Read(dark2.Get());
             corners[mode]=Channel(left_pixels[0],0);
             std::array<unsigned,3> samples{};

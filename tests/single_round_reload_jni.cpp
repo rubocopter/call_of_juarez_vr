@@ -11,6 +11,8 @@
 #include "games/call_of_juarez/gameplay_ui_reader.hpp"
 #include "games/call_of_juarez/focus_zoom.hpp"
 #include "games/call_of_juarez/motion_reload_owner.hpp"
+#include "games/call_of_juarez/winchester_loading_geometry.hpp"
+#include "games/call_of_juarez/winchester_loading_probe.hpp"
 #include "finger_fixture.hpp"
 #define private public
 #include "games/call_of_juarez/java_player_bridge.hpp"
@@ -471,9 +473,11 @@ namespace {
 // by the production reader. No geometry helper computes our expected result.
 int geometry_vector_class, geometry_constructor, geometry_x, geometry_y, geometry_z;
 struct GeometryVector { float x, y, z; } geometry_vector{};
-std::array<ElementWorldBasisTarget, 5> geometry_frames{};
+std::array<ElementWorldBasisTarget, 13> geometry_frames{};
+std::array<cojvr::runtime::Vec3,13> geometry_raw_x{};
+bool geometry_raw_x_enabled=false;
 std::vector<std::string> geometry_names;
-int drum_index = 3, gate_index = 1, unavailable_element = -1;
+int drum_index = 3, gate_index = 1, unavailable_element = -1, geometry_holder_index=4;
 int geometry_hand = 0;
 bool replace_during_last_frame = false;
 int replacement_reads = 0;
@@ -505,6 +509,12 @@ int JNI_CALL GeometryInteger(void* env, void* object, void* method, const Value*
     Require(object == &weapon || object == &weapon_alias, "geometry element ID read wrong owner");
     if (Fail()) return -1;
     const auto text = static_cast<const char*>(args[0].object);
+    if (weapon_class==&winchester_class || weapon_class==&scoped_class) {
+        if(!std::strcmp(text,"GunBody"))return drum_index;
+        if(!std::strcmp(text,"GunLoader"))return gate_index;
+        if(!std::strcmp(text,"Holder"))return geometry_holder_index;
+        Require(false,"unexpected rifle element name");return -1;
+    }
     const bool peacemaker = weapon_class == &peacemaker_class;
     if (!std::strcmp(text,peacemaker ? "ColtDrum" : "GunDrum")) return drum_index;
     if (!std::strcmp(text,peacemaker ? "ColtLock" : "GunLoader")) return gate_index;
@@ -522,13 +532,13 @@ std::uint8_t JNI_CALL GeometryBoolean(void* env, void* object, void* method, con
         std::strcmp(name,"GetElementUpVector")) return Boolean(env,object,method,args);
     Require(object == &weapon || object == &weapon_alias,"geometry frame read wrong owner");
     const int index = args[0].integer;
-    Require(index >= 0 && index < 5 && args[1].object == &geometry_vector,
+    Require(index >= 0 && static_cast<std::size_t>(index) < geometry_frames.size() && args[1].object == &geometry_vector,
         "geometry frame read index/vector mismatch");
     if (Fail() || index == unavailable_element) return 0;
     const auto& frame = geometry_frames[index];
     const auto value = !std::strcmp(name,"GetElementPos") ? frame.position :
         !std::strcmp(name,"GetElementUpVector") ? frame.up :
-        cojvr::runtime::Vec3{frame.up.y*frame.forward.z-frame.up.z*frame.forward.y,
+        geometry_raw_x_enabled?geometry_raw_x[index]:cojvr::runtime::Vec3{frame.up.y*frame.forward.z-frame.up.z*frame.forward.y,
             frame.up.z*frame.forward.x-frame.up.x*frame.forward.z,
             frame.up.x*frame.forward.y-frame.up.y*frame.forward.x};
     geometry_vector = {value.x,value.y,value.z};
@@ -552,6 +562,7 @@ float JNI_CALL GeometryFloat(void*, void* object, void* field) {
 }
 void GeometryReset(JavaPlayerBridge& bridge,int hand,bool peacemaker) {
     TicketReset(bridge,hand);
+    geometry_raw_x_enabled=false;
     geometry_mode = true; optional_geometry_steps.clear(); geometry_names.clear();
     weapon_class = peacemaker ? &peacemaker_class : &pistol_class;
     drum_index = 3; gate_index = 1; unavailable_element = -1;
@@ -783,6 +794,314 @@ void ManualPinchBridgeTests(JavaPlayerBridge& bridge) {
     Set(51,Integer);Set(57,static_cast<void*>(nullptr));Set(94,TicketField);Set(95,TicketOwner);
     Set(100,static_cast<void*>(nullptr));Set(102,static_cast<void*>(nullptr));
     bridge.vector_class_=bridge.vector_constructor_=nullptr;
+}
+JavaPlayerBridge* rifle_bridge=nullptr;
+int rifle_fault=0,rifle_frame_calls=0,rifle_actual_reads=0;
+std::vector<int> rifle_nonmatching_comparisons;
+void* JNI_CALL RifleUnexpectedField(void*,void*,const char*,const char*) {
+    Require(false,"rifle geometry attempted an extra field/phase lookup");return nullptr;
+}
+int JNI_CALL RifleInteger(void* env,void* object,void* method,const Value* args) {
+    Require(!std::strcmp(static_cast<char*>(method),"GetElementID"),"rifle geometry read a gameplay counter");
+    return GeometryInteger(env,object,method,args);
+}
+std::uint8_t JNI_CALL RifleSame(void* env,void* a,void* b) {
+    const bool nonmatching=a==weapon_class && b!=weapon_class;
+    const auto same=Same(env,a,b);
+    if(nonmatching)rifle_nonmatching_comparisons.push_back(step);
+    return same;
+}
+void RifleCallbackFault() {
+    if(rifle_fault==1)actual[0]=&replacement;
+    if(rifle_fault==2)active[0]=&replacement;
+    if(rifle_fault==3)rifle_bridge->being_=&replacement;
+    if(rifle_fault==4)++rifle_bridge->being_generation_;
+    if(rifle_fault==5)rifle_bridge->weapon_overlays_[0].weapon=&replacement;
+    if(rifle_fault==6)rifle_bridge->weapon_overlays_[0].applied=false;
+}
+std::uint8_t JNI_CALL RifleBoolean(void* env,void* object,void* method,const Value* args) {
+    const auto result=GeometryBoolean(env,object,method,args);
+    ++rifle_frame_calls;
+    if(args[0].integer==4 && !std::strcmp(static_cast<char*>(method),"GetElementUpVector"))
+        RifleCallbackFault(); // The last requested frame, before the final owner reads.
+    return result;
+}
+void* JNI_CALL RifleObject(void* env,void* object,void* method,const Value* args) {
+    auto* result=Object(env,object,method,args);
+    if(!std::strcmp(static_cast<char*>(method),"GetActualWeaponNotEmpty")) {
+        ++rifle_actual_reads;
+        // Even a getter returning the old object cannot hide a bridge replacement.
+        if(rifle_actual_reads==2 && rifle_fault==7)rifle_bridge->being_=&replacement;
+        if(rifle_actual_reads==2 && rifle_fault==8)++rifle_bridge->being_generation_;
+    }
+    return result;
+}
+void RifleReset(JavaPlayerBridge& bridge,bool scoped,CoJReloadGeometrySource source) {
+    GeometryReset(bridge,0,false);geometry_mode=false;
+    bridge.weapon_overlay_faulted_=bridge.independent_hand_faulted_=false;
+    Set(21,TicketGlobal);
+    rifle_bridge=&bridge;rifle_fault=rifle_frame_calls=rifle_actual_reads=0;
+    rifle_nonmatching_comparisons.clear();
+    weapon_class=scoped?&scoped_class:&winchester_class;
+    drum_index=7;gate_index=11;geometry_holder_index=4;
+    geometry_frames={};
+    geometry_frames[0]={{90,190,290},{0,1,0},{0,0,1},true};
+    geometry_frames[9]={{95,195,295},{0,1,0},{0,0,1},true};
+    geometry_frames[7]={{100,200,300},{0,1,0},{1,0,0},true};
+    geometry_frames[11]={{110,210,310},{1,0,0},{0,0,1},true};
+    geometry_frames[4]={{120,220,320},{0,0,1},{0,1,0},true};
+    geometry_raw_x_enabled=true;geometry_raw_x={};
+    geometry_raw_x[0]=geometry_raw_x[9]={1,0,0};geometry_raw_x[7]={0,0,-1};
+    geometry_raw_x[11]={0,-1,0};geometry_raw_x[4]={-1,0,0};
+    auto& overlay=bridge.weapon_overlays_[0];overlay.barrel_element=9;
+    overlay.applied=source==CoJReloadGeometrySource::post_overlay;
+    overlay.natural.assign(geometry_frames.begin(),geometry_frames.end());
+    overlay.targets=overlay.natural;
+    Set(24,RifleSame);Set(36,RifleObject);Set(39,RifleBoolean);
+    // A rifle has no admitted m_fRotate field. Any field lookup fails this test.
+    Set(51,RifleInteger);Set(94,RifleUnexpectedField);
+}
+int RifleCheck(JavaPlayerBridge& bridge,bool expected,bool scoped,
+    CoJReloadGeometrySource source,int hand=0) {
+    CoJWinchesterLoadingGeometry out{};out.valid=true;out.model=CoJWinchesterLoadingModel::scoped;
+    out.root.valid=out.body.valid=out.loader.valid=out.holder.valid=out.barrel.valid=true;
+    out.lip.fill({1,2,3});std::string error="stale error";
+    const bool observed=bridge.TryObserveWinchesterLoadingGeometry(hand,out,source,&error);
+    if(observed!=expected)std::cerr<<"rifle geometry mismatch scoped="<<scoped<<" source="<<
+        static_cast<int>(source)<<" step="<<step<<" fail="<<fail_step<<" fault="<<rifle_fault<<
+        " error="<<error<<'\n';
+    Require(observed==expected,"rifle loading geometry admission mismatch");
+    Require(refs==0&&!pending,"rifle geometry leaked locals or exception");
+    Require(writes==0&&global_creates==0&&global_deletes==0&&!pending_ticket&&
+        native_active_ticket==&active_ticket_object&&geometry_phase_reads==0,
+        "rifle observer wrote state/refs or inferred mechanical phase");
+    if(!expected) {
+        Require(!error.empty()&&error!="stale error","rifle failure omitted a fresh diagnostic");
+        Require(!out.valid&&out.model==CoJWinchesterLoadingModel::unknown&&out.source==CoJReloadGeometrySource::unknown&&
+            !out.root.valid&&!out.body.valid&&!out.loader.valid&&!out.holder.valid&&!out.barrel.valid,
+            "rifle rejection retained stale geometry");
+        for(const auto& p:out.lip)Require(p.x==0&&p.y==0&&p.z==0,"rifle rejection retained lip");
+    } else {
+        Require(error.empty()&&out.valid&&out.source==source&&out.model==
+            (scoped?CoJWinchesterLoadingModel::scoped:CoJWinchesterLoadingModel::ordinary),
+            "rifle geometry lost provenance/exact class");
+        Require(geometry_names==std::vector<std::string>{"GunBody","GunLoader","Holder"},
+            "rifle observer did not resolve exact sparse element names");
+        Require(out.root.position.x==90&&out.barrel.position.x==95&&out.body.position.x==100&&
+            out.loader.position.x==110&&out.holder.position.x==120&&out.body.forward.x==1,
+            "rifle geometry lost source or frame axes");
+        // Literal GunBody-local polygon transformed independently: local X -> -Z,
+        // local Y -> +Y and local Z -> +X, in native centimetres.
+        constexpr std::array<cojvr::runtime::Vec3,8> expected_lip{{
+            {94.743238F,185.176128F,298.765461F},{94.750906F,179.931233F,298.765461F},
+            {96.577801F,179.931233F,298.788464F},{96.552880F,185.153124F,298.786547F},
+            {96.207821F,185.155041F,298.765461F},{96.207821F,185.511602F,298.765461F},
+            {95.094048F,185.503934F,298.755876F},{95.086380F,185.178045F,298.755876F}}};
+        for(std::size_t i=0;i<out.lip.size();++i)Require(
+            std::abs(out.lip[i].x-expected_lip[i].x)<.0001F&&
+            std::abs(out.lip[i].y-expected_lip[i].y)<.0001F&&
+            std::abs(out.lip[i].z-expected_lip[i].z)<.0001F,"rifle lip lost literal measured geometry");
+        Require(rifle_frame_calls==15,"rifle observer omitted strict live native axis reads");
+    }
+    return step;
+}
+void WinchesterLoadingGeometryTests(JavaPlayerBridge& bridge) {
+    for(bool scoped:{false,true})for(auto source:{CoJReloadGeometrySource::pre_native,CoJReloadGeometrySource::post_overlay}) {
+        // The cached capture is deliberately still rigid/normalized. Only live
+        // native +X/up reveal this scale or shear, including pre-native samples.
+        for(auto raw:{cojvr::runtime::Vec3{0,0,-2},cojvr::runtime::Vec3{0,.2F,-1}}) {
+            RifleReset(bridge,scoped,source);geometry_raw_x[7]=raw;
+            RifleCheck(bridge,false,scoped,source);
+        }
+        RifleReset(bridge,scoped,source);const int calls=RifleCheck(bridge,true,scoped,source);
+        const auto nonmatching=rifle_nonmatching_comparisons;
+        for(bool null_only:{false,true})for(int op=1;op<=calls;++op) {
+            RifleReset(bridge,scoped,source);null_failure=null_only;fail_step=op;
+            // A false IsSameObject for an already nonmatching class is the
+            // correct answer; only an exception can distinguish its failure.
+            const bool benign=null_only&&std::find(nonmatching.begin(),nonmatching.end(),op)!=nonmatching.end();
+            RifleCheck(bridge,benign,scoped,source);
+        }
+        for(int fault=0;fault<29;++fault) {
+            RifleReset(bridge,scoped,source);auto& overlay=bridge.weapon_overlays_[0];
+            switch(fault) {
+            case 0:overlay.active=false;break;
+            case 1:overlay.weapon=nullptr;break;
+            case 2:overlay.weapon=&replacement;break;
+            case 3:overlay.applied=!overlay.applied;break;
+            case 4:actual[0]=nullptr;break;
+            case 5:active[0]=nullptr;break;
+            case 6:active[0]=&replacement;break;
+            case 7:weapon_class=&other_class;break;
+            case 8:weapon_class=&volcanic_class;break;
+            case 9:drum_index=-1;break;
+            case 10:gate_index=13;break;
+            case 11:overlay.barrel_element=-1;break;
+            case 12:bridge.being_=nullptr;break;
+            case 13:bridge.vm_=nullptr;break;
+            case 14:overlay.natural.clear();overlay.targets.clear();break;
+            case 15:overlay.natural[7].valid=overlay.targets[7].valid=false;break;
+            case 16:overlay.natural[11].up=overlay.targets[11].up={0,2,0};break;
+            case 17:overlay.natural[4].position.x=overlay.targets[4].position.x=std::numeric_limits<float>::quiet_NaN();break;
+            case 18:overlay.natural[0].forward=overlay.targets[0].forward={0,.2F,1};break;
+            case 19:overlay.natural[9].forward=overlay.targets[9].forward={0,0,2};break;
+            case 20:bridge.weapon_overlay_faulted_=true;break;
+            case 21:unavailable_element=4;break;
+            case 22:geometry_frames[7].position.x+=.101F;break;
+            case 23:geometry_frames[11].up={0,2,0};break;
+            case 24:geometry_frames[4].up={.2F,0,1};break;
+            case 25:geometry_frames[0].position.z=std::numeric_limits<float>::infinity();break;
+            case 26:geometry_frames[9].up={.2F,1,0};break;
+            case 27:bridge.independent_hand_faulted_=true;break;
+            case 28:geometry_holder_index=-1;break;
+            }
+            RifleCheck(bridge,false,scoped,source);
+        }
+        for(int hand:{-1,1,2}) {
+            RifleReset(bridge,scoped,source);RifleCheck(bridge,false,scoped,source,hand);
+            Require(step==0,"unsupported rifle hand reached JNI");
+        }
+        for(auto bad:{CoJReloadGeometrySource::unknown,static_cast<CoJReloadGeometrySource>(255)}) {
+            RifleReset(bridge,scoped,source);RifleCheck(bridge,false,scoped,bad);
+            Require(step==0,"invalid rifle provenance reached JNI");
+        }
+        RifleReset(bridge,scoped,source);bridge.weapon_overlays_[0].weapon=&weapon_alias;
+        active[0]=&weapon_alias;RifleCheck(bridge,true,scoped,source);
+        if(source==CoJReloadGeometrySource::pre_native) {
+            RifleReset(bridge,scoped,source);
+            for(auto& f:bridge.weapon_overlays_[0].targets)f={};
+            RifleCheck(bridge,true,scoped,source);
+        }
+        for(int fault=(source==CoJReloadGeometrySource::pre_native?7:1);fault<=8;++fault) {
+            RifleReset(bridge,scoped,source);rifle_fault=fault;RifleCheck(bridge,false,scoped,source);
+        }
+        for(int slot:{6,15,17,23,24,30,31,33,36,39,51,102,167}) {
+            RifleReset(bridge,scoped,source);auto saved=table[slot];table[slot]=nullptr;
+            RifleCheck(bridge,false,scoped,source);table[slot]=saved;
+        }
+    }
+    bridge.weapon_overlays_={};bridge.weapon_overlay_faulted_=bridge.independent_hand_faulted_=false;
+    bridge.vector_class_=nullptr;bridge.being_=nullptr;rifle_bridge=nullptr;
+    Set(24,Same);Set(36,Object);Set(39,Boolean);
+}
+int sample_fault=0,sample_actual_reads=0,sample_swap_owner_reads=0,sample_replacement_counter_reads=0;
+bool sample_swap_active=false;
+void SampleReplace() {
+    actual[0]=active[0]=desired[0]=&replacement;sample_swap_active=true;
+}
+void* JNI_CALL SampleLookup(void* env,void* cls,const char* name,const char* desc) {
+    return !std::strcmp(name,"GetElementID")?GeometryLookup(env,cls,name,desc):PinchLookup(env,cls,name,desc);
+}
+int JNI_CALL SampleInteger(void* env,void* object,void* method,const Value* args) {
+    if(object==&replacement)++sample_replacement_counter_reads;
+    return !std::strcmp(static_cast<char*>(method),"GetElementID")?
+        GeometryInteger(env,object,method,args):Integer(env,object,method,args);
+}
+int JNI_CALL SampleIntField(void* env,void* object,void* field) {
+    if(object==&replacement)++sample_replacement_counter_reads;
+    return PinchIntField(env,object==&replacement?&weapon:object,field);
+}
+void* JNI_CALL SampleObject(void* env,void* object,void* method,const Value* args) {
+    if(!std::strcmp(static_cast<char*>(method),"GetActualWeaponNotEmpty")&&args[0].integer==0) {
+        ++sample_actual_reads;
+        // Same native ID, class, owner, states and counts, different Java object.
+        // These are first/second *outer* trace acquisition points without pinch.
+        if((sample_fault==1&&sample_actual_reads==2)||(sample_fault==2&&sample_actual_reads==6))SampleReplace();
+    }
+    return PinchObject(env,object,method,args);
+}
+void* JNI_CALL SampleOwner(void* env,void* object,void* field) {
+    auto* owner=TicketOwner(env,object,field);
+    if(object==&replacement&&sample_swap_active&&++sample_swap_owner_reads==2) {
+        // Restore after the raw reader's internal owner/end checks. A caller
+        // comparing only numeric snapshots would accept this temporary swap.
+        actual[0]=active[0]=desired[0]=&weapon;sample_swap_active=false;
+    }
+    return owner;
+}
+std::uint8_t JNI_CALL SampleBoolean(void* env,void* object,void* method,const Value* args) {
+    const bool player_frame=object==&player&&(!std::strcmp(static_cast<char*>(method),"GetElementPos")||
+        !std::strcmp(static_cast<char*>(method),"GetElementLeftVector")||!std::strcmp(static_cast<char*>(method),"GetElementUpVector"));
+    const auto value=player_frame?PinchBoolean(env,object,method,args):
+        (object==&weapon||object==&weapon_alias)?RifleBoolean(env,object,method,args):PinchBoolean(env,object,method,args);
+    if(player_frame&&sample_fault==3)SampleReplace();
+    if(player_frame&&sample_fault==4)++rifle_bridge->being_generation_;
+    if(player_frame&&sample_fault==5)rifle_bridge->being_=&replacement;
+    return value;
+}
+void SampleReset(JavaPlayerBridge& bridge,bool scoped,CoJReloadGeometrySource source,bool physical) {
+    RifleReset(bridge,scoped,source);bridge.being_generation_=17;bridge.manual_reload_owned_=true;
+    current[0]=destiny[0]=wanted[0]=actual_state[0]=21;reload=true;
+    for(auto& flags:two)flags[0]=true;
+    pinch_status=2;pinch_kind_mismatch=pinch_frame_failure=false;
+    pinch_weapon_class_reads=pinch_frame_reads=pinch_writes=0;bridge.hand_overlays_={};
+    sample_fault=sample_actual_reads=sample_swap_owner_reads=sample_replacement_counter_reads=0;sample_swap_active=false;
+    if(physical&&source==CoJReloadGeometrySource::post_overlay) {
+        const auto& rest=finger_fixture::L_rest;pinch_live=rest;
+        cojvr::runtime::FingerTrackingState curls{};curls.available=true;
+        curls.quality=cojvr::runtime::FingerTrackingQuality::estimated;curls.curls={.7F,.7F,.88F,.88F,.82F};
+        auto& fingers=bridge.hand_overlays_[1];fingers.object=&player;
+        Require(fingers.frames.Apply(rest,rest[3].frame,rest[3].frame,{},nullptr,PinchRead,PinchWrite,&curls,1),
+            "sample curled-finger setup failed");
+    }
+    Set(24,Same);Set(31,PinchClass);Set(33,SampleLookup);Set(36,SampleObject);Set(39,SampleBoolean);
+    Set(51,SampleInteger);Set(57,PinchAdvance);Set(94,PinchField);Set(95,SampleOwner);
+    Set(100,SampleIntField);Set(102,PinchFloat);Set(113,Lookup);Set(119,Boolean);
+}
+int SampleCheck(JavaPlayerBridge& bridge,bool expected,CoJReloadGeometrySource source,bool physical,
+    std::uint64_t frame=42,std::uint64_t context=1) {
+    CoJWinchesterLoadingSample out{};out.valid=true;out.tip.valid=true;out.native.valid=true;
+    std::string error="old error";const int setup_writes=pinch_writes;
+    const bool observed=bridge.TryObserveWinchesterLoadingSample(source,frame,context,physical,out,&error);
+    if(observed!=expected)std::cerr<<"sample mismatch source="<<static_cast<int>(source)<<" fault="<<sample_fault<<
+        " step="<<step<<" fail="<<fail_step<<" error="<<error<<'\n';
+    Require(observed==expected,"aggregate loading sample admission mismatch");
+    Require(refs==0&&!pending&&writes==0&&pinch_writes==setup_writes&&global_creates==0&&global_deletes==0,
+        "aggregate loading sample mutated state or leaked JNI ownership");
+    if(expected)Require(error.empty()&&out.valid&&out.geometry.valid&&out.native.valid&&out.frame_sequence==frame&&
+        out.player_generation==17&&out.native_context==context&&out.tip.valid==(physical&&source==CoJReloadGeometrySource::post_overlay),
+        "aggregate sample lost provenance or conditional displayed pinch");
+    else Require(!out.valid&&!out.geometry.valid&&!out.native.valid&&!out.tip.valid&&!out.tip_observation.valid&&
+        out.frame_sequence==0&&out.player_generation==0&&out.native_context==0&&!error.empty()&&error!="old error",
+        "aggregate sample rejection retained stale output or error");
+    if(bridge.hand_overlays_[1].frames.active())Require(bridge.hand_overlays_[1].frames.Restore({},nullptr,PinchRead,PinchWrite),
+        "sample fixture finger restoration failed");
+    bridge.hand_overlays_={};bridge.manual_reload_owned_=false;bridge.being_=&player;
+    return step;
+}
+void WinchesterLoadingSampleTests(JavaPlayerBridge& bridge) {
+    for(bool scoped:{false,true})for(auto source:{CoJReloadGeometrySource::pre_native,CoJReloadGeometrySource::post_overlay}) {
+        for(bool physical:{false,true}) {
+            SampleReset(bridge,scoped,source,physical);const int operations=SampleCheck(bridge,true,source,physical);
+            Require((pinch_frame_reads>0)==(physical&&source==CoJReloadGeometrySource::post_overlay),
+                "sample read pinch without displayed physical cartridge");
+            for(int fault=1;fault<=2;++fault) {
+                SampleReset(bridge,scoped,source,false);sample_fault=fault;SampleCheck(bridge,false,source,false);
+                Require(sample_replacement_counter_reads==0,"raw trace sampled replacement before checking expected jobject");
+            }
+            for(int op=1;op<=operations;++op) {
+                SampleReset(bridge,scoped,source,physical);fail_step=op;SampleCheck(bridge,false,source,physical);
+            }
+        }
+        for(int fault=3;source==CoJReloadGeometrySource::post_overlay&&fault<=5;++fault) {
+            SampleReset(bridge,scoped,source,true);sample_fault=fault;SampleCheck(bridge,false,source,true);
+            if(fault==3)Require(sample_replacement_counter_reads==0,"post-pinch trace sampled a same-ID replacement");
+        }
+        for(int fault=0;fault<5;++fault) {
+            SampleReset(bridge,scoped,source,false);
+            if(fault==0)bridge.weapon_overlays_[0].active=false;
+            if(fault==1)bridge.weapon_overlays_[0].weapon=&replacement;
+            if(fault==2)bridge.weapon_overlay_faulted_=true;
+            if(fault==3)bridge.being_generation_=0;
+            if(fault==4)pinch_status=4;
+            SampleCheck(bridge,false,source,false);
+        }
+        SampleReset(bridge,scoped,source,false);SampleCheck(bridge,false,source,false,0,1);
+        SampleReset(bridge,scoped,source,false);SampleCheck(bridge,false,source,false,42,0);
+    }
+    bridge.weapon_overlays_={};bridge.hand_overlays_={};bridge.being_=nullptr;bridge.vector_class_=nullptr;
+    bridge.manual_reload_owned_=false;Set(24,Same);Set(31,Class);Set(33,TicketLookup);Set(36,Object);Set(39,Boolean);
+    Set(51,Integer);Set(94,TicketField);Set(95,TicketOwner);
 }
 void ReloadGeometryTests(JavaPlayerBridge& bridge) {
     for(const auto source_up:{cojvr::runtime::Vec3{0,2,0},cojvr::runtime::Vec3{.2F,1,0}}) {
@@ -1020,5 +1339,7 @@ int main() {
     ManualReloadJniTests(bridge);
     NativeFallbackBridgeTests(bridge);
     ReloadGeometryTests(bridge);
+    WinchesterLoadingGeometryTests(bridge);
+    WinchesterLoadingSampleTests(bridge);
     ManualPinchBridgeTests(bridge);
 }

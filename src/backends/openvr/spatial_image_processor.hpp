@@ -1,5 +1,6 @@
 #pragma once
 #include "runtime/graphics_settings.hpp"
+#include "runtime/comfort_view.hpp"
 #include "runtime/scope_view.hpp"
 #include <array>
 #include <cstdint>
@@ -35,10 +36,13 @@ public:
     // Scope lenses are projected through physical per-eye optics by the caller,
     // which admits current captured-eye ownership. Null lenses retain the legacy
     // centered native-pixel circle without a sight for existing GPU fixtures.
+    // Nonzero comfort dimming outside a scope requires the complete physical
+    // eye pair. Missing/invalid optics reject before allocations or eye writes.
     [[nodiscard]] bool Process(ID3D11Device* device,ID3D11DeviceContext* context,
         const std::array<ID3D11Texture2D*,2>& eyes,const runtime::GraphicsSettings& settings,
         float peripheral_dimming=0,bool scope_view=false,
-        const std::array<runtime::ScopeLens,2>* scope_lenses=nullptr,bool scope_no_shoot=false) noexcept;
+        const std::array<runtime::ScopeLens,2>* scope_lenses=nullptr,bool scope_no_shoot=false,
+        const std::array<runtime::EyeView,2>* comfort_eyes=nullptr) noexcept;
     void Reset() noexcept;
     [[nodiscard]] HRESULT last_result() const noexcept {return result_;}
     [[nodiscard]] double last_queue_ms() const noexcept {return queue_ms_;}

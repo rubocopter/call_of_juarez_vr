@@ -19,6 +19,10 @@ constexpr std::string_view kExecutableHash =
     "5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE";
 constexpr std::string_view kLargeAddressExecutableHash =
     "C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9";
+constexpr std::string_view kGogExecutableHash =
+    "8BAB3D109BD4C08BF356D30DE1B746CDC3A89DEBF4C953763B1305FE0C8285BD";
+constexpr std::string_view kGogLargeAddressExecutableHash =
+    "E9D06B14EB70BBC57135C1C63000E5EC7E16C277B8115184CABF29F733729C19";
 constexpr std::string_view kEngineHash =
     "DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8";
 using backends::d3d9::VtablePatch;
@@ -38,7 +42,8 @@ bool EqualHash(std::string_view value, std::string_view expected) noexcept {
 }
 
 bool ExactExecutable(std::string_view value) noexcept {
-    return EqualHash(value, kExecutableHash) || EqualHash(value, kLargeAddressExecutableHash);
+    return EqualHash(value, kExecutableHash) || EqualHash(value, kLargeAddressExecutableHash) ||
+        EqualHash(value, kGogExecutableHash) || EqualHash(value, kGogLargeAddressExecutableHash);
 }
 
 void __cdecl HookDestroyGame() {

@@ -26,12 +26,21 @@ int main() {
     if (ClassifyExecutable(L"unrelated.exe") != GameId::unknown) return Fail("unknown classification failed");
 
     const auto builds = KnownBuilds();
-    if (builds.size() != 5) return Fail("known build count mismatch");
+    if (builds.size() != 7) return Fail("known build count mismatch");
     const auto* laa = FindKnownBuild("C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC9");
     if (!laa || laa->game != GameId::call_of_juarez_dx9 || laa->renderer != RendererBackend::d3d9)
         return Fail("exact LAA-derived CoJ identity was rejected");
     if (FindKnownBuild("C8B8BB82FCB3D6599C5F77B1BB9CB3444CBB3A360461DAD43AD808B49AD28DC0"))
         return Fail("unknown near-LAA hash was accepted");
+    for (const auto hash : {
+        "8BAB3D109BD4C08BF356D30DE1B746CDC3A89DEBF4C953763B1305FE0C8285BD",
+        "E9D06B14EB70BBC57135C1C63000E5EC7E16C277B8115184CABF29F733729C19"}) {
+        const auto* gog = FindKnownBuild(hash);
+        if (!gog || gog->game != GameId::call_of_juarez_dx9 || gog->renderer != RendererBackend::d3d9)
+            return Fail("exact GOG CoJ identity was rejected");
+    }
+    if (FindKnownBuild("E9D06B14EB70BBC57135C1C63000E5EC7E16C277B8115184CABF29F733729C10"))
+        return Fail("unknown near-GOG-LAA hash was accepted");
     for (const auto& build : builds) {
         if (build.sha256.size() != 64) return Fail("invalid SHA-256 length in catalog");
         if (FindKnownBuild(build.sha256) != &build) return Fail("catalog lookup failed");

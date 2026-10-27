@@ -3,6 +3,7 @@
 # module path. Load the host's own built-in utility module, without depending
 # on profiles or changing the user's module search path.
 Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility') -ErrorAction Stop
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security') -ErrorAction Stop
 function Write-CojvrPublicJson([string]$Path, [object]$Value) {
     $Temp = $Path + '.writing-' + [guid]::NewGuid().ToString('N')
     try {
@@ -73,6 +74,43 @@ function Assert-CojvrNoReparse([string]$Path, [switch]$AllowCloudFiles) {
         $Probe = [IO.Path]::GetDirectoryName($Probe)
     }
 }
+function Get-CojvrResolutionSettingsHelper([string]$LauncherDirectory) {
+    $Directory = [IO.Path]::GetFullPath($LauncherDirectory)
+    $Packaged = Join-Path $Directory 'tools/coj_resolution_settings.ps1'
+    if (Test-Path -LiteralPath (Join-Path $Directory 'release-manifest.json') -PathType Leaf) {
+        if (-not (Test-Path -LiteralPath $Packaged -PathType Leaf)) {
+            throw 'Missing resolution helper. Extract the complete release ZIP again.'
+        }
+        return $Packaged
+    }
+    # Resolution preferences may be edited from an actual developer checkout.
+    # This exception only exposes a launcher preference file, never deployment.
+    $Repository = Split-Path -Parent $Directory
+    $SourceHelper = Join-Path $Repository 'tools/coj_resolution_settings.ps1'
+    if ([IO.Path]::GetFileName($Directory) -cne 'release' -or
+        -not (Test-Path -LiteralPath (Join-Path $Repository 'AGENTS.md') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $Repository 'docs/ARCHITECTURE.md') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $SourceHelper -PathType Leaf)) {
+        throw 'Complete Call of Juarez VR release package required. Extract the release ZIP before using this action.'
+    }
+    return $SourceHelper
+}
+function Get-CojvrGuiActionScript([string]$LauncherDirectory, [string]$Action) {
+    $Directory = [IO.Path]::GetFullPath($LauncherDirectory)
+    if ($Action -cnotin @('Verify','Install','Uninstall','Diagnose','Status','PrepareSession','ConfigureResolution')) {
+        throw 'Unsupported graphical launcher action.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $Directory 'release-manifest.json') -PathType Leaf) {
+        return (Join-Path $Directory 'cojvr.ps1')
+    }
+    # Admit only an actual checkout. Incomplete player ZIPs must never fall back
+    # to unverified payloads or an arbitrary package found elsewhere on disk.
+    [void](Get-CojvrResolutionSettingsHelper $Directory)
+    if ($Action -eq 'ConfigureResolution') { return (Join-Path $Directory 'cojvr.ps1') }
+    $Backend = Join-Path (Split-Path -Parent $Directory) 'tools/cojvr_source_action.ps1'
+    if (-not (Test-Path -LiteralPath $Backend -PathType Leaf)) { throw 'Missing local installer package builder.' }
+    return $Backend
+}
 function Read-CojvrRelease([string]$PackageRoot) {
     $Root = [IO.Path]::GetFullPath($PackageRoot).TrimEnd('\') + '\'
     Assert-CojvrNoReparse $Root
@@ -100,12 +138,12 @@ function Read-CojvrRelease([string]$PackageRoot) {
             throw "Packaged file '$Relative' failed verification. Download/extract the release again."
         }
     }
-    foreach ($Required in @('cojvr.ps1','release_common.ps1','CoJ-VR.cmd',
+    foreach ($Required in @('cojvr.ps1','cojvr-gui.ps1','release_common.ps1','CoJ-VR.cmd',
         'payload/d3d9_native_stereo.dll','payload/openvr_api.dll',
         'payload/d3d9_native_stereo.build-manifest.json','payload/cojvr_openvr_input/actions.json',
         'dependencies/python/python.exe','dependencies/vc_redist.x86.exe',
         'tools/stage_d3d9_proxy.ps1','tools/unstage_d3d9_proxy.ps1',
-        'tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1',
+        'tools/coj_executable_identity.ps1','tools/deployment_transaction.ps1','tools/coj_video_profile.ps1','tools/set_hmd_camera_control.ps1',
         'tools/coj_resolution_settings.ps1','tools/coj_resolution_session.ps1','tools/coj_resolution_profiles.py',
         'tools/cojvr_openvr_resolution_query.exe','tools/cojvr_d3d9_resolution_limits.exe','tools/openvr_api.dll')) {
         if (-not $Seen.ContainsKey($Required)) { throw "Release inventory omits required file '$Required'." }
@@ -144,11 +182,25 @@ function Assert-CojvrPublicOwnership([string]$GameDirectory) {
     return $null
 }
 function Assert-CojvrPublicGame([string]$GameDirectory, [switch]$Installed) {
+    # One exact-build catalog for developer and player workflows.
+    $IdentityHelper = Join-Path $PSScriptRoot 'tools/coj_executable_identity.ps1'
+    if (-not (Test-Path -LiteralPath $IdentityHelper)) {
+        $IdentityHelper = Join-Path (Split-Path $PSScriptRoot -Parent) 'tools/coj_executable_identity.ps1'
+    }
+    . $IdentityHelper
+    Assert-CojvrNoReparse $GameDirectory
+    $Executable = Join-Path $GameDirectory 'CoJ.exe'
+    if ($Installed -and (Test-Path -LiteralPath (Join-Path $GameDirectory 'CoJ.cojvr-backup.exe'))) {
+        $Executable = Join-Path $GameDirectory 'CoJ.cojvr-backup.exe'
+    }
+    Assert-CojvrNoReparse $Executable
+    $Build = Get-CoJExactExecutableBuild (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash
+    if ($null -eq $Build) { throw 'Unsupported or modified CoJ.exe. Only the verified Steam and experimental GOG (2006) builds are admitted.' }
     $Expected = @{
-        'CoJ.exe'='5EC9215E1BBDA4BE0662BEE4DF696DF35577196792CD76570DFF49F18BF109EE'
+        'CoJ.exe'=$Build.Original
         'ChromeEngine3.dll'='DB69BC35919FE57187766771A2452ACA11090474F6D63DF1A85A80EDED131EC8'
         'code.pak'='F9DB47C166E03F23E37CBCDFD5344E4AD4C5C9134F35E8F6DCDF66DB7E71CE12'
-        'Data0.pak'='5EB6EC4856E53226DFABAD929522706A21F02D428923A8C9C38804CC2CF11A94'
+        'Data0.pak'=$Build.Data0
     }
     Assert-CojvrNoReparse $GameDirectory
     foreach ($Name in $Expected.Keys) {
@@ -160,41 +212,99 @@ function Assert-CojvrPublicGame([string]$GameDirectory, [switch]$Installed) {
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required game file '$Name' is missing. Run the original D3D9 game once first." }
         Assert-CojvrNoReparse $Path
         if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ne $Expected[$Name]) {
-            throw "Unsupported or modified '$Name'. This pre-alpha requires the exact original Steam CoJ (2006) build. No files were patched."
+            throw "Unsupported or modified '$Name'. This pre-alpha requires matching original files from the verified Steam or experimental GOG CoJ (2006) build. No files were patched."
         }
     }
     foreach ($Item in Get-ChildItem -LiteralPath $GameDirectory -Force) {
         if ($Item.Name -like '*cojvr*' -or $Item.Name -in @('d3d9.dll','openvr_api.dll')) { Assert-CojvrNoReparse $Item.FullName }
     }
+    return $Build
 }
-function Resolve-CojvrPublicGame([string]$GameDirectory) {
+function Get-CojvrPublicGameCandidates([string[]]$SteamRoots = @(), [string[]]$GogRoots = @()) {
+    # Explicit fixture roots keep discovery deterministic in host tests.
+    if (-not $PSBoundParameters.ContainsKey('GogRoots') -and $SteamRoots.Count -eq 0) {
+        foreach ($Key in @('HKLM:\SOFTWARE\WOW6432Node\GOG.com\Games\1909524379',
+                            'HKLM:\SOFTWARE\GOG.com\Games\1909524379',
+                            'HKCU:\Software\GOG.com\Games\1909524379')) {
+            $Entry = Get-ItemProperty -LiteralPath $Key -ErrorAction SilentlyContinue
+            if ($null -ne $Entry -and $Entry.PSObject.Properties['path'] -and $Entry.path) { $GogRoots += $Entry.path }
+        }
+        foreach ($Base in @($env:ProgramFiles,${env:ProgramFiles(x86)},'C:\GOG Games')) {
+            if ($Base) {
+                $GogRoots += (Join-Path $Base 'GOG Galaxy/Games/Call of Juarez')
+                $GogRoots += (Join-Path $Base 'Call of Juarez')
+            }
+        }
+    }
+    # Steam AppID 3020 is Call of Juarez (2006). Read its appmanifest because
+    # Steam lets users rename the installation folder or move libraries.
+    if ($SteamRoots.Count -eq 0) {
+        foreach ($Key in @('HKCU:\Software\Valve\Steam','HKLM:\SOFTWARE\Valve\Steam','HKLM:\SOFTWARE\WOW6432Node\Valve\Steam')) {
+            $Steam = Get-ItemProperty -LiteralPath $Key -ErrorAction SilentlyContinue
+            if ($null -ne $Steam) { $SteamRoots += @($Steam.SteamPath, $Steam.InstallPath) | Where-Object { $_ } }
+        }
+        if (${env:ProgramFiles(x86)}) { $SteamRoots += (Join-Path ${env:ProgramFiles(x86)} 'Steam') }
+        if ($env:ProgramFiles) { $SteamRoots += (Join-Path $env:ProgramFiles 'Steam') }
+    }
+    $Libraries = @()
+    foreach ($SteamRoot in $SteamRoots) {
+        if ([string]::IsNullOrWhiteSpace($SteamRoot) -or -not (Test-Path -LiteralPath $SteamRoot -PathType Container)) { continue }
+        $Libraries += $SteamRoot
+        $Vdf = Join-Path $SteamRoot 'steamapps/libraryfolders.vdf'
+        if (Test-Path -LiteralPath $Vdf -PathType Leaf) {
+            try {
+                foreach ($Match in [regex]::Matches([IO.File]::ReadAllText($Vdf), '"path"\s*"([^"]+)"')) {
+                    $Libraries += $Match.Groups[1].Value.Replace('\\','\')
+                }
+            } catch [IO.IOException] { } # Fall back to primary Steam library.
+        }
+    }
+    $Seen = @{}
+    foreach ($Library in $Libraries | Select-Object -Unique) {
+        if (-not (Test-Path -LiteralPath $Library -PathType Container)) { continue }
+        $SteamApps = Join-Path $Library 'steamapps'
+        $Dirs = @('Call of Juarez') # Legacy installs without a Steam appmanifest.
+        $Manifest = Join-Path $SteamApps 'appmanifest_3020.acf'
+        if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
+            try {
+                $Match = [regex]::Match([IO.File]::ReadAllText($Manifest), '"installdir"\s*"([^"]+)"')
+                if ($Match.Success) {
+                    $Name = $Match.Groups[1].Value
+                    if ($Name -and $Name -notin @('.','..') -and $Name -notmatch '[\\/:]' ) { $Dirs = @($Name) + $Dirs }
+                }
+            } catch [IO.IOException] { }
+        }
+        foreach ($Dir in $Dirs) {
+            $Candidate = Join-Path $SteamApps (Join-Path 'common' $Dir)
+            if ((Test-Path -LiteralPath (Join-Path $Candidate 'CoJ.exe') -PathType Leaf) -and
+                (Test-Path -LiteralPath (Join-Path $Candidate 'ChromeEngine3.dll') -PathType Leaf)) {
+                $Path = [IO.Path]::GetFullPath($Candidate)
+                $Seen[$Path] = $Path
+            }
+        }
+    }
+    foreach ($Candidate in $GogRoots) {
+        if ([string]::IsNullOrWhiteSpace($Candidate)) { continue }
+        if ((Test-Path -LiteralPath (Join-Path $Candidate 'CoJ.exe') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $Candidate 'ChromeEngine3.dll') -PathType Leaf)) {
+            $Path = [IO.Path]::GetFullPath($Candidate).TrimEnd('\')
+            $Seen[$Path] = $Path
+        }
+    }
+    @($Seen.Values | Sort-Object)
+}
+function Resolve-CojvrPublicGame([string]$GameDirectory,[string[]]$SteamRoots = @(),[string[]]$GogRoots = @()) {
     if (-not [string]::IsNullOrWhiteSpace($GameDirectory)) {
         $Path = [IO.Path]::GetFullPath($GameDirectory.Trim().Trim('"'))
         if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "Game directory does not exist: '$Path'." }
         return $Path
     }
-    $SteamRoots = @()
-    foreach ($Key in @('HKCU:\Software\Valve\Steam','HKLM:\SOFTWARE\WOW6432Node\Valve\Steam')) {
-        $Steam = Get-ItemProperty -LiteralPath $Key -ErrorAction SilentlyContinue
-        if ($null -ne $Steam) { $SteamRoots += @($Steam.SteamPath, $Steam.InstallPath) | Where-Object { $_ } }
-    }
-    $Candidates = @()
-    foreach ($SteamRoot in $SteamRoots | Select-Object -Unique) {
-        $Libraries = @($SteamRoot)
-        $Vdf = Join-Path $SteamRoot 'steamapps/libraryfolders.vdf'
-        if (Test-Path -LiteralPath $Vdf) {
-            foreach ($Match in [regex]::Matches([IO.File]::ReadAllText($Vdf), '"path"\s*"([^"]+)"')) {
-                $Libraries += $Match.Groups[1].Value.Replace('\\','\')
-            }
-        }
-        foreach ($Library in $Libraries) {
-            $Candidate = Join-Path $Library 'steamapps/common/Call of Juarez'
-            if (Test-Path -LiteralPath (Join-Path $Candidate 'CoJ.exe')) { $Candidates += [IO.Path]::GetFullPath($Candidate) }
-        }
-    }
-    $Candidates = @($Candidates | Select-Object -Unique)
+    $Search = @{SteamRoots=$SteamRoots}
+    if ($PSBoundParameters.ContainsKey('GogRoots')) { $Search.GogRoots=$GogRoots }
+    $Candidates = @(Get-CojvrPublicGameCandidates @Search)
     if ($Candidates.Count -eq 1) { return $Candidates[0] }
-    throw 'Select the Call of Juarez (2006) folder containing CoJ.exe with -GameDirectory or the interactive menu.'
+    if ($Candidates.Count -gt 1) { throw 'Multiple Call of Juarez installs found. Select the intended folder explicitly.' }
+    throw 'Call of Juarez (2006) was not found in Steam or GOG installations. Select the folder containing CoJ.exe.'
 }
 function New-CojvrPublicReport {
     param([string]$GameDirectory, [string]$OutputDirectory, [string]$Version)

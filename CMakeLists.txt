@@ -546,6 +546,12 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME release_frontend COMMAND powershell -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_SOURCE_DIR}/tests/release_frontend.ps1"
         -SourceDirectory "${CMAKE_SOURCE_DIR}")
+    add_test(NAME release_discovery COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/release_discovery.ps1"
+        -SourceDirectory "${CMAKE_SOURCE_DIR}")
+    add_test(NAME release_gui COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/release_gui.ps1"
+        -SourceDirectory "${CMAKE_SOURCE_DIR}")
     add_test(NAME release_paths COMMAND powershell -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_SOURCE_DIR}/tests/release_paths.ps1"
         -SourceDirectory "${CMAKE_SOURCE_DIR}")
@@ -829,6 +835,17 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_reload_geometry_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME reload_geometry COMMAND cojvr_reload_geometry_test)
+    add_executable(cojvr_winchester_loading_probe_test tests/winchester_loading_probe.cpp)
+    target_link_libraries(cojvr_winchester_loading_probe_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_winchester_loading_probe_test PRIVATE cxx_std_20)
+    add_test(NAME winchester_loading_probe COMMAND cojvr_winchester_loading_probe_test)
+    add_executable(cojvr_winchester_loading_geometry_test tests/winchester_loading_geometry.cpp)
+    target_link_libraries(cojvr_winchester_loading_geometry_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_winchester_loading_geometry_test PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(cojvr_winchester_loading_geometry_test PRIVATE /W4 /permissive- /EHsc)
+    endif()
+    add_test(NAME winchester_loading_geometry COMMAND cojvr_winchester_loading_geometry_test)
     add_executable(cojvr_presentation_owner_test tests/presentation_owner.cpp)
     target_link_libraries(cojvr_presentation_owner_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_presentation_owner_test PRIVATE cxx_std_20)

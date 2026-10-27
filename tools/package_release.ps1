@@ -101,7 +101,7 @@ foreach ($Match in [regex]::Matches($ProxyAscii, 'RSDS[\s\S]{20}([^\x00]+)\x00')
 }
 
 & (Join-Path $PSScriptRoot 'bootstrap_release_dependencies.ps1') -Destination $DependencyDirectory
-$Tools = @('deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
+$Tools = @('coj_executable_identity.ps1', 'deployment_transaction.ps1', 'stage_d3d9_proxy.ps1', 'unstage_d3d9_proxy.ps1', 'openvr_input_manifest.ps1',
     'set_hmd_camera_control.ps1', 'coj_video_profile.ps1', 'coj_resolution_profiles.py',
     'coj_resolution_settings.ps1','coj_resolution_session.ps1','patch_coj_weapon_consumers.py',
     'inspect_java_bytecode.py', 'coj_loading_ui.py', 'coj_scoped_rifle.py', 'coj_fx_definitions.py',
@@ -118,7 +118,7 @@ try {
     foreach ($Directory in @('', 'payload', 'tools', 'dependencies', 'licenses')) {
         New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot $Directory) | Out-Null
     }
-    foreach ($Name in @('cojvr.ps1', 'CoJ-VR.cmd')) {
+    foreach ($Name in @('cojvr.ps1', 'cojvr-gui.ps1', 'CoJ-VR.cmd')) {
         Copy-Item -LiteralPath (Join-Path $RepositoryRoot "release/$Name") -Destination (Join-Path $PackageRoot $Name)
     }
     foreach ($Name in @('release_common.ps1', 'README.txt', 'RELEASE_NOTES.md')) {

@@ -36,8 +36,11 @@ struct CoJReloadTraceSnapshot {
     float probe_until = 0;
 };
 // Exact-build local game-thread caller only. All references are local and freed.
+// An optional caller-held local/global jobject binds acquisition to that exact
+// weapon before reading its class, identity, counters or animation parameters.
 bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
-    bool include_wait_probe = false, int selected_index = -1) noexcept;
+    bool include_wait_probe = false, int selected_index = -1,
+    void* expected_weapon = nullptr) noexcept;
 
 // Game-thread identity policy. Only the opaque epoch leaves the game adapter;
 // ammunition and animation progress do not change ownership.
@@ -88,8 +91,10 @@ inline bool CoJUnitManualInsertionObserved(bool completed,bool accepted,
     if((!indexed&&selected_index>0)||index<0||index>=before.index_count||
         before.index_count!=(indexed?2:1)||before.index_count!=after.index_count||
         before.capacities!=after.capacities||before.reserve_indices!=after.reserve_indices||
-        before.reserve_kinds!=after.reserve_kinds||before.native_body_cycle||after.native_body_cycle||
-        (indexed?(after.probe_status!=2&&after.probe_status!=3):after.probe_status!=3))return false;
+        before.reserve_kinds!=after.reserve_kinds||before.native_body_cycle!=after.native_body_cycle||
+        (indexed?!(after.probe_status==2||after.probe_status==3||
+            (after.probe_status==1&&before.native_body_cycle&&after.native_body_cycle)):
+            (after.probe_status!=3||before.native_body_cycle||after.native_body_cycle)))return false;
     for(int slot=0;slot<2;++slot){
         if(slot>=before.index_count){if(before.loaded[slot]||after.loaded[slot]||before.capacities[slot])return false;continue;}
         if(before.capacities[slot]<=0||before.loaded[slot]<0||after.loaded[slot]<0||
