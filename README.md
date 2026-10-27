@@ -32,6 +32,8 @@
 </p>
 
 > [!IMPORTANT]
+> **Supported game edition: Steam only (original Call of Juarez, 2006, Direct3D 9). GOG and other non-Steam releases are not supported or validated; the installer may reject them.**
+>
 > **Experimental pre-alpha, intended for community testing.** The full campaign is not verified; crashes may interrupt progress. PS VR2 Sense through SteamVR is the only physically tested reference, in specific scenes. Other headset and controller profiles remain experimental.
 
 ## The experience
