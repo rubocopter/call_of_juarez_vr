@@ -99,6 +99,11 @@ target_compile_features(cojvr_dlss_client PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_dlss_client PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_link_libraries(cojvr_dlss_client PRIVATE d3d11 dxgi d3dcompiler)
 
+add_library(cojvr_neural_lab STATIC src/backends/openvr/neural_session.cpp)
+target_include_directories(cojvr_neural_lab PUBLIC src)
+target_compile_features(cojvr_neural_lab PUBLIC cxx_std_20)
+target_compile_definitions(cojvr_neural_lab PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+
 add_library(cojvr_build_identity STATIC
     src/runtime/build_catalog.cpp
     src/runtime/build_identity.cpp
@@ -1130,6 +1135,14 @@ if(COJVR_BUILD_TESTS)
     target_compile_features(cojvr_graphics_settings_test PRIVATE cxx_std_20)
     add_test(NAME graphics_settings COMMAND cojvr_graphics_settings_test)
     add_test(NAME graphics_settings_example COMMAND cojvr_graphics_settings_test "${CMAKE_SOURCE_DIR}/assets/graphics.ini.example")
+
+    add_executable(cojvr_neural_session_test tests/neural_session.cpp)
+    target_link_libraries(cojvr_neural_session_test PRIVATE cojvr_neural_lab)
+    add_test(NAME neural_protocol_dependencies COMMAND cojvr_neural_session_test)
+    add_executable(cojvr_neural_gpu_roundtrip_test tests/neural_gpu_roundtrip.cpp)
+    target_link_libraries(cojvr_neural_gpu_roundtrip_test PRIVATE cojvr_neural_lab d3d11 d3dcompiler)
+    # GPU and cross-process cases are explicit lab invocations, not unconditional
+    # CTests. No model/runtime download or game presentation dependency follows.
 
     add_executable(cojvr_dlss_protocol_test tests/dlss_protocol.cpp)
     target_link_libraries(cojvr_dlss_protocol_test PRIVATE cojvr_dlss_client)

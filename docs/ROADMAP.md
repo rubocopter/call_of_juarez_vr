@@ -174,6 +174,14 @@ ownership gates. FarCry2VR also supplies a sun-shadow research pattern; independ
 establish Chrome shadow equivalence before skipping any pass. Native video
 filtering already supports anisotropic trilinear; forced 16x is not established.
 
+Penumbra's DirectNR implementation provides a separate optional final-color
+appearance experiment, using estimated rotation and constant depth rather than
+qualified game depth. Reuse its companion lifecycle/residual test patterns and
+assess CoJ's existing D3D11 transport before a bounded synthetic stereo roundtrip.
+This route is not implemented in CoJ and grants no Super Resolution, performance
+or headset acceptance. The [DirectNR comparison](research/COJ_VR_REFERENCE_PROJECTS.md#penumbra-directnr-comparison)
+owns the reuse boundary and candidate prerequisites.
+
 Reload G1 precedes G2. G3–G5 can proceed independently. Rendering research is
 separate from ordinary stereo and must preserve usable menus/controls on failure.
 Independent resolution remains default-off and rejected; live structural binding

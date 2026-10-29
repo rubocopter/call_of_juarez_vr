@@ -112,13 +112,69 @@ also describes isolated per-eye model resources/history, with wider compatibilit
 explicitly experimental. Both reinforce the stereo-history boundary already
 enforced by CoJ's host fixtures, without resolving CoJ's input-ownership gap.
 
-**Decision gate:** stop adding new NGX host modes or sampling-only diagnostics
+**Super Resolution decision gate:** stop adding new NGX host modes or sampling-only diagnostics
 until one exact CoJ eye/frame shows a full-size, source-qualified depth and colour
 pair with measured material coverage, and the other eye is correlated to the same
 pose/generation. If the HDR alpha field fails coverage, investigate a different
 native depth stage before expanding the helper. Only after that admission should
 the project attempt scoped jitter/motion, an atomic DLAA A/B and finally a safe
 reduced-native-raster DLSS path with measured end-to-end latency and GPU cost.
+
+### Penumbra DirectNR comparison
+
+Source inspection of Penumbra VR Framework revision
+`7b014c96ed928440abf4452664f35220d06c1fb6` establishes a separate experimental
+route from the Super Resolution backend above. Its
+[`NeuralPass`](https://github.com/rubocopter/penumbra_vr_framework/blob/7b014c96ed928440abf4452664f35220d06c1fb6/tools/neural_post/src/NeuralPass.cpp)
+adapts the included MIT LowPopLabs DirectNR implementation: D3D11 final-eye
+color is processed through a private D3D12 NGX Neural Rendering backend using
+`nvngx_dlssnr.dll`, estimated rotational motion and constant depth. This is a
+generative appearance edit, not Super Resolution, DLAA or frame generation.
+It neither demonstrates real scene depth nor reduces native raster work.
+
+The reusable boundaries are visible in the
+[`bridge`](https://github.com/rubocopter/penumbra_vr_framework/blob/7b014c96ed928440abf4452664f35220d06c1fb6/src/graphics/neural_post_bridge.cpp),
+protocol, residual resolve and explicit GPU roundtrip tests:
+
+- One request binds both eyes, tracking, settings revision and history epoch.
+  Startup/model warmup is asynchronous. Deadline misses retain the original
+  pair; input remains immutable until completion, late output is discarded,
+  and a new request resets history. Worker failure/stall retires the session.
+- The transport proxy is not the final eye. Resolve adds the processed-minus-
+  input proxy difference to the original full-resolution eye, preserving source
+  detail/alpha and the encoded UNORM color-space contract. Identity, fine-detail,
+  sRGB, timeout and child-fault cases are explicit test patterns to adapt.
+- Pose/FOV is supplied per view, but DirectNR packs views into a shared atlas
+  and creates model features by pass/tier. This is not evidence of the independent
+  per-eye Super Resolution histories used by CoJ. Atlas boundaries and binocular
+  consistency need their own qualification.
+
+CoJ already transports native D3D9 eye colors into D3D11. A renderer-owned
+DirectNR candidate can therefore be investigated without admitting Chrome HDR
+alpha as depth or enabling the rejected independent-resolution bank. Candidate
+placement is after a fresh complete native color pair and before CoJ comfort,
+scope and overlay composition. Captured native HUD content may already be baked
+into color; that coverage must be observed rather than assumed removable.
+The current presenter/spatial processor is an insertion boundary, not an existing
+Neural consumer. Preserve capture frame/pose/device/generation identity and publish
+either a complete current processed pair or the complete original pair.
+
+Penumbra's OpenGL readback/upload and CPU shared-memory transport are not a
+drop-in match for CoJ. CoJ's existing x86/x64 D3D11 shared-resource/fence work
+offers a transport starting point, but its `dlss_protocol` and Super Resolution
+client do not speak DirectNR. Choose one bounded transport experiment, measure
+copy/wait/inference cost, and retain immutable pending-resource leases through
+completion before expanding settings or packaging. Preserve Penumbra/DirectNR
+attribution and licenses; local NVIDIA model import remains a separate dependency.
+
+**Decision:** treat DirectNR as an optional, default-off appearance experiment,
+separate from the Super Resolution depth gate. First adapt a synthetic stereo
+roundtrip with identity/residual/color/timeout/recovery tests, then compare real
+CoJ native/Neural images and total frame cost in one explicit candidate. Penumbra's
+documented synthetic and limited live-menu evidence does not qualify CoJ gameplay
+or headset quality. Greater visual benefit in CoJ is a hypothesis; no performance
+or visual improvement is established. The depth/motion/jitter/reduced-raster gates
+above still apply to genuine DLSS Super Resolution.
 
 ## Decisions for this project
 
