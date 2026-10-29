@@ -35,6 +35,8 @@
 
 namespace cojvr::games::call_of_juarez {
 struct CoJWinchesterLoadingSample;
+struct CoJRemingtonLoadingSample;
+struct CoJRemingtonLoadingGeometry;
 
 struct JavaPlayerPosition {
     float x = 0.0F;
@@ -462,6 +464,11 @@ public:
     [[nodiscard]] bool TryObserveWinchesterLoadingSample(CoJReloadGeometrySource source,
         std::uint64_t frame,std::uint64_t context,bool physical_cartridge,
         CoJWinchesterLoadingSample& out,std::string* error = nullptr) noexcept;
+    [[nodiscard]] bool TryObserveRemingtonLoadingGeometry(int hand,CoJRemingtonLoadingGeometry& geometry,
+        CoJReloadGeometrySource source,std::string* error=nullptr) noexcept;
+    [[nodiscard]] bool TryObserveRemingtonLoadingSample(int hand,CoJReloadGeometrySource source,
+        std::uint64_t frame,std::uint64_t context,bool physical_cartridge,
+        CoJRemingtonLoadingSample& out,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;

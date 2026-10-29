@@ -1,5 +1,18 @@
 # Validation
 
+## Remington insertion observation boundary
+
+The operator reports placing shells near the grip rather than the open chambers.
+Remington and SawOff still share the provisional grip-based insertion gesture;
+their ergonomic placement is unresolved. A bounded `remington_loading_geometry`
+observer is host-tested: both diagnostic rear-rim centres follow the current
+GunBarrel, with separate pre-native/displayed frames, retained weapon ownership,
+native phase/count brackets and the displayed cartridge nose. Publication requires
+successful stereo delivery and native/graphics restoration. No chamber-to-ammo-slot
+mapping, opening clearance, insertion tolerance or hand snap is admitted.
+Fresh in-game observations and physical acceptance remain pending. See
+[reload ownership](research/COJ_RELOAD_OWNERSHIP.md#remington-rear-mouth-observer).
+
 ## Acceptance snapshot — 27 October 2026
 
 The latest Steam operator session confirms visible campfires and encountered

@@ -23,6 +23,7 @@
 #include "games/call_of_juarez/scoped_rifle_view.hpp"
 #include "games/call_of_juarez/winchester_reload_probe.hpp"
 #include "games/call_of_juarez/winchester_loading_probe.hpp"
+#include "games/call_of_juarez/remington_loading_probe.hpp"
 #include "runtime/reload_visual.hpp"
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
@@ -181,6 +182,8 @@ CoJWinchesterReloadProbe g_winchester_reload_probe;
 std::array<CoJWinchesterLoadingSample,2> g_winchester_loading_pending{};
 unsigned g_winchester_loading_samples=0;
 unsigned g_winchester_loading_attempts=0;
+std::array<std::array<CoJRemingtonLoadingSample,2>,2> g_remington_loading_pending{};
+unsigned g_remington_loading_samples=0,g_remington_loading_attempts=0;
 CoJLongGunGripState g_long_gun_grip;
 CoJLongGunGripSampleClock g_long_gun_sample_clock;
 CoJLongGunGripOutput g_long_gun_claim{};
@@ -4139,6 +4142,64 @@ void PublishWinchesterLoadingGeometry(std::uint64_t frame,std::uint64_t generati
     g_winchester_loading_pending={};
 }
 
+// Both spatial mouths follow the currently animated GunBarrel. They are
+// intentionally not labelled as native ammo indices until that mapping is proven.
+void CaptureRemingtonLoadingGeometry(int hand,CoJReloadGeometrySource source,
+    std::uint64_t frame,std::uint64_t generation,std::uint64_t context,bool cartridge) noexcept {
+    auto& pending=g_remington_loading_pending[hand][source==CoJReloadGeometrySource::pre_native?0:1];
+    pending={};
+    if(generation!=g_java_player_bridge.being_generation())return;
+    (void)g_java_player_bridge.TryObserveRemingtonLoadingSample(hand,source,frame,context,cartridge,pending);
+    if(pending.player_generation!=generation)pending={};
+}
+void PublishRemingtonLoadingGeometry(std::uint64_t frame,std::uint64_t generation,
+    std::uint64_t context,bool gameplay,bool native_restored,bool submitted,
+    bool mirror_verified,bool graphics_restored,bool mesh_drawn) noexcept {
+    for(const auto& hand:g_remington_loading_pending)for(const auto& pending:hand){
+        if(!hand[1].valid||g_remington_loading_samples>=120)continue;
+        const auto sample=QualifyCoJRemingtonLoadingPublication(pending,frame,generation,context,
+            gameplay,native_restored,submitted,mirror_verified,graphics_restored,mesh_drawn);
+        if(!sample.valid)continue;
+        try {
+            const auto& g=sample.geometry;const auto& n=sample.native;
+            std::string detail="schema=1;frame_sequence="+std::to_string(frame)+
+                ";player_generation="+std::to_string(generation)+";native_context="+std::to_string(context)+
+                ";weapon_id="+std::to_string(n.weapon_id)+";weapon_class="+n.weapon_class+
+                ";armed_hand="+std::to_string(n.armed_hand)+";source="+
+                (g.source==CoJReloadGeometrySource::pre_native?"pre_native":"post_overlay")+
+                ";units=cm;native_status="+std::to_string(n.probe_status)+
+                ";selected_index="+std::to_string(n.selected_index)+
+                ";loaded0="+std::to_string(n.loaded[0])+";loaded1="+std::to_string(n.loaded[1])+
+                ";reserve="+std::to_string(n.reserve_readback)+
+                ";native_phase_stable=1;owner_qualified=1;native_restored=1;pair_verified=1"
+                ";mouth_order=barrel_plus_x_minus_x;ammo_slot_mapping=unverified"
+                ";socket_admission=false;gate_clearance=unverified;interaction_enabled=false";
+            const auto append=[&](const char* name,const ElementWorldBasisTarget& f){
+                detail+=";"+std::string(name)+"="+RuntimeVectorText(f.position)+
+                    ";"+name+"_up="+RuntimeVectorText(f.up)+";"+name+"_forward="+RuntimeVectorText(f.forward);
+            };
+            append("root",g.root);append("body",g.body);append("lock",g.lock);
+            append("holder",g.holder);append("barrel",g.barrel);
+            append("mouth_plus_x",g.mouths[0]);append("mouth_minus_x",g.mouths[1]);
+            for(unsigned h=0;h<2;++h){
+                const auto suffix=h==0?std::string("_right"):std::string("_left");
+                detail+=";native_states"+suffix+"=";
+                for(unsigned i=0;i<4;++i)detail+=(i?",":"")+std::to_string(n.states[h][i]);
+                detail+=";animation_id"+suffix+"="+std::to_string(n.animation_id[h])+
+                    ";native_time"+suffix+"="+std::to_string(n.current_time[h])+
+                    ";start_time"+suffix+"="+std::to_string(n.start_time[h])+
+                    ";play_time"+suffix+"="+std::to_string(n.play_time[h])+
+                    ";duration"+suffix+"="+std::to_string(n.duration[h]);
+            }
+            detail+=";tip_valid="+std::to_string(sample.tip.valid)+";tip_source="+
+                (sample.tip.valid?"displayed_textured_mesh":"unavailable");
+            if(sample.tip.valid)append("tip",sample.tip);
+            EmitEvent("remington_loading_geometry","observed",detail);++g_remington_loading_samples;
+        }catch(...){}
+    }
+    g_remington_loading_pending={};
+}
+
 bool ApplyTrackedWeapons(
     const CameraRenderStateSnapshot& natural,
     const float height_correction,
@@ -4158,6 +4219,7 @@ bool ApplyTrackedWeapons(
     const bool physical_cartridge=false,
     const char* manual_weapon_class=nullptr) noexcept {
     g_winchester_loading_pending={};
+    g_remington_loading_pending={};
     g_reload_cartridge_anchors={};
     g_reload_finger_observations={};
     g_reload_skin_pad_gaps_cm={};
@@ -4183,6 +4245,12 @@ bool ApplyTrackedWeapons(
         g_winchester_loading_samples<120&&g_winchester_loading_attempts<120&&
         (ShouldObserveBodyFrame(frame_sequence)||g_manual_reload_geometry_event);
     if(observe_winchester_loading)++g_winchester_loading_attempts;
+    const bool observe_remington_loading=manual_presentation&&g_manual_reload_geometry_logging_enabled&&
+        manual_weapon_class&&(!std::strcmp(manual_weapon_class,"WeaponRifleRemington")||
+            !std::strcmp(manual_weapon_class,"WeaponRifleRemingtonSawOff"))&&
+        g_remington_loading_samples<120&&g_remington_loading_attempts<120&&
+        (ShouldObserveBodyFrame(frame_sequence)||g_manual_reload_geometry_event);
+    if(observe_remington_loading)++g_remington_loading_attempts;
     bool boxing_selected=false;
     std::uint32_t boxing_owner=0;
     const bool boxing_pose=independent_hands&&
@@ -4339,6 +4407,9 @@ bool ApplyTrackedWeapons(
             if(prepared&&hand==0&&observe_winchester_loading)
                 CaptureWinchesterLoadingGeometry(CoJReloadGeometrySource::pre_native,
                     frame_sequence,generation,native_context,false);
+            if(prepared&&observe_remington_loading)
+                CaptureRemingtonLoadingGeometry(hand,CoJReloadGeometrySource::pre_native,
+                    frame_sequence,generation,native_context,false);
             if (!prepared && unarmed_hand) {
                 // The authored left/right holding socket defines the anatomical
                 // grip basis; no arbitrary initial animated/controller pose fit.
@@ -4447,6 +4518,10 @@ bool ApplyTrackedWeapons(
     if(mapped&&observe_winchester_loading)
         CaptureWinchesterLoadingGeometry(CoJReloadGeometrySource::post_overlay,
             frame_sequence,generation,native_context,physical_cartridge);
+    if(mapped&&observe_remington_loading)for(int hand=0;hand<2;++hand)
+        if(g_remington_loading_pending[hand][0].valid)
+            CaptureRemingtonLoadingGeometry(hand,CoJReloadGeometrySource::post_overlay,
+                frame_sequence,generation,native_context,physical_cartridge);
     return mapped;
 }
 
@@ -8149,6 +8224,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     PublishWinchesterLoadingGeometry(frame_sequence,g_java_player_bridge.being_generation(),
         sample.native_gameplay_context_token,gameplay_input_ok&&g_manual_reload_presentation,
         native_paths_restored,submitted,mirror_ready,!EyeRenderRestorationPending(),winchester_cartridge_drawn);
+    PublishRemingtonLoadingGeometry(frame_sequence,g_java_player_bridge.being_generation(),
+        sample.native_gameplay_context_token,gameplay_input_ok&&g_manual_reload_presentation,
+        native_paths_restored,submitted,mirror_ready,!EyeRenderRestorationPending(),winchester_cartridge_drawn);
     if (left_camera_applied && right_rendered && !LongGunFrameFailed(frame_sequence)&&
         (!EyeRenderCallbacksEnabled() || mirror_ready)) {
         g_diagnostic_stereo_pairs.fetch_add(1, std::memory_order_acq_rel);
@@ -9373,6 +9451,7 @@ void ShutdownCameraProbe() noexcept {
     g_long_gun_admission_trace={};
     g_winchester_reload_probe={};
     g_winchester_loading_pending={};g_winchester_loading_samples=0;g_winchester_loading_attempts=0;
+    g_remington_loading_pending={};g_remington_loading_samples=0;g_remington_loading_attempts=0;
     g_reload_pinch_last_hand=-1;g_reload_pinch_last_applied=false;
     g_reload_ready_geometry_reference={};
     g_reload_trace_events.Reset();

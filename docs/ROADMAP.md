@@ -61,6 +61,12 @@ are unavailable; collect related physical checks in one meaningful candidate.
     phase, retained ownership and verified restoration. Host fixtures cover the
     observer; collect live displayed clearance/approach evidence before replacing
     the rejected grip zone. Pivot/radius tuning remains insufficient.
+    Remington/SawOff now have a bounded observer for both rear mouths following
+    the animated barrel, with retained ownership, native phase/count brackets and
+    displayed mesh nose. Host tests cover transforms, indexed state, JNI faults
+    and publication rejection. Collect open-chamber approach and native slot
+    correspondence before enabling mouth insertion or snapping the support hand.
+    The reported grip-centred shotgun gesture remains unresolved.
 3. **Campaign correctness.** Observe the conditional secret-scroll render-level
    correction at a naturally encountered chest. Validate mounted reins and rider
     free look without changing accepted on-foot body following. Instrument

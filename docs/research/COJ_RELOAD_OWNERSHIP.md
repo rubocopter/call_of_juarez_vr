@@ -1546,3 +1546,38 @@ Frontier clip's content, existing entry audio and overlap remain unqualified.
 Use only a freshly proven same-owner indexed unit transfer for any future
 optional call, preserve final closing and accept audio failure silently without
 fallback or retry. Static routing alone enables no extra audio or weapon.
+
+
+## Remington rear-mouth observer
+
+Exact `WeaponRifleRemington` and `WeaponRifleRemingtonSawOff` rear-rim
+measurements supply diagnostic GunBarrel-local centres (+1,2.98,-7.77) and
+(-1,2.98,-7.77) cm. Original mesh SHA-256 values are respectively
+`d086f18770302d6dd176543d417dc3f929e9ad2ce5b772b89fcfe7e930e7e596` and
+`bb8ae35d14e9d34945b33477dc5ae6d226a2ebd7970730249f01dead9c5c2343`.
+These rounded spatial centres are not an aperture boundary, approach direction,
+opening-clearance proof or a native ammunition-index mapping. GunBarrel owns
+their animated motion; the grip, GunBody and static bind position do not.
+
+`remington_loading_geometry` observes retained exact-class root, GunBody,
+GunLock, Holder and GunBarrel frames. Ordinary Remington requires hand 0;
+SawOff permits either actual armed hand and reads the opposite displayed pinch.
+The JNI observation uses captured readers, verifies current native axes against
+the retained source and brackets geometry/pinch with same-object native reload
+traces. Both chamber counts, selected native index, reserve pools and animation
+state/clocks must agree. The two spatial mouths are explicitly labelled +X/-X,
+independently of the selected native ammunition index.
+
+Pre-native and post-overlay samples stay separate. The current imported mesh's
+nose plane is observed only when a cartridge is held and its opposite hand's
+pinch is available. Publication requires the same frame/generation/context,
+complete displayed geometry, verified native/graphics restoration and accepted
+stereo submission/mirror. Suppression of the cartridge mesh removes the tip.
+Attempts and publications are bounded under the existing reload-trace option.
+This raw event remains in diagnostic logs; it does not add an analyzer verdict.
+
+Host geometry/sample and real-bridge JNI fixtures cover exact classes, both
+SawOff hands, animated transforms, source phases, changed owners, failed JNI
+callbacks, invalid bases, stale samples and suppressed meshes. Live clearance,
+slot correspondence, retry/recovery and headset ergonomics remain unqualified.
+The active grip-based gesture and hand pose are unchanged by this observer.

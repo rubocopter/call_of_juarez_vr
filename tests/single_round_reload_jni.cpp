@@ -515,6 +515,12 @@ int JNI_CALL GeometryInteger(void* env, void* object, void* method, const Value*
         if(!std::strcmp(text,"Holder"))return geometry_holder_index;
         Require(false,"unexpected rifle element name");return -1;
     }
+    if(weapon_class==&remington_class||weapon_class==&sawoff_class){
+        if(!std::strcmp(text,"GunBody"))return drum_index;
+        if(!std::strcmp(text,"GunLock"))return gate_index;
+        if(!std::strcmp(text,"Holder"))return geometry_holder_index;
+        Require(false,"unexpected shotgun geometry name");return -1;
+    }
     const bool peacemaker = weapon_class == &peacemaker_class;
     if (!std::strcmp(text,peacemaker ? "ColtDrum" : "GunDrum")) return drum_index;
     if (!std::strcmp(text,peacemaker ? "ColtLock" : "GunLoader")) return gate_index;
@@ -984,6 +990,54 @@ void WinchesterLoadingGeometryTests(JavaPlayerBridge& bridge) {
     bridge.vector_class_=nullptr;bridge.being_=nullptr;rifle_bridge=nullptr;
     Set(24,Same);Set(36,Object);Set(39,Boolean);
 }
+void RemingtonLoadingGeometryTests(JavaPlayerBridge& bridge) {
+    for(bool sawoff:{false,true})for(int hand=0;hand<2;++hand)
+    for(auto source:{CoJReloadGeometrySource::pre_native,CoJReloadGeometrySource::post_overlay}){
+        const auto reset=[&](){
+            RifleReset(bridge,false,source);weapon_class=sawoff?&sawoff_class:&remington_class;
+            if(hand==1){
+                bridge.weapon_overlays_[1]=std::move(bridge.weapon_overlays_[0]);
+                bridge.weapon_overlays_[0]={};
+                actual[1]=active[1]=desired[1]=&weapon;actual[0]=active[0]=desired[0]=nullptr;
+            }
+            geometry_hand=hand;
+        };
+        const auto check=[&](bool expected){
+            CoJRemingtonLoadingGeometry out{};out.valid=true;out.mouths[0].valid=true;
+            std::string error;
+            const bool ok=bridge.TryObserveRemingtonLoadingGeometry(hand,out,source,&error);
+            if(ok!=expected)std::cerr<<"shotgun fixture hand="<<hand<<" source="<<int(source)<<" error="<<error<<'\n';
+            Require(ok==expected,"shotgun geometry admission mismatch");
+            Require(refs==0&&!pending&&writes==0&&global_creates==0&&global_deletes==0,
+                "shotgun observer wrote or leaked JNI");
+            if(ok){
+                Require(out.valid&&out.mouths[0].valid&&out.mouths[1].valid&&
+                    geometry_names==std::vector<std::string>{"GunBody","GunLock","Holder"},
+                    "shotgun observer lost exact element frames");
+                Require(std::abs(out.mouths[0].position.x-96)<.0001F&&
+                    std::abs(out.mouths[0].position.y-197.98F)<.0001F&&
+                    std::abs(out.mouths[0].position.z-287.23F)<.0001F,
+                    "shotgun mouth did not follow live barrel");
+            }else Require(!out.valid&&!out.mouths[0].valid&&!out.mouths[1].valid&&!error.empty(),
+                "shotgun rejected observation retained stale geometry");
+            return step;
+        };
+        reset();const bool eligible=sawoff||hand==0;const int calls=check(eligible);
+        if(!eligible)continue;
+        for(int operation=1;operation<=calls;++operation){reset();fail_step=operation;check(false);}
+        for(int fault=0;fault<5;++fault){
+            reset();
+            if(fault==0)actual[hand]=&replacement;
+            if(fault==1)active[hand]=&replacement;
+            if(fault==2)geometry_raw_x[9]={2,0,0};
+            if(fault==3)bridge.weapon_overlays_[hand].applied=!bridge.weapon_overlays_[hand].applied;
+            if(fault==4)bridge.weapon_overlays_[hand].targets.clear(),bridge.weapon_overlays_[hand].natural.clear();
+            check(false);
+        }
+    }
+    bridge.weapon_overlays_={};bridge.vector_class_=nullptr;bridge.being_=nullptr;rifle_bridge=nullptr;
+    Set(24,Same);Set(36,Object);Set(39,Boolean);
+}
 int sample_fault=0,sample_actual_reads=0,sample_swap_owner_reads=0,sample_replacement_counter_reads=0;
 bool sample_swap_active=false;
 void SampleReplace() {
@@ -1341,5 +1395,6 @@ int main() {
     ReloadGeometryTests(bridge);
     WinchesterLoadingGeometryTests(bridge);
     WinchesterLoadingSampleTests(bridge);
+    RemingtonLoadingGeometryTests(bridge);
     ManualPinchBridgeTests(bridge);
 }
