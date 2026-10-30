@@ -1,6 +1,7 @@
 #pragma once
 #include "runtime/vr_settings.hpp"
 #include "runtime/graphics_settings.hpp"
+#include "runtime/neural_status.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -98,10 +99,12 @@ public:
             if(!clean())return fail("Native options request failed");
             auto sync=method(env,type,"cojvrSyncSettings","(IIII)V");
             if(!clean()||!sync)return fail("Native options synchronizer unavailable");
-            auto sync_graphics=method(env,type,"cojvrSyncGraphics","(IIIIIIIIII)V");
+            auto sync_graphics=method(env,type,"cojvrSyncGraphics","(IIIIIIIIIII)V");
             if(!clean()||!sync_graphics)return fail("Native graphics synchronizer unavailable");
             auto complete=method(env,type,"cojvrCompleteSettings","(ZLjava/lang/String;)V");
             if(!clean()||!complete)return fail("Native options completion unavailable");
+            auto neural_status=method(env,type,"cojvrNeuralStatus","(Ljava/lang/String;)V");
+            if(!clean()||!neural_status)return fail("Native Neural status unavailable");
             const auto synchronize=[&](const runtime::VrPreferenceSnapshot& snapshot,
                                        const runtime::GraphicsPreferenceSnapshot& graphics) {
                 write_bool(env,ui,ready,0);
@@ -115,7 +118,7 @@ public:
                 args[3].i=language==runtime::SettingsLanguage::spanish?1:0;
                 call(env,ui,sync,args);
                 if(!clean())return false;
-                NativeSettingsJValue graphic_args[10]{};
+                NativeSettingsJValue graphic_args[11]{};
                 graphic_args[0].i=graphics.values.enabled?1:0;
                 graphic_args[1].i=Percent(graphics.values.sharpness);
                 graphic_args[2].i=Percent(graphics.values.contrast);
@@ -125,7 +128,8 @@ public:
                 graphic_args[6].i=static_cast<std::int32_t>(graphics.values.reconstruction);
                 graphic_args[7].i=graphics.values.render_scale;
                 graphic_args[8].i=graphics.values.horse_comfort;
-                graphic_args[9].i=args[3].i;
+                graphic_args[9].i=graphics.values.neural?1:0;
+                graphic_args[10].i=args[3].i;
                 call(env,ui,sync_graphics,graphic_args);
                 if(!clean())return false;
                 owner_=id;epoch_=epoch;revision_=snapshot.revision;
@@ -138,6 +142,15 @@ public:
                 write_int(env,ui,request,admitted?2:0);
                 if(!clean())return fail("Native options request consumption failed");
             }
+            // Actual consumer state changes independently of saved revisions.
+            // This label never rebases staged selectors or save-error feedback.
+            const auto actual=runtime::CurrentNeuralStatus();
+            const auto actual_text=NeuralStatusText(actual,language);
+            locals.values[3]=string(env,actual_text.c_str());
+            if(!clean()||!locals.values[3])return fail("Native Neural status text failed");
+            NativeSettingsJValue status_args[1]{};status_args[0].l=locals.values[3];
+            call(env,ui,neural_status,status_args);
+            if(!clean())return fail("Native Neural status refresh failed");
             if(!known_||owner_!=id||epoch_!=epoch||!initialized){
                 return synchronize(store.Read(),graphics_store.Read())||fail("Native options synchronization failed");
             }
@@ -164,9 +177,9 @@ public:
             if(pending!=1||guides_value<0||guides_value>1||cinematic_value<0||cinematic_value>1||turning_value<0||turning_value>1){
                 return finish(false,es?"Seleccion VR no valida":"Invalid VR selection")||fail("Native options rejection failed");
             }
-            constexpr std::array<const char*,9> getters{"cojvrGraphicsEnabledValue","cojvrSharpnessValue",
-                "cojvrContrastValue","cojvrSaturationValue","cojvrGammaValue","cojvrEdgeSmoothingValue","cojvrReconstructionValue","cojvrRenderScaleValue","cojvrHorseComfortValue"};
-            std::array<std::int32_t,9> selections{};
+            constexpr std::array<const char*,10> getters{"cojvrGraphicsEnabledValue","cojvrSharpnessValue",
+                "cojvrContrastValue","cojvrSaturationValue","cojvrGammaValue","cojvrEdgeSmoothingValue","cojvrReconstructionValue","cojvrRenderScaleValue","cojvrHorseComfortValue","cojvrNeuralValue"};
+            std::array<std::int32_t,10> selections{};
             for(std::size_t n=0;n<getters.size();++n) {
                 auto getter=method(env,type,getters[n],"()I");
                 if(!clean()||!getter)return fail("Native graphics selection unavailable");
@@ -176,7 +189,7 @@ public:
             const auto range=[](int value,int minimum,int maximum) noexcept {
                 return value>=minimum&&value<=maximum&&value%5==0;
             };
-            if(selections[0]<0||selections[0]>1||selections[5]<0||selections[5]>1||selections[6]<0||selections[6]>2||selections[7]<0||selections[7]>5||selections[8]<0||selections[8]>2||
+            if(selections[0]<0||selections[0]>1||selections[5]<0||selections[5]>1||selections[6]<0||selections[6]>2||selections[7]<0||selections[7]>5||selections[8]<0||selections[8]>2||selections[9]<0||selections[9]>1||
                !range(selections[1],0,100)||!range(selections[2],50,150)||
                !range(selections[3],0,200)||!range(selections[4],50,200))
                 return finish(false,es?"Seleccion grafica no valida":"Invalid graphics selection")||fail("Native graphics rejection failed");
@@ -191,6 +204,7 @@ public:
             graphics.reconstruction=static_cast<runtime::ReconstructionMode>(selections[6]);
             graphics.render_scale=static_cast<std::uint8_t>(selections[7]);
             graphics.horse_comfort=static_cast<std::uint8_t>(selections[8]);
+            graphics.neural=selections[9]!=0;
             // Do not round a pre-existing precise file value merely because an
             // unrelated option was accepted. Only changed native selectors snap.
             const auto selected=[](int value,float original) noexcept {
@@ -226,6 +240,18 @@ public:
         }catch(...){return fail("Native options bridge exception");}
     }
 private:
+    static std::string NeuralStatusText(runtime::NeuralStatusSnapshot actual,
+        runtime::SettingsLanguage language) {
+        constexpr std::array<const char*,8> english{
+            "Off","Unavailable","Starting","Warming","Processing","Active","Fallback","Failed"};
+        constexpr std::array<const char*,8> spanish{
+            "Desactivado","No disponible","Iniciando","Calentando","Procesando","Activo","Alternativa","Error"};
+        const auto index=static_cast<unsigned>(actual.state);
+        const auto safe_index=index<english.size()?index:7U;
+        const bool es=language==runtime::SettingsLanguage::spanish;
+        return std::string("Neural: ")+(es?spanish[safe_index]:english[safe_index])+
+            (es?" | Pares aplicados: ":" | Applied pairs: ")+std::to_string(actual.applied_pairs);
+    }
     static std::int32_t Percent(float value) noexcept {
         return static_cast<std::int32_t>(std::lround(value*20.F))*5;
     }

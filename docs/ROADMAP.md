@@ -182,10 +182,45 @@ filtering already supports anisotropic trilinear; forced 16x is not established.
 
 Penumbra's DirectNR implementation provides a separate optional final-color
 appearance experiment, using estimated rotation and constant depth rather than
-qualified game depth. Reuse its companion lifecycle/residual test patterns and
-assess CoJ's existing D3D11 transport before a bounded synthetic stereo roundtrip.
-This route is not implemented in CoJ and grants no Super Resolution, performance
-or headset acceptance. The [DirectNR comparison](research/COJ_VR_REFERENCE_PROJECTS.md#penumbra-directnr-comparison)
+qualified game depth. The standalone x86/x64 D3D11 laboratory now implements
+CPU-proxy transport, asynchronous model warmup, residual composition and explicit
+identity/timeout/recovery diagnostics. Real local-model synthetic inference and
+native-size presenter integration are host-tested. An explicit developer candidate
+now processes native stereo before comfort/overlays with native fallback;
+staging/restoration includes its config and dependency hashes.
+The first game candidate registered F8 toggles but never
+processed a Neural frame: bounded same-frame capture remained pending before
+warmup. The correction now retains a query/color/pose packet through nonblocking
+Begin/Poll capture, helper inference and private resolve, with cancellation drain,
+same-frame submission and bounded native-image hold. A separate persisted native
+menu Neural request and actual status/count replace the invisible F8 comparison.
+The corrected integration now has live committed-pair/inference evidence, but the
+operator rejects its performance/stutter and sees no appreciable face/environment
+improvement. Artificial-turn invalidation releases its retained native-frame hold,
+consistent with the operator's smoother image while holding the camera stick.
+Keep the feature Off for ordinary play. Next establish useful scene-image changes
+offline with explicit effective model resolution, and replace the native-image
+hold with a measured presentation boundary preserving fresh native delivery and
+exact source/result identity. Do not substitute stale-result blending or a larger
+timeout. Useful quality and native delivery must be demonstrated before another
+physical quality candidate; binocular/HUD and comfort remain unqualified.
+The requested direction prioritizes nearby human faces over scenery. An isolated
+image laboratory now compares source-density head crops at explicit scales and
+records real-model output/cost without changing gameplay.
+The offline input set now includes an operator-positioned real near-face game
+capture, allowing static skin/detail comparisons beyond neutral asset previews.
+Operator preference, temporal behavior and runtime ownership remain unresolved.
+The separate supplied-mask
+GPU spike tests exact crop/patch ownership and late-result rejection while native
+frames advance. Native NPC/head queries have shipped precedents, but no qualified
+animated per-eye head bounds or visible-face mask is integrated. Establish useful
+face appearance and those ownership boundaries before enabling human-only runtime
+inference. Crop area savings are not a measured FPS gain, especially against the
+old severely reduced whole-scene model. The focused
+[human-targeting research](research/COJ_NEURAL_HUMAN_TARGETING.md) owns exact APIs.
+No host throughput or processed counter grants Super Resolution, performance or
+headset acceptance.
+The [DirectNR comparison](research/COJ_VR_REFERENCE_PROJECTS.md#penumbra-directnr-comparison)
 owns the reuse boundary and candidate prerequisites.
 
 Reload G1 precedes G2. G3–G5 can proceed independently. Rendering research is

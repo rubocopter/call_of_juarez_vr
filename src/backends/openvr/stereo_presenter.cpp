@@ -18,6 +18,8 @@
 #include "runtime/vr_math.hpp"
 #include "backends/openvr/flat_menu_composition.hpp"
 #include "backends/openvr/spatial_image_processor.hpp"
+#include "backends/openvr/neural_presenter.hpp"
+#include "runtime/neural_status.hpp"
 #include "runtime/graphics_settings.hpp"
 
 #include <d3d11.h>
@@ -399,6 +401,10 @@ struct OpenVrStereoPresenter::Impl {
         FlatMenuCompositor& flat_menu_compositor,
         bool& menu_gpu_disabled,
         SpatialImageProcessor& spatial_processor,
+        neural::Presenter& neural_processor,
+        std::uint64_t graphics_revision,
+        bool neural_allowed,
+        bool neural_replay,
         const runtime::GraphicsSettings& graphics,
         bool& spatial_disabled,
         bool clear_flat_canvas,
@@ -432,6 +438,27 @@ struct OpenVrStereoPresenter::Impl {
             IsCurrentCenteredScopeReticle(frame.gameplay_reticle,frame.capture_sequence);
         bool scope_mask_applied=false;
         const auto process_graphics = [&]() noexcept {
+            const auto neural_begin=std::chrono::steady_clock::now();
+            const bool neural_applied=neural_replay;
+            if(!neural_replay)(void)neural_processor.Process(d3d11.device(),d3d11.context(),
+                {textures[0].Get(),textures[1].Get()},frame,eyes,graphics_revision,neural_allowed&&!fixed_outputs&&!scope_view);
+            if(neural_processor.enabled()){
+                // Applied frames are sampled as well; never format telemetry
+                // on every inference in a long session.
+                static thread_local std::string previous_neural_status;
+                static thread_local unsigned neural_transitions=0;
+                const bool changed=previous_neural_status!=neural_processor.status();
+                if((changed&&neural_transitions<256)||ShouldLogSequence(frame.capture_sequence)){
+                    if(changed)++neural_transitions;
+                    previous_neural_status=neural_processor.status();
+                    std::ostringstream line;line<<"native_stereo_neural: status="<<neural_processor.status()
+                        <<";frame_sequence="<<frame.capture_sequence<<";render_pose_sequence="<<frame.render_pose_sequence
+                        <<";device_id="<<frame.device_id<<";generation="<<frame.generation
+                        <<";applied="<<neural_applied
+                        <<";cpu_total_ms="<<MillisecondsBetween(neural_begin,std::chrono::steady_clock::now());Log(line.str());
+                }
+            }
+            if(FAILED(d3d11.device()->GetDeviceRemovedReason()))return false;
             const auto horse_lease_ms=runtime::CurrentMountedMotionLeaseMs();
             const float horse_dimming=horse_lease_ms?
                 (graphics.horse_comfort==1?.55F:graphics.horse_comfort==2?.85F:0.F):0.F;
@@ -626,6 +653,14 @@ struct OpenVrStereoPresenter::Impl {
         if (!EnsureTextures(
                 d3d11, frame, textures, texture_width, texture_height, texture_format)) {
             return false;
+        }
+        if(neural_replay){
+            // Pump restored/processed the retained world pair without overlays.
+            // Recompose from its own captured metadata. No native traversal,
+            // source transport, haptic observation or frame upload event repeats.
+            discard_old_text();
+            if(!process_graphics())return false;
+            draw_gameplay_reticle();draw_hud_text();return true;
         }
         // Persistent pairs must never acquire authority from half an update.
         // Reserve all pointer scratch and validate BOTH placements before writing.
@@ -976,6 +1011,8 @@ struct OpenVrStereoPresenter::Impl {
         runtime::OpenVrRuntime runtime;
         D3D11SessionBridge d3d11;
         D3D9SharedTextureBridge shared_bridge;
+        const auto neural_options=neural::LoadGameOptions();
+        neural::Presenter neural_processor(neural_options);
         runtime::VrInputReleaseGate input_release_gate;
         const auto settings_path=runtime::DefaultVrSettingsPath();
         auto& preference_store=runtime::SharedVrPreferences();
@@ -1718,7 +1755,8 @@ struct OpenVrStereoPresenter::Impl {
                             pause_pressed_pending = true;
                         }
                         ++pose_sequence;
-                        if (recenter) recenter_pending = true;
+                        if (recenter) {recenter_pending = true;neural_processor.Invalidate();}
+                        if(polled_gameplay.turn_available&&polled_gameplay.turn.x!=0.F)neural_processor.Invalidate();
                     }
                     ++pose_updates;
                 } else {
@@ -1755,10 +1793,60 @@ struct OpenVrStereoPresenter::Impl {
                     feedback_context.Snapshot(),std::chrono::steady_clock::now());
                 bow_haptics.UpdateOwner(bow_feedback_owner.load(std::memory_order_acquire));
                 d3d9::StereoCpuFrame frame{};
+                neural_processor.ObserveContext(pose_ok&&runtime_state.focused&&runtime_state.connected&&
+                    runtime_state.tracking_valid&&!dashboard_visible);
+                const auto neural_preferences=runtime::CurrentGraphicsPreferences();
+                neural_processor.SetRequested(neural_preferences.values.neural,neural_preferences.revision);
                 std::uint64_t incoming_fixed_authority_epoch = 0;
-                const bool have_new_frame = fixed_outputs
+                bool have_new_frame = fixed_outputs
                     ? fixed_frame_mailbox.Consume(mailbox, frame, incoming_fixed_authority_epoch)
                     : mailbox.WaitConsumeLatest(frame, cadence.scene_submission_allowed(dashboard_visible) ? 0U : 2U);
+                bool neural_packet_discarded=false;
+                const bool held_neural_pair=neural_processor.busy();
+                if(held_neural_pair&&have_new_frame){
+                    if(frame.device_id!=active_device_id||frame.generation!=active_generation||
+                       frame.presentation_mode!=active_presentation_mode||frame.gameplay_reticle.scope_view){
+                        neural_processor.Invalidate();
+                    }else{
+                        // Keep the already displayed native pair and pose while
+                        // its private proxy/result completes. Drop newer packets,
+                        // releasing their producer leases through ordinary RAII.
+                        if(frame.transport==d3d9::StereoFrameTransport::cpu_bgrx)mailbox.Recycle(std::move(frame));
+                        have_new_frame=false;neural_packet_discarded=true;
+                    }
+                }
+                const bool neural_context=pose_ok&&runtime_state.focused&&runtime_state.connected&&
+                    runtime_state.tracking_valid&&!dashboard_visible&&!fixed_outputs&&
+                    active_presentation_mode==d3d9::FramePresentationMode::native_stereo;
+                const bool neural_completed=neural_processor.Pump(d3d11.device(),d3d11.context(),
+                    {textures[0].Get(),textures[1].Get()},active_capture_sequence,active_device_id,active_generation,neural_context);
+                if(neural_completed){
+                    std::uint64_t replay_left=0,replay_right=0;double replay_hash=0,replay_upload=0;
+                    D3D9SharedTextureCopyTiming replay_timing{};
+                    auto& retained=neural_processor.RetainedFrame();
+                    if(!UploadFrame(d3d11,shared_bridge,retained,0,{},flat_pointer_scratch,flat_menu_compositor,
+                        menu_gpu_disabled,spatial_processor,neural_processor,neural_preferences.revision,true,true,
+                        neural_preferences.values,spatial_disabled,false,textures,texture_width,texture_height,texture_format,
+                        replay_left,replay_right,replay_hash,replay_upload,replay_timing)){
+                        cadence.Invalidate();neural_processor.Invalidate();
+                    }
+                }
+                if(neural_options.enabled&&FAILED(d3d11.device()->GetDeviceRemovedReason())){
+                    cadence.ConsumerFailed();SetError("Neural consumer device removed");break;
+                }
+                {
+                    using runtime::NeuralState;
+                    const std::string_view state=neural_processor.status();
+                    NeuralState visible=NeuralState::fallback;
+                    if(!neural_preferences.values.neural)visible=NeuralState::off;
+                    else if(!neural_options.enabled||state=="unavailable"||state=="helper_unavailable")visible=NeuralState::unavailable;
+                    else if(state=="starting")visible=NeuralState::starting;
+                    else if(state=="warming")visible=NeuralState::warming;
+                    else if(state=="applied")visible=NeuralState::active;
+                    else if(state=="capture_pending"||state=="processing"||state=="resolve_pending")visible=NeuralState::processing;
+                    else if(state=="helper_failed"||state=="disabled_after_failures"||state=="exception_bypass")visible=NeuralState::failed;
+                    runtime::PublishNeuralStatus(visible,neural_processor.applied_pairs());
+                }
                 std::uint64_t left_hash = 0;
                 std::uint64_t right_hash = 0;
                 double hash_ms = 0.0;
@@ -1847,14 +1935,17 @@ struct OpenVrStereoPresenter::Impl {
                         const bool uploaded = (!fixed_outputs || fixed_frame_authority.Allows(incoming_fixed_authority_epoch)) && UploadFrame(
                                 d3d11, shared_bridge, frame, incoming_fixed_authority_epoch, flat_ui_pointer,
                                 flat_pointer_scratch, flat_menu_compositor, menu_gpu_disabled,
-                                spatial_processor, active_graphics.values, spatial_disabled, flat_reference_changed,
+                                spatial_processor, neural_processor, active_graphics.revision,
+                                pose_ok&&runtime_state.focused&&runtime_state.connected&&runtime_state.tracking_valid&&!dashboard_visible,
+                                false,
+                                active_graphics.values, spatial_disabled, flat_reference_changed,
                                 textures, texture_width, texture_height, texture_format,
                                 left_hash, right_hash, hash_ms, upload_ms, shared_timing);
                         // An optional filter setup failure may fall back to a
                         // healthy native pair. Removed consumer resources may
                         // already contain partial writes: revoke old/new cadence
                         // and leave the worker before any repeat or submission.
-                        if((runtime::GraphicsEffectsActive(active_graphics.values)||active_graphics.values.horse_comfort>0||
+                        if((neural_processor.enabled()||runtime::GraphicsEffectsActive(active_graphics.values)||active_graphics.values.horse_comfort>0||
                             frame.gameplay_reticle.scope_view)&&
                            FAILED(d3d11.device()->GetDeviceRemovedReason())) {
                             cadence.ConsumerFailed();
@@ -2164,7 +2255,7 @@ struct OpenVrStereoPresenter::Impl {
                                 std::to_string(frame.capture_sequence) + ";error=" + ErrorCopy());
                         }
                     }
-                    if (frame.transport == d3d9::StereoFrameTransport::cpu_bgrx) {
+                    if (!neural_packet_discarded&&frame.transport == d3d9::StereoFrameTransport::cpu_bgrx) {
                         mailbox.Recycle(std::move(frame));
                     }
                 }
@@ -2360,6 +2451,7 @@ struct OpenVrStereoPresenter::Impl {
         hud_text_compositor.Reset();
         flat_menu_compositor.Reset();
         spatial_processor.Reset();
+        runtime::PublishNeuralStatus(runtime::NeuralState::off,neural_processor.applied_pairs());
         if (fixed_outputs) {
             if (d3d11.context()) d3d11.context()->ClearState();
             fixed_outputs->Seal();

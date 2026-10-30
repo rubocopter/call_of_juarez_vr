@@ -17,6 +17,8 @@ param(
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
     [switch]$FrameLumaProbe,
+    [string]$NeuralHostPath = '',
+    [string]$NeuralRuntimeDirectory = '',
     [switch]$MenuPresentationCheck,
     [ValidateSet('off','2560x1440','2560x1920')]
     [string]$IndependentEyeResolution = 'off',
@@ -32,6 +34,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($NeuralHostPath.Length -ne 0 -or $NeuralRuntimeDirectory.Length -ne 0) {
+    if ($Action -ne 'prepare' -or [string]::IsNullOrWhiteSpace($NeuralHostPath) -or
+        [string]::IsNullOrWhiteSpace($NeuralRuntimeDirectory)) {
+        throw 'NeuralHostPath and NeuralRuntimeDirectory must be supplied together for prepare only.'
+    }
+}
 
 $RepositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $LocalStateDirectory = Join-Path $RepositoryRoot "work"
@@ -342,7 +350,8 @@ switch ($Action) {
                 -LargeAddressAware:$LargeAddressAware `
                 -ExperimentalGog:$ExperimentalGog `
                 -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe `
-                -IndependentEyeResolution $IndependentEyeResolution
+                -IndependentEyeResolution $IndependentEyeResolution `
+                -NeuralHostPath $NeuralHostPath -NeuralRuntimeDirectory $NeuralRuntimeDirectory
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
 
             & (Join-Path $PSScriptRoot "set_hmd_camera_control.ps1") `
@@ -411,6 +420,10 @@ switch ($Action) {
         Write-Host ""
         Write-Host "Native-stereo VR test candidate ready."
         Write-Host "Run ID: $($Run.runId)"
+        if ($null -ne $Run.neuralCandidate) {
+            Write-Host 'Neural developer capability ready: use the separate Neural Off/On selector in Options > Game; actual status/count appears there. Default Off; stage height 384.'
+            Write-Host 'External helper/model/forwarder SHA-256 identities are recorded in this run; finish restores the previous Neural config.'
+        }
         if ($ProfileRequested) {
             Write-Host "Startup resolution profile: $ResolutionProfile; decision=$($ResolutionDecision.Status); actual requested native size=$($VideoProfile.resolution)."
             Write-Host 'Experimental application is separate from release qualification; native memory, per-eye raster size and headset performance remain unqualified at new dimensions.'

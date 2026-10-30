@@ -99,7 +99,7 @@ target_compile_features(cojvr_dlss_client PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_dlss_client PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 target_link_libraries(cojvr_dlss_client PRIVATE d3d11 dxgi d3dcompiler)
 
-add_library(cojvr_neural_lab STATIC src/backends/openvr/neural_session.cpp)
+add_library(cojvr_neural_lab STATIC src/backends/openvr/neural_session.cpp src/backends/openvr/neural_candidate.cpp)
 target_include_directories(cojvr_neural_lab PUBLIC src)
 target_compile_features(cojvr_neural_lab PUBLIC cxx_std_20)
 target_compile_definitions(cojvr_neural_lab PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
@@ -190,6 +190,8 @@ if(COJVR_ENABLE_OPENVR)
         src/backends/openvr/d3d11_session.cpp
         src/backends/openvr/stereo_presenter.cpp
         src/backends/openvr/spatial_image_processor.cpp
+        src/backends/openvr/neural_image_processor.cpp
+        src/backends/openvr/neural_presenter.cpp
         src/backends/openvr/hud_text_overlay.cpp
         src/backends/openvr/gameplay_ui_raster.cpp
         src/backends/d3d9/frame_mailbox.cpp
@@ -197,7 +199,7 @@ if(COJVR_ENABLE_OPENVR)
     target_include_directories(cojvr_openvr_d3d11_backend PUBLIC src)
     target_compile_features(cojvr_openvr_d3d11_backend PUBLIC cxx_std_20)
     target_compile_definitions(cojvr_openvr_d3d11_backend PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-    target_link_libraries(cojvr_openvr_d3d11_backend PUBLIC cojvr_openvr_runtime PRIVATE d3d11 dxgi openvr_api gdi32 d3dcompiler)
+    target_link_libraries(cojvr_openvr_d3d11_backend PUBLIC cojvr_openvr_runtime PRIVATE cojvr_neural_lab d3d11 dxgi openvr_api gdi32 d3dcompiler)
 
     add_executable(cojvr_openvr_probe tools/openvr_probe.cpp)
     target_link_libraries(cojvr_openvr_probe PRIVATE cojvr_openvr_d3d11_backend)
@@ -1141,6 +1143,21 @@ if(COJVR_BUILD_TESTS)
     add_test(NAME graphics_settings_example COMMAND cojvr_graphics_settings_test "${CMAKE_SOURCE_DIR}/assets/graphics.ini.example")
 
     add_executable(cojvr_neural_session_test tests/neural_session.cpp)
+    add_executable(cojvr_neural_candidate_test tests/neural_candidate.cpp)
+    target_link_libraries(cojvr_neural_candidate_test PRIVATE cojvr_neural_lab)
+    add_test(NAME neural_candidate_policy COMMAND cojvr_neural_candidate_test)
+    if(COJVR_ENABLE_OPENVR)
+        add_executable(cojvr_neural_presenter_candidate_test tests/neural_presenter_candidate.cpp)
+        target_link_libraries(cojvr_neural_presenter_candidate_test PRIVATE cojvr_openvr_d3d11_backend)
+        add_test(NAME neural_presenter_default_off COMMAND cojvr_neural_presenter_candidate_test)
+        add_test(NAME neural_deployment COMMAND "${COJVR_POWERSHELL_EXECUTABLE}" -NoProfile -File "${CMAKE_SOURCE_DIR}/tests/neural_deployment.ps1" -SourceDirectory "${CMAKE_SOURCE_DIR}" -BinaryDirectory "${CMAKE_BINARY_DIR}/neural-deployment" -UnstageCompatibility)
+        add_executable(cojvr_neural_image_processor_test tests/neural_image_processor.cpp src/backends/openvr/neural_image_processor.cpp)
+        target_include_directories(cojvr_neural_image_processor_test PRIVATE src)
+        target_compile_features(cojvr_neural_image_processor_test PRIVATE cxx_std_20)
+        target_compile_definitions(cojvr_neural_image_processor_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_link_libraries(cojvr_neural_image_processor_test PRIVATE d3d11 d3dcompiler)
+        # Hardware image and actual-model sustained probes are explicit opt-ins.
+    endif()
     target_link_libraries(cojvr_neural_session_test PRIVATE cojvr_neural_lab)
     add_test(NAME neural_protocol_dependencies COMMAND cojvr_neural_session_test)
     add_executable(cojvr_neural_gpu_roundtrip_test tests/neural_gpu_roundtrip.cpp)

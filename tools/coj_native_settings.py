@@ -12,7 +12,7 @@ serials/modal owners before completion and keep JNI calls on the game thread.
 Sync takes (cinematics, turning, holster guides, language), each bounded to 0/1.
 Graphics sync separately takes (enabled, sharpness%, contrast%, saturation%,
 gamma%, edge smoothing, reconstruction request, render scale, horse comfort,
-language). Both ready flags are required for OK; an
+Neural request, language). Both ready flags are required for OK; an
 old comfort-only caller retains native fallback without a VR commit. Graphics
 readiness publishes last. Explicit refresh must revoke the relevant ready flags
 before both syncs; both clear the shared request when initializing.
@@ -61,12 +61,17 @@ GRAPHICS_ROWS = (
      ("Horse comfort", "Optional peripheral dimming during mounted movement. Keeps center and VR overlays visible; does not change speed."),
      ("Comodidad a caballo", "Oscurece la periferia al avanzar montado. Conserva centro y ayudas RV; no cambia la velocidad.")),
 )
+# Neural appearance processing is independent of unqualified reconstruction.
+GRAPHICS_ROWS += (("Neural", "ID_VR_NEURAL", 0, 1, 1, 0,
+    ("Neural", "Request Neural appearance processing when installed. See actual status and applied pairs below."),
+    ("Neural", "Solicita procesamiento de imagen Neural si está instalado. Consulta estado real y pares aplicados abajo.")),)
 BRIDGE_FIELDS = (("cojvrSettingsReady", "Z"), ("cojvrGraphicsReady", "Z"), ("cojvrSettingsRequest", "I"),
                  ("cojvrSettingsOpenSerial", "I"))
 BRIDGE_METHODS = (("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
                   ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"),
                   ("cojvrCompleteSettings", "(ZLjava/lang/String;)V"),
-                  ("cojvrSyncGraphics", "(IIIIIIIIII)V")) + tuple(
+                  ("cojvrNeuralStatus", "(Ljava/lang/String;)V"),
+                  ("cojvrSyncGraphics", "(IIIIIIIIIII)V")) + tuple(
                       ("cojvr" + row[0] + "Value", "()I") for row in GRAPHICS_ROWS)
 
 
@@ -96,7 +101,8 @@ def patch_menu_class(data: bytes) -> bytes:
     for name, desc in (("cojvrCinematicsControl", "L" + SELECT + ";"),
                        ("cojvrTurningControl", "L" + SELECT + ";"),
                        ("cojvrHolsterGuidesControl", "L" + SELECT + ";"),
-                       ("cojvrStatusControl", "LUIStatic;")) + tuple(
+                       ("cojvrStatusControl", "LUIStatic;"),
+                       ("cojvrNeuralStatusControl", "LUIStatic;")) + tuple(
                            ("cojvr" + row[0] + "Control", "L" + SELECT + ";") for row in GRAPHICS_ROWS):
         fields[name] = e.field(name, desc)
         # Internal cached widgets are private; only bridge state is volatile/public.
@@ -148,7 +154,8 @@ def patch_menu_class(data: bytes) -> bytes:
     for field, id_, type_ in (("cojvrCinematicsControl", "ID_VR_CINEMATICS", SELECT),
                                ("cojvrTurningControl", "ID_VR_TURNING", SELECT),
                                ("cojvrHolsterGuidesControl", "ID_VR_HOLSTER_GUIDES", SELECT),
-                               ("cojvrStatusControl", "ID_VR_STATUS", "UIStatic")) + tuple(
+                               ("cojvrStatusControl", "ID_VR_STATUS", "UIStatic"),
+                               ("cojvrNeuralStatusControl", "ID_VR_NEURAL_STATUS", "UIStatic")) + tuple(
                                    ("cojvr" + row[0] + "Control", row[1], SELECT) for row in GRAPHICS_ROWS):
         put(c, field, 0x01)
         c.emit(0x2a); c.ref(0x13, string(id_)); c.ref(0xb6, get_elem); c.emit(0x4c)
@@ -172,14 +179,18 @@ def patch_menu_class(data: bytes) -> bytes:
         c = Code(); c.emit(0x2a, 0x2a); c.ref(0xb4, fields[field]); c.ref(0xb6, value); c.emit(0xac)
         helper(name, "()I", c, 1)
 
-    c = Code()
-    c.emit(0x2a); c.ref(0xb4, fields["cojvrStatusControl"]); c.branch(0xc6, "done")
-    c.emit(0x2b); c.branch(0xc7, "text")
-    c.ref(0x13, string("")); c.emit(0x4c)
-    c.label("text")
-    c.emit(0x2a); c.ref(0xb4, fields["cojvrStatusControl"]); c.emit(0x2b); c.ref(0xb6, set_text)
-    c.label("done"); c.emit(0xb1)
-    status = helper("cojvrSettingsStatus", "(Ljava/lang/String;)V", c, 2)
+    status = None
+    for name, field in (("cojvrSettingsStatus", "cojvrStatusControl"),
+                        ("cojvrNeuralStatus", "cojvrNeuralStatusControl")):
+        c = Code()
+        c.emit(0x2a); c.ref(0xb4, fields[field]); c.branch(0xc6, "done")
+        c.emit(0x2b); c.branch(0xc7, "text")
+        c.ref(0x13, string("")); c.emit(0x4c)
+        c.label("text")
+        c.emit(0x2a); c.ref(0xb4, fields[field]); c.emit(0x2b); c.ref(0xb6, set_text)
+        c.label("done"); c.emit(0xb1)
+        setter = helper(name, "(Ljava/lang/String;)V", c, 2)
+        if name == "cojvrSettingsStatus": status = setter
 
     # Parameters: control, label, option0, option1, tooltip, selected integer.
     row_desc = "(L" + SELECT + ";" + "Ljava/lang/String;" * 4 + "I)V"
@@ -282,13 +293,13 @@ def patch_menu_class(data: bytes) -> bytes:
         c.emit(0x2a, 0x15, index)
         for n in spec[2:5]: integer(c, n)
         c.ref(0xb6, range_value); c.branch(0x9b, "done")
-    c.emit(0x15, 10); c.branch(0x9b, "done")
-    c.emit(0x15, 10, 0x04); c.branch(0xa3, "done")
+    c.emit(0x15, 11); c.branch(0x9b, "done")
+    c.emit(0x15, 11, 0x04); c.branch(0xa3, "done")
     for tag, *_ in GRAPHICS_ROWS:
         c.emit(0x2a); c.ref(0xb4, fields["cojvr" + tag + "Control"]); c.branch(0xc6, "done")
     for index, (tag, id_, low, high, step, default, english, spanish) in enumerate(GRAPHICS_ROWS, 1):
         c.emit(0x2a, 0x2a); c.ref(0xb4, fields["cojvr" + tag + "Control"])
-        c.emit(0x15, 10); c.branch(0x9a, tag + "_es")
+        c.emit(0x15, 11); c.branch(0x9a, tag + "_es")
         for text in ((english[0], "Off", "On", english[1]) if high == 1 else english):
             c.ref(0x13, string(text))
         c.branch(0xa7, tag + "_row")
@@ -300,14 +311,14 @@ def patch_menu_class(data: bytes) -> bytes:
     for tag, *_ in GRAPHICS_ROWS:
         c.emit(0x2a); c.ref(0xb6, method("cojvr" + tag + "Value", "()I")); c.branch(0x9b, "done")
     c.emit(0x15, 7); c.branch(0x99, "publish")
-    c.emit(0x2a, 0x15, 10); c.branch(0x9a, "pending_es")
+    c.emit(0x2a, 0x15, 11); c.branch(0x9a, "pending_es")
     c.ref(0x13, string("DLAA/DLSS pending: native rendering active")); c.branch(0xa7, "pending_text")
     c.label("pending_es"); c.ref(0x13, string("DLAA/DLSS pendiente: renderizado nativo activo"))
     c.label("pending_text"); c.ref(0xb6, status)
     c.label("publish")
-    put(c, "cojvrGraphicsReady", 0x04)  # release/publication follows all seven readbacks
+    put(c, "cojvrGraphicsReady", 0x04)  # release/publication follows all graphics readbacks
     c.label("done"); c.emit(0xb1)
-    helper("cojvrSyncGraphics", "(IIIIIIIIII)V", c, 11)
+    helper("cojvrSyncGraphics", "(IIIIIIIIIII)V", c, 12)
 
     # Keep byte-identical original code in named helpers. Changes affect only
     # enumerated entry bodies; ClassEdit copies every unrelated member/attribute.
@@ -394,8 +405,9 @@ def _block(data: bytes, kind: bytes, id_: bytes) -> tuple[int, int]:
 def patch_menu_script(data: bytes) -> bytes:
     """Compact whole native selectors; no pattern edits or new UI registration.
 
-    Logical screen coordinates: sixteen .465 x .038 rows at x=.045,
-    y=.15 + index*.041, ending at .803; status .805..855. List decoration
+    Logical screen coordinates: seventeen .465 x .034 rows at x=.045,
+    y=.15 + index*.037, ending at .776. Neural status .778..813;
+    save/reconstruction feedback .815..855. List decoration
     .10166667..86166667 remains above the native .87166667 separator.
     The shipped selector pattern sizes its label/option (height 1) and arrow
     clicks (y=.3, height .4) relative to the WHOLE control. Native UpdateElements
@@ -412,12 +424,12 @@ def patch_menu_script(data: bytes) -> bytes:
             raise ValueError("Unexpected native row size")
         # Position references ID_FRAME's .73333335 height, whereas LogicSize
         # remains screen-relative (ParentSizingY=0 in the original pattern).
-        y = f"{(.15 + index * .041 - .13833334) / .73333335:.8f}".encode("ascii")
+        y = f"{(.15 + index * .037 - .13833334) / .73333335:.8f}".encode("ascii")
         row, count = re.subn(rb"LogicPos\(0\.04411765,[^)]+\)",
                             b"LogicPos(0.04411765," + y + b")", row)
         if count != 1:
             raise ValueError("Unexpected native row position")
-        return row.replace(b"LogicSize(0.465,0.05)", b"LogicSize(0.465,0.038)")
+        return row.replace(b"LogicSize(0.465,0.05)", b"LogicSize(0.465,0.034)")
 
     for index, id_ in enumerate((b"ID_AUTO_RELOAD", b"ID_FULL_AKIMBO", b"ID_SELECT_SPEECH", b"ID_SUBTITLES")):
         a, b = _block(data, b"MenuButton", id_)
@@ -462,11 +474,15 @@ def patch_menu_script(data: bytes) -> bytes:
         '            ParentSizingX(0)',
         '            ParentSizingY(0)',
         '            TextureAlpha(0.0)',
-        '            LogicSize(0.465,0.05)',
-        '            LogicPos(0.04411765,0.90909088)',
+        '            LogicSize(0.465,0.04)',
+        '            LogicPos(0.04411765,0.92272724)',
         '        }// [UIStatic] ID_VR_STATUS',
     )
-    additions = newline.join(rows + [newline.join(s.encode("ascii") for s in status_lines)])
+    feedback = newline.join(line.encode("ascii") for line in status_lines)
+    neural_status = feedback.replace(b"ID_VR_STATUS", b"ID_VR_NEURAL_STATUS").replace(
+        b"LogicSize(0.465,0.04)", b"LogicSize(0.465,0.035)").replace(
+        b"LogicPos(0.04411765,0.92272724)", b"LogicPos(0.04411765,0.87227270)")
+    additions = newline.join(rows + [neural_status, feedback])
     list_start, list_end = _block(data, b"Window", b"ID_LIST_FRAME")
     frame = data[list_start:list_end]
     if frame.count(b"LogicSize(0.5125,0.29166666)") != 1:

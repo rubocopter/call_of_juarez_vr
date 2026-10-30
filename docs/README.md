@@ -36,6 +36,7 @@ for debugging and can only be reactivated after the stated gates are met.
 | Native shutdown and callback ownership | [Shutdown boundary](research/COJ_SHUTDOWN_BOUNDARY.md) |
 | Fire-emitter definitions and LAA pointer handling | [World-fire definitions](research/COJ_WORLD_FIRE_DEFINITIONS.md) |
 | External VR implementations, reuse limits and DLSS comparisons | [Reference projects](research/COJ_VR_REFERENCE_PROJECTS.md) |
+| Human/head ownership and scoped Neural crop boundaries | [Human-focused Neural](research/COJ_NEURAL_HUMAN_TARGETING.md) |
 
 ## Evidence versus history
 

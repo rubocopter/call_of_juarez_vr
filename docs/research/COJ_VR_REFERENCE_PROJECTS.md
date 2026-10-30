@@ -122,6 +122,13 @@ reduced-native-raster DLSS path with measured end-to-end latency and GPU cost.
 
 ### Penumbra DirectNR comparison
 
+The operator reports that the initial working Neural experiment was exercised in
+Deus Ex: Human Revolution Director's Cut, with a later Penumbra implementation
+that functions but does not apply the effect entirely correctly. Penumbra is a
+source/lifecycle reuse reference here, not an accepted image-quality baseline.
+That report does not establish a cause for Penumbra's imperfect application or
+transfer visual acceptance to CoJ.
+
 Source inspection of Penumbra VR Framework revision
 `7b014c96ed928440abf4452664f35220d06c1fb6` establishes a separate experimental
 route from the Super Resolution backend above. Its
@@ -175,6 +182,28 @@ documented synthetic and limited live-menu evidence does not qualify CoJ gamepla
 or headset quality. Greater visual benefit in CoJ is a hypothesis; no performance
 or visual improvement is established. The depth/motion/jitter/reduced-raster gates
 above still apply to genuine DLSS Super Resolution.
+
+CoJ now has a standalone implementation in `tools/neural_host` and
+`backends/openvr/neural_session.*`, exercised by explicit D3D11 laboratory probes.
+It uses a bounded CPU-pixel transport experiment, asynchronous disposable model
+warmup, response identity checks and late-output discard. The residual fixture
+retains the full original eye, checks UNORM/sRGB and alpha, and observes a real
+local-model RGB edit. These controlled inputs prove an inference/transport path,
+not a correct application to gameplay. A 64px diagnostic stage caused device
+removal in a real-model attempt; the 256px transport reference completes. Other
+sizes, sustained behavior, model-atlas binocular consistency and real scene/HUD
+coverage remain unqualified. An explicit developer presenter candidate now
+consumes the protocol using current captured HMD/eye optics, asynchronous proxy readback,
+private pair residual composition and a separate native-menu Neural request with
+actual state and committed-pair count. The first game's same-frame readback
+remained pending and processed no pairs; the correction retains one private pair
+and its metadata across polls instead of restarting the query. Publication is
+cancelled on context, identity or settings changes and capture age expiry. It bypasses
+theater/scope/private-bank paths, preserves originals while warming/recovering,
+and records dependency identities through reversible staging. Host native-size
+fixtures establish integration; real game application/quality and sustained cost
+remain separate physical gates. See
+[validation](../VALIDATION.md#standalone-neural-laboratory) for its evidence state.
 
 ## Decisions for this project
 

@@ -14,6 +14,11 @@ This license applies only to material whose copyright the project's contributor(
 
 - **Call of Juarez (2006)**, its game code, art, music, marks and assets remain with their respective rightsholders and are not granted by this license. Users must provide the game themselves.
 - **Valve OpenVR SDK/runtime** keeps Valve's BSD-style terms and redistributed notices.
+- **Experimental Neural laboratory:** the Penumbra VR Framework adaptation retains
+  GPL-3.0-or-later provenance. Included LowPopLabs DirectNR sources retain their
+  MIT license in `tools/neural_host/vendor/nr-bridge/LICENSE`. NVIDIA SDK/model
+  terms remain separate; no NVIDIA model binary is versioned or publicly bundled
+  by this laboratory. Exact source provenance is in its README.
 - **Python embedded runtime**, its libraries, and **Microsoft Visual C++ Redistributable** retain their own terms. No project-wide GPL grant is made for them.
 - **CC0 ammunition models/textures** incorporated for the VR reload remain subject to their CC0 notices and provenance, not proprietary game extraction. See [assets/models/README.md](assets/models/README.md).
 - Other upstream code and assets, if present, remain under the licenses and notices shipped with them. See [release/THIRD_PARTY_NOTICES.txt](release/THIRD_PARTY_NOTICES.txt).

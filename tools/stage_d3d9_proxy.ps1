@@ -6,6 +6,8 @@ param(
     [string]$BuildManifestPath = "",
     [string]$RunId = "",
     [string]$PythonExecutable = 'python',
+    [string]$NeuralHostPath = '',
+    [string]$NeuralRuntimeDirectory = '',
 
     [ValidateSet("full", "performance", "transport", "startup")]
     [string]$ValidationProfile = "full",
@@ -57,6 +59,124 @@ function Assert-Win32Pe([string]$Path, [string]$Role) {
         throw "$Role '$Path' is not Win32/x86 PE (machine=0x$($Machine.ToString('X4')))."
     }
 }
+
+function New-CojvrNeuralCandidate([string]$HostPath, [string]$RuntimeDirectory) {
+    if ($HostPath.Length -eq 0 -and $RuntimeDirectory.Length -eq 0) { return $null }
+    foreach ($Path in @($HostPath, $RuntimeDirectory)) {
+        # Local drive-qualified paths only. INI metacharacters, control characters
+        # and whitespace trimming must never change the path read by Win32.
+        if ([string]::IsNullOrWhiteSpace($Path) -or $Path -ne $Path.Trim() -or
+            $Path -notmatch '^[A-Za-z]:[\\/]' -or $Path -match '[\x00-\x1f\x7f";#=\[\]<>|?*]') {
+            throw 'NeuralHostPath and NeuralRuntimeDirectory must both be absolute local paths safe for INI values.'
+        }
+    }
+    $HostPath = [IO.Path]::GetFullPath($HostPath)
+    $RuntimeDirectory = [IO.Path]::GetFullPath($RuntimeDirectory)
+    if (-not (Test-Path -LiteralPath $HostPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $RuntimeDirectory -PathType Container)) {
+        throw 'Neural helper file or runtime directory is missing.'
+    }
+    $Dependencies = @(
+        [ordered]@{role='neural_host'; path=$HostPath},
+        [ordered]@{role='neural_model'; path=(Join-Path $RuntimeDirectory 'nvngx_dlssnr.dll')},
+        [ordered]@{role='neural_forwarder'; path=(Join-Path $RuntimeDirectory 'nvngx.dll_nr_bridge.dll')}
+    )
+    foreach ($Dependency in $Dependencies) {
+        if (-not (Test-Path -LiteralPath $Dependency.path -PathType Leaf) -or
+            (Get-PeMachine $Dependency.path) -ne 0x8664) {
+            throw "Neural dependency '$($Dependency.path)' must be an existing x64 PE file."
+        }
+        $Dependency.sha256 = Get-CojvrFileSha256 $Dependency.path
+        $Dependency.size = (Get-Item -LiteralPath $Dependency.path).Length
+    }
+    $Text = "[Neural]`r`nEnabled=1`r`nHostPath=$HostPath`r`nRuntimeDirectory=$RuntimeDirectory`r`nStageHeight=384`r`nTimeoutMs=8`r`n"
+    # Set-Content -Encoding Unicode emits this BOM and UTF16LE payload.
+    $Bytes = [byte[]]([Text.Encoding]::Unicode.GetPreamble() + [Text.Encoding]::Unicode.GetBytes($Text))
+    $Hasher = [Security.Cryptography.SHA256]::Create()
+    try { $Hash = [BitConverter]::ToString($Hasher.ComputeHash($Bytes)).Replace('-', '') }
+    finally { $Hasher.Dispose() }
+    return [pscustomobject]@{
+        configText = $Text; configSha256 = $Hash
+        evidence = [ordered]@{
+            schemaVersion=1; manifestType='cojvr-neural-dependencies'; runId=$null
+            externalDeveloperDependencies=$true; enabled=$true
+            hostPath=$HostPath; runtimeDirectory=$RuntimeDirectory
+            stageHeight=384; timeoutMs=8; configSha256=$Hash
+            dependencies=$Dependencies
+        }
+    }
+}
+
+function New-CojvrNeuralConfigAsset([string]$Directory, $Candidate) {
+    $Destination = Join-Path $Directory 'cojvr-neural.ini'
+    if ($null -eq $Candidate) {
+        if (Test-Path -LiteralPath $Destination) {
+            throw 'Existing cojvr-neural.ini requires explicit Neural opt-in or removal before preparing a default-off candidate.'
+        }
+        return $null
+    }
+    foreach ($Name in @('cojvr-neural.cojvr-backup.ini', 'cojvr-neural.cojvr-installing.ini')) {
+        if (Test-Path -LiteralPath (Join-Path $Directory $Name)) {
+            throw "Unrecorded Neural deployment path '$Name' already exists; refusing to overwrite it."
+        }
+    }
+    $HadOriginal = Test-Path -LiteralPath $Destination
+    if ($HadOriginal -and -not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+        throw 'Neural config destination must be a file.'
+    }
+    return [ordered]@{
+        role='neural_config'; kind='file'; destination='cojvr-neural.ini'
+        backup='cojvr-neural.cojvr-backup.ini'; temporary='cojvr-neural.cojvr-installing.ini'
+        hadOriginal=$HadOriginal
+        originalSha256=if ($HadOriginal) { Get-CojvrFileSha256 $Destination } else { $null }
+        stagedSha256=$Candidate.configSha256
+    }
+}
+
+function Install-CojvrNeuralCandidate([string]$Directory, [string]$RunDirectory,
+    [string]$RunId, $Candidate, $Asset) {
+    # The full stage journal must already own this exact asset before any write.
+    $Journal = Get-Content -LiteralPath (Join-Path $Directory '.cojvr-deployment-transaction.json') -Raw | ConvertFrom-Json
+    $Recorded = @($Journal.assets | Where-Object { $_.role -eq 'neural_config' })
+    if ($Journal.operation -ne 'stage' -or $Journal.runId -cne $RunId -or $Recorded.Count -ne 1) {
+        throw 'Neural staging requires its recorded stage transaction and fresh run identity.'
+    }
+    foreach ($Key in @('kind','destination','backup','temporary','hadOriginal','originalSha256','stagedSha256')) {
+        if ($Recorded[0].$Key -cne $Asset[$Key]) { throw 'Neural asset differs from its transaction inventory.' }
+    }
+    foreach ($Dependency in $Candidate.evidence.dependencies) {
+        if ((Get-CojvrFileSha256 $Dependency.path) -ne $Dependency.sha256) {
+            throw "Neural dependency '$($Dependency.path)' changed before staging."
+        }
+    }
+    $Source = Join-Path $RunDirectory 'cojvr-neural.ini'
+    $EvidencePath = Join-Path $RunDirectory 'neural-dependencies.json'
+    if ((Test-Path -LiteralPath $Source) -or (Test-Path -LiteralPath $EvidencePath)) {
+        throw 'Neural run evidence already exists; use a fresh run.'
+    }
+    Set-Content -LiteralPath $Source -Value $Candidate.configText -Encoding Unicode -NoNewline
+    $Candidate.evidence.runId = $RunId
+    [IO.File]::WriteAllText($EvidencePath, ($Candidate.evidence | ConvertTo-Json -Depth 8) + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false))
+    $Destination = Join-Path $Directory $Asset.destination
+    $Backup = Join-Path $Directory $Asset.backup
+    $Temporary = Join-Path $Directory $Asset.temporary
+    if ((Test-Path -LiteralPath $Backup) -or (Test-Path -LiteralPath $Temporary)) {
+        throw 'Neural backup/temporary appeared after inventory; refusing to overwrite it.'
+    }
+    if ($Asset.hadOriginal) {
+        if ((Get-CojvrFileSha256 $Destination) -ne $Asset.originalSha256) {
+            throw 'Original Neural config changed after inventory.'
+        }
+        Move-Item -LiteralPath $Destination -Destination $Backup
+        Invoke-CojvrDeploymentCheckpoint 'stage_neural_backup_created'
+    } elseif (Test-Path -LiteralPath $Destination) {
+        throw 'Unrecorded Neural config appeared after inventory.'
+    }
+    Install-CojvrVerifiedFile $Source $Destination $Temporary $Asset.stagedSha256 'stage_neural_published'
+}
+
+$NeuralCandidate = New-CojvrNeuralCandidate $NeuralHostPath $NeuralRuntimeDirectory
 
 if ([string]::IsNullOrWhiteSpace($ProxyPath)) {
     $ProxyPath = Join-Path $PSScriptRoot "..\build\win32-debug\Release\d3d9.dll"
@@ -114,6 +234,10 @@ $IsOpenVrFlatDiagnostic = $ProxyLeaf -ieq "d3d9_openvr_flat.dll"
 $IsCameraProbe = $ProxyLeaf -ieq "d3d9_camera_probe.dll"
 $IsHmdCamera = $ProxyLeaf -ieq "d3d9_hmd_camera.dll"
 $IsNativeStereo = $ProxyLeaf -ieq "d3d9_native_stereo.dll"
+if ($null -ne $NeuralCandidate -and -not $IsNativeStereo) {
+    throw 'Neural opt-in requires the native-stereo candidate.'
+}
+$NeuralConfigAsset = if ($IsNativeStereo) { New-CojvrNeuralConfigAsset $GameDirectory $NeuralCandidate } else { $null }
 $ManagePlayerArchive = $IsNativeStereo
 if ($IndependentHands -and -not $IsNativeStereo) { throw "Independent hands require the native-stereo candidate." }
 if ($ReloadWaitProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
@@ -369,6 +493,7 @@ $JournalAssets = @(
     }
 )
 $StagedExecutableHash = if ($LargeAddressAware) { $ExpectedLaaCoJHash } else { $ActualHash }
+if ($null -ne $NeuralConfigAsset) { $JournalAssets += $NeuralConfigAsset }
 if ($LargeAddressAware) {
     $JournalAssets += [ordered]@{
         role = "game_executable"; kind = "file"; destination = "CoJ.exe"; backup = "CoJ.cojvr-backup.exe"
@@ -556,6 +681,9 @@ if ($HadOriginal) {
     if ((Get-CojvrFileSha256 $Executable) -ne $StagedExecutableHash) {
         throw "CoJ.exe changed during staging; refusing to publish candidate provenance."
     }
+    if ($null -ne $NeuralCandidate) {
+        Install-CojvrNeuralCandidate $GameDirectory $RunDirectory $RunId $NeuralCandidate $NeuralConfigAsset
+    }
     @{
         schemaVersion = 2
         executableManaged = $LargeAddressAware.IsPresent
@@ -584,6 +712,8 @@ if ($HadOriginal) {
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
         frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
         independentEyeResolution = $IndependentEyeResolution
+        neuralConfigAsset = $NeuralConfigAsset
+        neuralCandidate = if ($null -ne $NeuralCandidate) { $NeuralCandidate.evidence } else { $null }
         playerArchiveManaged = [bool]$ManagePlayerArchive
         originalPlayerSha256 = if ($ManagePlayerArchive) { $OriginalPlayerHash } else { $null }
         stagedPlayerSha256 = if ($ManagePlayerArchive) { $PatchedPlayerHash } else { $null }
@@ -641,6 +771,9 @@ if ($HadOriginal) {
     }
 
     $RequireBodyValidation = $IsNativeStereo -and $ValidationProfile -eq "full"
+    if ($null -ne $NeuralConfigAsset) {
+        $Deployment += [ordered]@{role='neural_config'; destination=$NeuralConfigAsset.destination; sha256=$NeuralConfigAsset.stagedSha256}
+    }
     $RunManifest = [ordered]@{
         schemaVersion = 1
         manifestType = "cojvr-run"
@@ -651,6 +784,7 @@ if ($HadOriginal) {
         buildManifestId = [string]$BuildManifest.manifestId
         buildManifestSha256 = (Get-FileHash -LiteralPath $BuildManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
         source = $BuildManifest.source
+        neuralCandidate = if ($null -ne $NeuralCandidate) { $NeuralCandidate.evidence } else { $null }
         game = [ordered]@{
             executable = [ordered]@{
                 fileName = "CoJ.exe"

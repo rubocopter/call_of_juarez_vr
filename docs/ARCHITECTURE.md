@@ -26,6 +26,63 @@ acceptance. Source/deployment audit history and per-run checklists stay in `work
 
 ## Layering
 
+The optional `cojvr_neural_lab` library and separate x64 `tools/neural_host`
+companion adapt Penumbra DirectNR over a versioned CPU-pixel pair protocol.
+Standalone probes and an explicitly opted-in D3D9/OpenVR candidate consume it;
+it is not a Super Resolution consumer. Pair identity includes frame/pose/device/generation,
+settings revision and history epoch. Pending input remains immutable until
+completion; warmup is asynchronous and disposable, and late output is drained
+and discarded before fresh history. GPU resources are process-private. The D3D11
+fixture composes the proxy residual onto an untouched full-resolution original,
+preserving encoded-color semantics and source alpha. See the
+[laboratory instructions](../tools/neural_host/README.md) and
+[validation boundary](VALIDATION.md#standalone-neural-laboratory).
+
+The candidate presenter reads `cojvr-neural.ini` once at startup; absent/invalid
+configuration keeps Neural unavailable. A separate persisted native Options > Game
+Neural Off/On request defaults Off and does not change Super Resolution requests.
+The visible status/count reports actual startup, warmup, processing, commits and
+fallback, independently of saved intent. Graphics preferences migrate through v5
+with legacy files retaining Neural Off. F8 is no longer the operator control.
+Only fresh native stereo with valid captured HMD/physical-eye optics and current
+tracking/focus is eligible; theater, scopes and the independent bank bypass it.
+HMD and eye rotations compose in runtime coordinates and FOV stays in radians.
+Recenter, requested artificial turn, metadata gaps and source changes reset history.
+Model startup/warmup keeps original stereo. The renderer owns aspect-preserving
+proxy capture with nonblocking maps and one retained query per captured pair.
+Begin/Poll capture, inference and resolve preserve the original private colors,
+pose and value-only HUD metadata until completion or explicit discard; polling
+never restarts the work. Pending work holds the already displayed native pair
+within the existing 100ms capture-age fence; the native mailbox can drop newer
+same-context packets, releasing their producer leases. A different generation,
+mode, scope, input context or settings revision cancels publication. A completed
+residual commits only to that same displayed frame, after which comfort/overlays
+are recomposed once using its own metadata; no native source copy, haptic event
+or frame-upload event repeats. No D3D9 lease or borrowed source pointer is retained.
+Warmup output remains disposable and does not hold native presentation.
+Cancellation drains GPU work before private images/queries are reused. A late
+response is never painted onto a newer capture; repeated failures disable
+processing until an explicit Off/On retry. Device removal revokes submission rather than admitting a
+partial pair. Neural runs before native comfort/scope and mod HUD composition;
+game HUD already baked into source color remains part of the experiment.
+This retained-frame candidate is physically rejected for image cadence and
+perceived quality. Artificial turn cancels its pending work and releases the
+hold, so stick-dependent smoothness is not evidence of successful Neural pacing.
+The current code documents an experimental implementation, not an accepted
+presentation contract. A replacement must preserve fresh native delivery and
+exact source/result identity together; an old residual cannot be attached to a
+new frame merely to remove the hold.
+Preparation journals/restores the UTF-16 developer configuration and records
+external helper/model/forwarder hashes per run. They are not public package assets.
+
+The separate `CoJNeuralImageLab` executable consumes supplied RGBA crop pairs
+offline with explicit model scale and effective settings. It has no presenter or
+game hooks. Human/head selection belongs in the exact-game adapter; visible-pixel
+masks, native-density crop transport and same-source completion remain independent
+requirements. See [human targeting](research/COJ_NEURAL_HUMAN_TARGETING.md) for the
+shipped NPC query evidence and unresolved visibility boundary. A model's automatic
+skin control does not provide that game-owned mask or eliminate full-scene cost.
+
 | Layer | Owns | Must not own |
 | --- | --- | --- |
 | Shared runtime | tracking/recenter, metre-space eye data, logical actions, haptics, gesture policy | exact game addresses/classes |
@@ -418,10 +475,10 @@ and explicit save-failure feedback. Atomic replacement preserves the previous
 file when persistence fails. The held-Options presenter editor is retired.
 
 The hash-pinned native editor extends the existing `MenuOptionsGame` class and
-`OptionsGame.scr`, shared by main/pause Options, with three comfort and nine graphics
-selectors plus a status label. Graphics exposes enable, sharpness, contrast,
+`OptionsGame.scr`, shared by main/pause Options, with three comfort and ten graphics
+selectors plus save and Neural status labels. Graphics exposes enable, sharpness, contrast,
 saturation, gamma, diagonal-edge smoothing, a requested reconstruction mode,
-startup render scale and mounted peripheral comfort in English/Spanish. Native,
+startup render scale, mounted peripheral comfort and a separate Neural request in English/Spanish. Native,
 DLAA and DLSS Quality are selectable; the latter two explicitly report pending
 qualification and retained native rendering. A saved request does not enable NGX
 against unqualified game images. Numeric selectors
@@ -445,9 +502,9 @@ The three comfort preferences share `%LOCALAPPDATA%/CoJVR/CallOfJuarez/settings.
 cinematic-only editor changes preserve turning and guide choices. Native labels
 follow the game's startup locale (English/Spanish, English fallback), without a
 separate VR language selector.
-`runtime/graphics_settings` owns the nine graphics values in its separate strict
-version-4 `graphics.ini`, accepting complete version-1/version-2/version-3 files with the
-missing choices defaulted to native reconstruction, automatic scale and no mask,
+`runtime/graphics_settings` owns the ten graphics values in its separate strict
+version-5 `graphics.ini`, accepting complete version-1 through version-4 files with the
+missing choices defaulted to native reconstruction, automatic scale, no mask and Neural Off,
 with a versioned editor store and coherent live
 publication. The bridge validates all selections and both captured revisions
 before editing either owner. Each file has atomic replacement; this is not a
@@ -1499,11 +1556,11 @@ independent-eye private bank bypass it.
 
 The shared graphics owner initializes
 `%LOCALAPPDATA%/CoJVR/CallOfJuarez/graphics.ini` once per process, separately from
-cinematic `settings.ini` and launcher `resolution.json`. The strict version-4
-file requires all ten keys exactly once (complete seven-key version 1 and
-eight-key version 2 and ten-key version 3 remain readable); missing, unreadable, oversized or
+cinematic `settings.ini` and launcher `resolution.json`. The strict version-5
+file requires all eleven keys exactly once (complete seven-key version 1,
+eight-key version 2 and ten-key versions 3/4 remain readable); missing, unreadable, oversized or
 invalid files initialize processing off and log the reason. Native Options > Game
-edits and saves the nine controls, applying the spatial tuple to the next fresh
+edits and saves the ten controls, applying the spatial tuple to the next fresh
 native pair without restarting. Cancel/highlighting/default staging do not apply
 graphics changes. Disabled or enabled-neutral controls are an exact bypass without
 processor GPU resources. The optional

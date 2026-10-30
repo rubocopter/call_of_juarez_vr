@@ -28,7 +28,8 @@ class ArchiveTests(unittest.TestCase):
                 menu = parse_class(pak.read('MenuOptionsGame.class'))
                 self.assertIn(('cojvrHolsterGuidesValue', '()I'), {(m.name,m.descriptor) for m in menu.methods})
                 self.assertIn(('cojvrSyncSettings', '(IIII)V'), {(m.name,m.descriptor) for m in menu.methods})
-                self.assertIn(('cojvrSyncGraphics', '(IIIIIIIIII)V'), {(m.name,m.descriptor) for m in menu.methods})
+                self.assertIn(('cojvrSyncGraphics', '(IIIIIIIIIII)V'), {(m.name,m.descriptor) for m in menu.methods})
+                self.assertIn(('cojvrNeuralStatus', '(Ljava/lang/String;)V'), {(m.name,m.descriptor) for m in menu.methods})
                 for row in GRAPHICS:
                     self.assertIn(('cojvr' + row[1] + 'Value', '()I'), {(m.name,m.descriptor) for m in menu.methods})
                 self.assertIn(('cojvrGraphicsReady', 'Z'), {(f.name, f.descriptor) for f in menu.fields})
@@ -56,6 +57,7 @@ class ArchiveTests(unittest.TestCase):
                 self.assertEqual(original.read('untouched.bin'), patched.read('untouched.bin'))
                 self.assertIn(b'ID_VR_HOLSTER_GUIDES', patched.read('Data/Menu/scr/OptionsGame.scr'))
                 script = patched.read('Data/Menu/scr/OptionsGame.scr')
+                self.assertEqual(script.count(b'"ID_VR_NEURAL_STATUS"'), 1)
                 for row in GRAPHICS:
                     self.assertEqual(script.count(('"ID_VR_' + row[0] + '"').encode()), 1)
                 self.assertNotIn('Data/Player/Ray/Ray.msh', patched.namelist())

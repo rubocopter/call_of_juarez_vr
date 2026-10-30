@@ -42,6 +42,49 @@ if (-not (Test-Path -LiteralPath $State -PathType Leaf)) {
 }
 
 $StageState = Get-Content -LiteralPath $State -Raw | ConvertFrom-Json
+$NeuralConfig = Join-Path $GameDirectory 'cojvr-neural.ini'
+$NeuralConfigBackup = Join-Path $GameDirectory 'cojvr-neural.cojvr-backup.ini'
+$NeuralConfigTemporary = Join-Path $GameDirectory 'cojvr-neural.cojvr-installing.ini'
+$NeuralConfigAsset = $null
+if ($null -ne $StageState.neuralConfigAsset) {
+    $RecordedNeural = $StageState.neuralConfigAsset
+    # Metadata is inventory, never permission to compute arbitrary restore targets.
+    # Admit only the exact names emitted by stage, then rebuild fixed-path assets.
+    foreach ($Entry in @(
+        @('role', 'neural_config'), @('kind', 'file'),
+        @('destination', 'cojvr-neural.ini'), @('backup', 'cojvr-neural.cojvr-backup.ini'),
+        @('temporary', 'cojvr-neural.cojvr-installing.ini'))) {
+        if ([string]$RecordedNeural.($Entry[0]) -cne $Entry[1]) {
+            throw 'Neural config restore inventory contains an unsupported role, kind or path.'
+        }
+    }
+    if ($RecordedNeural.hadOriginal -isnot [bool] -or
+        [string]$RecordedNeural.stagedSha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
+        ($RecordedNeural.hadOriginal -and [string]$RecordedNeural.originalSha256 -notmatch '^[A-Fa-f0-9]{64}$') -or
+        (-not $RecordedNeural.hadOriginal -and -not [string]::IsNullOrEmpty([string]$RecordedNeural.originalSha256)) -or
+        $null -eq $StageState.neuralCandidate -or
+        [string]$StageState.neuralCandidate.manifestType -cne 'cojvr-neural-dependencies' -or
+        $StageState.neuralCandidate.schemaVersion -ne 1 -or
+        $StageState.neuralCandidate.enabled -ne $true -or
+        [string]$StageState.neuralCandidate.runId -cne [string]$StageState.runId -or
+        [string]$StageState.neuralCandidate.configSha256 -ine [string]$RecordedNeural.stagedSha256) {
+        throw 'Neural config restore inventory is missing or inconsistent with its stage metadata.'
+    }
+    if ((Get-CojvrFileSha256 $NeuralConfig) -ine [string]$RecordedNeural.stagedSha256 -or
+        (Test-Path -LiteralPath $NeuralConfigTemporary) -or
+        (-not $RecordedNeural.hadOriginal -and (Test-Path -LiteralPath $NeuralConfigBackup))) {
+        throw 'Neural config or its deployment paths changed after staging; refusing restoration.'
+    }
+    $NeuralConfigAsset = [ordered]@{
+        role='neural_config'; kind='file'; destination='cojvr-neural.ini'
+        backup='cojvr-neural.cojvr-backup.ini'; temporary='cojvr-neural.cojvr-installing.ini'
+        hadOriginal=$RecordedNeural.hadOriginal
+        originalSha256=[string]$RecordedNeural.originalSha256
+        stagedSha256=([string]$RecordedNeural.stagedSha256).ToUpperInvariant()
+    }
+} elseif ($null -ne $StageState.neuralCandidate) {
+    throw 'Neural candidate has no config restore inventory; refusing incomplete restoration.'
+}
 $ExecutableManaged = $StageState.PSObject.Properties.Name -contains "executableManaged" -and [bool]$StageState.executableManaged
 $Executable = Join-Path $GameDirectory "CoJ.exe"
 $ExecutableBackup = Join-Path $GameDirectory "CoJ.cojvr-backup.exe"
@@ -133,6 +176,7 @@ $JournalAssets = @(
         stagedSha256 = ([string]$StageState.stagedProxySha256).ToUpperInvariant()
     }
 )
+if ($null -ne $NeuralConfigAsset) { $JournalAssets += $NeuralConfigAsset }
 if ($CameraControlManaged) {
     $JournalAssets += [ordered]@{
         role = "camera_control"; kind = "file"; destination = "cojvr-camera-control.json"; backup = "cojvr-camera-control.cojvr-backup.json"
@@ -275,6 +319,19 @@ if ($OpenVrInputManaged) {
     } else {
         Write-Host "Removed the staged OpenVR input assets."
     }
+}
+
+if ($null -ne $NeuralConfigAsset) {
+    Remove-Item -LiteralPath $NeuralConfig -Force
+    Invoke-CojvrDeploymentCheckpoint 'unstage_neural_removed'
+    if ($NeuralConfigAsset.hadOriginal) {
+        Move-Item -LiteralPath $NeuralConfigBackup -Destination $NeuralConfig
+        Invoke-CojvrDeploymentCheckpoint 'unstage_neural_original_restored'
+        if ((Get-CojvrFileSha256 $NeuralConfig) -ne $NeuralConfigAsset.originalSha256) {
+            throw 'Original Neural config was not restored byte-for-byte.'
+        }
+        Write-Host 'Restored the original Neural config.'
+    } else { Write-Host 'Removed the staged Neural config.' }
 }
 
 Remove-Item -LiteralPath $State -Force

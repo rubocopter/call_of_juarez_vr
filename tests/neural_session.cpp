@@ -54,5 +54,36 @@ int wmain(int argc,wchar_t** argv)try{
         }
         s.Stop();Require(s.Output().empty(),"stop retained output");
     }
-    std::cout<<"Neural x86/x64 pair identity/edit, deadline recovery, fault and stale rejection passed\n";
+    {
+        Session s;RequireSession(s.Start(helper,{},L"delay"),s);WaitReady(s);
+        RequireSession(s.Process(Frame(),pixels,1000),s);
+        const auto begin=GetTickCount64();
+        RequireSession(s.Warmup(Frame(2),pixels),s);
+        Require(GetTickCount64()-begin<80,"warmup blocked caller");
+        Require(s.Output().empty(),"warmup exposed disposable pixels");
+        Require(!s.Warmup(Frame(3),pixels),"pending warmup deadline was restarted");
+        Require(!s.Process(Frame(3),pixels,1000),"pending warmup input overwritten");
+        auto end=GetTickCount64()+2000;while(s.Poll()==State::warming&&GetTickCount64()<end)Sleep(1);
+        Require(s.Poll()==State::ready&&s.Output().empty(),"warmup result was not discarded");
+        Require(!s.Process(Frame(3),pixels,1000),"warmup reused stale history");
+        auto next=Frame(3);next.input.epoch=2;
+        RequireSession(s.Process(next,pixels,1000),s);
+        s.Stop();Require(s.Poll()==State::stopped&&s.Output().empty(),"stop exposed output");
+        RequireSession(s.Start(helper,{},L"identity"),s);WaitReady(s);
+        RequireSession(s.Process(Frame(),pixels,1000),s);
+    }
+    {
+        Session s;RequireSession(s.Start(helper,{},L"delay"),s);WaitReady(s);
+        RequireSession(s.Process(Frame(),pixels,1000),s);
+        const auto begin=GetTickCount64();RequireSession(s.Submit(Frame(2),pixels),s);
+        Require(GetTickCount64()-begin<80,"asynchronous submit blocked caller");
+        Require(!s.Submit(Frame(3),pixels),"outstanding input overwritten");
+        auto end=GetTickCount64()+2000;while(s.Poll()==State::pending&&GetTickCount64()<end)Sleep(1);
+        Require(s.Poll()==State::ready&&s.Output()==pixels,"asynchronous matching pair missing");
+        RequireSession(s.Submit(Frame(3),pixels),s);s.Cancel();
+        end=GetTickCount64()+2000;while(s.Poll()==State::recovering&&GetTickCount64()<end)Sleep(1);
+        Require(s.Poll()==State::ready&&s.Output().empty(),"cancelled result published");
+        auto fresh=Frame(4);fresh.input.epoch=2;RequireSession(s.Process(fresh,pixels,1000),s);
+    }
+    std::cout<<"Neural x86/x64 pair identity/edit, async/cancel, warmup, deadline recovery, fault and stale rejection passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

@@ -1,4 +1,5 @@
 #include "runtime/graphics_settings.hpp"
+#include "runtime/neural_status.hpp"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -33,7 +34,7 @@ std::string Changed(std::string_view key, std::string_view value) {
 }
 bool Neutral(const GraphicsSettings& values) {
     return !values.enabled && values.sharpness == 0.0F && values.contrast == 1.0F &&
-        values.saturation == 1.0F && values.gamma == 1.0F && !values.edge_smoothing;
+        values.saturation == 1.0F && values.gamma == 1.0F && !values.edge_smoothing && !values.neural;
 }
 void Invalid(std::string_view text) {
     const auto result = ParseGraphicsSettings(text);
@@ -60,7 +61,7 @@ std::string Bytes(const std::filesystem::path& path) {
     return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 bool Same(const GraphicsSettings& a, const GraphicsSettings& b) {
-    return a.enabled == b.enabled && a.edge_smoothing == b.edge_smoothing &&
+    return a.enabled == b.enabled && a.edge_smoothing == b.edge_smoothing && a.neural == b.neural &&
         std::bit_cast<std::uint32_t>(a.sharpness) == std::bit_cast<std::uint32_t>(b.sharpness) &&
         std::bit_cast<std::uint32_t>(a.contrast) == std::bit_cast<std::uint32_t>(b.contrast) &&
         std::bit_cast<std::uint32_t>(a.saturation) == std::bit_cast<std::uint32_t>(b.saturation) &&
@@ -349,6 +350,9 @@ void CoherentPublication() {
 int main(int argc,char** argv) {
     if(argc==2) {
         const auto sample=LoadGraphicsSettings(std::filesystem::path(argv[1]));
+        auto example=Bytes(std::filesystem::path(argv[1]));std::erase(example,'\r');
+        Require(example.find("version=5\n")!=std::string::npos&&example.find("neural=false\n")!=std::string::npos,
+            "shipped example does not document the complete v5 schema with Neural off");
         Require(sample.status==GraphicsSettingsStatus::loaded,"shipped example is invalid");
         Require(!GraphicsEffectsActive(sample.values),"shipped example enables unvalidated effects");
         std::cout<<"Graphics example parses and remains disabled\n";
@@ -473,6 +477,9 @@ int main(int argc,char** argv) {
     }
     Require(checks == 556, "legacy parser/load baseline changed");
     const auto legacy_checks = checks - 1;
+    Require(ParseGraphicsSettings(Changed("version","5")+
+        "reconstruction=native\nrender_scale=0\nhorse_comfort=0\nneural=true\n").status==GraphicsSettingsStatus::loaded,
+        "complete version-5 Neural preference rejected");
     for(unsigned scale=0;scale<=4;++scale)for(unsigned horse=0;horse<=2;++horse) {
         auto text=Changed("version","3")+"reconstruction=dlaa\nrender_scale="+std::to_string(scale)+
             "\nhorse_comfort="+std::to_string(horse)+"\n";
@@ -491,7 +498,7 @@ int main(int argc,char** argv) {
         Require(ParseGraphicsSettings(reordered).values.render_scale==scale&&
             ParseGraphicsSettings(reordered).status==GraphicsSettingsStatus::loaded,"v4 parser depends on version order");
         const auto scale_file=fixtures.root/("scale-"+std::to_string(scale)+".ini");
-        Require(SaveGraphicsSettings(scale_file,v4_loaded.values).ok&&Bytes(scale_file).starts_with("version=4\n")&&
+        Require(SaveGraphicsSettings(scale_file,v4_loaded.values).ok&&Bytes(scale_file).starts_with("version=5\n")&&
             LoadGraphicsSettings(scale_file).values.render_scale==scale,"v4 scale save/reload lost selection");
         for(const auto key : {"version","enabled","sharpness","contrast","saturation","gamma","edge_smoothing",
             "reconstruction","render_scale","horse_comfort"}) {
@@ -514,7 +521,7 @@ int main(int argc,char** argv) {
         migrated.values.horse_comfort==2&&migrated.values.reconstruction==ReconstructionMode::dlss_quality&&
         Bytes(legacy_file)==legacy&&std::filesystem::last_write_time(legacy_file)==legacy_time,
         "legacy Manual migration rewrote file on load or lost unrelated fields");
-    Require(migrating.Apply(migrated.values,migrated.revision).saved&&Bytes(legacy_file).starts_with("version=4\n")&&
+    Require(migrating.Apply(migrated.values,migrated.revision).saved&&Bytes(legacy_file).starts_with("version=5\n")&&
         LoadGraphicsSettings(legacy_file).values.render_scale==0,"accepted save failed to persist migrated Auto in v4");
     auto invalid_mode=GraphicsSettings{};invalid_mode.horse_comfort=3;
     Require(!ValidGraphicsSettings(invalid_mode),"unknown horse mode admitted");
@@ -555,6 +562,68 @@ int main(int argc,char** argv) {
     Invalid(std::string(neutral)+"reconstruction=dlaa\n");
     Invalid(Changed("version","2")+"reconstruction=unknown\n");
     Invalid(Changed("version","2")+"reconstruction=DLAA\n");
+
+    Require(!GraphicsSettings{}.neural,"Neural default is not off");
+    for(const auto mode : {"native","dlaa","dlss_quality"}) {
+        for(int version=1;version<=4;++version) {
+            auto document=Changed("version",std::to_string(version));
+            if(version>=2)document+="reconstruction="+std::string(mode)+"\n";
+            if(version>=3)document+="render_scale=3\nhorse_comfort=2\n";
+            const auto file=fixtures.root/L"neural-migration.ini";
+            Write(file,document);const auto timestamp=std::filesystem::last_write_time(file);
+            GraphicsPreferenceStore store;const auto initial=store.Initialize(file);
+            Require(initial.load_status==GraphicsSettingsStatus::loaded&&!initial.values.neural,
+                "legacy graphics version implicitly enabled Neural");
+            Require(Bytes(file)==document&&std::filesystem::last_write_time(file)==timestamp,
+                "Neural migration rewrote legacy input on load");
+            auto request=initial.values;request.neural=true;
+            const auto applied=store.Apply(request,initial.revision);
+            const auto reloaded=LoadGraphicsSettings(file);
+            Require(applied.saved&&reloaded.values.neural&&Same(reloaded.values,request)&&
+                Bytes(file).starts_with("version=5\n")&&CurrentGraphicsPreferences().values.neural,
+                "Neural enable did not persist/publish independently of reconstruction/spatial request");
+            Require(!GraphicsEffectsActive(request),"Neural request activated neutral spatial filters");
+            request.neural=false;
+            Require(store.Apply(request,applied.snapshot.revision).saved&&
+                !LoadGraphicsSettings(file).values.neural,"Neural disable did not round-trip");
+            const auto valid=Bytes(file);
+            auto missing=valid;missing.erase(missing.find("neural="));Invalid(missing);
+            Invalid(valid+"neural=false\n");
+            for(const auto bad : {"True","1","yes","false # comment",""}) {
+                auto invalid=missing+"neural="+bad+"\n";Invalid(invalid);
+                Write(file,invalid);
+                Require(!SaveGraphicsSettings(file,request).ok&&Bytes(file)==invalid,
+                    "malformed Neural input was overwritten");
+            }
+            Invalid(document+"neural=true\n");
+        }
+    }
+    const auto unpublished=CurrentNeuralStatus();
+    Require(unpublished.state==NeuralState::off&&unpublished.applied_pairs==0,
+        "unpublished Neural status is not Off/zero");
+    for(const auto state : {NeuralState::off,NeuralState::unavailable,NeuralState::starting,
+        NeuralState::warming,NeuralState::processing,NeuralState::active,NeuralState::fallback,NeuralState::failed}) {
+        PublishNeuralStatus(state,UINT64_MAX);
+        const auto actual=CurrentNeuralStatus();
+        Require(actual.state==state&&actual.applied_pairs==UINT64_MAX,"Neural publication lost state/count bits");
+    }
+    PublishNeuralStatus(NeuralState::off,0);
+    std::atomic<bool> done{false},mixed{false};std::atomic<unsigned> observations{0};
+    std::array<std::thread,2> readers;
+    for(auto& reader:readers)reader=std::thread([&] {
+        do {
+            const auto actual=CurrentNeuralStatus();
+            if(!((actual.state==NeuralState::off&&actual.applied_pairs==0)||
+                (actual.state==NeuralState::active&&actual.applied_pairs==UINT64_MAX)||
+                (actual.state==NeuralState::fallback&&actual.applied_pairs==17)))mixed=true;
+            ++observations;
+        }while(!done.load());
+    });
+    std::thread writer([] {for(int i=0;i<20000;++i)PublishNeuralStatus(NeuralState::active,UINT64_MAX);});
+    for(int i=0;i<20000;++i)PublishNeuralStatus(NeuralState::fallback,17);
+    writer.join();done=true;for(auto& reader:readers)reader.join();
+    Require(!mixed&&observations>0,"Neural reader observed a torn state/count pair");
+    PublishNeuralStatus(NeuralState::off,0);
 
     Persistence();
     Store();

@@ -90,8 +90,8 @@ bool GraphicsEffectsActive(const GraphicsSettings& values) noexcept {
 
 GraphicsSettingsLoadResult ParseGraphicsSettings(std::string_view text) noexcept {
     if (text.size() > maximum_bytes || text.find('\0') != std::string_view::npos) return Invalid();
-    constexpr std::array<std::string_view, 10> keys{
-        "version", "enabled", "sharpness", "contrast", "saturation", "gamma", "edge_smoothing", "reconstruction", "render_scale", "horse_comfort"};
+    constexpr std::array<std::string_view, 11> keys{
+        "version", "enabled", "sharpness", "contrast", "saturation", "gamma", "edge_smoothing", "reconstruction", "render_scale", "horse_comfort", "neural"};
     unsigned seen = 0;
     unsigned version = 0;
     GraphicsSettings values;
@@ -113,7 +113,7 @@ GraphicsSettingsLoadResult ParseGraphicsSettings(std::string_view text) noexcept
         seen |= 1U << index;
         bool valid = false;
         switch (index) {
-        case 0: valid = value == "1" || value == "2" || value == "3" || value == "4";
+        case 0: valid = value == "1" || value == "2" || value == "3" || value == "4" || value == "5";
             if(valid)version=static_cast<unsigned>(value[0]-'0');break;
         case 1: valid = ParseBool(value, values.enabled); break;
         case 2: valid = ParseFloat(value, values.sharpness); break;
@@ -130,12 +130,13 @@ GraphicsSettingsLoadResult ParseGraphicsSettings(std::string_view text) noexcept
             if(valid)values.render_scale=static_cast<std::uint8_t>(value[0]-'0');break;
         case 9: valid=value.size()==1&&value[0]>='0'&&value[0]<='2';
             if(valid)values.horse_comfort=static_cast<std::uint8_t>(value[0]-'0');break;
+        case 10: valid=ParseBool(value,values.neural);break;
         }
         if (!valid) return Invalid();
     }
-    if (seen != (version==1?127U:version==2?255U:1023U) || !ValidGraphicsSettings(values)) return Invalid();
+    if (seen != (version==1?127U:version==2?255U:version==5?2047U:1023U) || !ValidGraphicsSettings(values)) return Invalid();
     // Interpret legacy indices only after all keys, including version, are read.
-    // Loading never persists this migration; an accepted menu save writes v4.
+    // Loading never persists this migration; an accepted menu save writes v5.
     if(version==3) {
         if(values.render_scale>4)return Invalid();
         if(values.render_scale==4)values.render_scale=0;
@@ -189,7 +190,7 @@ GraphicsSettingsSaveResult SaveGraphicsSettings(const std::filesystem::path& pat
         // Besides startup protection in the store, direct saves preserve files
         // that have become unrecognized or unreadable since initialization.
         if (const auto error = ProtectedFileError(LoadGraphicsSettings(path))) return {false, error};
-        std::string text = "version=4\nenabled=";
+        std::string text = "version=5\nenabled=";
         text += values.enabled ? "true\n" : "false\n";
         text += "sharpness="; AppendFloat(text, values.sharpness);
         text += "contrast="; AppendFloat(text, values.contrast);
@@ -202,6 +203,7 @@ GraphicsSettingsSaveResult SaveGraphicsSettings(const std::filesystem::path& pat
             values.reconstruction==ReconstructionMode::dlss_quality?"dlss_quality\n":"native\n";
         text += "render_scale=";text+=static_cast<char>('0'+values.render_scale);text+='\n';
         text += "horse_comfort=";text+=static_cast<char>('0'+values.horse_comfort);text+='\n';
+        text += "neural=";text+=values.neural?"true\n":"false\n";
 
         std::error_code error;
         if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path(), error);

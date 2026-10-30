@@ -1,12 +1,12 @@
 # Prefer Options > Game for live VR graphics controls and saved preferences.
 # Optional manual startup profile. Copy to:
 # %LOCALAPPDATA%/CoJVR/CallOfJuarez/graphics.ini
-# Set enabled=true to opt in, then restart the game.
+# Set enabled=true to opt in to spatial filters, then restart the game.
 # External file edits load at startup; accepted spatial edits apply at fresh captures.
 # Resolution choices wait for the next VR preparation/restart.
 # Menus/theater and the independent eye bank bypass image processing.
-# Missing/invalid files disable effects. Keep all ten keys, each exactly once.
-version=4
+# Missing/invalid files disable effects. Keep all eleven keys, each exactly once.
+version=5
 enabled=false
 # Local contrast sharpening [0,1]; this is an original spatial filter, not AMD CAS.
 sharpness=0.35
@@ -25,3 +25,6 @@ reconstruction=native
 render_scale=0
 # Horse peripheral dimming: 0 Off, 1 Mild, 2 Strong. Native mounted movement only.
 horse_comfort=0
+# Independent Neural appearance request; requires installed developer capability.
+# Does not enable DLAA/DLSS. The native menu reports actual state/applied pairs.
+neural=false

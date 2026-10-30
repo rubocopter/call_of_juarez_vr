@@ -5,8 +5,8 @@
 #include "NeuralTracking.h"
 #include "NeuralSettings.h"
 
-// Final-eye experimental Neural pass. Owns private images; a failure never
-// publishes a partially processed pair to the OpenXR swapchain.
+// Penumbra-derived experimental Neural pass. Owns private images; a failure
+// never publishes a partially processed pair to the standalone CoJ laboratory.
 class NeuralPass {
 public:
     using Options=NeuralOptions;

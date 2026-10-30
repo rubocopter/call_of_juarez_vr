@@ -34,6 +34,7 @@ GRAPHICS = (
     ("RECONSTRUCTION", "Reconstruction", 0, 2, 1, 0, "VR DLAA / DLSS", "DLAA / DLSS RV"),
     ("RENDER_SCALE", "RenderScale", 0, 5, 1, 0, "VR resolution (restart)", "Resolución RV (reiniciar)"),
     ("HORSE_COMFORT", "HorseComfort", 0, 2, 1, 0, "Horse comfort", "Comodidad a caballo"),
+    ("NEURAL", "Neural", 0, 1, 1, 0, "Neural", "Neural"),
 )
 PATCH_PATH = ROOT / "tools/coj_native_settings.py"
 # Identity is the real unpatched baseline for the initial RED behavioral run.
@@ -114,6 +115,7 @@ class VM:
             "ID_AUTO_RELOAD", "ID_FULL_AKIMBO", "ID_SELECT_SPEECH", "ID_SUBTITLES",
             "ID_VR_CINEMATICS", "ID_VR_TURNING", "ID_VR_HOLSTER_GUIDES")}
         self.widgets["ID_VR_STATUS"] = widget("UIStatic")
+        self.widgets["ID_VR_NEURAL_STATUS"] = widget("UIStatic")
         self.widgets.update({"ID_VR_" + row[0]: widget() for row in GRAPHICS})
         for name in missing:
             self.widgets.pop(name)
@@ -323,8 +325,8 @@ class NativeSettingsTests(unittest.TestCase):
         vm.run("cojvrSyncSettings", "(IIII)V", (cinema, turn, guides, language))
         self.graphics_sync(vm, language=language)
 
-    def graphics_sync(self, vm, values=(1, 35, 105, 110, 115, 1, 0, 0, 0), language=0):
-        vm.run("cojvrSyncGraphics", "(IIIIIIIIII)V", (*values, language))
+    def graphics_sync(self, vm, values=(1, 35, 105, 110, 115, 1, 0, 0, 0, 0), language=0):
+        vm.run("cojvrSyncGraphics", "(IIIIIIIIIII)V", (*values, language))
 
     def graphics_values(self, vm):
         return tuple(vm.run("cojvr" + row[1] + "Value", "()I") for row in GRAPHICS)
@@ -332,9 +334,38 @@ class NativeSettingsTests(unittest.TestCase):
     def test_temporal_request_reports_pending_native_rendering_in_both_languages(self):
         for language in (0, 1):
             for mode in (1, 2):
-                vm=self.vm();self.graphics_sync(vm,(0,0,100,100,100,0,mode,0,0),language)
+                vm=self.vm();self.graphics_sync(vm,(0,0,100,100,100,0,mode,0,0,0),language)
                 self.assertEqual(vm.run("cojvrReconstructionValue","()I"),mode)
                 self.assertIn("nativo activo" if language else "native rendering active", vm.widgets["ID_VR_STATUS"]["text"])
+
+    def test_neural_status_refresh_does_not_edit_intent_or_error_feedback(self):
+        for language in (0, 1):
+            vm=self.vm();self.sync(vm,language=language)
+            row=vm.widgets["ID_VR_NEURAL"]
+            row["selected"]=row["options"][1]
+            vm.run("OnOK")
+            vm.widgets["ID_VR_STATUS"]["text"]="Save failed"
+            for message in ("Neural: Processing | Applied pairs: 0", "Neural: Active | Applied pairs: 18446744073709551615", None):
+                vm.run("cojvrNeuralStatus", "(Ljava/lang/String;)V", (message,))
+                self.assertEqual(vm.widgets["ID_VR_NEURAL_STATUS"]["text"],message or "")
+                self.assertEqual(vm.widgets["ID_VR_STATUS"]["text"],"Save failed")
+                self.assertEqual(vm.run("cojvrNeuralValue","()I"),1)
+                self.assertEqual(vm.run("cojvrReconstructionValue","()I"),0)
+                self.assertEqual(vm.menu["cojvrSettingsRequest"],1)
+                self.assertNotIn("save",vm.events)
+            vm.run("cojvrNeuralStatus", "(Ljava/lang/String;)V", ("Neural: Active | Applied pairs: 12",))
+            vm.run("OnDefault")
+            self.assertEqual(vm.run("cojvrNeuralValue","()I"),0)
+            self.assertEqual(vm.widgets["ID_VR_NEURAL_STATUS"]["text"],"Neural: Active | Applied pairs: 12")
+
+    def test_neural_status_missing_or_wrong_type_is_safe(self):
+        for wrong in (False,True):
+            vm=VM(self.transformed,self.option,missing=("ID_VR_NEURAL_STATUS",))
+            if wrong:vm.widgets["ID_VR_NEURAL_STATUS"]=widget("UIWindow")
+            vm.run("OnInit");vm.run("Show");self.sync(vm)
+            vm.run("cojvrNeuralStatus","(Ljava/lang/String;)V",("Neural: Off | Applied pairs: 0",))
+            vm.run("OnOK")
+            self.assertEqual(vm.menu["cojvrSettingsRequest"],1)
 
     def test_old_sync_alone_retains_native_fallback_without_graphics_commit(self):
         vm = self.vm()
@@ -349,7 +380,7 @@ class NativeSettingsTests(unittest.TestCase):
         for language in (0, 1):
             vm = self.vm(); self.sync(vm, language=language)
             self.assertEqual(vm.menu["cojvrGraphicsReady"], 1)
-            self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0))
+            self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0, 0))
             for id_, tag, low, high, step, default, en, es in GRAPHICS:
                 row = vm.widgets["ID_VR_" + id_]
                 self.assertEqual(row["label"], es if language else en)
@@ -392,9 +423,9 @@ class NativeSettingsTests(unittest.TestCase):
                     vm = self.vm()
                     vm.run("cojvrSyncSettings", "(IIII)V", (1, 1, 1, 0))
                     args = defaults.copy(); args[index] = value
-                    vm.run("cojvrSyncGraphics", "(IIIIIIIIII)V", args)
+                    vm.run("cojvrSyncGraphics", "(IIIIIIIIIII)V", args)
                     self.assertEqual(vm.menu.get("cojvrGraphicsReady", 0), 0)
-                    self.assertEqual(self.graphics_values(vm), (-1,) * 9)
+                    self.assertEqual(self.graphics_values(vm), (-1,) * 10)
                     self.assertTrue(all(not vm.widgets["ID_VR_" + r[0]]["options"] for r in GRAPHICS))
                     vm.run("OnOK")
                     self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
@@ -434,7 +465,7 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
         self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
         self.sync(vm); vm.run("OnOK"); vm.run("OnDefault")
-        self.assertEqual(self.graphics_values(vm), (0, 0, 100, 100, 100, 0, 0, 0, 0))
+        self.assertEqual(self.graphics_values(vm), (0, 0, 100, 100, 100, 0, 0, 0, 0, 0))
         self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
         self.assertEqual(vm.menu["cojvrGraphicsReady"], 1)
         vm.run("OnCancel")
@@ -442,7 +473,7 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertNotIn("save", vm.events)
         self.assertEqual(vm.settings, settings)
         vm.run("Show"); self.sync(vm)
-        self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0))
+        self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0, 0))
 
     def test_graphics_refresh_and_separate_readiness_guard_completion(self):
         vm = self.vm(); self.sync(vm); vm.run("OnOK")
@@ -450,25 +481,25 @@ class NativeSettingsTests(unittest.TestCase):
         vm.menu["cojvrGraphicsReady"] = 0
         vm.run("cojvrCompleteSettings", "(ZLjava/lang/String;)V", (1, ""))
         self.assertNotIn("save", vm.events)
-        self.graphics_sync(vm, (0, 0, 100, 100, 100, 0, 0, 0, 0), 1)
+        self.graphics_sync(vm, (0, 0, 100, 100, 100, 0, 0, 0, 0, 0), 1)
         self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
         self.assertEqual(vm.menu["cojvrSettingsReady"], 1)
         self.assertEqual(vm.menu["cojvrGraphicsReady"], 1)
-        self.assertEqual(self.graphics_values(vm), (0, 0, 100, 100, 100, 0, 0, 0, 0))
+        self.assertEqual(self.graphics_values(vm), (0, 0, 100, 100, 100, 0, 0, 0, 0, 0))
         self.assertEqual(vm.menu["cojvrSettingsOpenSerial"], 1)
 
     def test_graphics_readiness_is_last_publication_and_both_sync_orders_work(self):
         for graphics_first in (False, True):
             vm = self.vm()
             calls = (("cojvrSyncSettings", "(IIII)V", (1, 1, 1, 0)),
-                     ("cojvrSyncGraphics", "(IIIIIIIIII)V", (1, 100, 150, 200, 200, 1, 2, 4, 2, 0)))
+                     ("cojvrSyncGraphics", "(IIIIIIIIIII)V", (1, 100, 150, 200, 200, 1, 2, 4, 2, 1, 0)))
             for name, desc, args in calls[::(-1 if graphics_first else 1)]:
                 vm.run(name, desc, args)
                 expected = "cojvrGraphicsReady" if name.endswith("Graphics") else "cojvrSettingsReady"
                 self.assertEqual(vm.field_writes[-1], (expected, 1))
             vm.run("OnOK")
             self.assertEqual(vm.menu["cojvrSettingsRequest"], 1)
-            self.assertEqual(self.graphics_values(vm), (1, 100, 150, 200, 200, 1, 2, 4, 2))
+            self.assertEqual(self.graphics_values(vm), (1, 100, 150, 200, 200, 1, 2, 4, 2, 1))
             vm.run("Show")
             self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
             self.assertEqual(vm.menu["cojvrSettingsReady"], 0)
@@ -482,7 +513,7 @@ class NativeSettingsTests(unittest.TestCase):
         vm.menu["cojvrGraphicsReady"] = 0
         self.graphics_sync(vm, (1, 36, 100, 100, 100, 1))
         self.assertEqual(vm.menu["cojvrGraphicsReady"], 0)
-        self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0))
+        self.assertEqual(self.graphics_values(vm), (1, 35, 105, 110, 115, 1, 0, 0, 0, 0))
         vm.run("OnOK")
         self.assertEqual(vm.menu["cojvrSettingsRequest"], 0)
         self.assertEqual(vm.events[-2:], ["save", ("back", 1)])
@@ -556,9 +587,9 @@ class NativeSettingsTests(unittest.TestCase):
                     ("cojvrSettingsRequest", "I"), ("cojvrSettingsOpenSerial", "I")):
             self.assertEqual(fields[key], 0x0041)  # public volatile, never static
         methods = {(m.name, m.descriptor): m.access for m in info.methods}
-        for key in (("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
+        for key in (("cojvrNeuralStatus", "(Ljava/lang/String;)V"), ("cojvrSyncSettings", "(IIII)V"), ("cojvrCinematicsValue", "()I"),
                     ("cojvrTurningValue", "()I"), ("cojvrHolsterGuidesValue", "()I"),
-                    ("cojvrSyncGraphics", "(IIIIIIIIII)V"),
+                    ("cojvrSyncGraphics", "(IIIIIIIIIII)V"),
                     ("cojvrCompleteSettings", "(ZLjava/lang/String;)V")) + tuple(
                         ("cojvr" + row[1] + "Value", "()I") for row in GRAPHICS):
             self.assertEqual(methods[key], 1)
@@ -822,8 +853,9 @@ class NativeSettingsTests(unittest.TestCase):
         for prop in (b"CanFocus(0)", b"Mouse(0)", b"Keyboard(0)", b"Joy(0)", b'Font("MenuSmall")', b"FontScale(0.5)"):
             self.assertIn(prop, out[a:b])
         self.assertNotIn(b"ForceTextLowerCase", out[a:b])
-        a, b = patch._block(restored, b"Static", b"ID_VR_STATUS")
-        restored = restored[:a] + restored[b:]
+        for id_ in (b"ID_VR_STATUS", b"ID_VR_NEURAL_STATUS"):
+            a, b = patch._block(restored, b"Static", id_)
+            restored = restored[:a] + restored[b:]
         a, b = patch._block(restored, b"Window", b"ID_LIST_FRAME")
         c, d = patch._block(self.script, b"Window", b"ID_LIST_FRAME")
         restored = restored[:a] + self.script[c:d] + restored[b:]
@@ -831,7 +863,7 @@ class NativeSettingsTests(unittest.TestCase):
         self.assertEqual(re.sub(rb"\s+", b" ", restored), re.sub(rb"\s+", b" ", self.script))
         self.assertEqual(out.count(b"{"), out.count(b"}"))
 
-    def test_sixteen_whole_rows_labels_and_click_extents_fit_without_overlap(self):
+    def test_seventeen_whole_rows_labels_and_click_extents_fit_without_overlap(self):
         out = patch.patch_menu_script(self.script)
         def pair(block, prop):
             return tuple(map(float, re.search(prop + rb"\(([^,]+),([^)]*)\)", block).groups()))
@@ -845,8 +877,8 @@ class NativeSettingsTests(unittest.TestCase):
             x, y = pair(row, b"LogicPos"); w, h = pair(row, b"LogicSize")
             rect = (.0225 + .51*x, .13833334 + .73333335*y, w, h)
             self.assertAlmostEqual(rect[0], .045)
-            self.assertAlmostEqual(rect[1], .15 + .041*index)
-            self.assertEqual((w, h), (.465, .038))
+            self.assertAlmostEqual(rect[1], .15 + .037*index)
+            self.assertEqual((w, h), (.465, .034))
             self.assertLessEqual(rect[0]+w, .535)
             if rectangles:
                 self.assertGreaterEqual(rect[1] - rectangles[-1][1] - rectangles[-1][3], .0029999)
@@ -873,7 +905,14 @@ class NativeSettingsTests(unittest.TestCase):
         a, b = patch._block(out, b"Static", b"ID_VR_STATUS")
         _, y = pair(out[a:b], b"LogicPos"); _, h = pair(out[a:b], b"LogicSize")
         status_top = .13833334 + .73333335*y
-        self.assertAlmostEqual(status_top, .805)
+        self.assertAlmostEqual(status_top, .815)
+        a, b = patch._block(out, b"Static", b"ID_VR_NEURAL_STATUS")
+        _, neural_y = pair(out[a:b], b"LogicPos"); _, neural_h = pair(out[a:b], b"LogicSize")
+        neural_top=.13833334+.73333335*neural_y
+        self.assertAlmostEqual(neural_top,.778)
+        self.assertGreater(neural_top,rectangles[-1][1]+rectangles[-1][3])
+        self.assertLess(neural_top+neural_h,status_top)
+        self.assertEqual(len(rectangles),17)
         self.assertGreater(status_top, rectangles[-1][1]+rectangles[-1][3])
         a, b = patch._block(out, b"Window", b"ID_LIST_FRAME")
         _, frame_y = pair(out[a:b], b"LogicPos"); _, frame_h = pair(out[a:b], b"LogicSize")

@@ -15,6 +15,9 @@ Fresh in-game observations and physical acceptance remain pending. See
 
 ## Acceptance snapshot — 27 October 2026
 
+Standalone DirectNR laboratory state is recorded under
+[Neural laboratory](#standalone-neural-laboratory). It adds no game/headset verdict.
+
 The latest Steam operator session confirms visible campfires and encountered
 world effects, and accepts the corrected horse peripheral effect in the exercised
 PS VR2 context. Mounted steering remains difficult; the operator reports better
@@ -176,6 +179,102 @@ publication does not promote unresolved physical gates. Archived
 `v0.1.0-prealpha.5` artifacts and their historical verdicts are unchanged.
 Every subsequent physical candidate needs its own combined Release build/CTest
 and evidence; interpretation/JVM checks do not substitute for an actual run.
+
+## Standalone Neural laboratory
+
+The separate `tools/neural_host` companion and Win32 D3D11 probes are implemented
+and host-tested. Synthetic fixtures cover two-eye byte identity/known edit,
+residual preservation of fine source detail/alpha, encoded UNORM and sRGB inputs,
+request/pose/device/generation/revision/history validation, repeated-frame rejection,
+asynchronous warmup discard, timeout recovery with fresh history, stale responses,
+child failure and session restart. Explicit local-model runs complete DirectNR
+inference on synthetic pairs with distinct eye outputs and a nonzero RGB edit,
+while retaining source pixels and source alpha. No diagnostic mode substitutes
+for a missing/failed model in those runs.
+
+Standalone real-model evidence uses a 256px transport stage and inherited 25% scale;
+the 64px diagnostic stage caused device removal in an attempted model run. It is
+not a qualified model input. Warmup is polled separately from ordinary frame waits;
+both warmup and late-frame output are discarded before a fresh history is used.
+CPU readbacks and lab deadlines do not qualify render-thread pacing. These tests
+do not establish sustained inference, representative-size performance, atlas seam
+or binocular quality, real scene/HUD behavior, game integration or headset comfort.
+An opted-in D3D9/OpenVR presenter candidate now consumes this path. Host GPU
+fixtures additionally check BGRA/BGRX/RGBA, sRGB, aspect preservation, graphics
+state restoration, invalid-second-eye pair preservation and candidate dimensions.
+A synthetic native-size 2804x2860 presenter probe with aspect-preserving
+376x384 transport and inherited 25% model scale delivers repeated current-frame
+real-model pairs and exercises the off toggle. This establishes host integration,
+not live game application, visual quality or headset comfort. Query/readback and
+inference add measured cost; there is no demonstrated FPS benefit.
+Ordinary preparation without the developer opt-in keeps Neural off. Physical
+qualification must compare menu Neural On/Off at the same scene, inspect both eyes,
+near hands/weapons, text/HUD, motion and comfort, and verify native fallback across
+pause/loading/dashboard/recenter and off/on. Preserve scoped ordinary stereo
+acceptance. Shader/model completion and nonzero RGB edits do not qualify quality.
+
+The first operator candidate produced no visible F8 difference. Collected game
+telemetry confirms receipt of On/Off toggles but no applied Neural sample; companion
+logs end with zero processed frames. The observed game path stays at
+`capture_pending` before model warmup. This rejects functional application for
+that candidate, not the model's visual quality. The same-frame proxy readback
+that passed idle host fixtures did not complete within its bounded capture window
+under game load. This motivated retained matching-frame transport and explicit
+actual-state feedback. Increasing an arbitrary timeout does not establish a
+correct low-latency pipeline; sustained game GPU latency remains unmeasured.
+Native/DLAA/DLSS Quality selection does not enable or tune this Neural path;
+Native remains the appropriate unchanged reconstruction setting for its tests.
+
+The corrected candidate retains one private color/proxy/query and value-only
+frame/pose/HUD packet through asynchronous capture, model submission and resolve.
+Host fixtures exercise readiness spanning more than the rejected 2ms window,
+immutable source images, cancel/drain, replacement identities and graphics-state
+restoration. Native-size model fixtures complete multiple retained pairs with
+their original metadata. The native menu now stores a distinct default-Off Neural
+request (graphics v5) and displays actual state and committed-pair count. These
+changes are host evidence only; they do not supersede the first live failure.
+Physical acceptance must establish actual application and judge the added image
+hold/cadence, motion comfort, binocular quality, original-image fallback and
+off/on/scene/tracking/settings transitions. A nonzero count alone is insufficient.
+
+The corrected candidate has now been exercised in the headset. Presenter telemetry
+confirms committed Neural pairs and companion logs confirm real-model inference;
+functional application supersedes the earlier zero-inference result for this
+candidate only. The operator reports poor performance, image stutter and no
+appreciable improvement in nearby faces or the environment. Quality and pacing
+are rejected. Holding the camera stick reduced the perceived stutter. Source
+inspection establishes that artificial turn invalidates pending Neural work,
+releasing the native-frame hold; this explains the reported direction of the
+change without qualifying unrelated turning behavior.
+
+The recorded model input passes through an aspect-preserving proxy and a second
+25% model scale. Residual composition preserves the native image but cannot
+establish restored fine detail from that low-resolution model input. Counters and
+synthetic RGB edits remain functional evidence only. Keep Neural Off for ordinary
+play. Before another physical quality candidate, demonstrate useful changes on
+representative scene inputs and a presentation design that preserves delivery of
+fresh native images without applying an old result to a different frame.
+
+The subsequent human-focused work remains isolated laboratory evidence.
+`CoJNeuralImageLab` validates paired RGBA files, explicit scale/settings, source
+alpha, missing-runtime failure and diagnostic separation. Real-model runs on
+original-asset head previews establish output and offline cost only. Those
+previews lack native scene shading/eye material/animation and duplicate mono
+inputs; they cannot qualify human or binocular quality. An independent synthetic
+supplied-mask crop/patch fixture preserves source texels, alpha and occluded/
+outside pixels, and rejects late results while native frame identities continue
+to advance. It has no model, NPC detector or live transport. These results do not
+reopen the rejected retained-frame candidate or establish a human-only game path.
+
+A later operator-positioned flat game window provides a real near-face source
+with native scene lighting. Its manually selected source-density crop has been
+processed by the real model at inherited and intensity-matched style settings.
+The resulting still images show skin/detail/contrast changes; useful appearance
+remains subject to operator judgment. The window capture is JPEG, includes a
+baked crosshair over the face and duplicates mono input for the pair laboratory.
+It supplies no native-buffer, moving-character, binocular, visibility-mask,
+runtime-integration or game-performance qualification. No new headset candidate
+follows from that static comparison alone.
 
 ## Public prerelease policy
 

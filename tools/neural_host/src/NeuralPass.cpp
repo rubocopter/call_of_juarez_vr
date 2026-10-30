@@ -9,8 +9,19 @@
 #include "../vendor/nr-bridge/nr_direct.h"
 
 void BridgeLog(const char* fmt,...) {
-    fprintf(stderr,"[CoJ Neural %llu] ",GetTickCount64());
-    va_list a;va_start(a,fmt);vfprintf(stderr,fmt,a);va_end(a);fputc('\n',stderr);
+    // CREATE_NO_WINDOW companions have no inherited stderr. Keep diagnostics
+    // beside this developer helper, with one file per process (never game data).
+    wchar_t path[32768]{};
+    const auto length=GetModuleFileNameW(nullptr,path,32768);
+    FILE* log=nullptr;
+    if(length && length<32768){
+        const auto name=std::filesystem::path(path).parent_path()/
+            (L"neural-"+std::to_wstring(GetCurrentProcessId())+L".log");
+        _wfopen_s(&log,name.c_str(),L"a");
+    }
+    if(!log)return;
+    fprintf(log,"[CoJ Neural %llu] ",GetTickCount64());
+    va_list a;va_start(a,fmt);vfprintf(log,fmt,a);va_end(a);fputc('\n',log);fclose(log);
 }
 struct NeuralPass::State {
     DirectNR processor;

@@ -68,20 +68,36 @@ State Session::Poll(){
             if(p.header->signature!=magic||p.header->protocol!=version||p.header->process_bits!=64||p.header->result!=0)p.Fail("Neural startup rejected");
             else p.state=State::ready;
         }else if(GetTickCount64()-p.started>10000)p.Fail("Neural startup deadline exceeded");
-    }else if(p.state==State::recovering){
+    }else if(p.state==State::recovering||p.state==State::warming||p.state==State::pending){
+        const bool warming=p.state==State::warming;
+        const bool publish=p.state==State::pending;
         if(WaitForSingleObject(p.complete.value,0)==WAIT_OBJECT_0){
             if(!p.Match())p.Fail("Neural late completion identity rejected");
-            else {p.state=State::ready;p.output.clear();p.reset_required=true;}
-        }else if(GetTickCount64()-p.started>2000)p.Fail("Neural worker stalled after deadline");
+            else {
+                if(publish)p.output.assign(output_pixels(p.header),output_pixels(p.header)+eye_bytes(p.sent.width,p.sent.height)*2);
+                else {p.output.clear();p.reset_required=true;}
+                p.state=State::ready;p.error.clear();
+            }
+        }else if(GetTickCount64()-p.started>(warming?60000ULL:2000ULL))p.Fail(warming?
+            "Neural model warmup deadline exceeded":"Neural worker stalled after deadline");
     }
     return p.state;
 }
-bool Session::Process(const Header& frame,std::span<const std::uint8_t> pair,std::uint32_t timeout_ms){
+bool Session::Warmup(const Header& frame,std::span<const std::uint8_t> pair){
+    if(impl_->state!=State::ready)return false;
+    if(!Submit(frame,pair))return false;
+    impl_->state=State::warming;impl_->error.clear();return true;
+}
+void Session::Cancel() noexcept{
+    impl_->output.clear();impl_->reset_required=true;
+    if(impl_->state==State::pending)impl_->state=State::recovering;
+}
+bool Session::Submit(const Header& frame,std::span<const std::uint8_t> pair){
     auto& p=*impl_;p.output.clear();
-    const bool was_recovering=p.state==State::recovering;
-    if(Poll()!=State::ready||was_recovering)return false;
+    const bool was_pending=p.state==State::recovering||p.state==State::warming||p.state==State::pending;
+    if(Poll()!=State::ready||was_pending)return false;
     Header next=frame;next.request=p.sequence+1;next.completed=0;next.result=0;next.process_bits=0;next.output={};
-    if(!Valid(next)||pair.size()!=eye_bytes(next.width,next.height)*2||timeout_ms>5000||
+    if(!Valid(next)||pair.size()!=eye_bytes(next.width,next.height)*2||
        p.sequence==std::numeric_limits<std::uint64_t>::max()) {p.error="Neural input rejected";return false;}
     if(p.have_previous&&next.input.device==p.previous.device&&next.input.generation==p.previous.generation&&
        (next.input.frame<=p.previous.frame||next.input.pose<=p.previous.pose)) {p.error="Neural repeated/stale frame rejected";return false;}
@@ -96,12 +112,18 @@ bool Session::Process(const Header& frame,std::span<const std::uint8_t> pair,std
         p.error="Neural discontinuity requires fresh history epoch";return false;
     }
     if(!ResetEvent(p.complete.value))return p.Fail("Neural completion reset failed");
-    *p.header=next;std::memcpy(input_pixels(p.header),pair.data(),pair.size());p.sent=next;
+    p.error.clear();*p.header=next;std::memcpy(input_pixels(p.header),pair.data(),pair.size());p.sent=next;
     p.sequence=next.request;p.previous=next.input;p.have_previous=true;p.reset_required=false;p.started=GetTickCount64();p.state=State::pending;
     if(!SetEvent(p.request.value))return p.Fail("Neural request signal failed");
+    return true;
+}
+bool Session::Process(const Header& frame,std::span<const std::uint8_t> pair,std::uint32_t timeout_ms){
+    if(timeout_ms>5000){impl_->output.clear();impl_->error="Neural input rejected";return false;}
+    if(!Submit(frame,pair))return false;
+    auto& p=*impl_;
     HANDLE waits[]{p.complete.value,p.child.value};
     const auto result=WaitForMultipleObjects(2,waits,FALSE,timeout_ms);
-    if(result==WAIT_TIMEOUT){p.state=State::recovering;return false;}
+    if(result==WAIT_TIMEOUT){p.error="Neural frame deadline exceeded; awaiting late completion";p.state=State::recovering;return false;}
     if(result!=WAIT_OBJECT_0||!p.Match())return p.Fail("Neural completion identity/worker rejected");
     p.output.assign(output_pixels(p.header),output_pixels(p.header)+pair.size());p.state=State::ready;return true;
 }

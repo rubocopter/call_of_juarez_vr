@@ -13,6 +13,13 @@ class Startup(unittest.TestCase):
                 before=path.read_bytes();stamp=path.stat().st_mtime_ns
                 self.assertEqual(self.run_profile(path).stdout.strip(),profile)
                 self.assertEqual((path.read_bytes(),path.stat().st_mtime_ns),(before,stamp))
+                for neural in ('false','true'):
+                    path.write_text(base.replace('version=4','version=5')+
+                        f'render_scale={index}\nhorse_comfort=0\nneural={neural}\n',encoding='ascii')
+                    before=path.read_bytes();stamp=path.stat().st_mtime_ns
+                    result=self.run_profile(path)
+                    self.assertEqual((result.returncode,result.stdout.strip()),(0,profile))
+                    self.assertEqual((path.read_bytes(),path.stat().st_mtime_ns),(before,stamp))
             for index,profile in enumerate(('Auto','75%','100%','125%','Auto')):
                 path.write_text(base.replace('version=4','version=3')+f'render_scale={index}\nhorse_comfort=0\n',encoding='ascii')
                 before=path.read_bytes()

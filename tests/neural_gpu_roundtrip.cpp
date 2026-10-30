@@ -91,6 +91,9 @@ int wmain(int argc,wchar_t** argv)try{
     Gpu gpu;
     for(bool srgb:{false,true})for(const auto* mode:{L"identity",L"edit",L"model"}){
         const bool model=std::wstring(mode)==L"model";if(model&&argc<3)continue;
+        // Penumbra's real-model fixture uses a 256px transport stage. Keep the
+        // 64px diagnostic proxy for tests that deliberately exercise upsampling.
+        const unsigned stage_size=model?256:proxy_size;
         Session session;const bool started=session.Start(argv[1],model?std::filesystem::path(argv[2]):std::filesystem::path{},mode);CheckSession(started,session);
         auto end=GetTickCount64()+12000;while(session.Poll()==State::starting&&GetTickCount64()<end)Sleep(1);
         CheckSession(session.Poll()==State::ready,session);
@@ -98,23 +101,36 @@ int wmain(int argc,wchar_t** argv)try{
         std::array<Pixels,2> sources,proxy_pixels;
         Pixels pair;
         for(unsigned eye=0;eye<2;++eye){sources[eye]=Source(eye);originals[eye]=gpu.Texture(full_size,&sources[eye],srgb);
-            proxies[eye]=gpu.Run(originals[eye].Get(),nullptr,nullptr,proxy_size,srgb);proxy_pixels[eye]=gpu.Read(proxies[eye].Get());pair.insert(pair.end(),proxy_pixels[eye].begin(),proxy_pixels[eye].end());}
-        Header h;h.width=h.height=proxy_size;h.request=1;h.input={1,1,1,1,1,1};
-        // The first real-model evaluation may create/warm model features. Its
-        // explicit lab budget is 5s; timeout does not publish old output.
+            proxies[eye]=gpu.Run(originals[eye].Get(),nullptr,nullptr,stage_size,srgb);proxy_pixels[eye]=gpu.Read(proxies[eye].Get());pair.insert(pair.end(),proxy_pixels[eye].begin(),proxy_pixels[eye].end());}
+        Header h;h.width=h.height=stage_size;h.request=1;h.input={1,1,1,1,1,1};
+        // Model creation is asynchronous and its disposable output is discarded.
+        // Polling here belongs only to this explicit lab; the game is not linked.
+        if(model){
+            CheckSession(session.Warmup(h,pair),session);
+            end=GetTickCount64()+61000;
+            while(session.Poll()==State::warming&&GetTickCount64()<end)Sleep(10);
+            CheckSession(session.Poll()==State::ready,session);
+            Check(session.Output().empty(),"warmup exposed old pixels");
+            h.input={2,2,1,1,1,2};
+        }
         const auto begin=GetTickCount64();
         CheckSession(session.Process(h,pair,5000),session);
-        for(unsigned eye=0;eye<2;++eye){const auto offset=eye*eye_bytes(proxy_size,proxy_size);
+        for(unsigned eye=0;eye<2;++eye){const auto offset=eye*eye_bytes(stage_size,stage_size);
             Pixels processed(session.Output().begin()+offset,session.Output().begin()+offset+proxy_pixels[eye].size());
-            auto output=gpu.Texture(proxy_size,&processed);resolved[eye]=gpu.Run(originals[eye].Get(),proxies[eye].Get(),output.Get(),full_size,srgb);}
-        for(unsigned eye=0;eye<2;++eye){const auto actual=gpu.Read(resolved[eye].Get());
+            auto output=gpu.Texture(stage_size,&processed);resolved[eye]=gpu.Run(originals[eye].Get(),proxies[eye].Get(),output.Get(),full_size,srgb);}
+        std::array<Pixels,2> results;
+        std::size_t changed_rgb=0;
+        for(unsigned eye=0;eye<2;++eye){results[eye]=gpu.Read(resolved[eye].Get());const auto& actual=results[eye];
             for(std::size_t i=0;i<actual.size();++i){
                 if(i%4==3)Check(actual[i]==sources[eye][i],"source alpha changed");
                 else if(!model){const int expected=int(sources[eye][i])+(std::wstring(mode)==L"edit"?16:0);
                     Check(std::abs(int(actual[i])-expected)<=1,"residual lost detail, color space or eye identity");}
+                if(i%4!=3&&actual[i]!=sources[eye][i])++changed_rgb;
             }
             Check(gpu.Read(originals[eye].Get())==sources[eye],"native source was modified");
         }
-        std::wcout<<L"Neural D3D11 x86/x64 "<<mode<<L";sRGB="<<srgb<<L";full=256;proxy=64;pair/alpha/original preserved;lab_wall_ms="<<GetTickCount64()-begin<<L'\n';
+        Check(results[0]!=results[1],"stereo output collapsed to one eye");
+        if(model)Check(changed_rgb!=0,"real model produced no observable edit in the fixture");
+        std::wcout<<L"Neural D3D11 x86/x64 "<<mode<<L";sRGB="<<srgb<<L";full=256;proxy="<<stage_size<<L";pair/alpha/original preserved;changed_rgb="<<changed_rgb<<L";lab_wall_ms="<<GetTickCount64()-begin<<L'\n';
     }
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

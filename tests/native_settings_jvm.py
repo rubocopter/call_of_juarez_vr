@@ -44,7 +44,7 @@ def verifier_class():
     c.emit(0x4c, 0x2b)  # retain verified Class for exact bridge reflection
     c.ref(0xb6, methods)
     c.emit(0x57)
-    for method_name, count in (("cojvrSyncSettings", 4), ("cojvrSyncGraphics", 10),
+    for method_name, count in (("cojvrSyncSettings", 4), ("cojvrSyncGraphics", 11),
                                ("cojvrHolsterGuidesValue", 0), *(
                                    ("cojvr" + row[1] + "Value", 0) for row in GRAPHICS)):
         c.emit(0x2b); c.ref(0x13, add(b'\x08' + u2(utf(method_name))))
@@ -52,6 +52,11 @@ def verifier_class():
         for index in range(count):
             c.emit(0x59, 0x10, index); c.ref(0xb2, integer_type); c.emit(0x53)
         c.ref(0xb6, get_method); c.emit(0x57)
+    c.emit(0x2b); c.ref(0x13, add(b'\x08' + u2(utf('cojvrNeuralStatus'))))
+    c.emit(0x04); c.ref(0xbd, class_type)
+    c.emit(0x59, 0x03); c.ref(0x13, add(b'\x08' + u2(utf('java.lang.String'))))
+    c.emit(0x03); c.ref(0xb8, loader); c.ref(0xb8, for_name); c.emit(0x53)
+    c.ref(0xb6, get_method); c.emit(0x57)
     get_field = method('java/lang/Class', 'getField', '(Ljava/lang/String;)Ljava/lang/reflect/Field;')
     c.emit(0x2b); c.ref(0x13, add(b'\x08' + u2(utf('cojvrGraphicsReady'))))
     c.ref(0xb6, get_field); c.emit(0x57)
@@ -61,7 +66,7 @@ def verifier_class():
         c.ref(0xb8, for_name); c.ref(0xb6, methods); c.emit(0x57)
     c.emit(0xb1)
     code = c.finish()
-    body = u2(6) + u2(2) + u4(len(code)) + code + u2(0) + u2(0)
+    body = u2(8) + u2(2) + u4(len(code)) + code + u2(0) + u2(0)
     return (bytes.fromhex('cafebabe0000002e') + u2(len(pool)+1) + b''.join(pool) +
             u2(0x21) + u2(this) + u2(parent) + u2(0) + u2(0) + u2(1) +
             u2(9) + u2(main) + u2(desc) + u2(1) + u2(attr) + u4(len(body)) + body + u2(0))
@@ -87,6 +92,8 @@ class JvmTests(unittest.TestCase):
             # Prove that the JVM verified old AND new helper bodies, not metadata.
             for target, name, desc in (
                     (MENU_CLASS_NAME,'cojvrSettingsRow', '(LUIOptionsControlSelect;' + 'Ljava/lang/String;'*4 + 'I)V'),
+                    (MENU_CLASS_NAME,'cojvrNeuralStatus', '(Ljava/lang/String;)V'),
+                    (MENU_CLASS_NAME,'cojvrSyncGraphics', '(IIIIIIIIIII)V'),
                     (MENU_CLASS_NAME,'cojvrSharpnessRow', '(LUIOptionsControlSelect;Ljava/lang/String;Ljava/lang/String;I)V'),
                     ('LawmanModuleSingle.class','TakeScreenshotsOnLevelBreak','()V'),
                     ('MenuBackgroundModule.class','ShowScreenInGame','()V'),

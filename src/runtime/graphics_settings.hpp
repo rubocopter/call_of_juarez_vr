@@ -19,6 +19,8 @@ struct GraphicsSettings {
     // Percentages scale pixel count relative to the current HMD recommendation.
     std::uint8_t render_scale = 0;
     std::uint8_t horse_comfort = 0; // Off / mild / strong peripheral dimming.
+    // Independent requested Neural appearance processing; never actual status.
+    bool neural = false;
 };
 [[nodiscard]] bool ValidGraphicsSettings(const GraphicsSettings& values) noexcept;
 // Enabled neutral settings bypass processing; invalid settings always bypass it.
@@ -32,7 +34,8 @@ struct GraphicsSettingsLoadResult {
 [[nodiscard]] std::filesystem::path DefaultGraphicsSettingsPath() noexcept;
 // Read-only, independent of cinematic settings. Failure returns neutral values.
 [[nodiscard]] GraphicsSettingsLoadResult LoadGraphicsSettings(const std::filesystem::path& file) noexcept;
-// At most 8192 bytes. V1 seven keys; v2 reconstruction; v3/v4 scale/horse comfort.
+// At most 8192 bytes. V1 seven keys; v2 reconstruction; v3/v4 scale/horse comfort;
+// v5 adds the independent Neural request. V1-v4 migrate with Neural off.
 // V3 Manual index 4 migrates to Auto; v4 adds pixel scales 150%/200% at 4/5.
 // Decimal/scientific floats, lowercase booleans, space/tab padding and LF/CRLF;
 // # and ; introduce whole-line comments only. Invalid data has a nonzero error.
@@ -42,7 +45,7 @@ struct GraphicsSettingsSaveResult {
     bool ok = false;
     std::uint32_t error_code = 0;
 };
-// Atomic version-4 replacement; old input migrates, malformed files remain protected.
+// Atomic version-5 replacement; old input migrates, malformed files remain protected.
 [[nodiscard]] GraphicsSettingsSaveResult SaveGraphicsSettings(
     const std::filesystem::path& file, GraphicsSettings values) noexcept;
 

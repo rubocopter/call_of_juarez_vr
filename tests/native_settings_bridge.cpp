@@ -5,6 +5,7 @@
 #include <string>
 
 #include "games/call_of_juarez/native_settings_bridge.hpp"
+#include "runtime/neural_status.hpp"
 using namespace cojvr::runtime;
 using namespace cojvr::games::call_of_juarez;
 namespace {
@@ -14,13 +15,13 @@ void Check(bool value,const char* message) {
 struct Page { bool exact=true,visible=true,ready=false;std::int32_t id=0x81234567,
     serial=1,request=0,cinematics=0,turning=0,guides=0;
     bool graphics_ready=false;
-    std::int32_t enabled=0,sharpness=0,contrast=100,saturation=100,gamma=100,smoothing=0,reconstruction=0,render_scale=0,horse_comfort=0;
-    int syncs=0,graphics_syncs=0,completions=0;std::string status; } page;
+    std::int32_t enabled=0,sharpness=0,contrast=100,saturation=100,gamma=100,smoothing=0,reconstruction=0,render_scale=0,horse_comfort=0,neural=0;
+    int syncs=0,graphics_syncs=0,completions=0,status_syncs=0;std::string status,neural_status; } page;
 struct Object { int references=0; } klass,other_class,exception,text;
 bool pending=false,missing_marker=false,fail_complete=false;
-int writes=0,callbacks=0;
+int writes=0,callbacks=0;std::string java_text;
 enum Id { visible=1,identity,ready,serial,request,sync,cinematics,turning,guides,complete,
-    graphics_ready,graphics_sync,enabled,sharpness,contrast,saturation,gamma,smoothing,reconstruction,render_scale,horse_comfort };
+    graphics_ready,graphics_sync,enabled,sharpness,contrast,saturation,gamma,smoothing,reconstruction,render_scale,horse_comfort,neural,neural_status };
 void* Token(int id){return reinterpret_cast<void*>(static_cast<std::uintptr_t>(id));}
 int Number(void* id){return static_cast<int>(reinterpret_cast<std::uintptr_t>(id));}
 void* __stdcall Find(void*,const char* name){Check(std::string(name)=="MenuOptionsGame","unexpected class lookup");++klass.references;return &klass;}
@@ -43,7 +44,9 @@ void* __stdcall Method(void*,void*,const char* name,const char* descriptor) {
     if(n=="IsActuallyVisible")return Token(visible);
     if(n=="GetThisID")return Token(identity);
     if(n=="cojvrSyncSettings"){Check(std::string(descriptor)=="(IIII)V","sync JNI descriptor mismatch");return Token(sync);}
-    if(n=="cojvrSyncGraphics"){Check(std::string(descriptor)=="(IIIIIIIIII)V","graphics sync JNI descriptor mismatch");return Token(graphics_sync);}
+    if(n=="cojvrSyncGraphics"){Check(std::string(descriptor)=="(IIIIIIIIIII)V","graphics sync JNI descriptor mismatch");return Token(graphics_sync);}
+    if(n=="cojvrNeuralStatus"){Check(std::string(descriptor)=="(Ljava/lang/String;)V","Neural status JNI descriptor mismatch");return Token(neural_status);}
+    if(n=="cojvrNeuralValue")return Token(neural);
     if(n=="cojvrGraphicsEnabledValue")return Token(enabled);
     if(n=="cojvrSharpnessValue")return Token(sharpness);
     if(n=="cojvrContrastValue")return Token(contrast);
@@ -74,6 +77,7 @@ std::int32_t __stdcall Int(void*,void*,void* method,const void*) {
     if(Number(method)==reconstruction)return page.reconstruction;
     if(Number(method)==render_scale)return page.render_scale;
     if(Number(method)==horse_comfort)return page.horse_comfort;
+    if(Number(method)==neural)return page.neural;
     Check(Number(method)==turning,"unexpected int method");return page.turning;
 }
 std::int32_t __stdcall ReadInt(void*,void*,void* field){return Number(field)==serial?page.serial:page.request;}
@@ -84,7 +88,7 @@ void __stdcall WriteBool(void*,void*,void* field,std::uint8_t value){
     Check(Number(field)==ready||Number(field)==graphics_ready,"unexpected boolean write");
     if(Number(field)==ready)page.ready=value!=0;else page.graphics_ready=value!=0;
 }
-void* __stdcall String(void*,const char* value){page.status=value;++text.references;return &text;}
+void* __stdcall String(void*,const char* value){java_text=value;++text.references;return &text;}
 void __stdcall Void(void*,void*,void* method,const NativeSettingsJValue* values){
     ++callbacks;
     if(Number(method)==sync){
@@ -97,10 +101,12 @@ void __stdcall Void(void*,void*,void* method,const NativeSettingsJValue* values)
         page.saturation=values[3].i;page.gamma=values[4].i;page.smoothing=values[5].i;
         page.reconstruction=values[6].i;
         page.render_scale=values[7].i;page.horse_comfort=values[8].i;
-        Check(values[9].i==0||values[9].i==1,"invalid graphics language");
+        page.neural=values[9].i;
+        Check(values[10].i==0||values[10].i==1,"invalid graphics language");
         page.graphics_ready=true;++page.graphics_syncs;return;
     }
-    Check(Number(method)==complete,"unexpected callback");
+    if(Number(method)==neural_status){page.neural_status=java_text;++page.status_syncs;return;}
+    Check(Number(method)==complete,"unexpected callback");page.status=java_text;
     if(values[0].z)Check(page.request==2,"request was not consumed before accepted callback");
     page.request=0;
     if(fail_complete){pending=true;return;}
@@ -126,17 +132,37 @@ int main(){
     const auto graphics_path=root/L"graphics.ini";(void)graphics.Initialize(graphics_path);
     NativeSettingsBridge bridge;std::string error;
     page.exact=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"ordinary native UI was blocked");
-    Check(page.syncs==0&&writes==0,"foreign UI acquired settings");Clean();page.exact=true;
+    Check(page.syncs==0&&page.status_syncs==0&&writes==0,"foreign UI acquired settings");Clean();page.exact=true;
     page.visible=false;Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error),"hidden page failed");
-    Check(page.syncs==0,"hidden page acquired settings");Clean();page.visible=true;
+    Check(page.syncs==0&&page.status_syncs==0,"hidden page acquired settings");Clean();page.visible=true;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.ready&&page.syncs==1,"fresh visible page not synchronized");Clean();
     Check(page.graphics_ready&&page.graphics_syncs==1&&page.enabled==0&&page.contrast==100,
         "native graphics controls not synchronized with comfort controls");
     Check(!std::filesystem::exists(graphics_path),"opening native menu wrote graphics preferences");
-    page.cinematics=1;page.turning=1;page.guides=1;
+    Check(page.neural==0&&page.neural_status=="Neural: Desactivado | Pares aplicados: 0",
+        "menu startup inferred actual status from saved intent or lost localization");
+    const auto revision_before_status=graphics.Read().revision;
+    const auto comfort_revision_before_status=store.Read().revision;
+    const char* english_states[]={"Off","Unavailable","Starting","Warming","Processing","Active","Fallback","Failed"};
+    const char* spanish_states[]={"Desactivado","No disponible","Iniciando","Calentando","Procesando","Activo","Alternativa","Error"};
+    for(int lang=0;lang<=1;++lang)for(unsigned state=0;state<8;++state) {
+        page.status="Save failed";
+        PublishNeuralStatus(static_cast<NeuralState>(state),UINT64_MAX);
+        Check(bridge.Update(env,&page,lang?SettingsLanguage::spanish:SettingsLanguage::english,store,graphics,&error),
+            "status-only update failed");
+        Check(page.neural_status==std::string("Neural: ")+(lang?spanish_states[state]:english_states[state])+
+            (lang?" | Pares aplicados: ":" | Applied pairs: ")+"18446744073709551615",
+            "actual Neural state/count not refreshed/localized on an unchanged settings revision");
+        Check(page.status=="Save failed"&&page.neural==0&&page.graphics_syncs==1&&
+            graphics.Read().revision==revision_before_status&&store.Read().revision==comfort_revision_before_status&&
+            !std::filesystem::exists(graphics_path),"actual status refresh changed edits/errors or persisted/published preferences");Clean();
+    }
+    PublishNeuralStatus(NeuralState::off,0);
+    page.cinematics=1;page.turning=1;page.guides=1;page.neural=1;
     page.enabled=1;page.sharpness=35;page.contrast=110;page.saturation=90;page.gamma=125;page.smoothing=1;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.cinematics==1&&page.syncs==1,"unsaved native edits overwritten");
-    Check(store.Read().values.cinematics==CinematicsMode::theater,"highlight applied before OK");
+    Check(store.Read().values.cinematics==CinematicsMode::theater&&!graphics.Read().values.neural&&
+        page.neural_status=="Neural: Desactivado | Pares aplicados: 0","highlight applied before OK or inferred Neural active");
     page.request=1;
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.completions==1,"accepted native OK did not complete");Clean();
     auto snapshot=store.Read();
@@ -144,7 +170,8 @@ int main(){
     Check(LoadVrSettings(path).turning==TurnMode::snap&&LoadVrSettings(path).holster_guides,"native choices not persisted");
     const auto saved_graphics=LoadGraphicsSettings(graphics_path);
     Check(saved_graphics.values.enabled&&saved_graphics.values.sharpness==.35F&&saved_graphics.values.contrast==1.1F&&
-        saved_graphics.values.saturation==.9F&&saved_graphics.values.gamma==1.25F&&saved_graphics.values.edge_smoothing,
+        saved_graphics.values.saturation==.9F&&saved_graphics.values.gamma==1.25F&&saved_graphics.values.edge_smoothing&&saved_graphics.values.neural&&
+        saved_graphics.values.reconstruction==ReconstructionMode::native,
         "native graphics tuple not persisted");
     Check(CurrentGraphicsPreferences().values.gamma==1.25F,"native graphics not published live");
     Check(bridge.Update(env,&page,SettingsLanguage::spanish,store,graphics,&error)&&page.completions==1,"completed request replayed");
@@ -200,10 +227,10 @@ int main(){
         "unchanged graphics selector rounded a precise persisted value");Clean();
 
     reopen();graphics_before=graphics.Read();const auto native_revision=store.Read().revision;
-    for(unsigned field=0;field<9;++field) {
+    for(unsigned field=0;field<10;++field) {
         auto* selection=field==0?&page.enabled:field==1?&page.sharpness:field==2?&page.contrast:
-            field==3?&page.saturation:field==4?&page.gamma:field==5?&page.smoothing:field==6?&page.reconstruction:field==7?&page.render_scale:&page.horse_comfort;
-        const auto old=*selection;*selection=field==6||field==8?3:field==7?6:field==0||field==5?2:field==1?33:field==2?45:field==3?205:40;
+            field==3?&page.saturation:field==4?&page.gamma:field==5?&page.smoothing:field==6?&page.reconstruction:field==7?&page.render_scale:field==8?&page.horse_comfort:&page.neural;
+        const auto old=*selection;*selection=field==6||field==8?3:field==7?6:field==0||field==5||field==9?2:field==1?33:field==2?45:field==3?205:40;
         page.request=1;
         Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&page.request==0,
             "invalid graphics request not consumed");
@@ -221,12 +248,13 @@ int main(){
     CloseHandle(graphics_locked);Clean();page.request=1;
     Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
         LoadGraphicsSettings(graphics_path).values.gamma==1.5F,"explicit graphics save retry failed");Clean();
-    reopen();page.reconstruction=2;page.render_scale=3;page.horse_comfort=2;page.request=1;
+    reopen();page.reconstruction=2;page.render_scale=3;page.horse_comfort=2;page.neural=0;page.request=1;
     Check(bridge.Update(env,&page,SettingsLanguage::english,store,graphics,&error)&&!page.visible&&
         LoadGraphicsSettings(graphics_path).values.reconstruction==ReconstructionMode::dlss_quality&&
-        LoadGraphicsSettings(graphics_path).values.render_scale==3&&LoadGraphicsSettings(graphics_path).values.horse_comfort==2,
-        "DLSS request was not persisted from native options");Clean();
-    reopen();Check(page.reconstruction==2&&page.render_scale==3&&page.horse_comfort==2,"saved graphics/comfort request lost on reopen");
+        LoadGraphicsSettings(graphics_path).values.render_scale==3&&LoadGraphicsSettings(graphics_path).values.horse_comfort==2&&
+        !LoadGraphicsSettings(graphics_path).values.neural,
+        "DLSS request was not persisted independently of Neural Off from native options");Clean();
+    reopen();Check(page.reconstruction==2&&page.render_scale==3&&page.horse_comfort==2&&page.neural==0,"saved graphics/comfort/Neural request lost on reopen");
     Check(!GraphicsEffectsActive(GraphicsSettings{false,0,1,1,1,false,ReconstructionMode::dlss_quality}),
         "pending DLSS request changed spatial activation");
     for(int scale : {4,5}) {
