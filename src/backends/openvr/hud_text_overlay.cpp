@@ -205,8 +205,8 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11DepthStencilState> depth;
     std::array<HudTextRaster, 5> raster;
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 21> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 21> images;
+    std::array<std::uint64_t, 24> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 24> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -415,7 +415,7 @@ bool HudTextCompositor::Prepare(ID3D11Device* device) noexcept {
 bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     const runtime::StereoHudTextOverlay& overlay, const std::uint64_t capture_sequence,
     const std::array<ID3D11Texture2D*, 2>& targets,const bool show_holster_guides,
-    const std::uint64_t reload_owner_token) noexcept {
+    const std::uint64_t reload_owner_token,const std::uint64_t bow_owner_token) noexcept {
     DiscardRepeatedText(); // World was freshly copied: never restore its predecessor.
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
@@ -506,7 +506,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             stale_bindings?&hidden_hint:&overlay.text.hint,
             stale_bindings||stale_reload?&hidden_hint:&overlay.text.interaction, &overlay.text.subtitle,
             &overlay.mission_timer,&overlay.mission_notices};
-        std::array<HudPanelPlacement, 21> placement{{{1.15F, .48F, 1.5F},
+        std::array<HudPanelPlacement, 24> placement{{{1.15F, .48F, 1.5F},
             {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {},
             {.5F,.58F,1.5F},{1.15F,.68F,1.5F},{},{}}};
         placement[4].captured_quad=true;
@@ -566,19 +566,22 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             if(impl_->replaying_controls&&(part>=2||!controlled[part]))continue;
             if(part<2&&((order<placement.size())==controlled[part]))continue;
             const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
-            const bool ammunition_guide=part>=18,support_guide=part>=15&&!ammunition_guide;
-            const auto guide_kind=ammunition_guide?runtime::GestureGuideKind::ammunition_pickup:
+            const bool bow_guide=part>=21,ammunition_guide=part>=18&&!bow_guide;
+            const bool support_guide=part>=15&&!ammunition_guide&&!bow_guide;
+            const auto guide_kind=bow_guide?runtime::GestureGuideKind::bow_string:
+                ammunition_guide?runtime::GestureGuideKind::ammunition_pickup:
                 support_guide?runtime::GestureGuideKind::support_grip:runtime::GestureGuideKind::holster;
             const auto guide_state=guide?(part-12)%3:0;
             if(guide&&!guide_data)continue;
             if(ammunition_guide&&(!reload_owner_token||reload_owner_token!=overlay.reload_feedback.owner_token))continue;
+            if(bow_guide&&(!bow_owner_token||bow_owner_token!=overlay.bow_feedback.owner_token))continue;
             if(guide&&!std::any_of(overlay.holster_guides.zones.begin(),
                 overlay.holster_guides.zones.begin()+overlay.holster_guides.count,
                 [&](const auto& zone){return zone.kind==guide_kind&&zone.state==guide_state;}))continue;
             if(critical_text&&!critical_fits)continue;
             const auto text_index=critical_text?part-5:part;
             const auto& panel = part==1?interaction:(part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
-                guide?(ammunition_guide?AmmunitionPickupGuidePanels()[guide_state]:support_guide?SupportGripGuidePanels()[guide_state]:HolsterGuidePanels()[guide_state]):threat?impl_->ui_raster.Threat(part==11):
+                guide?(bow_guide?BowStringGuidePanels()[guide_state]:ammunition_guide?AmmunitionPickupGuidePanels()[guide_state]:support_guide?SupportGripGuidePanels()[guide_state]:HolsterGuidePanels()[guide_state]):threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
             const auto revision=part==1?impl_->ui_raster.control_decoration_revision():

@@ -85,6 +85,20 @@ void IdleRifle(JavaPlayerBridge& b) {
     b.weapon_overlays_[0].weapon=&rifle;b.weapon_overlays_[0].active=true;
     b.weapon_overlays_[0].applied=true;b.weapon_overlays_[0].plan.valid=true;
 }
+void PreparedRifle(JavaPlayerBridge& b) {
+    IdleRifle(b);
+    // A bimanual rifle binds its retained mesh contact before parent-hand
+    // mapping; the child weapon is not yet applied at finger eligibility time.
+    b.being_generation_=7;
+    b.weapon_overlays_[0].applied=false;
+    b.weapon_overlays_[0].long_gun_owner.valid=true;
+    b.weapon_overlays_[0].long_gun_owner.object_epoch=9;
+    b.weapon_overlays_[0].long_gun_generation=7;
+    b.weapon_overlays_[0].long_gun_support.valid=true;
+    b.long_gun_grip_owner_=&rifle;
+    b.long_gun_grip_generation_=7;
+    b.long_gun_grip_epoch_=9;
+}
 }
 
 int main() {
@@ -120,6 +134,19 @@ int main() {
     IdleRifle(b);reloading=true;ok &= rejects("native reload admitted");
     IdleRifle(b);is_rifle=false;ok &= rejects("pistol reload or special weapon admitted");
     IdleRifle(b);b.weapon_overlays_[0].applied=false;ok &= rejects("unapplied weapon presentation admitted");
+    PreparedRifle(b);
+    ok &= Check(b.TryCanAnimateEmptyHand(1)&&!b.TryCanAnimateEmptyHand(0)&&!pending&&locals==0,
+        "bound prepared rifle must animate only its idle left support fingers");
+    PreparedRifle(b);b.long_gun_grip_epoch_=10;ok &= rejects("stale prepared grip epoch admitted");
+    PreparedRifle(b);b.weapon_overlays_[0].long_gun_owner.valid=false;ok &= rejects("unbound prepared rifle admitted");
+    PreparedRifle(b);b.long_gun_grip_generation_=8;ok &= rejects("stale prepared grip generation admitted");
+    PreparedRifle(b);b.weapon_overlays_[0].long_gun_generation=8;ok &= rejects("stale prepared weapon generation admitted");
+    PreparedRifle(b);b.long_gun_grip_owner_=&replacement;ok &= rejects("replaced retained prepared rifle admitted");
+    PreparedRifle(b);b.weapon_overlays_[0].long_gun_support.valid=false;ok &= rejects("invalid prepared mapped support admitted");
+    PreparedRifle(b);reloading=true;ok &= rejects("native reload during prepared rifle admitted");
+    PreparedRifle(b);hands[0].current=31;ok &= rejects("native attack during prepared rifle admitted");
+    PreparedRifle(b);change_at_read=2;ok &= rejects("weapon replacement during prepared finger admission admitted");
+    PreparedRifle(b);fail_same=true;ok &= rejects("JNI identity failure during prepared finger admission admitted");
     IdleRifle(b);b.weapon_overlays_[0].active=false;ok &= rejects("inactive weapon transaction admitted");
     IdleRifle(b);b.weapon_overlays_[0].plan.valid=false;ok &= rejects("invalid weapon mapping admitted");
     IdleRifle(b);b.weapon_overlay_faulted_=true;ok &= rejects("faulted restore admitted");

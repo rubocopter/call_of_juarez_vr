@@ -2084,6 +2084,17 @@ bool JavaPlayerBridge::TryObserveMounted(bool& mounted) noexcept {
     mounted=value;return true;
 }
 
+bool JavaPlayerBridge::TryObserveMountedMotion(CoJMountedMotionSnapshot& observation) noexcept {
+    observation={};
+    void* player=being_;
+    const auto generation=being_generation_;
+    if(!player||!generation)return false;
+    CoJMountedMotionSnapshot sample{};
+    if(!ReadCoJMountedMotion(Environment(nullptr),player,sample)||
+        player!=being_||generation!=being_generation_)return false;
+    sample.player_generation=generation;observation=sample;return true;
+}
+
 void CoJContextualShoulderState::Update(runtime::GameplayInputState& input,
     const bool observation_available, const bool mounted, const std::uint64_t generation) noexcept {
     const bool held=input.kick;
@@ -3662,7 +3673,16 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
     if(hand!=1 || !being_ || manual_reload_owned_ || independent_hand_faulted_ ||
         weapon_overlay_faulted_ || weapon_overlays_[1].weapon)return false;
     const auto& visual=weapon_overlays_[0];
-    if(!visual.weapon || !visual.active || !visual.applied || !visual.plan.valid)return false;
+    if(!visual.weapon || !visual.active || !visual.plan.valid)return false;
+    // The bimanual grip maps its parent hands before committing the child
+    // rifle. Admit that short prepared phase only with the mesh-contact claim
+    // bound by BindPreparedLongGunSupport, never with an arbitrary pending map.
+    const bool prepared=!visual.applied;
+    if(prepared && (!visual.long_gun_owner.valid || !visual.long_gun_support.valid ||
+        visual.long_gun_generation!=being_generation_ ||
+        visual.long_gun_owner.object_epoch!=long_gun_grip_epoch_ ||
+        !long_gun_grip_epoch_ || !long_gun_grip_owner_ ||
+        long_gun_grip_generation_!=being_generation_))return false;
     void* const player=being_;
     void* const weapon=visual.weapon;
     const auto generation=being_generation_;
@@ -3700,6 +3720,16 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
     }
     DeleteLocal(env,cls);if(failed || !rifle)return false;
     const auto coherent=[&]() noexcept {
+        if(prepared){
+            if(visual.applied || !visual.long_gun_owner.valid || !visual.long_gun_support.valid ||
+                visual.long_gun_generation!=generation ||
+                visual.long_gun_owner.object_epoch!=long_gun_grip_epoch_ ||
+                !long_gun_grip_epoch_ || !long_gun_grip_owner_ ||
+                long_gun_grip_generation_!=generation)return false;
+            const bool retained=same(env,weapon,long_gun_grip_owner_)!=0;
+            const bool identity_failed=ClearException(env,nullptr,"prepared rifle finger lease changed");
+            if(identity_failed || !retained)return false;
+        }
         for(int i=10;i<13;++i){
             const bool blocked=boolean(env,player,methods[i],nullptr)!=0;
             if(ClearException(env,nullptr,"support finger context read") || blocked)return false;
@@ -3727,7 +3757,7 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
             }
         }
         return being_==player && being_generation_==generation && visual.weapon==weapon &&
-            visual.active && visual.applied && visual.plan.valid && !weapon_overlay_faulted_ &&
+            visual.active && (visual.applied==!prepared) && visual.plan.valid && !weapon_overlay_faulted_ &&
             !weapon_overlays_[1].weapon;
     };
     // Recheck native identities/states before granting the scoped finger map.

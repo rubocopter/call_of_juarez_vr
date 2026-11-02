@@ -11,6 +11,7 @@
 #include "games/call_of_juarez/reload_pinch_pose.hpp"
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
+#include "games/call_of_juarez/bow_string_guide.hpp"
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/ammunition_pickup_guide.hpp"
@@ -191,6 +192,7 @@ CoJLongGunFreeTrigger g_long_gun_free_trigger;
 CoJStationaryFire g_stationary_fire;
 CoJScopedRifleFire g_scoped_rifle_fire;
 CoJStationaryAimControl g_stationary_aim;
+CoJMountedTraceBudget g_mounted_trace_budget;
 struct LongGunAdmissionTraceState {
     unsigned samples=0;
     std::uint64_t last_us=0,release_sequence=0,release_input=0,release_epoch=0,release_context=0;
@@ -4019,7 +4021,8 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
 
 bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float height,
     const runtime::Pose& head,const runtime::Pose& left,const runtime::Pose& right,
-    const runtime::Pose& right_tip,const std::uint64_t frame_sequence,const std::uint64_t context,
+    const runtime::Pose& right_tip,const runtime::FingerTrackingState& left_fingers,
+    const std::uint64_t frame_sequence,const std::uint64_t context,
     ControllerAimFrameObservation& aim) noexcept {
     CoJLongGunGripGeometry geometry{};CoJLongGunGripFrame frame{};std::string error;
     g_long_gun_expected_sequence=frame_sequence;
@@ -4051,7 +4054,7 @@ bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float 
     // the current native socket anatomy onto that independent contact frame.
     const auto tracked_left=TransformWeaponElementFrame(geometry.native.support,frame.mapped_support_frame,natural_left);
     if(!tracked_left.valid||!g_java_player_bridge.TryApplyIndependentHand(0,natural_right,tracked_right,&error)||
-        !g_java_player_bridge.TryApplyIndependentHand(1,natural_left,tracked_left,&error))return fail();
+        !g_java_player_bridge.TryApplyIndependentHand(1,natural_left,tracked_left,&error,&left_fingers))return fail();
     JavaPlayerPosition muzzle{},direction{};bool active=false;
     // Both parent sockets are final before the single child-weapon commit.
     if(!g_java_player_bridge.ApplyPreparedTrackedWeapon(0,muzzle,&error)||
@@ -4227,7 +4230,7 @@ bool ApplyTrackedWeapons(
     g_reload_finger_observation_sequence=frame_sequence;
     if(g_long_gun_grip.attached()&&publish_gameplay_rays){
         if(!independent_hands||manual_presentation){FailLongGunFrame(frame_sequence);return false;}
-        return ApplySupportedLongGun(natural,height_correction,head,left_grip,right_grip,right_tip,
+        return ApplySupportedLongGun(natural,height_correction,head,left_grip,right_grip,right_tip,left_fingers,
             frame_sequence,native_context,aim);
     }
     CameraProbeBasis basis{};
@@ -5546,6 +5549,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     CoJScopedRifleFireFrame scoped_rifle_fire_frame{g_scoped_rifle_fire};
     CoJStationaryAimFrame stationary_aim_frame{g_stationary_aim};
 
+    const CommandSnapshot snapshot = CurrentCommand();
+    g_mounted_trace_budget.ObserveEnabled(snapshot.command.movement_trace_enabled);
     ObserveNaturalRender(false);
 
     // Do not even forward a natural wrapper while a previous eye's native or
@@ -5557,7 +5562,6 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         ResetPhysicalBowDraw("eye_resource_quarantine");g_virtual_holsters.Invalidate();return;
     }
 
-    const CommandSnapshot snapshot = CurrentCommand();
     CoJInputDispatchTraceContext input_trace{};
     input_trace.movement_trace_enabled = snapshot.command.movement_trace_enabled;
     input_trace.process_id = GetCurrentProcessId();
@@ -6911,6 +6915,87 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 g_java_player_bridge.AppliedGameplayCommands(),true);
         gameplay_input_ok &= shoulder_ok;
     }
+    // Read cached native state only under explicit movement diagnostics. This
+    // adds no input, simulation update or retained horse/controller reference.
+    // Contextual shoulder dispatch precedes it; velocities may still describe
+    // the previous simulation tick and must not be treated as input causality.
+    const bool mounted_trace_eligible=gameplay_input.active&&mounted_available&&mounted&&
+        mounted_generation==g_java_player_bridge.being_generation()&&
+        (sample.native_gameplay_context_token&1U)!=0&&!recentered;
+    const auto mounted_observation_us=snapshot.command.movement_trace_enabled&&
+        mounted_trace_eligible&&!g_mounted_trace_budget.exhausted()?MonotonicMicroseconds():0;
+    if(g_mounted_trace_budget.Admit(snapshot.command.movement_trace_enabled,
+        mounted_trace_eligible,frame_sequence,mounted_observation_us)) {
+        CoJMountedMotionSnapshot native{};
+        const bool observed=g_java_player_bridge.TryObserveMountedMotion(native);
+        // Capture actual player position and the pre-VR camera frame under
+        // the same opt-in budget. A double position read rejects torn JNI
+        // observations; failures only suppress the optional spatial sample.
+        CameraProbeBasis natural_camera_basis{};
+        CameraProbeVector natural_camera_position{};
+        JavaPlayerPosition rider_position_a{},rider_position_b{};
+        const bool spatial_observed=observed&&
+            ReadNaturalCameraFrame(natural_render_state,natural_camera_basis,natural_camera_position)&&
+            g_java_player_bridge.TryGetPosition(rider_position_a,nullptr)&&
+            g_java_player_bridge.TryGetPosition(rider_position_b,nullptr)&&
+            native.player_generation==g_java_player_bridge.being_generation()&&
+            std::isfinite(rider_position_a.x)&&std::isfinite(rider_position_a.y)&&
+            std::isfinite(rider_position_a.z)&&std::isfinite(rider_position_b.x)&&
+            std::isfinite(rider_position_b.y)&&std::isfinite(rider_position_b.z)&&
+            std::abs(rider_position_a.x-rider_position_b.x)<=0.1F&&
+            std::abs(rider_position_a.y-rider_position_b.y)<=0.1F&&
+            std::abs(rider_position_a.z-rider_position_b.z)<=0.1F;
+        try {
+            std::ostringstream detail;
+            detail.imbue(std::locale::classic());
+            detail<<std::boolalpha<<"frame_sequence="<<frame_sequence
+                <<";pose_sequence="<<sample.hmd_pose.sequence
+                <<";native_context="<<sample.native_gameplay_context_token
+                <<";input_context_generation="<<raw_reload_input.input_context_generation
+                <<";monotonic_us="<<mounted_observation_us<<";input_time_us="<<input_time_us
+                <<";raw_move="<<raw_reload_input.move.x<<','<<raw_reload_input.move.y
+                <<";raw_turn="<<raw_reload_input.turn.x<<','<<raw_reload_input.turn.y
+                <<";raw_move_available="<<raw_reload_input.move_available
+                <<";raw_turn_available="<<raw_reload_input.turn_available
+                <<";mapped_move="<<ordinary_input.move.x<<','<<ordinary_input.move.y
+                <<";mapped_turn="<<ordinary_input.turn.x<<','<<ordinary_input.turn.y
+                <<";mapped_active="<<ordinary_input.active
+                <<";mapped_move_available="<<ordinary_input.move_available
+                <<";mapped_turn_available="<<ordinary_input.turn_available
+                <<";mapped_digital_available="<<ordinary_input.digital_available
+                <<";raw_contextual_shoulder_held="<<raw_reload_input.kick<<";mapped_run="<<gameplay_input.run
+                <<";vr_gameplay_input_enabled="<<snapshot.command.vr_gameplay_input_enabled
+                <<";input_dispatch_ok="<<gameplay_input_ok
+                <<";head_relative_move_yaw_degrees="<<head_relative_move_yaw_degrees
+                <<";sample_valid="<<observed;
+            if(observed) {
+                detail<<";player_generation="<<native.player_generation
+                    <<";player_id="<<native.player_id<<";horse_id="<<native.horse_id
+                    <<";native_forward_request="<<native.forward_request
+                    <<";native_side_request="<<native.side_request
+                    <<";native_turn_degrees_s="<<native.turn_rate_degrees_s
+                    <<";native_speed_key_state="<<native.speed_key_state
+                    <<";native_speed_state="<<native.speed_state
+                    <<";native_run="<<native.run<<";rider_run="<<native.rider_run
+                    <<";native_can_move="<<native.can_move<<";native_tied="<<native.tied
+                    <<";native_new_player_control="<<native.new_player_control
+                    <<";native_cached_velocity_cm_s="<<native.velocity_cm_s.x<<','<<native.velocity_cm_s.y<<','<<native.velocity_cm_s.z
+                    <<";rider_cached_velocity_cm_s="<<native.rider_velocity_cm_s.x<<','<<native.rider_velocity_cm_s.y<<','<<native.rider_velocity_cm_s.z;
+            }
+            detail<<";spatial_observation_version=1;spatial_valid="<<spatial_observed;
+            if(spatial_observed) {
+                // Keep sub-centimetre changes visible at large world coords.
+                detail<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                    <<";rider_world_position_cm="<<rider_position_b.x<<','<<rider_position_b.y<<','<<rider_position_b.z
+                    <<";natural_camera_position_cm="<<natural_camera_position.x<<','<<natural_camera_position.y<<','<<natural_camera_position.z
+                    <<";natural_camera_forward="<<natural_camera_basis.forward.x<<','<<natural_camera_basis.forward.y<<','<<natural_camera_basis.forward.z;
+            }
+            detail<<";record_index="<<g_mounted_trace_budget.attempts()<<";record_limit=2048"
+                <<";budget_exhausted="<<g_mounted_trace_budget.exhausted()
+                <<";source=post_input_pre_simulation_cached_fields;read_only=true;same_frame_response_proven=false";
+            EmitEvent("mounted_native_motion",observed?"observed":"unavailable",detail.str());
+        } catch (...) { /* Diagnostic failure cannot change gameplay. */ }
+    }
     CoJStationaryWeaponOwner stationary_aim_owner{};
     const bool stationary_aim_known=gameplay_input.active&&gameplay_input_ok&&
         g_java_player_bridge.TryObserveStationaryWeapon(stationary_aim_owner);
@@ -7183,6 +7268,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         }
     }
     runtime::BowDrawFeedback bow_feedback{};
+    CoJBowStringGuideSample bow_string_guide{};
     // Native hand-state transitions can consume a ray as soon as fire is
     // delivered. Resolve the parent hand/socket and verified muzzle first;
     // dispatch no locomotion, snap-turn, reload or weapon switch a second time.
@@ -7399,6 +7485,19 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             bow_result.dispatch.right=bow_result.dispatch.left=false;
             bow_result.dispatch.cancelled=true;bow_result.reason="native_hold_publication";
             bow_result.feedback={};bow_result.owner_token=0;
+            bow_result.nock_world_m={};bow_result.nock_pose_sequence=0;
+            bow_result.nock_weapon_id=0;bow_result.nock_reference_valid=false;
+        }
+        if(bow_input.allowed&&bow_result.nock_reference_valid){
+            bow_string_guide.bow=bow_result;
+            bow_string_guide.head_world_m=bow_input.head_world_m;
+            bow_string_guide.camera_right={bow_basis.right.x,bow_basis.right.y,bow_basis.right.z};
+            bow_string_guide.camera_up={bow_basis.up.x,bow_basis.up.y,bow_basis.up.z};
+            bow_string_guide.camera_forward={bow_basis.forward.x,bow_basis.forward.y,bow_basis.forward.z};
+            bow_string_guide.head=relative_head_pose;
+            bow_string_guide.right_hand=relative_right_controller;
+            bow_string_guide.pose_sequence=bow_input.sequence;
+            bow_string_guide.allowed=true;
         }
         bow_feedback=bow_result.feedback;bow_feedback.event_sequence=frame_sequence;
         if(g_stereo_callbacks.publish_bow_feedback_owner)
@@ -8171,6 +8270,13 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                     g_java_player_bridge.IsLongGunGripGuideOwnerCurrent(long_gun_geometry.native);
                 const bool guide_drawn=guide_candidate&&AppendCoJLongGunGripGuide(long_gun_input,long_gun_geometry,relative_head_pose,
                         relative_right_controller,true,false,hud_text);
+                if(holster_guides_enabled&&hands_restored&&weapon_restored&&!g_arm_rotation_faulted&&
+                    !g_manual_reload_presentation&&!g_room_scale_body_offset.faulted&&
+                    g_bow_verification_failed_sequence!=frame_sequence&&
+                    hud_text.bow_feedback.owner_token&&
+                    hud_text.bow_feedback.owner_token==bow_string_guide.bow.owner_token&&
+                    g_bow_draw_session.owner_token()==bow_string_guide.bow.owner_token)
+                    (void)AppendCoJBowStringGuide(bow_string_guide,true,hud_text);
                 if(snapshot.command.reload_trace_enabled&&long_gun_geometry.native.valid&&ShouldObserveBodyFrame(frame_sequence))
                     try{EmitEvent("long_gun_grip_guide",guide_drawn?"captured":"hidden",
                         "frame_sequence="+std::to_string(frame_sequence)+";pose_sequence="+std::to_string(grip_controls.sequence)+
@@ -9452,6 +9558,7 @@ void ShutdownCameraProbe() noexcept {
     g_winchester_reload_probe={};
     g_winchester_loading_pending={};g_winchester_loading_samples=0;g_winchester_loading_attempts=0;
     g_remington_loading_pending={};g_remington_loading_samples=0;g_remington_loading_attempts=0;
+    g_mounted_trace_budget={};
     g_reload_pinch_last_hand=-1;g_reload_pinch_last_applied=false;
     g_reload_ready_geometry_reference={};
     g_reload_trace_events.Reset();

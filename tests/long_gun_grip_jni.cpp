@@ -39,9 +39,9 @@ void* __stdcall Ex(void*){return pending?Local(&exception):nullptr;}
 void __stdcall Clear(void*){pending=false;}
 int __stdcall Env(void*,void** out,int){*out=&env;return 0;}
 void* __stdcall Class(void*,void* p){return Local(p==&player?&pc:&wc);}
-void* __stdcall Find(void*,const char* name){return Local(!std::strcmp(name,rifle_class)?&wc:&other);}
+void* __stdcall Find(void*,const char* name){return Local(!std::strcmp(name,rifle_class)||!std::strcmp(name,"WeaponRifle")?&wc:&other);}
 unsigned char __stdcall Same(void*,void* x,void* y){return x==y;}
-unsigned char __stdcall Instance(void*,void*,void*){return 0;}
+unsigned char __stdcall Instance(void*,void* object,void* cls){return object==current && cls==&wc;}
 unsigned char __stdcall BoolField(void*,void*,void*){Check(false,"unexpected boolean field");return 0;}
 void* __stdcall Method(void*,void*,const char* name,const char*){return const_cast<char*>(name);}
 bool Name(void* m,const char* n){return !std::strcmp(static_cast<char*>(m),n);}
@@ -74,6 +74,7 @@ rt::Vec3 X(const ElementWorldBasisTarget& f){return rt::two_hand_detail::Cross(f
 unsigned char __stdcall Bool(void*,void* p,void* m,const JValue* args){
     if(Name(m,"IsNotAlive")||Name(m,"IsCarrying"))return 0;
     if(Name(m,"IsWeaponReloading"))return reloading;
+    if(Name(m,"HasSomethingInHand"))return args[0].i==1;
     if(std::strstr(static_cast<char*>(m),"OperatedTwoHand"))return args[0].i==0;
     if(Name(m,"IsElementHidden"))return hidden;
     if(Name(m,"UnhideElement")){hidden=false;return 1;}
@@ -188,9 +189,18 @@ int main(int argc,char** argv){
     if(!prepared)std::cerr<<error<<'\n';
     Check(prepared,"real rifle prepare failed");
     Check(bridge.BindPreparedLongGunSupport(g.native,frame.mapped_support_frame,&error),"real rifle binding failed");
+    rt::FingerTrackingState left_fingers{};
+    left_fingers.available=true;left_fingers.quality=rt::FingerTrackingQuality::estimated;
+    left_fingers.curls={.2F,.6F,.5F,.4F,.3F};
+    if(!alternate){
+        Check(bridge.TryCanAnimateEmptyHand(1)&&!bridge.TryCanAnimateEmptyHand(0),
+            "retained prepared rifle did not qualify only the empty support fingers");
+    }
     const auto left=TransformWeaponElementFrame(g.native.support,frame.mapped_support_frame,hands[23]);
     Check(bridge.TryApplyIndependentHand(0,original_hands[3],right,&error)&&
-        bridge.TryApplyIndependentHand(1,original_hands[23],left,&error),"real paired hand mapping failed");
+        bridge.TryApplyIndependentHand(1,original_hands[23],left,&error,&left_fingers),"real paired hand mapping failed");
+    Check(bridge.hand_overlays_[1].frames.fingers_active()==!alternate,
+        "prepared support finger animation did not respect native idle/alternate ownership");
     JavaPlayerPosition origin{},direction{};bool active=false;
     if(mode=="commit"){
         b.f=a.f;current=&b;const int before=writes;

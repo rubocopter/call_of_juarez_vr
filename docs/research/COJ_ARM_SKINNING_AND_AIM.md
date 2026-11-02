@@ -693,6 +693,17 @@ replacement, shared active aliases and JNI faults reject. The original
 `HasSomethingInHand` includes opposite-hand two-hand occupancy; this exception
 does not redefine it or alter either weapon's native gameplay ownership.
 The existing fifteen-finger transaction and restoration remain the only writer.
+The attached bimanual rifle grip is a separate frame path: it prepares the
+weapon, binds the retained native support contact, maps both parent hands and
+then commits the weapon child. Previously it did not forward the left controller
+finger state, and the shared rifle-support gate required the child to be
+already applied. The host-tested correction forwards left fingers at parent
+mapping time and admits the uncommitted phase only with the bound contact,
+matching player/weapon generations and retained JNI object/epoch. Each of the
+two native idle/ownership reads still fails closed on fire/alternate/reload,
+replacement, carrying, death, invalid tracking or JNI failure. The same hand
+overlay restores all twenty original bone frames; physical pose acceptance
+remains pending.
 The operator confirms the normal-state free-hand appearance after retesting
 the candidate. Native fire/alternate/reload states are not retargeted by this
 exception; broader transitions and other setups remain separate gates.

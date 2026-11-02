@@ -740,6 +740,59 @@ generation again before committing a queued on-foot turn after stereo restore.
 Native mount copies horse direction into the rider and changes controllers;
 dismount/death can destroy those controllers. Do not retain a horse target or
 reuse a pre-interaction ownership boolean as authority for later writes.
+
+The read-only `mounted_native_motion` diagnostic now correlates controller
+intent and completed input dispatch with cached native horse/rider state. It
+requires reciprocal `HumanBeing.m_cHorse` / `Horse.m_cHorseman` references,
+stable `GetThisID` values and the same bridge player generation. Native IDs
+retain unsigned high bits; local references are released on every failed read.
+Repeated field reads and reciprocal/vector identity checks reject a partial or
+changed snapshot. No horse/controller reference survives the call.
+
+`Creature.m_fFwdLocalSpeed` and `m_fSideLocalSpeed` are input requests, not
+measured velocity. `m_vGlobalSpeed` is the cached physics velocity populated by
+`Creature.UpdateMoveSpeed` through `ODE_BodyGetLinearVel` (or zeroed without a
+body). Read horse and rider caches separately: an attached rider's own cache
+does not establish total world motion. `Horse.m_iSpeedKeyState`, inherited
+`m_iSpeedState`, `m_fCurrentTurnSpeed`, run/can-move/tied/new-control flags
+provide distinct gait and permission context. `UpdateTurnSpeed` integrates its
+turn rate against native delta time before `RotateHorizontally`; the observer
+does not call either method or recompute native steering targets.
+
+Sampling occurs after the contextual shoulder phase, before the next natural
+simulation update. Consequently a native input value can already reflect R1
+while cached velocity/turn still reflect an earlier tick. Sequence/context and
+monotonic time permit correlation, not a same-frame response claim. The existing
+`movementTraceEnabled` opt-in admits no more than 10 attempts/second, capped at
+2048 per enabled interval; failures consume attempts and mount loss does not
+refill the budget. Ordinary disabled gameplay performs no added JNI observation
+or formatting. Host tests cover native fields, alias identities, exception and
+owner failures, value drift, nonfinite data, cleanup and trace cadence/cap.
+Actual horse response, rider-camera motion and comfort remain unqualified.
+
+Collected traces can be audited offline with `tools/analyze_coj_mounted_motion.py`.
+The analyzer validates an inventoried run, native data types/identities and
+read-only markers, then compares adjacent valid samples only across a stable
+owner, context and clock with no lost attempt or long gap. It reports R1/run
+and lateral native-request sign transitions alongside *cached* horse speed and
+turn state. A difference between those fields is temporal correlation only;
+no sample certifies horse acceleration, rider-camera movement or comfort.
+
+New opt-in `mounted_native_motion` records also include `spatial_observation_version=1`
+and `spatial_valid`, with `rider_world_position_cm` (the existing read-only
+`PlayerBeing.GetPositionVectorVolatile` bridge), `natural_camera_position_cm`
+and `natural_camera_forward` from the unmodified source camera frame when all
+reads succeed. Two finite, closely agreeing actor-position reads and unchanged
+bridge generation gate the spatial fields. This is a versioned optional extension:
+the analyzer also accepts old records without spatial fields, and ignores missing
+or invalid spatial pairs without inventing displacement. For stable owner/context
+and nearby samples it reports world endpoint displacement, horizontal/3D chord
+speed, camera displacement and signed camera yaw in world XZ. Those intervals
+are sparse and can miss turns or transient motion; chord speed is neither the
+instantaneous native speed nor traveled path length. Positive yaw is the
+mathematical XZ `atan2` orientation, not an established right-stick convention.
+No horse input/turn physics or on-head camera behavior is changed by this probe.
+
 Offline tests cover axis mapping, frozen reference/recenter, resumed on-foot
 follow and rejected late mount/unknown/replaced-owner yaw commits. Camera/hand
 fit, native obstacle steering, free-look/squint continuity, gallop, dismount and

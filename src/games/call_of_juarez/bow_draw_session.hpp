@@ -26,6 +26,12 @@ struct CoJBowDrawSessionOutput {
     CoJBowDrawDispatch dispatch{};
     runtime::BowDrawResult gesture{};
     runtime::BowDrawFeedback feedback{};
+    // Read-only, same-frame native DArrow reference for a future string guide.
+    // Never retain across cancellation, ownership changes or shot dispatch.
+    runtime::Vec3 nock_world_m{};
+    std::uint64_t nock_pose_sequence=0;
+    std::uint32_t nock_weapon_id=0;
+    bool nock_reference_valid=false;
     std::uint64_t owner_token=0;
     const char* reason="none";
 };
@@ -86,6 +92,13 @@ public:
         if(out.dispatch.shot_requested)out.feedback.kind=runtime::BowDrawFeedbackKind::release;
         else if(out.gesture.haptics.grabbed)out.feedback.kind=runtime::BowDrawFeedbackKind::grab;
         else if(out.gesture.haptics.tension_step)out.feedback.kind=runtime::BowDrawFeedbackKind::tension;
+        if(input.eligible && s.right_available && owner_ && !out.gesture.cancelled &&
+            !out.dispatch.cancelled && !out.dispatch.shot_requested) {
+            out.nock_world_m=input.string_point_m;
+            out.nock_pose_sequence=s.sequence;
+            out.nock_weapon_id=s.native.weapon_id;
+            out.nock_reference_valid=true;
+        }
         return out;
     }
     void Reset() noexcept {

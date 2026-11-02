@@ -26,6 +26,13 @@ acceptance. Source/deployment audit history and per-run checklists stay in `work
 
 ## Layering
 
+Neural/DirectNR is a deferred optional experiment. Its tested inference path is
+retained for explicit developer use, default Off, with no external dependencies
+staged by ordinary preparation. The operator finds no worthwhile image benefit;
+the live retained-frame presentation remains rejected for cadence/quality.
+Core VR work does not depend on resuming this track. The implementation below
+records its existing boundary, not an active development or support commitment.
+
 The optional `cojvr_neural_lab` library and separate x64 `tools/neural_host`
 companion adapt Penumbra DirectNR over a versioned CPU-pixel pair protocol.
 Standalone probes and an explicitly opted-in D3D9/OpenVR candidate consume it;
@@ -554,6 +561,14 @@ yaw reference stays shared by camera/hands while mounted or observation is
 unavailable; recenter adopts the current native heading. A queued on-foot yaw
 commit requires a fresh unmounted observation and the same player generation
 after stereo restoration. Native horse/squint callbacks are not intercepted.
+An opt-in mounted-motion observer reads the reciprocal rider/horse references,
+native input requests, gait, turn rate and cached physics velocities after input
+dispatch and before the next simulation update. It retains local references for
+one call, brackets value/identity reads and verifies the bridge generation before
+publication. `movementTraceEnabled` admits at most one attempt per 100ms and 2048
+attempts per enabled interval; failed reads consume the budget. No controller,
+simulation callback or global horse reference is retained. Cached values do not
+prove immediate input response, physical displacement or rider-camera comfort.
 Create hold recenters once at 800 ms; a short released tap requests Objectives.
 [The controls document](research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls)
 owns the sole default layout and exact action mappings.

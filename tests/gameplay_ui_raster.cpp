@@ -153,6 +153,20 @@ int main(int argc,char** argv) {
     Require(guide_states.size()==3,"holster guide availability states collapsed");
     Require(SupportGripGuidePanels()[0].width==64&&AmmunitionPickupGuidePanels()[0].width==64,
         "holster refinement changed support/ammunition glyph geometry");
+    const auto& bow_guides=BowStringGuidePanels();
+    std::set<std::vector<std::uint32_t>> bow_states;
+    for(std::size_t state=0;state<bow_guides.size();++state){
+        const auto& bow=bow_guides[state];
+        Require(bow.width==64&&bow.height==64&&bow.pixels.size()==64*64,
+            "bow string guide dimensions must stay bounded");
+        Require((bow.pixels[32*64+32]>>24)>0&&(bow.pixels[0]>>24)==0,
+            "bow string hint needs a visible nock and transparent exterior");
+        Require(BowStringGuidePanels()[state].pixels.data()==bow.pixels.data(),
+            "bow pixels must be immutable across calls");
+        bow_states.insert(bow.pixels);
+    }
+    Require(bow_states.size()==3&&bow_guides[0].pixels!=AmmunitionPickupGuidePanels()[0].pixels,
+        "bow guide must have three distinct glyph states and different artwork from ammunition");
     Require(NoShootReticlePixel(0,0)==0xFFFF4038U&&NoShootReticlePixel(6,-6)==0xFFFF4038U,"warning must be a red X at aim point");
     Require(NoShootReticlePixel(1,0)==0xFF000000U,"warning must retain contrasting outline");
     Require(NoShootReticlePixel(0,6)==0&&NoShootReticlePixel(9,9)==0,"warning must preserve world outside diagonals/footprint");

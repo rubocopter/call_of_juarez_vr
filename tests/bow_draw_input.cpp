@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/bow_draw_geometry.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
 #include "runtime/gameplay_utility.hpp"
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 using namespace cojvr::games::call_of_juarez;
@@ -48,6 +49,45 @@ struct SessionFixture {
     }
 };
 int main(){
+    {
+        SessionFixture f;
+        const auto idle=f.Tick();
+        Check(idle.nock_reference_valid && idle.nock_pose_sequence==f.s.sequence &&
+              idle.nock_weapon_id==f.s.native.weapon_id && idle.owner_token &&
+              std::abs(idle.nock_world_m.y-1.3F)<.0001F &&
+              std::abs(idle.nock_world_m.z+.4F)<.0001F,
+              "idle bow requires a current native nock reference");
+        f.Grab();
+        // Native DArrow can deform during tension, but the reference follows
+        // the qualified rigid bow root in game-world centimetres.
+        f.s.native.root.position[0]=15;
+        f.s.native.arrow.position={1000,1000,1000};
+        f.s.native.current_state=129;
+        f.s.native.can_attack=f.s.native.held_right=f.s.native.release_ready=true;
+        f.s.right_world_m.z+=.2F;
+        const auto drawn=f.Tick();
+        Check(drawn.nock_reference_valid && drawn.gesture.drawing &&
+              drawn.nock_pose_sequence==f.s.sequence && drawn.nock_weapon_id==5 &&
+              std::abs(drawn.nock_world_m.x-.15F)<.0001F &&
+              std::abs(drawn.nock_world_m.z+.4F)<.0001F,
+              "bow tension must retain same-frame rigid nock metadata");
+        f.s.allowed=false;
+        const auto cancelled=f.Tick();
+        Check(!cancelled.nock_reference_valid && !cancelled.nock_pose_sequence &&
+              !cancelled.nock_weapon_id && cancelled.nock_world_m.x==0 && !cancelled.owner_token,
+              "cancelled draw must retire guide anchor with its owner");
+        f.s.allowed=true;
+        f.s.native.root.position[0]=0;f.s.native.arrow.position={0,130,-40};
+        f.s.native.current_state=1;f.s.native.held_right=false;
+        f.raw.fire_right=false;f.Tick();
+        const auto recovered=f.Tick();
+        Check(recovered.nock_reference_valid && recovered.nock_weapon_id==5,
+              "recovered native bow must publish a newly observed idle guide anchor");
+        f.s.native.root.right[0]=2;
+        const auto invalid=f.Tick();
+        Check(!invalid.nock_reference_valid && !invalid.nock_pose_sequence,
+              "invalid native root cannot publish nock guide metadata");
+    }
     for(int boundary=0;boundary<4;++boundary){
         SessionFixture f;f.Grab();f.s.selected=false;f.s.sequence=500;f.Tick();
         const auto old_context=f.s.context,old_player=f.s.player,old_generation=f.raw.input_context_generation;

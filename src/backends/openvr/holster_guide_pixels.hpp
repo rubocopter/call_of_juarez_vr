@@ -80,4 +80,21 @@ inline const std::array<HudTextPanel,3>& AmmunitionPickupGuidePanels() {
     }();
     return panels;
 }
+inline const std::array<HudTextPanel,3>& BowStringGuidePanels() {
+    static const auto panels=[] {
+        auto out=GlyphGuideBackgroundPanels();
+        constexpr std::array<std::uint32_t,3> colors{0x68DAE8U,0x70DDA0U,0x9A8274U};
+        for(unsigned state=0;state<out.size();++state){
+            auto& p=out[state];
+            for(auto& pixel:p.pixels)pixel=(pixel&0xff000000U)|colors[state];
+            // Thin string and nock dot, distinct from ammo, L1 and holster hints.
+            for(int y=16;y<48;++y)for(int x=30;x<34;++x)
+                p.pixels[y*64+x]=0xb0000000U|colors[state];
+            for(int y=29;y<35;++y)for(int x=29;x<35;++x)
+                p.pixels[y*64+x]=0xe0000000U|colors[state];
+        }
+        return out;
+    }();
+    return panels;
+}
 }

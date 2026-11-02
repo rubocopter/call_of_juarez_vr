@@ -2,7 +2,12 @@
 
 ## Scope and evidence
 
-The operator prioritizes human appearance, especially nearby faces, over changes
+**Deferred experiment:** the operator finds no appreciable improvement justifying
+continuation. Neural remains optional/default Off; the core VR adaptation takes
+priority. This document preserves findings and prerequisites for a possible future
+revisit, not an active implementation plan.
+
+The earlier experiment prioritized human appearance, especially nearby faces, over changes
 to scenery. The full-frame Neural candidate delivered real inference and commits
 but is rejected for image cadence and lack of appreciable improvement. This
 document records exact-game targeting evidence and the narrower experiment;
@@ -118,6 +123,32 @@ moderately higher intensity. The local model reproducibly distinguishes
 on this same static capture, but the difference is mainly tonal and does not
 establish a useful facial enhancement. Offline model changes do not resolve the
 previously rejected live frame cadence or temporal behavior.
+
+## Operator profile and crop semantics
+
+The latest operator-supplied Deus Ex reference supersedes the earlier preset-1
+preference: 60% internal scale, 90% intensity, one pass, original-detail residual,
+Cinematic style and runtime preset *Default*. Local structure/tone/manual skin
+strength are 1, automatic skin and model masking enabled. Centre is 100%, ellipse,
+400px feather; outer processing is disabled, with saved outer scale 25% and packing
+on. Estimated HMD motion uses normal sign and scale 1, constant depth 0.5;
+viewport reference is 100%, local Snippet provider, application ID 608699473,
+and three diagnostic log frames. The laboratory uses zero log frames.
+Style 2 and preset 0 are local comparison hypotheses for those external labels;
+the external selector mapping is not independently verified.
+
+Exact percentage input is now available in the isolated image lab. Static model
+comparisons vary scale, intensity and preset independently, preserve source alpha
+and record all inherited effective controls. They do not exercise moving-head
+vectors or establish temporal/stereo/runtime equivalence to Deus Ex.
+
+The inherited shader's elliptical weight fades inward from its inscribed edge.
+At 100% centre, corners still have zero Neural weight. Its feather is measured in
+full supplied-image pixels: 400px on a 512px crop exceeds the 256px radius, so
+there is no finite full-weight central plateau. Copying a full-eye pixel feather
+to a face crop therefore changes the weighting semantics. Runtime ROI work must
+explicitly preserve or choose source-coordinate weighting and verify the composed
+pixels; arbitrary strength increases cannot establish equivalent coverage.
 
 ## Temporal guidance
 

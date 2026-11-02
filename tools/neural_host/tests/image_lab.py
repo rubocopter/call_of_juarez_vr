@@ -76,6 +76,30 @@ class ImageLab(unittest.TestCase):
             self.rejected(self.args + extra)
         self.rejected([arg for arg in self.args if arg != "--scale100"])
 
+    def test_exact_scale_percent_and_alias_conflicts(self):
+        base = [arg for arg in self.args if arg != "--scale100"]
+        for value in ("25", "60", "99", "100"):
+            self.rejected(base + ["--scale-percent", value], 4, "runtime_dependencies")
+        for value in ("0", "24", "101", "60.5", "+60", " 60", "nan", ""):
+            self.rejected(base + ["--scale-percent", value])
+        self.rejected(base + ["--scale-percent"])
+        self.rejected(base + ["--scale-percent", "60", "--scale-percent", "60"])
+        self.rejected(base + ["--scale-percent", "60", "--scale50"])
+        self.rejected(self.args + ["--scale-percent", "60"])
+
+    @unittest.skipUnless(GPU, "explicit --gpu required")
+    def test_exact_sixty_percent_reaches_model_with_even_rounding(self):
+        args = [arg for arg in self.args if arg != "--scale100"]
+        args += ["--scale-percent", "60", "--style", "2", "--preset", "0",
+                 "--intensity", "90", "--diagnostic", "identity"]
+        result, report = self.run_lab(args)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((report["scale_percent"], report["model_atlas_width"], report["model_atlas_height"]), (60, 76, 28))
+        self.assertEqual((report["style"], report["preset"], report["intensity_percent"], report["passes"]), (2, 0, 90, 1))
+        self.assertTrue(report["residual"])
+        self.assertEqual(report["app_id"], 608699473)
+        self.assertEqual(self.output.read_bytes(), self.pixels)
+
     def test_positive_bounded_decimal_dimensions_counts_and_deadline(self):
         for key, bad_values in {
             "--width": ("0", "-1", "1281", "1.5", "1e2", "+16", " 16", "999999999999999999999"),

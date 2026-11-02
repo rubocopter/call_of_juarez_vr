@@ -30,12 +30,12 @@ struct Arguments {
 };
 void Usage() {
     std::fputs("CoJNeuralImageLab --runtime <absolute-directory> --input <pair.rgba> --output <new-pair.rgba>\n"
-        "  --width <1..1280> --height <1..1280> (--scale25|--scale50|--scale100)\n"
+        "  --width <1..1280> --height <1..1280> (--scale-percent <25..100>|--scale25|--scale50|--scale100)\n"
         "  [--warmup <1..32>] [--iterations <1..1000>] [--timeout-ms <100..120000>]\n"
         "  [--style <0|1|2>] [--preset <0|1>] [--intensity <0..100>]\n"
         "  (defaults: style 0, preset 0, intensity 60; exactly one neural pass)\n"
         "  [--diagnostic identity|edit]\n"
-        "Reduced scales require each eye axis >=8 at scale25 or >=4 at scale50.\n"
+        "Reduced scales must retain a nonzero even-rounded extent in each eye axis.\n"
         "Input/output: tightly packed RGBA8 encoded UNORM, entire left eye then right eye.\n"
         "Default mode requires local real-model dependencies. Output must be new.\n"
         "Fixed full-crop comparison variants: --scale100 --style 1 --intensity 100;\n"
@@ -71,7 +71,8 @@ bool Parse(int argc,wchar_t** argv,Arguments& args) {
         if(!seen.insert(key).second||index+1>=argc)return false;
         const std::wstring value=argv[++index];
         if(value.empty())return false;
-        if(key==L"--runtime")args.runtime=value;
+        if(key==L"--scale-percent") {if(args.scale||!Number(value,25,100,args.scale))return false;}
+        else if(key==L"--runtime")args.runtime=value;
         else if(key==L"--input")args.input=value;
         else if(key==L"--output")args.output=value;
         else if(key==L"--width") {if(!Number(value,1,1280,args.width))return false;}
@@ -261,6 +262,14 @@ int Run(const Arguments& args) {
         <<",\"auto_mask\":"<<(options.autoMask?"true":"false")
         <<",\"local_structure\":"<<options.localStructure<<",\"local_tone\":"<<options.localTone
         <<",\"skin_auto\":"<<(options.skinAuto?"true":"false")<<",\"skin_strength\":"<<options.skinStrength
+        <<",\"residual\":"<<(options.residual?"true":"false")
+        <<",\"motion_vectors\":"<<(options.motionVectors?"true":"false")
+        <<",\"motion_sign\":"<<options.motionSign<<",\"motion_scale\":"<<options.motionScale
+        <<",\"constant_depth\":"<<options.depth<<",\"backend\":"<<options.backend<<",\"app_id\":"<<options.appId
+        <<",\"fovea_shape\":"<<options.foveaShape<<",\"feather_pixels\":"<<options.featherPixels
+        <<",\"outer_enabled\":"<<(options.outerEnabled?"true":"false")
+        <<",\"outer_scale_percent\":"<<options.outerScalePercent<<",\"outer_pack\":"<<(options.outerPack?"true":"false")
+        <<",\"log_frames\":"<<options.logFrames
         <<",\"fovea_percent\":100,\"viewport_percent\":100,\"model_atlas_width\":"<<atlas_width
         <<",\"model_atlas_height\":"<<atlas_height<<",\"model_atlas_pixels\":"<<atlas_width*atlas_height
         <<",\"warmup_iterations\":"<<args.warmup<<",\"measured_iterations\":"<<args.iterations

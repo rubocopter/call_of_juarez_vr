@@ -27,6 +27,7 @@
 #include "games/call_of_juarez/duel_input.hpp"
 #include "games/call_of_juarez/native_settings_bridge.hpp"
 #include "games/call_of_juarez/input_dispatch_diagnostics.hpp"
+#include "games/call_of_juarez/mounted_motion_observer.hpp"
 
 #include <array>
 #include <cstdint>
@@ -472,6 +473,7 @@ public:
     [[nodiscard]] bool TryObserveMotionReloadWeaponClassName(int hand,
         const char*& class_name) noexcept;
     [[nodiscard]] bool TryObserveMounted(bool& mounted) noexcept;
+    [[nodiscard]] bool TryObserveMountedMotion(CoJMountedMotionSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveStationaryWeapon(CoJStationaryWeaponOwner& owner) noexcept;
     [[nodiscard]] bool TryObserveStationaryAim(CoJStationaryAimRay& ray,std::string* error=nullptr) noexcept;
     [[nodiscard]] bool TryDispatchStationaryAim(CoJStationaryWeaponOwner owner,runtime::Vec2 degrees,

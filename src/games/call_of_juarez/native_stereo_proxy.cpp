@@ -8,6 +8,7 @@
 #include "games/call_of_juarez/independent_render_scope.hpp"
 #include "games/call_of_juarez/independent_resolution_recipe.hpp"
 #include "games/call_of_juarez/temporal_source_probe.hpp"
+#include "games/call_of_juarez/theater_fallback_reason.hpp"
 #include "backends/d3d9/hdr_source_writes.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
@@ -1698,8 +1699,10 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         const bool presentation_valid=
             cojvr::games::call_of_juarez::ObserveCameraGamePresentationOwner(presentation);
         const bool presentation_blocked=presentation.blocked();
-        const bool immersive_movie=presentation_valid && presentation.immersive_movie_allowed() &&
+        const bool immersive_selected =
             cojvr::runtime::CurrentCinematicMode()==cojvr::runtime::CinematicsMode::immersive;
+        const bool immersive_movie=presentation_valid && presentation.immersive_movie_allowed() &&
+            immersive_selected;
         // Native menus use current presenter capture, including its release
         // barrier. A previous stereo frame snapshot cannot latch this gate
         // after death/pause prevents further stereo admission.
@@ -1743,14 +1746,20 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             std::ostringstream entered;
             entered << "native_stereo_flat_theater: status=entered source="
                     << (source ? source : "unknown")
-                    << ";reason="
-                    << (presentation_blocked && !immersive_movie ? "native_blocking_presentation" : "native_stereo_stale")
+                    << ";reason=" << cojvr::games::call_of_juarez::CoJTheaterFallbackReasonName(
+                        cojvr::games::call_of_juarez::ClassifyCoJTheaterFallback(
+                            presentation, presentation_valid, immersive_movie, settings_captured,
+                            g_stereo.flat_ui_select_release_required))
                     << ";owner_observed=" << presentation_valid
                     << ";owner_valid=" << presentation.valid
                     << ";player_alive=" << presentation.player_alive
                     << ";mission_end_visible=" << presentation.mission_end_visible
                     << ";movie_playing=" << presentation.movie_playing
+                    << ";immersive_selected=" << immersive_selected
                     << ";immersive_movie=" << immersive_movie << ";stereo_fresh=" << stereo_fresh
+                    << ";settings_captured=" << settings_captured
+                    << ";ui_release_required=" << g_stereo.flat_ui_select_release_required
+                    << ";owner_epoch=" << present_owner_epoch
                     << ";timer_valid=" << timer_valid << ";timer_frozen=" << timer_frozen;
             LogLine(entered.str());
         }

@@ -1,5 +1,10 @@
 # Standalone Neural laboratory
 
+**Deferred / experimental, default Off.** The operator judges the current visual
+benefit insufficient; the live candidate's cadence/quality remain rejected.
+Retain this laboratory for explicit developer use. The commands below document
+the existing capability and do not request another physical candidate.
+
 This developer-only x64 companion processes stereo color pairs for the x86 D3D11
 laboratory and an explicitly opted-in CoJ candidate. It is not included by the
 player installer. It does not implement Super Resolution, DLAA or frame generation.
@@ -116,7 +121,8 @@ ctest --test-dir build/neural-host -C Release -R neural_image_lab_cli --output-o
 build/neural-host/Release/CoJNeuralImageLab.exe --runtime C:/local-runtime --input C:/local-input/pair.rgba --output C:/local-output/new-pair.rgba --width 512 --height 512 --scale100 --warmup 4 --iterations 32
 ```
 
-Choose exactly one of `--scale25`, `--scale50`, `--scale100`; it is the only
+Choose exactly one of `--scale-percent 25..100`, `--scale25`, `--scale50`,
+`--scale100`; aliases and percentages cannot be combined. This is the only
 model reduction and there is no preceding transport resize. Zero effective eye
 extents after scale/even rounding are rejected. Accepted CLI dimensions are not
 model-shape qualification: real-model controlled crop inputs at 256, 384 and
@@ -128,8 +134,20 @@ the model preset hint. For a controlled comparison of the operator's preferred
 settings on the existing real-game face crop, use `--scale100 --style 2 --preset 1
 --intensity 80`. The requested values and fixed pass count appear in JSON. This
 profile is experimental, not a new default or a live performance/quality preset.
-Actual still-image variants and repeatability evidence are in ignored
-`work/neural-human-cinematic-20261030/`.
+The later operator-supplied Deus Ex profile specifies 60% scale, 90% intensity,
+one pass, Cinematic and runtime preset *Default*. Use `--scale-percent 60
+--style 2 --preset 0 --intensity 90` as a comparison hypothesis; the external
+menu's Default-to-0 and Cinematic-to-2 mappings have not been independently
+verified against that application's selector. Do not silently replace 60 with 50.
+JSON additionally records residual, motion/depth, backend/app ID, foveation and
+logging options. Static laboratory poses do not exercise estimated motion.
+Logging is intentionally 0 here rather than the reported 3 frames.
+
+The 400px elliptical feather is measured in supplied-image pixels. A full-eye
+setting is therefore not visually equivalent when copied onto a small face crop;
+with 100% centre, the inscribed ellipse still excludes corners and fades inward.
+Periphery scale/packing do not add a peripheral model pass when outer is disabled.
+Raw comparisons and reproducibility metadata belong under ignored `work/`.
 
 The JSON timing covers CPU wall time for pair upload, model and blocking readback,
 with initialization/warmup excluded. It excludes game rendering, selection,

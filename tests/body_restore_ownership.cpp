@@ -157,6 +157,23 @@ void MountedYaw(){
     Check(b.TryRotateHorizontally(5,nullptr)&&actor_turns==2,
         "mounted HMD guard disabled the explicit rider-look/native callback route");
 }
+void MountedTraceEntry(){
+    g_mounted_trace_budget={};
+    for(std::uint64_t i=1;i<=2048;++i)
+        Check(g_mounted_trace_budget.Admit(true,true,i,i*100000),"could not exhaust mounted trace fixture");
+    g_command={};g_command.movement_trace_enabled=false;
+    g_next_control_poll=std::numeric_limits<ULONGLONG>::max();
+    g_original_render_view=reinterpret_cast<RenderViewFn>(&Natural);
+    HookRenderViewImpl(nullptr,nullptr,nullptr);
+    Check(!g_mounted_trace_budget.exhausted()&&g_mounted_trace_budget.attempts()==0,
+        "tracking-disabled render return failed to process trace disable");
+    g_command.movement_trace_enabled=true;
+    HookRenderViewImpl(nullptr,nullptr,nullptr);
+    Check(g_mounted_trace_budget.attempts()==0&&g_mounted_trace_budget.Admit(true,true,1,100000),
+        "tracking-disabled render consumed or retained old mounted diagnostic budget");
+    ShutdownCameraProbe();
+    Check(g_mounted_trace_budget.attempts()==0,"camera shutdown retained mounted diagnostic interval");
+}
 void MountedPlayerReference(){
     auto& b=g_java_player_bridge;
     g_body_yaw_owned=true;g_body_yaw_generation=7;g_body_owned_yaw_degrees=30;
@@ -328,5 +345,5 @@ void Arm(){
     Check(b.ResolveBeingMethods(&env_holder,&new_actor,nullptr),"verified arm restore still blocked replacement");
 }
 }
-int main(int argc,char** argv){Bind();if(argc>1&&std::string(argv[1])=="reference")MountedPlayerReference();else if(argc>1&&std::string(argv[1])=="yaw")MountedYaw();else if(argc>1&&std::string(argv[1])=="arm")Arm();else {PelvisApply();Pelvis();}
+int main(int argc,char** argv){Bind();if(argc>1&&std::string(argv[1])=="trace")MountedTraceEntry();else if(argc>1&&std::string(argv[1])=="reference")MountedPlayerReference();else if(argc>1&&std::string(argv[1])=="yaw")MountedYaw();else if(argc>1&&std::string(argv[1])=="arm")Arm();else {PelvisApply();Pelvis();}
 std::cout<<(failures?"FAILED":"PASS")<<" body restoration production/JNI fixture\n";return failures?1:0;}

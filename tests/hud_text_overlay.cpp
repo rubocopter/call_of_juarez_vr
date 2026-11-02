@@ -359,6 +359,36 @@ int main(int argc, char** argv) {
     guide.head_corners[0].x=std::numeric_limits<float>::quiet_NaN();clear_world();
     Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,"invalid ammo geometry retained optional pixels");
+    // The bow guide is bound to the current physical bow owner at presenter time.
+    guide.head_corners={{{-.2F,.1F,-.6F},{.2F,.1F,-.6F},{-.2F,-.3F,-.6F},{.2F,-.3F,-.6F}}};
+    guide.kind=GestureGuideKind::bow_string;guide.state=0;
+    overlay.bow_feedback.owner_token=72;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,0,72),"bow guide draw failed");
+    const auto bow_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(bow_left!=resized_world&&bow_left!=guide_left&&bow_left!=ammo_left&&
+        bow_left!=ReadEye(device.Get(),context.Get(),targets[1].Get()),
+        "bow string guide requires distinct stereo GPU pixels");
+    guide.state=1;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,0,72)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())!=bow_left,
+        "near bow string contact must change its pixels");
+    for(const auto owner:{0ULL,73ULL}){clear_world();
+        Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,0,owner)&&
+            ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+            "missing or replaced bow owner kept a captured guide");}
+    clear_world();Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,false,0,72)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+        "disabled guide preference retained bow pixels");
+    overlay.eyes[1].eye_to_head.position_valid=false;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,0,72)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world&&
+        ReadEye(device.Get(),context.Get(),targets[1].Get())==resized_world,
+        "invalid second eye retained monocular bow pixels");
+    overlay.eyes=valid_eyes;
+    guide.head_corners[0].x=std::numeric_limits<float>::quiet_NaN();clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,0,72)&&
+        ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+        "invalid bow corner retained optional pixels");
     overlay.text.hint=Text(u"Native hint");clear_world();
     Require(DrawGuideGate(compositor,device.Get(),context.Get(),overlay,replaced,true)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())!=resized_world,"bad optional guide starved essential HUD text");
