@@ -87,6 +87,30 @@ class ImageLab(unittest.TestCase):
         self.rejected(base + ["--scale-percent", "60", "--scale50"])
         self.rejected(self.args + ["--scale-percent", "60"])
 
+    def test_bounded_pass_count_is_parsed_before_runtime_admission(self):
+        for value in ("1", "2", "3", "4"):
+            self.rejected(self.args + ["--passes", value], 4, "runtime_dependencies")
+        for value in ("0", "5", "-1", "2.0", "+2", "", "999999999999999"):
+            self.rejected(self.args + ["--passes", value])
+        self.rejected(self.args + ["--passes", "2", "--passes", "2"])
+
+    @unittest.skipUnless(GPU, "explicit --gpu required")
+    def test_model_pass_chain_changes_pixels_and_preserves_eye_order_and_alpha(self):
+        outputs = []
+        for passes in (1, 2, 3, 4):
+            result, report = self.run_lab(self.args + ["--passes", str(passes), "--diagnostic", "edit"])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(report["passes"], passes)
+            self.assertEqual(report["successful_pairs"], 4)
+            output = self.output.read_bytes()
+            self.assertEqual(output[3::4], self.pixels[3::4])
+            self.assertNotEqual(output[:len(output)//2], output[len(output)//2:])
+            outputs.append(output)
+            self.output.unlink()
+        self.assertNotEqual(outputs[0], outputs[1])
+        self.assertLess(sum(outputs[1][0::4]), sum(outputs[0][0::4]))
+        self.assertEqual(self.input.read_bytes(), self.pixels)
+
     @unittest.skipUnless(GPU, "explicit --gpu required")
     def test_exact_sixty_percent_reaches_model_with_even_rounding(self):
         args = [arg for arg in self.args if arg != "--scale100"]
@@ -193,8 +217,9 @@ class ImageLab(unittest.TestCase):
         self.rejected(self.replaced("--output", str(self.root / "missing" / "out.rgba")), 3, "output_path")
         self.assertFalse((self.root / "missing").exists())
 
-    def check_success(self, mode, scale=100, runtime=None):
+    def check_success(self, mode, scale=100, runtime=None, passes=1):
         args = [arg if arg != "--scale100" else "--scale" + str(scale) for arg in self.args]
+        args += ["--passes", str(passes)]
         if mode != "model":
             args += ["--diagnostic", mode]
         if runtime:
@@ -208,9 +233,11 @@ class ImageLab(unittest.TestCase):
         self.assertEqual(report["scale_percent"], scale)
         self.assertEqual(report["fovea_percent"], 100)
         self.assertEqual(report["viewport_percent"], 100)
+        self.assertEqual(report["fovea_shape"], 0)
+        self.assertEqual(report["feather_pixels"], 0)
         self.assertEqual(report["style"], 0)
         self.assertEqual(report["preset"], 0)
-        self.assertEqual(report["passes"], 1)
+        self.assertEqual(report["passes"], passes)
         self.assertEqual(report["intensity_percent"], 60)
         self.assertTrue(report["auto_mask"])
         self.assertEqual(report["local_structure"], 1)
@@ -219,6 +246,10 @@ class ImageLab(unittest.TestCase):
         self.assertEqual(report["skin_strength"], 1)
         self.assertEqual(report["warmup_iterations"], 1)
         self.assertEqual(report["measured_iterations"], 3)
+        self.assertIn("neural_gpu_session_average_ms", report)
+        gpu_ms = report["neural_gpu_session_average_ms"]
+        self.assertTrue(gpu_ms is None or (math.isfinite(gpu_ms) and gpu_ms > 0))
+        self.assertEqual(report["gpu_timing_scope"], "d3d12_neural_layer_completed_queries_including_warmup_excluding_d3d11_ipc_compositor")
         self.assertEqual(report["successful_pairs"], 4)
         self.assertEqual(len(report["roundtrip_ms"]["samples"]), 3)
         samples = report["roundtrip_ms"]["samples"]
@@ -293,8 +324,9 @@ class ImageLab(unittest.TestCase):
         self.args = self.replaced("--height", "256")
         self.pixels = bytes((110, 135, 160, 71)) * (256 * 256) + bytes((160, 130, 110, 193)) * (256 * 256)
         self.input.write_bytes(self.pixels)
-        report, _ = self.check_success("model", runtime=MODEL_RUNTIME)
-        self.assertGreater(report["changed_rgb_bytes"], 0)
+        for passes in (1, 2):
+            report, _ = self.check_success("model", runtime=MODEL_RUNTIME, passes=passes)
+            self.assertGreater(report["changed_rgb_bytes"], 0)
 
 
 if __name__ == "__main__":

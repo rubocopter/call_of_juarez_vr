@@ -127,12 +127,21 @@ model reduction and there is no preceding transport resize. Zero effective eye
 extents after scale/even rounding are rejected. Accepted CLI dimensions are not
 model-shape qualification: real-model controlled crop inputs at 256, 384 and
 512 square are exercised; the small-input device-removal finding above remains.
-Style/preset/intensity default to the inherited 0/0/60, with exactly one pass.
+Style/preset/intensity default to the inherited 0/0/60, with one pass by default.
+The offline CLI accepts `--passes 1..4` for consecutive model evaluations with
+separate model features/history per pass. This is independent of the two eye
+renders. `--passes 2` enables a measured comparison; it does not enable a game
+presenter mode or establish binocular consistency. The model still packs both
+views into an atlas, rather than giving each eye its own model feature.
+Whole-eye coverage normalizes the inherited ellipse/400px feather request to
+an unfeathered rectangle inside DirectNR. JSON now reports those effective
+values (`fovea_shape:0`, `feather_pixels:0`); older laboratory reports showed
+the ignored requested defaults. This correction does not change output pixels.
 The CLI accepts `--style 0|1|2`, `--preset 0|1` and `--intensity 0..100`.
 Third-party NR panels label style 2 *Cinematic*; it is a separate control from
 the model preset hint. For a controlled comparison of the operator's preferred
 settings on the existing real-game face crop, use `--scale100 --style 2 --preset 1
---intensity 80`. The requested values and fixed pass count appear in JSON. This
+--intensity 80`. The effective settings and pass count appear in JSON. This
 profile is experimental, not a new default or a live performance/quality preset.
 The later operator-supplied Deus Ex profile specifies 60% scale, 90% intensity,
 one pass, Cinematic and runtime preset *Default*. Use `--scale-percent 60
@@ -143,9 +152,8 @@ JSON additionally records residual, motion/depth, backend/app ID, foveation and
 logging options. Static laboratory poses do not exercise estimated motion.
 Logging is intentionally 0 here rather than the reported 3 frames.
 
-The 400px elliptical feather is measured in supplied-image pixels. A full-eye
-setting is therefore not visually equivalent when copied onto a small face crop;
-with 100% centre, the inscribed ellipse still excludes corners and fades inward.
+An elliptical feather is measured in supplied-image pixels only when a smaller
+fovea is actually active. The whole-eye image lab does not activate that mask.
 Periphery scale/packing do not add a peripheral model pass when outer is disabled.
 Raw comparisons and reproducibility metadata belong under ignored `work/`.
 
@@ -153,7 +161,11 @@ The JSON timing covers CPU wall time for pair upload, model and blocking readbac
 with initialization/warmup excluded. It excludes game rendering, selection,
 segmentation, IPC, compositor and live load. Alpha is restored from source after
 readback. The tool labels duplicated mono inputs and never reports binocular or
-headset validation. Nonzero RGB differences do not measure improvement. Keep
+headset validation. Nonzero RGB differences do not measure improvement.
+`neural_gpu_session_average_ms` separately reports the D3D12 layer's completed
+timestamp-query average, including warmup, excluding D3D11 transfer/readback,
+IPC and compositor. Unavailable queries report null rather than zero cost.
+Neither timing is a measurement of in-game FPS. Keep
 original assets/captures and generated comparison outputs local under `work/`.
 `--diagnostic identity|edit` is explicit synthetic testing; failed real inference
 never silently substitutes either diagnostic.

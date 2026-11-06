@@ -24,7 +24,7 @@ using Clock = std::chrono::steady_clock;
 struct Arguments {
     std::filesystem::path runtime, input, output;
     unsigned width{}, height{}, scale{}, warmup=2, iterations=10, timeout_ms=60000;
-    unsigned style=0, preset=0, intensity=60;
+    unsigned style=0, preset=0, intensity=60, passes=1;
     int diagnostic=0;
     const char* mode="model";
 };
@@ -33,7 +33,7 @@ void Usage() {
         "  --width <1..1280> --height <1..1280> (--scale-percent <25..100>|--scale25|--scale50|--scale100)\n"
         "  [--warmup <1..32>] [--iterations <1..1000>] [--timeout-ms <100..120000>]\n"
         "  [--style <0|1|2>] [--preset <0|1>] [--intensity <0..100>]\n"
-        "  (defaults: style 0, preset 0, intensity 60; exactly one neural pass)\n"
+        "  [--passes <1..4>] (default 1; consecutive model passes, not stereo eye renders)\n"
         "  [--diagnostic identity|edit]\n"
         "Reduced scales must retain a nonzero even-rounded extent in each eye axis.\n"
         "Input/output: tightly packed RGBA8 encoded UNORM, entire left eye then right eye.\n"
@@ -83,6 +83,7 @@ bool Parse(int argc,wchar_t** argv,Arguments& args) {
         else if(key==L"--style") {if(!Number(value,0,2,args.style))return false;}
         else if(key==L"--preset") {if(!Number(value,0,1,args.preset))return false;}
         else if(key==L"--intensity") {if(!Number(value,0,100,args.intensity))return false;}
+        else if(key==L"--passes") {if(!Number(value,1,4,args.passes))return false;}
         else if(key==L"--diagnostic") {
             if(value==L"identity") {args.diagnostic=3;args.mode="identity";}
             else if(value==L"edit") {args.diagnostic=4;args.mode="edit";}
@@ -171,6 +172,7 @@ public:
         return SUCCEEDED(device_->GetDeviceRemovedReason());
     }
     std::uint64_t Runs() const{return neural_.Runs();}
+    double GpuMs() const{return neural_.GpuMs();}
 private:
     ComPtr<ID3D11Device> device_;ComPtr<ID3D11DeviceContext> context_;
     ComPtr<ID3D11Texture2D> image_,staging_;
@@ -204,7 +206,7 @@ int Run(const Arguments& args) {
     }
     std::vector<double> samples;
     samples.reserve(args.iterations);
-    double warmup_ms=0;std::uint64_t runs=0;
+    double warmup_ms=0,gpu_ms=0;std::uint64_t runs=0;
     // The same effective options drive initialization and JSON evidence.
     NeuralOptions options;
     options.enabled=true;
@@ -212,7 +214,10 @@ int Run(const Arguments& args) {
     options.style=static_cast<int>(args.style);options.preset=static_cast<int>(args.preset);
     options.intensityPercent=static_cast<int>(args.intensity);
     options.foveaPercent=100;options.viewportPercent=100;options.outerEnabled=false;
-    options.passes=1;options.logFrames=0;
+    options.passes=static_cast<int>(args.passes);options.logFrames=0;
+    // DirectNR normalizes whole-eye coverage to a rectangle with no feather.
+    // Report effective controls, not the ignored inherited ellipse/400px defaults.
+    options.featherPixels=0;options.foveaShape=0;
     {
         Deadline deadline(args.timeout_ms);
         ImagePass pass;
@@ -227,6 +232,7 @@ int Run(const Arguments& args) {
             samples.push_back(std::chrono::duration<double,std::milli>(Clock::now()-start).count());
         }
         runs=pass.Runs();
+        gpu_ms=pass.GpuMs();
     } // Includes cleanup in the hard GPU deadline. Never overwrite either input eye.
     File destination;
     destination.handle=CreateFileW(args.output.c_str(),GENERIC_WRITE|DELETE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
@@ -279,6 +285,11 @@ int Run(const Arguments& args) {
         <<",\"binocular_validated\":false,\"headset_validated\":false"
         <<",\"tracking\":\"controlled_identity_quaternions_symmetric_fov_radians\""
         <<",\"alpha_policy\":\"source_preserved_after_readback\""
+        <<",\"gpu_timing_scope\":\"d3d12_neural_layer_completed_queries_including_warmup_excluding_d3d11_ipc_compositor\""
+        <<",\"neural_gpu_session_average_ms\":";
+    if(std::isfinite(gpu_ms)&&gpu_ms>0)std::cout<<gpu_ms;
+    else std::cout<<"null"; // No completed timestamp query is not zero GPU cost.
+    std::cout
         <<",\"timing_scope\":\"cpu_wall_upload_pass_blocking_readback_pair_excluding_warmup\""
         <<",\"roundtrip_ms\":{\"median\":"<<median<<",\"p95\":"<<p95<<",\"samples\":[";
     for(std::size_t index=0;index<samples.size();++index)std::cout<<(index?",":"")<<samples[index];
