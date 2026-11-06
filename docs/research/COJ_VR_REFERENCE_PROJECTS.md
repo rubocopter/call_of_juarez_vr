@@ -123,6 +123,78 @@ native depth stage before expanding the helper. Only after that admission should
 the project attempt scoped jitter/motion, an atomic DLAA A/B and finally a safe
 reduced-native-raster DLSS path with measured end-to-end latency and GPU cost.
 
+### DLSS 5 VR and standalone cross-check (2026-11-05)
+
+**Terminology:** DLSS Super Resolution/DLAA reconstructs/antialiases an image;
+DLSS 5 *Neural Rendering* (NR, commonly called DLSS-NR) changes appearance,
+lighting and materials. NVIDIA describes the latter as one engine frame in and
+one frame out with game motion vectors and optional semantic/engine masks:
+[developer overview](https://developer.nvidia.com/blog/whats-new-for-game-developers-dlss-5-with-3d-guided-neural-rendering-nvidia-ace-updates-and-new-rtx-kit-capabilities/).
+Extra NR inference passes do not replace stereo eye rendering or reduce native
+scene raster work. They add GPU work and can amplify binocular or HUD defects.
+
+| Current public reference | Verified public claim | Transfer boundary for CoJ |
+| --- | --- | --- |
+| [Cheeky Foveated DLSS](https://github.com/ClarkCheekyKent/CheekyFoveatedDLSS), [releases](https://github.com/ClarkCheekyKent/CheekyFoveatedDLSS/releases) | A standalone loader or UEVR plugin foveates DLSS-SR and experimental DLSS-NR in 64-bit D3D11/D3D12/Vulkan titles with existing DLSS-SR. Includes VR eye alignment and OpenVR/OpenXR integration; NR uses a separately supplied compatible runtime. Its releases list community NR reports for Cyberpunk 2077 and Baldur's Gate 3 REAL VR, but RDR2 NR was not confirmed in the cited report. | The *standalone* distribution still hooks supported game graphics/upscaler calls. CoJ is a 32-bit D3D9 title with no native DLSS calls. Dropping its `dxgi.dll`/`version.dll` loader beside CoJ cannot by itself provide the missing source inputs or a stereo NR path. Adapt its eye alignment, history lifetime and bounded foveation *concepts* only if an actual CoJ consumer is implemented. |
+| [RDRVR](https://github.com/Disonomouss/RDRVR/blob/main/README.md) | Native per-eye **DLSS Super Resolution** with independent histories, jitter fixes, stale-frame correction and headset tests. The selectable **single-pass/two-pass** render mode describes how the *two eyes' game scenes are drawn*, not the number of DLSS 5 Neural Rendering inferences. | Strong temporal-eye and delivery reference; no public README evidence here establishes a working two-pass DLSS 5 NR path in RDR1. An anecdote about "RDR1 DLSS 5 with 2 passes" needs the exact project/build and an NR-specific GPU/headset capture before it becomes a CoJ quality reference. |
+| [OptiScaler DLSSNR VR fork](https://github.com/tig3rmast3r/OptiScaler_DLSSNR_VR) | Developed for Witcher3VR; isolates NR feature/history/resources for alternate eyes and may execute before/after SR. Requires an existing DLSS path and D3D12 colour/depth/motion inputs. Wider compatibility is experimental. | Study one-feature/history-per-eye and native HUD separation. Its D3D12 capture and NGX interception are not a D3D9/CoJ installer. |
+| [Wilsjo2 OptiScaler NR Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/blob/main/INSTALL-DLSSNR.md), [implementation](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/blob/main/OptiScaler/dlssnr/README.md) | Supports one or more **consecutive NR model passes**, each with own settings/history; pre/post SR and scaling of the model input. Requires 64-bit supported D3D11/D3D12/Vulkan route and a compatible separately supplied `nvngx_dlssnr.dll`. Two passes are an effect-strength/quality experiment, with extra GPU cost. | Use as an A/B *model-pass* reference for the existing CoJ Neural image lab; there is no claim that 2 passes are VR-safe, stereo-consistent or performant on the target headset. The standalone CoJ image lab supports one to four consecutive passes. |
+| [Wilsjo2 Display Filter preview](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases) | A separate capture/display application can process ordinary game/desktop pixels without the game exposing DLSS. Public preview validation includes synthetic/desktop GPU runs, not a CoJ headset consumer. | A useful **flat monitor / visual comparison only**. CoJ submits private left/right eye textures to OpenVR, so processing the desktop mirror does not alter the headset image. Display capture also lacks canonical per-eye pose, depth, hand masks and fresh GPU retirement guarantees. |
+| [DLSS5-VR for LukeRoss](https://github.com/eregnier/dlss5-vr) | A dual-proxy/OptiScaler bridge for **64-bit** LukeRoss R.E.A.L. VR games, principally D3D12, using an existing DLSS/OptiScaler path and OpenVR overlay. | Its automatic installer expects LukeRoss's DXGI loader and game/upscaler facilities absent from CoJ. The overlay and rollback concepts are separable; the binary/proxy is not a compatible CoJ dependency. Its author's timing examples are environment-specific, not CoJ RTX 5080 measurements. |
+| [ETS2/ATS DLAA/DLSS injection](https://github.com/JRDevo/ETS2-ATS-DLAA-DLSS-Injection-Mod) | D3D11 x64 game-specific injection, one temporal reconstruction per VR eye; identifies vehicle/object motion and supports actual lower-resolution raster. | Independent corroboration of eye history, moving-object guides, measured GPU cost and separated output resolution. It still requires game-native source ownership not exposed by a generic postprocess. |
+
+The operator identified [Cheeky v0.6.3](https://github.com/ClarkCheekyKent/CheekyFoveatedDLSS/releases/tag/v0.6.3)
+as the standalone add-on reportedly paired with RDRVR. This tag (`39bfc96`)
+adds one to three consecutive NR model passes on native D3D12 or DX12 Transport.
+The [tagged controls](https://github.com/ClarkCheekyKent/CheekyFoveatedDLSS/blob/v0.6.3/USAGE.md#experimental-dlss-nr-support)
+give each pass a separate temporal history and apply the color decode and crop
+blend once after the chain. This makes two NR inferences a concrete interpretation
+of the RDR1 report. RDRVR's D3D12/OpenXR renderer supplies a per-eye DLSS hook
+point, but its public documentation does not independently verify the reported
+combination, exact settings or headset result. RDR2 REAL VR is a separate title
+and integration. Cheeky's [tagged requirements](https://github.com/ClarkCheekyKent/CheekyFoveatedDLSS/blob/v0.6.3/README.md#requirements)
+require an active DLSS integration. They do not establish a universal exclusion
+of DLAA for Neural Rendering.
+
+For CoJ the transferable part is a bounded x64 processor with explicit per-eye
+inputs and completion, not a standalone loader beside the x86 D3D9 executable.
+Cheeky's [guide preparation notes](https://github.com/ClarkCheekyKent/CheekyFoveatedDLSS/blob/v0.6.3/docs/nr-motion-vectors.md)
+describe point sampling, full-view-to-crop motion conversion and jitter handling
+before and after SR. These are relevant once CoJ can qualify native guide content.
+The CoJ image lab now supports one to four model passes and measures their cost
+offline. It uses an atlas for the pair and does not validate Cheeky's per-view
+processing or the RDR1 configuration.
+
+**Possible external-app architecture for CoJ:** the renderer-owned
+`D3D9StereoCapture` already supplies complete native eye pairs to the D3D11
+`OpenVrStereoPresenter`. An explicitly opted-in *x64 sidecar* could receive only
+immutable GPU-owned per-eye colour, optics and exact
+`frame/pose/device/generation/settings/history` identity, invoke DLSS-NR once
+per eye (or a separately measured multipass candidate), then return a complete
+pair *before* the existing comfort/HUD/SteamVR composition. The game-specific
+adapter owns any depth, object motion and HUD masks; the renderer owns GPU-copy,
+completion and final submission. The x86/x64 DLSS-SR helper already demonstrates
+an isolated GPU IPC architecture on synthetic inputs, while the existing Neural
+helper uses a separate CPU-pixel protocol. Neither is a generic app interface
+that can be connected by installing another project's DLL.
+
+For a future sidecar, require source/result match per eye and whole-pair commit;
+preserve the original colour, alpha, HMD pose, stereo consistency and HUD;
+bound the GPU deadline to the *fresh* native frame and bypass on lateness or
+device loss. Do not hold/repeat a previous native pair to await inference:
+that was already rejected for headset image cadence. Distinguish temporary
+scene-only processing from native HUD baked into colour; the latter currently
+cannot be excluded reliably. Test one model pass first and measure full pipeline
+GPU/frame age before proposing a two-pass or foveated mode.
+
+**Decision:** these references justify a focused optional *offline* one-pass vs
+two-pass NR image-quality/performance trial and a documented future x64 sidecar
+boundary. They do **not** qualify an immediately installable third-party CoJ
+integration or a new physical candidate. The existing Neural path remains
+deferred/default Off after its negative operator quality/cadence verdict.
+DLAA/DLSS Super Resolution still follows the independently gated CoJ
+HDR-alpha/depth, motion/jitter, native render-size and atomic-present work above.
+
 ### Penumbra DirectNR comparison
 
 The operator reports that the initial working Neural experiment was exercised in

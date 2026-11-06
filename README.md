@@ -74,7 +74,9 @@ For testing, use the [current validation scope and focused checklist](docs/VALID
 
 **v0.1.0-prealpha.7** adds the graphical installer, experimental GOG detection/admission, indexed reload feedback, held-input recovery and a corrected binocular horse effect. It retains .6 and earlier features. It expands experimental manual loading, adds scoped Winchester support and revised optics, binding-aware hints and reload assistance, and optional graphics/horse comfort controls. It also revises pause/movie input, rifle triggers, mounted steering and recovery. Physical bow drawing, holsters, duels and continuous body following are retained from .5. See the [complete changes and validation limits](release/RELEASE_NOTES.md).
 
-**Experimental manual reload:** the option now admits 15 exact firearm classes, including long guns, selected-chamber loading and Schofield whole-clip loading. New paths have host tests, with only limited revolver headset evidence; this is not acceptance of every model. Use **Advanced > Manual reload Off**, then Install/update, for conventional reload.
+**Published prealpha.7 manual reload:** this package admits 15 exact firearm classes, including long guns, selected-chamber loading and Schofield whole-clip loading. New paths have host tests, with limited per-model headset evidence; this is not acceptance of every model. Use **Advanced > Manual reload Off**, then Install/update, for conventional reload.
+
+**Development source:** the checkout is ahead of that published package, with 16 exact profiles (including Henry 1863), a shared provisional reload-target guide and newer movie/finger/desktop fixes. See the [current state](docs/VALIDATION.md#current-state--6-november-2026), [physical checks](docs/VALIDATION.md#pending-headset-checks) and [remaining implementation](docs/ROADMAP.md#development-backlog). These changes do not revise archived release behavior or establish new headset acceptance.
 
 ### Detailed quickstart
 

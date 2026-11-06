@@ -368,6 +368,94 @@ coverage and same-eye full-size depth transport are still required before NGX
 presentation; finite grids alone cannot close those gates. Raw grids, shader
 hashes and sample counts remain in local evidence under `work/`.
 
+### Hardware depth candidate
+
+Archived gameplay scopes place the internal FP16 scene color and the same
+non-MSAA D24X8 depth at the full scene clear, the intermediate `1A_16` copy,
+and the later `1B_16` copy. The native renderer switches to its default depth
+between the two copies before rebinding the internal pair. This sequence makes
+the first arbitrary depth clear and the final backbuffer unsuitable sources.
+
+The optional `-SampledSceneDepth` candidate uses the pinned PPFX owner snapshot
+to match live COM identities. It substitutes INTZ immediately before the exact
+full scene clear, remaps rebinds of that retained internal depth, and samples
+the replacement at the successful full-size `1B_16` copy. It preserves the
+native D24X8 stencil-disabled scope and restores the original binding after
+the wrapper. A private D3D9Ex shader writes three integer depth bytes to RGB of
+an FP16 shared texture. A single FP16 channel would collapse depth values near
+the far plane. Completion uses a producer event query, and the bounded probe
+reports an 8×8 point grid of device-Z integers with eye, frame, pose, owner and
+generation. The sampled grid is coarse evidence for coverage investigation.
+
+The host GPU fixture exercises the clear, intervening depth rebind, terminal
+copy, packed-depth readback and scoped restoration with controlled surfaces.
+Real NGX DLSS Quality accepts similarly captured D3D9Ex depth and color through
+the D3D11 guide generator in a separate paired fixture. Actual CoJ material
+coverage, same-frame color/depth admission and rendering stability await a
+fresh manual run. The probe produces no reconstructed presentation output.
+
+The first exercised hardware-depth candidate rejected every selected source
+before clear substitution. Its original generic rejection omitted the failed
+predicate. The revised acquisition diagnostic preserves the exact rejection
+and initialization HRESULT, hook continuity, frame/pose/device identity and the
+same structural snapshot used for the decision. A bounded first-eye snapshot
+also records manager, effect and terminal identities. Host GPU coverage includes
+the scene transaction at 2560×1440.
+
+The subsequent diagnostic correlates valid PPFX structure, matching native/COM
+device identity and `D3DERR_NOTAVAILABLE` during initialization. Device creation
+requests `0x50`, combining hardware vertex processing with
+`D3DCREATE_PUREDEVICE`. The latter prevents the state-query contract required
+by this capture and reproduces the capability rejection on the same GPU.
+The opt-in startup factory policy removes that bit before both classic creation
+and the Ex bridge/fallback. Every other flag is preserved, with requested and
+effective creation flags recorded separately. Host tests exercise both opt-in
+states and both creation routes, then the full packed-depth capture and
+synthetic NGX fixture. The corrected candidate supplies live paired hardware-Z
+readbacks with matching frame/pose/owner/generation and confirmed non-pure
+device flags. This is bounded source-delivery evidence.
+
+The optional diagnostic additionally retains joint point-sampled scene-color
+and packed-depth previews at that same successful copy. Both private FP16 planes
+are fenced together and stay immutable under the capture lease. Their largest
+axis is 512 pixels, with nearest-point sampling and original-size metadata.
+Manifest-last export preserves native color bytes and integer-byte packed Z
+under the current run; collection inventories the files. GPU fixtures cover
+aligned patterns at native and reduced preview sizes, source reuse, state
+restoration and retained lifetime. Collected previews show color/depth
+correspondence in the exercised outdoor scene for native hands/weapons, people,
+horse, ground, structures, alpha-cutout vegetation and sky. This does not
+qualify other transparent effects or native motion vectors.
+
+Real NGX Quality accepts the reduced raw CoJ color plus decoded hardware Z in
+an offline pair evaluation. Each pair starts fresh history with zero motion
+and full current-color bias. This establishes format/model compatibility.
+These previews remain outside the production temporal-input, continuous-history,
+presentation and performance contracts.
+
+### Scene color is not final presentation color
+
+The original `scene30.ppfx` recipe places the sampled `1B_16` boundary before
+HDR tone mapping. `HDR/HDR.mat` consumes that color and the adapted `1x1_16`
+luminance texture, writes bounded display color into `1B`, and puts a glow mask
+in output alpha. Glow and further postprocessing follow. The original material
+uses scene-dependent white luminance and glow threshold; finite FP16 values or
+a static color range cannot recover those dynamic inputs.
+
+This is an authored-recipe finding, checked against original archive bytes; it
+does not prove which optional effect branches run in every scene. The bounded
+live worker audit confirms immutable transport and exact center samples at this
+source, not equivalence with final headset pixels. Current NGX client inputs use
+the LDR contract, so accepting raw `1B_16` in an offline inference is format/model
+evidence rather than a qualified display-color integration.
+
+A presentation consumer must either associate final native display-color capture
+with the same depth, eye, frame, pose and postprocess/HUD family, or retain the
+exact HDR representation and native downstream tone-map/composition contract.
+Do not substitute guessed exposure/gamma or route the sampled raw scene directly
+to the compositor. Continuous motion/history and reduced native raster remain
+separate requirements.
+
 ## Remaining Q0 work and implementation order
 
 The optional resource diagnostic now includes a bounded structural reader in

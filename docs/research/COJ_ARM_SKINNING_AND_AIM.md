@@ -687,12 +687,30 @@ retain native fingers. A bounded rifle-support exception now admits controller
 curls for the logically empty left hand only when the right `WeaponRifle`
 already owns an active/applied/valid scoped visual map. Repeated observations
 must match that right actual/active/desired weapon, normal state 1 in all four
-right state getters, null left weapons/empty state 0 and coherent per-hand
-two-hand flags. Carrying, native reload, manual ownership, death, transition,
+right state getters, null left active/actual weapons, empty state 0 and coherent per-hand
+two-hand flags. Carrying, active native reload/manual ownership, death, transition,
 replacement, shared active aliases and JNI faults reject. The original
 `HasSomethingInHand` includes opposite-hand two-hand occupancy; this exception
 does not redefine it or alter either weapon's native gameplay ownership.
 The existing fifteen-finger transaction and restoration remain the only writer.
+The original `CheckDesiredWeaponState` two-hand branch clears the opposite
+hand's desired state, duration and two-hand flag without clearing its stored
+desired weapon pointer. `GetActualWeaponNotEmpty` independently returns null
+when that hand's state machine is empty. Therefore the bounded rifle exception
+also admits an inactive left desired reference, but only while all four left
+states remain zero, active/actual references are null and both repeated native
+ownership checks agree. An ordinary free hand still requires a null desired
+reference. This corrects a host-reproduced false rejection of controller curls;
+it does not authorize an active/pending equip, alternate state or native reload,
+and physical recovery of the reported frozen index remains unverified.
+An additional host-reproduced rejection exists after native manual completion:
+`manual_reload_owned_` may retain a cleanup obligation after the probe reaches
+status4 and the session is ready. That flag alone no longer vetoes idle-rifle
+support curls. Only positively observed status4 before/around repeated complete
+idle owner/state proofs admits the exception; status0/1/2/3, unavailable reads,
+replacement, native attack/reload and restore faults remain excluded. The cleanup
+obligation itself is preserved. This addresses retirement ownership, not the
+reported skin shape during active loading, which remains physically unresolved.
 The attached bimanual rifle grip is a separate frame path: it prepares the
 weapon, binds the retained native support contact, maps both parent hands and
 then commits the weapon child. Previously it did not forward the left controller
@@ -704,9 +722,11 @@ two native idle/ownership reads still fails closed on fire/alternate/reload,
 replacement, carrying, death, invalid tracking or JNI failure. The same hand
 overlay restores all twenty original bone frames; physical pose acceptance
 remains pending.
-The operator confirms the normal-state free-hand appearance after retesting
-the candidate. Native fire/alternate/reload states are not retargeted by this
-exception; broader transitions and other setups remain separate gates.
+An earlier retest accepted normal-state free-hand appearance in its exercised
+context. Later feedback again reports a support-like/upward index pose, so that
+observation does not establish stable recovery or active-load skin presentation.
+Native fire/alternate/reload retain their own ownership; only the positively
+qualified manual-support route below may map fingers during opening/wait.
 An admitted persistent manual opening/wait instead uses
 the same-owner reload-recovery exception for empty support fingers; carrying,
 replacement, death and failed reads still reject it. Its pinch requires a held

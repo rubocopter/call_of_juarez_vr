@@ -1,7 +1,9 @@
 Call of Juarez VR 0.1.0-prealpha.7 - experimental player package
 Experimental community-testing prerelease
 
-These instructions describe a package containing cojvr-gui.ps1. Older downloaded
+These instructions describe a package built from this source checkout, containing
+cojvr-gui.ps1. Source may be ahead of the published version with the same base
+version string; the package manifest binds its actual contents. Older downloaded
 archives may still open the numbered launcher; use the README included with
 your particular ZIP. This .7 player package opens the graphical installer.
 
@@ -23,14 +25,22 @@ Back up your saves before testing. This package does not promise support or
 campaign completion. Read RELEASE_NOTES.md before installing.
 
 This release is cumulative from .5 and earlier versions. It expands experimental
-manual loading to 15 exact firearm classes, adds scoped Winchester support and
-revised optics, binding-aware floating hints, reload assistance and optional
+manual loading to 16 exact firearm classes, including the original Henry 1863
+alias, adds scoped Winchester support and revised optics, binding-aware floating
+hints, reload assistance and optional
 graphics/horse comfort controls. Pause/movie input, rifle triggers, mounted
 steering and recovery also change. Bow drawing, holsters, duels and continuous
 body following are retained from .5. Auto remains the missing resolution
 preference; manual reload starts on for fresh installs and updates preserve it.
 Earlier projection/stereo corrections and archived verdicts remain unchanged.
 RELEASE_NOTES.md lists changes since .5 and their acceptance limits.
+
+Newer source also includes a shared provisional reload-target guide for every
+admitted profile (including Schofield), idle-rifle finger recovery after native
+reload completion, stable immersive presentation after harmless skip refusal,
+and qualified headset-only output with a black game window. These revisions
+have host tests and await their relevant headset checks. Published ZIPs retain
+the behavior documented inside their own README and immutable release notes.
 
 IMPORTANT: NEW MANUAL RELOAD PATHS ARE EXPERIMENTAL. Earlier single-round
 revolver loading and base Schofield whole-clip loading have scoped functional
@@ -44,8 +54,10 @@ Current validation: the 27 October PS VR2 Steam session accepts encountered
 campfires/environmental effects and the corrected horse peripheral effect.
 Mounted steering remains difficult; holding R1 also invokes native gallop and
 increases speed. This does not establish reduced nausea or general comfort.
-Winchester insertion requires a precise small target and its support hand can
-adopt unnatural poses; these ergonomics remain unresolved. Scoped shot agreement
+Winchester insertion still uses a provisional grip-centred target and its
+support hand can adopt unnatural poses; these ergonomics remain unresolved.
+The guide marks the actual gesture centre, not a newly aligned loading mouth.
+Scoped shot agreement
 and head-yaw isolation remain separate gates. The latest canonical telemetry
 profile rejects its eye-baseline comparison; scoped operator feedback does not
 override that verdict. See Validation and Roadmap in the corresponding source.
@@ -156,7 +168,7 @@ Experimental duel controls: center the right stick after entering the duel;
 place the right hand at the hip and pull down to draw when the game allows,
 then physically raise the hand and push up to raise the weapon. Left/right
 stick aims in the native duel; triggers retain native firing. Ordinary
-turning yields during duels. Clyde draw/raise and tracked aim/fire have scoped
+turning yields during duels. Clyde draw/raise/fire have scoped
 operator confirmation, including tested rejection of incorrect/cheating
 postures. Broader duel/retry behavior remains unqualified.
 Concentration outside duels retains its original activation requirements.
@@ -175,8 +187,8 @@ to detach; Square cancels support and prepares the selected reload mode.
 Manual loading requires the support hand empty and L1 support released;
 freshly regrip after closing. Enable weapon guides to locate contact. Corrected
 Remington grasp and scoped Winchester grip/fire have exercised acceptance.
-Ordinary Winchester R2 now requests fire rather than basic zoom, but was not
-retested in the latest session. The large R3 scope/reticle has scoped acceptance;
+Ordinary Winchester R2 firing has scoped operator acceptance. The large R3
+scope/reticle has scoped acceptance;
 the new controller-only scope/body-yaw correction is host-tested only.
 Mounted Gatling: R2 fires; right stick aims horizontally and vertically.
 Exercised firing/traversal works; precise aiming and recovery remain open.
@@ -413,16 +425,24 @@ KNOWN LIMITATIONS
   is misaligned and remains rejected. Scope-exit recovery is still open.
 - Ordinary Winchester manual insertion misses the visible loading mouth and is
   awkward in the exercised session; it requires measured port/contact geometry.
-- Horse riding caused severe nausea/speed/motion. The peripheral comfort mask
-  looked unfused with the setting enabled, so the operator switched it Off.
-  The saved diagnostics only sample Off and cannot explain the enabled mask.
-- Floating reload hints have a host-tested icon-expiry correction. Physical stability,
-  binding-aware readability and immersive skip require physical checks.
+- Horse steering/sign/speed still caused nausea and remains unresolved. The
+  corrected peripheral mask has scoped visual acceptance; that does not qualify
+  mounted comfort. Do not force an unchanged nausea-inducing test route.
+- Weapon Guides shows one provisional insertion target while ammunition is
+  carried, cyan until policy readiness and green when ready to release. This
+  agrees with the current grip-centred gesture, not a precise physical port.
+  Floating hints and newer owner/deadline/skip-refusal fixes await headset checks.
+- A black monitor while VR presents is host-tested for the qualified single
+  primary non-MSAA DISCARD D3D9 chain. Native output remains available during
+  startup, loss or unsupported layout. Actual headset preservation/pacing is
+  unqualified. Keep the game window focused; it is not hidden or minimized.
 - Spatial graphics controls retain host coverage. The corrected horse effect
   has scoped visual acceptance; broader comfort remains open. DLAA/DLSS requests
   leave game rendering native; no reconstruction or performance gain is claimed.
-- Native tutorial windows still show keyboard labels. Use the controls guide
-  above; R3 zoom, Ray concentration and Circle/alternate fire are different actions.
+- Exact EN alternate-fire/duel tutorial bodies have adapted action wording;
+  other native resources can retain PC labels. Optional contextual duel coaching
+  is EN/ES and leaves countdown/input permissions unchanged. R3 Focus, Ray
+  concentration and Circle/alternate fire remain different actions.
 - OpenXR, D3D10, Bound in Blood and Gunslinger are outside this prerelease.
   The rejected independent eye RT prototype and investigation probes remain off.
 - Pico 4/Virtual Desktop rhythmic stutters reported in issue #5 remain

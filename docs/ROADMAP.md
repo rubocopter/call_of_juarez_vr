@@ -8,141 +8,86 @@ acceptance or supported hardware.
 
 ## Current gate
 
-As of **2 November 2026**, development remains focused on the native VR adaptation.
-Neural/DirectNR is deferred at the operator's request: retained as an optional,
-default-Off developer experiment, with no worthwhile visual gain accepted and
-live cadence/quality rejected. Neither facial tuning nor another Neural headset
-candidate is on the active sequence. Ordinary preparation stages no Neural
-dependencies. DLAA/DLSS and independent resolution remain separate, unqualified
-rendering tracks; none is a prerequisite for core VR progress.
+As of **6 November 2026**, the active target remains the original Steam CoJ
+(2006), Windows x86, native D3D9 stereo through OpenVR/SteamVR. The exact tested
+GOG build has experimental functional acceptance; it is not a second fully
+supported target. Physical acceptance remains scoped to exercised PS VR2 Sense
+contexts. [Validation](VALIDATION.md#current-state--6-november-2026) owns verdicts;
+the [pending checklist](VALIDATION.md#pending-headset-checks) owns physical tests.
 
-The 26 October public `.6` PS VR2 session accepts ordinary Winchester R2
-firing, but rejects its current manual insertion ergonomics, scoped Winchester
-zoom reticle/actual bullet-impact agreement and mounted comfort. The operator
-reported an unfused horse mask in .6. The later 27 October Steam session
-accepts the corrected peripheral effect and encountered campfires/world effects;
-steering remains difficult and appears more responsive with R1 at higher speed.
-The reload clip confirms awkward precise insertion and intermittent unnatural
-support-hand poses. The completed telemetry profile still rejects its eye-baseline
-comparison. Experimental compatibility of the exact tested GOG build now has
-operator functional acceptance, including Steam saves; it shares the same mod
-and does not establish a second fully supported target. [Validation's snapshot and
-checklist](VALIDATION.md#pending-headset-checks) own these physical boundaries.
-The next combined candidate should target measured horse motion/comfort
-ownership, a properly located Winchester loading mouth and scope ballistics,
-alongside outstanding head-yaw isolation, reload recovery and eligible fixes.
-Host verification cannot promote these headset verdicts.
+Current source already implements and host-tests these changes:
 
-The latest extended PS VR2 session additionally confirms functional manual
-reload, one arrow per bow gesture, skippable movies, correct subtitle and
-continuation behavior, intact encountered HUD/effects, and successful
-secret-scroll chest pickup. A sustained upward-pointing/free LEFT index pose
-intermittently recurs with long guns. Horse control still feels too fast,
-occasionally turns opposite the intended input and induces substantial nausea;
-immersive movie selection sometimes falls back to theater. The inventoried
-mounted trace records high cached native velocities and turn persistence but
-does not prove real rider displacement or a sign error. Finished reload traces
-observe accepted native transfers while visible insertion contact remains
-offset. The source now includes an optional, host-tested native-`DArrow`-nock
-bowstring locator; its real string alignment and comfort await a new physical
-candidate. Small firearm loading-mouth circles still require measured,
-phase/owner-qualified opening anchors. Do not require replay of accepted scroll,
-Gatling, duel, bow basic, HUD or death gates.
+- Sixteen exact manual firearm profiles, including the pinned Henry 1863 alias;
+  unit, retained-index and native clip accounting remain separate.
+- One optional insertion-policy target guide for every admitted manual profile,
+  including Schofield. The conflicting measured-mouth circles are withdrawn.
+  The active target still uses the provisional grip zone; precise mouth contact
+  is not implemented or accepted.
+- Recovery of idle-rifle support fingers after positively confirmed native reload
+  completion, while preserving retained cleanup responsibility. This does not
+  resolve the reported skin pose during active loading.
+- Stable camera-only stereo after a refused skip with unchanged movie ownership;
+  actual native key attempts still retire the old image. Native permission,
+  sequence identity and blockers remain authoritative.
+- Conditional desktop blackout around native Present with saved-pixel restoration,
+  qualified capture/output progress and native fallback on uncertainty.
+- Passive monitor tracking reads that preserve pending pause/UI actions, and
+  captured world anchors for native hints/mission notices with binocular fitting.
+  Zoom-to-pause and ordinary reading stability now have scoped local headset
+  acceptance; the separate Quest report does not change the accepted local pose.
+- Contextual EN/ES duel coaching, a pinned EN paused-tutorial overview, a small
+  native-nock bow guide, and separate Movie/skippable-sequence subtitle ownership.
 
-Continue offline engineering by dependency: native owner and phase evidence,
-then measured weapon geometry/hand contact, followed by narrowly admitted
-mechanics. The exact-family inventory below distinguishes runtime-integrated
-features from observers and separately verified laboratory derivatives.
+These changes are already implemented; remaining physical checks and scoped
+acceptance are recorded in Validation. The revised larger, lower centered subtitles retain
+their exercised readability acceptance. Functional manual transfers, bow firing,
+correct duel posture, ordinary HUD/menus, secret-scroll pickup, Gatling and
+cinematic recovery remain accepted only in their recorded contexts. Later
+skip/flicker, fingers, insertion and mounted complaints remain unresolved.
 
-For DLAA/DLSS, verify source-owned per-eye color/depth and material coverage
-before further reconstruction work; no game image reconstruction is active.
-Independent-resolution B0 remains rejected/default-off. The current incremental
-package line is `v0.1.0-prealpha.7`, carrying the accumulated source batch with
-its documented experimental limits. Archived `.5` artifacts remain unchanged.
-Accepted functionality stays scoped to the evidence in Validation. Candidate
-identities and run histories remain in ignored `work/`.
+Source and a locally staged candidate may be ahead of published prealpha.7.
+Run IDs, exact build/test results, installed hashes and operator checklists stay
+under ignored `work/`; this roadmap does not identify the active installation.
+Public release notes retain the behavior of their original packages.
 
 ## Development backlog
 
-The next implementation sequence is:
+The next implementation work is distinct from testing the changes above:
 
-| Order | Concrete next step | Current boundary / completion condition |
+| Priority | Remaining implementation | Required boundary / completion condition |
 | --- | --- | --- |
-| 1 — mounted controls | Correlate R1/gallop and lateral reins with native gait, cached velocity, actual rider heading and camera yaw before changing steering or speed. | A bounded read-only native observer and inventoried offline correlation analyzer have 658 earlier mounted observations, including large cached velocity and persistence after neutral. A source-only optional spatial extension now captures player/camera world endpoints and natural camera yaw for later evidence. No physical run has exercised it; actual rider displacement and right/left sign convention remain unresolved. The operator again rejects comfort. Preserve accepted peripheral-mask presentation and native permissions. |
-| 2 — reload ergonomics | Use Winchester and Remington/SawOff observers to establish displayed opening clearance and cartridge-tip approach in each native reload phase. Add optional small reload-mouth circles only after this anchoring is verified. | Finished run observes 100 accepted insertion events across unit/indexed/clip modes; that does not establish visible contact. Geometry is host-tested but tip/mouth correlation is sparse; the generic 14 cm grip zone remains provisional. Preserve unit native writes and safe miss/retry/close recovery. |
-| 3 — scoped aiming | Correlate the fired native trajectory/impact with the optical ray and qualify the existing HMD-yaw isolation correction. | Finite-depth optical parallax is characterized; the cause of the reported miss remains unobserved. No arbitrary reticle offset or changed native spread. |
-| 4 — hand and movie ownership | Verify the prepared-rifle left-finger fix in headset, correlate any remaining intermittent free-left-index freeze with native/VR ownership and long-gun phases, then investigate intermittent theater during selected Immersive movies. | Offline code inspection found that the attached long-gun path omitted left finger data and the existing eligibility gate required an already committed child weapon while parent hands were mapped first. The prepared, retained-rifle exception and left finger forwarding now pass host/JNI checks, including native reload/alternate and identity-loss rejection; no new headset acceptance. Finished movie evidence shows natural stale-stereo and native-blocking fallbacks. Fallback entry diagnostics now distinguish observation, blocker, release, settings and queue freshness with selected mode/owner epoch; host checks pass, and causality still needs real movie evidence. |
-| 5 — stability and presentation | Resolve canonical eye-baseline evidence, then batch eligible held-input/focus/loading/reload recovery and graphical HUD work. Physically assess the optional native-nock bowstring locator in the current combined candidate. | Native `DArrow` nock owner/pose capture and head-relative projection now produce a bounded 3.6 cm source-only locator, with preference, pose, owner, gameplay/stereo and restoration gates. Bow gesture, raster, compositor and geometry host checks pass. The current staged candidate includes the marker; optical placement, readability and comfort remain unqualified in headset. Host corrections and accepted gameplay stay distinct. |
+| 1 — real reload contact | Build a read-only current input-space preview of measured weapon mouths and displayed cartridge tip, then connect a qualified proximity/approach target. | Bracket current player/object/generation/native phase without retaining or applying a render overlay before insertion. Establish opening clearance and indexed port correspondence. Replace the rejected grip-centred acceptance only when these agree; guide honesty alone is not this fix. Preserve native transfers and miss/close/regrip recovery. |
+| 2 — hand fit and loading pose | Resolve remaining long-gun grip intersections and the support-like index pose during active reload. | Correlate final hand/socket/distal-index frames, actual finger mapping and native phase with visible skin. The terminal cleanup fix only covers recovery after completion; no arbitrary curl or grip offsets. Qualify contact/occlusion separately. |
+| 3 — movie ownership and stability | Attribute remaining Immersive-to-theater fallback and any residual button-triggered flicker/non-skip. | Use the new dispatch outcome/fallback identity to distinguish native refusal, target loss, image retirement and actual submission. Do not force-end an unskippable scene or reuse an image after a native mutation. Preserve accepted subtitle readability. |
+| 4 — mounted steering and comfort | Establish reins sign, gait/speed and rider-camera ownership before changing movement. | Stationary LEFT reversal, excessive speed and nausea remain rejected. Correlate actual rider heading/displacement and natural camera yaw with native requests and R1/gallop. Existing cached velocity alone proves no sign error or comfort improvement. Preserve the accepted peripheral mask. |
+| 5 — scoped shot agreement | Correlate native fired trajectory/impact with optical ray and qualify head-yaw/Focus isolation. | Reticle/actual impact remains rejected; no guessed reticle offset or native spread change. Controller-only rendering and body-yaw freeze are host-tested, not a physical solution. |
+| 6 — recovery and presentation | Complete graphical HUD capture, event-free physical-walk/turn leg motion, broader transport/retry recovery and measured pacing. | Per-eye alpha/depth/material ownership, scoped native write/restore and exact capture/device generation remain prerequisites. Resolve the canonical eye-baseline discrepancy without overriding evidence gates. |
 
-Workstreams below distinguish remaining implementation from physical checks of
-existing code. Continue independent engineering while eligible campaign scenes
-are unavailable; collect related physical checks in one meaningful candidate.
+The source-only mounted spatial extension, equipment observers and depth probes
+are diagnostics, not finished mechanics. Continue independent engineering when
+campaign scenes are unavailable; batch physical checks during ordinary play.
 
-1. **Convincing cartridge contact.** Preserve native unit loading and the accepted
-   cartridge/port visibility. Judge the host-tested displayed-finger tangent and
-   native-confirmed thumb gesture before further changes. Offline overlap does
-   not justify another arbitrary anchor offset. Qualify depth contents and hand
-   coverage before implementing scene/hand occlusion.
-2. **Measured loading mouth.** Establish a phase-bound port frame and clearance
-   before connecting tip/trajectory insertion. The current 14 cm grip zone stays
-   active; pivot rankings and drum phase observations do not admit a socket,
-    chamber occupancy, ejection or an independent mechanical writer. The .6
-    Winchester trial physically rejects the existing narrow/misaligned gesture;
-    The exact ordinary/scoped receiver lip is measured offline; the decoded
-    gate blocks its diagnostic access ray in bind geometry. A bounded source
-    observer now correlates the full transformed lip, current displayed
-    GunBody/GunLoader/Holder and textured cartridge nose with bracketed native
-    phase, retained ownership and verified restoration. Host fixtures cover the
-    observer; collect live displayed clearance/approach evidence before replacing
-    the rejected grip zone. Pivot/radius tuning remains insufficient.
-    Remington/SawOff now have a bounded observer for both rear mouths following
-    the animated barrel, with retained ownership, native phase/count brackets and
-    displayed mesh nose. Host tests cover transforms, indexed state, JNI faults
-    and publication rejection. Collect open-chamber approach and native slot
-    correspondence before enabling mouth insertion or snapping the support hand.
-    The reported grip-centred shotgun gesture remains unresolved.
-3. **Campaign correctness.** Secret-scroll chest pickup now has scoped operator
-   acceptance; retain without a dedicated replay. Validate mounted reins and rider
-    free look without changing accepted on-foot body following. Instrument
-    mounted R1 gallop, native velocity, steering and rider/camera movement;
-    identify the source of extreme speed/motion before proposing comfort modes.
-    The completed mounted observer run supplies cached native velocity and turn
-    but lacks measured rider-heading/camera response and same-frame causality.
-    The mask's equal-UV binocular geometry defect now has a physical-optics
-    projection correction with WARP regression coverage and scoped operator
-    visual acceptance. Preserve that result; steering/overall comfort and
-    broader On/Off recovery remain separate.
-    The immersive skip route now has operator acceptance. Inconsistent theater
-    presentation under an Immersive selection remains a distinct issue; accepted
-    cinematic stereo recovery stays closed in its exercised scope.
-4. **Recovery and pacing.** Resolve the canonical eye-baseline discrepancy by
-   correlating runtime and applied eye data; do not infer a physical regression
-   or grant a PASS from operator feedback. Broaden held-input, ownership, tracking, save/death and
-   device-loss coverage. Attribute recording microskips and community issue #5
-   stutters before optimizing. Diagnostic gating fixes remove known unwanted
-   work but establish no measured performance gain or crash resolution.
-5. **Complete presentation.** Qualify native graphical HUD capture, remaining
-    weapon geometry/optics (including scoped Winchester actual shot agreement)
-    and event-free physical-walk/turn leg animation.
-   Bindings, static research and passive observers do not implement a physical
-   mechanic.
-6. **Operator setup and options.** A first WinForms GUI is implemented with Steam
-   AppID 3020 manifest/library and exact GOG installation autodetection, a rescan button, multi-install
-   selection and manual Browse, package verification, install/update, prepare session, status,
-   uninstall/recovery, local report creation and saved resolution profiles. Its
-   Western parchment/leather palette and runtime-drawn frontier illustration are
-   implemented without distributed game artwork. Scripted actions retain exact
-   hashes, rollback, known-build rejection and manually controlled game/SteamVR
-   lifecycle. The repository GUI now prepares a verified local package
-   automatically, superseding the source-folder blanket rejection.
-   Launcher/discovery fixtures, local ZIP inventory checks and isolated
-   exact-game integration cover all actions, updates, session preferences,
-   uninstall and injected-failure restoration for Steam and the experimental GOG
-   build. The .7 distribution includes this GUI; wider interactive Windows/DPI
-   confirmation remains separate from automated installation coverage. Manual reload On/Off remains an advanced Install/update choice. A
-   future native Options > Game
-   selector requires splitting installed capability from persisted runtime policy
-   and safely terminating held cartridges and native reload ownership on change.
+### Mechanics still requiring native boundaries
+
+- Independent right-stick-back hammer cocking: hammer meshes/fire tracks do not
+  establish a separate cock/hold/release callback. Native alternate fire is a
+  different operation; duel aiming and ordinary turning already own this stick.
+- Per-chamber occupancy, ejection, independently driven lever/gate/cylinder and
+  per-calibre loose ammunition are not implemented by the manual transfer routes.
+- Explicit LeMat mode/port selection, dual-wield manual reload and legacy `_Old`
+  classes require their own exact storage, reserve and ownership contracts.
+- Motion throws and broader special-weapon/climbing mechanics require proven
+  native action/trajectory ownership. A binding or observer alone is insufficient.
+- Visible holstered meshes and physical-walk/turn leg policy/write restoration
+  remain incomplete despite offline model/animation coverage.
+- Runtime native Manual Reload On/Off still needs installed-capability/preference
+  separation and safe cancellation of held rounds and native reload ownership.
+
+Exact mechanical findings belong in [reload research](research/COJ_RELOAD_OWNERSHIP.md)
+and [arm/weapon research](research/COJ_ARM_SKINNING_AND_AIM.md). Neural/DirectNR
+remains deferred/default Off with rejected live quality/cadence. DLAA/DLSS,
+independent resolution, OpenXR and D3D10 remain separate experimental/future
+tracks; they are not prerequisites for these core-VR tasks.
 
 ### Weapon implementation inventory
 
@@ -157,10 +102,12 @@ Exact capacities, classes, reserve types and callback ownership belong in
 | Remington / SawOff | Remington grasp accepted; current manual source integrates captured-index single-shell accounting, shared shotgun reserve, input, guarded per-unit native body replay and supervised close. SawOff retains its exact single-hand/either-hand policy. | Physical shell appearance, per-barrel port, native hand ownership and mechanical playback/recovery. The integrated replay/Status1 feedback is host-tested only; generic grip-zone loading is provisional. |
 | Scoped Winchester | Grip/discharge and the revised large scope/reticle have scoped acceptance. Current source shares Winchester manual unit/body-cycle accounting with separate exact-class admission; controller-only scope aim remains a host candidate. | Zoom reticle and actual shot impact were misaligned in .6 and are rejected. Correlate optical ray with native fired trajectory/impact/spread by pose and distance; separately check Focus exit/head tracking, manual loading, support regrip/recovery and exact mouth. |
 | Volcanic | Current manual source integrates the exact 8-round native unit/body-cycle route with pistol reserve and the shared pickup/carry/release gesture. | Physical animation, hand/port, per-model cartridge and recovery qualification. |
+| Henry 1863 | Exact pinned constructor-only Winchester alias now shares its 12-round right-owned rifle-reserve unit/body21 transaction; host regressions cover accounting and rejection. | Campaign reach, physical playback/recovery and model geometry remain unqualified; the shared provisional target is available, but no Winchester mouth geometry is inherited. |
 | Derringer | Current manual source integrates captured-index unit loading for two 1-round slots and one pistol reserve pool, preserving original whole-clip parameters. | Physical port/barrel presentation and recovery. Original setters implement a guarded selected-index composite; the native whole-clip loop is not used for each cartridge. |
 | Lemant / LeMat | Current manual source integrates captured-index loading, capacities1/8 and rifle/pistol reserves. Fresh pickup chooses the lowest eligible index and retains it until insertion/cancellation. | Explicit mode/port UX, distinct ammunition presentation, native playback and recovery. No automatic redirect of a held cartridge to the other pool; no empty-trigger index inference. |
 | Schofield base/A/B | Base has exercised manual whole-clip functional acceptance and correlated native readback. Source replaces the rejected proxy bundle with imported textured cartridge instances and fixes held empty-trigger opening/closure. A/B remain host candidates. | Retry friction, textured bundle appearance/contact, native animation and broader recovery. No per-chamber insertion, exact-calibre model or measured speedloader is claimed. |
 | Bow | Physical grab/pull/release has scoped functional acceptance. | Mesh/string/arrow/reticle, haptics, concentration optics and interruption evidence. Preserve native trajectory, ammo and concentration lifecycle. |
+| Duel instruction | Optional contextual EN/ES coach and exact paused EN overview are implemented/host-tested; existing native draw/raise/aim/fire controls remain authoritative. | Validate text timing, lower/raise sequence, binding labels and readability without promoting new duel mechanics or other localized resources. |
 | Hands / Bible / whip / dynamite / mounted weapons | Scoped Hands and Ray Bible/on-foot kick acceptance; other native routes retained. | Fist volume/guard/AI anticipation and exact permissions/contact for additional physical mechanics. |
 
 ### Other implementation inventory
@@ -185,7 +132,7 @@ mechanical playback and physical recovery remain separate gates.
 | HUD / hints | Complete graphical capture and device/binding-aware visual qualification; current text and host-tested coaching retain native visibility/priority. |
 | Horse comfort | The corrected peripheral effect has scoped visual acceptance. Mounted steering remains difficult and seems more responsive with R1, which also increases speed. Bounded native gait/request/velocity/turn observation is host-tested; correlate live gallop/reins before a behavior change. Rider-camera ownership and reduced nausea remain open. |
 | Installer / gameplay preference | Western-styled Windows GUI over existing transactions with Steam library/manifest and GOG registry/default-path detection, multi-install choice, rescanning, six actions, saved resolution and advanced reload selection. Source checkout actions automatically prepare a verified local package. Host tests, ZIP inventory and isolated exact-game all-action/update/recovery integration passed. Included in the .7 package; wider interactive Windows/DPI confirmation remains pending. Native Options > Game Manual Reload selector still requires capability/preference separation and safe runtime deactivation. |
-| Compatibility | Real OneDrive hydration/synchronization, high-address native owners, broader allocation pressure, campaign and hardware coverage. |
+| Compatibility | The community Quest 3 report identifies `v0.1.0-prealpha.7`; correlate its pause-access, hand-frame tilt and menu/prompt anchoring issues with active bindings and actual runtime, then distinguish newer-candidate results. Real OneDrive hydration/synchronization, high-address native owners, broader allocation pressure, campaign and hardware coverage remain open. |
 | Deferred | DLC adaptation and bHaptics provider/game-event producers by operator priority; existing neutral haptic QA policy is host-tested only. |
 
 ## Parallel engineering tracks
@@ -206,15 +153,41 @@ The original x86/x64 NGX D3D11 backend now evaluates real DLAA/DLSS Quality on
 paired controlled GPU inputs. Depth/camera-motion/bias guide generation and
 history/reset policy have host coverage. Native Options > Game saves Native,
 DLAA or DLSS Quality requests and explicitly reports pending/native-active state;
-the backend is not connected to CoJ presentation. Next: use the bounded opt-in
-HDR-alpha probe to qualify the exact `1B_16` material/hand coverage, implement
-same-eye/frame/pose/generation depth transport and scoped jitter/dynamic masks,
+the backend is not connected to CoJ presentation. The opt-in hardware-depth
+run exposed a capability rejection with valid PPFX/device identity. The
+game's requested `PUREDEVICE` mode reproduces that rejection. The corrected
+startup now has bounded live matched-eye hardware-depth delivery. Joint
+color/depth previews at `1B_16` now have bounded live correspondence for the
+exercised outdoor world, native hands/weapons, foliage and sky. An offline
+history-reset NGX run accepts these reduced actual CoJ inputs. The separate
+default-off renderer transport now host-tests immutable full-size FP16 color
+and packed depth under one lease/fence, including worker consumption and real
+NGX controlled pairs. Exact-scene packet export, the bounded worker handoff and
+the persistent D3D11/NGX service now have host coverage for source identity,
+asynchronous startup, early source retirement, authority cancellation and stale/
+expired-result rejection. The explicit sampled-source probe now connects the
+game to a bounded copy-only worker audit. Collected evidence now qualifies its
+sampled full-size live copies and source retirement, separately from the full
+canonical profile and headset reconstruction. Continuous transport and full-image
+equivalence remain unqualified.
+Next, qualify source color/postprocess ownership and scoped
+jitter/dynamic masks, then connect continuous reconstruction scheduling,
 then atomically present/commit reconstructed pairs with native fallback. DLAA can
 precede independent resizing; DLSS performance still requires reduced native
 raster work and a measured net benefit. Preserve the rejected independent bank's
 ownership gates. FarCry2VR also supplies a sun-shadow research pattern; independently
 establish Chrome shadow equivalence before skipping any pass. Native video
 filtering already supports anisotropic trilinear; forced 16x is not established.
+
+The active OpenVR route now includes bounded measurements of the full wrapper
+per eye and an opt-in native center-head audio candidate. The combined session
+checks audio and collects a render baseline. Visibility and draw attribution
+remain necessary before reducing culling or render work. A Quest-only hand
+correction requires measured controller frames. Hand and weapon contact requires
+the exact native collision and firing seams.
+The early experimental OpenXR probes do not establish gameplay parity or justify
+a runtime migration. Runtime replacement and external frame generation remain
+secondary research, not prerequisites for these improvements.
 
 **Deferred Neural experiment:** real-model inference and committed game pairs
 are demonstrated; useful quality and acceptable cadence are not. The standalone
@@ -231,7 +204,17 @@ belong to [human targeting](research/COJ_NEURAL_HUMAN_TARGETING.md) and the
 [DirectNR comparison](research/COJ_VR_REFERENCE_PROJECTS.md#penumbra-directnr-comparison);
 [Validation](VALIDATION.md#standalone-neural-laboratory) owns the rejected verdict.
 
-Reload G1 precedes G2. G3–G5 can proceed independently. Rendering research is
+The operator has renewed autonomous offline DLSS/Neural research. One/two-pass
+model comparisons and separate GPU-layer timing are available in the image lab;
+source-correct whole-eye settings supersede the old requested-only metadata.
+This resumes feasibility measurements, without reopening the rejected retained-
+frame game candidate. A useful moving stereo source and fresh same-source GPU
+completion are prerequisites for integration; Super Resolution retains its
+independent native depth/motion/jitter and reduced-raster gates.
+
+G1 and G2 share current weapon/tip ownership and contact prerequisites; renderer
+occlusion is not proof of a mouth or a prerequisite for a coherent target.
+G3–G5 can proceed independently. Rendering research is
 separate from ordinary stereo and must preserve usable menus/controls on failure.
 Independent resolution remains default-off and rejected; live structural binding
 correlation and synthetic GPU tests do not qualify resizing or output retirement.
@@ -243,7 +226,7 @@ See [resolution research](research/COJ_VR_RENDER_RESOLUTION.md) and the
 | Gate | Actual state | Next prerequisite / exit boundary |
 | --- | --- | --- |
 | G1 — cartridge contact and occlusion | Revised tangent/thumb and depth observer host-tested; convincing contact unaccepted; occlusion planned. | Judge contact/axis/scale/roll and native-confirmed gesture. Qualify exact per-eye depth contents, coverage, format, lifetime and pose/generation before renderer-owned occlusion. Preserve single native transfer and scoped recovery. |
-| G2 — port and precise insertion | Port appearance accepted; pivots/phase are diagnostics; generic socket policy unwired. | Measured phase-bound mouth/clearance, then deliberate aligned release with one native loaded +1/reserve -1. Reject stale owners, closed gate, wrong approaches and misses. No chamber/ejection promotion. |
+| G2 — port and precise insertion | Native port appearance accepted where exercised; grip-centred contact rejected. The active marker shares that provisional gesture centre; measured locators are withdrawn and socket policy is unwired. | Read-only current mouth/tip preview and phase clearance, then deliberate aligned release with one native loaded +1/reserve -1. Prove indexed correspondence; reject stale owners, closed gate, wrong approaches and misses. No chamber/ejection promotion. |
 | G3 — complete graphical HUD | Text/countdown/notices/directions accepted where exercised; sprite/flush observer and separate bounded per-draw HUD metadata collector have host fixture coverage. Native collection and capture remain unqualified. | Qualify naturally scheduled target, alpha/coverage and retained lifetime. Observe once; never replay traversal for the second eye. Metadata does not admit capture/occlusion. |
 | G4 — transport recovery and pacing | Normal transport/quit accepted in scope; independent consumer-query recovery host-tested. | Qualify native reset/device-loss and teardown/recreation when retirement proof fails. Retain uncertain leases, reject stale generations; measure sustained frame-age/recording tails. |
 | G5 — persisted verdicts | Host-tested; rejection persistence live-tested through collection/restoration. | Exercise successful full-profile collection during a relevant candidate. Preserve input hashes, ordered run/build intervals and stale-input rejection. Collection cannot accept missing gestures or physical gates. |
@@ -251,11 +234,14 @@ See [resolution research](research/COJ_VR_RENDER_RESOLUTION.md) and the
 ## Next acceptance gates for implemented changes
 
 Use [the pending checklist](VALIDATION.md#pending-headset-checks) as the single
-physical checklist. It groups reload contact/feedback/reserve/recovery, hints and
-pickup guides, left-hand interaction, mounted controls, immersive skip/loading
-continuation, mirrored rifle triggers, HUD styling and global ownership checks.
+physical checklist. It prioritizes desktop output, refused-skip stability, the
+shared provisional
+reload marker and fingers after completion. Broader model, duel-coach, bow-guide
+and interruption checks remain conditional on naturally available scenes.
 Unavailable campaign scenes remain pending/inconclusive; do not split them into
-repeated small sessions. These changes have no new physical acceptance.
+repeated small sessions. Host-tested revisions remain unaccepted physically;
+earlier scoped acceptance
+is preserved and must not be reclassified as untested.
 
 ## Milestones and stabilization
 

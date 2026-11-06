@@ -33,6 +33,12 @@ the live retained-frame presentation remains rejected for cadence/quality.
 Core VR work does not depend on resuming this track. The implementation below
 records its existing boundary, not an active development or support commitment.
 
+Renewed operator-authorized autonomous research is limited to offline DLSS/Neural
+feasibility until fresh game inputs and delivery are qualified. The image lab
+can compare one-to-four consecutive NR model passes, reports effective whole-eye
+coverage and separates D3D12 timestamp averages from CPU roundtrips. It does not
+change the deferred/default-Off game presenter or the rejected frame-hold policy.
+
 The optional `cojvr_neural_lab` library and separate x64 `tools/neural_host`
 companion adapt Penumbra DirectNR over a versioned CPU-pixel pair protocol.
 Standalone probes and an explicitly opted-in D3D9/OpenVR candidate consume it;
@@ -158,6 +164,80 @@ translate to DEFAULT while preserving usage, format/FVF and size. This is bounde
 compatibility, not generic MANAGED emulation. Successful BeginStateBlock returns
 immediately reacquire owned hook slots because the engine can rewrite its vtable.
 A periodic watchdog alone cannot protect the next engine call.
+
+The optional hardware-depth candidate requires queryable D3D9 device state.
+Its startup factory policy removes `D3DCREATE_PUREDEVICE` while retaining all
+other requested behavior flags through classic creation and the Ex bridge or
+fallback. The pre-create callback records requested flags and the post-create
+callback receives effective flags. Ordinary factory policy preserves flags.
+The same developer probe can retain point-sampled color/packed-depth previews
+at the admitted terminal scene copy. Private paired FP16 images share the depth
+lease's producer fence and ownership. A 512-pixel maximum axis bounds diagnostic
+storage, readback and run-local export. The evidence collector inventories
+committed and partial files. A manifest published after both planes supplies
+frame/pose/eye/device-generation provenance and never grants temporal admission.
+
+The renderer utility separately offers default-off `capture_color`: a private
+full-size FP16 color copy per depth slot. It admits only native FP16 input,
+includes both planes in the bounded storage budget, restores native state and
+publishes both borrowed handles only after their common producer query completes.
+No native color texture is shared. A retained immutable lease covers worker
+access to both planes until consumer GPU completion; final producer release
+remains on the D3D9 owner thread. Ordinary play keeps this option off; the
+explicit `SampledSceneDepth` developer probe enables full-size color and a bounded
+worker copy audit. The adapter exports source packets containing the
+admitted frame, pose, owner, integrity, native generation and capture-resource
+epoch. That epoch is not an input/settings/history authority.
+
+`SceneDepthTransfer` retains one exact matching eye pair on the producer thread.
+The worker receives only value metadata, shared handles and separate existing
+producer-completion tokens for color and depth. Both copy acceptance and both
+GPU retirement proofs are required for delivery; invalidation withdraws delivery
+without granting early resource release. Stale completions are consumed once,
+and ordering fences reject replay, including relabelled snapshots. Worker bridge
+generation uses the monotonic capture-resource epoch so recreated pools retire
+opened-resource caches even under an unchanged native device. Unproven teardown
+quarantines the retained pair for process lifetime; callers must not recreate a
+failed owner to bypass that backpressure. No game-source qualification, temporal
+history admission or presenter-thread inference follows from this transport.
+
+`SceneDepthWorker` owns its D3D11 device/context and optional NGX pair session on
+one persistent thread. Startup is asynchronous and one outstanding job bounds
+backpressure. Producer polling releases native sources after both GPU copies
+retire, independently of slower inference on private worker textures. Explicit
+shutdown joins outside render/presenter hot paths; unproven copies remain
+quarantined. A stopped worker cannot silently restart its authority domain.
+
+Capture timestamps originate at scene entry and travel with each eye. Requests
+must retain the oldest source time and supply an explicit age bound. Settings,
+input and history authority are separate from resource epochs; any change or
+unknown available authority revokes delivery. Restoring earlier values does not
+restore an old result. Passive OpenVR input-authority reads do not consume
+buttons. Worker reports contain only identified diagnostic samples, not image
+handles for presentation. Reconstruction requires explicit qualified guide
+metadata and per-eye current-color masks; the game audit supplies neither.
+
+The developer probe sends matched source packets to the worker in copy-only
+mode. Exact center pixels from both private FP16 source planes are compared
+against worker color/depth samples, with native scope identity and independent
+producer/worker thread IDs. The bounded schedule and preview exports remain
+diagnostic. Pause, tracking, settings and native owner observations fence the
+audit; reset/exit retire the worker before the source adapter. CPU wall-clock
+timings are not GPU timestamps or game-performance evidence. Ordinary game
+output and the compositor remain native.
+
+Ordinary OpenVR runs sample elapsed CPU wall time around complete eye wrappers.
+Frame, native owner, device generation, observation epoch and thread bind each
+pair. Reset or an incomplete scope prevents mixed samples. Timing is bounded
+and summarized at shutdown. The observer excludes capture and submission and
+does not measure draw counts or GPU execution.
+
+The optional head audio candidate reads passive OpenVR pose snapshots without
+consuming gameplay edges. The exact game adapter supplies a center-head camera
+reference to the native view update while preserving both source matrices.
+The native mixer retains listener selection and output ownership. See the
+[camera research](research/COJ_CAMERA_PATH.md#native-audio-listener-ownership)
+for the call site and the derived camera lifetime.
 
 Successful texture-allocation census callbacks, per-resource destruction hooks
 and periodic address-space scans require the startup resource-probe opt-in.
@@ -356,7 +436,12 @@ tracked head and the full wrapper for each eye, restoring camera state after
 each pass. It cancels gameplay/reload/punch ownership and performs no tracked
 body, hand or weapon writes. Invalid/dead/mission-end/frozen owners retain flat
 theater; a frozen movie cannot safely be distinguished from pause by these
-observations. Transient capture pressure retains the last valid stereo image
+observations. Native visible black belts are also a positive movie-presentation
+owner when `m_cMoviePlaying` is null. An exact current skippable sequence can
+then own the camera-only route and subtitle cache. If both targets are absent,
+the observation remains valid but retains theater to preserve the complete
+native subtitle pass. No case grants gameplay. Native observation/read/lease failures
+remain fail-closed. Transient capture pressure retains the last valid stereo image
 within the existing 250 ms freshness window; admission alone does not extend
 that window in passive movie/settings routes. A presentation owner or mode
 change retires outstanding captures, and a newly queued fence cannot declare
@@ -365,12 +450,17 @@ published complete pair. Sustained staleness falls back to native Present;
 death, pause, ownership loss and failed native restoration invalidate immediately.
 Immersive movies copy subtitles from the exact module's naturally scheduled
 `OnShowSubtitle` writer. The hash-pinned archive transformation retains its
-normalized key, ID and current movie in transient fields. Wrong-ID hides preserve
+normalized key, ID, current movie and (only for the single-player subtype) its
+current skippable sequence in transient fields. Wrong-ID hides preserve
 newer lines; accepted hides clear the cache, and movie start/end/destruction clear
 before original callbacks. Original native sprite/timing behavior stays intact.
-The game-thread reader requires the same active module, movie, native/cache IDs,
+The game-thread reader requires the same active module, movie or sequence, native/cache IDs,
 visible subtitle parent and native subtitle setting. It localizes with `Text.Get`,
 rechecks ownership and copies bounded UTF-16 directly into that captured pair.
+A real movie takes precedence over a sequence. A cached movie line cannot be
+reinterpreted as sequence text after its movie disappears, even with a reused
+subtitle ID. The exact writer and shipped JVM verifier cover the additional
+sequence cache; no native subtitle timer or sprite callback is replayed.
 No actor-dialogue fallback or gameplay text cache is used. Theater preserves the
 naturally rendered pass; no script/sprite traversal is replayed. This transport
 is host-tested. The operator confirms subtitle appearance in exercised animations,
@@ -396,18 +486,26 @@ selection edge request the same native Escape consumer, with no repeated request
 from the same tracking sequence. Pending edges carry their polled native owner
 token; a gameplay edge cannot be combined with a newly observed movie owner.
 The token also includes a bridge-owned movie epoch, established by JNI equality
-against retained module/movie references. Replacing a movie without changing
+against retained module/target references. The target is the current `Movie`,
+or `m_CurrentSkipableMovieStart` only when no `Movie` exists. A known absence of
+both retires the skip lease while preserving native black-belt presentation.
+Replacing a target without changing
 presentation flags invalidates the old input owner. Only that epoch leaves the
 game adapter; no JNI reference crosses to the presenter. The two observation
 references retire on movie exit/reset, with no native lifecycle mutation.
 If an immersive capture temporarily falls back to natural theater output, its
 controls retain this strict movie route instead of generic UI-back/pointer retries.
 The game thread rechecks its active movie,
-native `CanSkipMovie` and retained module/movie identity before calling original
+native `CanSkipMovie` and retained module/target identity before calling original
 `OnInputKey(1,true,0)` and its release. Native restrictions, hint/loading and
 mission-end ownership remain authoritative; no direct movie-end callback runs.
 Scoped render-level restoration is required, and any attempted skip returns to
 natural rendering rather than replaying the old camera snapshot into both eyes.
+Refusal before entering native OnInputKey is distinct from an attempted native
+key call, including a throwing call. A harmless refusal keeps camera-only stereo
+only after reobserving the same admissible movie epoch; blocked or changed owners
+retain natural fallback. Diagnostics distinguish native permission denial,
+absence of a skippable sequence, bridge rejection and native-call failure.
 Delivery does not prove a fade or skip completed. Theater keeps its existing route.
 
 The natural-camera fallback has a renderer-only scope: its camera updater
@@ -806,6 +904,21 @@ compositor hides stale control hints while preserving native subtitles. No nativ
 string, input binding or gameplay permission is changed. Text/status recovery is
 separate from graphical native HUD capture.
 
+The presenter monitor-blackout check uses a passive tracking-validity query.
+`LatestTracking` is an input-consumer boundary: it drains pending pause, UI,
+recenter and objectives edges and must not be used by passive diagnostics.
+
+Native hint, mission-notice and timer panels share a reading anchor captured when
+their visible interval starts. Hint/notice changes or game-owner changes acquire
+a new anchor; timer ticks retain it. Their complete stack fits both captured eye
+projections, including a hint without a timer. Composition transforms the anchor
+through the producing frame's HMD pose rather than the latest runtime pose.
+Recenter, flat presentation and device-generation changes retire the anchor.
+Subtitles, interaction coaching and tracked hand/wrist surfaces retain their own
+placement policy. Flat menus remain world anchored; a changed main-menu reference
+acquires its new anchor only when the corresponding frame upload commits.
+These are presentation and input-ownership contracts, not physical fit acceptance.
+
 The same default-off weapon-guide preference also enables short localized manual
 reload instructions. They follow the supervised session's pickup/release/carry/
 insertion/continuation state and correct support-hand action, never infer ammo or
@@ -952,12 +1065,38 @@ Retired tuples cannot reclaim authority. This permits ordinary-fire recovery
 after cancellation/disable without replaying an insertion or borrowing an old
 source's release, including when the replacement sequence restarts at one.
 
+The optional active reload target is a value-only receipt emitted by the same
+manual gesture update that owns insertion. Its current tracking-space centre,
+player/context/weapon/hand, input generation and sample clock bind the guide;
+capture identity, native wait/reserve, restored mutations and renderer reload
+owner gate delivery. All exact manual profiles, including Schofield, share this
+channel. Readiness comes from gesture policy. The existing generic grip centre
+is still provisional, not a mechanical loading mouth. The earlier measured
+Winchester/Scope and Remington/SawOff locators are withdrawn from production HUD
+after physical rejection of guide/insertion agreement. Their bounded geometry
+observers and host fixtures remain research; no prior-frame post-overlay sample
+authorizes a transfer or replaces the current input-space target.
+
+The duel coach is read-only presentation from the existing native input capture:
+phase, observed hand occupancy, physical pitch and successful axis delivery.
+It neither invokes native input again nor changes native duel timing. Fresh
+pose/native-clock/owner fences and native HUD priority gate optional EN/ES text.
+An independent presentation epoch and 500 ms presenter-clock deadline retire
+retained coaching on owner/phase/instruction replacement, guide disablement or
+expiry, including repeated frames. No reload token is borrowed.
+The original paused EN tutorial has its own pinned-resource presentation seam;
+unknown resources and localizations keep original text and release conditions.
+
 The public launcher enables manual reload on fresh installs and preserves the
-installed choice on updates; option 8 changes it transactionally while closed.
-Developer candidates explicitly select `-ManualReload`. Current source includes
-fifteen exact manual firearm profiles in the prealpha.6 package line; archived
+installed choice on updates; Advanced > Manual reload changes it through
+Install/update while the game is closed. The legacy numbered launcher retains
+its equivalent choice. Developer candidates explicitly select `-ManualReload`.
+Current source includes sixteen exact manual firearm profiles; archived
 prealpha.5 retains its earlier admission. Winchester and scoped Winchester restart the authored body21 cycle
 after one verified native unit; Volcanic uses the same policy with pistol reserve.
+The pinned constructor-only `WeaponHenry1863` alias shares Winchester's 12-round,
+rifle-reserve, right-owned body21 transaction. Archive identity, exact class,
+capacity and ammunition type remain mandatory; this admits no alias geometry.
 The pending/consumed ticket, veto owner, watchdog, retained callback references,
 fault quarantine and native20/21/22 closing remain shared. A replay withdraws
 cartridge presentation until native body completion reaches waiting again.
@@ -1228,7 +1367,9 @@ manual-session engine save/load recovery remain unresolved.
 The manual policy uses `READY -> OPENING -> MANUAL_LOAD -> CLOSING -> READY`.
 It consumes rejected Square admission until release, preserving native fallback
 only for positively identified unsupported contexts. Missing observation cannot
-start conventional reload. Invalid owner/context/poses/input availability,
+start conventional reload. The exact base Schofield shot tail can hold one
+Square press for up to 450 ms. The same owner must pass ordinary idle admission
+before the manual request is dispatched. Invalid owner/context/poses/input availability,
 recenter, stale samples, incompatible actions or presentation failure close the
 session. Native-clock watchdog expiry is a recovery fallback, not a fixed mesh
 frame. JNI cleanup retains the player on failed cancellation for retry. See
@@ -1257,8 +1398,9 @@ prolonged comfort remain pending; Validation owns those acceptance limits.
 The host-tested manual candidate additionally emits a distinct qualified
 zone-entry cue (9 ms, amplitude 0.10, 90 Hz), without a native transfer. First
 pickup requires the same completed journey/time as insertion; replenished rounds
-require a fresh held trigger claim. Entry uses the active 14 cm grip zone,
-withdrawal beyond 18 cm rearms the cue, and 180 ms bounds its output cadence.
+require a fresh held trigger claim. Entry and release use the same manual
+18 cm grip zone, withdrawal beyond 22 cm rearms the cue, and 180 ms bounds its
+output cadence.
 The dormant explicit-socket policy also requires its qualified trajectory.
 Entry and acceptance use independent cadences so entry cannot suppress immediate
 acceptance. Both use the same freshness/ownership fences; neither event queues.
@@ -1326,6 +1468,20 @@ IMMEDIATE presentation to avoid monitor-vsync double wait; desktop mode remains
 native. Failed Create/Reset restores caller parameters and does not commit cadence.
 Missing timing retains the last valid cap; late timing can require native Reset.
 The cap is not compositor phase lock; WaitGetPoses owns presenter cadence.
+
+The primary D3D9/OpenVR route can present a black desktop while its headset
+output is demonstrably progressing. Final stereo/theater capture and luma
+observation precede this optional surface transaction. A private GPU preimage
+saves the final primary swapchain backbuffer before black fill; after original
+Present, the preimage restores the current backbuffer of the same device,
+generation, swapchain and layout. Partial native redraws cannot inherit black
+pixels. Original Present/result/pacing and input focus are retained. Only a
+single non-MSAA DISCARD chain is admitted; COPY/FLIP, ambiguous chains, lost
+tracking/runtime/output progress and errors retain native desktop behavior.
+Reset/device retirement releases the DEFAULT-pool preimage before native reset.
+No whole-frame CPU readback, window hiding or engine rendering suppression is
+introduced. GPU rollback, state/pixel preservation and policy fixtures are host
+evidence only; headset behavior and copy cost remain physically unqualified.
 
 Refresh-rate policy does not scale native movement or jump by the HMD frequency.
 The adapter retains shaped native movement magnitudes, digital jump edges and

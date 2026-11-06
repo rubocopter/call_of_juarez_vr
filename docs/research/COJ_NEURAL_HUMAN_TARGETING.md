@@ -142,13 +142,15 @@ comparisons vary scale, intensity and preset independently, preserve source alph
 and record all inherited effective controls. They do not exercise moving-head
 vectors or establish temporal/stereo/runtime equivalence to Deus Ex.
 
-The inherited shader's elliptical weight fades inward from its inscribed edge.
-At 100% centre, corners still have zero Neural weight. Its feather is measured in
-full supplied-image pixels: 400px on a 512px crop exceeds the 256px radius, so
-there is no finite full-weight central plateau. Copying a full-eye pixel feather
-to a face crop therefore changes the weighting semantics. Runtime ROI work must
-explicitly preserve or choose source-coordinate weighting and verify the composed
-pixels; arbitrary strength increases cannot establish equivalent coverage.
+Current DirectNR `Init` and `Configure` normalize centre100% to rectangular
+whole-eye coverage, zero feather and no outer tier. The earlier ellipse/400px
+coverage interpretation was incorrect for this path: old laboratory JSON
+reported requested defaults before that normalization. Explicit pixel controls
+confirm unchanged whole-eye output when the ignored feather request changes.
+The current lab reports effective rectangle/zero-feather values without changing
+model inputs or output pixels. The shader's inward elliptical feather applies
+only to a genuinely smaller fovea; future ROI work must verify effective source-
+coordinate weighting, not infer it from saved settings.
 
 ## Temporal guidance
 

@@ -33,6 +33,54 @@ The wrapper manages the rendered guard at `view+0xD7`, active-view state and pos
 
 This is an exact-build Call of Juarez contract, not a generic Chrome Engine rule.
 
+### Existing per-eye culling state
+
+The active adapter updates both paired source transforms before the original
+camera render update. The native update propagates them into the culling/world
+and rendered-view paths. `HookSetFov` then installs the runtime eye's asymmetric
+frustum and invokes the exact native projection builder. These source/frustum
+fields remain scoped to the complete eye wrapper; restoring them immediately
+after camera update would let later visibility work see the natural mouse camera.
+
+Consequently, a future culling optimization must measure additional visibility or
+draw work at this existing boundary. A different mod advertising VR culling is
+not evidence that CoJ currently culls from a flat-camera pose, nor justification
+for shrinking either eye frustum or sharing visibility between eyes. Correct
+coverage, dynamic objects and native effects remain prerequisites for any such
+performance experiment.
+
+### Native audio-listener ownership
+
+Static inspection of the pinned engine identifies
+`Module.ListenerOnViewActive(IZ)V` at RVA `0x00039CF0`. Its native helper at
+`0x00039A00` updates the view's listener-enabled flag and the active-listener
+count. Original `LawmanModule` bytecode selects listener ownership when changing
+between normal and movie views. The flag is ownership policy, not a listener-pose
+setter, and must not be toggled independently of native view transitions.
+
+The engine contains both DirectSound3D and dynamically loaded OpenAL mixers.
+The OpenAL update at RVA `0x00104810` reads its retained listener record, scales
+position with the mixer's native factor and submits position/orientation through
+`alListenerfv`. It negates the record's direction and preserves its up vector.
+These are exact static observations, not a generic mapping from OpenVR vectors.
+
+The native active-view loop calls camera slot 7 (`0x001C4F20`) before collecting
+listener data. The listener collection at `0x00039B50` reads derived camera
+position at `+0xF4` and negates the vectors at `+0xD4` and `+0xE4`. It computes
+velocity from the view's previous position and submits to the common mixer
+record builder at `0x000F65D0`. The stereo wrapper does not call this collection.
+
+The opt-in candidate scopes slot 7 to the exact active-view call site. It
+forwards the original once and synchronizes derived state with a temporary
+center-head source. Both source matrices restore at callback exit. The native
+loop consumes derived state until the next camera update. Independent eye
+rendering starts from the restored source. Admission requires fresh passive
+tracking and a recent reference for the same camera, view, player and gameplay
+context. Unknown ownership, movie, pause or tracking loss retain native audio.
+The native mixer owns source positions, distance scaling, environment, velocity
+and output. A bounded observation compares pending listener records with the
+derived pose. Audio direction and transition behavior await a headset check.
+
 ## Eye state and units
 
 OpenVR eye-to-head transforms are in metres. Static Call of Juarez data established movement/world values in centimetres. Early stereo used the metre baseline directly and therefore shrank physical eye separation by 100x.

@@ -4,6 +4,12 @@ Use this index to locate the single owner of each fact. The repository's
 [README](../README.md) presents the public mod and latest *published* package;
 the source checkout may have more features than that release.
 
+For current state, start with [Validation's snapshot](VALIDATION.md#current-state--6-november-2026).
+Use [pending headset checks](VALIDATION.md#pending-headset-checks) for implemented
+changes awaiting physical evidence, and [development backlog](ROADMAP.md#development-backlog)
+for work still to implement. Withdrawn locators and deferred experiments are
+retained only as explicitly labelled research, not active gameplay affordances.
+
 | Source of truth | Owns | Does not own |
 | --- | --- | --- |
 | [Architecture](ARCHITECTURE.md) | System layers, exact build boundaries, invariants and integration contracts | Physical acceptance and task chronology |

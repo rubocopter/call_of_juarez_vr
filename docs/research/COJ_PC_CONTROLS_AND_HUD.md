@@ -291,7 +291,9 @@ explaining its reported fire-to-zoom behavior. Both models now retain a brackete
 right-button1 identity; other exact rifles and unknown subclasses gain no remap.
 The operator accepts scoped support/discharge and the revised large scope/sight
 with controller aiming. Inverted head yaw and absent head pitch are rejected;
-controller-only scope correction and ordinary Winchester R2 are host-tested only.
+the controller-only scope/body-yaw correction remains host-tested. Ordinary
+Winchester R2 firing has scoped operator acceptance; that does not qualify its
+manual insertion or the scoped optical ray versus actual impact.
 Native reload usability, precise shot agreement and recovery remain gates.
 
 The reproducible original-archive presentation inventory distinguishes weapon
@@ -608,7 +610,7 @@ contexts remain separate gates; dispatch alone does not validate them.
   countdown is forced. Exact local module/player/duel/action ownership, native
   game-time deduplication and centered recovery bound input. Ordinary smooth
   turning and body-yaw commits yield while a duel owns input; unknown ownership
-  cannot issue actor yaw. Clyde draw/raise and tracked aim/fire have scoped
+  cannot issue actor yaw. Clyde draw/raise/fire have scoped
   operator acceptance. A new host-tested physical posture guard requires the
   right aim tip at least 45 degrees down with a centered stick before downward
   draw input, and physical return above -30 degrees before upward raise input.

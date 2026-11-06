@@ -140,6 +140,17 @@ consumer calls `OnSkipableMovieSkip` only for that native scene. Post-.5 immersi
 input forwards a fresh permitted request to this consumer, never directly invokes
 skip/fade callbacks. The active movie and module must remain stable before dispatch;
 the camera-only path must not swallow the request or grant gameplay authority.
+Current dispatch reports refusal separately from actual entry into OnInputKey,
+including a throwing call. Refusal preserves camera-only stereo only after a
+fresh same-epoch admissible-owner check; an attempted native call retires the
+old camera image. A playing Movie alone is not native skip permission:
+CanSkipMovie still requires a skippable sequence and all original blockers.
+
+The optional duel coach is a separate presentation path using verified native
+phase, real hand occupancy, physical pitch and acknowledged axis delivery. It
+respects native HUD priority and its own owner/deadline on retained frames.
+The exact paused EN E03_H08_Duel body is adapted without changing native release
+conditions. Other resource/localization bodies retain native presentation.
 
 The canonical code patcher now includes the hash-pinned menu class. The Data0
 transformer adds its script through the same compressed-record-preserving

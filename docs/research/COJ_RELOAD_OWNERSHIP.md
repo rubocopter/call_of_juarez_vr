@@ -2,13 +2,14 @@
 
 ## Current regression boundary
 
-The latest long exercised session recovered ten native unit transfers on
-**one** manual revolver, each with the corresponding reserve debit and operator
-feedback. Earlier original-campaign observations of visible assistance but
-failed cartridge carry/insert are historical failures; other admitted models
-and interruptions remain unqualified. The corrected high-resolution monotonic
-reload clock and fresh empty-trigger preparation have host coverage, not a
-blanket headset verdict.
+Functional native unit transfers have scoped operator/readback evidence for
+exercised revolver and Winchester loading; base Schofield has native clip/bundle
+transfer evidence. Correct reserve debits do not qualify physical port contact,
+skin pose, all exact profiles or interruption recovery. The latest feedback
+still rejects grip-centred insertion and support-like finger presentation.
+Current guide/cleanup revisions are host-tested and await headset validation.
+Earlier original-campaign carry/insert failures are historical; preserve their
+scope without presenting them as the only or latest transfer evidence.
 
 Native-only fallback separately checks exact weapon/player identity, state,
 ownership and pending body writes before forwarding the original action 31.
@@ -41,6 +42,42 @@ owns acceptance. The operator confirms the loading port's visible presentation.
 Finger contact, measured phase-bound mouth geometry/clearance and broader recovery
 remain unresolved; do not infer them from callback or geometry observations.
 
+## Active gesture target and withdrawn measured locators
+
+Production `manual_reload_target.hpp` consumes the current insertion session's
+tracking-space receipt for every admitted manual profile, including Schofield.
+Position/readiness, source tuple, pose/time and capture must match. The marker
+appears only while carrying ammunition; cyan locates the provisional target and
+green reflects the gesture's release readiness. The centre remains the armed
+grip. This is a coherent affordance, not a precise physical mouth insertion.
+The former independently positioned mesh locators are withdrawn from production
+HUD after physical rejection of their disagreement with actual acceptance.
+
+The retained `loading_mouth_guide.hpp` research fixture uses the measured
+projected-area centroid of the
+ordinary/scoped Winchester receiver lip at GunBody-local centimetres
+`(1.228641,-17.347876,-4.344577)` and the two existing Remington/SawOff rear-rim
+centres following GunBarrel. Same-frame post-overlay samples are rebuilt and
+validated against native loading wait, positive reserve and exact model/owner.
+The adapter captures the inverse of `BuildTrackedAimOrigin`: corrected native
+camera origin, exact right/up/forward basis, centimetres-to-metres, then inverse
+head pose. It adds no second HMD translation. Both-eye delivery occurs only
+after weapon/hand/body restoration and with current reload presentation owner.
+
+The rejected host candidate used small cyan locators (2.4 cm Winchester; 1.6 cm per shotgun
+mouth). These visual sizes are not physical tolerances. No green readiness,
+free-chamber indication, native index assignment or gate-clearance inference is
+made. The 14 cm grip gesture is unchanged. Native input precedes scoped render
+mutations, so a retained prior-frame geometry sample cannot authorize insertion.
+Precise tip/trajectory input remains unwired until current input-space geometry,
+actual cartridge tip, native phase clearance and approach have been qualified.
+
+`TryPrepareTrackedWeapon` is not a read-only preview: it retains a native weapon
+transaction and marks its overlay active. A future input preview must read and
+bracket exact current native frames into local values, then use the existing
+pure tracked-root transform and matching displayed cartridge-tip mapping without
+publishing or retaining a weapon overlay before native insertion.
+
 ## Exact revolver profiles
 
 Current passive admission uses an exact concrete-class table, not a pistol base
@@ -58,15 +95,29 @@ pistol-ammunition profiles and `nAmmoRifle` for Cogswell. Native parameters,
 capacity and reserve remain authoritative at request/insertion: whole-clip,
 multiple ammo types and network contexts reject the manual path.
 
-Current manual-option source additionally integrates Winchester/Scope/Volcanic,
+Current manual-option source additionally integrates Winchester/Scope/Henry/Volcanic,
 selected-index Remington/SawOff/Derringer/Lemant and whole-clip Schofield base/A/B;
 the production composition is described below. Legacy `_Old` classes and unknown
 subclasses have no manual admission. Published .5 behavior remains narrower.
 `WeaponHenry1863` is an exact original alias whose sole constructor calls
 `WeaponRifleWinchester.<init>()`; it has no declared logic/ammunition override.
-That static inheritance does not establish campaign use, native trigger/owner
-behavior or a qualified model route, so it remains outside manual admission.
+Current source admits only that pinned alias to the inherited 12-round,
+right-owned, rifle-reserve body21 unit route. Native capacity/type/owner and
+archive identity remain checked. Host fixtures exercise ten successive cycles,
+reserve accounting, wrong hand/type/capacity and callback faults. Campaign use,
+physical playback and a qualified model/guide route remain unproven.
 Square retains its native fallback in positively identified unsupported contexts.
+For the exact base `WeaponPistolSchofield`, live observations identified a
+native reload after Square during the fire tail with ammunition still loaded.
+The armed hand reported `32,1,1,1` in current/destiny/desired/actual order and
+the opposite hand was empty and at zero. After two consistent class, slot,
+state, owner and ID observations, the adapter can hold the press for up to
+450 ms. Dispatch still requires the same player, weapon and hand to pass the
+ordinary manual idle admission. A new armed trigger or loss of the owning
+context clears the press. This routing change has host coverage and bounded
+live evidence of deferred base-Schofield presses reaching idle manual opening
+and native clip transfer. The operator reports improved loading with the
+18 cm insertion zone. Broader interrupted requests retain their physical gate.
 One later exercised session records an exact Derringer and support-occupied
 contexts, with no admitted manual session or insertion. The operator's report
 of conventional reload in that session does not qualify new cartridge visuals
@@ -808,6 +859,43 @@ analyzer have host tests; the ranking also has **bounded live observations**,
 without headset validation of a usable socket.
 No insertion-zone change, independent gate writer or chamber selection is
 enabled. The previously accepted ~14 cm grip zone stays active.
+
+## Revolver hammer-cocking boundary
+
+Read-only inspection of the original `code.pak` (SHA-256
+`f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12`)
+finds mechanical mesh names in damage-FX parameter classes:
+`WpnFXPistolSchofieldDamage` references `GunCock`,
+`WpnFXPistolLemantDamage` references `GunHammerA`/`GunHammerB`, and
+`WpnFXPistolDerringerDamage` references `GunHammer`. These are part-name
+references, not independent hammer-state setters or proof of a cocking mechanism.
+The archive's class payloads containing cock/hammer names are damage-FX classes;
+this lexical inventory cannot rule out an unnamed or native mechanical boundary.
+
+`WpnLogicPistol` selects `PlayerGunStateMashine`. Its `AddShotStates` constructs
+begin/attack/end transitions and returns through the native state graph.
+`ArmedPlayerBeing.OnHandStateStarted_AttackBegin` forwards to
+`WeaponAttackBegin`/`Weapon.AttackBegin`; `OnHandStateStarted_Attack` forwards to
+`WeaponAttack`/`Weapon.Attack`. `WeaponFire.AttackInside` reads and decrements the
+selected ammunition count before the fire path, preserving native no-ammo,
+damage and attack behavior. `OnHandStateFinished_Attack` can additionally call
+`Weapon.AttackRotate`. Those callbacks are not a demonstrated cock-only request.
+
+The authored Schofield player script separates ordinary fire loop frames 0–10
+from end frames 10–18 at 30 fps, and alternate fire loop 0–7 from end 7–10.
+Those ranges describe animation segmentation; they do not locate the hammer's
+cocked endpoint or prove that a held frame can be detached from native firing.
+The equipment track and player/hand track must be qualified independently.
+
+A right-stick-back gesture is therefore **research-only**. A future optional
+exact-weapon adapter needs a demonstrated uncocked/cocked transition and visual
+endpoint, no shot or ammunition debit while cocking, one native trigger shot
+per admitted cock, and invalidation on reload, replacement, death, UI or tracking
+loss. Recentring/releasing the stick must be required before another cock;
+holding it cannot repeat. Right-stick wheel, duel and mounted-cannon ownership
+must retain their existing routes. Native alternate fire (action 20) does not
+establish this boundary. No hammer writer, input binding or fire restriction is
+enabled by this research.
 
 ## Measured Winchester receiver lip — observation only
 
