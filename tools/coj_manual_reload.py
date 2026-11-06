@@ -9,7 +9,7 @@ from patch_coj_weapon_consumers import Code
 # Concrete one-index/non-whole-clip native body-cycle contracts. Other families
 # require their own accounting and cannot enter via inheritance or name prefix.
 NATIVE_CYCLE_PROFILES={'WeaponRifleWinchester':12,'WeaponRifleWinchesterScope':12,
-                       'WeaponPistolVolcanic':8}
+                       'WeaponHenry1863':12,'WeaponPistolVolcanic':8}
 
 def runtime_reload_policy():
     from patch_coj_weapon_consumers import SINGLE_ROUND_REVOLVERS
@@ -99,6 +99,14 @@ def patch_manual_classes(player, machine, *, _offline_weapon=None, _offline_cycl
         for index,(name,(clip,count)) in enumerate(runtime_reload_policy().items()):
             _exact_class_branch(e,c,lambda c:read(c,'Weapon','LWeapon;'),(name,),'profile_'+str(index))
             c.branch(0xa7,'next_profile_'+str(index));c.label('profile_'+str(index))
+            if name=='WeaponHenry1863':
+                # Exact pinned constructor-only alias. Its manual candidate
+                # retains the demonstrated right-owned native rifle boundary.
+                read(c,'Hand','I');c.branch(0x9a,'reject')
+                read(c,'Weapon','LWeapon;');c.emit(0x03)
+                c.ref(0xb6,e.ref('Weapon','GetAmmoCapacity','(I)I'));c.emit(0x10,12);c.branch(0xa0,'reject')
+                read(c,'Weapon','LWeapon;');c.emit(0x03)
+                c.ref(0xb6,e.ref('Weapon','GetAmmoType','(I)I'));c.branch(0x9a,'reject')
             read(c,'Weapon','LWeapon;');c.ref(0xb6,e.ref('Weapon','IsReloadWholeClipAtOnce','()Z'));c.branch(0x99 if clip else 0x9a,'reject')
             read(c,'Weapon','LWeapon;');c.ref(0xb6,e.ref('Weapon','GetAmmoTypeCount','()I'));c.emit(3+count);c.branch(0xa0,'reject')
             c.branch(0xa7,'profile_valid');c.label('next_profile_'+str(index))

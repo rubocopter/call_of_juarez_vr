@@ -20,7 +20,7 @@ int schofield_a_class, schofield_b_class;
 int peacemaker_class, derringer_class;
 int frontier_class,walker_class,cogswell_class,schofield_class;
 int weapon_alias;
-int scoped_class, winchester_class, remington_class, sawoff_class, volcanic_class, lemant_class;
+int scoped_class, winchester_class, henry_class, remington_class, sawoff_class, volcanic_class, lemant_class;
 int old_frontier_class, old_schofield_a_class, old_schofield_b_class;
 bool foreign_owner=false;
 bool net_game=false;
@@ -71,6 +71,7 @@ void* JNI_CALL Find(void*, const char* name) {
     if (!std::strcmp(name, "WeaponPistolDerringer")) return Ref(&derringer_class);
     if (!std::strcmp(name,"WeaponRifleWinchesterScope"))return Ref(&scoped_class);
     if (!std::strcmp(name,"WeaponRifleWinchester"))return Ref(&winchester_class);
+    if (!std::strcmp(name,"WeaponHenry1863"))return Ref(&henry_class);
     if (!std::strcmp(name,"WeaponRifleRemington"))return Ref(&remington_class);
     if (!std::strcmp(name,"WeaponRifleRemingtonSawOff"))return Ref(&sawoff_class);
     if (!std::strcmp(name,"WeaponPistolVolcanic"))return Ref(&volcanic_class);
@@ -400,6 +401,21 @@ void NativeReloadContinuationIntegration() {
 }
 void NativeFallbackRegression() {
     using namespace cojvr::runtime;
+    for(int hand:{0,1}) {
+        Reset(hand);weapon_class=&schofield_class;current[hand]=32;
+        CoJMotionReloadOwner after_shot{};
+        Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&after_shot.valid&&
+            after_shot.armed_hand==hand&&after_shot.weapon_id==static_cast<std::uint32_t>(weapon_id)&&
+            after_shot.kind==CoJManualReloadKind::clip&&refs==0&&!pending,
+            "exact Schofield shot tail did not defer the positively observed owner");
+        Reset(hand);weapon_class=&schofield_a_class;current[hand]=32;
+        Require(ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&!after_shot.valid,
+            "a different Schofield class lost native fallback");
+        Reset(hand);weapon_class=&schofield_class;current[hand]=32;
+        fail_lookup="cOwner";after_shot.valid=true;
+        Require(!ReadCoJNativeReloadFallback(&holder,&player,&after_shot)&&!after_shot.valid&&refs==0&&!pending,
+            "failed ownership read retained a deferred owner");
+    }
     const auto fallback=[](bool expected) {
         const bool actual_result=ReadCoJNativeReloadFallback(&holder,&player);
         Require(actual_result==expected,"native fallback observation mismatch");
@@ -407,6 +423,7 @@ void NativeFallbackRegression() {
         return step;
     };
     for(int hand:{0,1})for(void* cls:{static_cast<void*>(&scoped_class),static_cast<void*>(&winchester_class),
+        static_cast<void*>(&henry_class),
         static_cast<void*>(&remington_class),static_cast<void*>(&sawoff_class),static_cast<void*>(&volcanic_class),
         static_cast<void*>(&lemant_class),static_cast<void*>(&derringer_class),static_cast<void*>(&schofield_class),
         static_cast<void*>(&schofield_a_class),static_cast<void*>(&schofield_b_class),
@@ -437,6 +454,18 @@ void NativeFallbackRegression() {
         for(int operation=1;operation<=calls;++operation) {
             Reset();weapon_class=cls;fail_step=operation;fallback(false);
         }
+    }
+    // Exact classification, not allowlist position: inserting Henry must not
+    // turn a pistol into a shared rifle or disqualify the final rifle entry.
+    for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class),
+            static_cast<void*>(&henry_class),static_cast<void*>(&remington_class),
+            static_cast<void*>(&sawoff_class),static_cast<void*>(&volcanic_class),
+            static_cast<void*>(&lemant_class),static_cast<void*>(&old_frontier_class)}) {
+        Reset();weapon_class=cls;
+        actual[1]=active[1]=desired[1]=&weapon_alias;
+        const bool rifle=cls==&winchester_class||cls==&scoped_class||cls==&henry_class||
+            cls==&remington_class||cls==&sawoff_class;
+        fallback(rifle);
     }
     for(bool without_exception:{false,true})for(const char* name:{"GetActualWeaponNotEmpty","GetActiveWeapon",
         "GetDesiredWeapon","GetHandStateMashineState","GetHandStateMashineDestinyState",
@@ -487,11 +516,13 @@ void ExactNativeBodyProfiles() {
         Reset(hand);weapon_class=cls;
         for(auto& flags:two)flags[hand]=true;
     };
-    for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class)}) {
+    for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class),
+            static_cast<void*>(&henry_class)}) {
         rifle(cls);const int calls=Check(true);
         CoJMotionReloadOwner owner{};
         Require(ReadCoJMotionReloadOwner(&holder,&player,owner)&&owner.SupportsManual()&&!owner.single_round_supported,
             "exact Winchester must admit manual native unit loading");
+        Require(owner.kind==CoJManualReloadKind::unit,"native rifle alias changed reload mode");
         rifle(cls,1);Check(false);
         Reset();weapon_class=cls;Check(false); // Missing native rifle flags.
         for(int h:{0,1})for(int flag=0;flag<3;++flag) {

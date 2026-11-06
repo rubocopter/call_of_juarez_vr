@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/motion_reload_owner.hpp"
 #include "games/call_of_juarez/reload_trace.hpp"
 namespace cojvr::games::call_of_juarez {
+inline constexpr double kCoJManualGripInsertionRadiusM = 0.18;
 enum class CoJManualReloadPhase { ready, opening, manual_load, closing };
 struct CoJManualReloadInput {
     bool enabled=false, allowed=false, recentered=false;
@@ -9,13 +10,23 @@ struct CoJManualReloadInput {
     std::uint64_t player=0,context=0,sequence=0,now=0;
     runtime::GameplayInputState raw{};
     runtime::Pose head{},left{},right{};
-    CoJMotionReloadOwner admission{},recovery{};
+    CoJMotionReloadOwner admission{},recovery{},after_shot{};
     CoJReloadTraceSnapshot native{};
+};
+// Receipt for this sample's active gesture centre, in tracking metres. This
+// is the armed grip supplied to MotionReloadGesture, not a mechanical mouth.
+// Presentation must consume the receipt instead of choosing another locator.
+struct CoJManualReloadGestureTarget {
+    runtime::Vec3 position{};
+    std::uint64_t player=0,context=0,weapon=0,input_generation=0,sequence=0,observed_ms=0;
+    int armed_hand=-1;
+    bool valid=false;
 };
 struct CoJManualReloadOutput {
     bool start=false,cancel=false,insert=false,tracked=false,supervise=false;
     int selected_index=-1; // Captured at indexed pickup, never inferred at release.
     runtime::MotionReloadGestureOutput gesture{};
+    CoJManualReloadGestureTarget target{};
     const char* reason="none";
 };
 class CoJManualReloadSession {
@@ -125,23 +136,31 @@ public:
             }else if(s.native.probe_status==1){phase_=CoJManualReloadPhase::opening;
             }
         }
-        if(phase_==CoJManualReloadPhase::ready&&allowed&&((edge&&input.reload)||empty_fire_edge)&&
-            s.admission.valid&&s.admission.SupportsManual()&&s.player!=0&&
-            s.native.valid&&s.native.probe_valid&&(s.native.probe_status==0||s.native.probe_status==4)&&
-            s.native.armed_hand==s.admission.armed_hand&&s.native.weapon_id==s.admission.weapon_id&&
-            s.native.kind==s.admission.kind){
+        const bool manual_idle=MatchesIdleProbe(s.admission,s.native);
+        const bool shot_tail=MatchesIdleProbe(s.after_shot,s.native)&&!s.native.reloading;
+        const bool armed_fire=armed==0?s.raw.fire_right:s.raw.fire_left;
+        constexpr std::uint64_t kShotTailReloadWindowMs=450;
+        if(after_shot_at_&&(!available||reload_owner_changed||armed_fire||
+            s.now<after_shot_at_||s.now-after_shot_at_>kShotTailReloadWindowMs||
+            (!shot_tail&&(!manual_idle||s.native.reloading))))after_shot_at_=0;
+        if(phase_==CoJManualReloadPhase::ready&&edge&&input.reload&&shot_tail&&!armed_fire)
+            after_shot_at_=s.now;
+        const bool deferred_start=after_shot_at_&&fresh&&manual_idle;
+        if(phase_==CoJManualReloadPhase::ready&&allowed&&manual_idle&&
+            ((edge&&input.reload)||empty_fire_edge||deferred_start)){
+            after_shot_at_=0;
             player_=s.player;context_=s.context;generation_=s.raw.input_context_generation;
             weapon_=s.admission.weapon_id;hand_=s.admission.armed_hand;
             kind_=s.native.kind;cartridge_index_=-1;
             replenish_=false;
             phase_=CoJManualReloadPhase::opening;reload_claim_=true;out.start=true;
-            out.reason=empty_fire_edge?"empty_trigger":"reload_button";
+            out.reason=deferred_start?"reload_after_shot":empty_fire_edge?"empty_trigger":"reload_button";
             input.reload=true;
         }
         const bool owned=phase_!=CoJManualReloadPhase::ready;
         if(s.enabled&&!out.start&&s.raw.reload&&!s.native_fallback_allowed){
             input.reload=false;reload_claim_=true;reload_ready_=false;
-            if(!owned)out.reason="manual_admission_rejected";
+            if(!owned)out.reason=after_shot_at_?"reload_waiting_for_shot":"manual_admission_rejected";
         }
         if(owned&&hand_>=0&&hand_<2){
             const unsigned support=1U-static_cast<unsigned>(hand_);
@@ -170,7 +189,16 @@ public:
         gesture.trigger_held={s.raw.fire_right,s.raw.fire_left};gesture.input_generation=s.raw.input_context_generation;
         gesture.pose_sequence=s.sequence;gesture.monotonic_ms=s.now;
         gesture.replenish_cartridge=replenish_&&fresh&&gesture.valid&&kind_==CoJManualReloadKind::unit;
+        gesture.grip_insertion_radius_m=kCoJManualGripInsertionRadiusM;
         out.gesture=gesture_.Update(gesture);
+        if(gesture.valid&&fresh&&!regression&&!gap&&out.gesture.cartridge_held){
+            out.target.position=gesture.armed_hand==0?gesture.right_grip.position:gesture.left_grip.position;
+            out.target.player=gesture.player_identity;out.target.context=s.context;
+            out.target.weapon=gesture.weapon_identity;out.target.input_generation=gesture.input_generation;
+            out.target.sequence=gesture.pose_sequence;out.target.armed_hand=gesture.armed_hand;
+            out.target.observed_ms=s.now;
+            out.target.valid=true;
+        }
         if(kind_==CoJManualReloadKind::indexed&&out.gesture.cartridge_held&&cartridge_index_<0)
             cartridge_index_=offered_index;
         if(gesture.replenish_cartridge)replenish_=false;
@@ -195,6 +223,7 @@ public:
     // Resolve the synchronous native call before publishing this frame's
     // ownership/feedback. The insertion flag records intent, never ammo credit.
     void CompleteInsertion(bool completed,bool accepted,CoJManualReloadOutput& out) noexcept {
+        out.target={};
         NoteInsertion(completed&&accepted);
         if(completed&&accepted){
             cartridge_index_=-1;
@@ -212,14 +241,21 @@ public:
         }
     }
     bool Cancel() noexcept {
+        after_shot_at_=0;
         cancel_pending_=false;
         if(phase_==CoJManualReloadPhase::ready||phase_==CoJManualReloadPhase::closing)return false;
         phase_=CoJManualReloadPhase::closing;replenish_=false;cartridge_index_=-1;return true;
     }
     CoJManualReloadPhase phase() const noexcept {return phase_;}
+    bool waiting_for_shot_reload() const noexcept {return after_shot_at_!=0;}
     int selected_index() const noexcept {return cartridge_index_;}
     runtime::MotionReloadGestureStage gesture_stage() const noexcept {return gesture_.stage();}
 private:
+    static bool MatchesIdleProbe(const CoJMotionReloadOwner& owner,const CoJReloadTraceSnapshot& native) noexcept {
+        return owner.valid&&owner.SupportsManual()&&native.valid&&native.probe_valid&&
+            (native.probe_status==0||native.probe_status==4)&&native.weapon_id==owner.weapon_id&&
+            native.armed_hand==owner.armed_hand&&native.kind==owner.kind;
+    }
     static bool IndexedAvailable(const CoJReloadTraceSnapshot& n,int index) noexcept {
         if(n.index_count!=2||index<0||index>=2)return false;
         const int slot=CoJReloadReserveSlot(n.reserve_kinds[index]);
@@ -236,6 +272,7 @@ private:
     CoJManualReloadPhase phase_=CoJManualReloadPhase::ready;
     std::uint64_t player_=0,weapon_=0,context_=0,generation_=0,sequence_=0,fresh_at_=0,observed_=0;
     std::uint64_t reload_player_=0,reload_context_=0,reload_generation_=0,reload_weapon_=0;
+    std::uint64_t after_shot_at_=0;
     int reload_hand_=-1;
     int hand_=-1;
     int cartridge_index_=-1;

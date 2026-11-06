@@ -8,7 +8,11 @@
 #include "games/call_of_juarez/independent_render_scope.hpp"
 #include "games/call_of_juarez/independent_resolution_recipe.hpp"
 #include "games/call_of_juarez/temporal_source_probe.hpp"
+#include "games/call_of_juarez/sampled_scene_depth.hpp"
+#include "games/call_of_juarez/sampled_scene_depth_export.hpp"
+#include "games/call_of_juarez/sampled_worker_audit.hpp"
 #include "games/call_of_juarez/theater_fallback_reason.hpp"
+#include "games/call_of_juarez/render_work_observation.hpp"
 #include "backends/d3d9/hdr_source_writes.hpp"
 
 #include "backends/d3d9/d3d9_stereo_capture.hpp"
@@ -22,9 +26,12 @@
 #include "runtime/log.hpp"
 #include "runtime/hmd_frame_pacing.hpp"
 #include "runtime/vr_settings.hpp"
+#include "runtime/graphics_settings.hpp"
+#include "runtime/ui_haptics.hpp"
 #include "runtime/ui_pointer_ownership.hpp"
 #include "backends/d3d9/vr_present_policy.hpp"
 #include "backends/d3d9/source_capture_admission.hpp"
+#include "backends/d3d9/monitor_black.hpp"
 #include "backends/d3d9/frame_luma_probe.hpp"
 #include "backends/d3d9/hdr_alpha_probe.hpp"
 
@@ -57,6 +64,7 @@ std::filesystem::path g_game_directory{};
 std::string g_run_id{"unbound"};
 std::atomic_bool g_finalization_started{false};
 std::atomic_bool g_finalization_completed{false};
+std::atomic_bool g_sampled_depth_enabled{false}; // Startup-only.
 wchar_t g_process_exit_log_path[32768]{};
 
 struct SourceCaptureAuthorization {
@@ -67,6 +75,13 @@ struct SourceCaptureAuthorization {
 };
 
 struct NativeStereoState {
+    // Value-only, process-bounded wrapper CPU-wall observation. No D3D draw hooks.
+    bool render_work_enabled = false; // Startup-only; excludes heavier probe modes.
+    std::mutex render_work_mutex;
+    cojvr::games::call_of_juarez::CoJRenderWorkObservation render_work;
+    std::atomic_uint64_t render_work_epoch{1}, render_work_contention{0};
+    std::atomic_bool render_work_done{false};
+    std::uint64_t render_work_observed_epoch = 1; // Under render_work_mutex.
     struct LumaChannel {
         cojvr::backends::d3d9::D3D9FrameLumaProbe probe;
         cojvr::backends::d3d9::FrameLumaSample previous{};
@@ -77,6 +92,12 @@ struct NativeStereoState {
     std::mutex luma_mutex;
     std::array<LumaChannel, 3> luma_channels;
     std::mutex hdr_alpha_mutex;
+    std::recursive_mutex sampled_depth_mutex;
+    cojvr::games::call_of_juarez::SampledSceneDepth sampled_depth;
+    cojvr::games::call_of_juarez::CoJSampledWorkerAudit sampled_worker;
+    cojvr::backends::openvr::dlss::SceneWorkerPhase sampled_worker_phase=
+        cojvr::backends::openvr::dlss::SceneWorkerPhase::stopped;
+    cojvr::backends::openvr::dlss::SceneWorkerAuthority sampled_worker_authority{};
     cojvr::backends::d3d9::D3D9HdrAlphaProbe hdr_alpha_probe{6};
     std::atomic_uint64_t luma_pose_sequence{0};
     std::atomic<std::uint64_t> frame_feedback_context_token{0};
@@ -106,6 +127,9 @@ struct NativeStereoState {
     cojvr::runtime::VrFrameCadence frame_cadence;
     std::atomic_bool desktop_vsync_disabled{false};
     cojvr::backends::d3d9::VrPresentPolicy present_policy;
+    cojvr::backends::d3d9::MonitorBlackPolicy monitor_black;
+    cojvr::backends::d3d9::MonitorBlackSurface monitor_surface;
+    bool monitor_output_black = false;
     bool late_rate_reported = false;
     float last_pacing_hz = 0.0F;
     std::uint64_t pacing_sequence = 0;
@@ -157,6 +181,10 @@ struct NativeStereoState {
 // that boundary, Windows owns the remaining allocations; DLL static destruction
 // must not join killed threads or release GPU resources under the loader lock.
 NativeStereoState& g_stereo = *new NativeStereoState;
+auto& g_sampled_depth = g_stereo.sampled_depth;
+auto& g_sampled_depth_mutex = g_stereo.sampled_depth_mutex;
+std::uint64_t PublishSettingsOwner(NativeStereoState&,
+    const cojvr::games::call_of_juarez::CoJPresentationOwner&,bool) noexcept;
 
 std::filesystem::path GameDirectory() noexcept {
     try {
@@ -181,6 +209,104 @@ std::filesystem::path LogPath() noexcept {
 void LogLine(const std::string_view line) noexcept {
     const auto path = LogPath();
     if (!path.empty()) cojvr::runtime::AppendLogLine(path, line);
+}
+
+using RenderWorkRoute = cojvr::games::call_of_juarez::CoJRenderWorkRoute;
+const char* RenderWorkRouteName(RenderWorkRoute route) noexcept {
+    switch (route) {
+    case RenderWorkRoute::gameplay: return "gameplay";
+    case RenderWorkRoute::settings: return "settings";
+    case RenderWorkRoute::movie: return "movie";
+    default: return "invalid";
+    }
+}
+
+void ObserveRenderWork(cojvr::runtime::Eye eye, std::uint64_t frame, std::uintptr_t owner,
+    bool begin, bool complete, const char* route_name) noexcept {
+    if (!g_stereo.render_work_enabled || g_stereo.render_work_done.load(std::memory_order_relaxed) ||
+        g_finalization_started.load(std::memory_order_acquire)) return;
+    try {
+        // Never wait on a diagnostic lock at the native wrapper boundary. A gap
+        // retires continuity even if it happened on another thread or at Reset.
+        std::unique_lock lock(g_stereo.render_work_mutex, std::try_to_lock);
+        if (!lock.owns_lock()) {
+            g_stereo.render_work_contention.fetch_add(1, std::memory_order_relaxed);
+            g_stereo.render_work_epoch.fetch_add(1, std::memory_order_acq_rel);
+            return;
+        }
+        const auto epoch = g_stereo.render_work_epoch.load(std::memory_order_acquire);
+        if (epoch != g_stereo.render_work_observed_epoch) {
+            g_stereo.render_work.Invalidate();
+            g_stereo.render_work_observed_epoch = epoch;
+        }
+        const std::string_view route = route_name ? route_name : "";
+        const auto work_route = route == "gameplay" ? RenderWorkRoute::gameplay :
+            route == "settings" ? RenderWorkRoute::settings :
+            route == "movie" ? RenderWorkRoute::movie : RenderWorkRoute::invalid;
+        const unsigned index = eye == cojvr::runtime::Eye::left ? 0u :
+            eye == cojvr::runtime::Eye::right ? 1u : 2u;
+        const cojvr::games::call_of_juarez::CoJRenderWorkStamp stamp{frame, owner,
+            g_stereo.device_generation.load(std::memory_order_acquire), epoch,
+            GetCurrentThreadId(), index, work_route};
+        const auto now_ns = g_stereo.render_work.NeedsTimestamp(stamp, begin) ?
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()) : 0;
+        g_stereo.render_work.Observe(stamp, begin, complete, now_ns);
+        g_stereo.render_work_done.store(g_stereo.render_work.finished(), std::memory_order_relaxed);
+    } catch (...) {
+        g_stereo.render_work_epoch.fetch_add(1, std::memory_order_acq_rel);
+    }
+}
+
+void ReportRenderWork() noexcept {
+    // Called once after camera shutdown, outside all timed/render scopes.
+    g_stereo.render_work_done.store(true, std::memory_order_release);
+    try {
+        cojvr::games::call_of_juarez::CoJRenderWorkObservation snapshot;
+        {
+            std::lock_guard lock(g_stereo.render_work_mutex);
+            g_stereo.render_work.Invalidate();
+            snapshot = g_stereo.render_work;
+        }
+        const auto counters = snapshot.counters();
+        std::ostringstream summary;
+        summary << "native_render_work: event=summary;schema=1;measurement=cpu_wall_ns"
+                << ";enabled=" << (g_stereo.render_work_enabled ? "true" : "false")
+                << ";boundary=full_wrapper_callback;gpu_timing=false;fps=false;draw_counts=unavailable"
+                << ";coverage=bounded_observation_window;pairs=" << snapshot.samples().size()
+                << ";attempts=" << counters.attempts << ";wrapper_begins=" << counters.begins
+                << ";wrapper_completes=" << counters.completes << ";rejected=" << counters.rejected
+                << ";nested=" << counters.nested << ";unbalanced=" << counters.unbalanced
+                << ";discarded_left=" << counters.discarded_left << ";invalidations=" << counters.invalidations
+                << ";contention_gaps=" << g_stereo.render_work_contention.load();
+        LogLine(summary.str());
+        for (const auto& pair : snapshot.samples()) {
+            std::ostringstream line;
+            line << "native_render_work: event=pair;schema=1;measurement=cpu_wall_ns"
+                 << ";frame=" << pair.left.frame << ";owner=" << pair.left.owner
+                 << ";generation=" << pair.left.generation << ";epoch=" << pair.left.epoch
+                 << ";thread=" << pair.left.thread << ";route=" << RenderWorkRouteName(pair.left.route)
+                 << ";left_eye=" << pair.left.eye << ";right_eye=" << pair.right.eye
+                 << ";left_cpu_wall_ns=" << pair.left_cpu_wall_ns
+                 << ";right_cpu_wall_ns=" << pair.right_cpu_wall_ns;
+            LogLine(line.str());
+        }
+        for (auto route : {RenderWorkRoute::gameplay, RenderWorkRoute::settings, RenderWorkRoute::movie}) {
+            for (unsigned eye = 0; eye != 3; ++eye) {
+                const auto stats = snapshot.Statistics(route, eye);
+                if (!stats.count) continue;
+                std::ostringstream line;
+                line << "native_render_work: event=statistics;schema=1;measurement=cpu_wall_ns"
+                     << ";route=" << RenderWorkRouteName(route)
+                     << ";eye=" << (eye == 0 ? "left" : eye == 1 ? "right" : "wrapper_sum")
+                     << ";pairs=" << stats.count << ";mean_ns=" << stats.mean_ns
+                     << ";min_ns=" << stats.min_ns << ";max_ns=" << stats.max_ns
+                     << ";p50_ns=" << stats.p50_ns << ";p95_ns=" << stats.p95_ns
+                     << ";p99_ns=" << stats.p99_ns << ";percentile=nearest_rank";
+                LogLine(line.str());
+            }
+        }
+    } catch (...) {} // A diagnostic serialization failure cannot change teardown.
 }
 
 void ResetFrameLumaProbes() noexcept {
@@ -429,6 +555,15 @@ void CancelResourceProbe() noexcept;
 void AbortHudBatch(cojvr::backends::d3d9::hud::Fault) noexcept;
 void DrainHudBatch() noexcept;
 bool AllowDeviceReset(IDirect3DDevice9*) noexcept {
+    // Retire timing on attempted Reset/ResetEx, including vetoes and failures.
+    g_stereo.render_work_epoch.fetch_add(1, std::memory_order_acq_rel);
+    if (g_sampled_depth_enabled) {
+        std::lock_guard lock(g_sampled_depth_mutex);
+        if (!g_stereo.sampled_worker.Retire()) return false;
+        if (!g_sampled_depth.Retire()) return false;
+    }
+    g_stereo.monitor_surface.Reset(); // Release DEFAULT-pool preimage before either reset API.
+    g_stereo.monitor_black = {};
     AbortHudBatch(cojvr::backends::d3d9::hud::unterminated);
     DrainHudBatch();
     ResetFrameLumaProbes(); // Called before both Reset and ResetEx, even failed attempts.
@@ -735,6 +870,10 @@ void ResourceProbeCall(IDirect3DDevice9* device,bool entering) noexcept {
 void CancelResourceProbe() noexcept;
 void ResourceProbeCopy(IDirect3DDevice9* device,IDirect3DSurface9* source,const RECT* source_rect,
     IDirect3DSurface9* destination,const RECT* destination_rect,HRESULT result) noexcept {
+    if (g_sampled_depth_enabled) {
+        std::lock_guard lock(g_sampled_depth_mutex);
+        g_sampled_depth.AfterCopy(device, source, source_rect, destination, destination_rect, result);
+    }
     if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
     auto& trace=g_resource_probe_thread;
     if(trace.alpha_active&&trace.device==device&&trace.alpha_candidate&&!trace.alpha_copying&&
@@ -829,10 +968,213 @@ cojvr::backends::d3d9::ResourceProbeHookContinuity CurrentProbeContinuity(IDirec
     if(!expected||g_stereo.device!=expected)return {};
     return cojvr::backends::d3d9::InspectResourceProbeHookContinuity(expected);
 }
-void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
+IDirect3DSurface9* MapSampledDepth(IDirect3DDevice9* device, IDirect3DSurface9* surface) noexcept {
+    std::lock_guard lock(g_sampled_depth_mutex);
+    return g_sampled_depth.MapDepth(device, surface);
+}
+void BeforeSampledDepthClear(IDirect3DDevice9* device, DWORD count, const D3DRECT* rects,
+                             DWORD flags, float z) noexcept {
+    std::lock_guard lock(g_sampled_depth_mutex);
+    g_sampled_depth.BeforeClear(device, count, rects, flags, z);
+}
+void AfterSampledDepthClear(IDirect3DDevice9* device, HRESULT result) noexcept {
+    std::lock_guard lock(g_sampled_depth_mutex);
+    g_sampled_depth.AfterClear(device, result);
+}
+bool RetrySampledDepthRestore(void*, cojvr::runtime::Eye, std::uint64_t) noexcept {
+    std::lock_guard lock(g_sampled_depth_mutex);
+    return g_sampled_depth.Restore();
+}
+bool SampledDepthRestorationPending(void*) noexcept {
+    std::lock_guard lock(g_sampled_depth_mutex);
+    return g_sampled_depth.rollback_pending();
+}
+const char* SampledWorkerOutcome(cojvr::backends::openvr::dlss::SceneWorkerOutcome outcome) noexcept {
+    using Outcome=cojvr::backends::openvr::dlss::SceneWorkerOutcome;
+    switch(outcome){case Outcome::copied:return "copied";case Outcome::reconstructed:return "unexpected_reconstruction";
+        case Outcome::cancelled:return "cancelled";case Outcome::expired:return "expired";default:return "failed";}
+}
+void PollSampledDepth() noexcept {
+    using Phase=cojvr::backends::openvr::dlss::SceneWorkerPhase;
+    cojvr::backends::openvr::dlss::SceneWorkerAuthority authority;
+    std::uint64_t native_context=0;
+    if(g_stereo.sampled_worker.status().phase!=Phase::stopped){
+        cojvr::games::call_of_juarez::CoJPresentationOwner owner{};
+        const bool observed=cojvr::games::call_of_juarez::ObserveCameraGamePresentationOwner(owner);
+        native_context=PublishSettingsOwner(g_stereo,owner,observed);
+        const auto input=g_stereo.presenter.InputAuthority();
+        authority.settings_revision=cojvr::runtime::CurrentGraphicsPreferences().revision;
+        authority.input_context=input.context;authority.history_epoch=native_context;
+        authority.tracking_valid=input.tracking_valid;
+        authority.available=authority.settings_revision&&native_context&&observed&&owner.valid&&!owner.blocked()&&g_stereo.runtime_ready&&
+            !g_finalization_started.load(std::memory_order_acquire)&&input.available&&
+            input.context==native_context&&!input.settings_captured&&!cojvr::runtime::SettingsInputCaptured()&&
+            !g_stereo.frame_settings_captured.load(std::memory_order_acquire)&&!g_stereo.flat_ui_select_release_required&&
+            cojvr::runtime::GameplayUiFeedbackContextMailbox::Available(g_stereo.presenter.GameplayFeedbackContextToken());
+    }
+    std::lock_guard lock(g_sampled_depth_mutex);
+    if(authority!=g_stereo.sampled_worker_authority){
+        g_stereo.sampled_worker_authority=authority;
+        try{
+            std::ostringstream line;line<<"native_sampled_worker_authority: available="<<(authority.available?"true":"false")
+                <<";tracking_valid="<<(authority.tracking_valid?"true":"false")
+                <<";settings_revision="<<authority.settings_revision<<";input_context="<<authority.input_context
+                <<";native_context="<<native_context<<";history_epoch="<<authority.history_epoch
+                <<";neural_active=false;temporal_admitted=false";LogLine(line.str());
+        }catch(...){}
+    }
+    if(const auto report=g_stereo.sampled_worker.Poll(authority)){
+        try{
+            const auto& r=report->worker;
+            std::ostringstream line;line<<"native_sampled_worker: status="<<SampledWorkerOutcome(r.outcome)
+                <<";mode=copy_audit;frame_sequence="<<r.source.frame<<";pose_sequence="<<r.source.pose
+                <<";owner="<<r.source.owner<<";generation="<<r.source.generation<<";resource_epoch="<<r.source.epoch
+                <<";integrity_epoch="<<r.source.integrity<<";width="<<r.width<<";height="<<r.height
+                <<";producer_device="<<r.source.device
+                <<";settings_revision="<<r.authority.settings_revision<<";input_context="<<r.authority.input_context
+                <<";history_epoch="<<r.authority.history_epoch<<";worker_thread="<<r.worker_thread
+                <<";source_thread="<<GetCurrentThreadId()<<";pixels_checked="<<(report->pixels_checked?"true":"false")
+                <<";pixels_match="<<(report->pixels_match?"true":"false")
+                <<";copy_ms="<<r.copy_ms<<";processing_ms="<<r.processing_ms<<";age_ms="<<r.age_ms
+                <<";timing_basis=cpu_wall"
+                <<";neural_active=false;temporal_admitted=false";
+            if(r.error[0])line<<";reason="<<r.error.data();LogLine(line.str());
+        }catch(...){}
+    }
+    const auto worker_status=g_stereo.sampled_worker.status();
+    if(worker_status.phase!=g_stereo.sampled_worker_phase){
+        g_stereo.sampled_worker_phase=worker_status.phase;
+        try{
+            std::ostringstream line;line<<"native_sampled_worker_state: phase="<<static_cast<unsigned>(worker_status.phase)
+                <<";submitted="<<worker_status.submitted<<";completed="<<worker_status.completed
+                <<";source_pairs_retired="<<worker_status.source_pairs_retired
+                <<";worker_thread="<<worker_status.worker_thread<<";neural_active=false;temporal_admitted=false";
+            if(worker_status.error[0])line<<";reason="<<worker_status.error.data();LogLine(line.str());
+        }catch(...){}
+    }
+    g_sampled_depth.PollPackets([](const auto& packet,HRESULT result) noexcept {
+        const auto frame=packet.stamp.frame,pose=packet.stamp.pose;
+        const auto owner=packet.stamp.owner;const auto eye=packet.eye;const auto& snapshot=packet.snapshot;
+        try {
+            std::array<std::uint32_t,64> grid{};
+            const HRESULT readback = result == S_OK ? snapshot.ReadDiagnosticGrid(grid) : result;
+            std::ostringstream line;
+            line << "native_sampled_depth: status=" << (result == S_OK ? "ready" : "failed")
+                 << ";frame_sequence=" << frame << ";pose_sequence=" << pose << ";eye=" << eye << ";owner=" << owner
+                 << ";generation=" << snapshot.generation() << ";width=" << snapshot.width()
+                 << ";height=" << snapshot.height() << ";encoding=device_z_rgb24;temporal_admitted=false"
+                 << ";capture_sequence=" << snapshot.sequence() << ";resource_epoch=" << packet.stamp.epoch
+                 << ";integrity_epoch=" << packet.stamp.integrity << ";producer_device=" << packet.stamp.device
+                 << ";producer_thread=" << snapshot.producer_thread()
+                 << ";readback_hr=0x" << std::hex << static_cast<unsigned long>(readback) << std::dec;
+            if (SUCCEEDED(readback)) {
+                line << ";grid8x8=";
+                for (std::size_t n = 0; n < grid.size(); ++n) line << (n ? "," : "") << grid[n];
+            }
+            LogLine(line.str());
+            if (result == S_OK) {
+                const auto offered=g_stereo.sampled_worker.Offer(packet);
+                if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::queued)
+                    LogLine("native_sampled_worker: status=queued;mode=copy_audit;frame_sequence="+std::to_string(frame)+
+                        ";pose_sequence="+std::to_string(pose)+";neural_active=false;temporal_admitted=false");
+                else if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::failed)
+                    LogLine(std::string("native_sampled_worker: status=source_rejected;reason=")+g_stereo.sampled_worker.last_error()+
+                        ";neural_active=false;temporal_admitted=false");
+                else if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::skipped)
+                    LogLine(std::string("native_sampled_worker: status=skipped;reason=")+g_stereo.sampled_worker.last_error()+
+                        ";frame_sequence="+std::to_string(frame)+";eye="+std::to_string(eye)+
+                        ";neural_active=false;temporal_admitted=false");
+                cojvr::backends::d3d9::D3D9SampledDepthPreview preview;
+                const auto preview_hr=snapshot.ReadDiagnosticPreview(preview);
+                std::filesystem::path exported;
+                if (SUCCEEDED(preview_hr)) {
+                    const cojvr::games::call_of_juarez::CoJSceneDepthPreviewIdentity identity{
+                        frame,pose,owner,snapshot.generation(),snapshot.sequence(),eye,snapshot.width(),snapshot.height()};
+                    exported=cojvr::games::call_of_juarez::ExportCoJSceneDepthPreview(
+                        GameDirectory()/".cojvr-evidence"/"runs"/g_run_id,g_run_id,identity,preview);
+                }
+                std::ostringstream report;
+                report << "native_sampled_depth_preview: status=" << (exported.empty()?"failed":"written")
+                    << ";frame_sequence=" << frame << ";pose_sequence=" << pose << ";eye=" << eye
+                    << ";generation=" << snapshot.generation() << ";width=" << preview.width << ";height=" << preview.height
+                    << ";readback_hr=0x" << std::hex << static_cast<unsigned long>(preview_hr)
+                    << ";temporal_admitted=false";
+                if (!exported.empty()) report << ";manifest=" << exported.filename().string();
+                LogLine(report.str());
+            }
+        } catch (...) {}
+    });
+}
+void ObserveSampledDepth(cojvr::runtime::Eye eye, std::uint64_t frame, std::uintptr_t owner,
+    bool begin, bool complete, bool gameplay) noexcept {
+    thread_local cojvr::games::call_of_juarez::CoJTemporalProbeSchedule schedule;
+    thread_local std::uint64_t selected_frame = 0;
+    thread_local bool entered = false;
+    const auto generation = g_stereo.device_generation.load(std::memory_order_acquire);
+    const auto index = eye == cojvr::runtime::Eye::left ? 0U : 1U;
+    if (begin && index == 0) {
+        selected_frame = schedule.Acquire(GetTickCount64(), frame, owner, generation, gameplay) ? frame : 0;
+    }
+    if (selected_frame != frame || !gameplay) return;
+    Microsoft::WRL::ComPtr<IDirect3DDevice9> device;
+    { std::lock_guard lock(g_stereo.device_mutex); device = g_stereo.device; }
+    const auto integrity = CurrentProbeContinuity(device.Get());
+    std::lock_guard lock(g_sampled_depth_mutex);
+    if (begin) {
+        const auto native = cojvr::games::call_of_juarez::ObserveInstalledCoJPostprocessResources();
+        if(index==0)g_stereo.sampled_worker.BeginFrame(frame);
+        const auto pose = g_stereo.luma_pose_sequence.load();
+        entered = integrity.intact && g_sampled_depth.Begin(device.Get(), native,
+            generation, integrity.epoch, frame, owner, index, pose);
+        if(entered&&index==0){
+            (void)g_stereo.sampled_worker.Start(device.Get());
+            g_stereo.sampled_worker.BeginFrame(frame);
+        }
+        if (!entered) {
+            try {
+                std::ostringstream line;
+                line << "native_sampled_depth: status=source_unavailable;temporal_admitted=false"
+                     << ";reason=" << (integrity.intact ? g_sampled_depth.last_error() : "hook_integrity")
+                     << ";frame_sequence=" << frame << ";pose_sequence=" << pose << ";eye=" << index
+                     << ";owner=" << owner << ";generation=" << generation << ";integrity_epoch=" << integrity.epoch
+                     << ";native_status=" << static_cast<unsigned>(native.status)
+                     << ";native_valid=" << native.valid << ";device=" << reinterpret_cast<std::uintptr_t>(device.Get())
+                     << ";native_device=" << native.device << ";buffer_count=" << native.buffer_count
+                     << ";initialization_hr=0x" << std::hex
+                     << static_cast<unsigned long>(integrity.intact ? g_sampled_depth.last_result() : E_FAIL);
+                LogLine(line.str());
+                if (index == 0) {
+                    cojvr::games::call_of_juarez::CoJPostprocessObservationContext context;
+                    context.scope = frame; context.frame = frame; context.owner = owner;
+                    context.device = reinterpret_cast<std::uintptr_t>(device.Get());
+                    context.device_generation = generation; context.probe_epoch = integrity.epoch;
+                    context.thread = GetCurrentThreadId(); context.eye = index; context.begin = true;
+                    LogLine(cojvr::games::call_of_juarez::FormatCoJPostprocessObservation(native, context));
+                }
+            } catch (...) {}
+        }
+    } else if (entered) {
+        entered = false;
+        bool queued = false;
+        const bool restored = g_sampled_depth.End(frame, index, generation, integrity.epoch, owner,
+            complete && integrity.intact, queued);
+        if (!queued) {
+            try {
+                LogLine(std::string("native_sampled_depth: status=") + (restored ? "capture_rejected" : "restore_pending") +
+                    ";frame_sequence=" + std::to_string(frame) + ";eye=" + std::to_string(index) +
+                    ";reason=" + g_sampled_depth.last_error() + ";temporal_admitted=false");
+            } catch (...) {}
+        }
+    }
+}
+void ObserveDiagnosticRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
     std::uintptr_t owner,bool begin,bool complete,const char* route_name) noexcept {
+    const DWORD error = GetLastError();
+    if (g_sampled_depth_enabled) {
+        ObserveSampledDepth(eye, frame, owner, begin, complete, std::string_view(route_name) == "gameplay");
+        SetLastError(error);
+    }
     if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
-    const DWORD error=GetLastError();
     auto& trace=g_resource_probe_thread;
     const unsigned route=std::string_view(route_name)=="movie"?2:
         std::string_view(route_name)=="settings"?1:0;
@@ -899,6 +1241,17 @@ void ObserveRenderPass(void*,cojvr::runtime::Eye eye,std::uint64_t frame,
             trace.alpha_epoch=generation;
         }
     } catch (...) { CancelResourceProbe(); }
+    SetLastError(error);
+}
+
+void ObserveRenderPass(void* context, cojvr::runtime::Eye eye, std::uint64_t frame,
+    std::uintptr_t owner, bool begin, bool complete, const char* route_name) noexcept {
+    const DWORD error = GetLastError();
+    // Timestamp before diagnostic teardown / after diagnostic setup. The
+    // ordinary measured path never enables per-draw/resource/depth probes.
+    if (!begin) ObserveRenderWork(eye, frame, owner, false, complete, route_name);
+    ObserveDiagnosticRenderPass(context, eye, frame, owner, begin, complete, route_name);
+    if (begin) ObserveRenderWork(eye, frame, owner, true, complete, route_name);
     SetLastError(error);
 }
 
@@ -1669,26 +2022,28 @@ void ObserveNaturalFrame(void* context,bool complete) noexcept {
     state.natural_frame_ready.store(observed,std::memory_order_release);
 }
 
-void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
+// Reports usable captured visor content, never permission to skip native Present.
+bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
+    if (g_sampled_depth_enabled) PollSampledDepth();
     AbortHudBatch(hud::unterminated); DrainHudBatch();
     if (!device || !g_stereo.runtime_ready) {
         cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
         InvalidateSourceAuthority(g_stereo);
         g_stereo.presenter.PublishGameplayFeedbackContext(false);
-        return;
+        return false;
     }
     if (g_stereo.frame_cadence.PresentNeedsPacing()) {
         if (!PaceRenderFrame(&g_stereo)) {
             InvalidateSourceAuthority(g_stereo);
             g_stereo.presenter.PublishGameplayFeedbackContext(false);
-            return;
+            return false;
         }
         (void)g_stereo.frame_cadence.PresentNeedsPacing();
     }
     // A failed native/COM rollback still owns its restore transaction. Do not
     // capture partially redirected targets as natural desktop/theater content.
     if (g_stereo.fixed_outputs.enabled &&
-        (g_stereo.independent_render.active() || g_stereo.independent_render.restoration_pending())) return;
+        (g_stereo.independent_render.active() || g_stereo.independent_render.restoration_pending())) return false;
     try {
         bool timer_frozen = false;
         std::string timer_error;
@@ -1728,7 +2083,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 // next Begin's collection, and never recapture the eye mirror
                 // under the natural-theater label at this Present boundary.
                 g_stereo.flat_capture_active.store(false, std::memory_order_release);
-                return;
+                return false; // Private-bank output is outside monitor-black admission.
             }
         }
         const bool stereo_fresh = g_stereo.stereo_queue.Fresh(now_ms);
@@ -1739,7 +2094,8 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         if (presentation_valid && (!presentation_blocked || immersive_movie) && !g_stereo.flat_ui_select_release_required &&
             stereo_fresh) {
             g_stereo.flat_capture_active.store(false, std::memory_order_release);
-            return;
+            g_stereo.monitor_black.FlatCaptured(0, 0, 0);
+            return true; // A complete published native pair retains its existing lease.
         }
 
         if (!g_stereo.flat_capture_active.exchange(true, std::memory_order_acq_rel)) {
@@ -1755,6 +2111,8 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                     << ";player_alive=" << presentation.player_alive
                     << ";mission_end_visible=" << presentation.mission_end_visible
                     << ";movie_playing=" << presentation.movie_playing
+                    << ";movie_input_epoch=" << presentation.movie_input_epoch
+                    << ";movie_target_missing=" << presentation.movie_target_missing
                     << ";immersive_selected=" << immersive_selected
                     << ";immersive_movie=" << immersive_movie << ";stereo_fresh=" << stereo_fresh
                     << ";settings_captured=" << settings_captured
@@ -1771,7 +2129,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
             g_stereo.stereo_queue.Invalidate();
             g_stereo.presenter.PublishGameplayFeedbackContext(false);
-            return;
+            return false;
         }
 
         const HWND ui_window = reinterpret_cast<HWND>(g_stereo.game_window.load(std::memory_order_acquire));
@@ -1904,22 +2262,28 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         if(g_stereo.fixed_outputs.enabled&&g_stereo.natural_world_seen.load()){
             std::lock_guard lock(g_stereo.source_mutex);
             if(!g_stereo.natural_frame_ready.load()||g_stereo.natural_owner.load()!=g_stereo.source_owner||
-               g_stereo.natural_generation.load()!=g_stereo.device_generation.load())return;
+               g_stereo.natural_generation.load()!=g_stereo.device_generation.load())return false;
         }
         // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
         // Capture every second Present; the presenter repeats the latest frame
         // at compositor cadence between updates.
         const std::uint64_t present_sequence =
             g_stereo.flat_capture_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
-        if ((present_sequence & 1U) != 0U) return;
+        if ((present_sequence & 1U) != 0U)
+            return g_stereo.monitor_black.FlatFresh(reinterpret_cast<std::uintptr_t>(device),
+                g_stereo.device_generation.load(std::memory_order_acquire), now_ms);
+
+        // An attempted readback/publication failure must withdraw the prior
+        // theater lease; the following throttled Present cannot hide that failure.
+        g_stereo.monitor_black.FlatCaptured(0, 0, 0);
 
         Microsoft::WRL::ComPtr<IDirect3DSurface9> back_buffer;
         const HRESULT back_buffer_result =
             device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
-        if (FAILED(back_buffer_result) || !back_buffer) return;
+        if (FAILED(back_buffer_result) || !back_buffer) return false;
         const std::uint64_t generation =
             g_stereo.device_generation.load(std::memory_order_acquire);
-        if (generation == 0) return;
+        if (generation == 0) return false;
         // Menu dispatch above may have changed native owner synchronously.
         // Freeze the fresh flat owner and source mode before its immediate copy.
         if (g_stereo.fixed_outputs.enabled) {
@@ -1940,7 +2304,7 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             LogTransportFailure(
                 present_sequence, "flat_capture", g_stereo.flat_capture.last_error());
             if (g_stereo.fixed_outputs.enabled) InvalidateSourceAuthority(g_stereo);
-            return;
+            return false;
         }
         if (ShouldLogStereoTiming(present_sequence)) {
             LogLine(
@@ -1962,23 +2326,72 @@ void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 cojvr::backends::d3d9::FramePresentationMode::flat_theater,
                 "flat_publish", authorization)) {
             g_stereo.stereo_queue.FlatPublished();
+            g_stereo.monitor_black.FlatCaptured(reinterpret_cast<std::uintptr_t>(device),
+                generation, GetTickCount64());
             if (ShouldLogStereoTiming(present_sequence))
                 LogLine(
                     "native_stereo_flat_theater: status=published " +
                     std::string(g_stereo.flat_capture.collect_description()));
+            return true;
         }
     } catch (...) {
         g_stereo.presenter.PublishGameplayFeedbackContext(false);
         LogLine("native_stereo_flat_theater: status=exception");
     }
+    g_stereo.monitor_black.FlatCaptured(0, 0, 0);
+    return false;
+}
+
+void FinishMonitorOutput(IDirect3DDevice9* device, const bool captured) noexcept {
+    if (!captured) g_stereo.monitor_black.FlatCaptured(0, 0, 0);
+    const auto stats = g_stereo.presenter.stats();
+    const bool tracked = g_stereo.presenter.HasValidTracking();
+    const bool ready = g_stereo.monitor_black.Allow(reinterpret_cast<std::uintptr_t>(device),
+        g_stereo.device_generation.load(std::memory_order_acquire), GetTickCount64(), captured,
+        g_stereo.runtime_ready && g_stereo.presenter.running() &&
+            !g_finalization_started.load(std::memory_order_acquire) && !g_stereo.fixed_outputs.enabled,
+        tracked, stats.new_frame_submissions + stats.repeated_frame_submissions, stats.submit_failures);
+    // All source copies and luma observations precede this pixel transaction.
+    // Its exact preimage is restored only after the original Present returns.
+    const HRESULT result = ready ? g_stereo.monitor_surface.Begin(device,
+        g_stereo.device_generation.load(std::memory_order_acquire)) : S_FALSE;
+    const bool black = result == S_OK;
+    if (FAILED(result)) g_stereo.monitor_black.FlatCaptured(0, 0, 0);
+    if (black != g_stereo.monitor_output_black || FAILED(result)) {
+        try {
+            std::ostringstream line;
+            line << "native_stereo_monitor: status=" << (black ? "black" : "native")
+                 << ";generation=" << g_stereo.device_generation.load()
+                 << ";hr=0x" << std::hex << static_cast<unsigned long>(result);
+            LogLine(line.str());
+        } catch (...) {}
+    }
+    g_stereo.monitor_output_black = black;
+}
+
+void RestoreMonitorContent(IDirect3DDevice9* device) noexcept {
+    const HRESULT result = g_stereo.monitor_surface.End(device,
+        g_stereo.device_generation.load(std::memory_order_acquire));
+    if (FAILED(result)) {
+        g_stereo.monitor_black = {};
+        g_stereo.monitor_output_black = false;
+        try {
+            std::ostringstream line;
+            line << "native_stereo_monitor: status=restore_failed;generation="
+                 << g_stereo.device_generation.load()
+                 << ";hr=0x" << std::hex << static_cast<unsigned long>(result);
+            LogLine(line.str());
+        } catch (...) {}
+    }
 }
 
 thread_local std::uint32_t g_device_present_depth = 0;
 thread_local std::uint64_t g_device_present_sequence = 0;
+thread_local std::uint32_t g_swapchain_present_depth = 0;
 
 void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
     ++g_device_present_depth;
-    if (g_device_present_depth == 1) {
+    if (g_device_present_depth == 1 && g_swapchain_present_depth == 0) {
         g_device_present_sequence =
             g_stereo.present_telemetry_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
         if (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0) {
@@ -1995,17 +2408,20 @@ void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
             } catch (...) {
             }
         }
-        BeforePresentBoundary(device, "device_present");
+        const bool captured = BeforePresentBoundary(device, "device_present");
         PollFrameLumaProbes();
         if (g_stereo.luma_enabled) {
             Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
             if (SUCCEEDED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer)))
                 QueueFrameLumaProbe(device, backbuffer.Get(), 2, g_device_present_sequence);
         }
+        FinishMonitorOutput(device, captured);
     }
 }
 
 void AfterDevicePresent(IDirect3DDevice9* device, const HRESULT result) noexcept {
+    if (g_device_present_depth == 1 && g_swapchain_present_depth == 0)
+        RestoreMonitorContent(device);
     if (g_device_present_depth == 1 &&
         (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0)) {
         try {
@@ -2093,8 +2509,9 @@ void AfterDeviceReset(
 }
 
 void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
-    if (g_device_present_depth == 0) {
-        BeforePresentBoundary(device, "swapchain_present");
+    ++g_swapchain_present_depth;
+    if (g_device_present_depth == 0 && g_swapchain_present_depth == 1) {
+        const bool captured = BeforePresentBoundary(device, "swapchain_present");
         PollFrameLumaProbes();
         if (g_stereo.luma_enabled && device) {
             Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
@@ -2102,7 +2519,14 @@ void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
                 QueueFrameLumaProbe(device, backbuffer.Get(), 2,
                     g_stereo.present_telemetry_sequence.fetch_add(1) + 1);
         }
+        FinishMonitorOutput(device, captured);
     }
+}
+
+void AfterSwapChainPresent(IDirect3DDevice9* device, HRESULT) noexcept {
+    if (g_device_present_depth == 0 && g_swapchain_present_depth == 1)
+        RestoreMonitorContent(device);
+    if (g_swapchain_present_depth) --g_swapchain_present_depth;
 }
 
 void MaintainDevicePresentHook(const std::stop_token stop_token) noexcept {
@@ -2206,7 +2630,7 @@ void AfterCreateDevice(
     UINT,
     D3DDEVTYPE,
     HWND focus_window,
-    DWORD,
+    DWORD behavior_flags,
     D3DPRESENT_PARAMETERS* parameters,
     IDirect3DDevice9** returned_device,
     const HRESULT result) noexcept {
@@ -2220,9 +2644,13 @@ void AfterCreateDevice(
                     << ";thread_id=" << GetCurrentThreadId()
                     << ";device=0x" << std::hex
                     << reinterpret_cast<std::uintptr_t>(observed)
-                    << ";hr=0x" << static_cast<unsigned long>(result) << std::dec
+                    << ";hr=0x" << static_cast<unsigned long>(result)
+                    << ";effective_behavior_flags=0x" << behavior_flags << std::dec
                     << ";device_api="
                     << (returned_ex ? "d3d9ex" : (observed ? "classic_d3d9" : "none"));
+        D3DDEVICE_CREATION_PARAMETERS actual{};
+        if (observed && SUCCEEDED(observed->GetCreationParameters(&actual)))
+            result_line << ";actual_behavior_flags=0x" << std::hex << actual.BehaviorFlags << std::dec;
         LogLine(result_line.str());
     } catch (...) {
     }
@@ -2256,8 +2684,11 @@ void AfterCreateDevice(
         };
         log_factory_identity("factory_native_identity");
         IDirect3DDevice9* replacement = observed;
+        g_stereo.render_work_epoch.fetch_add(1, std::memory_order_acq_rel);
         AbortHudBatch(hud::identity_changed); DrainHudBatch();
         ResetFrameLumaProbes();
+        g_stereo.monitor_surface.Reset();
+        g_stereo.monitor_black = {};
         (void)RetireIndependentBank(g_stereo, "device_replacement");
         if(g_resource_probe_enabled.load(std::memory_order_acquire))
             g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
@@ -2303,11 +2734,14 @@ void AfterCreateDevice(
             .resource_probe_event = (g_resource_probe_enabled.load() || g_stereo.fixed_outputs.enabled)
                 ? &ResourceProbeEvent : nullptr,
             .resource_probe_call = g_resource_probe_enabled.load() ? &ResourceProbeCall : nullptr,
-            .resource_probe_copy = g_resource_probe_enabled.load() ? &ResourceProbeCopy : nullptr,
+            .resource_probe_copy = (g_resource_probe_enabled.load() || g_sampled_depth_enabled) ? &ResourceProbeCopy : nullptr,
             .hud_batch_draw = g_resource_probe_enabled.load() ? &HudBatchDraw : nullptr,
             .hud_batch_call = g_resource_probe_enabled.load() ? &HudBatchCall : nullptr,
-            .allow_reset = (g_stereo.fixed_outputs.enabled || g_stereo.luma_enabled) ? &AllowDeviceReset : nullptr,
-            .after_reset_ex = g_stereo.fixed_outputs.enabled ? &AfterDeviceReset : nullptr,
+            .allow_reset = &AllowDeviceReset,
+            .after_reset_ex = &AfterDeviceReset,
+            .map_depth = g_sampled_depth_enabled ? &MapSampledDepth : nullptr,
+            .before_clear = g_sampled_depth_enabled ? &BeforeSampledDepthClear : nullptr,
+            .after_clear = g_sampled_depth_enabled ? &AfterSampledDepthClear : nullptr,
         };
         const auto device_hook =
             cojvr::backends::d3d9::InstallDeviceVtableHookDetailed(
@@ -2315,6 +2749,7 @@ void AfterCreateDevice(
         log_factory_identity("factory_identity");
         const cojvr::backends::d3d9::SwapChainHookCallbacks swapchain_callbacks{
             .before_present = &BeforeSwapChainPresent,
+            .after_present = &AfterSwapChainPresent,
             .com_trace = &SwapChainComTrace,
             .method_trace = &SwapChainMethodTrace,
         };
@@ -2382,6 +2817,21 @@ void InvalidateStereoFrame(void* context) noexcept {
     if (!state) return;
     InvalidateSourceAuthority(*state);
     state->presenter.PublishGameplayFeedbackContext(false);
+}
+
+bool ReadHeadTracking(void* context,
+    cojvr::games::call_of_juarez::CameraHeadTrackingSample& sample) noexcept {
+    sample = {};
+    auto* state = static_cast<NativeStereoState*>(context);
+    if (!state || !state->runtime_ready || g_finalization_started.load(std::memory_order_acquire))
+        return false;
+    cojvr::backends::openvr::OpenVrHeadTrackingSample head{};
+    if (!state->presenter.HeadTracking(head) || !head.available) return false;
+    sample.hmd_pose = {head.pose, head.sequence};
+    sample.input_context = head.input_context; // Gameplay generation, not UI context.
+    sample.captured_at = head.captured_at;
+    sample.available = head.available;
+    return true;
 }
 
 bool BeginStereoFrame(
@@ -2765,6 +3215,10 @@ void PublishReloadFeedbackOwner(void* context, std::uint64_t token) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
     if (state) state->presenter.PublishReloadFeedbackOwner(token);
 }
+void PublishTutorialOwner(void* context, std::uint64_t token) noexcept {
+    auto* state=static_cast<NativeStereoState*>(context);
+    if(state)state->presenter.PublishTutorialOwner(token);
+}
 
 void PublishBowFeedbackOwner(void* context, std::uint64_t token) noexcept {
     auto* state = static_cast<NativeStereoState*>(context);
@@ -2963,7 +3417,19 @@ void Finalize() noexcept {
     g_stereo.runtime_ready = false;
     StopPresentHookWorker();
     cojvr::games::call_of_juarez::ShutdownCameraProbe();
+    ReportRenderWork();
+    if (g_sampled_depth_enabled) {
+        std::lock_guard lock(g_sampled_depth_mutex);
+        const bool worker_retired=g_stereo.sampled_worker.Retire();
+        const auto worker_status=g_stereo.sampled_worker.status();
+        LogLine(std::string("native_sampled_worker_shutdown: status=")+(worker_retired?"retired":"quarantined")+
+            ";submitted="+std::to_string(worker_status.submitted)+";completed="+std::to_string(worker_status.completed)+
+            ";source_pairs_retired="+std::to_string(worker_status.source_pairs_retired)+
+            ";neural_active=false;temporal_admitted=false");
+        if (!g_sampled_depth.Retire()) LogLine("native_sampled_depth: status=retirement_pending");
+    }
     (void)RetireIndependentBank(g_stereo, "pre_destroy_game");
+    g_stereo.monitor_surface.Reset();
     const bool legacy_texture_restored =
         cojvr::games::call_of_juarez::RestoreD3D9ExLegacyTextureCompatibility();
     LogLine(std::string("native_stereo_legacy_texture_hook: status=") +
@@ -3170,6 +3636,10 @@ void EnsureStarted() noexcept {
                 cojvr::games::call_of_juarez::CameraProbeCommand command{};
                 if(control.size()<=65536&&cojvr::games::call_of_juarez::ParseCameraProbeCommand(control,command,nullptr)) {
                     g_resource_probe_enabled.store(command.render_resource_probe_enabled);
+                    g_sampled_depth_enabled = command.sampled_scene_depth_enabled && command.independent_eye_height == 0 &&
+                        !command.render_resource_probe_enabled;
+                    if(g_sampled_depth_enabled&&!g_sampled_depth.ConfigureFullSizeColor(true))
+                        g_sampled_depth_enabled=false;
                     g_stereo.luma_enabled = command.frame_luma_probe_enabled;
                     if (command.independent_eye_height == 1440 || command.independent_eye_height == 1920) {
                         g_stereo.fixed_outputs = {
@@ -3200,14 +3670,26 @@ void EnsureStarted() noexcept {
             if (exit_boundary_ready && StartStereoRuntime()) {
                 stereo_callbacks.context = &g_stereo;
                 stereo_callbacks.begin_frame = &BeginStereoFrame;
+                stereo_callbacks.read_head_tracking = &ReadHeadTracking;
                 stereo_callbacks.capture_eye = &CaptureStereoEye;
                 stereo_callbacks.invalidate_frame = &InvalidateStereoFrame;
                 stereo_callbacks.submit_frame = &SubmitStereoFrame;
                 stereo_callbacks.set_capture_readback_enabled = &SetCaptureReadbackEnabled;
                 stereo_callbacks.diagnostic_counters = &QueryDiagnosticCounters;
                 stereo_callbacks.publish_reload_feedback_owner = &PublishReloadFeedbackOwner;
+                stereo_callbacks.publish_tutorial_owner = &PublishTutorialOwner;
                 stereo_callbacks.publish_bow_feedback_owner = &PublishBowFeedbackOwner;
                 stereo_callbacks.observe_reload_depth = &ObserveReloadDepth;
+                g_stereo.render_work_enabled = !g_resource_probe_enabled.load() &&
+                    !g_sampled_depth_enabled.load() && !g_stereo.fixed_outputs.enabled;
+                stereo_callbacks.observe_render_pass = &ObserveRenderPass;
+                LogLine(std::string("native_render_work: event=config;schema=1;measurement=cpu_wall_ns;enabled=") +
+                    (g_stereo.render_work_enabled ? "true" : "false") +
+                    ";boundary=full_wrapper_callback;max_pairs=64;max_attempts=128;frame_stride=90"
+                    ";non_gameplay_max_pairs_per_route=16;non_gameplay_max_attempts_per_route=32"
+                    ";clock_reads=sampled_scopes_only;max_clock_reads=512"
+                    ";draw_counts=unavailable;gpu_timing=false;fps=false;capture_submit_excluded=true"
+                    ";callback_edge_and_right_guard_included=true;heavy_probe_modes_excluded=true;output=shutdown_only");
                 if (g_stereo.fixed_outputs.enabled) {
                     stereo_callbacks.begin_eye_render = &BeginIndependentEyeRender;
                     stereo_callbacks.end_eye_render = &EndIndependentEyeRender;
@@ -3220,7 +3702,11 @@ void EnsureStarted() noexcept {
                 // and log bursts alongside the already-disabled binding probe.
                 if(g_resource_probe_enabled.load()) {
                     stereo_callbacks.observe_hud_boundary = &ObserveHudBoundary;
-                    stereo_callbacks.observe_render_pass = &ObserveRenderPass;
+                }
+                if (g_sampled_depth_enabled) {
+                    stereo_callbacks.begin_eye_render = &RetrySampledDepthRestore;
+                    stereo_callbacks.end_eye_render = &RetrySampledDepthRestore;
+                    stereo_callbacks.eye_render_restoration_pending = &SampledDepthRestorationPending;
                 }
             }
 
@@ -3257,6 +3743,7 @@ void ObserveFactory(IDirect3D9* factory) noexcept {
             .before_create_device = &BeforeCreateDevice,
             .after_create_device = &AfterCreateDevice,
             .com_trace = &FactoryComTrace,
+            .require_state_queries = g_sampled_depth_enabled.load(std::memory_order_acquire),
         };
         const bool installed =
             cojvr::backends::d3d9::InstallFactoryVtableHook(factory, callbacks);

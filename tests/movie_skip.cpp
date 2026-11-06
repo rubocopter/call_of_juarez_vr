@@ -7,6 +7,7 @@
 
 namespace {
 using cojvr::games::call_of_juarez::DispatchCoJMovieSkip;
+using cojvr::games::call_of_juarez::CoJMovieSkipResult;
 #if defined(_WIN32)
 #define TEST_JNICALL __stdcall
 #else
@@ -25,6 +26,8 @@ std::map<void*,int> locals;
 int next_local=1000,steps=0,fail_step=-1,null_step=-1,presses=0,releases=0;
 int press_step=0,release_step=0,field_reads=0,owner_rounds=0,eligibility_reads=0;
 int current_movie=movie_a,active_module=module,change=0,change_at=0,change_kind=0,validations=0;
+int current_sequence=0;
+int CurrentTarget(){return current_movie?current_movie:current_sequence;}
 bool pending=false,frozen=false,alive=true,mission_end=false,movie_playing=true;
 bool skippable=true,mission_ended=false,hint=false,precaching=false;
 bool press_completed=false,finish_on_press=true,return_ref_on_throw=false;
@@ -75,9 +78,11 @@ void* TEST_JNICALL Method(void*,void* type,const char* name,const char* descript
 }
 void* TEST_JNICALL Field(void*,void* type,const char* name,const char* descriptor) {
     Require(Identity(type)==clazz,"field resolved on unexpected class");
-    Require(!std::strcmp(name,"m_cMoviePlaying")&&!std::strcmp(descriptor,"LMovie;"),
+    const bool primary=!std::strcmp(name,"m_cMoviePlaying")&&!std::strcmp(descriptor,"LMovie;");
+    Require(primary||(!std::strcmp(name,"m_CurrentSkipableMovieStart")&&
+        !std::strcmp(descriptor,"LInstantSkipableMovieStart;")),
         "unexpected field or numeric movie identity queried");
-    return Step()?P(10):nullptr;
+    return Step()?P(primary?10:11):nullptr;
 }
 void ChangeOwner() {
     if(change==1)current_movie=movie_b;
@@ -87,12 +92,14 @@ void ChangeOwner() {
     if(change==5)alive=false;
     if(change==6)mission_end=true;
     if(change==7)active_module=replacement_module;
+    if(change==8)current_sequence=movie_b;
+    if(change==9)current_movie=movie_b;
 }
 void* TEST_JNICALL ObjectField(void*,void* value,void* field) {
-    Require(Identity(value)==module&&field==P(10),"wrong movie field owner");
+    Require(Identity(value)==module&&(field==P(10)||field==P(11)),"wrong movie field owner");
     if(++field_reads==change_at&&change_kind==1)ChangeOwner();
     const bool ok=Step();
-    return ok || (pending&&return_ref_on_throw)?Local(current_movie):nullptr;
+    return ok || (pending&&return_ref_on_throw)?Local(field==P(10)?current_movie:current_sequence):nullptr;
 }
 std::uint8_t TEST_JNICALL Same(void*,void* a,void* b) {
     const int first=Identity(a),second=Identity(b);
@@ -115,7 +122,7 @@ std::uint8_t TEST_JNICALL Boolean(void*,void* value,void* method,const void* arg
     if(method==P(4))return movie_playing;
     if(method==P(5)){
         ++eligibility_reads;
-        const bool eligible=skippable&&!mission_ended&&!mission_end&&!hint&&!precaching&&current_movie!=0;
+        const bool eligible=skippable&&!mission_ended&&!mission_end&&!hint&&!precaching&&CurrentTarget()!=0;
         if(change_kind==3)ChangeOwner();
         return eligible;
     }
@@ -127,7 +134,7 @@ void TEST_JNICALL Key(void*,void* value,void* method,const Value* args) {
     Require(args[1].z<=1,"invalid jboolean");
     if(args[1].z){
         ++presses;press_step=steps+1;
-        Require(current_movie==movie_a&&movie_playing&&!frozen&&alive&&!mission_end,
+        Require(CurrentTarget()==movie_a&&movie_playing&&!frozen&&alive&&!mission_end,
             "Escape reached stale movie or changed presentation owner");
         Require(eligibility_reads>0,"native CanSkipMovie was bypassed");
         bool retained_module=false,retained_movie=false;
@@ -137,7 +144,7 @@ void TEST_JNICALL Key(void*,void* value,void* method,const Value* args) {
         // Native press may finish the movie and replace the active module. The
         // release must still reach the retained original, without more getters.
         press_completed=true;
-        if(finish_on_press){current_movie=0;movie_playing=false;active_module=replacement_module;}
+        if(finish_on_press){current_movie=current_sequence=0;movie_playing=false;active_module=replacement_module;}
     }else{
         ++releases;release_step=steps+1;
         Require(presses==1&&press_completed,
@@ -159,7 +166,7 @@ template<class T>void Set(int index,T function){table[index]=reinterpret_cast<vo
 void Reset() {
     Require(locals.empty()&&!pending,"previous dispatch leaked JNI state");
     steps=presses=releases=press_step=release_step=field_reads=owner_rounds=eligibility_reads=0;
-    fail_step=null_step=-1;current_movie=movie_a;active_module=module;
+    fail_step=null_step=-1;current_movie=movie_a;current_sequence=0;active_module=module;
     change=change_at=change_kind=0;
     validations=0;
     frozen=mission_end=mission_ended=hint=precaching=pending=false;
@@ -179,6 +186,21 @@ void Reject() {
 int main() {
     Set(15,Exception);Set(17,Clear);Set(23,Delete);Set(24,Same);Set(25,Retain);
     Set(31,Class);Set(33,Method);Set(39,Boolean);Set(63,Key);Set(94,Field);Set(95,ObjectField);
+    CoJMovieSkipResult outcome{};
+    Reset();skippable=false;
+    Require(!DispatchCoJMovieSkip(&env,P(module),nullptr,nullptr,&outcome)&&!outcome.attempted&&!outcome.delivered&&
+        !std::strcmp(outcome.reason,"native_no_skip_sequence"),"native refusal reported a camera mutation");
+    Reset();skippable=false;current_sequence=movie_a;
+    Require(!DispatchCoJMovieSkip(&env,P(module),nullptr,nullptr,&outcome)&&!outcome.attempted&&
+        !std::strcmp(outcome.reason,"native_permission_denied"),"native blockers were mistaken for absent sequence");
+    Require(locals.empty()&&!pending,"outcome fixture leaked JNI state");
+    Reset();
+    Require(DispatchCoJMovieSkip(&env,P(module),nullptr,nullptr,&outcome)&&outcome.attempted&&outcome.delivered,
+        "native delivery lost mutation witness");
+    const int attempt_step=press_step;
+    Reset();fail_step=attempt_step;
+    Require(!DispatchCoJMovieSkip(&env,P(module),nullptr,nullptr,&outcome)&&outcome.attempted&&!outcome.delivered,
+        "throwing native press was mistaken for harmless rejection");
     Reset();
     Require(Dispatch()&&presses==1&&releases==1,"eligible movie did not receive one press/release pair");
     const int total=steps,press=press_step,release=release_step;
@@ -244,6 +266,20 @@ int main() {
         Require(!Dispatch(true)&&steps==i,"validated dispatch continued/retried after JNI exception");
         Require(presses==(i>=validated_press?1:0)&&releases==(i==validated_release?1:0),
             "validated dispatch retried or released a throwing press");
+    }
+    Reset();current_movie=0;current_sequence=movie_a;
+    Require(Dispatch(true)&&presses==1&&releases==1,
+        "native belt-only skippable sequence did not receive one qualified Escape pair");
+    const int sequence_total=steps,sequence_press=press_step,sequence_release=release_step;
+    for(int kind:{8,9}){
+        Reset();current_movie=0;current_sequence=movie_a;change=kind;change_kind=4;
+        Require(!Dispatch(true)&&presses==0,"changed sequence or newly active Movie received stale skip");
+    }
+    for(int i=1;i<=sequence_total;++i){
+        Reset();current_movie=0;current_sequence=movie_a;fail_step=i;return_ref_on_throw=true;
+        Require(!Dispatch(true)&&steps==i,"sequence JNI exception retried or continued business operations");
+        Require(presses==(i>=sequence_press?1:0)&&releases==(i==sequence_release?1:0),
+            "sequence failure sent an unpaired, repeated or fallback key");
     }
     Reset();
     Require(!DispatchCoJMovieSkip(nullptr,P(module)),"null environment accepted");

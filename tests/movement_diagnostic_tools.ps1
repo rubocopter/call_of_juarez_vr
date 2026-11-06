@@ -111,6 +111,11 @@ try {
 
     @{ diagnosticMode = "d3d9_native_stereo" } | ConvertTo-Json | Set-Content `
         -LiteralPath (Join-Path $TestDirectory ".cojvr-d3d9-stage.json") -Encoding utf8
+    @{renderResourceProbeEnabled=$true;frameLumaProbeEnabled=$false;
+        independentEyeResolution='off';manualReloadInstalled=$true;
+        independentHandsEnabled=$true;futureDiagnostic=@{keep='unchanged'}} |
+        ConvertTo-Json -Depth 10 | Set-Content `
+            -LiteralPath (Join-Path $TestDirectory "cojvr-camera-control.json") -Encoding utf8
     & (Join-Path $SourceDirectory "tools/set_movement_diagnostic.ps1") `
         -GameDirectory $TestDirectory -Mode vr-input-off | Out-Null
     $Control = Get-Content -LiteralPath (Join-Path $TestDirectory "cojvr-camera-control.json") `
@@ -128,6 +133,17 @@ try {
     if ($Control.captureReadbackEnabled -or -not $Control.secondEyeRenderEnabled -or
         -not $Control.vrGameplayInputEnabled) {
         throw "Readback-off control changed an unrelated diagnostic subsystem."
+    }
+    foreach($Mode in @('vr-full','vr-input-off','vr-readback-off','vr-single-eye','off')) {
+        & (Join-Path $SourceDirectory "tools/set_movement_diagnostic.ps1") `
+            -GameDirectory $TestDirectory -Mode $Mode | Out-Null
+        $Control = Get-Content -LiteralPath (Join-Path $TestDirectory "cojvr-camera-control.json") `
+            -Raw | ConvertFrom-Json
+        if(-not $Control.renderResourceProbeEnabled -or $Control.frameLumaProbeEnabled -ne $false -or
+            $Control.independentEyeResolution -ne 'off' -or -not $Control.manualReloadInstalled -or
+            -not $Control.independentHandsEnabled -or $Control.futureDiagnostic.keep -ne 'unchanged') {
+            throw "Movement diagnostic $Mode lost unrelated startup/reload/hand settings or future fields."
+        }
     }
     Write-Host "Movement diagnostic phase summary passed."
 } finally {

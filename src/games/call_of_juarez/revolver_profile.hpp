@@ -30,7 +30,7 @@ struct CoJRevolverProfile {
     CoJReloadReserveKind secondary_reserve=CoJReloadReserveKind::pistol;
 };
 // Historical name; exact manual profiles now also include indexed/clip families.
-inline constexpr std::array<CoJRevolverProfile,15> kCoJRevolvers{{
+inline constexpr std::array<CoJRevolverProfile,16> kCoJRevolvers{{
     {"WeaponPistolFrontier1878_Regular",true},
     {"WeaponPistolSchofield_A",false,CoJReloadReserveKind::pistol,false,false,CoJManualReloadKind::clip,true},
     {"WeaponPistolSchofield_B",false,CoJReloadReserveKind::pistol,false,false,CoJManualReloadKind::clip,true},
@@ -39,6 +39,8 @@ inline constexpr std::array<CoJRevolverProfile,15> kCoJRevolvers{{
     {"WeaponPistolSchofield",false,CoJReloadReserveKind::pistol,false,false,CoJManualReloadKind::clip,true},
     {"WeaponRifleWinchester",false,CoJReloadReserveKind::rifle,true,true,CoJManualReloadKind::unit,true,{12,0}},
     {"WeaponRifleWinchesterScope",false,CoJReloadReserveKind::rifle,true,true,CoJManualReloadKind::unit,true,{12,0}},
+    // Pinned original constructor-only Winchester alias; never admit subclasses.
+    {"WeaponHenry1863",false,CoJReloadReserveKind::rifle,true,true,CoJManualReloadKind::unit,true,{12,0}},
     // WpnAmmoPistolVolcanic -> WpnAmmoPistol: native type2/pistol reserve.
     {"WeaponPistolVolcanic",false,CoJReloadReserveKind::pistol,true,false,CoJManualReloadKind::unit,true,{8,0}},
     {"WeaponRifleRemington",false,CoJReloadReserveKind::shotgun,true,true,CoJManualReloadKind::indexed,true,{1,1},2,CoJReloadReserveKind::shotgun},

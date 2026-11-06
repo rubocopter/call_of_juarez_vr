@@ -6,6 +6,7 @@
 #include "runtime/vr_settings.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -64,6 +65,14 @@ struct OpenVrTrackingSample {
     bool vr_settings_input_captured = false;
 };
 
+// Passive value snapshot: reading head tracking must never acknowledge input.
+struct OpenVrHeadTrackingSample {
+    runtime::Pose pose{};
+    std::uint64_t sequence=0,input_context=0;
+    std::chrono::steady_clock::time_point captured_at{};
+    bool available=false;
+};
+
 struct OpenVrPresenterStats {
     std::uint64_t pose_updates = 0;
     std::uint64_t frames_uploaded = 0;
@@ -80,6 +89,10 @@ struct OpenVrPresenterStats {
     std::uint64_t shared_pending_copy_fences_peak = 0;
     bool shutdown_complete = false;
     d3d9::FrameMailboxStats mailbox{};
+};
+struct OpenVrInputAuthority {
+    std::uint64_t context=0;
+    bool tracking_valid=false,available=false,settings_captured=false;
 };
 
 // Owns OpenVR and the D3D11 immediate context on one dedicated thread. The
@@ -113,6 +126,7 @@ public:
     void PublishGameplayFeedbackContext(bool available) noexcept;
     [[nodiscard]] std::uint64_t GameplayFeedbackContextToken() const noexcept;
     void PublishReloadFeedbackOwner(std::uint64_t token) noexcept;
+    void PublishTutorialOwner(std::uint64_t token) noexcept;
     void PublishBowFeedbackOwner(std::uint64_t token) noexcept;
     // Game-owner values only; independent from gameplay feedback and JNI.
     void PublishSettingsContext(std::uint64_t token, bool available = true) noexcept;
@@ -121,6 +135,11 @@ public:
         std::uint64_t fixed_output_authority_epoch = 0) noexcept;
     [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;
     void RecycleFrame(d3d9::StereoCpuFrame frame) noexcept;
+    // Passive diagnostics must not drain pending input edges through LatestTracking.
+    [[nodiscard]] bool HasValidTracking() const noexcept;
+    // Passive input-context snapshot; never consumes pending action edges.
+    [[nodiscard]] OpenVrInputAuthority InputAuthority() const noexcept;
+    [[nodiscard]] bool HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept;
     [[nodiscard]] bool LatestTracking(OpenVrTrackingSample& sample) noexcept;
     [[nodiscard]] bool EyeViews(std::array<runtime::EyeView, 2>& eyes) const noexcept;
 

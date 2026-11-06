@@ -191,7 +191,17 @@ HRESULT STDMETHODCALLTYPE HookClear(
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
     TraceMethod(callbacks, device, "Clear", true, S_OK);
+    if (callbacks.before_clear) {
+        const DWORD error = GetLastError();
+        callbacks.before_clear(device,count,rects,flags,z);
+        SetLastError(error);
+    }
     const HRESULT result = original(device, count, rects, flags, color, z, stencil);
+    if (callbacks.after_clear) {
+        const DWORD error = GetLastError();
+        callbacks.after_clear(device,result);
+        SetLastError(error);
+    }
     TraceMethod(callbacks, device, "Clear", false, result);
     ProbeEvent(callbacks, device, {RenderResourceOperation::clear, flags, result,
         reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, 0});
@@ -223,10 +233,16 @@ HRESULT STDMETHODCALLTYPE HookSetDepthStencilSurface(
     if (!original) return D3DERR_INVALIDCALL;
     ProbeCall observation_call(callbacks,device);
     TraceMethod(callbacks, device, "SetDepthStencilSurface", true, S_OK);
-    const HRESULT result = original(device, surface);
+    auto* bound = surface;
+    if (callbacks.map_depth) {
+        const DWORD error = GetLastError();
+        bound = callbacks.map_depth(device,surface);
+        SetLastError(error);
+    }
+    const HRESULT result = original(device, bound);
     TraceMethod(callbacks, device, "SetDepthStencilSurface", false, result);
     ProbeEvent(callbacks, device, {RenderResourceOperation::set_depth, 0, result,
-        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, reinterpret_cast<std::uintptr_t>(surface)});
+        reinterpret_cast<std::uintptr_t>(_ReturnAddress()), 0, reinterpret_cast<std::uintptr_t>(bound)});
     return result;
 }
 
@@ -543,7 +559,7 @@ HookRegistryOutcome InstallDeviceVtableHookDetailed(
         if (callbacks.method_trace) {
             requests[request_count++] = {kTestCooperativeLevelIndex, reinterpret_cast<void*>(&HookTestCooperativeLevel)};
         }
-        if (callbacks.method_trace || resource_observer) {
+        if (callbacks.method_trace || resource_observer || callbacks.map_depth || callbacks.before_clear || callbacks.after_clear) {
             requests[request_count++] = {kSetRenderTargetIndex, reinterpret_cast<void*>(&HookSetRenderTarget)};
             requests[request_count++] = {kSetDepthStencilSurfaceIndex, reinterpret_cast<void*>(&HookSetDepthStencilSurface)};
             requests[request_count++] = {kClearIndex, reinterpret_cast<void*>(&HookClear)};

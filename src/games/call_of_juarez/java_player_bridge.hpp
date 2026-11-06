@@ -23,6 +23,8 @@
 #include "games/call_of_juarez/reload_trace.hpp"
 #include "games/call_of_juarez/interaction_selection.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/movie_input.hpp"
+#include "games/call_of_juarez/duel_tutorial.hpp"
 #include "games/call_of_juarez/movie_input_owner.hpp"
 #include "games/call_of_juarez/duel_input.hpp"
 #include "games/call_of_juarez/native_settings_bridge.hpp"
@@ -305,6 +307,10 @@ public:
     [[nodiscard]] bool TryApplyIndependentHand(int hand,
         const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
         std::string* error = nullptr, const runtime::FingerTrackingState* fingers = nullptr) noexcept;
+    enum class FingerMapResult { not_requested, unavailable, native_rejected, pose_rejected, applied, transaction_failed };
+    [[nodiscard]] FingerMapResult finger_map_result(int hand) const noexcept {
+        return hand>=0&&hand<2?finger_map_results_[hand]:FingerMapResult::not_requested;
+    }
     [[nodiscard]] bool TryCanAnimateEmptyHand(int hand) noexcept;
     [[nodiscard]] bool finger_animation_active(int hand) const noexcept {
         return hand>=0&&hand<2&&hand_overlays_[hand].frames.fingers_active();
@@ -431,7 +437,7 @@ public:
         CoJIndexedReloadSnapshot& observation) noexcept;
     [[nodiscard]] bool TryObserveMotionReloadOwner(CoJMotionReloadOwner& owner,
         CoJMotionReloadDiagnostic* diagnostic = nullptr) noexcept;
-    [[nodiscard]] bool TryObserveNativeReloadFallback() noexcept;
+    [[nodiscard]] bool TryObserveNativeReloadFallback(CoJMotionReloadOwner* after_shot = nullptr) noexcept;
     [[nodiscard]] bool TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
         bool include_wait_probe = false, int selected_index = -1) noexcept;
     // Only the explicitly staged manual derivative has these exact helpers.
@@ -488,7 +494,8 @@ public:
     // No global JNI references, retained Java input or gameplay-clock writes.
     [[nodiscard]] bool TryApplyDuelInput(const runtime::GameplayInputState& state,
         std::uint64_t monotonic_us,const runtime::Pose& right_aim,
-        std::uint64_t pose_sequence,std::string* error=nullptr) noexcept;
+        std::uint64_t pose_sequence,std::string* error=nullptr,CoJDuelTutorialSample* tutorial=nullptr) noexcept;
+    [[nodiscard]] bool IsDuelTutorialOwnerCurrent(const CoJDuelTutorialSample& tutorial) noexcept;
     void InvalidateDuelInput() noexcept { duel_input_state_.Invalidate(); }
     [[nodiscard]] bool TryObserveNoShoot(int hand, CoJNoShootSnapshot& ui) noexcept;
     // Exact BeingTriggered.CheckTriggers cache. Only its local getter helpers
@@ -541,7 +548,8 @@ public:
         CoJUiDispatchRoute* route = nullptr) noexcept;
     // Original Escape consumer only while the verified native movie permits
     // skipping. Delivery is not proof that its fade/transition has completed.
-    [[nodiscard]] bool TryDispatchMovieSkipPress(std::uint64_t expected_movie_epoch) noexcept;
+    [[nodiscard]] bool TryDispatchMovieSkipPress(std::uint64_t expected_movie_epoch,
+        CoJMovieSkipResult* result=nullptr) noexcept;
     // Deliver through the current UI's exact native sprite-tree mouse dispatcher
     // before moving its cursor sprite. A current UI requires that dispatcher;
     // cursor-only startup states remain distinguishable via input_consumed.
@@ -736,6 +744,7 @@ private:
     static bool ReadHandFrame(void*, int, ElementWorldBasisTarget&) noexcept;
     static bool WriteHandFrame(void*, int, const ElementWorldBasisTarget&) noexcept;
     std::array<HandOverlay, 2> hand_overlays_{};
+    std::array<FingerMapResult, 2> finger_map_results_{};
     std::array<std::array<int,20>,2> independent_hand_elements_{};
     std::uint64_t independent_hand_generation_ = 0;
     std::uint64_t fist_skin_generation_ = 0;

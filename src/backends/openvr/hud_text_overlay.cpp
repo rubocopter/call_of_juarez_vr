@@ -29,10 +29,10 @@ struct GdiSelection {
 };
 }
 
-const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text,bool compact) noexcept {
-    if (text == text_ && compact==compact_ && (!panel_.pixels.empty() || text.view().empty())) return panel_;
+const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text,HudTextRasterStyle style) noexcept {
+    if (text == text_ && style==style_ && (!panel_.pixels.empty() || text.view().empty())) return panel_;
     text_ = text;
-    compact_ = compact;
+    style_ = style;
     panel_ = {};
     ++rebuilds_;
     const auto value = text.view();
@@ -45,10 +45,12 @@ const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text,bool comp
         GdiObject font_owner;
         GdiSelection selected_font{dc, nullptr};
         RECT measured{};
+        const bool compact=style==HudTextRasterStyle::compact;
+        const bool subtitle=style==HudTextRasterStyle::subtitle;
         const LONG width = compact?384:1024;
         constexpr LONG padding = 24, max_height = 350;
-        const UINT alignment=compact?DT_CENTER:DT_LEFT;
-        for (int size = compact?48:36; size >= 16; size -= 2) {
+        const UINT alignment=(compact||subtitle)?DT_CENTER:DT_LEFT;
+        for (int size = compact?48:subtitle?50:36; size >= 16; size -= 2) {
             HFONT font = CreateFontW(-size, 0, 0, 0, FW_MEDIUM, FALSE, FALSE, FALSE,
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                 ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe UI");
@@ -111,6 +113,15 @@ const HudTextPanel& HudTextRaster::Render(const runtime::HudText& text,bool comp
         }
     } catch (...) { panel_ = {}; }
     return panel_;
+}
+
+HudPanelPlacement BuildSubtitlePlacement(const HudTextPanel& subtitle) noexcept {
+    // Slightly farther than the general HUD lowers disparity; enlarge the glyphs
+    // independently in the subtitle raster to retain angular readability.
+    constexpr float width_m=1.35F, distance_m=1.85F, lower_edge_m=-.62F;
+    const float half_height=subtitle.width?
+        .5F*width_m*static_cast<float>(subtitle.height)/subtitle.width:0.F;
+    return {width_m,lower_edge_m+half_height,distance_m};
 }
 
 bool BuildThreatPanelPlacement(const runtime::ThreatMarker& marker,HudPanelPlacement& out) noexcept {
@@ -204,9 +215,48 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11RasterizerState> rasterizer;
     ComPtr<ID3D11DepthStencilState> depth;
     std::array<HudTextRaster, 5> raster;
+    runtime::Pose reading_anchor{}, reading_render_pose{};
+    runtime::HudText reading_hint{}, reading_notices{};
+    std::uint64_t reading_owner=0;
+    bool reading_anchor_valid=false;
+
+    void UpdateReadingAnchor(const runtime::HudText& hint,const runtime::HudText& notices,
+        const bool timer_visible,const std::uint64_t owner,const runtime::Pose& pose) noexcept {
+        std::array<float,12> matrix{};
+        if((hint.view().empty()&&notices.view().empty()&&!timer_visible)||
+            !runtime::RigidTransform3x4FromPose(pose,matrix)) {
+            reading_anchor_valid=false;
+            return;
+        }
+        reading_render_pose=pose;
+        if(!reading_anchor_valid||owner!=reading_owner||hint.view()!=reading_hint.view()||
+            notices.view()!=reading_notices.view()) {
+            reading_anchor=pose;reading_hint=hint;reading_notices=notices;
+            reading_owner=owner;reading_anchor_valid=true;
+        }
+    }
+
+    HudPanelPlacement AnchorReadingPanel(const HudTextPanel& panel,HudPanelPlacement placement) const noexcept {
+        if(!reading_anchor_valid||!panel.width)return placement;
+        const float half_w=.5F*placement.width_m;
+        const float half_h=half_w*panel.height/panel.width;
+        const auto q=reading_render_pose.orientation;
+        const runtime::Quaternion inverse{-q.x,-q.y,-q.z,q.w};
+        placement.captured_quad=true;
+        for(unsigned corner=0;corner<4;++corner) {
+            const runtime::Vec3 local{(corner&1)?half_w:-half_w,
+                placement.center_y_m+((corner&2)?-half_h:half_h),-placement.distance_m};
+            const auto offset=runtime::RotateVector(reading_anchor.orientation,local);
+            placement.head_corners[corner]=runtime::RotateVector(inverse,
+                {reading_anchor.position.x+offset.x-reading_render_pose.position.x,
+                 reading_anchor.position.y+offset.y-reading_render_pose.position.y,
+                 reading_anchor.position.z+offset.z-reading_render_pose.position.z});
+        }
+        return placement;
+    }
     GameplayUiRaster ui_raster;
-    std::array<std::uint64_t, 24> uploaded{};
-    std::array<ComPtr<ID3D11ShaderResourceView>, 24> images;
+    std::array<std::uint64_t, 27> uploaded{};
+    std::array<ComPtr<ID3D11ShaderResourceView>, 27> images;
     ComPtr<ID3D11BlendState> blend;
     std::array<ComPtr<ID3D11Texture2D>, 2> targets;
     std::array<ComPtr<ID3D11RenderTargetView>, 2> target_views;
@@ -222,8 +272,9 @@ struct HudTextCompositor::Impl {
     ComPtr<ID3D11DeviceContext> text_context;
     std::array<ComPtr<ID3D11Texture2D>,2> text_targets;
     std::uint64_t text_generation=0,text_reload_owner=0,text_until_ms=0;
+    std::uint64_t text_tutorial_owner=0,text_tutorial_until_ms=0;
     std::uint64_t text_glyph_sample_ms=0,text_glyph_until_ms=0;
-    bool text_reload=false;
+    bool text_reload=false,text_tutorial=false;
     // One value-only capture for refreshing controlled text when optional icon
     // art expires between fresh world frames. Native HUD is used for layout,
     // never drawn twice over the restored controlled-text preimages.
@@ -233,6 +284,7 @@ struct HudTextCompositor::Impl {
         for(auto& patch:text_patches){patch.saved=false;patch.rectangle={};}
         text_context.Reset();text_targets={};
         text_generation=text_reload_owner=text_until_ms=0;text_reload=false;
+        text_tutorial_owner=text_tutorial_until_ms=0;text_tutorial=false;
         text_glyph_sample_ms=text_glyph_until_ms=0;
         text_replay_valid=false;
     }
@@ -295,6 +347,7 @@ struct HudTextCompositor::Impl {
         owner = device; vs.Reset(); ps.Reset(); constants.Reset(); sampler.Reset(); blend.Reset();
         cartridge_vs.Reset();cartridge_ps.Reset();cartridge_constants.Reset();
         images = {}; uploaded = {}; targets = {}; target_views = {};
+        reading_anchor_valid=false;
         DiscardText();text_patches={};
         constexpr char shader[] =
             "cbuffer Corners:register(b0){float4 corners[4];float4 material[4];};"
@@ -362,28 +415,34 @@ struct HudTextCompositor::Impl {
 HudTextCompositor::HudTextCompositor() : impl_(std::make_unique<Impl>()) {}
 HudTextCompositor::~HudTextCompositor() = default;
 void HudTextCompositor::Reset() noexcept { impl_.reset(); }
+void HudTextCompositor::ResetReadingAnchor() noexcept {
+    if(impl_)impl_->reading_anchor_valid=false;
+}
 void HudTextCompositor::DiscardRepeatedText() noexcept {
     if(impl_)impl_->DiscardText();
 }
 void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext* context,
     const std::array<ID3D11Texture2D*,2>& targets,const bool show_holster_guides,
-    const std::uint64_t reload_owner_token) noexcept {
+    const std::uint64_t reload_owner_token,const std::uint64_t tutorial_owner_token) noexcept {
     if(!impl_||!impl_->text_context)return;
     if(!device||!context||impl_->owner.Get()!=device||impl_->text_context.Get()!=context||
         impl_->text_targets[0].Get()!=targets[0]||impl_->text_targets[1].Get()!=targets[1]){
         DiscardRepeatedText();return;
     }
-    const bool stale_generation=impl_->text_generation&&
+    const bool stale_generation=(impl_->text_generation||impl_->text_tutorial)&&
         impl_->text_generation!=runtime::CurrentActionPrompts().binding_generation;
     const auto now=GetTickCount64();
     const bool stale_reload=impl_->text_reload&&(!show_holster_guides||!reload_owner_token||
         reload_owner_token!=impl_->text_reload_owner||!impl_->text_until_ms||
         now>=impl_->text_until_ms);
+    const bool stale_tutorial=impl_->text_tutorial&&(!show_holster_guides||!tutorial_owner_token||
+        tutorial_owner_token!=impl_->text_tutorial_owner||!impl_->text_tutorial_until_ms||
+        now>=impl_->text_tutorial_until_ms);
     const bool stale_glyph=impl_->text_glyph_until_ms&&
         (now<impl_->text_glyph_sample_ms||now>=impl_->text_glyph_until_ms);
-    if(!stale_generation&&!stale_reload&&!stale_glyph)return;
+    if(!stale_generation&&!stale_reload&&!stale_tutorial&&!stale_glyph)return;
     std::unique_ptr<runtime::StereoHudTextOverlay> refresh;
-    if(stale_glyph&&!stale_generation&&!stale_reload&&impl_->text_replay_valid){
+    if(stale_glyph&&!stale_generation&&!stale_reload&&!stale_tutorial&&impl_->text_replay_valid){
         try{refresh=std::make_unique<runtime::StereoHudTextOverlay>(*impl_->text_replay);}
         catch(...){/* Retiring stale art remains safe if refresh allocation fails. */}
     }
@@ -400,7 +459,7 @@ void HudTextCompositor::RetireStaleText(ID3D11Device* device,ID3D11DeviceContext
     if(refresh){
         impl_->replaying_controls=true;
         (void)Draw(device,context,*refresh,refresh->frame_sequence,targets,
-            show_holster_guides,reload_owner_token);
+            show_holster_guides,reload_owner_token,0,tutorial_owner_token);
         impl_->replaying_controls=false;
     }
 }
@@ -415,7 +474,8 @@ bool HudTextCompositor::Prepare(ID3D11Device* device) noexcept {
 bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
     const runtime::StereoHudTextOverlay& overlay, const std::uint64_t capture_sequence,
     const std::array<ID3D11Texture2D*, 2>& targets,const bool show_holster_guides,
-    const std::uint64_t reload_owner_token,const std::uint64_t bow_owner_token) noexcept {
+    const std::uint64_t reload_owner_token,const std::uint64_t bow_owner_token,
+    const std::uint64_t tutorial_owner_token, const runtime::Pose& render_hmd_pose) noexcept {
     DiscardRepeatedText(); // World was freshly copied: never restore its predecessor.
     if (!device || !context || !capture_sequence || overlay.frame_sequence != capture_sequence)
         return false;
@@ -489,7 +549,10 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         !(overlay.ui.compass.active && overlay.compass_surface_valid) &&
         !(overlay.ui.status.active && overlay.status_surface_valid) &&
         !cartridge_visible && !interaction_gaze_visible && overlay.mission_timer.view().empty() &&
-        overlay.mission_notices.view().empty() && !overlay.threats.count && !guide_data) return true;
+        overlay.mission_notices.view().empty() && !overlay.threats.count && !guide_data) {
+        ResetReadingAnchor();
+        return true;
+    }
     try {
         if (!Prepare(device)) return false;
         const runtime::HudText hidden_hint{};
@@ -497,17 +560,25 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const auto current_generation=runtime::CurrentActionPrompts().binding_generation;
         const bool stale_bindings=overlay.text.controller_prompt_generation&&
             overlay.text.controller_prompt_generation!=current_generation;
+        const bool tutorial_instruction=overlay.tutorial_owner_token||overlay.tutorial_until_ms;
+        const bool stale_tutorial=tutorial_instruction&&(!show_holster_guides||!tutorial_owner_token||
+            tutorial_owner_token!=overlay.tutorial_owner_token||!overlay.tutorial_owner_token||
+            !overlay.tutorial_until_ms||now>=overlay.tutorial_until_ms||
+            overlay.text.controller_prompt_generation!=current_generation||!overlay.text.hint.view().empty());
         const bool stale_reload=overlay.reload_instruction&&(!show_holster_guides||!reload_owner_token||
             reload_owner_token!=overlay.reload_feedback.owner_token||!overlay.reload_instruction_until_ms||
             now>=overlay.reload_instruction_until_ms||!overlay.text.hint.view().empty());
-        const auto coaching_glyph=!stale_bindings&&!stale_reload?
+        const auto coaching_glyph=!stale_bindings&&!stale_reload&&!stale_tutorial?
             runtime::ResolveReloadInstructionGlyph(overlay,current_generation,now):runtime::PromptGlyph{};
         const std::array<const runtime::HudText*, 5> texts{
             stale_bindings?&hidden_hint:&overlay.text.hint,
-            stale_bindings||stale_reload?&hidden_hint:&overlay.text.interaction, &overlay.text.subtitle,
+            stale_bindings||stale_reload||stale_tutorial?&hidden_hint:&overlay.text.interaction, &overlay.text.subtitle,
             &overlay.mission_timer,&overlay.mission_notices};
-        std::array<HudPanelPlacement, 24> placement{{{1.15F, .48F, 1.5F},
-            {.85F, -.22F, 1.5F}, {1.15F, -.48F, 1.5F}, {.44F,0,1.0F}, {}, {}, {}, {},
+        if(!impl_->replaying_controls)
+            impl_->UpdateReadingAnchor(*texts[0],*texts[4],!texts[3]->view().empty(),
+                overlay.feedback_context_token,render_hmd_pose);
+        std::array<HudPanelPlacement, 27> placement{{{1.15F, .48F, 1.5F},
+            {.85F, -.22F, 1.5F}, {}, {.44F,0,1.0F}, {}, {}, {}, {},
             {.5F,.58F,1.5F},{1.15F,.68F,1.5F},{},{}}};
         placement[4].captured_quad=true;
         placement[4].head_corners=overlay.compass_head_corners;
@@ -522,17 +593,18 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         // Eighth slot owns captured interaction feedback, independent of weapon alignment.
         placement[7].captured_quad = true;
         placement[7].head_corners = overlay.interaction_gaze_head_corners;
-        const auto& subtitle = impl_->raster[2].Render(*texts[2]);
+        const auto& subtitle = impl_->raster[2].Render(*texts[2],HudTextRasterStyle::subtitle);
+        placement[2]=BuildSubtitlePlacement(subtitle);
         const auto& interaction_text = impl_->raster[1].Render(*texts[1]);
         // Only the semantic reload owner supplies artwork metadata. Native HUD
         // strings are never parsed and retain their original pixels/priority.
         const auto& interaction=impl_->ui_raster.DecorateControlHint(interaction_text,
             impl_->raster[1].rebuilds(),overlay.control_hint_prompts,overlay.control_hint_action,
             current_generation,now,coaching_glyph.kind!=runtime::PromptGlyphKind::none);
-        const auto& timer=impl_->raster[3].Render(*texts[3],true);
+        const auto& timer=impl_->raster[3].Render(*texts[3],HudTextRasterStyle::compact);
         const auto& notices=impl_->raster[4].Render(*texts[4]);
         bool critical_fits=true;
-        if(timer.width||notices.width){
+        if(timer.width||notices.width||!texts[0]->view().empty()){
             const auto& hint=impl_->raster[0].Render(*texts[0]);std::array<HudPanelPlacement,3> fit{};
             critical_fits=FitCriticalHudPanels({&timer,&hint,&notices},overlay.eyes,fit);
             if(critical_fits){placement[8]=fit[0];if(hint.width)placement[0]=fit[1];placement[9]=fit[2];}
@@ -558,7 +630,7 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const auto& gaze_panel = interaction_gaze_visible ?
             impl_->ui_raster.InteractionGaze() : empty_gaze;
         const std::array<bool,2> controlled{overlay.text.controller_prompt_generation!=0,
-            overlay.text.controller_prompt_generation!=0||overlay.reload_instruction};
+            overlay.text.controller_prompt_generation!=0||overlay.reload_instruction||tutorial_instruction};
         // Keep ordinary native text order unchanged. Controlled hint/interaction
         // alone move to the end, so their saved backgrounds include all HUD.
         for (std::size_t order = 0; order < placement.size()+2; ++order) {
@@ -566,22 +638,25 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
             if(impl_->replaying_controls&&(part>=2||!controlled[part]))continue;
             if(part<2&&((order<placement.size())==controlled[part]))continue;
             const bool critical_text=part==8||part==9,threat=part==10||part==11,guide=part>=12;
-            const bool bow_guide=part>=21,ammunition_guide=part>=18&&!bow_guide;
-            const bool support_guide=part>=15&&!ammunition_guide&&!bow_guide;
-            const auto guide_kind=bow_guide?runtime::GestureGuideKind::bow_string:
+            const bool loading_guide=part>=24;
+            const bool bow_guide=part>=21&&!loading_guide,ammunition_guide=part>=18&&!bow_guide&&!loading_guide;
+            const bool support_guide=part>=15&&!ammunition_guide&&!bow_guide&&!loading_guide;
+            const auto guide_kind=loading_guide?runtime::GestureGuideKind::loading_mouth:bow_guide?runtime::GestureGuideKind::bow_string:
                 ammunition_guide?runtime::GestureGuideKind::ammunition_pickup:
                 support_guide?runtime::GestureGuideKind::support_grip:runtime::GestureGuideKind::holster;
             const auto guide_state=guide?(part-12)%3:0;
             if(guide&&!guide_data)continue;
-            if(ammunition_guide&&(!reload_owner_token||reload_owner_token!=overlay.reload_feedback.owner_token))continue;
+            if((ammunition_guide||loading_guide)&&(!reload_owner_token||reload_owner_token!=overlay.reload_feedback.owner_token))continue;
             if(bow_guide&&(!bow_owner_token||bow_owner_token!=overlay.bow_feedback.owner_token))continue;
             if(guide&&!std::any_of(overlay.holster_guides.zones.begin(),
                 overlay.holster_guides.zones.begin()+overlay.holster_guides.count,
                 [&](const auto& zone){return zone.kind==guide_kind&&zone.state==guide_state;}))continue;
             if(critical_text&&!critical_fits)continue;
             const auto text_index=critical_text?part-5:part;
-            const auto& panel = part==1?interaction:(part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],text_index==3) :
-                guide?(bow_guide?BowStringGuidePanels()[guide_state]:ammunition_guide?AmmunitionPickupGuidePanels()[guide_state]:support_guide?SupportGripGuidePanels()[guide_state]:HolsterGuidePanels()[guide_state]):threat?impl_->ui_raster.Threat(part==11):
+            const auto style=text_index==3?HudTextRasterStyle::compact:
+                text_index==2?HudTextRasterStyle::subtitle:HudTextRasterStyle::standard;
+            const auto& panel = part==1?interaction:(part<3||critical_text) ? impl_->raster[text_index].Render(*texts[text_index],style) :
+                guide?(loading_guide?LoadingMouthGuidePanels()[guide_state]:bow_guide?BowStringGuidePanels()[guide_state]:ammunition_guide?AmmunitionPickupGuidePanels()[guide_state]:support_guide?SupportGripGuidePanels()[guide_state]:HolsterGuidePanels()[guide_state]):threat?impl_->ui_raster.Threat(part==11):
                 (part==3 ? wheel_panel : (part==4 ? compass_panel : (part==5 ? status_panel :
                     (part==6 ? cartridge_panel : gaze_panel))));
             const auto revision=part==1?impl_->ui_raster.control_decoration_revision():
@@ -713,6 +788,8 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                 }
                 if(cartridge_surfaces)surface_placement.head_corners=
                     overlay.reload_cartridge_surfaces[surface].head_corners;
+                if(part==0||part==8||part==9)
+                    surface_placement=impl_->AnchorReadingPanel(panel,surface_placement);
                 std::array<ProjectedHudPanel, 2> quads{};
                 std::array<bool,2> eye_projected{};
                 std::array<D3D11_TEXTURE2D_DESC, 2> descriptions{};
@@ -731,6 +808,10 @@ bool HudTextCompositor::Draw(ID3D11Device* device, ID3D11DeviceContext* context,
                     impl_->text_context=context;
                     for(std::size_t eye=0;eye<2;++eye)impl_->text_targets[eye]=targets[eye];
                     impl_->text_generation=overlay.text.controller_prompt_generation;
+                    if(part==1&&tutorial_instruction){
+                        impl_->text_tutorial=true;impl_->text_tutorial_owner=overlay.tutorial_owner_token;
+                        impl_->text_tutorial_until_ms=overlay.tutorial_until_ms;
+                    }
                     if(part==1&&overlay.reload_instruction&&
                         coaching_glyph.kind!=runtime::PromptGlyphKind::none&&!impl_->text_replay_valid){
                         if(!impl_->text_replay)impl_->text_replay=std::make_unique<runtime::StereoHudTextOverlay>();

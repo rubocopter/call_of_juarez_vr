@@ -1,8 +1,10 @@
 #include "games/call_of_juarez/manual_reload_session.hpp"
 #include "games/call_of_juarez/ammunition_pickup_guide.hpp"
+#include "games/call_of_juarez/manual_reload_target.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <limits>
 using namespace cojvr::games::call_of_juarez;
 using namespace cojvr::runtime;
 void Check(bool value,const char* why){if(!value){std::cerr<<why<<'\n';std::exit(1);}}
@@ -204,7 +206,159 @@ void IndexedReplacementSource() {
         Check(f.Poll().start,"current replacement source failed to rearm Square after fresh release");
     }
 }
+bool HasCurrentGestureTarget(const CoJManualReloadOutput& out,const CoJManualReloadInput& s){
+    const auto p=s.native.armed_hand==0?s.right.position:s.left.position;
+    return out.target.valid&&out.target.sequence==s.sequence&&out.target.observed_ms==s.now&&
+        out.target.player==s.player&&out.target.context==s.context&&out.target.weapon==s.native.weapon_id&&
+        out.target.input_generation==s.raw.input_context_generation&&out.target.armed_hand==s.native.armed_hand&&
+        out.target.position.x==p.x&&out.target.position.y==p.y&&out.target.position.z==p.z;
+}
+void CurrentGestureTarget(){
+    Fixture f;f.Open();f.Claim();const auto out=f.Poll();
+    Check(HasCurrentGestureTarget(out,f.s),
+        "manual session must publish the same current tracking-space target used for insertion");
+}
+void AllProfileTargetGuides(){
+    for(const auto& profile:kCoJRevolvers)for(int hand=0;hand<2;++hand){
+        if(profile.right_owned_only&&hand==1)continue;
+        IndexedFixture f(hand,false);
+        f.s.native.kind=f.s.admission.kind=f.s.recovery.kind=profile.kind;
+        f.s.native.weapon_class=profile.class_name;
+        f.s.native.weapon_id=f.s.admission.weapon_id=f.s.recovery.weapon_id=0x80000042ULL;
+        f.Open();f.Pickup();auto out=f.Poll();
+        StereoHudTextOverlay hud{};hud.frame_sequence=77;hud.reload_feedback.owner_token=12;
+        Check(AppendCoJManualReloadTargetGuide(f.s,out,77,true,hud)&&hud.holster_guides.count==1,
+            "every exact manual family needs its actual gesture target, including Schofield");
+        const auto& guide=hud.holster_guides.zones[0];Vec3 centre{};
+        for(const auto p:guide.head_corners){centre.x+=p.x*.25F;centre.y+=p.y*.25F;centre.z+=p.z*.25F;}
+        Check(std::abs(centre.x-out.target.position.x)<.00001F&&
+            std::abs(centre.y-(out.target.position.y-f.s.head.position.y))<.00001F&&
+            std::abs(centre.z-out.target.position.z)<.00001F,
+            "guide centre differs from the exact tracking-space gesture target");
+    }
+}
+void TargetGuideFreshnessAndReadiness(){
+    Fixture f;f.s.native.weapon_class="WeaponPistolPeacemaker";f.Open();
+    Check(!f.Poll().target.valid,"waiting offer must not claim a carried insertion target");
+    f.Claim();auto result=f.Poll();
+    Check(HasCurrentGestureTarget(result,f.s),"initial carry target lost source identity");
+    const auto original=f.s;
+    StereoHudTextOverlay hud{};hud.frame_sequence=77;hud.reload_feedback.owner_token=12;
+    for(int fault=0;fault<30;++fault){
+        auto s=original;auto r=result;auto h=hud;bool enabled=true;std::uint64_t capture=77;
+        switch(fault){
+        case 0:enabled=false;break;case 1:r.target.valid=false;break;
+        case 2:s.sequence++;break;case 3:s.now++;break;case 4:s.player++;break;
+        case 5:s.context+=2;break;case 6:s.raw.input_context_generation++;break;
+        case 7:s.native.weapon_id++;break;case 8:s.native.armed_hand=1;break;
+        case 9:s.native.probe_status=1;break;case 10:s.native.reserve_readback=0;break;
+        case 11:s.native.weapon_class="WeaponPistolSchofield_Unknown";break;
+        case 12:s.native.kind=CoJManualReloadKind::clip;break;
+        case 13:r.target.position.x=std::numeric_limits<float>::quiet_NaN();break;
+        case 14:r.target.position.x+=.01F;break;
+        case 15:s.right.position.x+=.01F;break;
+        case 16:s.left.orientation_valid=false;break;
+        case 17:s.head.position_valid=false;break;
+        case 18:h.reload_feedback.owner_token=0;break;
+        case 19:capture=0;break;case 20:capture++;break;
+        case 21:h.frame_sequence=0;break;
+        case 22:h.holster_guides.count=h.holster_guides.zones.size();break;
+        case 23:r.cancel=true;break;case 24:r.tracked=false;break;
+        case 25:r.gesture.cartridge_held=false;break;
+        case 26:r.gesture.cartridge_hand=0;break;
+        case 27:s.recentered=true;break;case 28:s.enabled=false;break;
+        case 29:s.allowed=false;break;
+        }
+        const auto count=h.holster_guides.count;
+        Check(!AppendCoJManualReloadTargetGuide(s,r,capture,enabled,h)&&h.holster_guides.count==count,
+            "invalid/stale/forged target guide escaped without atomic rejection");
+    }
+    // Policy readiness drives the marker; visual size grants no admission.
+    Check(!result.gesture.insertion_ready&&AppendCoJManualReloadTargetGuide(f.s,result,77,true,hud)&&
+        hud.holster_guides.zones[0].state==0,"unready carry marker claimed readiness");
+    f.Carry(f.s.left,At({f.s.right.position.x+.179F,f.s.right.position.y,f.s.right.position.z}));
+    result=f.Poll();hud.holster_guides={};
+    Check(result.gesture.insertion_ready&&HasCurrentGestureTarget(result,f.s)&&
+        AppendCoJManualReloadTargetGuide(f.s,result,77,true,hud)&&hud.holster_guides.zones[0].state==1,
+        "policy-ready carry did not publish a ready current target");
+    f.s.raw.fire_left=false;result=f.Poll();
+    Check(result.insert&&!result.target.valid,"release must withdraw its visual target on insertion intent");
+    f.session.CompleteInsertion(true,true,result);
+    Check(!result.target.valid,"completed native transfer retained its old guide receipt");
+    result=f.Poll();Check(result.target.valid,"native-confirmed replenishment lost its current guide");
+    auto duplicate=f.session.Update(f.mapped,f.s);
+    Check(!duplicate.target.valid,"duplicate pose observation republished a new target receipt");
+    f.s.native.reserve_readback=0;Check(!f.Poll().target.valid,"depleted native reserve retained an active target");
+
+    Fixture moved;moved.s.native.weapon_class="WeaponPistolPeacemaker";moved.Open();moved.Claim();
+    auto before=moved.Poll();moved.s.right.position.x+=.05F;auto after=moved.Poll();
+    Check(after.target.valid&&after.target.position.x==moved.s.right.position.x&&
+        after.target.position.x!=before.target.position.x,"weapon movement reused last-frame target");
+    moved.s.recentered=true;Check(!moved.Poll().target.valid,"cancelled tracking kept a guide target");
+
+    Fixture rotated;rotated.s.native.weapon_class="WeaponPistolPeacemaker";rotated.Open();rotated.Claim();
+    rotated.s.head.orientation={0,0,.38268343F,.92387953F};
+    result=rotated.Poll();hud.holster_guides={};
+    Check(AppendCoJManualReloadTargetGuide(rotated.s,result,77,true,hud),"head rotation hid a current front target");
+    const auto q=NormalizeQuaternion(rotated.s.head.orientation);
+    const auto p=result.target.position,h=rotated.s.head.position;
+    const auto expected=RotateVector({-q.x,-q.y,-q.z,q.w},{p.x-h.x,p.y-h.y,p.z-h.z});
+    Vec3 actual{};for(const auto corner:hud.holster_guides.zones[0].head_corners){
+        actual.x+=corner.x*.25F;actual.y+=corner.y*.25F;actual.z+=corner.z*.25F;}
+    Check(std::abs(actual.x-expected.x)<.00001F&&std::abs(actual.y-expected.y)<.00001F&&
+        std::abs(actual.z-expected.z)<.00001F,"guide applied head translation/rotation twice or omitted it");
+}
+void ReloadPressedDuringSchofieldShot() {
+    for(int outcome:{0,1,2,3,4}) {
+        Fixture f;
+        f.s.native.kind=CoJManualReloadKind::clip;
+        f.s.native.ammo_readback=3;
+        f.s.native.probe_status=4;
+        const CoJMotionReloadOwner idle{0,42,true,false,CoJManualReloadKind::clip,true};
+        f.s.admission=idle;
+        (void)f.Poll();
+        f.s.admission={};
+        f.s.after_shot=idle;
+        f.s.raw.reload=true;
+        Check(!f.Poll().start&&!f.mapped.reload,"shot tail emitted reload before idle");
+        f.s.raw.reload=false;
+        Check(!f.Poll().start,"button release during the shot dispatched reload");
+        if(outcome==1)f.s.native.weapon_id=43;
+        if(outcome==2)for(int i=0;i<10;++i)(void)f.Poll();
+        if(outcome==3) {
+            f.s.raw.digital_available&=~8U;
+            (void)f.Poll();
+            f.s.raw.digital_available|=8U;
+        }
+        if(outcome==4) {
+            f.s.raw.fire_right=true;
+            (void)f.Poll();
+            f.s.raw.fire_right=false;
+        }
+        f.s.after_shot={};
+        f.s.admission=idle;
+        f.s.admission.weapon_id=f.s.native.weapon_id;
+        const auto result=f.Poll();
+        Check(result.start==(outcome==0)&&f.mapped.reload==(outcome==0),
+            "shot-tail reload intent was lost or survived its ownership/input fence");
+        Check(!f.Poll().start&&!f.mapped.reload,"deferred reload intent dispatched twice");
+    }
+}
 int main(){
+    ReloadPressedDuringSchofieldShot();
+    {
+        Fixture outside;
+        outside.Open();outside.Claim();
+        auto target=outside.s.right;
+        target.position.x+=.181F;
+        outside.Carry(outside.s.left,target);
+        Check(!outside.Poll().gesture.insertion_ready,"carry beyond 18 cm signaled readiness");
+        outside.s.raw.fire_left=false;
+        Check(!outside.Poll().insert,"release beyond 18 cm inserted ammunition");
+    }
+    CurrentGestureTarget();
+    AllProfileTargetGuides();
+    TargetGuideFreshnessAndReadiness();
     IndexedReplacementSource();
     IndexedReleaseBarriers();
     IndexedCycleSession();

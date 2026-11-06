@@ -1,5 +1,6 @@
 #pragma once
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/movie_input.hpp"
 #include <cstdint>
 
 namespace cojvr::games::call_of_juarez {
@@ -50,12 +51,17 @@ struct Reader {
         void* value=Fn<Lookup>(index)(env,cls,name,signature);
         Check();if(!value)ok=false;return value;
     }
-    Local Movie(void* module,void* field) noexcept {
+    Local Movie(void* module,void* field,void* sequence_field) noexcept {
         void* value=Fn<FieldObject>(95)(env,module,field);
-        Check();if(!value)ok=false;return {*this,value};
+        Check();
+        // Scripted black-belt sequences can have no Movie object. Their exact
+        // native skip owner is the retained InstantSkipableMovieStart instead.
+        // A real Movie always takes precedence, including at the final recheck.
+        if(ok&&!value){value=Fn<FieldObject>(95)(env,module,sequence_field);Check();}
+        if(!value)ok=false;return {*this,value};
     }
-    bool SameMovie(void* module,void* field,void* movie) noexcept {
-        auto current=Movie(module,field);if(!ok)return false;
+    bool SameMovie(void* module,void* field,void* sequence_field,void* movie) noexcept {
+        auto current=Movie(module,field,sequence_field);if(!ok)return false;
         const bool same=Fn<Same>(24)(env,current,movie)!=0;
         return Check()&&same;
     }
@@ -70,7 +76,10 @@ struct Reader {
 // False never permits a retry/fallback key for this request: a throwing native
 // press may already have taken effect. The caller owns input-edge suppression.
 inline bool DispatchCoJMovieSkip(void* env,void* module,
-    CoJMovieSkipValidateModule validate=nullptr,void* context=nullptr) noexcept {
+    CoJMovieSkipValidateModule validate=nullptr,void* context=nullptr,
+    CoJMovieSkipResult* result=nullptr) noexcept {
+    CoJMovieSkipResult local{};auto& outcome=result?*result:local;
+    outcome={};
     using namespace movie_skip_detail;
     if(!env||!module)return false;
     auto table=*static_cast<void***>(env);
@@ -81,33 +90,51 @@ inline bool DispatchCoJMovieSkip(void* env,void* module,
     constexpr int required[]{24,25,31,33,39,63,94,95};
     for(int index:required)if(!table[index])return false;
     auto retained=r.ObjectRef(25,module);if(!r.ok)return false;
-    void* movie_field=nullptr;void* can_skip=nullptr;void* input=nullptr;
+    void* movie_field=nullptr;void* sequence_field=nullptr;void* can_skip=nullptr;void* input=nullptr;
     {
         auto cls=r.ObjectRef(31,retained);if(!r.ok)return false;
         movie_field=r.LookupId(94,cls,"m_cMoviePlaying","LMovie;");if(!r.ok)return false;
+        sequence_field=r.LookupId(94,cls,"m_CurrentSkipableMovieStart","LInstantSkipableMovieStart;");if(!r.ok)return false;
         can_skip=r.LookupId(33,cls,"CanSkipMovie","()Z");if(!r.ok)return false;
         input=r.LookupId(33,cls,"OnInputKey","(IZC)V");if(!r.ok)return false;
     }
-    auto movie=r.Movie(retained,movie_field);if(!r.ok)return false;
+    auto movie=r.Movie(retained,movie_field,sequence_field);if(!r.ok)return false;
+    outcome.reason="presentation_unavailable";
     CoJPresentationOwner owner{};
     if(!ReadCoJPresentationOwner(env,retained,owner)||!owner.immersive_movie_allowed())return false;
+    outcome.reason="native_permission_unavailable";
     const bool eligible=r.Fn<Boolean>(39)(env,retained,can_skip,nullptr)!=0;
-    if(!r.Check()||!eligible)return false;
+    if(!r.Check())return false;
+    if(!eligible){
+        outcome.reason="native_permission_denied";
+        // Read-only explanation of the pinned CanSkipMovie requirement. A
+        // playing Movie alone is not a skippable scripted sequence.
+        Reader::Local sequence{r,r.Fn<FieldObject>(95)(env,retained,sequence_field)};
+        if(!r.Check())outcome.reason="native_permission_diagnostic_failed";
+        else if(!sequence.value)outcome.reason="native_no_skip_sequence";
+        return false;
+    }
     // CanSkipMovie includes native mission-ended, hint and precache policy.
     // Recheck camera ownership too; a movie boolean alone can include black belts.
+    outcome.reason="presentation_changed";
     if(!ReadCoJPresentationOwner(env,retained,owner)||!owner.immersive_movie_allowed())return false;
     if(validate){
         const bool current=validate(context,env,retained);
         if(!r.Check()||!current)return false;
     }
-    if(!r.SameMovie(retained,movie_field,movie))return false;
+    outcome.reason="target_changed";
+    if(!r.SameMovie(retained,movie_field,sequence_field,movie))return false;
     Value args[3]{};args[0].i=1;args[1].z=1;args[2].c=0;
+    outcome.attempted=true;outcome.reason="native_press_failed";
     r.Fn<Key>(63)(env,retained,input,args);
     if(!r.Check())return false; // No retry or release after a throwing press.
     // Original OnInputKey returns at PC0..4 on keyup. A completed press may
     // end/replace the movie/module; release exactly once to this retained owner.
     args[1].z=0;
+    outcome.reason="native_release_failed";
     r.Fn<Key>(63)(env,retained,input,args);
-    return r.Check();
+    outcome.delivered=r.Check();
+    if(outcome.delivered)outcome.reason="delivered";
+    return outcome.delivered;
 }
 } // namespace cojvr::games::call_of_juarez

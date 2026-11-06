@@ -17,6 +17,8 @@ param(
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
+    [switch]$SampledSceneDepth,
+    [switch]$HeadTrackedAudio,
     [switch]$FrameLumaProbe,
     [ValidateSet('off','2560x1440','2560x1920')]
     [string]$IndependentEyeResolution = 'off'
@@ -246,6 +248,10 @@ if ($ReloadWaitProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
 if ($RenderResourceProbe -and (-not $IsNativeStereo -or -not $IndependentHands)) {
     throw 'RenderResourceProbe requires native stereo with independent hands.'
 }
+if ($SampledSceneDepth -and (-not $IsNativeStereo -or -not $IndependentHands -or
+    $IndependentEyeResolution -ne 'off' -or $RenderResourceProbe)) {
+    throw 'SampledSceneDepth requires ordinary native stereo with independent hands and no resource census.'
+}
 if ($ManualReload -and ($ReloadWaitProbe -or -not $IsNativeStereo -or -not $IndependentHands)) {
     throw 'ManualReload requires native stereo with independent hands and cannot combine with ReloadWaitProbe.'
 }
@@ -451,6 +457,15 @@ $HadOriginalOpenVrInput = $IsNativeStereo -and (Test-Path -LiteralPath $OpenVrIn
 $CameraControlText = "{`n  `"enabled`": false,`n  `"trackingEnabled`": false,`n  `"bodyIkEnabled`": false,`n  `"recenter`": false,`n  `"yawDegrees`": 0,`n  `"pitchDegrees`": 0,`n  `"movementTraceEnabled`": false,`n  `"movementTracePhase`": `"off`",`n  `"vrGameplayInputEnabled`": true,`n  `"captureReadbackEnabled`": true,`n  `"secondEyeRenderEnabled`": true`n}`n"
 if ($RenderResourceProbe) {
     $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "renderResourceProbeEnabled": true')
+}
+if ($SampledSceneDepth) {
+    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "sampledSceneDepthEnabled": true')
+}
+if ($HeadTrackedAudio) {
+    if (-not $IsNativeStereo -or -not $IndependentHands) {
+        throw 'HeadTrackedAudio requires the native stereo independent-hands candidate.'
+    }
+    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "headTrackedAudioEnabled": true')
 }
 if ($FrameLumaProbe) {
     if (-not $IsNativeStereo -or -not $IndependentHands -or $IndependentEyeResolution -ne 'off') {
@@ -710,6 +725,8 @@ if ($HadOriginal) {
         reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
         manualReloadInstalled = $ManualReload.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+        sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
+        headTrackedAudioEnabled = $HeadTrackedAudio.IsPresent
         frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
         independentEyeResolution = $IndependentEyeResolution
         neuralConfigAsset = $NeuralConfigAsset
@@ -803,6 +820,8 @@ if ($HadOriginal) {
             reloadWaitProbeInstalled = $ReloadWaitProbe.IsPresent
             manualReloadInstalled = $ManualReload.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
+            sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
+            headTrackedAudioEnabled = $HeadTrackedAudio.IsPresent
             frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
             independentEyeResolution = $IndependentEyeResolution
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }

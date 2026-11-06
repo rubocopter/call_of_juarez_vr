@@ -1,6 +1,18 @@
 #pragma once
 #include <cstdint>
+#include "games/call_of_juarez/presentation_owner.hpp"
 namespace cojvr::games::call_of_juarez {
+struct CoJMovieSkipResult {
+    bool attempted=false,delivered=false;
+    const char* reason="unavailable";
+};
+// Rejection alone is not a camera mutation. Actual native calls can fade or
+// replace a scene even when they throw, so those always retire the old pair.
+inline bool CoJContinueMovieAfterSkip(const CoJMovieSkipResult& result,
+    bool observed,const CoJPresentationOwner& current,std::uint64_t prior_epoch) noexcept {
+    return !result.attempted&&!result.delivered&&observed&&prior_epoch&&
+        current.immersive_movie_allowed()&&current.movie_input_epoch==prior_epoch;
+}
 // Equality token for native presentation shape plus JNI-owned movie identity.
 class CoJPresentationInputEpoch final {
 public:

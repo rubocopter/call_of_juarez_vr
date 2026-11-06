@@ -32,6 +32,20 @@ bool pending=false, dead=false, carrying=false, reloading=false, is_rifle=true;
 const char* failed_lookup=nullptr;
 int failed_call=-1, active_reads=0, change_at_read=0, locals=0;
 bool fail_same=false, fail_find=false, fail_instance=false;
+int probe_status=-1, probe_reads=0, reopen_at_read=0;
+bool fail_probe_lookup=false, fail_probe_read=false;
+int probe_field;
+void* __stdcall Field(void*,void*,const char* name,const char* signature) {
+    if(fail_probe_lookup || std::strcmp(name,"cojvrReloadProbeStatus") || std::strcmp(signature,"I")){
+        pending=true;return nullptr;
+    }
+    return &probe_field;
+}
+int __stdcall IntField(void*,void*,void*) {
+    if(fail_probe_read){pending=true;return 0;}
+    if(++probe_reads==reopen_at_read)probe_status=1;
+    return probe_status;
+}
 void* Id(int i) { return reinterpret_cast<void*>(static_cast<std::uintptr_t>(i+1)); }
 int Index(void* id) { return static_cast<int>(reinterpret_cast<std::uintptr_t>(id))-1; }
 void* Local(void* p) { if(p)++locals; return p; }
@@ -81,6 +95,8 @@ void IdleRifle(JavaPlayerBridge& b) {
     dead=carrying=reloading=pending=false;is_rifle=true;locals=0;
     failed_lookup=nullptr;failed_call=-1;fail_same=fail_find=fail_instance=false;
     active_reads=change_at_read=0;
+    probe_status=-1;probe_reads=reopen_at_read=0;fail_probe_lookup=fail_probe_read=false;
+    b.manual_reload_owned_=false;
     b.weapon_overlays_={};b.weapon_overlay_faulted_=false;
     b.weapon_overlays_[0].weapon=&rifle;b.weapon_overlays_[0].active=true;
     b.weapon_overlays_[0].applied=true;b.weapon_overlays_[0].plan.valid=true;
@@ -108,6 +124,7 @@ int main() {
     table[32]=reinterpret_cast<void*>(Instance);table[33]=reinterpret_cast<void*>(Method);
     table[36]=reinterpret_cast<void*>(Object);table[39]=reinterpret_cast<void*>(Boolean);
     table[51]=reinterpret_cast<void*>(Integer);vm_table[6]=reinterpret_cast<void*>(GetEnv);
+    table[94]=reinterpret_cast<void*>(Field);table[100]=reinterpret_cast<void*>(IntField);
     JavaPlayerBridge b;b.vm_=&vm;b.being_=&player;
     bool ok=true;
     const auto rejects=[&](const char* why){return Check(!b.TryCanAnimateEmptyHand(1)&&!pending&&locals==0,why);};
@@ -115,13 +132,58 @@ int main() {
     ok &= Check(b.TryCanAnimateEmptyHand(1)&&!pending&&locals==0,
         "idle rifle's logically empty left support hand must use controller curls");
     ok &= Check(!b.TryCanAnimateEmptyHand(0),"armed right fingers must remain native");
+    // Original CheckDesiredWeaponState clears the opposite hand's state,
+    // duration and two-hand flag, but retains its desired weapon pointer.
+    // GetActualWeaponNotEmpty still returns null while its machine is empty.
+    IdleRifle(b);hands[1].desired=&replacement;
+    ok &= Check(b.TryCanAnimateEmptyHand(1)&&!pending&&locals==0,
+        "inactive retained support desired weapon blocked idle rifle fingers");
+    PreparedRifle(b);hands[1].desired=&replacement;
+    ok &= Check(b.TryCanAnimateEmptyHand(1)&&!pending&&locals==0,
+        "inactive retained support desired weapon blocked bound prepared fingers");
+    for(int field=0;field<4;++field)for(int state:{1,20,21,31,129}){
+        IdleRifle(b);hands[1].desired=&replacement;
+        auto& h=hands[1];int* states[]{&h.current,&h.destination,&h.actual_state,&h.desired_state};
+        *states[field]=state;
+        ok &= rejects("retained support desired weapon bypassed active/pending native state");
+    }
+    IdleRifle(b);hands[1].desired=&replacement;reloading=true;
+    ok &= rejects("retained support desired weapon bypassed native reload");
+    IdleRifle(b);hands[1].desired=&replacement;carrying=true;
+    ok &= rejects("retained support desired weapon bypassed carrying");
+    IdleRifle(b);hands[1].desired=&replacement;dead=true;
+    ok &= rejects("retained support desired weapon bypassed death");
+    IdleRifle(b);hands[1].desired=&replacement;hands[0].current=129;
+    ok &= rejects("retained support desired weapon bypassed rifle alternate state");
+    IdleRifle(b);hands[1].desired=&replacement;hands[1].desired_two=true;
+    ok &= rejects("retained support desired weapon bypassed support two-hand ownership");
+    IdleRifle(b);hands[1].desired=&replacement;hands[0].desired_two=false;
+    ok &= rejects("retained support desired weapon bypassed incoherent rifle ownership");
+    IdleRifle(b);hands[1].desired=&replacement;b.weapon_overlays_={};
+    ok &= rejects("retained support desired weapon admitted without scoped rifle map");
+    IdleRifle(b);hands[1].desired=&replacement;b.long_gun_grip_epoch_=10;
+    b.weapon_overlays_[0].applied=false;
+    ok &= rejects("retained support desired weapon bypassed unbound prepared rifle");
+    PreparedRifle(b);hands[1].desired=&replacement;b.long_gun_grip_owner_=&replacement;
+    ok &= rejects("retained support desired weapon bypassed replaced prepared owner");
+    IdleRifle(b);hands[1].desired=&replacement;change_at_read=2;
+    ok &= rejects("retained support desired weapon bypassed rifle replacement during admission");
+    IdleRifle(b);hands[1].desired=&replacement;failed_call=6;
+    ok &= rejects("retained support desired weapon bypassed JNI failure");
+    // SetDesiredWeaponState(0,0) clears desired_two while the actual rifle
+    // and its machine can still occupy the other hand. This is a pending
+    // ownership transition, not proof of an idle rifle that we may retarget.
+    IdleRifle(b);hands[0].desired_state=0;hands[0].desired_two=false;
+    ok &= rejects("occupied actual rifle bypassed pending native empty transition");
     for(int h=0;h<2;++h)for(int field=0;field<4;++field)for(int state:{20,21,22,31,32,97,129}){
         IdleRifle(b);auto& x=hands[h];int* values[]{&x.current,&x.destination,&x.actual_state,&x.desired_state};
         *values[field]=state;ok &= rejects("reload/attack/alternate/pending state admitted support fingers");
     }
     for(int field=0;field<3;++field){
         IdleRifle(b);void** values[]{&hands[1].active,&hands[1].actual,&hands[1].desired};
-        *values[field]=&rifle;ok &= rejects("shared active alias or occupied logical support admitted");
+        *values[field]=&rifle;
+        if(field==2)hands[1].desired_state=1;
+        ok &= rejects("shared active alias or pending logical support admitted");
         IdleRifle(b);void** owner[]{&hands[0].active,&hands[0].actual,&hands[0].desired};
         *owner[field]=&replacement;ok &= rejects("replacement weapon admitted");
     }
@@ -158,6 +220,38 @@ int main() {
     IdleRifle(b);fail_find=true;ok &= rejects("rifle class lookup fault admitted or leaked");
     IdleRifle(b);fail_instance=true;ok &= rejects("rifle class read fault admitted or leaked");
     IdleRifle(b);b.manual_reload_owned_=true;ok &= rejects("manual recovery failure fell through to rifle idle");
+    // Native completion retires the probe without releasing the bridge's
+    // outstanding cleanup obligation. That flag must not freeze an idle left
+    // hand until an unrelated menu/reset finally calls CancelManualReload.
+    for(bool prepared:{false,true}){
+        if(prepared)PreparedRifle(b);else IdleRifle(b);
+        b.manual_reload_owned_=true;probe_status=4;hands[1].desired=&replacement;
+        ok &= Check(b.TryCanAnimateEmptyHand(1)&&!pending&&locals==0,
+            "native-cleared reload cleanup lease froze idle rifle support fingers");
+        ok &= Check(b.manual_reload_owned_,"finger recovery discarded native cleanup ownership");
+        ok &= Check(!b.TryCanAnimateEmptyHand(0),"retired cleanup lease admitted armed fingers");
+    }
+    for(int status:{-1,0,1,2,3,5}){
+        PreparedRifle(b);b.manual_reload_owned_=true;probe_status=status;
+        ok &= rejects("uncleared or unknown manual probe admitted idle rifle fingers");
+    }
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;reopen_at_read=2;
+    ok &= rejects("reopened manual probe inherited cleared finger authority");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;fail_probe_lookup=true;
+    ok &= rejects("manual retirement lookup failure admitted fingers or leaked exception");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;fail_probe_read=true;
+    ok &= rejects("manual retirement read failure admitted fingers or leaked exception");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;change_at_read=2;
+    ok &= rejects("native-cleared probe admitted a replaced rifle");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;reloading=true;
+    ok &= rejects("native-cleared probe bypassed conventional reload");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;hands[0].current=31;
+    ok &= rejects("native-cleared probe bypassed native attack");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;carrying=true;
+    ok &= rejects("native-cleared probe bypassed carrying");
+    PreparedRifle(b);b.manual_reload_owned_=true;probe_status=4;b.independent_hand_faulted_=true;
+    ok &= rejects("native-cleared probe bypassed failed hand restoration");
+    b.independent_hand_faulted_=false;
     b.manual_reload_owned_=false;
     b.weapon_overlays_={};b.being_=nullptr;b.vm_=nullptr;
     return ok?0:1;

@@ -41,6 +41,11 @@ struct DeviceHookCallbacks {
     // False defers forwarding while an owned rollback remains incomplete.
     bool (*allow_reset)(IDirect3DDevice9*) noexcept = nullptr;
     void (*after_reset_ex)(IDirect3DDevice9*,D3DPRESENT_PARAMETERS*,HRESULT) noexcept = nullptr;
+    // Optional native depth transaction. The caller owns the returned surface
+    // throughout the original bind and any verified rollback.
+    IDirect3DSurface9* (*map_depth)(IDirect3DDevice9*,IDirect3DSurface9*) noexcept = nullptr;
+    void (*before_clear)(IDirect3DDevice9*,DWORD,const D3DRECT*,DWORD,float) noexcept = nullptr;
+    void (*after_clear)(IDirect3DDevice9*,HRESULT) noexcept = nullptr;
 };
 
 struct DeviceVtableHookStatus {

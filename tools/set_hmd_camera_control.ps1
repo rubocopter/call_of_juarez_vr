@@ -78,6 +78,11 @@ $Control = [ordered]@{
     renderResourceProbeEnabled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['renderResourceProbeEnabled'] -and
         [bool]$ExistingControl.renderResourceProbeEnabled
+    sampledSceneDepthEnabled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['sampledSceneDepthEnabled'] -and
+        [bool]$ExistingControl.sampledSceneDepthEnabled
+    headTrackedAudioEnabled = $null -ne $ExistingControl -and
+        $ExistingControl.headTrackedAudioEnabled -is [bool] -and $ExistingControl.headTrackedAudioEnabled
     frameLumaProbeEnabled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['frameLumaProbeEnabled'] -and
         [bool]$ExistingControl.frameLumaProbeEnabled

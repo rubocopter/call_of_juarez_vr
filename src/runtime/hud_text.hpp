@@ -80,14 +80,15 @@ struct BowDrawFeedback {
 
 // Optional captured gesture hints. State: 0 available, 1 near hand, 2 unavailable.
 // Value-only presentation; these surfaces never grant selection or collision.
-enum class GestureGuideKind : std::uint8_t { holster, support_grip, ammunition_pickup, bow_string };
+enum class GestureGuideKind : std::uint8_t { holster, support_grip, ammunition_pickup, bow_string, loading_mouth };
 struct HolsterGuideSurface {
     std::array<Vec3,4> head_corners{};
     std::uint8_t state=0;
     GestureGuideKind kind=GestureGuideKind::holster;
 };
 struct HolsterGuides {
-    std::array<HolsterGuideSurface,7> zones{}; // Four holsters, support, ammunition source, bow nock.
+    // Manual mouth locators reuse slots while holster/support hints are hidden.
+    std::array<HolsterGuideSurface,7> zones{};
     std::uint32_t count=0;
 };
 
@@ -99,6 +100,8 @@ struct StereoHudTextOverlay {
     BowDrawFeedback bow_feedback{};
     bool reload_instruction = false; // Low-priority interaction text, bound to reload_feedback.owner_token.
     std::uint64_t reload_instruction_until_ms = 0;
+    // Independent low-priority tutorial interaction owner and GetTickCount64 deadline.
+    std::uint64_t tutorial_owner_token = 0, tutorial_until_ms = 0;
     // Source-owned reload coaching ONLY. Never infer an action from copied
     // native text. Complete owned binding metadata travels with this capture.
     PromptAction control_hint_action = PromptAction::count;

@@ -21,6 +21,7 @@ PAK_SHA = "f9db47c166e03f23e37cbcdfd5344e4ad4c5c9134f35e8f6dcdf66db7e71ce12"
 CLASS_SHA = "80bdbbe228fa06eb8a3424f1dfc72ee42c42e9eefecdae0beaf41acd235330aa"
 CLASS_NAME = "LawmanModule.class"
 KEY, ID, MOVIE = "cojvrMovieSubtitleKey", "cojvrMovieSubtitleId", "cojvrMovieSubtitleMovie"
+SEQUENCE = "cojvrMovieSubtitleSequence"
 TARGETS = {("OnShowSubtitle", "(Ljava/lang/String;I)V"): 681,
            ("OnHideSubtitle", "(I)V"): 41,
            ("MovieDestroySubtitles", "()V"): 38,
@@ -111,6 +112,7 @@ class VM:
                        "iSubtitleNumber": -1}
         self.fail_call = None
         self.reentrant = {}
+        self.is_single = True
 
     def call(self, owner, name, desc, obj, args):
         if self.fail_call == (owner, name):
@@ -197,12 +199,16 @@ class VM:
                 n = 1 if op == 0x12 else 2
                 entry = self.pool.get(int.from_bytes(code[pc:pc+n], "big")); pc += n
                 stack.append(self.pool.utf8(entry[1]) if entry[0] == "String" else entry[1])
-            elif op in (0xb2, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xbb, 0xc0):
+            elif op in (0xb2, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xbb, 0xc0, 0xc1):
                 entry = self.pool.get(int.from_bytes(code[pc:pc+2], "big")); pc += 2
+                if op == 0xc1:
+                    assert self.pool.describe(int.from_bytes(code[pc-2:pc], "big")) == "LawmanModuleSingle"
+                    value = stack.pop(); stack.append(int(value is self.module and self.is_single)); continue
                 if op == 0xbb:
                     stack.append({}); continue
                 if op == 0xc0:
-                    assert self.pool.describe(int.from_bytes(code[pc-2:pc], "big")) == "Sprite"
+                    kind = self.pool.describe(int.from_bytes(code[pc-2:pc], "big"))
+                    assert kind == "Sprite" or (kind == "LawmanModuleSingle" and self.is_single and stack[-1] is self.module)
                     assert isinstance(stack[-1], dict); continue
                 owner = self.pool.describe(entry[1]); nt = self.pool.get(entry[2])
                 key, signature = self.pool.utf8(nt[1]), self.pool.utf8(nt[2])
@@ -214,6 +220,7 @@ class VM:
                     else: raise AssertionError("Unmodelled static field " + owner + "." + key)
                 elif op == 0xb4:
                     target = stack.pop(); assert target is not None, "null getfield"
+                    if owner == "LawmanModuleSingle": assert self.is_single and target is self.module
                     stack.append(target.get(key, None if signature.startswith("L") else 0))
                 elif op == 0xb5:
                     value = stack.pop(); target = stack.pop(); assert target is not None
@@ -273,6 +280,28 @@ class MovieSubtitleTests(unittest.TestCase):
             self.assertEqual({k:v for k,v in after.module.items() if not k.startswith("cojvr")}, before.module)
             self.assertEqual(after.module.get(KEY), "&line&")
 
+    def test_script_sequence_owns_each_cached_line_without_a_movie(self):
+        vm = VM(self.transformed)
+        first, second = {}, {}
+        vm.module["m_cMoviePlaying"] = None
+        vm.module["m_CurrentSkipableMovieStart"] = first
+        vm.run("OnShowSubtitle", "(Ljava/lang/String;I)V", ("first", 1))
+        self.assertIs(vm.module.get(SEQUENCE), first)
+        self.assertIsNone(vm.module.get(MOVIE))
+        vm.module["m_CurrentSkipableMovieStart"] = second
+        self.assertIsNot(vm.module.get(SEQUENCE), second)
+        vm.run("OnShowSubtitle", "(Ljava/lang/String;I)V", ("second", 1))
+        self.assertIs(vm.module.get(SEQUENCE), second)
+        vm.run("OnHideSubtitle", "(I)V", (1,))
+        self.assertIsNone(vm.module.get(SEQUENCE))
+
+    def test_non_single_module_does_not_read_single_player_sequence_field(self):
+        vm = VM(self.transformed); vm.is_single = False
+        vm.module["m_cMoviePlaying"] = None
+        vm.module["m_CurrentSkipableMovieStart"] = {}
+        vm.run("OnShowSubtitle", "(Ljava/lang/String;I)V", ("base", 1))
+        self.assertIsNone(vm.module.get(SEQUENCE))
+
     def test_stale_hide_preserves_new_line_and_accepted_hide_clears(self):
         vm = VM(self.transformed)
         for text, identity in (("old", 1), ("new", 2)):
@@ -291,6 +320,7 @@ class MovieSubtitleTests(unittest.TestCase):
         self.assertIsNone(vm.module.get(KEY))
         self.assertEqual(vm.module.get(ID), -1)
         self.assertIsNone(vm.module.get(MOVIE))
+        self.assertIsNone(vm.module.get(SEQUENCE))
 
     def test_lifecycle_clears_preserve_original_side_effects(self):
         for name in ("MovieDestroySubtitles", "OnStartMovie", "OnEndMovie"):
@@ -331,7 +361,8 @@ class MovieSubtitleTests(unittest.TestCase):
         self.assertEqual(old[0].entries, new[0].entries[:len(old[0].entries)])
         self.assertEqual(old[2], new[2]); self.assertEqual(old[5], new[5])
         for key, member in old[3].items(): self.assertEqual(member, new[3][key])
-        self.assertEqual(set(new[3])-set(old[3]), {(KEY,"Ljava/lang/String;"),(ID,"I"),(MOVIE,"LMovie;")})
+        self.assertEqual(set(new[3])-set(old[3]), {(KEY,"Ljava/lang/String;"),(ID,"I"),(MOVIE,"LMovie;"),
+            (SEQUENCE,"LInstantSkipableMovieStart;")})
         for key in set(new[3])-set(old[3]): self.assertEqual(new[3][key][:2], (0x81, []))
         self.assertEqual(set(old[4]), set(new[4]))
         for key, member in old[4].items():
@@ -342,10 +373,10 @@ class MovieSubtitleTests(unittest.TestCase):
                 self.assertEqual(a[2][:-1], b[2][:TARGETS[key]])
                 self.assertEqual(a[3], b[3])
             else:
-                self.assertEqual(a[2], b[2][16:])
+                self.assertEqual(a[2], b[2][20:])
                 self.assertEqual(a[3][:12], b[3][:12])
                 self.assertEqual(len(a[3]), len(b[3]))
-                self.assertEqual(line_numbers(b[3]), [(pc+16, line) for pc, line in line_numbers(a[3])])
+                self.assertEqual(line_numbers(b[3]), [(pc+20, line) for pc, line in line_numbers(a[3])])
             self.assertEqual(a[1], b[1])
             self.assertEqual(b[0], max(2, a[0]))
             self.assertEqual(member[0], new[4][key][0])

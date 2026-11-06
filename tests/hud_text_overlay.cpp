@@ -59,6 +59,31 @@ int main(int argc, char** argv) {
     const auto* cached = panel.pixels.data();
     const auto count = raster.rebuilds();
     Require(raster.Render(text).pixels.data() == cached && raster.rebuilds() == count, "unchanged text must reuse raster");
+    const auto single_line=Text(u"Un caballo viene por la derecha.");
+    const auto& normal_line=raster.Render(single_line);
+    const auto normal_height=normal_line.height;
+    const auto normal_builds=raster.rebuilds();
+    const auto& caption=raster.Render(single_line,HudTextRasterStyle::subtitle);
+    Require(caption.width==1024 && caption.height>normal_height,
+        "caption font must be larger than regular HUD text");
+    Require(raster.rebuilds()==normal_builds+1,
+        "changing only raster style must invalidate the glyph cache");
+    const auto cached_subtitle=caption.pixels.data();
+    Require(raster.Render(single_line,HudTextRasterStyle::subtitle).pixels.data()==cached_subtitle &&
+        raster.rebuilds()==normal_builds+1,"unchanged caption style must reuse raster");
+    std::uint32_t ink_left=caption.width,ink_right=0;
+    for(std::uint32_t y=0;y<caption.height;++y)
+        for(std::uint32_t x=0;x<caption.width;++x)
+            if((caption.pixels[y*caption.width+x]&0xFFFFFF)!=0x151A20){
+                ink_left=std::min(ink_left,x);ink_right=std::max(ink_right,x);
+            }
+    Require(ink_left<ink_right && std::abs(static_cast<int>(ink_left+ink_right)-
+        static_cast<int>(caption.width-1))<40,"caption glyphs must be centered");
+    const auto subtitle_placement=BuildSubtitlePlacement(caption);
+    const auto subtitle_bottom=subtitle_placement.center_y_m-
+        .5F*subtitle_placement.width_m*caption.height/caption.width;
+    Require(std::abs(subtitle_bottom+.62F)<.001F && subtitle_placement.distance_m>1.5F,
+        "subtitles must anchor at a lower, farther binocular depth");
     EyeView left{}, right{};
     left.eye_to_head.orientation_valid = left.eye_to_head.position_valid = true;
     left.eye_to_head.orientation.w = 1;
@@ -69,6 +94,13 @@ int main(int argc, char** argv) {
     ProjectedHudPanel a{}, b{};
     Require(ProjectHudPanel(panel, left, 1600, 1600, {}, a) && ProjectHudPanel(panel, right, 1600, 1600, {}, b), "valid stereo optics must project");
     Require(a.left > b.left, "finite depth panel must have correct binocular disparity");
+    ProjectedHudPanel subtitle_left{},subtitle_right{};
+    Require(ProjectHudPanel(caption,left,1600,1600,subtitle_placement,subtitle_left) &&
+        ProjectHudPanel(caption,right,1600,1600,subtitle_placement,subtitle_right),
+        "bottom subtitle must remain visible in both headset eyes");
+    Require(subtitle_left.left>subtitle_right.left &&
+        subtitle_left.left-subtitle_right.left<a.left-b.left,
+        "farther subtitle must retain correct but smaller binocular disparity");
     Require(a.left + a.width <= 1600 && a.top + a.height <= 1600, "projection bounds must remain within eye");
     HudPanelPlacement wrist{};
     wrist.captured_quad = true;
@@ -218,7 +250,7 @@ int main(int argc, char** argv) {
         "UI owner loss must remove all graphics from a fresh world frame");
     overlay.mission_timer=Text(u"Time left\n51");
     HudTextRaster timer_raster,hint_raster,notice_raster;
-    const auto& long_timer=timer_raster.Render(Text(u"Time remaining to escape the mine\n51"),true);
+    const auto& long_timer=timer_raster.Render(Text(u"Time remaining to escape the mine\n51"),HudTextRasterStyle::compact);
     const auto& long_hint=hint_raster.Render(Text(std::u16string(800,u'h')));
     const auto& long_notice=notice_raster.Render(Text(std::u16string(800,u'n')));
     const std::array<const HudTextPanel*,3> long_panels{&long_timer,&long_hint,&long_notice};
@@ -385,6 +417,18 @@ int main(int argc, char** argv) {
         ReadEye(device.Get(),context.Get(),targets[1].Get())==resized_world,
         "invalid second eye retained monocular bow pixels");
     overlay.eyes=valid_eyes;
+    guide.kind=GestureGuideKind::loading_mouth;guide.state=0;
+    overlay.reload_feedback.owner_token=42;clear_world();
+    Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,42),"loading-mouth draw failed");
+    const auto mouth_left=ReadEye(device.Get(),context.Get(),targets[0].Get());
+    Require(mouth_left!=resized_world&&mouth_left!=bow_left&&mouth_left!=ammo_left&&
+        mouth_left!=ReadEye(device.Get(),context.Get(),targets[1].Get()),
+        "measured loading-mouth locator needs distinct binocular pixels");
+    for(const auto owner:{0ULL,43ULL}){clear_world();
+        Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,owner)&&
+            ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
+            "retired reload owner retained a loading-mouth locator");}
+    guide.kind=GestureGuideKind::bow_string;
     guide.head_corners[0].x=std::numeric_limits<float>::quiet_NaN();clear_world();
     Require(compositor.Draw(device.Get(),context.Get(),overlay,7,replaced,true,0,72)&&
         ReadEye(device.Get(),context.Get(),targets[0].Get())==resized_world,
@@ -659,6 +703,82 @@ int main(int argc, char** argv) {
     prompts.binding_generation=102;PublishActionPrompts(prompts);
     compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,0);
     expect_pixels(background,"binding invalidation left a partially restored controlled hint");
+    // Duel coaching owns a separate epoch/deadline, including semantic fallback
+    // without a binding source. Exercise actual eye pixels, not metadata alone.
+    {
+        auto tutorial=overlay;tutorial.text.hint={};tutorial.text.interaction={};
+        tutorial.text.controller_prompt_generation=0;tutorial.reload_instruction=false;
+        tutorial.reload_instruction_until_ms=0;tutorial.control_hint_action=PromptAction::count;
+        tutorial.control_hint_prompts={};
+        prompts={};PublishActionPrompts(prompts);
+        clear_world();Require(compositor.Draw(device.Get(),context.Get(),tutorial,7,replaced),
+            "tutorial background failed");
+        const std::array<std::vector<std::uint32_t>,2> tutorial_background{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        tutorial.text.interaction=Text(u"Physically raise your right hand, then push up.");
+        tutorial.tutorial_owner_token=81;tutorial.tutorial_until_ms=GetTickCount64()+60000;
+        const auto draw_tutorial=[&](bool enabled=true,std::uint64_t owner=81){clear_world();
+            Require(compositor.Draw(device.Get(),context.Get(),tutorial,7,replaced,enabled,0,0,owner),
+                "tutorial draw failed");};
+        draw_tutorial();
+        const std::array<std::vector<std::uint32_t>,2> tutorial_pixels{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        for(unsigned eye=0;eye<2;++eye)Require(tutorial_pixels[eye]!=tutorial_background[eye],
+            "current tutorial with generation zero was hidden");
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,999,81);
+        expect_pixels(tutorial_pixels,"reload owner incorrectly retired tutorial text");
+        for(const auto owner:{0ULL,80ULL,82ULL}){draw_tutorial(true,owner);
+            expect_pixels(tutorial_background,"old/missing tutorial owner painted fresh eyes");}
+        draw_tutorial(false);expect_pixels(tutorial_background,"disabled guides painted a tutorial");
+        for(const auto until:{0ULL,1ULL}){tutorial.tutorial_until_ms=until;draw_tutorial();
+            expect_pixels(tutorial_background,"unbounded/expired tutorial painted fresh eyes");}
+        tutorial.tutorial_until_ms=GetTickCount64()+60000;
+        tutorial.tutorial_owner_token=0;draw_tutorial();
+        expect_pixels(tutorial_background,"tutorial deadline without owner borrowed reload authority");
+        tutorial.tutorial_owner_token=81;
+        for(unsigned cause=0;cause<5;++cause){
+            tutorial.tutorial_until_ms=GetTickCount64()+60000;
+            prompts={};PublishActionPrompts(prompts);draw_tutorial();
+            expect_pixels(tutorial_pixels,"tutorial retirement fixture drew no current text");
+            if(cause==3){prompts.binding_generation=701;PublishActionPrompts(prompts);}
+            if(cause==4){
+                tutorial.tutorial_until_ms=GetTickCount64()+300;draw_tutorial();
+                expect_pixels(tutorial_pixels,"short-lived tutorial was hidden before expiry");
+                // Sleep can wake before GetTickCount64 advances past its coarse
+                // tick boundary. Observe the SAME presenter deadline instead
+                // of treating one sleep interval as proof of expiry.
+                for(unsigned poll=0;poll<1000&&GetTickCount64()<tutorial.tutorial_until_ms;++poll)Sleep(1);
+                Require(GetTickCount64()>=tutorial.tutorial_until_ms,
+                    "tutorial expiry fixture woke before the presenter clock deadline");
+            }
+            compositor.RetireStaleText(device.Get(),context.Get(),replaced,cause!=2,81,
+                cause==0?0:cause==1?82:81);
+            expect_pixels(tutorial_background,"repeated tutorial survived owner/preference/deadline/rebind loss");
+            compositor.RetireStaleText(device.Get(),context.Get(),replaced,false,0,0);
+            expect_pixels(tutorial_background,"tutorial retirement was not idempotent");
+        }
+        // Nonzero binding epochs reject old queued captures and retire repeats.
+        tutorial.text.controller_prompt_generation=702;prompts.binding_generation=702;
+        PublishActionPrompts(prompts);tutorial.tutorial_until_ms=GetTickCount64()+60000;draw_tutorial();
+        expect_pixels(tutorial_pixels,"current bound tutorial was hidden");
+        prompts.binding_generation=703;PublishActionPrompts(prompts);
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,true,0,81);
+        expect_pixels(tutorial_background,"bound tutorial survived repeated-frame rebinding");
+        draw_tutorial();expect_pixels(tutorial_background,"old binding tutorial painted fresh eyes");
+        // Native hint priority must survive a tutorial owner change.
+        tutorial.text.controller_prompt_generation=0;tutorial.text.hint=Text(u"Native duel overview");
+        auto native=tutorial;native.text.interaction={};native.tutorial_owner_token=native.tutorial_until_ms=0;
+        clear_world();Require(compositor.Draw(device.Get(),context.Get(),native,7,replaced),
+            "tutorial native-priority reference failed");
+        const std::array<std::vector<std::uint32_t>,2> hint_pixels{
+            ReadEye(device.Get(),context.Get(),targets[0].Get()),
+            ReadEye(device.Get(),context.Get(),targets[1].Get())};
+        draw_tutorial();expect_pixels(hint_pixels,"tutorial covered a native hint");
+        compositor.RetireStaleText(device.Get(),context.Get(),replaced,false,0,0);
+        expect_pixels(hint_pixels,"tutorial owner loss retired a native hint");
+    }
     // Production semantic reload-coaching artwork uses the SAME controlled
     // interaction layer/backing as its full sentence. No extra native text pass.
     {
@@ -730,6 +850,32 @@ int main(int argc, char** argv) {
         overlay.text.hint={};
         overlay.text.interaction=Text(u"Bring the round to the gun, then release Left Trigger.");
         draw_reload();expect_pixels(full_text,"native interaction string was guessed as semantic coaching");
+    }
+    // Reading panels keep the onset world pose while the captured head moves.
+    {
+        auto reading_storage=std::make_unique<StereoHudTextOverlay>();
+        auto& reading=*reading_storage;
+        reading.frame_sequence=7;reading.eyes=valid_eyes;
+        reading.text.hint=Text(u"Mission: find the entrance.");
+        Pose onset{};onset.position_valid=onset.orientation_valid=true;onset.orientation.w=1;
+        Pose moved=onset;moved.position.x=.15F;moved.orientation={0,.130526F,0,.991445F};
+        HudTextCompositor anchored;
+        const auto draw_reading=[&](const Pose& pose){
+            clear_world();
+            Require(anchored.Draw(device.Get(),context.Get(),reading,7,replaced,true,0,0,0,pose),
+                "reading anchor composition failed");
+            return ReadEye(device.Get(),context.Get(),targets[0].Get());
+        };
+        const auto initial=draw_reading(onset);
+        Require(initial!=resized_world,"reading fixture must show its panel");
+        Require(draw_reading(moved)!=initial,"unchanged mission text must stay in the world as the head moves");
+        anchored.ResetReadingAnchor();
+        Require(draw_reading(moved)==initial,"recenter must return the reading panel to the captured forward direction");
+        reading.text.hint={};(void)draw_reading(onset);
+        reading.text.hint=Text(u"Mission: find the entrance.");
+        Require(draw_reading(onset)==initial,"a new visible reading interval must acquire a fresh anchor");
+        reading.feedback_context_token=12;
+        Require(draw_reading(moved)==initial,"new game-owner context must discard the old reading anchor");
     }
     ClearActionPrompts();
     std::cout << "HUD Unicode raster, cache and stereo projection passed\n";

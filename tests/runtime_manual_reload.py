@@ -108,7 +108,7 @@ class RuntimeManualReloadTests(cycle.ManualReloadCycleTests):
 
     def test_unknown_subclasses_or_missing_index_never_use_unit_entry(self):
         for name in ('UnknownWinchester','WeaponRifleWinchesterScopeDerived','WeaponRifleRemington',
-                     'WeaponHenry1863','WeaponRifle','WeaponPistolFrontier1878_Regular_Old'):
+                     'DerivedHenry1863','WeaponHenry1863_Old','WeaponRifle','WeaponPistolFrontier1878_Regular_Old'):
             vm=RuntimeCycleVM();vm.weapon['class']=name;vm.wait()
             self.assertFalse(vm.call('cojvrInsertManualRound'))
             self.assertEqual((vm.ammo,vm.counter['amount'],vm.events),(2,10,0))

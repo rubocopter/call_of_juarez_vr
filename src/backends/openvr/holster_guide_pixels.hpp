@@ -80,6 +80,16 @@ inline const std::array<HudTextPanel,3>& AmmunitionPickupGuidePanels() {
     }();
     return panels;
 }
+inline const std::array<HudTextPanel,3>& LoadingMouthGuidePanels() {
+    static const auto panels=[] {
+        auto out=GlyphGuideBackgroundPanels();
+        constexpr std::array<std::uint32_t,3> colors{0x6ECBE0U,0x70DDA0U,0x9A8274U};
+        for(unsigned i=0;i<out.size();++i)
+            for(auto& pixel:out[i].pixels)pixel=(pixel&0xff000000U)|colors[i];
+        return out;
+    }();
+    return panels;
+}
 inline const std::array<HudTextPanel,3>& BowStringGuidePanels() {
     static const auto panels=[] {
         auto out=GlyphGuideBackgroundPanels();

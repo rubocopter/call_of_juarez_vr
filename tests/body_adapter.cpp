@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/camera_probe.hpp"
 #include "games/call_of_juarez/java_player_bridge.hpp"
 #include "runtime/body_ik.hpp"
+#include "runtime/gameplay_utility.hpp"
 
 #include <array>
 #include <cmath>
@@ -286,7 +287,7 @@ int main() {
                 !Near(mounted_yaw.actor_target_degrees, previous) ||
                 !Near(mounted_yaw.actor_delta_degrees, 0) ||
                 !Near(mounted_yaw.camera_compensation_degrees, previous) ||
-                !Near(mounted_yaw.head_relative_move_yaw_degrees, 0)) {
+                mounted_yaw.head_relative_move_yaw_degrees != 0.0F) {
                 std::cerr << "mounted/unknown owner consumed the frozen HMD yaw reference\n";
                 return 1;
             }
@@ -295,7 +296,7 @@ int main() {
                 const auto actions = BuildCoJGameplayActionValues(riding,
                     mounted_yaw.head_relative_move_yaw_degrees);
                 for (const auto& action : actions) {
-                    if (((action.action == 6 || action.action == 7) && !Near(action.value, 0)) ||
+                    if (((action.action == 6 || action.action == 7) && action.value != 0.0F) ||
                         (action.action == (forward > 0 ? 4 : 5) && !Near(action.value, 1))) {
                         std::cerr << "looking around injected native horse reins or lost forward/backward\n";
                         return 1;
@@ -307,6 +308,59 @@ int main() {
             for (const auto& action : steered) {
                 if (action.action == 6 && !Near(action.value, (.5F - .04F) / .96F)) {
                     std::cerr << "mounted policy suppressed explicit native reins\n"; return 1;
+                }
+            }
+            // A stationary LEFT command must stay action7, with no synthetic
+            // forward/backward request from gaze. CreatureController.ApplyStrafe
+            // computes left-right, so its positive native side value is expected.
+            // Check exact zeros: Horse.UpdateTurnSpeed is sign-sensitive, and a
+            // negative forward request can reverse its target at low gait.
+            struct ReinsCase {
+                Vec2 stick;
+                std::array<float, 4> actions; // native actions 4, 5, 6, 7
+            };
+            constexpr ReinsCase reins_cases[]{
+                {{-1.0F, 0.0F}, {0, 0, 0, 1}},
+                {{1.0F, 0.0F}, {0, 0, 1, 0}},
+                {{-0.52F, 0.04F}, {0, 0, 0, 0.5F}},
+                {{0.52F, -0.04F}, {0, 0, 0.5F, 0}},
+                {{-0.04F, -0.52F}, {0, 0.5F, 0, 0}},
+                {{-0.52F, -0.52F}, {0, 0.5F, 0, 0.5F}},
+                {{-0.039F, 0.039F}, {0, 0, 0, 0}},
+                {{0, 0}, {0, 0, 0, 0}},
+            };
+            GameplayControlMapper controls;
+            GameplayInputState physical{}; physical.active = true;
+            (void)controls.Update(physical);
+            for (const auto& test : reins_cases) {
+                physical.move = test.stick;
+                const auto actions = BuildCoJGameplayActionValues(controls.Update(physical),
+                    mounted_yaw.head_relative_move_yaw_degrees);
+                for (const auto& action : actions) {
+                    if (action.action < 4 || action.action > 7) continue;
+                    const float expected = test.actions[action.action - 4];
+                    if ((expected == 0 && action.value != 0) ||
+                        (expected != 0 && !Near(action.value, expected, 0.000001F))) {
+                        std::cerr << "stationary/reverse reins changed native action "
+                                  << action.action << " at head yaw " << physical_yaw << '\n';
+                        return 1;
+                    }
+                }
+            }
+            for (const float side : {-0.040006F, 0.040006F}) {
+                physical.move = {side, 0};
+                const auto actions = BuildCoJGameplayActionValues(controls.Update(physical),
+                    mounted_yaw.head_relative_move_yaw_degrees);
+                const int requested_side = side < 0 ? 7 : 6;
+                for (const auto& action : actions) {
+                    if (action.action < 4 || action.action > 7) continue;
+                    const bool valid = action.action == requested_side
+                        ? action.value > 0 && action.value < 0.00001F
+                        : action.value == 0;
+                    if (!valid) {
+                        std::cerr << "tiny stationary reins lost sign or injected another axis\n";
+                        return 1;
+                    }
                 }
             }
             const auto dismounted = BuildBodyYawOwnershipUpdate(head, previous, true, false);

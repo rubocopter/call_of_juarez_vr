@@ -84,7 +84,8 @@ def _retained_completion_veto(e, prefix):
 
 
 def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertManualRound') -> bytes:
-    capacities={'WeaponRifleWinchester':12,'WeaponRifleWinchesterScope':12,'WeaponPistolVolcanic':8}
+    capacities={'WeaponRifleWinchester':12,'WeaponRifleWinchesterScope':12,
+                'WeaponHenry1863':12,'WeaponPistolVolcanic':8}
     profiles=(weapon_class,) if isinstance(weapon_class,str) else tuple(weapon_class)
     if not profiles or any(name not in capacities for name in profiles):
         raise ValueError('No qualified offline body-cycle profile')
@@ -208,6 +209,7 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
     c.emit(0x2b);c.ref(0xb4,weapon_owner);c.emit(0x2a);c.branch(0xa6,'not_ready')
     c.emit(0x2b,0x03);c.ref(0xb6,ammo_count);c.emit(0x36,4)
     c.emit(0x2b,0x03);c.ref(0xb6,ammo_capacity);c.emit(0x36,6)
+    c.emit(0x2b,0x03);c.ref(0xb6,ammo_type);c.emit(0x36,7)
     # Bind the expected capacity to the exact current native class. A combined
     # production derivative must not accept the Volcanic capacity for a rifle.
     for index,name in enumerate(profiles):
@@ -217,11 +219,14 @@ def _add_offline_cycle(player: bytes, weapon_class, *, helper_name='cojvrInsertM
         c.ref(0x13,literal);c.ref(0xb6,e.ref('java/lang/String','equals','(Ljava/lang/Object;)Z'))
         c.branch(0x99,'next_profile_'+str(index))
         c.emit(0x15,6,0x10,capacities[name]);c.branch(0xa0,'not_ready')
+        if name=='WeaponHenry1863':
+            # Capacity alone cannot turn an overridden rifle reserve into a
+            # pistol transaction. The original alias inherits native type0.
+            c.emit(0x15,7);c.branch(0x9a,'not_ready')
         c.branch(0xa7,'profile_valid')
         c.label('next_profile_'+str(index))
     c.branch(0xa7,'not_ready');c.label('profile_valid')
     c.emit(0x15,4);c.branch(0x9b,'not_ready');c.emit(0x15,4,0x15,6);c.branch(0xa2,'not_ready')
-    c.emit(0x2b,0x03);c.ref(0xb6,ammo_type);c.emit(0x36,7)
     c.emit(0x2a,0x15,7);c.ref(0xb6,find_counter);c.emit(0x4e,0x2d);c.branch(0xc6,'not_ready')
     c.emit(0x2d);c.ref(0xb6,counter_amount);c.emit(0x36,5,0x15,5);c.branch(0x9e,'not_ready')
     c.emit(0x2a);c.ref(0xb6,owner_matches);c.branch(0x99,'fault')

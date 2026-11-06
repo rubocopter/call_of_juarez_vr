@@ -98,8 +98,8 @@ cojvr::runtime::Pose Aim(bool lowered){
     if(lowered)pose.orientation={-.5F,0,0,.8660254F};return pose;
 }
 bool Apply(JavaPlayerBridge& bridge,const cojvr::runtime::GameplayInputState& input,
-    std::uint64_t time,std::string* error=nullptr){
-    return bridge.TryApplyDuelInput(input,time,Aim(empty_hands),time,error);
+    std::uint64_t time,std::string* error=nullptr,CoJDuelTutorialSample* tutorial=nullptr){
+    return bridge.TryApplyDuelInput(input,time,Aim(empty_hands),time,error,tutorial);
 }
 void Init(){
     functions[6]=reinterpret_cast<void*>(&Find);functions[15]=reinterpret_cast<void*>(&Exception);
@@ -132,13 +132,22 @@ int main(){
     }
     fail_step=-1;return_fault_ref=false;
     cojvr::runtime::GameplayInputState input;input.active=true;input.input_context_generation=7;
-    native_time=1;check(Apply(bridge,input,10,&error)&&locals==0,"center failed");
+    CoJDuelTutorialSample tutorial{};
+    native_time=1;check(Apply(bridge,input,10,&error,&tutorial)&&locals==0,"center failed");
+    check(tutorial.owner_known&&tutorial.can_process_inputs&&tutorial.native_phase==native_state&&
+        tutorial.owner.player_generation==bridge.being_generation()&&tutorial.owner.game_time==native_time&&
+        tutorial.pose_sequence==10&&!tutorial.delivered_axes.dispatch,
+        "tutorial did not capture the already verified native owner/input sample");
+    check(bridge.IsDuelTutorialOwnerCurrent(tutorial),"fresh tutorial owner rejected");
+    auto stale_tutorial=tutorial;stale_tutorial.owner.action_identity++;
+    check(!bridge.IsDuelTutorialOwnerCurrent(stale_tutorial),"foreign tutorial action accepted");
     input.turn={1,-1};native_time=2;step=0;
     check(Apply(bridge,input,20,&error)&&events.size()==2&&events[0]==std::pair<int,float>{0,-10.0F}&&
         events[1]==std::pair<int,float>{1,-10.0F}&&locals==0,"signed axes did not reach original mouse consumer");
     check(Apply(bridge,input,21)&&events.size()==2,"same native tick replayed input");
     native_time=3;check(Apply(bridge,input,30)&&events.size()==4,"next native tick lost equal input");
-    can_process=false;native_time=4;check(Apply(bridge,input,40)&&events.size()==4,"native controller denial was bypassed");
+    can_process=false;native_time=4;check(Apply(bridge,input,40,nullptr,&tutorial)&&events.size()==4&&
+        !tutorial.owner_known&&!tutorial.delivered_axes.dispatch,"native controller denial retained tutorial authority");
     can_process=true;native_time=5;check(Apply(bridge,input,50)&&events.size()==4,"denial recovery replayed held input");
     for(bool empty:{false,true}) {
       empty_hands=empty;
@@ -154,7 +163,10 @@ int main(){
         JavaPlayerBridge test;Bind(test);input.turn={};native_time=100;
         fail_step=-1;check(Apply(test,input,1000),"fault precondition center failed");
         events.clear();input.turn={1,-1};native_time=101;step=0;fail_step=fault;return_fault_ref=ref;
-        check(!Apply(test,input,1010)&&!pending&&locals==0,"apply fault leaked a JNI exception/reference or reported success");
+        tutorial.owner_known=true;tutorial.delivered_axes.dispatch=true;
+        check(!Apply(test,input,1010,nullptr,&tutorial)&&!pending&&locals==0&&
+            !tutorial.owner_known&&!tutorial.delivered_axes.dispatch,
+            "apply fault leaked JNI state or credited partially delivered tutorial input");
         const auto before=events.size();fail_step=-1;
         check(Apply(test,input,1011)&&events.size()==before,"failed/partial sample replayed without a fresh center");
       }

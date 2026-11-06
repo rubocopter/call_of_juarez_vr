@@ -135,18 +135,20 @@ HRESULT STDMETHODCALLTYPE HookCreateDevice(
             presentation_parameters);
     }
 
+    const DWORD effective_flags = callbacks.require_state_queries
+        ? behavior_flags & ~D3DCREATE_PUREDEVICE : behavior_flags;
     HRESULT result = callbacks.prefer_ex_device
         ? CreateExDevice(factory, adapter, device_type, focus_window,
-            behavior_flags, presentation_parameters, returned_device)
+            effective_flags, presentation_parameters, returned_device)
         : original(factory, adapter, device_type, focus_window,
-            behavior_flags, presentation_parameters, returned_device);
+            effective_flags, presentation_parameters, returned_device);
     if (callbacks.prefer_ex_device && FAILED(result)) {
         result = original(factory, adapter, device_type, focus_window,
-            behavior_flags, presentation_parameters, returned_device);
+            effective_flags, presentation_parameters, returned_device);
     }
     if (callbacks.after_create_device) {
         callbacks.after_create_device(
-            factory, adapter, device_type, focus_window, behavior_flags,
+            factory, adapter, device_type, focus_window, effective_flags,
             presentation_parameters, returned_device, result);
     }
     return result;
@@ -166,7 +168,7 @@ HookRegistryOutcome InstallFactoryVtableHookDetailed(
     HookRegistryOutcome failed{};
     void** vtable = FactoryVtable(factory);
     if (!vtable || (!callbacks.before_create_device && !callbacks.after_create_device &&
-                    !callbacks.prefer_ex_device)) return failed;
+                    !callbacks.prefer_ex_device && !callbacks.require_state_queries)) return failed;
     if (!PinModuleForAddress(reinterpret_cast<void*>(&HookCreateDevice))) {
         failed.result = HookRegistryResult::ProtectionFailure;
         return failed;

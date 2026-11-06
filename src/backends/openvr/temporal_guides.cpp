@@ -12,9 +12,14 @@ float4 VS(uint id:SV_VertexID):SV_Position {float2 uv=float2((id<<1)&2,id&2);ret
 struct Output {float4 color:SV_Target0;float depth:SV_Target1;float2 motion:SV_Target2;float bias:SV_Target3;};
 Output PS(float4 position:SV_Position) {
     int2 p=int2(position.xy);Output o;o.color=color.Load(int3(p,0));
-    float z=depthAlpha.Load(int3(p,0)).a;bool valid=isfinite(z)&&z>=optics.x&&z<=optics.y;
+    float4 rawDepth=depthAlpha.Load(int3(p,0));
+    bool packedDepth=sampling.w>1.5;
+    bool packedValid=all(isfinite(rawDepth.rgb))&&all(rawDepth.rgb>=0)&&all(rawDepth.rgb<=255)&&all(rawDepth.rgb==floor(rawDepth.rgb));
+    float z=packedDepth?dot(rawDepth.rgb,float3(65536,256,1))/16777215:rawDepth.a;
+    bool deviceDepth=sampling.w>.5;
+    bool valid=(!packedDepth||packedValid)&&isfinite(z)&&(deviceDepth?(z>=0&&z<=1):(z>=optics.x&&z<=optics.y));
     float standardZ=optics.y/(optics.y-optics.x)-optics.y*optics.x/((optics.y-optics.x)*max(z,optics.x));
-    o.depth=valid?saturate(standardZ):1;
+    o.depth=valid?(deviceDepth?z:saturate(standardZ)):1;
     float2 uv=(position.xy+sampling.xy)/optics.zw;
     float4 previous=mul(float4(uv.x*2-1,1-uv.y*2,o.depth,1),reproject);
     bool projectionValid=isfinite(previous.w)&&previous.w>1e-6;
@@ -68,7 +73,9 @@ bool TemporalGuides::Generate(ID3D11Device* device,ID3D11DeviceContext* context,
     unsigned width=0,height=0;
     for(unsigned eye=0;eye<2;++eye) {
         const auto& s=sources[eye];
-        if(!s.source_qualified||!std::isfinite(s.near_metres)||!std::isfinite(s.far_metres)||
+        if(!s.source_qualified||(s.depth_encoding!=DepthEncoding::axial_metres&&s.depth_encoding!=DepthEncoding::standard_device_z&&
+           s.depth_encoding!=DepthEncoding::packed_device_z_rgb24)||
+           !std::isfinite(s.near_metres)||!std::isfinite(s.far_metres)||
            s.near_metres<=0||s.far_metres<=s.near_metres||!std::isfinite(s.jitter_x)||!std::isfinite(s.jitter_y)||
            std::abs(s.jitter_x)>.5F||std::abs(s.jitter_y)>.5F)return false;
         for(auto v:s.clip_to_previous)if(!std::isfinite(v))return false;
@@ -97,7 +104,7 @@ bool TemporalGuides::Generate(ID3D11Device* device,ID3D11DeviceContext* context,
     auto* buffer=constants_.Get();context->PSSetConstantBuffers(0,1,&buffer);
     for(unsigned eye=0;eye<2;++eye) {
         const auto& s=sources[eye];const Constants c{s.clip_to_previous,{s.near_metres,s.far_metres,float(width),float(height)},
-            {s.jitter_x,s.jitter_y,s.history?1.F:0.F,0}};
+            {s.jitter_x,s.jitter_y,s.history?1.F:0.F,static_cast<float>(s.depth_encoding)}};
         context->UpdateSubresource(buffer,0,nullptr,&c,0,0);
         const std::array<ID3D11ShaderResourceView*,3> in{inputs[eye][0].Get(),inputs[eye][1].Get(),inputs[eye][2].Get()};
         const std::array<ID3D11RenderTargetView*,4> out{views_[eye][0].Get(),views_[eye][1].Get(),views_[eye][2].Get(),views_[eye][3].Get()};

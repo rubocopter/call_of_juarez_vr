@@ -615,6 +615,11 @@ try {
     )
 
     $PackagePath = Join-Path $TestRoot "$RunId.zip"
+    $ScenePreviewDirectory = Join-Path $RunDirectory 'runtime/scene-depth'
+    New-Item -ItemType Directory -Path $ScenePreviewDirectory -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $ScenePreviewDirectory 'f1-p2-g3-e0.color.f16'),[byte[]](1,2,3,4))
+    [IO.File]::WriteAllBytes((Join-Path $ScenePreviewDirectory 'f1-p2-g3-e0.depth.f16'),[byte[]](5,6,7,8))
+    [IO.File]::WriteAllText((Join-Path $ScenePreviewDirectory 'f1-p2-g3-e0.json'),'{"schemaVersion":1}')
     & (Join-Path $SourceDirectory "tools\collect_run_evidence.ps1") `
         -GameDirectory $GameDirectory `
         -OutputPath $PackagePath
@@ -622,6 +627,12 @@ try {
 
     $EvidenceManifestPath = Join-Path $RunDirectory "evidence-manifest.json"
     $EvidenceManifest = Get-Content -LiteralPath $EvidenceManifestPath -Raw | ConvertFrom-Json
+    $ScenePreviewFiles = @($EvidenceManifest.files | Where-Object { $_.path -like 'runtime/scene-depth/*' })
+    Assert-True ($ScenePreviewFiles.Count -eq 3) 'Joint scene previews were not inventoried.'
+    foreach ($Preview in $ScenePreviewFiles) {
+        $PreviewPath = Join-Path $RunDirectory $Preview.path
+        Assert-True ($Preview.sha256 -eq (Get-FileHash -LiteralPath $PreviewPath -Algorithm SHA256).Hash) 'Scene preview hash does not match collected bytes.'
+    }
     Assert-True ([bool]$EvidenceManifest.runtimeStarted) "Run start was not correlated."
     Assert-True ([bool]$EvidenceManifest.incomplete) "Missing run_end was not marked incomplete."
     Assert-True (-not (@($EvidenceManifest.deploymentChecks) | Where-Object { -not $_.matches })) `

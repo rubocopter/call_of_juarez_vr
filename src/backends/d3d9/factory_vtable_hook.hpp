@@ -12,6 +12,7 @@ struct FactoryHookCallbacks {
     // On an Ex factory, satisfy legacy CreateDevice with CreateDeviceEx while
     // preserving the native factory identity returned by device->GetDirect3D.
     bool prefer_ex_device = false;
+    // Before observes requested flags. After observes the flags passed to D3D.
     void (*before_create_device)(
         IDirect3D9* factory,
         UINT adapter,
@@ -29,6 +30,9 @@ struct FactoryHookCallbacks {
         IDirect3DDevice9** returned_device,
         HRESULT result) noexcept = nullptr;
     ComTraceCallback com_trace = nullptr;
+    // Capture paths that save/restore native state need queryable state.
+    // Default preserves the caller's creation flags.
+    bool require_state_queries = false;
 };
 
 [[nodiscard]] bool InstallFactoryVtableHook(

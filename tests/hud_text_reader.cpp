@@ -26,6 +26,7 @@ Object* all[] = {&hud_class,&game_class,&dialog_class,&text_class,&exception,&pl
 void* table[180]{}; void** holder = table;
 bool pending = false, fail_field = false, fail_chars = false, wrong_component = false;
 bool movie_lookup_fault=false, change_movie_during_localization=false;
+bool change_sequence_during_localization=false;
 int pinned = 0, mutations = 0, calls = 0;
 void Require(bool value, const char* message) { if (!value) { std::cerr<<message<<'\n'; std::exit(1); } }
 void* Local(Object* object) { if (object) ++object->locals; return object; }
@@ -79,6 +80,7 @@ void* __stdcall CallStaticObject(void*, void* cls, void* method, const Value* ar
     Require(cls==&text_class && *static_cast<std::string*>(method)=="Get" && args[0].object==&subtitle_text,
         "subtitle localization must use shipped Text.Get");
     if(change_movie_during_localization)module.fields["m_cMoviePlaying"]=&other;
+    if(change_sequence_during_localization)module.fields["m_CurrentSkipableMovieStart"]=&other;
     return Local(&localized_subtitle);
 }
 int __stdcall ArrayLength(void*, void* array) { return array==&components ? 23 : 1; }
@@ -263,6 +265,26 @@ int main() {
     auto& movie_text=text.subtitle;
     Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) &&
         movie_text.view()==localized_subtitle.string,"visible owned movie must copy localized native subtitle"); Clean();
+    module.fields["m_cMoviePlaying"]=module.fields["cojvrMovieSubtitleMovie"]=nullptr;
+    module.fields["m_CurrentSkipableMovieStart"]=module.fields["cojvrMovieSubtitleSequence"]=&movie;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text)&&movie_text.view()==localized_subtitle.string,
+        "immersive scripted sequence lost its current native subtitle without a Movie object");Clean();
+    module.fields["cojvrMovieSubtitleMovie"]=&other;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text)&&movie_text.view().empty(),
+        "ended Movie line was reinterpreted as the still-active scripted sequence");Clean();
+    module.fields["cojvrMovieSubtitleMovie"]=nullptr;
+    module.fields["m_CurrentSkipableMovieStart"]=&other;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text)&&movie_text.view().empty(),
+        "reused subtitle ID inherited a different scripted sequence's line");Clean();
+    module.fields["m_CurrentSkipableMovieStart"]=&movie;change_sequence_during_localization=true;
+    Require(!ReadCoJMovieSubtitle(&holder,&module,movie_text)&&movie_text.view().empty(),
+        "sequence replacement during localization retained copied subtitle");Clean();
+    change_sequence_during_localization=false;module.fields["m_CurrentSkipableMovieStart"]=&movie;
+    module.fields["m_cMoviePlaying"]=&other;
+    Require(ReadCoJMovieSubtitle(&holder,&module,movie_text)&&movie_text.view().empty(),
+        "active Movie did not take precedence over cached sequence subtitle");Clean();
+    module.fields["m_cMoviePlaying"]=module.fields["cojvrMovieSubtitleMovie"]=&movie;
+    module.fields["m_CurrentSkipableMovieStart"]=module.fields["cojvrMovieSubtitleSequence"]=nullptr;
     module.fields["cojvrMovieSubtitleKey"]=nullptr;
     Require(ReadCoJMovieSubtitle(&holder,&module,movie_text) && movie_text.view().empty(),"absent module cache fell back to actor dialogue"); Clean(); module.fields["cojvrMovieSubtitleKey"]=&subtitle_text;
     module.fields["m_cMoviePlaying"]=nullptr;

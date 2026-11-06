@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import os
 from pathlib import Path
+import re
 import struct
 import sys
 import unittest
@@ -13,6 +14,15 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from inspect_java_bytecode import parse_class
 spec = importlib.util.find_spec('coj_tutorial_hints')
 hints = __import__('coj_tutorial_hints') if spec else None
+
+# Independent authored expectation, not produced by the mapper under test.
+DUEL_OVERVIEW = (
+    "Lower your right hand to your hip, pointing down. "
+    "Center the aim stick (Selection direction).\n\n"
+    "Wait for the starting signal. Keep your hand lowered and pull the aim stick down to draw.\n\n"
+    "Physically raise your right hand, then push the aim stick up to raise the gun.\n\n"
+    "Move the aim stick left/right to aim. When the gun is ready, use Right fire to shoot."
+)
 
 
 class MappingTests(unittest.TestCase):
@@ -34,6 +44,10 @@ class MappingTests(unittest.TestCase):
     def test_unknown_hashes_fail_before_transformation(self):
         with self.assertRaisesRegex(ValueError, 'SHA-256'):
             hints.patch_tutorial_classes(b'unknown', b'unknown', b'unknown', b'unknown')
+
+    def test_duel_does_not_inherit_alternate_action_mapping(self):
+        text = "Press '%KEY(_ACTION_TOGGLE_ALTERNATE)' to continue."
+        self.assertEqual(hints.map_template('E03_H08_Duel', '&E03_H08_Duel&', 'En', text), text)
 
 
 class NativeOriginalTests(unittest.TestCase):
@@ -78,6 +92,33 @@ class NativeOriginalTests(unittest.TestCase):
                 self.assertTrue(set(changed)&{95,96},'continuation PC label was not replaced')
             else: self.assertEqual(original,patched)
 
+    def test_original_native_member_bytes_and_constants_stay_intact(self):
+        # Include complete Code attributes/debug/exception metadata, not just
+        # disassembled opcodes. Original constants must keep their meanings.
+        from inspect_java_bytecode import Reader, parse_constant_pool
+
+        def members(raw):
+            r = Reader(raw);r.read(8);pool = parse_constant_pool(r)
+            r.read(6);r.read(2*r.u2())
+            groups = []
+            for _ in range(2):  # fields, then methods
+                group = {}
+                for _ in range(r.u2()):
+                    start = r.stream.tell();r.u2();name = pool.utf8(r.u2());desc = pool.utf8(r.u2())
+                    for _ in range(r.u2()):r.u2();r.read(r.u4())
+                    group[name,desc] = raw[start:r.stream.tell()]
+                groups.append(group)
+            return pool.entries, groups
+
+        for original, patched, is_menu in ((self.base,self.base_after,False),(self.menu,self.menu_after,True)):
+            old_pool, (old_fields, old_methods) = members(original)
+            new_pool, (new_fields, new_methods) = members(patched)
+            self.assertEqual(old_pool, new_pool[:len(old_pool)])
+            self.assertEqual(old_fields, new_fields)
+            for signature, raw in old_methods.items():
+                if is_menu and signature==('Show','(Ljava/lang/Object;)V'):continue
+                self.assertEqual(raw, new_methods[signature], signature)
+
     def test_interpreted_scoped_localized_helper_and_unknown_fallback(self):
         templates = hints.read_templates(self.resource)
         for hint, template in templates.items():
@@ -89,6 +130,55 @@ class NativeOriginalTests(unittest.TestCase):
             self.assertEqual(self.execute(hint,'other',template),'NATIVE')
             self.assertEqual(self.execute(hint,'&'+hint+'&','Unverified localized text'),'NATIVE')
             self.assertEqual(self.execute(hint,'&'+hint+'&',None),'NATIVE')
+
+    def duel_template(self):
+        # The pinned resource contains two literal backslash-n sequences.
+        # Exercise both that spelling and the exact runtime LF interpretation;
+        # do not normalize arbitrary translations or edited resources.
+        matches = re.findall(rb'String\(\s*"E03_H08_Duel",\s*"([^"\r\n]*)"\)', self.resource)
+        self.assertEqual(len(matches), 1)
+        return matches[0].decode('ascii')
+
+    def test_interpreted_duel_body_teaches_complete_vr_sequence(self):
+        source = self.duel_template()
+        for native in (source, source.replace(r'\n', '\n')):
+            with self.subTest(native=repr(native)):
+                # Run generated production bytecode, including ID, key and
+                # Text.Get guards. No presentation logic is mocked here.
+                self.assertEqual(self.execute('E03_H08_Duel', '&E03_H08_Duel&', native), DUEL_OVERVIEW)
+
+    def test_interpreted_duel_identity_resource_and_locale_fall_back(self):
+        source = self.duel_template()
+        for hint, key, localized in (
+            ('other', '&E03_H08_Duel&', source),
+            ('E03_H08_DuelX', '&E03_H08_Duel&', source),
+            ('E03_H08_Duel', '&E03_H08_DuelX&', source),
+            ('E03_H08_Duel', '&E03_H05_FastShootingA&', source),
+            (None, '&E03_H08_Duel&', source),
+            ('E03_H08_Duel', None, source),
+            ('E03_H08_Duel', '&E03_H08_Duel&', None),
+            ('E03_H08_Duel', '&E03_H08_Duel&', ''),
+            ('E03_H08_Duel', '&E03_H08_Duel&', 'Espera la se\u00f1al de inicio.'),
+            ('E03_H08_Duel', '&E03_H08_Duel&', source+' '),
+            ('E03_H08_Duel', '&E03_H08_Duel&', source.replace('MOUSE', 'stick')),
+            ('E03_H08_Duel', '&E03_H08_Duel&', source.replace(r'\n', '\r\n')),
+            ('E03_H05_FastShootingA', '&E03_H05_FastShootingA&', source),
+        ):
+            with self.subTest(hint=hint, key=key, localized=localized):
+                self.assertEqual(self.execute(hint, key, localized), 'NATIVE')
+
+    def test_interpreted_duel_tip_keeps_native_dismissal_and_delay_contract(self):
+        # Even release conditions resembling the alternate tutorial must not
+        # relabel this hint's continuation or borrow its action 20 behavior.
+        for conditions in (None, [], [[20]], [[21]], [[20, 20]]):
+            for native_tip in (None, '&MenuHint_PressAnyKey&', 'Delayed native continuation'):
+                with self.subTest(conditions=conditions, native_tip=native_tip):
+                    self.assertEqual(self.execute('E03_H08_Duel', '&E03_H08_Duel&',
+                        self.duel_template(), tip=True, conditions=conditions,
+                        native_tip=native_tip), native_tip)
+        with self.assertRaisesRegex(RuntimeError, 'native assignment failure'):
+            self.execute('E03_H08_Duel', '&E03_H08_Duel&', self.duel_template(),
+                         tip=True, native_tip_error=True)
 
     def test_modified_class_and_resource_rejected(self):
         for base,menu,resource in [(self.base_after,self.menu,self.resource),
@@ -139,7 +229,6 @@ class NativeOriginalTests(unittest.TestCase):
         self.assertEqual((before.major,before.minor,before.fields),(after.major,after.minor,after.fields))
 
     def test_required_native_action_is_not_an_accept_or_dismissal(self):
-        import re
         body = re.search(rb'Hint\("E03_H05_FastShootingA"\)(.*?)Hint\("E03_H05_FastShootingB"\)',
                          self.restrictions, re.S).group(1)
         self.assertIn(b'PauseGame()',body)
@@ -163,7 +252,7 @@ class NativeOriginalTests(unittest.TestCase):
         code = next(m.code for m in methods if m.name==name)
         obj = {'m_sId': hint_id, 'm_sText': resource, 'm_cReleaseConditions':conditions}
         locals_ = [obj]*5
-        stack=[];pc=0;native_tip_calls=0
+        stack=[];pc=0;native_tip_calls=0;native_text_calls=0
         for _ in range(500):
             start=pc;op=code[pc];pc+=1
             if 0x2a<=op<=0x2d: stack.append(locals_[op-0x2a])
@@ -186,7 +275,7 @@ class NativeOriginalTests(unittest.TestCase):
                     if key=='&MenuHint_PressKey&':stack.append(tip_template)
                     else:self.assertEqual(key,resource);stack.append(localized)
                 elif name=='HintBase.GetText()Ljava/lang/String;':
-                    self.assertIs(stack.pop(),obj);stack.append('NATIVE')
+                    self.assertIs(stack.pop(),obj);native_text_calls+=1;stack.append('NATIVE')
                 elif name=='HintBase.GetTipText()Ljava/lang/String;':
                     self.assertIs(stack.pop(),obj);native_tip_calls+=1
                     if native_tip_error:raise RuntimeError('native assignment failure')
@@ -207,6 +296,9 @@ class NativeOriginalTests(unittest.TestCase):
                 if take:pc=start+delta
             elif op==0xb0:
                 self.assertEqual(native_tip_calls,1 if tip else 0,'native tip checks must execute once')
+                self.assertEqual(native_text_calls, 1 if stack[-1]=='NATIVE' else 0,
+                                 'body fallback must invoke original GetText exactly once')
+                self.assertEqual(len(stack), 1, 'helper returned with an unbalanced stack')
                 return stack.pop()
             else:self.fail('unapproved opcode '+hex(op))
         self.fail('presentation exceeded instruction bound')

@@ -39,7 +39,7 @@ int player, weapon, replacement, player_class, pistol_class, other_class, except
 int schofield_a_class, schofield_b_class;
 int peacemaker_class, derringer_class;
 int frontier_class,walker_class,cogswell_class,schofield_class;
-int winchester_class,scoped_class,volcanic_class;
+int winchester_class,scoped_class,henry_class,volcanic_class;
 int remington_class,sawoff_class,lemant_class;
 bool net_game=false,foreign_owner=false;
 JavaPlayerBridge* ticket_fault_bridge=nullptr;
@@ -92,6 +92,7 @@ void* JNI_CALL Find(void*, const char* name) {
     if (!std::strcmp(name,"WeaponPistolSchofield"))return Ref(&schofield_class);
     if (!std::strcmp(name,"WeaponRifleWinchester"))return Ref(&winchester_class);
     if (!std::strcmp(name,"WeaponRifleWinchesterScope"))return Ref(&scoped_class);
+    if (!std::strcmp(name,"WeaponHenry1863"))return Ref(&henry_class);
     if (!std::strcmp(name,"WeaponPistolVolcanic"))return Ref(&volcanic_class);
     if (!std::strcmp(name,"WeaponRifleRemington"))return Ref(&remington_class);
     if (!std::strcmp(name,"WeaponRifleRemingtonSawOff"))return Ref(&sawoff_class);
@@ -928,7 +929,7 @@ void WinchesterLoadingGeometryTests(JavaPlayerBridge& bridge) {
             const bool benign=null_only&&std::find(nonmatching.begin(),nonmatching.end(),op)!=nonmatching.end();
             RifleCheck(bridge,benign,scoped,source);
         }
-        for(int fault=0;fault<29;++fault) {
+        for(int fault=0;fault<30;++fault) {
             RifleReset(bridge,scoped,source);auto& overlay=bridge.weapon_overlays_[0];
             switch(fault) {
             case 0:overlay.active=false;break;
@@ -960,6 +961,7 @@ void WinchesterLoadingGeometryTests(JavaPlayerBridge& bridge) {
             case 26:geometry_frames[9].up={.2F,1,0};break;
             case 27:bridge.independent_hand_faulted_=true;break;
             case 28:geometry_holder_index=-1;break;
+            case 29:weapon_class=&henry_class;break; // Manual alias grants no measured port.
             }
             RifleCheck(bridge,false,scoped,source);
         }

@@ -7,6 +7,7 @@ param(
     [switch]$BodyIkAtStart,
 
     [switch]$StartupOnly,
+    [switch]$TransportOnly,
 
     [switch]$KeepVideoSettings,
 
@@ -16,6 +17,8 @@ param(
     [switch]$ReloadWaitProbe,
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
+    [switch]$SampledSceneDepth,
+    [switch]$HeadTrackedAudio,
     [switch]$FrameLumaProbe,
     [string]$NeuralHostPath = '',
     [string]$NeuralRuntimeDirectory = '',
@@ -34,6 +37,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($HeadTrackedAudio -and ($Action -ne 'prepare' -or -not $BodyIkAtStart -or $StartupOnly)) {
+    throw 'HeadTrackedAudio is a startup option for a BodyIkAtStart preparation.'
+}
+if($TransportOnly -and ($Action -ne 'prepare' -or $StartupOnly)) {
+    throw 'TransportOnly selects the short prepare validation scope and cannot combine with StartupOnly.'
+}
+if ($SampledSceneDepth -and $Action -ne 'prepare') {
+    throw 'SampledSceneDepth is a startup option for prepare.'
+}
 if ($NeuralHostPath.Length -ne 0 -or $NeuralRuntimeDirectory.Length -ne 0) {
     if ($Action -ne 'prepare' -or [string]::IsNullOrWhiteSpace($NeuralHostPath) -or
         [string]::IsNullOrWhiteSpace($NeuralRuntimeDirectory)) {
@@ -191,6 +203,14 @@ $CurrentRunPath = Join-Path $ResolvedGameDirectory ".cojvr-run.json"
 $ControlPath = Join-Path $ResolvedGameDirectory "cojvr-camera-control.json"
 $ExBridgeMarkerPath = Join-Path $ResolvedGameDirectory ".cojvr-d3d9-ex-bridge"
 
+function Resolve-VrValidationProfile {
+    param([switch]$BodyIkAtStart,[switch]$StartupOnly,[switch]$TransportOnly)
+    if($StartupOnly -and $TransportOnly){throw 'StartupOnly and TransportOnly are distinct validation scopes.'}
+    $ValidationProfile = if ($StartupOnly) { "startup" } elseif ($BodyIkAtStart) { "full" } else { "transport" }
+    if($TransportOnly){return 'transport'}
+    return $ValidationProfile
+}
+
 function Resolve-VrLargeAddressAware {
     param([switch]$BodyIkAtStart,[switch]$StartupOnly,
           [switch]$ExplicitChoice,[switch]$Requested)
@@ -273,6 +293,10 @@ switch ($Action) {
         if ($RenderResourceProbe -and ($StartupOnly -or -not $BodyIkAtStart)) {
             throw "RenderResourceProbe requires the full BodyIkAtStart candidate."
         }
+        if ($SampledSceneDepth -and ($StartupOnly -or -not $BodyIkAtStart -or
+            $IndependentEyeResolution -ne 'off' -or $RenderResourceProbe)) {
+            throw 'SampledSceneDepth requires BodyIkAtStart and the ordinary native stereo path, without the separate resource census.'
+        }
         if ($BodyIkAtStart -and $StartupOnly) {
             throw "StartupOnly and BodyIkAtStart cannot be combined."
         }
@@ -339,7 +363,7 @@ switch ($Action) {
                 -QueryHelperPath (Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_openvr_resolution_query.exe') `
                 -LimitsHelperPath (Join-Path $RepositoryRoot 'build/win32-debug/Release/cojvr_d3d9_resolution_limits.exe')
         } else {Resolve-VrResolutionProfile -Profile $ResolutionProfile -Width $ResolutionWidth -Height $ResolutionHeight -Experimental:$ExperimentalResolutionProfile}
-        $ValidationProfile = if ($StartupOnly) { "startup" } elseif ($BodyIkAtStart) { "full" } else { "transport" }
+        $ValidationProfile = Resolve-VrValidationProfile -BodyIkAtStart:$BodyIkAtStart -StartupOnly:$StartupOnly -TransportOnly:$TransportOnly
         try {
             & (Join-Path $PSScriptRoot "stage_d3d9_proxy.ps1") `
                 -GameDirectory $ResolvedGameDirectory `
@@ -349,7 +373,8 @@ switch ($Action) {
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
                 -ExperimentalGog:$ExperimentalGog `
-                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe `
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe -SampledSceneDepth:$SampledSceneDepth `
+                -HeadTrackedAudio:$HeadTrackedAudio `
                 -IndependentEyeResolution $IndependentEyeResolution `
                 -NeuralHostPath $NeuralHostPath -NeuralRuntimeDirectory $NeuralRuntimeDirectory
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
@@ -444,8 +469,14 @@ switch ($Action) {
             break
         }
         Write-Host "Validation profile: $ValidationProfile"
+        if ($HeadTrackedAudio -and $TransportOnly) {
+            Write-Host 'Combined check. Start SteamVR and CoJ manually. Near a stationary 3D sound, turn your head both ways without moving the stick. Walk and turn normally for about 20 seconds, then pause and resume once and close normally.'
+            Write-Host 'Render measurements are automatic. After closing the game, run pwsh -File tools\vr_test.ps1 finish.'
+            break
+        }
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
+        if ($SampledSceneDepth) { Write-Host 'Native scene color/depth + persistent-worker copy audit enabled (bounded samples; native output). Inspect native_sampled_depth/native_sampled_worker in the collected log.' }
         Write-Host "Independent eye prototype: $IndependentEyeResolution (startup only; desktop dimensions preserved; unsupported context falls back to native theater)."
         Write-Host "Body IK at game start: $($BodyIkAtStart.IsPresent.ToString().ToLowerInvariant())"
         Write-Host "LargeAddressAware executable: $($LargeAddressAware.IsPresent.ToString().ToLowerInvariant()) (original restored by finish)"
@@ -459,7 +490,7 @@ switch ($Action) {
         Write-Host "Menu pointer: point without L1/R1; same-hand L2/R2 selects and chooses that ray. Mouse motion/drag gets temporary priority. Cross accepts; Circle goes back."
         Write-Host "Gameplay: Options pauses, Cross jumps, Square reloads, Circle toggles alternate fire, L1 performs Action, R1 kicks on foot / holds gallop mounted, L3 toggles crouch and R3 toggles Focus. The sole default table is docs/research/COJ_PC_CONTROLS_AND_HUD.md#default-sense-controls."
         if ($ManualReload) {
-            Write-Host "Manual reload source candidate: exact revolvers, Winchester/Scope/Volcanic, Remington/SawOff, Derringer, Lemant and Schofield base/A/B require an empty support hand. Fresh Square prepares; wait for MANUAL_LOAD, pick up with the free trigger at waist, carry to the provisional grip zone and release. Units load once; indexed weapons retain the pickup index/reserve; Schofield loads its shown bundle once and closes natively. Native per-unit body replay must finish before another unit. Square or armed trigger closes early; release before firing/regripping. Base Schofield has scoped functional acceptance; its textured replacement and other new families remain physically pending. Integrated acceptance: docs/VALIDATION.md#persistent-manual-reload-candidate."
+            Write-Host "Manual reload source candidate: exact revolvers, Winchester/Scope/Henry1863/Volcanic, Remington/SawOff, Derringer, Lemant and Schofield base/A/B require an empty support hand. Fresh Square prepares; wait for MANUAL_LOAD, pick up with the free trigger at waist, carry to the provisional grip zone and release. Units load once; indexed weapons retain the pickup index/reserve; Schofield loads its shown bundle once and closes natively. Native per-unit body replay must finish before another unit. Square or armed trigger closes early; release before firing/regripping. Optional Weapon Guides mark the same current provisional target used by the gesture for every admitted manual profile, including Schofield/Henry; no precise mechanical mouth is claimed. Henry is right-owned only. Base Schofield has scoped functional acceptance; its textured replacement and other new families remain physically pending. Integrated acceptance: docs/VALIDATION.md#persistent-manual-reload-candidate."
             Write-Host "Combined candidate batch: inspect finger-derived cartridge axis, native-confirmed thumb gesture, soft held-zone cue then stronger accepted-insertion cue, drop/close/fire, held-input recovery and L1 interaction. New changes are host-tested only; compositor still has no hand/scene occlusion. Ordered batch: docs/VALIDATION.md#consolidated-candidate-batch--host-tested-awaiting-runtime-and-visor. Depth diagnostics collect automatically during pickups; no separate physical probe is needed."
         } else {
             Write-Host "Motion reload: with one eligible pistol and the other hand empty, hold the free trigger at waist level, carry it to the pistol and release near the grip. Experimental exact-profile cartridge pacing requests one native round; after the native reload interval, another cartridge appears in the support hand for a fresh trigger press/release near the gun. Square remains available. Legacy paced continuation has bounded live evidence; native animation still owns its hands. Persistent manual reload requires -ManualReload. See docs/VALIDATION.md#cartridge-paced-reload-acceptance."

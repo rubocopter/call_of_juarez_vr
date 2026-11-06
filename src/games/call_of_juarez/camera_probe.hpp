@@ -1,6 +1,7 @@
 #pragma once
 #include "games/call_of_juarez/hud_boundary_probe.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
+#include "games/call_of_juarez/movie_input.hpp"
 #include "games/call_of_juarez/ui_language.hpp"
 
 #include "runtime/pose_source.hpp"
@@ -8,6 +9,7 @@
 #include "runtime/scope_view.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -86,6 +88,8 @@ struct CameraProbeCommand {
     bool capture_readback_enabled = true;
     bool second_eye_render_enabled = true;
     bool render_resource_probe_enabled = false;
+    bool sampled_scene_depth_enabled = false;
+    bool head_tracked_audio_enabled = false;
     bool frame_luma_probe_enabled = false; // Startup-only read-only flash diagnosis.
     // Read once by the renderer at startup; 0 disables, width fixed at 2560.
     std::uint32_t independent_eye_height = 0;
@@ -282,6 +286,13 @@ struct CameraStereoFrameSample {
     bool settings_input_captured = false;
 };
 
+struct CameraHeadTrackingSample {
+    runtime::PoseSample hmd_pose{};
+    std::uint64_t input_context=0;
+    std::chrono::steady_clock::time_point captured_at{};
+    bool available=false;
+};
+
 struct CameraStereoDiagnosticCounters {
     std::uint64_t frames_fenced = 0;
     std::uint64_t frames_collected = 0;
@@ -323,7 +334,8 @@ void ProcessCameraNativeSettings(bool input_allowed) noexcept;
     std::string* error = nullptr,
     CoJUiDispatchRoute* route = nullptr) noexcept;
 [[nodiscard]] bool DispatchCameraMovieSkipPress(std::uint64_t tracking_sequence,
-    std::uint64_t native_context,std::uint64_t movie_epoch) noexcept;
+    std::uint64_t native_context,std::uint64_t movie_epoch,
+    CoJMovieSkipResult* result=nullptr) noexcept;
 [[nodiscard]] bool ObserveCameraGameTimerFrozen(
     bool& frozen,
     std::string* error = nullptr) noexcept;
@@ -351,6 +363,8 @@ struct CameraStereoRuntimeCallbacks {
     // transient capture backpressure alone may retain ordinary fresh output.
     void (*invalidate_frame)(void* context) noexcept = nullptr;
     bool (*begin_frame)(void* context, CameraStereoFrameSample& sample) noexcept = nullptr;
+    // Passive: no UI/gameplay edges or recenter acknowledgement are consumed.
+    bool (*read_head_tracking)(void*, CameraHeadTrackingSample&) noexcept = nullptr;
     bool (*capture_eye)(
         void* context,
         cojvr::runtime::Eye eye,
@@ -370,6 +384,7 @@ struct CameraStereoRuntimeCallbacks {
         std::uint64_t frame_sequence) noexcept = nullptr;
     // Latest observed reload-owner epoch; 0 invalidates queued optional feedback.
     void (*publish_reload_feedback_owner)(void* context, std::uint64_t token) noexcept = nullptr;
+    void (*publish_tutorial_owner)(void* context, std::uint64_t token) noexcept = nullptr;
     // Independent bow-owner epoch; weapon replacement invalidates queued draw feedback.
     void (*publish_bow_feedback_owner)(void* context, std::uint64_t token) noexcept = nullptr;
     // Read-only renderer observation. No depth buffer ownership/admission.

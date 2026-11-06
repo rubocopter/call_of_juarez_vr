@@ -347,8 +347,15 @@ bool ReadCoJMovieSubtitle(void* env, void* module, runtime::HudText& out) noexce
     if(!r.Bool(settings,"bSubtitles"))return r.ok;
     auto movie=r.Get(module,"m_cMoviePlaying","LMovie;");
     auto cached_movie=r.Get(module,"cojvrMovieSubtitleMovie","LMovie;");
+    // A native black-belt sequence may own subtitles without a Movie object.
+    // The exact writer captures its sequence too; no module-only/null identity
+    // or dialogue fallback may inherit the previous scene's cached line.
+    auto sequence=r.Get(movie.value?nullptr:module,"m_CurrentSkipableMovieStart","LInstantSkipableMovieStart;");
+    auto cached_sequence=r.Get(movie.value?nullptr:module,"cojvrMovieSubtitleSequence","LInstantSkipableMovieStart;");
     if(!r.ok)return false;
-    if(!movie.value || !same(movie,cached_movie))return r.ok;
+    void* target=movie.value?movie.value:sequence.value;
+    void* cached_target=movie.value?cached_movie.value:cached_sequence.value;
+    if(!target || !same(movie,cached_movie) || !same(target,cached_target))return r.ok;
     const int id=r.Int(module,"iSubtitleNumber");
     const int cached_id=r.Int(module,"cojvrMovieSubtitleId");
     if(!r.ok)return false;
@@ -363,11 +370,15 @@ bool ReadCoJMovieSubtitle(void* env, void* module, runtime::HudText& out) noexce
     auto active_after=r.Get(game,"sm_cActiveGameModule","LLawmanModule;",true);
     auto movie_after=r.Get(module,"m_cMoviePlaying","LMovie;");
     auto cached_movie_after=r.Get(module,"cojvrMovieSubtitleMovie","LMovie;");
+    auto sequence_after=r.Get(movie.value?nullptr:module,"m_CurrentSkipableMovieStart","LInstantSkipableMovieStart;");
+    auto cached_sequence_after=r.Get(movie.value?nullptr:module,"cojvrMovieSubtitleSequence","LInstantSkipableMovieStart;");
     auto settings_after=r.Get(game,"sm_cSettings","LSettings;",true);
     auto key_after=r.Get(module,"cojvrMovieSubtitleKey","Ljava/lang/String;");
     auto sprite_after=r.Get(module,"cSubtitle","LSprite;");
     if(!r.ok || !same(active_after,module) || !same(movie_after,movie) ||
-        !same(cached_movie_after,movie) || !same(settings_after,settings) ||
+        !same(cached_movie_after,movie) ||
+        (!movie.value&&(!same(sequence_after,sequence)||!same(cached_sequence_after,sequence))) ||
+        !same(settings_after,settings) ||
         !same(key_after,key) || !same(sprite_after,sprite) ||
         r.Int(module,"iSubtitleNumber")!=id || r.Int(module,"cojvrMovieSubtitleId")!=id ||
         !r.Bool(settings,"bSubtitles") || !r.Visible(sprite,"IsVisible") || !r.ok)return false;

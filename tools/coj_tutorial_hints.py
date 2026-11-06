@@ -27,6 +27,15 @@ TIP_RESOURCE_SHA256 = '4f435070dda3a111b1606b0c66aed4da6906acfdbfae55d3431c9ccb5
 TOKEN = '%KEY(_ACTION_TOGGLE_ALTERNATE)'
 HINT_IDS = ('E03_H05_FastShootingA', 'E03_H05_FastShootingB')
 NATIVE_ACTION = 20  # _ACTION_TOGGLE_ALTERNATE; this module never synthesizes it.
+# Separate from alternate-fire token mapping and its release-condition tip.
+DUEL_HINT_ID = 'E03_H08_Duel'
+DUEL_OVERVIEW = (
+    "Lower your right hand to your hip, pointing down. "
+    "Center the aim stick (Selection direction).\n\n"
+    "Wait for the starting signal. Keep your hand lowered and pull the aim stick down to draw.\n\n"
+    "Physically raise your right hand, then push the aim stick up to raise the gun.\n\n"
+    "Move the aim stick left/right to aim. When the gun is ready, use Right fire to shoot."
+)
 
 
 def map_template(hint_id: str, resource_key: str, locale: str,
@@ -64,12 +73,23 @@ def read_templates(resource: bytes) -> dict[str, str]:
     return result
 
 
+def read_duel_template(resource: bytes) -> str:
+    """Exact original EN body before PC key expansion, not an alternate token."""
+    _check(resource, RESOURCE_SHA256, RESOURCE_NAME)
+    pattern = rb'String\(\s*"'+DUEL_HINT_ID.encode('ascii')+rb'",\s*"([^"\r\n]*)"\)'
+    matches = re.findall(pattern, resource)
+    if len(matches) != 1:
+        raise ValueError('Missing or ambiguous tutorial resource '+DUEL_HINT_ID)
+    return matches[0].decode('ascii')
+
+
 def patch_tutorial_classes(base: bytes, menu: bytes, resource: bytes,
                           tip_resource: bytes) -> tuple[bytes, bytes]:
     """Hash-check ALL inputs before returning any transformed output."""
     _check(base, BASE_SHA256, 'HintBase.class')
     _check(menu, MENU_SHA256, 'MenuHint.class')
     templates = read_templates(resource)
+    duel_template = read_duel_template(resource)
     _check(tip_resource, TIP_RESOURCE_SHA256, TIP_RESOURCE_NAME)
     tips = re.findall(rb'String\(\s*"MenuHint_PressKey",\s*"([^"\r\n]*)"\)', tip_resource)
     if tips != [b'Press %s to continue']:
@@ -100,6 +120,24 @@ def patch_tutorial_classes(base: bytes, menu: bytes, resource: bytes,
         c.branch(0x99, 'fallback')
         c.ref(0x13, string(map_template(hint_id, '&'+hint_id+'&', 'En', template))); c.emit(0xb0)
         c.label('next'+str(index))
+    # Paused duel tutorial: same qualified presentation seam, separate body
+    # policy. No gesture/input/phase requirement here: native gameplay is paused.
+    # Unknown IDs, resource keys and localized templates still call GetText.
+    c.ref(0x13, string(DUEL_HINT_ID)); c.emit(0x2a); c.ref(0xb4, hint_id_field)
+    c.ref(0xb6, equals); c.branch(0x99, 'fallback')
+    c.ref(0x13, string('&'+DUEL_HINT_ID+'&')); c.emit(0x2a); c.ref(0xb4, resource_field)
+    c.ref(0xb6, equals); c.branch(0x99, 'fallback')
+    c.emit(0x2a); c.ref(0xb4, resource_field); c.ref(0xb8, get_localized); c.emit(0x4c)
+    # Only these two exact encodings of the pinned EN template are accepted:
+    # resource backslash-n spelling and its LF-expanded representation. Never
+    # normalize the observed text, accept translated fragments or expand keys.
+    c.ref(0x13, string(duel_template)); c.emit(0x2b); c.ref(0xb6, equals)
+    c.branch(0x99, 'duel_lf')
+    c.ref(0x13, string(DUEL_OVERVIEW)); c.emit(0xb0)
+    c.label('duel_lf')
+    c.ref(0x13, string(duel_template.replace(r'\n', '\n'))); c.emit(0x2b); c.ref(0xb6, equals)
+    c.branch(0x99, 'fallback')
+    c.ref(0x13, string(DUEL_OVERVIEW)); c.emit(0xb0)
     c.label('fallback'); c.emit(0x2a); c.ref(0xb6, get_text); c.emit(0xb0)
     e.helper(PRESENTATION_METHOD, '()Ljava/lang/String;', c.finish(), 2)
 

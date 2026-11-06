@@ -91,7 +91,12 @@ add_library(cojvr_runtime STATIC
 
 # Optional reconstruction backend has no NGX dependency in the x86 process.
 # Its x64 SDK host is built separately from tools/dlss_host.
-add_library(cojvr_dlss_client STATIC src/backends/openvr/dlss_client.cpp src/backends/openvr/temporal_guides.cpp)
+add_library(cojvr_dlss_client STATIC
+    src/backends/openvr/dlss_client.cpp
+    src/backends/openvr/dlss_pair_session.cpp
+    src/backends/openvr/scene_depth_transfer.cpp
+    src/backends/openvr/scene_depth_worker.cpp
+    src/backends/openvr/temporal_guides.cpp)
 add_executable(cojvr_graphics_startup tools/graphics_startup.cpp)
 target_link_libraries(cojvr_graphics_startup PRIVATE cojvr_runtime)
 target_include_directories(cojvr_dlss_client PUBLIC src)
@@ -199,7 +204,7 @@ if(COJVR_ENABLE_OPENVR)
     target_include_directories(cojvr_openvr_d3d11_backend PUBLIC src)
     target_compile_features(cojvr_openvr_d3d11_backend PUBLIC cxx_std_20)
     target_compile_definitions(cojvr_openvr_d3d11_backend PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
-    target_link_libraries(cojvr_openvr_d3d11_backend PUBLIC cojvr_openvr_runtime PRIVATE cojvr_neural_lab d3d11 dxgi openvr_api gdi32 d3dcompiler)
+    target_link_libraries(cojvr_openvr_d3d11_backend PUBLIC cojvr_openvr_runtime PRIVATE cojvr_neural_lab cojvr_dlss_client d3d11 dxgi openvr_api gdi32 d3dcompiler)
 
     add_executable(cojvr_openvr_probe tools/openvr_probe.cpp)
     target_link_libraries(cojvr_openvr_probe PRIVATE cojvr_openvr_d3d11_backend)
@@ -350,6 +355,7 @@ if(COJVR_ENABLE_OPENVR)
 
     add_library(cojvr_d3d9_native_stereo_proxy SHARED
         src/games/call_of_juarez/native_stereo_proxy.cpp
+        src/backends/d3d9/sampled_depth_capture.cpp
         src/games/call_of_juarez/independent_render_scope.cpp
         src/games/call_of_juarez/native_render_queue_witness.cpp
         src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
@@ -372,6 +378,7 @@ if(COJVR_ENABLE_OPENVR)
             cojvr_d3d9_independent_targets
             cojvr_openvr_d3d11_backend
             d3d11
+            d3dcompiler
             dxgi
             dxguid
     )
@@ -710,6 +717,10 @@ if(COJVR_BUILD_TESTS)
         target_compile_options(cojvr_camera_probe_test PRIVATE /W4 /permissive- /EHsc)
     endif()
     add_test(NAME camera_probe COMMAND cojvr_camera_probe_test)
+    add_executable(cojvr_head_audio_camera_test tests/head_audio_camera.cpp)
+    target_link_libraries(cojvr_head_audio_camera_test PRIVATE cojvr_coj_camera_probe)
+    target_compile_features(cojvr_head_audio_camera_test PRIVATE cxx_std_20)
+    add_test(NAME head_audio_camera COMMAND cojvr_head_audio_camera_test)
     add_executable(cojvr_camera_natural_replay_test tests/camera_natural_replay.cpp)
     target_link_libraries(cojvr_camera_natural_replay_test PRIVATE cojvr_coj_camera_probe)
     target_compile_features(cojvr_camera_natural_replay_test PRIVATE cxx_std_20)
@@ -1044,6 +1055,10 @@ if(COJVR_BUILD_TESTS)
     target_include_directories(cojvr_native_render_transaction_test PRIVATE src)
     target_compile_features(cojvr_native_render_transaction_test PRIVATE cxx_std_20)
     add_test(NAME native_render_transaction COMMAND cojvr_native_render_transaction_test)
+    add_executable(cojvr_render_work_observation_test tests/render_work_observation.cpp)
+    target_include_directories(cojvr_render_work_observation_test PRIVATE src)
+    target_compile_features(cojvr_render_work_observation_test PRIVATE cxx_std_20)
+    add_test(NAME render_work_observation COMMAND cojvr_render_work_observation_test)
     add_executable(cojvr_independent_resolution_recipe_test tests/independent_resolution_recipe.cpp)
     target_include_directories(cojvr_independent_resolution_recipe_test PRIVATE src)
     target_compile_features(cojvr_independent_resolution_recipe_test PRIVATE cxx_std_20)
@@ -1181,6 +1196,26 @@ if(COJVR_BUILD_TESTS)
     add_executable(cojvr_dlss_interop_test tests/dlss_interop.cpp)
     target_link_libraries(cojvr_dlss_interop_test PRIVATE cojvr_dlss_client)
     add_test(NAME dlss_missing_dependencies COMMAND cojvr_dlss_interop_test)
+    add_executable(cojvr_dlss_pair_session_test tests/dlss_pair_session.cpp)
+    target_link_libraries(cojvr_dlss_pair_session_test PRIVATE cojvr_dlss_client)
+    add_test(NAME dlss_pair_session COMMAND cojvr_dlss_pair_session_test)
+    add_executable(cojvr_sampled_depth_capture_test tests/sampled_depth_capture.cpp
+        src/backends/d3d9/sampled_depth_capture.cpp src/backends/d3d9/system_d3d9.cpp
+        src/backends/openvr/d3d9_shared_texture_bridge.cpp src/backends/openvr/d3d11_sync.cpp)
+    target_include_directories(cojvr_sampled_depth_capture_test PRIVATE src)
+    target_compile_features(cojvr_sampled_depth_capture_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_sampled_depth_capture_test PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN COJVR_SAMPLED_DEPTH_FAULT_TESTING COJVR_GPU_COPY_FAULT_TESTING)
+    target_link_libraries(cojvr_sampled_depth_capture_test PRIVATE cojvr_dlss_client cojvr_d3d9_hooks d3d9 d3d11 dxgi d3dcompiler dxguid)
+    add_test(NAME sampled_depth_capture COMMAND cojvr_sampled_depth_capture_test)
+    set_tests_properties(sampled_depth_capture PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 45)
+    add_executable(cojvr_scene_depth_worker_test tests/scene_depth_worker.cpp
+        src/backends/d3d9/sampled_depth_capture.cpp src/backends/d3d9/system_d3d9.cpp
+        src/backends/openvr/d3d9_shared_texture_bridge.cpp src/backends/openvr/d3d11_sync.cpp)
+    target_link_libraries(cojvr_scene_depth_worker_test PRIVATE cojvr_dlss_client d3d9 d3d11 dxgi d3dcompiler dxguid)
+    add_test(NAME scene_depth_worker COMMAND cojvr_scene_depth_worker_test)
+    set_tests_properties(scene_depth_worker PROPERTIES TIMEOUT 90)
+    add_test(NAME sampled_worker_analysis COMMAND python "${CMAKE_SOURCE_DIR}/tests/sampled_worker_analysis.py")
     add_executable(cojvr_temporal_guides_test tests/temporal_guides.cpp)
     target_link_libraries(cojvr_temporal_guides_test PRIVATE cojvr_dlss_client)
     add_test(NAME temporal_guides COMMAND cojvr_temporal_guides_test)
@@ -1243,6 +1278,16 @@ if(COJVR_BUILD_TESTS)
     target_compile_definitions(cojvr_gameplay_input_jni_test PRIVATE
         NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     add_test(NAME gameplay_input_jni COMMAND cojvr_gameplay_input_jni_test)
+    add_executable(cojvr_presentation_bridge_jni_test tests/presentation_bridge_jni.cpp
+        src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp
+        src/games/call_of_juarez/gameplay_ui_reader.cpp src/games/call_of_juarez/focus_zoom.cpp
+        src/games/call_of_juarez/motion_reload_owner.cpp)
+    target_link_libraries(cojvr_presentation_bridge_jni_test PRIVATE cojvr_runtime)
+    target_include_directories(cojvr_presentation_bridge_jni_test PRIVATE src)
+    target_compile_features(cojvr_presentation_bridge_jni_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_presentation_bridge_jni_test PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    add_test(NAME presentation_bridge_jni COMMAND cojvr_presentation_bridge_jni_test)
     add_executable(cojvr_whip_tracking_jni_test tests/whip_tracking_jni.cpp
         src/games/call_of_juarez/body_adapter.cpp src/games/call_of_juarez/hud_text_reader.cpp src/games/call_of_juarez/gameplay_ui_reader.cpp src/games/call_of_juarez/focus_zoom.cpp src/games/call_of_juarez/motion_reload_owner.cpp)
     target_link_libraries(cojvr_whip_tracking_jni_test PRIVATE cojvr_runtime)
@@ -1296,6 +1341,7 @@ if(COJVR_BUILD_TESTS)
             src/games/call_of_juarez/native_render_queue_witness.cpp
             src/games/call_of_juarez/d3d9ex_legacy_resource_compat.cpp
             src/backends/d3d9/d3d9_stereo_capture.cpp
+            src/backends/d3d9/sampled_depth_capture.cpp
             src/backends/d3d9/system_d3d9.cpp)
         target_include_directories(cojvr_flat_ui_delivery_test PRIVATE src)
         target_compile_features(cojvr_flat_ui_delivery_test PRIVATE cxx_std_20)
@@ -1304,7 +1350,7 @@ if(COJVR_BUILD_TESTS)
         target_link_libraries(cojvr_flat_ui_delivery_test PRIVATE
             cojvr_coj_camera_probe cojvr_diagnostics cojvr_d3d9_hooks
             cojvr_d3d9_independent_targets
-            cojvr_openvr_d3d11_backend d3d11 dxgi dxguid)
+            cojvr_openvr_d3d11_backend d3d11 d3dcompiler dxgi dxguid)
         add_test(NAME flat_ui_delivery COMMAND cojvr_flat_ui_delivery_test)
     endif()
 
@@ -1592,6 +1638,20 @@ if(COJVR_BUILD_TESTS)
     target_link_libraries(cojvr_bow_string_guide_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_bow_string_guide_test PRIVATE cxx_std_20)
     add_test(NAME bow_string_guide COMMAND cojvr_bow_string_guide_test)
+    add_executable(cojvr_loading_mouth_guide_test tests/loading_mouth_guide.cpp)
+    target_link_libraries(cojvr_loading_mouth_guide_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_loading_mouth_guide_test PRIVATE cxx_std_20)
+    add_test(NAME loading_mouth_guide COMMAND cojvr_loading_mouth_guide_test)
+    add_executable(cojvr_monitor_black_test tests/monitor_black.cpp src/backends/d3d9/system_d3d9.cpp)
+    target_include_directories(cojvr_monitor_black_test PRIVATE src)
+    target_compile_features(cojvr_monitor_black_test PRIVATE cxx_std_20)
+    target_compile_definitions(cojvr_monitor_black_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME monitor_black COMMAND cojvr_monitor_black_test)
+    add_test(NAME monitor_black_gpu COMMAND cojvr_monitor_black_test --gpu)
+    add_executable(cojvr_duel_tutorial_test tests/duel_tutorial.cpp)
+    target_link_libraries(cojvr_duel_tutorial_test PRIVATE cojvr_runtime)
+    target_compile_features(cojvr_duel_tutorial_test PRIVATE cxx_std_20)
+    add_test(NAME duel_tutorial COMMAND cojvr_duel_tutorial_test)
     add_executable(cojvr_action_prompts_test tests/action_prompts.cpp)
     target_link_libraries(cojvr_action_prompts_test PRIVATE cojvr_runtime)
     target_compile_features(cojvr_action_prompts_test PRIVATE cxx_std_20)

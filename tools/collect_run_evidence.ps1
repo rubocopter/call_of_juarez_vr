@@ -80,6 +80,19 @@ foreach ($Relative in @('analysis/validation-result.json', 'build-manifest.json'
 }
 Copy-EvidenceFile $CurrentRunPath (Join-Path $RunDirectory "run-manifest.json") $Inventory
 
+# Optional immutable previews are written directly under this run. Hash both
+# committed and partial diagnostic files without promoting their acceptance.
+$ScenePreviewDirectory = Join-Path $RunDirectory 'runtime/scene-depth'
+if (Test-Path -LiteralPath $ScenePreviewDirectory -PathType Container) {
+    foreach ($Preview in Get-ChildItem -LiteralPath $ScenePreviewDirectory -File) {
+        $Inventory.Add([ordered]@{
+            path = 'runtime/scene-depth/' + $Preview.Name
+            sha256 = Get-UpperSha256 $Preview.FullName
+            size = $Preview.Length
+        })
+    }
+}
+
 $StageStatePaths = @(
     (Join-Path $GameDirectory ".cojvr-d3d9-stage.json"),
     (Join-Path $GameDirectory ".cojvr-openvr-flat-stage.json")

@@ -61,12 +61,22 @@ $Control = [ordered]@{
     captureReadbackEnabled = $Mode -notin @("vr-readback-off", "vr-single-eye")
     secondEyeRenderEnabled = $Mode -ne "vr-single-eye"
 }
+# Movement phases own only the fields above. Preserve startup probes, eye-bank
+# selection and future controls rather than silently reverting them to defaults
+# while collecting mounted evidence for a prepared candidate.
+if ($null -ne $Existing) {
+    foreach ($Property in $Existing.PSObject.Properties) {
+        if (-not $Control.Contains($Property.Name)) {
+            $Control[$Property.Name] = $Property.Value
+        }
+    }
+}
 
 $TemporaryPath = "$ControlPath.tmp-$([Guid]::NewGuid().ToString('N'))"
 try {
     [System.IO.File]::WriteAllText(
         $TemporaryPath,
-        ($Control | ConvertTo-Json) + [Environment]::NewLine,
+        ($Control | ConvertTo-Json -Depth 10) + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $TemporaryPath -Destination $ControlPath -Force
 } finally {

@@ -1514,10 +1514,38 @@ bool JavaPlayerBridge::TryGetActiveGamePresentationOwner(
             if(!movie_input_field_){state={};observed=false;}
             else {
                 void* movie=get_object(env,module,movie_input_field_);
-                const bool failed=ClearException(env,error,"movie input owner read failed");
-                const auto epoch=failed?0:movie_input_owner_.Update(env,module,movie);
+                bool failed=ClearException(env,error,"movie input owner read failed");
+                if(!failed&&!movie){
+                    // IsAnyMoviePlaying includes visible black belts. The
+                    // native skip action can belong to a scripted sequence
+                    // even when m_cMoviePlaying is null (CanSkipMovie reads
+                    // m_CurrentSkipableMovieStart through its native getter).
+                    void* sequence_field=field_id(env,lawman_module_single_class_,
+                        "m_CurrentSkipableMovieStart","LInstantSkipableMovieStart;");
+                    failed=ClearException(env,error,"movie sequence owner field lookup failed")||!sequence_field;
+                    if(!failed){
+                        movie=get_object(env,module,sequence_field);
+                        failed=ClearException(env,error,"movie sequence owner read failed");
+                    }
+                }
+                std::uint64_t epoch=0;
+                bool input_owner_ok=false;
+                if(!failed){
+                    if(movie){
+                        epoch=movie_input_owner_.Update(env,module,movie);
+                        input_owner_ok=epoch!=0;
+                    }else{
+                        // IsAnyMoviePlaying also admits the module's visible
+                        // black belts with no Movie or skippable sequence.
+                        // Presentation remains native-owned; only the separate
+                        // skip lease is absent.
+                        // Clear an earlier movie before publishing epoch zero.
+                        input_owner_ok=movie_input_owner_.Clear(env);
+                        state.movie_target_missing=true;
+                    }
+                }
                 DeleteLocal(env,movie);
-                if(!epoch){state={};observed=false;}else state.movie_input_epoch=epoch;
+                if(!input_owner_ok){state={};observed=false;}else state.movie_input_epoch=epoch;
             }
         }
     }else if(observed&&!movie_input_owner_.Clear(env)){state={};observed=false;}
@@ -1743,7 +1771,8 @@ bool JavaPlayerBridge::TryObserveReloadTrace(CoJReloadTraceSnapshot& trace,
     return observed;
 }
 
-bool JavaPlayerBridge::TryObserveNativeReloadFallback() noexcept {
+bool JavaPlayerBridge::TryObserveNativeReloadFallback(CoJMotionReloadOwner* after_shot) noexcept {
+    if (after_shot) *after_shot={};
     if (!being_ || independent_hand_faulted_ || weapon_overlay_faulted_ || body_restore_owner_count_)
         return false;
     for (const auto& hand:hand_overlays_) if (hand.object) return false;
@@ -1751,8 +1780,11 @@ bool JavaPlayerBridge::TryObserveNativeReloadFallback() noexcept {
         if (weapon.weapon || weapon.active || weapon.applied) return false;
     void* const player=being_;
     const auto generation=being_generation_;
-    const bool observed=ReadCoJNativeReloadFallback(Environment(nullptr),player);
-    return observed && player==being_ && generation==being_generation_;
+    CoJMotionReloadOwner deferred{};
+    const bool observed=ReadCoJNativeReloadFallback(Environment(nullptr),player,&deferred);
+    if (player!=being_ || generation!=being_generation_) return false;
+    if (after_shot) *after_shot=deferred;
+    return observed;
 }
 
 bool JavaPlayerBridge::CallManualReloadBoolean(const char* name,bool& result,std::string* error,
@@ -3670,8 +3702,9 @@ bool JavaPlayerBridge::TryReadFistContactGeometry(const int hand,
 bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept {
     // Presentation only: WpnLogicRifle defaults to the right hand. Do not
     // reinterpret shared active aliases, alternate states or native reload.
-    if(hand!=1 || !being_ || manual_reload_owned_ || independent_hand_faulted_ ||
+    if(hand!=1 || !being_ || independent_hand_faulted_ ||
         weapon_overlay_faulted_ || weapon_overlays_[1].weapon)return false;
+    const bool manual_cleanup=manual_reload_owned_;
     const auto& visual=weapon_overlays_[0];
     if(!visual.weapon || !visual.active || !visual.plan.valid)return false;
     // The bimanual grip maps its parent hands before committing the child
@@ -3699,6 +3732,24 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
     if(!cls_fn || !lookup || !find || !instance || !same || !object || !integer || !boolean)return false;
     void* cls=cls_fn(env,player);
     bool failed=ClearException(env,nullptr,"support finger player class") || !cls;
+    // This flag retains a cancellation/cleanup obligation after normal native
+    // completion. It is not proof that the reload still owns the fingers.
+    // Only a positively cleared probe may proceed to the full idle rifle proof;
+    // opening, waiting, closing and unavailable observations remain native.
+    void* probe_status=nullptr;
+    const auto get_int=EnvFunction<GetIntFieldFn>(env,kGetIntField);
+    if(!failed && manual_cleanup){
+        const auto field=EnvFunction<GetFieldIdFn>(env,kGetFieldId);
+        if(!field || !get_int)failed=true;
+        else {
+            probe_status=field(env,cls,"cojvrReloadProbeStatus","I");
+            failed=ClearException(env,nullptr,"support finger retirement lookup") || !probe_status;
+            if(!failed){
+                const int status=get_int(env,player,probe_status);
+                failed=ClearException(env,nullptr,"support finger retirement read") || status!=4;
+            }
+        }
+    }
     constexpr const char* names[]{"GetActiveWeapon","GetActualWeaponNotEmpty","GetDesiredWeapon",
         "GetHandStateMashineState","GetHandStateMashineDestinyState","GetActualWeaponState",
         "GetDesiredWeaponState","IsActualWeaponOperatedTwoHand","IsDesiredWeaponOperatedTwoHand",
@@ -3719,7 +3770,14 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
         failed=ClearException(env,nullptr,"support finger rifle identity");
     }
     DeleteLocal(env,cls);if(failed || !rifle)return false;
+    const auto retired=[&]() noexcept {
+        if(manual_reload_owned_!=manual_cleanup)return false;
+        if(!manual_cleanup)return true;
+        const int status=get_int(env,player,probe_status);
+        return !ClearException(env,nullptr,"support finger retirement changed") && status==4;
+    };
     const auto coherent=[&]() noexcept {
+        if(!retired())return false;
         if(prepared){
             if(visual.applied || !visual.long_gun_owner.valid || !visual.long_gun_support.valid ||
                 visual.long_gun_generation!=generation ||
@@ -3742,9 +3800,13 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
                 if(ok && h==0){
                     ok=observed && same(env,observed,weapon)!=0;
                     if(ClearException(env,nullptr,"support finger weapon identity"))ok=false;
-                }else if(ok)ok=observed==nullptr;
+                }else if(ok && i!=2)ok=observed==nullptr;
                 DeleteLocal(env,observed);if(!ok)return false;
             }
+            // Original CheckDesiredWeaponState clears the opposite hand's
+            // desired state/two-hand flag, not its stored weapon pointer.
+            // That inactive desired pointer owns no fingers only while all
+            // four left states below are zero; active/actual aliases reject.
             // All four states must agree: normal idle 1 for the rifle,
             // empty 0 for its logical support. No animation-time writers.
             for(int i=3;i<7;++i){
@@ -3758,7 +3820,7 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
         }
         return being_==player && being_generation_==generation && visual.weapon==weapon &&
             visual.active && (visual.applied==!prepared) && visual.plan.valid && !weapon_overlay_faulted_ &&
-            !weapon_overlays_[1].weapon;
+            !weapon_overlays_[1].weapon && retired();
     };
     // Recheck native identities/states before granting the scoped finger map.
     // IsCarrying proves absence of an object independently of the shipped
@@ -3769,6 +3831,10 @@ bool JavaPlayerBridge::TryCanAnimateLongGunSupportHand(const int hand) noexcept 
 bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
     if(hand<0||hand>1||!being_||independent_hand_faulted_)return false;
     if(manual_reload_owned_){
+        // Native completion can leave only cleanup ownership behind. Recover
+        // the empty rifle support through positive retirement plus repeated
+        // retained idle ownership, never by falling through a failed reload read.
+        if(TryCanAnimateLongGunSupportHand(hand))return true;
         CoJMotionReloadOwner recovery{};
         CoJReloadTraceSnapshot native{};
         if(TryObserveNativeReloadRecoveryOwner(recovery)&&TryObserveReloadTrace(native,true)&&
@@ -3809,7 +3875,10 @@ bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
     weapon=object(env,being_,methods[6],args);
     const bool has_desired=weapon!=nullptr;
     ok=!ClearException(env,nullptr,"finger desired weapon failure");DeleteLocal(env,weapon);
-    if(!ok||has_desired)return false;
+    if(!ok)return false;
+    // An inactive desired slot can retain prior equipment. Only the bounded
+    // rifle proof may admit it; ordinary empty-hand eligibility stays strict.
+    if(has_desired)return TryCanAnimateLongGunSupportHand(hand);
     JValue other[1]{};other[0].i=1-hand;
     const bool pending_shared=boolean(env,being_,methods[7],other)!=0;
     if(ClearException(env,nullptr,"finger pending shared weapon failure"))return false;
@@ -3825,6 +3894,7 @@ bool JavaPlayerBridge::TryCanAnimateEmptyHand(const int hand) noexcept {
 bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
     const ElementWorldBasisTarget& natural_hand, const ElementWorldBasisTarget& tracked_hand,
     std::string* error, const runtime::FingerTrackingState* fingers) noexcept {
+    if(hand>=0&&hand<2)finger_map_results_[hand]=FingerMapResult::transaction_failed;
     if (hand<0 || hand>1 || !being_ || independent_hand_faulted_) return false;
     void* env=Environment(error);
     if (!env || !EnsureElementWorldReadAccess(env,error) || !EnsureElementWorldBasisAccess(env,error) ||
@@ -3873,8 +3943,13 @@ bool JavaPlayerBridge::TryApplyIndependentHand(const int hand,
         if (!overlay.object || ClearException(env,error,"hand transaction reference failed")) return false;
         io.object=overlay.object;
         const auto* accepted_fingers=fingers&&fingers->available&&TryCanAnimateEmptyHand(hand)?fingers:nullptr;
+        finger_map_results_[hand]=!fingers?FingerMapResult::not_requested:
+            !fingers->available?FingerMapResult::unavailable:
+            !accepted_fingers?FingerMapResult::native_rejected:FingerMapResult::pose_rejected;
         const bool ok=overlay.frames.Apply(frames,natural_hand,tracked_hand,
             {actor.x,actor.y,actor.z},&io,ReadHandFrame,WriteHandFrame,accepted_fingers,hand);
+        if(!ok)finger_map_results_[hand]=FingerMapResult::transaction_failed;
+        else if(overlay.frames.fingers_active())finger_map_results_[hand]=FingerMapResult::applied;
         if (!ok && !overlay.frames.active()) { del(env,overlay.object);overlay.object=nullptr; }
         if (overlay.frames.faulted()) independent_hand_faulted_=true;
         return ok;
@@ -5624,7 +5699,8 @@ bool JavaPlayerBridge::TryDispatchMissionEndKey(
     return true;
 }
 
-bool JavaPlayerBridge::TryDispatchMovieSkipPress(std::uint64_t expected_movie_epoch) noexcept {
+bool JavaPlayerBridge::TryDispatchMovieSkipPress(std::uint64_t expected_movie_epoch,CoJMovieSkipResult* result) noexcept {
+    if(result){*result={};result->reason="bridge_owner_unavailable";}
     CoJPresentationOwner current{};
     if(!expected_movie_epoch||!TryGetActiveGamePresentationOwner(current)||
         !current.immersive_movie_allowed()||current.movie_input_epoch!=expected_movie_epoch)return false;
@@ -5648,7 +5724,7 @@ bool JavaPlayerBridge::TryDispatchMovieSkipPress(std::uint64_t expected_movie_ep
         const bool failed=bridge.ClearException(environment,nullptr,"movie skip module identity failed");
         DeleteLocal(environment,active);return matches&&!failed;
     };
-    const bool delivered=DispatchCoJMovieSkip(env,module,validate_current,this);
+    const bool delivered=DispatchCoJMovieSkip(env,module,validate_current,this,result);
     DeleteLocal(env,module);return delivered;
 }
 
@@ -7699,10 +7775,11 @@ bool JavaPlayerBridge::TryObserveDuel(bool& duel_active,std::string* error) noex
 
 bool JavaPlayerBridge::TryApplyDuelInput(const runtime::GameplayInputState& input,
     const std::uint64_t monotonic_us,const runtime::Pose& right_aim,
-    const std::uint64_t pose_sequence,std::string* error) noexcept {
+    const std::uint64_t pose_sequence,std::string* error,CoJDuelTutorialSample* tutorial) noexcept {
+    if(tutorial)*tutorial={};
     if(!input.active||!input.turn_available||input.weapon_radial){duel_input_state_.Invalidate();return true;}
     void* env=Environment(error);DuelJniRead read(env);
-    const auto fail=[&](){duel_input_state_.Invalidate();return false;};
+    const auto fail=[&](){duel_input_state_.Invalidate();if(tutorial)*tutorial={};return false;};
     if(!env||!ReadDuelOwner(env,being_,read,error))return fail();
     if(read.state<1){duel_input_state_.Invalidate();return true;}
     const auto find=EnvFunction<FindClassFn>(env,kFindClass);
@@ -7756,6 +7833,13 @@ bool JavaPlayerBridge::TryApplyDuelInput(const runtime::GameplayInputState& inpu
         JValue delta_args[1]{};delta_args[0].f=game_delta;
         draw.real_dt=call_float(env,being_,real_delta,delta_args);if(!clean())return fail();
     }
+    if(tutorial){
+        tutorial->owner_known=true;tutorial->can_process_inputs=can_process;
+        tutorial->native_phase=read.state;tutorial->hands_empty=draw.hands_empty;
+        tutorial->owner={being_generation_,read.action_identity,game_time};
+        tutorial->raw=input;tutorial->right_aim=right_aim;
+        tutorial->pose_sequence=pose_sequence;tutorial->monotonic_us=monotonic_us;
+    }
     const auto axes=duel_input_state_.UpdatePhysical(input,
         {being_generation_,read.action_identity,game_time},pad,monotonic_us,draw,right_aim,pose_sequence);
     if(!axes.dispatch){SetError(error,"");return true;}
@@ -7766,7 +7850,16 @@ bool JavaPlayerBridge::TryApplyDuelInput(const runtime::GameplayInputState& inpu
         JValue args[2]{};args[0].i=axis;args[1].f=value;
         call_void(env,read.controller,mouse,args);if(!clean())return fail();
     }
+    if(tutorial)tutorial->delivered_axes=axes;
     SetError(error,"");return true;
+}
+
+bool JavaPlayerBridge::IsDuelTutorialOwnerCurrent(const CoJDuelTutorialSample& tutorial) noexcept {
+    if(!tutorial.owner_known||tutorial.owner.player_generation!=being_generation_||!being_)return false;
+    void* env=Environment(nullptr);DuelJniRead read(env);
+    return env&&ReadDuelOwner(env,being_,read,nullptr)&&
+        tutorial.owner.player_generation==being_generation_&&read.action_identity==tutorial.owner.action_identity&&
+        read.state==tutorial.native_phase;
 }
 
 } // namespace cojvr::games::call_of_juarez

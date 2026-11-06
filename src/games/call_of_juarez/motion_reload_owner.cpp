@@ -68,6 +68,7 @@ constexpr Getter getters[]{
 constexpr const char* known_pistol_classes[]{
     "WeaponRifleWinchesterScope",
     "WeaponRifleWinchester",
+    "WeaponHenry1863",
     "WeaponRifleRemingtonSawOff",
     "WeaponRifleRemington",
     "WeaponPistolFrontier1878_Regular",
@@ -366,7 +367,8 @@ bool ReadCoJNativeReloadRecoveryOwner(void* env, void* player, CoJMotionReloadOw
     CoJMotionReloadDiagnostic* diagnostic) noexcept {
     return ReadCoJReloadOwner(env, player, out, diagnostic, true);
 }
-bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept {
+bool ReadCoJNativeReloadFallback(void* env, void* player, CoJMotionReloadOwner* after_shot) noexcept {
+    if (after_shot) *after_shot={};
     if (!env || !player || !*static_cast<void***>(env)) return false;
     for (int index : {6,15,17,23,24,31,33,36,39,51,94,95})
         if (!(*static_cast<void***>(env))[index]) return false;
@@ -411,18 +413,21 @@ bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept {
         if (hand.weapons[0] && !same(weapon,hand.weapons[0])) return false;
     void* cls=locals.Keep(Fn<Class>(env,31)(env,weapon));
     if (!Clean(env) || !cls) return false;
-    // Concrete shipped native-only firearms, deliberately separate from manual
+    // Concrete shipped firearms with a native fallback, separate from manual
     // admission. An unknown subclass or failed lookup is never positive proof.
-    constexpr const char* native_classes[]{
-        "WeaponRifleWinchesterScope","WeaponRifleWinchester",
-        "WeaponRifleRemington","WeaponRifleRemingtonSawOff",
-        "WeaponPistolVolcanic","WeaponPistolLemant","WeaponPistolDerringer",
-        "WeaponPistolSchofield","WeaponPistolSchofield_A","WeaponPistolSchofield_B",
-        "WeaponPistolFrontier1878_Regular_Old","WeaponPistolSchofield_A_Old","WeaponPistolSchofield_B_Old"
+    struct NativeProfile { const char* name; bool shared_rifle; bool defer_shot_tail=false; };
+    constexpr NativeProfile native_classes[]{
+        {"WeaponRifleWinchesterScope",true},{"WeaponRifleWinchester",true},
+        {"WeaponHenry1863",true},
+        {"WeaponRifleRemington",true},{"WeaponRifleRemingtonSawOff",true},
+        {"WeaponPistolVolcanic",false},{"WeaponPistolLemant",false},{"WeaponPistolDerringer",false},
+        {"WeaponPistolSchofield",false,true},{"WeaponPistolSchofield_A",false},{"WeaponPistolSchofield_B",false},
+        {"WeaponPistolFrontier1878_Regular_Old",false},{"WeaponPistolSchofield_A_Old",false},
+        {"WeaponPistolSchofield_B_Old",false}
     };
     int matched=-1;
     for (std::size_t i=0; i<std::size(native_classes); ++i) {
-        void* candidate=Fn<Find>(env,6)(env,native_classes[i]);
+        void* candidate=Fn<Find>(env,6)(env,native_classes[i].name);
         const bool clean=Clean(env);
         bool equal=false,compared=false;
         if (clean && candidate) {
@@ -434,7 +439,7 @@ bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept {
         if (equal) { matched=static_cast<int>(i); break; }
     }
     if (matched<0) return false;
-    if (first[0].weapons[0] && first[1].weapons[0] && matched>=4) return false;
+    if (first[0].weapons[0] && first[1].weapons[0] && !native_classes[matched].shared_rifle) return false;
     using Field=void*(COJ_RELOAD_JNICALL*)(void*,void*,const char*,const char*);
     using GetObject=void*(COJ_RELOAD_JNICALL*)(void*,void*,void*);
     void* owner_field=Fn<Field>(env,94)(env,cls,"cOwner","LPawnInventory;");
@@ -458,7 +463,17 @@ bool ReadCoJNativeReloadFallback(void* env, void* player) noexcept {
     }
     if (!owner_matches()) return false;
     const auto second_id=Fn<Integer>(env,51)(env,weapon,id_method,nullptr);
-    return Clean(env) && second_id==id;
+    if (!Clean(env) || second_id!=id) return false;
+    const int armed=first[0].weapons[0]?0:1;
+    const auto& support=first[1-armed];
+    // In the recorded Schofield fire tail only the current state remains in
+    // attack (32). All three target/weapon states are already returning to idle.
+    if (native_classes[matched].defer_shot_tail && !support.weapons[0] &&
+        support.states==std::array<int,4>{} && first[armed].states==std::array{32,1,1,1}) {
+        if (after_shot) *after_shot={armed,static_cast<std::uint32_t>(id),true,false,CoJManualReloadKind::clip,true};
+        return false;
+    }
+    return true;
 }
 bool ReadCoJReloadTrace(void* env, void* player, CoJReloadTraceSnapshot& out,
     const bool include_wait_probe, const int selected_index, void* expected_weapon) noexcept {

@@ -39,7 +39,7 @@ struct Api {
 } // namespace movie_input_owner_detail
 
 // Exact-game, game-thread-only identity lease. Caller supplies borrowed module
-// and current movie locals after exact-build admission. No script/native game
+// and current Movie/skippable-sequence locals after exact-build admission. No script/native game
 // methods, numeric IDs or raw local-handle cache participate in identity.
 // Call Clear successfully before destroying this object or detaching the VM;
 // destruction deliberately performs no environment-dependent cleanup.

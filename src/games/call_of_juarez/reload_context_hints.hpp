@@ -43,7 +43,7 @@ public:
             add(es?u" para cerrar.":u" to close.");break;
         case Instruction::pickup:add(es?u"Pulsa ":u"Press ");add(label);add(es?u" junto a la cadera para coger un cartucho.":u" at your hip to take a round.");break;
         case Instruction::release_first:add(es?u"Suelta ":u"Release ");add(label);add(es?u" antes de coger otro cartucho.":u" before taking a round.");break;
-        case Instruction::carry:add(es?u"Lleva el cartucho al arma; después suelta ":u"Bring the round to the gun, then release ");add(label);add(u".");break;
+        case Instruction::carry:add(es?u"Lleva la munición al marcador. Cuando esté verde, suelta ":u"Bring the ammo to the marker. When green, release ");add(label);add(u".");break;
         case Instruction::insert:add(es?u"Suelta ":u"Release ");add(label);add(es?u" para cargar.":u" to load.");break;
         case Instruction::continuation:add(es?u"Pulsa ":u"Press ");add(label);add(es?u" para coger el siguiente cartucho.":u" to take the next round.");break;
         default:return false;

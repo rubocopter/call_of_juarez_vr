@@ -147,6 +147,13 @@ int main() {
         !ParseCameraProbeCommand(R"({"enabled":false})",command,&error) || command.frame_luma_probe_enabled) {
         std::cerr << "invalid luma probe opt-in/default\n"; return 1;
     }
+    if (!ParseCameraProbeCommand(R"({"enabled":false,"sampledSceneDepthEnabled":true})",command,&error) ||
+        !command.sampled_scene_depth_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"sampledSceneDepthEnabled":truejunk})",command,&error) ||
+        ParseCameraProbeCommand(R"({"enabled":false,"sampledSceneDepthEnabled":1})",command,&error) ||
+        !ParseCameraProbeCommand(R"({"enabled":false})",command,&error) || command.sampled_scene_depth_enabled) {
+        std::cerr << "invalid sampled scene depth opt-in/default\n"; return 1;
+    }
     if (ParseCameraProbeCommand(R"({"enabled":true,"fovDegrees":200})", command, &error) ||
         ParseCameraProbeCommand(R"({"yawDegrees":10})", command, &error) ||
         ParseCameraProbeCommand(R"({"enabled":true,"pitchDegrees":nan})", command, &error) ||

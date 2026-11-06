@@ -12,6 +12,7 @@
 #include "games/call_of_juarez/reload_insertion_pose.hpp"
 #include "games/call_of_juarez/bow_draw_session.hpp"
 #include "games/call_of_juarez/bow_string_guide.hpp"
+#include "games/call_of_juarez/manual_reload_target.hpp"
 #include "games/call_of_juarez/virtual_holster.hpp"
 #include "games/call_of_juarez/holster_guides.hpp"
 #include "games/call_of_juarez/ammunition_pickup_guide.hpp"
@@ -29,6 +30,7 @@
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
 #include "games/call_of_juarez/fist_contact_sweep.hpp"
+#include "games/call_of_juarez/head_audio_camera.hpp"
 
 #include "backends/d3d9/hook_registry.hpp"
 #include "runtime/build_identity.hpp"
@@ -38,6 +40,7 @@
 #include "runtime/native_render_fault.hpp"
 
 #include <windows.h>
+#include <intrin.h>
 
 #include <algorithm>
 #include <array>
@@ -64,6 +67,9 @@ namespace {
 
 constexpr std::uintptr_t kBaseCameraVtableRva = 0x0030AE1C;
 constexpr std::uintptr_t kRenderCameraUpdateRva = 0x001C5BA0;
+constexpr std::uintptr_t kNativeCameraUpdateRva = 0x001C4F20;
+constexpr std::uintptr_t kSynchronizeCameraRva = 0x0022BB10;
+constexpr std::uintptr_t kListenerViewUpdateReturnRva = 0x00028F58;
 constexpr std::uintptr_t kSetFovRva = 0x001C58E0;
 constexpr std::uintptr_t kInvertMatrixRva = 0x001F3F80;
 constexpr std::uintptr_t kProjectionBuilderRva = 0x0022BC50;
@@ -103,6 +109,7 @@ constexpr std::ptrdiff_t kCameraNearOffset = 0x254;
 constexpr std::ptrdiff_t kCameraFarOffset = 0x258;
 constexpr std::size_t kCameraMatrixBytes = sizeof(float) * 16;
 constexpr std::size_t kRenderCameraUpdateSlot = 9;
+constexpr std::size_t kNativeCameraUpdateSlot = 7;
 constexpr std::size_t kSetFovSlot = 10;
 constexpr float kDegreesToRadians = 0.01745329251994329577F;
 constexpr float kRadiansToDegrees = 57.295779513082320876F;
@@ -125,12 +132,25 @@ struct CommandSnapshot {
 };
 
 cojvr::backends::d3d9::HookRegistry g_camera_hooks;
+cojvr::backends::d3d9::HookRegistry g_head_audio_hooks;
 cojvr::backends::d3d9::HookRegistry g_render_view_hooks;
 std::byte* g_engine_base = nullptr;
 std::atomic_uint32_t g_ppfx_engine_base{0};
 void** g_camera_vtable = nullptr;
 void** g_render_view_entry = nullptr;
 RenderCameraUpdateFn g_original_render_camera_update = nullptr;
+RenderCameraUpdateFn g_original_native_camera_update = nullptr;
+RenderCameraUpdateFn g_synchronize_camera = nullptr;
+std::atomic_bool g_head_audio_enabled{false};
+thread_local CoJHeadAudioReference g_head_audio_reference{};
+struct HeadAudioWitness {
+    CoJHeadAudioIdentity identity{};
+    std::uint64_t pose=0;
+    CameraProbeVector position{},direction{},up{};
+    bool pending=false;
+};
+thread_local HeadAudioWitness g_head_audio_witness;
+std::atomic_uint64_t g_head_audio_applied{0},g_head_audio_verified{0},g_head_audio_unverified{0};
 InvertMatrixFn g_invert_matrix = nullptr;
 ProjectionBuilderFn g_projection_builder = nullptr;
 RenderViewFn g_original_render_view = nullptr;
@@ -147,6 +167,7 @@ CoJMotionReloadAdapter g_motion_reload;
 CoJManualReloadSession g_manual_reload;
 CoJReloadContextHints g_reload_context_hints;
 CoJMovieSkipDispatchGate g_movie_skip_dispatch;
+CoJDuelTutorial g_duel_tutorial;
 std::uint64_t g_indexed_reload_next_ms=0;
 unsigned g_indexed_reload_attempts=0,g_indexed_reload_events=0;
 cojvr::runtime::MotionPunchContact g_physical_punch;
@@ -1630,6 +1651,112 @@ RelativeAngles HeadAngles(const cojvr::runtime::Quaternion orientation) noexcept
             dot(cross(no_roll_up, tracked_up), tracked_forward),
             dot(no_roll_up, tracked_up)) * kRadiansToDegrees,
     };
+}
+
+bool ApplyNativeHeadAudioCamera(void* camera,const CoJHeadAudioIdentity& identity,
+    const CameraHeadTrackingSample& tracking,const runtime::Pose& relative,float owned_yaw,
+    std::chrono::steady_clock::time_point now) {
+    if(!camera||identity.camera!=reinterpret_cast<std::uintptr_t>(camera)||!g_invert_matrix||!g_synchronize_camera)return false;
+    auto* bytes=static_cast<std::byte*>(camera);
+    auto* world=reinterpret_cast<float*>(bytes+kCameraSourceRightOffset);
+    auto* inverse=reinterpret_cast<float*>(bytes+kCameraSourceViewMatrixOffset);
+    if(!IsReadable(world,kCameraMatrixBytes)||!IsReadable(inverse,kCameraMatrixBytes)||
+        !IsWritable(world,kCameraMatrixBytes)||!IsWritable(inverse,kCameraMatrixBytes)||
+        !SourceMatrixHasNativeHomogeneousLayout(world)||!SourceMatrixHasNativeHomogeneousLayout(inverse))return false;
+    const CameraProbeBasis natural{*reinterpret_cast<CameraProbeVector*>(world+8),
+        *reinterpret_cast<CameraProbeVector*>(world+4),*reinterpret_cast<CameraProbeVector*>(world)};
+    CoJHeadAudioPose centered;
+    if(!BuildCoJHeadAudioPose(g_head_audio_reference,identity,tracking,relative,natural,
+        *reinterpret_cast<CameraProbeVector*>(world+12),owned_yaw,now,centered))return false;
+    // Native derived camera output now represents the physical center head.
+    // Neither source matrices nor the renderer-global camera are retained/edited.
+    if(!WithCoJHeadAudioSource(world,inverse,centered,[&]{
+        g_invert_matrix(inverse,world);g_synchronize_camera(camera);
+    }))return false;
+    ++g_head_audio_applied;
+    if(g_head_audio_verified+g_head_audio_unverified<8&&IsReadable(bytes+0xd4,0x2c)) {
+        g_head_audio_witness={};
+        g_head_audio_witness.identity=identity;g_head_audio_witness.pose=tracking.hmd_pose.sequence;
+        std::memcpy(&g_head_audio_witness.position,bytes+0xf4,sizeof(CameraProbeVector));
+        std::memcpy(&g_head_audio_witness.direction,bytes+0xd4,sizeof(CameraProbeVector));
+        std::memcpy(&g_head_audio_witness.up,bytes+0xe4,sizeof(CameraProbeVector));
+        for(auto* v:{&g_head_audio_witness.direction,&g_head_audio_witness.up}){v->x=-v->x;v->y=-v->y;v->z=-v->z;}
+        g_head_audio_witness.pending=true;
+    }
+    return true;
+}
+
+void __fastcall HookNativeHeadAudioUpdate(void* camera, void*) {
+    const auto original=g_original_native_camera_update;
+    if(!original)return;
+    if(g_head_audio_reference.camera==reinterpret_cast<std::uintptr_t>(camera)&&
+        g_head_audio_reference.thread==GetCurrentThreadId())g_head_audio_witness.pending=false;
+    // Run native animation/FOV bookkeeping once, before its listener collection.
+    original(camera);
+    if(!g_head_audio_enabled.load(std::memory_order_acquire)||!g_engine_base||
+        _ReturnAddress()!=g_engine_base+kListenerViewUpdateReturnRva||!camera||!g_synchronize_camera||
+        !g_stereo_callbacks.read_head_tracking||g_stereo_eye_override.active||g_camera_only_natural_replay||
+        g_head_audio_reference.camera!=reinterpret_cast<std::uintptr_t>(camera)||
+        g_head_audio_reference.thread!=GetCurrentThreadId())return;
+    if(!g_camera_vtable||g_camera_vtable[kNativeCameraUpdateSlot]!=reinterpret_cast<void*>(&HookNativeHeadAudioUpdate))return;
+    const auto command=CurrentCommand();
+    if(!command.command.enabled||!command.command.tracking_enabled||!command.command.head_tracked_audio_enabled)return;
+    CameraHeadTrackingSample tracking;
+    if(!g_stereo_callbacks.read_head_tracking(g_stereo_callbacks.context,tracking)||!tracking.available)return;
+    auto* bytes=static_cast<std::byte*>(camera);
+    if(!IsReadable(bytes+kCameraViewOwnerOffset,sizeof(void*)))return;
+    void* view=nullptr;std::memcpy(&view,bytes+kCameraViewOwnerOffset,sizeof(view));
+    if(reinterpret_cast<std::uintptr_t>(view)!=g_head_audio_reference.view||
+        !IsReadable(view,0x3c))return;
+    auto* view_bytes=static_cast<std::byte*>(view);
+    void* reciprocal=nullptr;std::memcpy(&reciprocal,view_bytes+kViewCameraOffset,sizeof(reciprocal));
+    if(reciprocal!=camera||view_bytes[0x24]==std::byte{}||view_bytes[0x2d]==std::byte{})return;
+    CoJPresentationOwner presentation;
+    if(!g_java_player_bridge.TryGetActiveGamePresentationOwner(presentation)||presentation.blocked())return;
+    runtime::Pose relative;
+    if(!g_pose_tracker.TransformPose(tracking.hmd_pose.pose,relative))return;
+    const CoJHeadAudioIdentity identity{reinterpret_cast<std::uintptr_t>(camera),
+        reinterpret_cast<std::uintptr_t>(view),g_java_player_bridge.being_generation(),tracking.input_context,
+        g_pose_tracker.last_recenter_sequence(),command.generation,GetCurrentThreadId()};
+    (void)ApplyNativeHeadAudioCamera(camera,identity,tracking,relative,BodyYawCompensationForCurrentPlayer(),
+        std::chrono::steady_clock::now());
+}
+
+void ObserveNativeHeadAudioListener(void* view) noexcept {
+    if(!g_head_audio_witness.pending||reinterpret_cast<std::uintptr_t>(view)!=g_head_audio_witness.identity.view||
+        GetCurrentThreadId()!=g_head_audio_witness.identity.thread||!g_engine_base)return;
+    const auto witness=g_head_audio_witness;g_head_audio_witness.pending=false;
+    bool matched=false,available=false;
+    void* mixer=nullptr;void* records=nullptr;
+    auto* global=g_engine_base+0x004E88E4;
+    if(IsReadable(global,sizeof(mixer)))std::memcpy(&mixer,global,sizeof(mixer));
+    if(mixer&&IsReadable(static_cast<std::byte*>(mixer)+0x2878,sizeof(records)))
+        std::memcpy(&records,static_cast<std::byte*>(mixer)+0x2878,sizeof(records));
+    unsigned count=0;
+    if(records&&IsReadable(static_cast<std::byte*>(records)+0xb40,sizeof(count)))
+        std::memcpy(&count,static_cast<std::byte*>(records)+0xb40,sizeof(count));
+    if(count>0&&count<=10&&IsReadable(records,count*0x120)) {
+        const auto same=[](CameraProbeVector a,CameraProbeVector b){
+            return std::isfinite(a.x)&&std::isfinite(a.y)&&std::isfinite(a.z)&&
+                std::fabs(a.x-b.x)<=1e-4F&&std::fabs(a.y-b.y)<=1e-4F&&std::fabs(a.z-b.z)<=1e-4F;
+        };
+        for(unsigned i=0;i<count;++i){CameraProbeVector position,direction,up;
+            auto* record=static_cast<std::byte*>(records)+i*0x120;
+            std::memcpy(&position,record,sizeof(position));std::memcpy(&direction,record+12,sizeof(direction));
+            std::memcpy(&up,record+24,sizeof(up));
+            matched=matched||(same(position,witness.position)&&same(direction,witness.direction)&&same(up,witness.up));
+        }
+        void* current=nullptr;unsigned current_count=0;
+        std::memcpy(&current,static_cast<std::byte*>(mixer)+0x2878,sizeof(current));
+        std::memcpy(&current_count,static_cast<std::byte*>(records)+0xb40,sizeof(current_count));
+        available=current==records&&current_count==count;matched=matched&&available;
+    }
+    if(matched)++g_head_audio_verified;else ++g_head_audio_unverified;
+    try {EmitEvent("head_audio_listener",matched?"matched":"unobserved",
+        "pose_sequence="+std::to_string(witness.pose)+";view="+std::to_string(witness.identity.view)+
+        ";camera="+std::to_string(witness.identity.camera)+";input_context="+std::to_string(witness.identity.context)+
+        ";native_records="+std::to_string(count)+";available="+std::to_string(available)+
+        ";source=native_pending_listener;center_head=true;headset_acceptance=false");}catch(...){}
 }
 
 void __fastcall HookRenderCameraUpdate(void* camera, void*) {
@@ -4019,6 +4146,66 @@ bool ReadLongGunGripGeometry(const CameraRenderStateSnapshot& natural,const floa
     geometry.muzzle_direction=RuntimeVector(direction);geometry.read_failure="none";return true;
 }
 
+const char* FingerMapResultName(JavaPlayerBridge::FingerMapResult result) noexcept {
+    switch(result){
+    case JavaPlayerBridge::FingerMapResult::not_requested:return "not_requested";
+    case JavaPlayerBridge::FingerMapResult::unavailable:return "tracking_unavailable";
+    case JavaPlayerBridge::FingerMapResult::native_rejected:return "native_rejected";
+    case JavaPlayerBridge::FingerMapResult::pose_rejected:return "pose_rejected";
+    case JavaPlayerBridge::FingerMapResult::applied:return "applied";
+    case JavaPlayerBridge::FingerMapResult::transaction_failed:return "transaction_failed";
+    }
+    return "unknown";
+}
+
+enum class FingerObservationRoute { independent, manual, bimanual };
+
+void ObserveIndependentHandFingers(int hand,std::uint64_t sequence,std::uint64_t context,
+    FingerObservationRoute route,const runtime::FingerTrackingState& fingers,
+    bool attempted,bool applied) noexcept {
+    // The old long-gun event only covered an attached foreend. A free support
+    // hand takes the ordinary path, including the reported transient index pose.
+    // Observe the scoped map attempt, before any separate manual pinch; it is
+    // not evidence of delivered stereo, successful restoration or visible skin.
+    struct Sample {
+        std::uint64_t generation=0,context=0;
+        FingerObservationRoute route=FingerObservationRoute::independent;
+        JavaPlayerBridge::FingerMapResult result=JavaPlayerBridge::FingerMapResult::not_requested;
+        runtime::FingerTrackingQuality quality=runtime::FingerTrackingQuality::unavailable;
+        bool known=false,available=false,attempted=false,applied=false;
+        unsigned count=0;
+    };
+    static std::array<Sample,2> samples{};
+    if(hand<0||hand>1||!sequence)return;
+    auto& previous=samples[hand];
+    if(previous.count>=240)return;
+    const auto generation=g_java_player_bridge.being_generation();
+    // A short-circuited invalid target must never reuse the previous map result.
+    const auto result=attempted?g_java_player_bridge.finger_map_result(hand):
+        JavaPlayerBridge::FingerMapResult::not_requested;
+    const bool changed=!previous.known||previous.generation!=generation||previous.context!=context||
+        previous.route!=route||previous.result!=result||previous.quality!=fingers.quality||
+        previous.available!=fingers.available||previous.attempted!=attempted||previous.applied!=applied;
+    if(!changed&&!ShouldObserveBodyFrame(sequence))return;
+    ++previous.count;
+    previous.generation=generation;previous.context=context;previous.route=route;previous.result=result;
+    previous.quality=fingers.quality;previous.known=true;previous.available=fingers.available;
+    previous.attempted=attempted;previous.applied=applied;
+    try{
+        std::ostringstream detail;
+        detail<<"frame_sequence="<<sequence<<";player_generation="<<generation<<";context="<<context
+            <<";hand="<<hand<<";route="<<(route==FingerObservationRoute::bimanual?"bimanual":
+                route==FingerObservationRoute::manual?"manual":"independent")
+            <<";tracking_available="<<fingers.available<<";tracking_quality="<<static_cast<int>(fingers.quality)
+            <<";map_attempted="<<attempted<<";hand_applied="<<applied<<";finger_map="<<FingerMapResultName(result)
+            <<";curls=";
+        for(std::size_t i=0;i<fingers.curls.size();++i){if(i)detail<<',';detail<<fingers.curls[i];}
+        detail<<";curl_order=thumb_index_middle_ring_pinky;stage=before_manual_pinch"
+            <<";sample="<<previous.count<<";delivery=unverified;physical_acceptance=unverified";
+        EmitEvent("independent_hand_fingers","observed",detail.str());
+    }catch(...){}
+}
+
 bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float height,
     const runtime::Pose& head,const runtime::Pose& left,const runtime::Pose& right,
     const runtime::Pose& right_tip,const runtime::FingerTrackingState& left_fingers,
@@ -4053,8 +4240,11 @@ bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float 
     // The idle-acquired mesh contact stays fixed during native cycling. Map
     // the current native socket anatomy onto that independent contact frame.
     const auto tracked_left=TransformWeaponElementFrame(geometry.native.support,frame.mapped_support_frame,natural_left);
-    if(!tracked_left.valid||!g_java_player_bridge.TryApplyIndependentHand(0,natural_right,tracked_right,&error)||
-        !g_java_player_bridge.TryApplyIndependentHand(1,natural_left,tracked_left,&error,&left_fingers))return fail();
+    if(!tracked_left.valid||!g_java_player_bridge.TryApplyIndependentHand(0,natural_right,tracked_right,&error))return fail();
+    const bool left_applied=g_java_player_bridge.TryApplyIndependentHand(1,natural_left,tracked_left,&error,&left_fingers);
+    ObserveIndependentHandFingers(1,frame_sequence,context,FingerObservationRoute::bimanual,
+        left_fingers,true,left_applied);
+    if(!left_applied)return fail();
     JavaPlayerPosition muzzle{},direction{};bool active=false;
     // Both parent sockets are final before the single child-weapon commit.
     if(!g_java_player_bridge.ApplyPreparedTrackedWeapon(0,muzzle,&error)||
@@ -4066,10 +4256,16 @@ bool ApplySupportedLongGun(const CameraRenderStateSnapshot& natural,const float 
     aim.right_origin_valid=aim.right_direction_valid=aim.right_muzzle_verified=true;
     aim.left_origin_valid=aim.left_muzzle_verified=false;
     (void)g_java_player_bridge.TrySetPerHandAimOrigin(0,muzzle);
-    if(ShouldObserveBodyFrame(frame_sequence))try{EmitEvent("long_gun_grip","applied",
-        "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(geometry.native.weapon_id)+
-        ";support_error_m="+std::to_string(frame.support_error_m)+
-        ";source=mesh_foreend;native_reload=true;physical_acceptance=unverified");}catch(...){}
+    if(ShouldObserveBodyFrame(frame_sequence))try{
+        const auto finger_result=g_java_player_bridge.finger_map_result(1);
+        EmitEvent("long_gun_grip","applied",
+            "frame_sequence="+std::to_string(frame_sequence)+";weapon_id="+std::to_string(geometry.native.weapon_id)+
+            ";support_error_m="+std::to_string(frame.support_error_m)+
+            ";left_finger_tracking="+std::to_string(left_fingers.available)+
+            ";left_finger_quality="+std::to_string(static_cast<int>(left_fingers.quality))+
+            ";left_finger_map="+FingerMapResultName(finger_result)+
+            ";source=mesh_foreend;native_reload=true;physical_acceptance=unverified");
+    }catch(...){}
     return true;
 }
 
@@ -4242,18 +4438,20 @@ bool ApplyTrackedWeapons(
     if (!g_java_player_bridge.TryGetWeaponReloading(reloading) || (reloading&&!manual_presentation)) return false;
     unsigned mapped_hands=0;bool mapped_weapon=false;
     const auto generation=g_java_player_bridge.being_generation();
-    const bool observe_winchester_loading=manual_presentation&&g_manual_reload_geometry_logging_enabled&&
-        manual_weapon_class&&(!std::strcmp(manual_weapon_class,"WeaponRifleWinchester")||
-            !std::strcmp(manual_weapon_class,"WeaponRifleWinchesterScope"))&&
+    const bool winchester_loading=manual_presentation&&manual_weapon_class&&
+        (!std::strcmp(manual_weapon_class,"WeaponRifleWinchester")||!std::strcmp(manual_weapon_class,"WeaponRifleWinchesterScope"));
+    const bool trace_winchester_loading=winchester_loading&&g_manual_reload_geometry_logging_enabled&&
         g_winchester_loading_samples<120&&g_winchester_loading_attempts<120&&
         (ShouldObserveBodyFrame(frame_sequence)||g_manual_reload_geometry_event);
-    if(observe_winchester_loading)++g_winchester_loading_attempts;
-    const bool observe_remington_loading=manual_presentation&&g_manual_reload_geometry_logging_enabled&&
-        manual_weapon_class&&(!std::strcmp(manual_weapon_class,"WeaponRifleRemington")||
-            !std::strcmp(manual_weapon_class,"WeaponRifleRemingtonSawOff"))&&
+    if(trace_winchester_loading)++g_winchester_loading_attempts;
+    const bool observe_winchester_loading=trace_winchester_loading;
+    const bool remington_loading=manual_presentation&&manual_weapon_class&&
+        (!std::strcmp(manual_weapon_class,"WeaponRifleRemington")||!std::strcmp(manual_weapon_class,"WeaponRifleRemingtonSawOff"));
+    const bool trace_remington_loading=remington_loading&&g_manual_reload_geometry_logging_enabled&&
         g_remington_loading_samples<120&&g_remington_loading_attempts<120&&
         (ShouldObserveBodyFrame(frame_sequence)||g_manual_reload_geometry_event);
-    if(observe_remington_loading)++g_remington_loading_attempts;
+    if(trace_remington_loading)++g_remington_loading_attempts;
+    const bool observe_remington_loading=trace_remington_loading;
     bool boxing_selected=false;
     std::uint32_t boxing_owner=0;
     const bool boxing_pose=independent_hands&&
@@ -4424,6 +4622,9 @@ bool ApplyTrackedWeapons(
             }
             hand_applied=hand_target.valid && g_java_player_bridge.TryApplyIndependentHand(
                 hand,natural_hand,hand_target,&error,left?&left_fingers:&right_fingers);
+            ObserveIndependentHandFingers(hand,frame_sequence,native_context,
+                manual_presentation?FingerObservationRoute::manual:FingerObservationRoute::independent,
+                left?left_fingers:right_fingers,hand_target.valid,hand_applied);
             if(manual_presentation&&hand_applied){
                 ElementWorldBasisTarget anchor{};
                 float skin_gap_cm=0.F;
@@ -5544,6 +5745,7 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         original(owner, view);
         return;
     }
+    ObserveNativeHeadAudioListener(view);
 
     CoJStationaryFireFrame stationary_fire_frame{g_stationary_fire};
     CoJScopedRifleFireFrame scoped_rifle_fire_frame{g_scoped_rifle_fire};
@@ -5580,7 +5782,10 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         g_virtual_holsters.Invalidate();
         ResetPhysicalBowDraw(reason);
         g_java_player_bridge.InvalidateDuelInput();
+        g_duel_tutorial.Reset();
         (void)PublishReloadFeedbackOwner(0, 0, {});
+        if(g_stereo_callbacks.publish_tutorial_owner)
+            g_stereo_callbacks.publish_tutorial_owner(g_stereo_callbacks.context,0);
         CoJReloadTraceSample trace{};
         trace.sequence=g_stereo_frame_sequence.load(std::memory_order_acquire);
         trace.reason=reason;
@@ -5798,17 +6003,24 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         if(sample.cinematic_immersive&&!sample.settings_input_captured&&sample.cinematic_skip_requested&&
             sample.cinematic_movie_epoch&&sample.cinematic_movie_epoch==presentation.movie_input_epoch){
             bool context_restored=false;
+            CoJMovieSkipResult skip_result{};skip_result.reason="render_context_unavailable";
             const bool delivered=DispatchWithRenderLevelContext(owner,[&]() noexcept {
                 return DispatchCameraMovieSkipPress(sample.hmd_pose.sequence,sample.native_gameplay_context_token,
-                    sample.cinematic_movie_epoch);
+                    sample.cinematic_movie_epoch,&skip_result);
             },context_restored);
             if(!context_restored){reject_render_input_context();return;}
             EmitEvent("immersive_movie_skip",delivered?"delivered":"not_delivered",
-                "frame_sequence="+std::to_string(frame_sequence)+";route=native_module_escape;gameplay=false");
+                "frame_sequence="+std::to_string(frame_sequence)+";route=native_module_escape;gameplay=false;attempted="+
+                std::to_string(skip_result.attempted)+";reason="+skip_result.reason);
             // The original consumer can replace the movie/camera or start a
             // fade synchronously. Never render another eye with its preimage.
-            ForwardNaturalRender(original,owner,view);
-            return;
+            CoJPresentationOwner after_skip{};
+            const bool observed=!skip_result.attempted&&
+                g_java_player_bridge.TryGetActiveGamePresentationOwner(after_skip);
+            if(!CoJContinueMovieAfterSkip(skip_result,observed,after_skip,sample.cinematic_movie_epoch)){
+                ForwardNaturalRender(original,owner,view);
+                return;
+            }
         }
         RenderCameraOnlyStereo(original,owner,view,camera,natural_render_state,
             sample,relative_head_pose,relative_left_controller,relative_right_controller,
@@ -6006,8 +6218,12 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     std::string duel_error;
     const bool duel_owner_known = gameplay_input.active &&
         g_java_player_bridge.TryObserveDuel(duel_active, &duel_error);
-    if (!duel_owner_known || !duel_active || recentered)
+    if (!duel_owner_known || !duel_active || recentered) {
         g_java_player_bridge.InvalidateDuelInput();
+        g_duel_tutorial.Reset();
+        if(g_stereo_callbacks.publish_tutorial_owner)
+            g_stereo_callbacks.publish_tutorial_owner(g_stereo_callbacks.context,0);
+    }
     const bool long_gun_probe_allowed=snapshot.command.reload_trace_enabled && gameplay_input.active &&
         duel_owner_known && !duel_active && mounted_available && !mounted && !recentered &&
         sample.native_gameplay_context_token!=0 &&
@@ -6542,13 +6758,15 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
     // Manual eligibility may reject an alternate/attack state before class
     // lookup. Prove native-only ownership independently; never turn a JNI or
     // identity failure into permission, or enable another manual profile.
-    const bool native_fallback_observable=manual_input.enabled&&motion_reload_context&&raw_reload_input.reload&&
+    const bool native_fallback_observable=manual_input.enabled&&motion_reload_context&&
+        (raw_reload_input.reload||g_manual_reload.waiting_for_shot_reload())&&
         !reload_owner_observed&&!reload_diagnostic.player_dead&&
         (reload_diagnostic.reason==CoJMotionReloadRejectReason::unsupported_weapon||
          reload_diagnostic.reason==CoJMotionReloadRejectReason::armed_state||
          reload_diagnostic.reason==CoJMotionReloadRejectReason::support_state||
          reload_diagnostic.reason==CoJMotionReloadRejectReason::dead_or_reloading);
-    const bool native_only_reload=native_fallback_observable&&g_java_player_bridge.TryObserveNativeReloadFallback();
+    const bool native_only_reload=native_fallback_observable&&
+        g_java_player_bridge.TryObserveNativeReloadFallback(&manual_input.after_shot);
     manual_input.native_fallback_allowed=(reload_owner.valid&&!reload_owner.SupportsManual())||
         native_only_reload||
         (mounted_available&&mounted)||
@@ -6556,8 +6774,8 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         reload_diagnostic.reason==CoJMotionReloadRejectReason::support_weapon||
         reload_diagnostic.reason==CoJMotionReloadRejectReason::support_occupied||
         reload_diagnostic.reason==CoJMotionReloadRejectReason::two_handed;
-    if(native_fallback_observable) {
-        EmitEvent("native_reload_fallback",native_only_reload?"admitted":"withheld",
+    if(native_fallback_observable&&raw_reload_input.reload) {
+        EmitEvent("native_reload_fallback",native_only_reload?"admitted":manual_input.after_shot.valid?"deferred":"withheld",
             "frame_sequence="+std::to_string(frame_sequence)+
             ";reason="+CoJMotionReloadRejectReasonName(reload_diagnostic.reason)+
             ";player_generation="+std::to_string(manual_input.player)+
@@ -6694,8 +6912,9 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             const auto& gun=motion_reload.cartridge_hand==0?relative_left_controller:relative_right_controller;
             const auto a=support.position, b=gun.position;
             const float x=a.x-b.x,y=a.y-b.y,z=a.z-b.z;
+            const double radius=trace.manual_session?kCoJManualGripInsertionRadiusM:runtime::kDefaultReloadGripRadiusM;
             trace.in_zone=support.position_valid && gun.position_valid &&
-                std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && x*x+y*y+z*z<=.14F*.14F;
+                std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && x*x+y*y+z*z<=radius*radius;
         }
         EmitReloadTrace(true,trace);
     } else {
@@ -6791,9 +7010,11 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
             } catch(...) {}
         }
     }
+    CoJDuelTutorialSample duel_tutorial_sample{};
     const bool duel_input_ok = !duel_owner_known || !duel_active ||
         g_java_player_bridge.TryApplyDuelInput(gameplay_input, input_time_us,
-            relative_right_aim, sample.hmd_pose.sequence, &duel_error);
+            relative_right_aim, sample.hmd_pose.sequence, &duel_error,&duel_tutorial_sample);
+    duel_tutorial_sample.frame_sequence=frame_sequence;duel_tutorial_sample.recentered=recentered;
     auto ordinary_input = gameplay_input;
     CoJStationaryWeaponOwner stationary_before_input{};
     const bool stationary_before_known=gameplay_input.active&&
@@ -8290,12 +8511,26 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                 hands_restored&&weapon_restored&&!g_arm_rotation_faulted&&g_manual_reload_presentation&&
                 g_java_player_bridge.being_generation()==manual_input.player){
                 (void)AppendCoJAmmunitionPickupGuide(manual_input,manual_result,holster_guides_enabled,hud_text);
+                if(!g_room_scale_body_offset.faulted)
+                    (void)AppendCoJManualReloadTargetGuide(manual_input,manual_result,frame_sequence,
+                        holster_guides_enabled,hud_text);
                 // Optional text deadlines are consumed on the presenter's
                 // GetTickCount64 clock; retain QPC only for gesture continuity.
                 auto coaching_input=manual_input;coaching_input.now=GetTickCount64();
                 (void)g_reload_context_hints.Append(coaching_input,manual_result,manual_feedback.owner_token,
                     runtime::CurrentActionPrompts(),g_java_player_bridge.GetUiLanguage(),holster_guides_enabled,hud_text);
             }else g_reload_context_hints.Reset();
+            duel_tutorial_sample.hud_observed=observed;
+            duel_tutorial_sample.presentation_time_ms=GetTickCount64();
+            if(gameplay_input_ok&&duel_input_ok&&eye_pair_ready&&hands_restored&&weapon_restored&&
+                !g_arm_rotation_faulted&&!g_room_scale_body_offset.faulted&&!g_manual_reload_presentation&&
+                !recentered&&duel_owner_known&&duel_active&&
+                g_java_player_bridge.IsDuelTutorialOwnerCurrent(duel_tutorial_sample))
+                (void)g_duel_tutorial.Append(duel_tutorial_sample,runtime::CurrentActionPrompts(),
+                    g_java_player_bridge.GetUiLanguage(),holster_guides_enabled,hud_text);
+            else g_duel_tutorial.Reset();
+            if(g_stereo_callbacks.publish_tutorial_owner)
+                g_stereo_callbacks.publish_tutorial_owner(g_stereo_callbacks.context,g_duel_tutorial.owner_token());
             if (ShouldObserveBodyFrame(frame_sequence)) {
                 EmitEvent("native_hud_text", observed ? "observed" : "unavailable",
                     "frame_sequence=" + std::to_string(frame_sequence) +
@@ -8327,6 +8562,18 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         submitted = g_stereo_callbacks.submit_frame(
             g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle, hud_text);
     }
+    if(g_head_audio_enabled.load(std::memory_order_relaxed)&&submitted&&gameplay_input_ok&&relative_head_pose.position_valid&&
+        body_position_update.render_head_pose.position_valid&&g_stereo_callbacks.read_head_tracking) {
+        g_head_audio_reference={};
+        static_cast<CoJHeadAudioIdentity&>(g_head_audio_reference)={reinterpret_cast<std::uintptr_t>(camera),
+            reinterpret_cast<std::uintptr_t>(view),g_java_player_bridge.being_generation(),sample.gameplay.input_context_generation,
+            g_pose_tracker.last_recenter_sequence(),snapshot.generation,GetCurrentThreadId()};
+        g_head_audio_reference.captured_at=std::chrono::steady_clock::now();
+        g_head_audio_reference.pose_sequence=sample.hmd_pose.sequence;
+        const auto position=body_position_update.render_head_pose.position;
+        g_head_audio_reference.position_correction={position.x-relative_head_pose.position.x,
+            position.y-relative_head_pose.position.y,position.z-relative_head_pose.position.z};
+    } else g_head_audio_reference={};
     PublishWinchesterLoadingGeometry(frame_sequence,g_java_player_bridge.being_generation(),
         sample.native_gameplay_context_token,gameplay_input_ok&&g_manual_reload_presentation,
         native_paths_restored,submitted,mirror_ready,!EyeRenderRestorationPending(),winchester_cartridge_drawn);
@@ -8696,10 +8943,11 @@ bool DispatchCameraUiBackPress(
 }
 
 bool DispatchCameraMovieSkipPress(std::uint64_t tracking_sequence,std::uint64_t native_context,
-    std::uint64_t movie_epoch) noexcept {
+    std::uint64_t movie_epoch,CoJMovieSkipResult* result) noexcept {
+    if(result){*result={};result->reason="input_edge_rejected";}
     if(!g_installed.load(std::memory_order_acquire)||
         !g_movie_skip_dispatch.Consume(true,tracking_sequence,native_context))return false;
-    return g_java_player_bridge.TryDispatchMovieSkipPress(movie_epoch);
+    return g_java_player_bridge.TryDispatchMovieSkipPress(movie_epoch,result);
 }
 
 bool ObserveCameraGameTimerFrozen(
@@ -8755,6 +9003,30 @@ bool ParseCameraProbeCommand(
     bool resource_probe_present = false;
     if (!ReadBool(text,"renderResourceProbeEnabled",parsed.render_resource_probe_enabled,resource_probe_present)) {
         SetError(error,"renderResourceProbeEnabled must be true or false"); return false;
+    }
+    bool sampled_depth_present = false;
+    constexpr std::string_view sampled_depth_key = "sampledSceneDepthEnabled";
+    if (!ReadBool(text,sampled_depth_key,parsed.sampled_scene_depth_enabled,sampled_depth_present)) {
+        SetError(error,"sampledSceneDepthEnabled must be true or false"); return false;
+    }
+    if (sampled_depth_present) {
+        auto end = *ValueOffset(text,sampled_depth_key) + (parsed.sampled_scene_depth_enabled ? 4U : 5U);
+        while (end < text.size() && (text[end]==' ' || text[end]=='\t' || text[end]=='\r' || text[end]=='\n')) ++end;
+        if (end >= text.size() || (text[end]!=',' && text[end]!='}')) {
+            SetError(error,"sampledSceneDepthEnabled requires a complete boolean token"); return false;
+        }
+    }
+    bool head_audio_present = false;
+    constexpr std::string_view head_audio_key = "headTrackedAudioEnabled";
+    if (!ReadBool(text,head_audio_key,parsed.head_tracked_audio_enabled,head_audio_present)) {
+        SetError(error,"headTrackedAudioEnabled must be true or false");return false;
+    }
+    if (head_audio_present) {
+        const auto end = text.find_first_not_of(" \t\r\n",*ValueOffset(text,head_audio_key)+
+            (parsed.head_tracked_audio_enabled?4U:5U));
+        if(end==std::string_view::npos||(text[end]!=','&&text[end]!='}')) {
+            SetError(error,"headTrackedAudioEnabled requires a complete boolean token");return false;
+        }
     }
     bool luma_probe_present = false;
     if (!ReadBool(text,"frameLumaProbeEnabled",parsed.frame_luma_probe_enabled,luma_probe_present)) {
@@ -9434,6 +9706,26 @@ CameraProbeInstallStatus InitializeCameraProbe(
             EmitEvent("camera_hud_probe_install", hud_installed ? "installed" : "disabled",
                 "passive=true;render_replay=false;rt_mutation=false");
         }
+        if(g_stereo_callbacks.read_head_tracking&&g_render_view_entry&&CurrentCommand().command.head_tracked_audio_enabled) {
+            const auto expected=reinterpret_cast<void*>(g_engine_base+kNativeCameraUpdateRva);
+            const std::array<unsigned char,9> native_prefix{0x56,0x8b,0xf1,0x8b,0x86,0xd0,0x03,0x00,0x00};
+            const std::array<unsigned char,10> sync_prefix{0x53,0x55,0x8b,0xd9,0x80,0xbb,0xcc,0x03,0x00,0x00};
+            const bool identified=g_camera_vtable[kNativeCameraUpdateSlot]==expected&&
+                IsReadable(expected,native_prefix.size())&&std::memcmp(expected,native_prefix.data(),native_prefix.size())==0&&
+                IsReadable(g_engine_base+kSynchronizeCameraRva,sync_prefix.size())&&
+                std::memcmp(g_engine_base+kSynchronizeCameraRva,sync_prefix.data(),sync_prefix.size())==0;
+            if(identified&&backends::d3d9::PinModuleForAddress(reinterpret_cast<void*>(&HookNativeHeadAudioUpdate))) {
+                g_original_native_camera_update=reinterpret_cast<RenderCameraUpdateFn>(expected);
+                g_synchronize_camera=reinterpret_cast<RenderCameraUpdateFn>(g_engine_base+kSynchronizeCameraRva);
+                const std::array audio_requests{backends::d3d9::HookSlotRequest{kNativeCameraUpdateSlot,
+                    reinterpret_cast<void*>(&HookNativeHeadAudioUpdate)}};
+                const auto audio=g_head_audio_hooks.Install(g_camera_vtable,audio_requests);
+                g_head_audio_enabled.store(audio.result==backends::d3d9::HookRegistryResult::Installed||
+                    audio.result==backends::d3d9::HookRegistryResult::AlreadyInstalled,std::memory_order_release);
+            }
+            EmitEvent("head_audio_install",g_head_audio_enabled.load()?"installed":"disabled",
+                "native_update_rva=0x1C4F20;slot=7;source_restored=true;center_head=true;audio_api=native");
+        }
         std::ostringstream detail;
         detail << "engine_sha256=" << *engine_hash
                << ";vtable_rva=0x" << std::hex << kBaseCameraVtableRva
@@ -9472,6 +9764,7 @@ CameraProbeHookState InspectCameraProbe() noexcept {
 }
 
 void ShutdownCameraProbe() noexcept {
+    const bool audio_was_enabled=g_head_audio_enabled.exchange(false,std::memory_order_acq_rel);
     // Do not remove hooks, actor bindings or preimages while a camera-owned
     // native body transaction still needs its original owner for restoration.
     if (g_left_arm_rotation.active || g_right_arm_rotation.active || g_room_scale_body_offset.active) {
@@ -9503,6 +9796,15 @@ void ShutdownCameraProbe() noexcept {
                 view_outcome.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled;
             view_restored_slots = view_outcome.modified_slots;
         }
+        bool audio_restored=true;
+        if(g_camera_vtable&&!g_head_audio_hooks.RegisteredVtables().empty()) {
+            const auto audio=g_head_audio_hooks.Restore(g_camera_vtable);
+            audio_restored=audio.result==backends::d3d9::HookRegistryResult::Installed||
+                audio.result==backends::d3d9::HookRegistryResult::AlreadyInstalled;
+        }
+        if(audio_was_enabled||!audio_restored)EmitEvent("head_audio_shutdown",audio_restored?"restored":"incomplete",
+            "applied_updates="+std::to_string(g_head_audio_applied.load())+";verified_samples="+
+            std::to_string(g_head_audio_verified.load())+";unobserved_samples="+std::to_string(g_head_audio_unverified.load()));
         if (g_camera_vtable) {
             const auto outcome = g_camera_hooks.Restore(g_camera_vtable);
             const bool camera_restored =
@@ -9510,7 +9812,7 @@ void ShutdownCameraProbe() noexcept {
                 outcome.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled;
             EmitEvent(
                 "camera_probe_restore",
-                camera_restored && view_restored ? "restored" : "incomplete",
+                camera_restored && view_restored && audio_restored ? "restored" : "incomplete",
                 "camera_restored_slots=" + std::to_string(outcome.modified_slots) +
                     ";view_restored_slots=" + std::to_string(view_restored_slots));
         }
@@ -9529,6 +9831,7 @@ void ShutdownCameraProbe() noexcept {
     g_original_render_view = nullptr;
     g_original_set_fov = nullptr;
     g_render_update_override = {};
+    g_head_audio_reference={};g_head_audio_witness={};
     g_stereo_eye_override = {};
     g_pose_tracker.SetEnabled(false);
     (void)UpdateLocalHeadVisibility(

@@ -12,16 +12,19 @@ struct HudTextPanel {
     std::vector<std::uint32_t> pixels;
 };
 
+enum class HudTextRasterStyle { standard, compact, subtitle };
+
 // Cache owns GDI output only; rebuilding occurs when visible text changes.
 class HudTextRaster {
 public:
-    [[nodiscard]] const HudTextPanel& Render(const runtime::HudText& text, bool compact=false) noexcept;
+    [[nodiscard]] const HudTextPanel& Render(const runtime::HudText& text,
+        HudTextRasterStyle style=HudTextRasterStyle::standard) noexcept;
     [[nodiscard]] std::uint64_t rebuilds() const noexcept { return rebuilds_; }
 private:
     runtime::HudText text_{};
     HudTextPanel panel_{};
     std::uint64_t rebuilds_ = 0;
-    bool compact_ = false;
+    HudTextRasterStyle style_ = HudTextRasterStyle::standard;
 };
 
 struct HudPanelPlacement {
@@ -33,6 +36,9 @@ struct HudPanelPlacement {
     bool captured_quad = false;
     std::array<runtime::Vec3, 4> head_corners{};
 };
+
+// A fixed lower edge keeps successive one/two-line captions from jumping.
+[[nodiscard]] HudPanelPlacement BuildSubtitlePlacement(const HudTextPanel& subtitle) noexcept;
 
 struct ProjectedHudPanel {
     std::uint32_t left = 0, top = 0, width = 0, height = 0;
@@ -58,6 +64,8 @@ public:
     HudTextCompositor();
     ~HudTextCompositor();
     void Reset() noexcept;
+    // Presenter-thread recenter, mode or device-owner transition.
+    void ResetReadingAnchor() noexcept;
     [[nodiscard]] bool Prepare(ID3D11Device* device) noexcept;
     // Call when fresh world pixels replace the retained output, including
     // non-HUD frames, before composition/retirement. Failed no-write uploads
@@ -69,14 +77,18 @@ public:
     // Mismatched identities discard without restoring.
     void RetireStaleText(ID3D11Device* device, ID3D11DeviceContext* context,
         const std::array<ID3D11Texture2D*, 2>& targets,
-        bool show_holster_guides, std::uint64_t reload_owner_token) noexcept;
+        bool show_holster_guides, std::uint64_t reload_owner_token,
+        std::uint64_t tutorial_owner_token = 0) noexcept;
     // Public Draw is for a newly copied world frame. RetireStaleText may
     // internally redraw only its controlled layers after expiring icon art.
+    // Reading panels use this frame's captured HMD pose, never the latest
+    // runtime pose; repeated controlled-text refresh retains that same geometry.
     [[nodiscard]] bool Draw(ID3D11Device* device, ID3D11DeviceContext* context,
         const runtime::StereoHudTextOverlay& overlay, std::uint64_t capture_sequence,
         const std::array<ID3D11Texture2D*, 2>& targets,
         bool show_holster_guides = true, std::uint64_t reload_owner_token = 0,
-        std::uint64_t bow_owner_token = 0) noexcept;
+        std::uint64_t bow_owner_token = 0, std::uint64_t tutorial_owner_token = 0,
+        const runtime::Pose& render_hmd_pose = {}) noexcept;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -14,7 +14,7 @@ union Value { std::int64_t alignment; void* object; std::int32_t integer; };
 int player, gun, foreign, player_class, gun_class, peacemaker_class, frontier_class;
 int machine[2], machine_class, exception;
 int modern_frontier_class,walker_class,cogswell_class;
-int winchester_class, scoped_class, volcanic_class;
+int winchester_class, scoped_class, henry_class, volcanic_class;
 int remington_class,sawoff_class,derringer_class,lemant_class,schofield_class,schofield_a_class,schofield_b_class;
 std::array<int,2> fixture_loaded{3,0};
 std::array<int,3> fixture_reserves{12,27,9};
@@ -50,6 +50,7 @@ void* JCALL Find(void*, const char* name) {
     if(!std::strcmp(name,"WeaponPistolCogswell"))return Ref(&cogswell_class);
     if(!std::strcmp(name,"WeaponRifleWinchester"))return Ref(&winchester_class);
     if(!std::strcmp(name,"WeaponRifleWinchesterScope"))return Ref(&scoped_class);
+    if(!std::strcmp(name,"WeaponHenry1863"))return Ref(&henry_class);
     if(!std::strcmp(name,"WeaponPistolVolcanic"))return Ref(&volcanic_class);
     if(!std::strcmp(name,"WeaponRifleRemington"))return Ref(&remington_class);
     if(!std::strcmp(name,"WeaponRifleRemingtonSawOff"))return Ref(&sawoff_class);
@@ -177,14 +178,15 @@ void IndexedAndClipReadback() {
 }
 void NativeBodyProfileReadback() {
     for(void* cls:{static_cast<void*>(&winchester_class),static_cast<void*>(&scoped_class),
-            static_cast<void*>(&volcanic_class)}) {
+            static_cast<void*>(&henry_class),static_cast<void*>(&volcanic_class)}) {
         for(int hand:{0,1}) {
             Reset();exact_class=cls;armed=hand;
             CoJReloadTraceSnapshot out{};
             Require(ReadCoJReloadTrace(&holder,&player,out,true)&&out.valid&&out.probe_valid,
                 "exact native body-cycle class must expose native reload trace");
             Require(out.weapon_class&&!std::strcmp(out.weapon_class,cls==&winchester_class?"WeaponRifleWinchester":
-                cls==&scoped_class?"WeaponRifleWinchesterScope":"WeaponPistolVolcanic"),
+                cls==&scoped_class?"WeaponRifleWinchesterScope":
+                cls==&henry_class?"WeaponHenry1863":"WeaponPistolVolcanic"),
                 "native body trace lost exact-class metadata");
             const bool rifle=cls!=&volcanic_class;
             Require(out.reserve_kind==(rifle?CoJReloadReserveKind::rifle:CoJReloadReserveKind::pistol)&&

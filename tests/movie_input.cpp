@@ -25,5 +25,25 @@ int main(){
         !gate.Consume(true,2,2)||gate.Consume(true,1,3)){
         std::cerr<<"repeated/native-rejected sample replayed cinematic skip\n";return 1;
     }
+    CoJPresentationOwner scene{};scene.valid=scene.player_alive=scene.movie_playing=true;
+    scene.movie_input_epoch=9;
+    CoJMovieSkipResult rejected{};rejected.reason="native_permission_denied";
+    if(!CoJContinueMovieAfterSkip(rejected,true,scene,9)){
+        std::cerr<<"refused native skip dropped unchanged immersive stereo\n";return 1;
+    }
+    for(unsigned flags=0;flags<128;++flags){
+        auto now=scene;auto result=rejected;
+        result.attempted=(flags&1)!=0;result.delivered=(flags&2)!=0;
+        now.timer_frozen=(flags&4)!=0;now.movie_target_missing=(flags&8)!=0;
+        now.movie_playing=(flags&16)==0;now.movie_input_epoch=(flags&32)?10:9;
+        const bool observed=(flags&64)==0;
+        const bool expected=flags==0;
+        if(CoJContinueMovieAfterSkip(result,observed,now,9)!=expected){
+            std::cerr<<"skip outcome reused attempted/stale/blocked movie preimage\n";return 1;
+        }
+    }
+    if(CoJContinueMovieAfterSkip(rejected,true,scene,0)){
+        std::cerr<<"skip rejection without original scene identity reused camera\n";return 1;
+    }
     std::cout<<"cinematic skip intent admission passed\n";
 }

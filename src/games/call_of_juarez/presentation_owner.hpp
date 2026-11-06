@@ -9,14 +9,19 @@ struct CoJPresentationOwner {
     bool player_alive=false;
     bool mission_end_visible=false;
     bool movie_playing=false;
-    std::uint64_t movie_input_epoch=0; // Bridge-owned JNI object identity; never an engine ID.
+    // Separate skip identity: Movie or InstantSkipableMovieStart, never an
+    // engine ID. Zero does not invalidate positively observed black belts.
+    std::uint64_t movie_input_epoch=0;
+    // Bridge-qualified absence of either target: keep the complete native
+    // theater pass because subtitle ownership cannot be transported safely.
+    bool movie_target_missing=false;
     [[nodiscard]] bool blocked() const noexcept {
         return !valid || timer_frozen || !player_alive || mission_end_visible || movie_playing;
     }
     // Camera-only permission; gameplay/body remain blocked throughout a movie.
     // A frozen movie cannot be distinguished from pause with these observations.
     [[nodiscard]] bool immersive_movie_allowed() const noexcept {
-        return valid && !timer_frozen && player_alive && !mission_end_visible && movie_playing;
+        return valid && !timer_frozen && player_alive && !mission_end_visible && movie_playing && !movie_target_missing;
     }
     [[nodiscard]] bool settings_hands_allowed(bool captured) const noexcept {
         return captured && !blocked();

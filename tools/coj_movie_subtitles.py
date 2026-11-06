@@ -4,9 +4,9 @@ Only hash-verified original LawmanModule bytes are accepted. Archive identity,
 deployment and game-thread reader admission belong to the caller. No original
 assets are embedded and no native methods, timing, sprites or item state change.
 
-Show and accepted Hide extend the existing final return. Lifecycle clears use a
-16-byte entry prefix, preserving all original relative branch bytes and switch
-alignment; their LineNumberTable start_pc values shift by 16. This clears the old
+Show and accepted Hide extend the existing final return. Lifecycle clears use an
+aligned entry prefix, preserving all original relative branch bytes and switch
+alignment; their LineNumberTable start_pc values shift by the prefix size. This clears the old
 cache before callbacks, preserving a first line shown reentrantly during start.
 OnHideSubtitle's wrong-ID return stays unchanged. A null key is invalid
 even though a freshly constructed instance has the JVM's default integer zero.
@@ -24,7 +24,8 @@ MODULE_CLASS_SHA256 = "80bdbbe228fa06eb8a3424f1dfc72ee42c42e9eefecdae0beaf41acd2
 OWNER = "LawmanModule"
 BRIDGE_FIELDS = (("cojvrMovieSubtitleKey", "Ljava/lang/String;"),
                  ("cojvrMovieSubtitleId", "I"),
-                 ("cojvrMovieSubtitleMovie", "LMovie;"))
+                 ("cojvrMovieSubtitleMovie", "LMovie;"),
+                 ("cojvrMovieSubtitleSequence", "LInstantSkipableMovieStart;"))
 # final return offset, original max_stack, original max_locals, access
 _TARGETS = {("OnShowSubtitle", "(Ljava/lang/String;I)V"): (681, 8, 6, 1),
             ("OnHideSubtitle", "(I)V"): (41, 2, 3, 1),
@@ -35,7 +36,7 @@ _LIFECYCLE = {"MovieDestroySubtitles", "OnStartMovie", "OnEndMovie"}
 
 
 def patch_movie_subtitles(data: bytes) -> bytes:
-    """Append three public transient fields; augment exact native writer bodies.
+    """Append public transient cache fields; augment exact native writer bodies.
 
     Refuse modified/already-patched input. No file or archive is written here.
     """
@@ -46,20 +47,30 @@ def patch_movie_subtitles(data: bytes) -> bytes:
         raise ValueError("Unexpected LawmanModule class shape")
     fields = {name: edit.field(name, desc) for name, desc in BRIDGE_FIELDS}
     current_movie = edit.ref(OWNER, "m_cMoviePlaying", "LMovie;", 9)
+    single = edit.cls("LawmanModuleSingle")
+    current_sequence = edit.ref("LawmanModuleSingle", "m_CurrentSkipableMovieStart",
+                                "LInstantSkipableMovieStart;", 9)
     show = Code()
     show.emit(0x2a, 0x2b); show.ref(0xb5, fields["cojvrMovieSubtitleKey"])
     show.emit(0x2a, 0x1c); show.ref(0xb5, fields["cojvrMovieSubtitleId"])
     show.emit(0x2a, 0x2a); show.ref(0xb4, current_movie)
-    show.ref(0xb5, fields["cojvrMovieSubtitleMovie"]); show.emit(0xb1)
+    show.ref(0xb5, fields["cojvrMovieSubtitleMovie"])
+    show.emit(0x2a, 0x01); show.ref(0xb5, fields["cojvrMovieSubtitleSequence"])
+    show.emit(0x2a); show.ref(0xc1, single); show.branch(0x99, "shown")
+    show.emit(0x2a, 0x2a); show.ref(0xc0, single); show.ref(0xb4, current_sequence)
+    show.ref(0xb5, fields["cojvrMovieSubtitleSequence"])
+    show.label("shown"); show.emit(0xb1)
     clear = Code()
     for name, opcode in (("cojvrMovieSubtitleKey", 0x01),
                          ("cojvrMovieSubtitleId", 0x02),
-                         ("cojvrMovieSubtitleMovie", 0x01)):
+                         ("cojvrMovieSubtitleMovie", 0x01),
+                         ("cojvrMovieSubtitleSequence", 0x01)):
         clear.emit(0x2a, opcode); clear.ref(0xb5, fields[name])
     clear.emit(0xb1)
     show_suffix, clear_suffix = show.finish(), clear.finish()
-    lifecycle_prefix = clear_suffix[:-1] + b"\x00"  # 15 bytes + NOP; 4-byte alignment
-    if len(lifecycle_prefix) != 16:
+    lifecycle_prefix = clear_suffix[:-1]
+    lifecycle_prefix += b"\x00" * (-len(lifecycle_prefix) % 4)
+    if len(lifecycle_prefix) != 20:
         raise ValueError("Unexpected lifecycle prefix size")
 
     # ClassEdit safely appends the constant-pool entries/field declarations.

@@ -10,6 +10,8 @@
 
 namespace cojvr::runtime {
 
+inline constexpr double kDefaultReloadGripRadiusM = 0.14;
+
 // All poses share one XR reference space (+X right, +Y up, -Z forward,
 // metres). The adapter owns eligibility and must invalidate it or change a
 // token on recenter/context loss. Identities are opaque stable owner tokens.
@@ -45,6 +47,7 @@ struct MotionReloadGestureInput {
     // Recenter/socket-owner changes must invalidate eligibility or change a token.
     std::optional<Pose> insertion_target{};
     std::optional<Pose> cartridge_tip{};
+    double grip_insertion_radius_m = kDefaultReloadGripRadiusM;
 };
 
 // Presentation of the admitted pickup source, never ammunition or input authority.
@@ -202,7 +205,7 @@ public:
             QualifyInsertion(output,input,support,armed,held);
             if (!held) {
                 output.reload = explicit_insertion_ ? inserted :
-                    DistanceSquared(support, armed) <= 0.14 * 0.14;
+                    InGripZone(input, support, armed);
                 claimed_hand_ = 2;
                 replenished_press_ready_ = true;
                 if (output.reload) {
@@ -251,7 +254,7 @@ public:
         if (!held) {
             output.reload = left_source_ &&
                 DistanceSquared(support, start_support_) >= 0.20 * 0.20 &&
-                (explicit_insertion_ ? inserted : DistanceSquared(support, armed) <= 0.14 * 0.14) &&
+                (explicit_insertion_ ? inserted : InGripZone(input, support, armed)) &&
                 input.monotonic_ms - started_ms_ >= 100;
             output.cartridge_held = false;
             output.cartridge_position = {};
@@ -268,6 +271,10 @@ public:
     }
 
 private:
+    static bool InGripZone(const MotionReloadGestureInput& input, Vec3 support, Vec3 armed) noexcept {
+        const auto radius = input.grip_insertion_radius_m;
+        return std::isfinite(radius) && radius > 0 && DistanceSquared(support, armed) <= radius * radius;
+    }
     static bool AtPickupSource(const MotionReloadGestureInput& input,Vec3 source,Vec3 support) noexcept {
         return static_cast<double>(input.head.position.y)-support.y>=0.30&&
             DistanceSquared(support,source)<=0.20*0.20;
@@ -279,12 +286,13 @@ private:
     void QualifyInsertion(MotionReloadGestureOutput& output,const MotionReloadGestureInput& input,
         Vec3 support,Vec3 armed,bool qualified) noexcept {
         output.insertion_ready=qualified&&(explicit_insertion_?
-            insertion_inside_&&entered_&&!trajectory_fault_:DistanceSquared(support,armed)<=0.14*0.14);
+            insertion_inside_&&entered_&&!trajectory_fault_:InGripZone(input,support,armed));
         // A deliberate withdrawal, not millimetre jitter at the acceptance
         // radius, permits a second entry cue on this same physical press.
+        const auto exit_radius = input.grip_insertion_radius_m + 0.04;
         const bool outside=explicit_insertion_?
             DistanceSquared(input.cartridge_tip->position,input.insertion_target->position)>0.08*0.08:
-            DistanceSquared(support,armed)>0.18*0.18;
+            DistanceSquared(support,armed)>exit_radius*exit_radius;
         output.insertion_zone_exited=outside&&zone_notified_;
         if(outside)zone_notified_=false;
         output.insertion_zone_entered=output.insertion_ready&&!zone_notified_;

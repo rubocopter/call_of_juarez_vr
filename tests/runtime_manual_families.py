@@ -1,5 +1,6 @@
 """Combined production bytecode and pinned storage; native scheduling is modeled."""
 import functools
+import hashlib
 import importlib.util
 import io
 from pathlib import Path
@@ -42,10 +43,10 @@ class FamilyVM(indexed_session.IndexedBodyCycleVM):
         if self.clip:
             self.capacities, self.types = [6], [2]
             self.weapon['m_iAmmo0Count'] = 2
-        elif kind in runtime_reload_policy() and kind not in INDEXED_WEAPONS:
-            self.capacities = [NATIVE_CYCLE_PROFILES.get(kind, 6)]
+        elif (kind in runtime_reload_policy() and kind not in INDEXED_WEAPONS) or kind=='WeaponHenry1863':
+            self.capacities = [12 if kind=='WeaponHenry1863' else NATIVE_CYCLE_PROFILES.get(kind, 6)]
             self.types = [0 if kind in ('WeaponRifleWinchester', 'WeaponRifleWinchesterScope',
-                                       'WeaponPistolCogswell') else 2]
+                                       'WeaponHenry1863', 'WeaponPistolCogswell') else 2]
         self.clip_calls = 0
 
     def _native(self, owner, name, args):
@@ -78,6 +79,127 @@ class RuntimeIndexedBodyCycleTests(indexed_session.IndexedBodyCycleTests):
 
 
 class RuntimeManualFamiliesTests(unittest.TestCase):
+    def test_henry_pinned_original_alias_has_no_override(self):
+        # Complete archive admission is authoritative, including every inherited
+        # implementation. Pin the alias shape too: a same-name override is not
+        # an independently qualified manual family.
+        with zipfile.ZipFile(io.BytesIO(original_archive())) as archive:
+            hashes = {
+                'WeaponHenry1863': '23a367791c8665567b37ade64706172d2d69d65dc654b57de093e7ac02eec45f',
+                'WeaponRifleWinchester': '80248014279c05f6f6f36509bf2aa1dd73e41d2fcfafb2e9ee6e49ac10a7d1ff',
+                'WpnLogicRifleWinchester': 'f3dd1bd9f791d375ee9fa21a7d115dcc4cae0022ee1ba72434d84bab753d2b88',
+                'WpnAmmoRifleWinchester': 'f3eace2bd4aa1bbdb25fbf766d9e21c5488ce41ace56aa255aa46b3dc7ddfb42',
+                'WpnAmmoRifle': 'bd3d24f7380e475c4cf077dfd1f7446e9e7e058e1a1a27c64ceaeecfe85be99d',
+            }
+            for name, expected in hashes.items():
+                self.assertEqual(hashlib.sha256(archive.read(name+'.class')).hexdigest(), expected)
+            data = archive.read('WeaponHenry1863.class')
+        reader = Reader(data); reader.read(8); pool = parse_constant_pool(reader)
+        reader.u2(); reader.u2()
+        self.assertEqual(pool.describe(reader.u2()), 'WeaponRifleWinchester')
+        reader.read(reader.u2()*2)
+        self.assertEqual(reader.u2(), 0, 'Henry must declare no override fields')
+        pool, methods = parse_class(data)
+        self.assertEqual([(m.name, m.descriptor, m.code) for m in methods],
+                         [('<init>', '()V', bytes.fromhex('2ab70001b1'))])
+        self.assertEqual(pool.describe(1), 'WeaponRifleWinchester.<init>()V')
+
+    def test_henry_exact_unit_profile_and_ten_native_body_cycles(self):
+        vm = FamilyVM('WeaponHenry1863'); vm.weapon['m_iAmmo0Count'] = 2; vm.wait()
+        self.assertEqual((vm.capacities, vm.types), ([12], [0]))
+        for loaded in range(3, 13):
+            starts = vm.body_starts
+            self.assertTrue(vm.boolean('cojvrInsertManualRound'))
+            self.assertEqual((vm.weapon['m_iAmmo0Count'], vm.player['nAmmoRifle'],
+                              vm.player['nAmmoPistol'], vm.events), (loaded, 12-loaded, 10, loaded-2))
+            self.assertEqual(vm.automatic_transfers, 0)
+            self.assertFalse(vm.boolean('cojvrInsertManualRound'), 'Immediate duplicate unit')
+            if loaded < 12:
+                self.assertEqual((vm.body_starts, vm.player['cojvrReloadProbeStatus']), (starts+1, 1))
+                vm.update(vm.machine['m_fCurrentTime']+.4)
+                self.assertEqual(vm.player['cojvrReloadProbeStatus'], 2)
+        self.assertEqual(vm.machine['m_sCurrentState']['id'], 22)
+        vm.update(vm.machine['m_fCurrentTime']+.4)
+        self.assertEqual((vm.weapon['m_iAmmo0Count'], vm.events), (12, 10))
+
+    def test_henry_same_name_override_archive_is_rejected_before_output(self):
+        from patch_coj_weapon_consumers import patch_archive
+        # Keep the same exact class name, but change its inherited contract.
+        old = b'WeaponRifleWinchester'; new = b'WeaponPistolVolcanic'
+        with tempfile.TemporaryDirectory(prefix='cojvr-henry-identity-') as temp:
+            source, output = Path(temp)/'override.pak', Path(temp)/'candidate.pak'
+            with zipfile.ZipFile(io.BytesIO(original_archive())) as archive, zipfile.ZipFile(source,'w') as out:
+                for info in archive.infolist():
+                    data=archive.read(info.filename)
+                    if info.filename=='WeaponHenry1863.class':
+                        before=b'\x01'+len(old).to_bytes(2,'big')+old
+                        after=b'\x01'+len(new).to_bytes(2,'big')+new
+                        self.assertEqual(data.count(before),1)
+                        data=data.replace(before,after,1)
+                    out.writestr(info,data)
+            with self.assertRaisesRegex(ValueError,'Unknown code.pak SHA-256'):
+                patch_archive(source,output,manual_reload=True)
+            self.assertFalse(output.exists())
+
+    def test_henry_wrong_capacity_reserve_and_hand_never_transfer(self):
+        for case in ('capacity', 'type', 'left', 'reserve', 'owner', 'network'):
+            with self.subTest(case=case):
+                vm = FamilyVM('WeaponHenry1863', int(case=='left')); vm.wait()
+                if case=='capacity': vm.capacities=[8]
+                if case=='type': vm.types=[2]
+                if case=='reserve': vm.player['nAmmoRifle']=0
+                if case=='owner': vm.weapon['cOwner']={'class':'foreign'}
+                if case=='network': vm.net_game=True
+                before = vm.vector(), vm.events
+                self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+                self.assertEqual((vm.vector(), vm.events), before)
+
+    def test_henry_native_fault_keeps_completion_fenced_without_retry(self):
+        for point in ('parameter', 'event', 'body'):
+            with self.subTest(point=point):
+                vm = FamilyVM('WeaponHenry1863'); vm.wait()
+                exception={'class':'Throwable','point':point,'unique':object()}
+                def fail(): raise JVMThrown(exception)
+                if point=='parameter':
+                    def hook(when,name,owner,args):
+                        if when=='after' and name=='GetAmmoCapacity': fail()
+                    vm.hook=hook
+                elif point=='event': vm.on_event=fail
+                else: vm.on_body=fail
+                with self.assertRaises(JVMThrown) as caught: vm.boolean('cojvrInsertManualRound')
+                self.assertIs(caught.exception.value, exception)
+                vm.hook=vm.on_event=vm.on_body=None
+                committed=vm.vector(),vm.events
+                self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+                vm.update(1.); vm.update(1.4)
+                self.assertEqual((vm.vector(),vm.events),committed)
+                self.assertFalse(vm.player['cojvrManualCycleActive'])
+                self.assertFalse(vm.player['cojvrManualCycleSelfClear'])
+                # Once the retained native body retires, conventional reload
+                # still owns its ordinary transfer despite manual quarantine.
+                vm.update(2.2); vm.update(2.6)  # Native watchdog then end22 retirement.
+                self.assertEqual(vm.machine['m_sCurrentState']['id'],1)
+                self.assertIsNone(vm.player['cojvrManualCycleDebtMachine'])
+                vm.player['cojvrManualReloadWeapon']=None
+                vm.run('ArmedPlayerBeing','ReloadWeapon','(I)V',vm.player,[0])
+                vm.machine.update(m_sCurrentState=vm.states[20],start=2.6)
+                vm.update(3.); vm.update(3.4)
+                self.assertEqual(vm.weapon['m_iAmmo0Count'],committed[0][0][0]+1)
+                self.assertEqual(vm.events,committed[1]+1)
+
+    def test_henry_type_reader_cannot_redirect_the_captured_rifle_pool(self):
+        vm=FamilyVM('WeaponHenry1863'); vm.wait()
+        reads=[]
+        def change(when,name,owner,args):
+            if when=='after' and name=='GetAmmoType':
+                reads.append(True)
+                if len(reads)==1: vm.types=[2]
+        vm.hook=change
+        before=vm.vector(),vm.events
+        self.assertFalse(vm.boolean('cojvrInsertManualRound'))
+        self.assertTrue(reads)
+        self.assertEqual((vm.vector(),vm.events),before)
+
     def test_changed_body_during_close_resolution_is_not_retargeted(self):
         for kind in INDEXED_WEAPONS:
             for hand in (0, 1):
@@ -202,10 +324,11 @@ class RuntimeManualFamiliesTests(unittest.TestCase):
                             self.assertGreater(sum(vm.vector()[0]),sum(committed[0][0]))
                             self.assertEqual(vm.events,committed[1]+1)
 
-    def test_all_fifteen_routes_reject_cross_family_callback_reentry(self):
-        self.assertEqual(len(runtime_reload_policy()), 15)
+    def test_all_exact_routes_reject_cross_family_callback_reentry(self):
+        self.assertEqual(len(runtime_reload_policy()), 16)
         for kind in runtime_reload_policy():
             for hand in (0, 1):
+                if kind=='WeaponHenry1863' and hand!=0: continue
                 with self.subTest(kind=kind, hand=hand):
                     vm = FamilyVM(kind, hand); vm.wait(); replies = []
                     def reenter():

@@ -120,6 +120,7 @@ struct OpenVrStereoPresenter::Impl {
     d3d9::FrameMailbox mailbox;
     runtime::GameplayUiFeedbackContextMailbox feedback_context;
     std::atomic<std::uint64_t> reload_feedback_owner{0};
+    std::atomic<std::uint64_t> tutorial_owner{0};
     std::atomic<std::uint64_t> bow_feedback_owner{0};
     std::thread worker;
     std::atomic_bool stop_requested{false};
@@ -153,6 +154,7 @@ struct OpenVrStereoPresenter::Impl {
     std::uint64_t gameplay_context_generation = 0;
     bool gameplay_context_active = false;
     std::uint64_t pose_sequence = 0;
+    std::chrono::steady_clock::time_point latest_pose_at{};
     bool recenter_pending = false;
     runtime::AuxiliaryObjectivesPending objectives_pending{};
     runtime::AuxiliaryButtonGesture create_gesture{};
@@ -546,7 +548,8 @@ struct OpenVrStereoPresenter::Impl {
                     return hud_text_compositor.Draw(d3d11.device(), d3d11.context(),
                         frame.hud_text, frame.capture_sequence, targets,runtime::CurrentHolsterGuidesEnabled(),
                         reload_feedback_owner.load(std::memory_order_acquire),
-                        bow_feedback_owner.load(std::memory_order_acquire));
+                        bow_feedback_owner.load(std::memory_order_acquire),
+                        tutorial_owner.load(std::memory_order_acquire),frame.render_hmd_pose);
                 })) {
                 composition_ok = false;
                 if (frame.capture_sequence <= 8 || frame.capture_sequence % 127 == 0)
@@ -1369,6 +1372,7 @@ struct OpenVrStereoPresenter::Impl {
                                 tracked_poses.hmd.position_valid) {
                                 flat_theater_anchor_pose = tracked_poses.hmd;
                                 flat_theater_anchor_valid = true;
+                                hud_text_compositor.ResetReadingAnchor();
                                 Log("native_stereo_flat_theater: status=recentered source=global_action");
                             }
                             const auto shoulder_gameplay = pointer_gameplay_gate.Filter(
@@ -1678,6 +1682,7 @@ struct OpenVrStereoPresenter::Impl {
                         latest_settings_capture=settings_result.input_captured;
                         if(settings_result.input_captured)recenter_pending=false;
                         latest_pose = tracked_poses.hmd;
+                        latest_pose_at = std::chrono::steady_clock::now();
                         latest_left_controller = left_handgrip_valid
                             ? hand_poses.left_grip
                             : runtime::Pose{};
@@ -1874,6 +1879,8 @@ struct OpenVrStereoPresenter::Impl {
                     } else {
                         if (frame.generation != active_generation ||
                             frame.device_id != active_device_id) {
+                            hud_text_compositor.ResetReadingAnchor();
+                            flat_theater_anchor_valid = false;
                             for (auto& texture : textures) texture.Reset();
                             shared_bridge.ResetOpenedResources();
                             texture_width = 0;
@@ -1888,14 +1895,6 @@ struct OpenVrStereoPresenter::Impl {
                             active_source_height = 0;
                             cadence.Invalidate();
                         }
-                        if (frame.presentation_mode ==
-                                d3d9::FramePresentationMode::flat_theater &&
-                            (!flat_theater_anchor_valid ||
-                             !have_active_presentation_mode ||
-                             active_presentation_mode != frame.presentation_mode)) {
-                            flat_theater_anchor_pose = frame.render_hmd_pose;
-                            flat_theater_anchor_valid = true;
-                        }
                         const bool shared_frame = frame.transport ==
                             d3d9::StereoFrameTransport::d3d9ex_shared_texture;
                         const auto shared_stats_before = shared_bridge.stats();
@@ -1904,6 +1903,9 @@ struct OpenVrStereoPresenter::Impl {
                             active_flat_reference_width != frame.flat_reference_width ||
                             active_flat_reference_height != frame.flat_reference_height ||
                             active_flat_reference_owner != frame.flat_reference_owner;
+                        if(frame.presentation_mode==d3d9::FramePresentationMode::flat_theater) {
+                            hud_text_compositor.ResetReadingAnchor();
+                        }
                         if (flat_reference_changed) {
                             pointer_ownership.Suspend();
                             flat_ui_pointer = {};
@@ -2105,6 +2107,11 @@ struct OpenVrStereoPresenter::Impl {
                             const bool mode_changed = !have_active_presentation_mode ||
                                 active_presentation_mode != frame.presentation_mode;
                             const auto commit_upload = [&]() noexcept {
+                                if(frame.presentation_mode==d3d9::FramePresentationMode::flat_theater &&
+                                    (!flat_theater_anchor_valid||mode_changed||flat_reference_changed)) {
+                                    flat_theater_anchor_pose=frame.render_hmd_pose;
+                                    flat_theater_anchor_valid=true;
+                                }
                                 active_capture_sequence = frame.capture_sequence;
                                 active_transport_sequence = incoming_transport_sequence;
                                 active_capture_time = frame.capture_time;
@@ -2311,7 +2318,8 @@ struct OpenVrStereoPresenter::Impl {
                 const auto retire_text=[&]() noexcept {
                     hud_text_compositor.RetireStaleText(d3d11.device(),d3d11.context(),
                         {textures[0].Get(),textures[1].Get()},runtime::CurrentHolsterGuidesEnabled(),
-                        reload_feedback_owner.load(std::memory_order_acquire));
+                        reload_feedback_owner.load(std::memory_order_acquire),
+                        tutorial_owner.load(std::memory_order_acquire));
                     return true;
                 };
                 const bool text_authorized=fixed_outputs?
@@ -2490,6 +2498,7 @@ void OpenVrStereoPresenter::PublishSettingsContext(std::uint64_t token,bool avai
 }
 
 void OpenVrStereoPresenter::PublishGameplayFeedbackContext(bool available) noexcept {
+    if(!available)impl_->tutorial_owner.store(0,std::memory_order_release);
     if(!available)runtime::PublishMountedMotion(false);
     impl_->feedback_context.Publish(available);
 }
@@ -2500,6 +2509,9 @@ std::uint64_t OpenVrStereoPresenter::GameplayFeedbackContextToken() const noexce
 
 void OpenVrStereoPresenter::PublishReloadFeedbackOwner(std::uint64_t token) noexcept {
     impl_->reload_feedback_owner.store(token, std::memory_order_release);
+}
+void OpenVrStereoPresenter::PublishTutorialOwner(std::uint64_t token) noexcept {
+    impl_->tutorial_owner.store(token,std::memory_order_release);
 }
 
 void OpenVrStereoPresenter::PublishBowFeedbackOwner(std::uint64_t token) noexcept {
@@ -2630,6 +2642,7 @@ void OpenVrStereoPresenter::Stop() noexcept {
     // Never reset to zero and accidentally reuse a previous capture token.
     impl_->feedback_context.Reset();
     impl_->reload_feedback_owner.store(0, std::memory_order_release);
+    impl_->tutorial_owner.store(0, std::memory_order_release);
     impl_->bow_feedback_owner.store(0, std::memory_order_release);
     impl_->stop_requested.store(true, std::memory_order_release);
     impl_->mailbox.Stop();
@@ -2671,6 +2684,45 @@ bool OpenVrStereoPresenter::TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame)
 void OpenVrStereoPresenter::RecycleFrame(d3d9::StereoCpuFrame frame) noexcept {
     if (!impl_->running.load(std::memory_order_acquire)) return;
     impl_->mailbox.Recycle(std::move(frame));
+}
+
+bool OpenVrStereoPresenter::HasValidTracking() const noexcept {
+    try {
+        std::lock_guard lock(impl_->tracking_mutex);
+        return impl_->running.load(std::memory_order_acquire) &&
+            !impl_->stop_requested.load(std::memory_order_acquire) && impl_->pose_sequence != 0 &&
+            impl_->latest_pose.orientation_valid && impl_->latest_pose.position_valid;
+    } catch (...) {
+        return false;
+    }
+}
+OpenVrInputAuthority OpenVrStereoPresenter::InputAuthority() const noexcept {
+    try {
+        std::lock_guard lock(impl_->tracking_mutex);
+        if(!impl_->running.load(std::memory_order_acquire)||impl_->stop_requested.load(std::memory_order_acquire))return {};
+        OpenVrInputAuthority authority;
+        authority.context=impl_->latest_ui_context_token;
+        authority.tracking_valid=impl_->pose_sequence&&impl_->latest_pose.orientation_valid&&impl_->latest_pose.position_valid;
+        authority.settings_captured=impl_->latest_settings_capture;
+        authority.available=impl_->latest_ui_actions_allowed&&authority.context&&!authority.settings_captured;
+        return authority;
+    } catch(...) {return {};}
+}
+
+bool OpenVrStereoPresenter::HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept {
+    sample={};
+    try {
+        std::lock_guard lock(impl_->tracking_mutex);
+        if(!impl_->running.load(std::memory_order_acquire)||impl_->stop_requested.load(std::memory_order_acquire)||
+            !impl_->pose_sequence||!impl_->latest_pose.orientation_valid||!impl_->latest_pose.position_valid)
+            return false;
+        sample.pose=impl_->latest_pose;sample.sequence=impl_->pose_sequence;
+        sample.captured_at=impl_->latest_pose_at;
+        sample.input_context=impl_->latest_gameplay.input_context_generation;
+        sample.available=impl_->latest_gameplay.active&&sample.input_context&&
+            impl_->latest_ui_actions_allowed&&!impl_->latest_settings_capture;
+        return true;
+    }catch(...){sample={};return false;}
 }
 
 bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcept {

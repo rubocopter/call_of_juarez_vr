@@ -24,6 +24,17 @@ try {
     Remove-Item -LiteralPath (Join-Path $lockDirectory 'vr-test.workflow.lock') -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $lockDirectory -ErrorAction SilentlyContinue
 }
+$validationPolicy=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-VrValidationProfile'},$true)
+if(-not $validationPolicy){throw 'Missing scoped transport validation for a combined gameplay candidate'}
+Invoke-Expression $validationPolicy.Extent.Text
+foreach($case in @(@($false,$false,$false,'transport'),@($true,$false,$false,'full'),
+    @($true,$false,$true,'transport'),@($false,$true,$false,'startup'))) {
+    $actual=Resolve-VrValidationProfile -BodyIkAtStart:($case[0]) -StartupOnly:($case[1]) -TransportOnly:($case[2])
+    if($actual -cne $case[3]){throw 'Validation scope changed gameplay capability or ignored the short transport choice'}
+}
+$rejected=$false
+try {Resolve-VrValidationProfile -StartupOnly -TransportOnly | Out-Null}catch{$rejected=$true}
+if(-not $rejected){throw 'Conflicting startup/transport scopes were admitted'}
 $memoryPolicy=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Resolve-VrLargeAddressAware'},$true)
 if(-not $memoryPolicy){throw 'Missing full-body candidate LAA default policy'}
 Invoke-Expression $memoryPolicy.Extent.Text

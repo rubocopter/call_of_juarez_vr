@@ -31,6 +31,8 @@ void* table[224]{};void** env=table;void* vtable[8]{};void** vm=vtable;
 std::map<void*,int> locals;
 std::array<void*,8> cache{};
 bool pending=false,fail_write=false,hidden=true,reloading=false;
+bool inactive_support_desired=false;
+int probe_status=4;
 int writes=0,globals=0;
 std::array<int,4> right_states{1,1,1,1};
 void* Local(void* p){if(p)++locals[p];return p;}
@@ -43,13 +45,18 @@ void* __stdcall Find(void*,const char* name){return Local(!std::strcmp(name,rifl
 unsigned char __stdcall Same(void*,void* x,void* y){return x==y;}
 unsigned char __stdcall Instance(void*,void* object,void* cls){return object==current && cls==&wc;}
 unsigned char __stdcall BoolField(void*,void*,void*){Check(false,"unexpected boolean field");return 0;}
-void* __stdcall Method(void*,void*,const char* name,const char*){return const_cast<char*>(name);}
+void* __stdcall Method(void*,void*,const char* name,const char*){
+    // This fixture supplies no active manual-reload recovery owner.
+    if(!std::strcmp(name,"GetAttackState")){pending=true;return nullptr;}
+    return const_cast<char*>(name);
+}
 bool Name(void* m,const char* n){return !std::strcmp(static_cast<char*>(m),n);}
 void* __stdcall Object(void*,void* p,void* m,const JValue* args){
     Check(p==&player,"wrong object getter owner");
     if(Name(m,"GetPositionVectorVolatile")){vectors.back()={};return Local(&vectors.back());}
     Check(args&&args[0].i>=0&&args[0].i<2,"wrong hand query");
     Check(Name(m,"GetActiveWeapon")||Name(m,"GetActualWeaponNotEmpty")||Name(m,"GetDesiredWeapon"),"unknown object getter");
+    if(Name(m,"GetDesiredWeapon")&&args[0].i==1&&inactive_support_desired)return Local(&b);
     return args[0].i==weapon_hand?Local(current):nullptr;
 }
 int __stdcall Int(void*,void* p,void* m,const JValue* args){
@@ -98,8 +105,13 @@ void __stdcall DeleteGlobal(void*,void*){--globals;}
 const char* names[]{"cojvrRightOrigin","cojvrLeftOrigin","cojvrRightDirection","cojvrLeftDirection","cojvrRightFxUp","cojvrLeftFxUp","cojvrRightFxForward","cojvrLeftFxForward"};
 int Index(void* f){for(int i=0;i<8;++i)if(Name(f,names[i]))return i;Check(false,"unknown cache");return -1;}
 void* __stdcall Field(void*,void*,const char* n,const char*){
+    if(!std::strcmp(n,"cojvrReloadProbeStatus"))return const_cast<char*>(n);
     for(const auto* known:names)if(!std::strcmp(known,n))return const_cast<char*>(n);
     return nullptr;
+}
+int __stdcall IntField(void*,void* owner,void* field){
+    Check(owner==&player&&Name(field,"cojvrReloadProbeStatus"),"unexpected integer field");
+    return probe_status;
 }
 void* __stdcall Get(void*,void*,void* f){return Local(cache[Index(f)]);}
 void __stdcall Set(void*,void*,void* f,void* p){cache[Index(f)]=p;}
@@ -120,6 +132,7 @@ void Bind(JavaPlayerBridge& bridge){
     table[33]=(void*)Method;table[36]=(void*)Object;table[39]=(void*)Bool;table[51]=(void*)Int;table[63]=(void*)Write;
     table[94]=(void*)Field;table[95]=(void*)Get;table[104]=(void*)Set;table[102]=(void*)Float;table[111]=(void*)SetFloat;table[167]=(void*)Text;
     table[96]=(void*)BoolField;
+    table[100]=(void*)IntField;
     vtable[6]=(void*)Env;bridge.vm_=&vm;bridge.being_=&player;bridge.being_generation_=7;
     bridge.vector_class_=&vc;bridge.vector_constructor_=(void*)"<init>";
     bridge.vector_x_field_=(void*)"fX";bridge.vector_y_field_=(void*)"fY";bridge.vector_z_field_=(void*)"fZ";
@@ -192,6 +205,10 @@ int main(int argc,char** argv){
     rt::FingerTrackingState left_fingers{};
     left_fingers.available=true;left_fingers.quality=rt::FingerTrackingQuality::estimated;
     left_fingers.curls={.2F,.6F,.5F,.4F,.3F};
+    // Native inactive equipment retains a desired pointer with state zero.
+    // Exercise its finger transaction without changing the acquisition proof.
+    inactive_support_desired=true;
+    if(mode=="retired-lease")bridge.manual_reload_owned_=true;
     if(!alternate){
         Check(bridge.TryCanAnimateEmptyHand(1)&&!bridge.TryCanAnimateEmptyHand(0),
             "retained prepared rifle did not qualify only the empty support fingers");
@@ -201,6 +218,10 @@ int main(int argc,char** argv){
         bridge.TryApplyIndependentHand(1,original_hands[23],left,&error,&left_fingers),"real paired hand mapping failed");
     Check(bridge.hand_overlays_[1].frames.fingers_active()==!alternate,
         "prepared support finger animation did not respect native idle/alternate ownership");
+    Check(bridge.finger_map_result(1)==(alternate?
+        JavaPlayerBridge::FingerMapResult::native_rejected:JavaPlayerBridge::FingerMapResult::applied),
+        "finger diagnostic failed to distinguish native rejection from a committed pose");
+    inactive_support_desired=false;
     JavaPlayerPosition origin{},direction{};bool active=false;
     if(mode=="commit"){
         b.f=a.f;current=&b;const int before=writes;
@@ -237,6 +258,10 @@ int main(int argc,char** argv){
         fail_write=false;
     }
     Check(bridge.RestoreTrackedWeapons(&error),"child restore retry failed");
+    if(mode=="retired-lease"){
+        Check(bridge.manual_reload_owned_,"finger recovery released a pending reload cleanup lease");
+        bridge.manual_reload_owned_=false; // Teardown below has no native cancel callback.
+    }
     for(int i=0;i<3;++i)Check(Equal(a.f[i],natural[i])&&Equal(b.f[i],saved_b[i]),"wrong weapon restored");
     for(int i=0;i<40;++i)Check(Equal(hands[i],original_hands[i]),"hand preimage lost");
     Check(globals==1,"completed overlays did not retain exactly one rifle identity");

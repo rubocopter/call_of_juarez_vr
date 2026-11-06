@@ -59,6 +59,29 @@ int main()try {
     pair[0].color=left.color;
     Check(!guides.Generate(device.Get(),context.Get(),pair)&&!guides.EyeInputs(0).color,"private output accepted as its own shader input");
     pair[0].color=c.Get();
+    // A sampleable hardware depth texture contains device Z, not axial metres.
+    // Its valid [0,1] endpoints must survive rather than be reinterpreted as metres.
+    for(unsigned p=0;p<256;++p)depth[p*4+3]=0x3800; // 0.5 device Z
+    depth[3]=0;depth[7]=0x3C00;depth[11]=0x7E00;
+    context->UpdateSubresource(z.Get(),0,nullptr,depth.data(),128,0);
+    for(auto& s:pair)s.depth_encoding=DepthEncoding::standard_device_z;
+    Check(guides.Generate(device.Get(),context.Get(),pair),"hardware device-depth guide generation");
+    pixel=Read(device.Get(),context.Get(),guides.EyeInputs(0).depth,4,4,4);std::memcpy(&value,pixel.data(),4);
+    Check(value==.5F,"hardware device depth was converted as axial metres");
+    pixel=Read(device.Get(),context.Get(),guides.EyeInputs(0).depth,0,0,4);std::memcpy(&value,pixel.data(),4);
+    Check(value==0,"valid near device-Z endpoint rejected");
+    Check(Read(device.Get(),context.Get(),guides.EyeInputs(0).bias,2,0,1)[0]==255,"invalid device Z not masked");
+    pair[1].depth_encoding=static_cast<DepthEncoding>(99);
+    Check(!guides.Generate(device.Get(),context.Get(),pair)&&!guides.EyeInputs(0).color,"unknown depth encoding admitted");
+    pair[1].depth_encoding=DepthEncoding::standard_device_z;
+    // Packed integer RGB bytes in FP16 retain native D24 precision near far Z;
+    // a single half-float depth would round this sample to the far endpoint.
+    for(unsigned p=0;p<256;++p){depth[p*4]=0x5BF8;depth[p*4+1]=0x5BF8;depth[p*4+2]=0;depth[p*4+3]=0x3C00;}
+    context->UpdateSubresource(z.Get(),0,nullptr,depth.data(),128,0);
+    for(auto& s:pair)s.depth_encoding=DepthEncoding::packed_device_z_rgb24;
+    Check(guides.Generate(device.Get(),context.Get(),pair),"packed native D24 guide generation");
+    pixel=Read(device.Get(),context.Get(),guides.EyeInputs(0).depth,4,4,4);std::memcpy(&value,pixel.data(),4);
+    Check(std::abs(value-16776960.F/16777215.F)<1e-7F&&value<1,"native D24 far precision lost in transport");
     pair[1].source_qualified=false;
     Check(!guides.Generate(device.Get(),context.Get(),pair)&&!guides.EyeInputs(0).color,"invalid second eye cannot expose stale guides");
     guides.Reset();Check(!guides.EyeInputs(1).color,"reset retains output");
