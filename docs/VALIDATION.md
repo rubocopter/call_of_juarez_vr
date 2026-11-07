@@ -1108,6 +1108,12 @@ consecutive-frame history and resets on hook integrity and authority changes.
 A GPU fixture rejects motion into invalid previous clip depth. Native
 optics delivery in consecutive game frames, scoped jitter, dynamic-object
 motion and temporal headset quality remain open.
+The optional `-TemporalSequence` preparation selects two four-frame source
+bursts while preserving the total eight-frame attempt limit. Its analyzer
+requires a consecutive stereo transition with matching source identity,
+optics and recenter sequence. Rejected or pending source copies remain gaps.
+This mode is implemented and host-tested and awaits a combined physical
+opportunity. The earlier spaced worker audit retains its existing verdict.
 
 The diagnostic candidate also implements joint FP16 color/packed-depth previews
 from the same `1B_16` boundary. They are point-sampled to at most 512 pixels per

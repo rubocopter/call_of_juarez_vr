@@ -40,6 +40,70 @@ def fixture(root, *, pixel_match="true", pose=2, source_thread=17, worker_thread
 
 
 class AuditTests(unittest.TestCase):
+    def test_temporal_sequence_requires_adjacent_matching_optics_without_worker_copies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture(root, copied=False)
+            scene = root / "runtime/scene-depth"
+            scene.mkdir()
+            log = root / "runtime/cojvr.log"
+            stage = root / "deployment/.cojvr-d3d9-stage.json"
+            stage_data = json.loads(stage.read_text())
+            stage_data["sampledTemporalSequenceEnabled"] = True
+            stage.write_text(json.dumps(stage_data))
+            extra = ["native_sampled_depth_config: mode=temporal_sequence;max_frames=8;temporal_admitted=false"]
+            for frame in (1, 2):
+                for eye in (0, 1):
+                    stem = f"f{frame}-p{frame+1}-g1-e{eye}"
+                    sequence = (frame-1)*2+eye+1
+                    meta = {"schemaVersion": 1, "runId": "test-run", "frame_sequence": frame,
+                        "pose_sequence": frame+1, "owner": 42, "generation": 1, "capture_sequence": sequence,
+                        "eye": eye, "source_width": 64, "source_height": 64, "width": 64, "height": 64,
+                        "source_boundary": "1B_16", "sampling": "point", "format": "rgba16f_le",
+                        "depth_encoding": "device_z_rgb24_integer_bytes", "temporal_admitted": False,
+                        "final_color_format": "bgra8_le", "final_color_d3d9_format": 21,
+                        "final_color_boundary": "native_eye_capture_rt0",
+                        "depth_optics": {"space": "world_metres_row_vector_d3d9_clip",
+                            "recenter_sequence": 17, "near_metres": .25, "far_limit_metres": 500,
+                            "infinite_far": True, "final_color_match": True,
+                            "view_projection": [100,0,0,0, 0,100,0,0, 0,0,-100,-100, 0,0,-25,0]}}
+                    for field, suffix, stride in (("color_file", ".color.f16", 8),
+                            ("depth_file", ".depth.f16", 8), ("final_color_file", ".final.bgra8", 4)):
+                        meta[field] = stem + suffix
+                        (scene / meta[field]).write_bytes(bytes(64*64*stride))
+                    (scene / (stem + ".json")).write_text(json.dumps(meta))
+                    if frame == 2:
+                        extra.append("native_sampled_depth: status=ready;frame_sequence=2;pose_sequence=3"
+                            f";owner=42;generation=1;resource_epoch=1;integrity_epoch=1;producer_device=123;eye={eye}"
+                            f";width=64;height=64;capture_sequence={sequence};producer_thread=17;readback_hr=0x0;temporal_admitted=false")
+                    extra.append(f"native_sampled_depth_preview: status=written;frame_sequence={frame};pose_sequence={frame+1}"
+                        f";generation=1;eye={eye};width=64;height=64;readback_hr=0x0;final_color=captured"
+                        f";temporal_admitted=false;manifest={stem}.json")
+            log.write_text(log.read_text().replace("submitted=1;completed=1;source_pairs_retired=1",
+                "submitted=0;completed=0;source_pairs_retired=0").replace("run_end:", "\n".join(extra)+"\nrun_end:"))
+
+            def refresh():
+                path = root / "evidence-manifest.json"
+                evidence = json.loads(path.read_text())
+                evidence["files"] = [{"path": file.relative_to(root).as_posix(), "size": file.stat().st_size,
+                    "sha256": hashlib.sha256(file.read_bytes()).hexdigest()}
+                    for file in root.rglob("*") if file.is_file() and file != path]
+                path.write_text(json.dumps(evidence))
+
+            refresh()
+            result = audit.analyze(root)
+            self.assertTrue(result["passed"], result["errors"])
+            self.assertEqual(result["consecutive_optics_pairs"], 1)
+            self.assertEqual(result["copied_pairs"], 0)
+            path = scene / "f2-p3-g1-e1.json"
+            meta = json.loads(path.read_text())
+            meta["depth_optics"]["recenter_sequence"] = 18
+            path.write_text(json.dumps(meta))
+            refresh()
+            result = audit.analyze(root)
+            self.assertFalse(result["passed"])
+            self.assertIn("no consecutive stereo sources with matched optics", result["errors"])
+
     def test_final_color_pairs_require_same_native_eyes_and_inventoried_payloads(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

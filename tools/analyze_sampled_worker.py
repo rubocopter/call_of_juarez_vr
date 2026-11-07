@@ -126,13 +126,22 @@ def _final_color_pairs(root, inventory, text, run_id, native, read_json):
                 raise ValueError("invalid sampled eye optics")
             if optics["final_color_match"]:
                 optics_pairs.setdefault(stamp[:-1], {})[eye] = recenter
-    return (sum(eyes == {0, 1} for eyes in complete.values()),
-            sum(set(eyes) == {0, 1} and eyes[0] == eyes[1] for eyes in optics_pairs.values()))
+    matched = {stamp: eyes[0] for stamp, eyes in optics_pairs.items()
+               if set(eyes) == {0, 1} and eyes[0] == eyes[1]}
+    adjacent = 0
+    previous = {}
+    for stamp, recenter in sorted(matched.items()):
+        domain = stamp[2:] + (recenter,)
+        prior = previous.get(domain)
+        if prior and stamp[0] == prior[0] + 1 and stamp[1] > prior[1]:
+            adjacent += 1
+        previous[domain] = stamp
+    return sum(eyes == {0, 1} for eyes in complete.values()), len(matched), adjacent
 
 
 def analyze(run: Path) -> dict:
     result = {"passed": False, "errors": [], "copied_pairs": 0, "canonical_outcome": "unknown",
-              "final_color_pairs": 0, "matched_optics_pairs": 0,
+              "final_color_pairs": 0, "matched_optics_pairs": 0, "consecutive_optics_pairs": 0,
               "reconstruction_admitted": False, "headset_acceptance": "not_evaluated",
               "timing_basis": "worker_cpu_wall_clock"}
     errors = result["errors"]
@@ -168,6 +177,8 @@ def analyze(run: Path) -> dict:
             errors.append("run/build/deployment identity mismatch")
         if stage.get("sampledSceneDepthEnabled") is not True:
             errors.append("source diagnostic was not enabled in the staged candidate")
+        sequence_mode = stage.get("sampledTemporalSequenceEnabled") is True
+        result["source_mode"] = "temporal_sequence" if sequence_mode else "copy_audit"
         text = (root / "runtime/cojvr.log").read_text(encoding="utf-8-sig", errors="strict")
         text = _run_interval(text, evidence["runId"], evidence["buildManifestId"])
         if not any(row.get("status") == "stopped" for row in _records(text, "native_stereo_runtime")):
@@ -176,7 +187,7 @@ def analyze(run: Path) -> dict:
         sequences = set()
         for row in _records(text, "native_sampled_depth"):
             if row.get("status") != "ready":
-                if row.get("status") == "restore_pending":
+                if row.get("status") in ("restore_pending", "retirement_pending"):
                     errors.append("native source restoration remained pending")
                 continue
             stamp = _stamp(row)
@@ -189,8 +200,17 @@ def analyze(run: Path) -> dict:
                 raise ValueError("duplicated native eye/capture identity")
             native[key] = row
             sequences.add(sequence)
-        result["final_color_pairs"], result["matched_optics_pairs"] = _final_color_pairs(
+        result["final_color_pairs"], result["matched_optics_pairs"], result["consecutive_optics_pairs"] = _final_color_pairs(
             root, inventory, text, evidence["runId"], native, read_json)
+        if sequence_mode:
+            configs = _records(text, "native_sampled_depth_config")
+            if not any(row.get("mode") == "temporal_sequence" and row.get("max_frames") == "8" and
+                       row.get("temporal_admitted") == "false" for row in configs):
+                errors.append("temporal sequence startup was not observed")
+            if not result["consecutive_optics_pairs"]:
+                errors.append("no consecutive stereo sources with matched optics")
+            if len(native) > 16:
+                errors.append("temporal sequence exceeded eight stereo frames")
         copied, seen, worker_threads, source_threads = [], set(), set(), set()
         events = _records(text, "native_sampled_worker")
         for row in events:
@@ -229,7 +249,7 @@ def analyze(run: Path) -> dict:
             if timing["age_ms"] > 2000:  # CoJSampledWorkerAudit's fixed diagnostic deadline.
                 errors.append("expired copy-audit result")
             copied.append({"frame": stamp[0], "pose": stamp[1], "width": width, "height": height, **timing})
-        if not copied:
+        if not copied and not sequence_mode:
             errors.append("no completed copy-audit pair")
         if len(worker_threads) > 1 or len(source_threads) > 1:
             errors.append("persistent worker/producer thread identity changed")

@@ -18,6 +18,7 @@ param(
     [switch]$ManualReload,
     [switch]$RenderResourceProbe,
     [switch]$SampledSceneDepth,
+    [switch]$TemporalSequence,
     [switch]$HeadTrackedAudio,
     [switch]$FrameLumaProbe,
     [string]$NeuralHostPath = '',
@@ -37,6 +38,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($TemporalSequence) {
+    if ($Action -ne 'prepare') { throw 'TemporalSequence is a startup option for prepare.' }
+    $SampledSceneDepth = [switch]$true
+}
 if ($HeadTrackedAudio) {
     throw 'HeadTrackedAudio is unavailable until a listener-only boundary is verified.'
 }
@@ -373,7 +378,7 @@ switch ($Action) {
                 -IndependentHands:$BodyIkAtStart `
                 -LargeAddressAware:$LargeAddressAware `
                 -ExperimentalGog:$ExperimentalGog `
-                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe -SampledSceneDepth:$SampledSceneDepth `
+                -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe -SampledSceneDepth:$SampledSceneDepth -TemporalSequence:$TemporalSequence `
                 -IndependentEyeResolution $IndependentEyeResolution `
                 -NeuralHostPath $NeuralHostPath -NeuralRuntimeDirectory $NeuralRuntimeDirectory
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
@@ -471,7 +476,11 @@ switch ($Action) {
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
         if ($SampledSceneDepth) {
-            Write-Host 'Bounded scene color/depth, final native eye color and worker copy audit enabled. Visor output stays native.'
+            if ($TemporalSequence) {
+                Write-Host 'Temporal source preview enabled. Two bursts of four adjacent frame attempts retain per-eye native optics, depth and final color.'
+            } else {
+                Write-Host 'Bounded scene color/depth, final native eye color and worker copy audit enabled. Visor output stays native.'
+            }
             if ($TransportOnly) {
                 Write-Host 'Start SteamVR and CoJ manually. Play normally in a single gameplay area for 25 to 30 seconds so the bounded audit can capture both eyes.'
                 Write-Host 'In the same session, take one desktop capture, then use zoom and open/resume pause. If convenient, try one ordinary manual reload.'

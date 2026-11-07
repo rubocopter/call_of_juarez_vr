@@ -84,6 +84,9 @@ $Control = [ordered]@{
     frameLumaProbeEnabled = $null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['frameLumaProbeEnabled'] -and
         [bool]$ExistingControl.frameLumaProbeEnabled
+    sampledTemporalSequenceEnabled = $null -ne $ExistingControl -and
+        $null -ne $ExistingControl.PSObject.Properties['sampledTemporalSequenceEnabled'] -and
+        [bool]$ExistingControl.sampledTemporalSequenceEnabled
     independentEyeResolution = if ($null -ne $ExistingControl -and
         $null -ne $ExistingControl.PSObject.Properties['independentEyeResolution']) {
         [string]$ExistingControl.independentEyeResolution

@@ -81,6 +81,15 @@ int main() {
     Check(!schedule.Acquire(100000,20,4,3,true)&&!schedule.Acquire(1,21,5,4,false)&&
         !schedule.Acquire(2,22,5,4,true)&&!schedule.Acquire(2002,23,5,4,true),"owner/loss reset replenished exhausted budget");
     CoJTemporalProbePhases phases;
+    CoJTemporalProbeSchedule burst(true);
+    Check(!burst.Acquire(1,1,3,2,true),"burst skipped owner stabilization");
+    for(unsigned i=0;i<4;++i)
+        Check(burst.Acquire(2001+i,2+i,3,2,true),"consecutive observation missing");
+    Check(!burst.Acquire(2005,6,3,2,true)&&!burst.Acquire(12003,7,3,2,true),
+        "burst ignored its cooldown");
+    for(unsigned i=0;i<4;++i)
+        Check(burst.Acquire(12004+i,8+i,3,2,true),"second bounded burst missing");
+    Check(!burst.Acquire(99999,12,3,2,true),"burst exceeded eight frames");
     Check(phases.Observe(1,2,0)==1&&!phases.Observe(1,2,0)&&phases.Observe(3,2,0)==2&&
         phases.Observe(3,4,2)==3&&!phases.Observe(5,6,0),"phase collector repeats or exceeds three consumers");
     if(D3D9HdrAlphaProbe::Half(0x3C00)!=1||D3D9HdrAlphaProbe::Half(0x4900)!=10||

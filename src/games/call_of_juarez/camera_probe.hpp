@@ -96,6 +96,7 @@ struct CameraProbeCommand {
     bool second_eye_render_enabled = true;
     bool render_resource_probe_enabled = false;
     bool sampled_scene_depth_enabled = false;
+    bool sampled_temporal_sequence_enabled = false;
     bool frame_luma_probe_enabled = false; // Startup-only read-only flash diagnosis.
     // Read once by the renderer at startup; 0 disables, width fixed at 2560.
     std::uint32_t independent_eye_height = 0;

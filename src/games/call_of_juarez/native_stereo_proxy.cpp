@@ -64,6 +64,7 @@ std::string g_run_id{"unbound"};
 std::atomic_bool g_finalization_started{false};
 std::atomic_bool g_finalization_completed{false};
 std::atomic_bool g_sampled_depth_enabled{false}; // Startup-only.
+std::atomic_bool g_sampled_temporal_sequence_enabled{false}; // Startup-only preview bursts.
 wchar_t g_process_exit_log_path[32768]{};
 
 struct SourceCaptureAuthorization {
@@ -1069,17 +1070,19 @@ void PollSampledDepth() noexcept {
             }
             LogLine(line.str());
             if (result == S_OK) {
-                const auto offered=g_stereo.sampled_worker.Offer(packet);
-                if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::queued)
-                    LogLine("native_sampled_worker: status=queued;mode=copy_audit;frame_sequence="+std::to_string(frame)+
-                        ";pose_sequence="+std::to_string(pose)+";neural_active=false;temporal_admitted=false");
-                else if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::failed)
-                    LogLine(std::string("native_sampled_worker: status=source_rejected;reason=")+g_stereo.sampled_worker.last_error()+
-                        ";neural_active=false;temporal_admitted=false");
-                else if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::skipped)
-                    LogLine(std::string("native_sampled_worker: status=skipped;reason=")+g_stereo.sampled_worker.last_error()+
-                        ";frame_sequence="+std::to_string(frame)+";eye="+std::to_string(eye)+
-                        ";neural_active=false;temporal_admitted=false");
+                if (!g_sampled_temporal_sequence_enabled) {
+                    const auto offered=g_stereo.sampled_worker.Offer(packet);
+                    if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::queued)
+                        LogLine("native_sampled_worker: status=queued;mode=copy_audit;frame_sequence="+std::to_string(frame)+
+                            ";pose_sequence="+std::to_string(pose)+";neural_active=false;temporal_admitted=false");
+                    else if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::failed)
+                        LogLine(std::string("native_sampled_worker: status=source_rejected;reason=")+g_stereo.sampled_worker.last_error()+
+                            ";neural_active=false;temporal_admitted=false");
+                    else if(offered==cojvr::games::call_of_juarez::CoJSampledWorkerAudit::OfferResult::skipped)
+                        LogLine(std::string("native_sampled_worker: status=skipped;reason=")+g_stereo.sampled_worker.last_error()+
+                            ";frame_sequence="+std::to_string(frame)+";eye="+std::to_string(eye)+
+                            ";neural_active=false;temporal_admitted=false");
+                }
                 cojvr::backends::d3d9::D3D9SampledDepthPreview preview;
                 const auto preview_hr=snapshot.ReadDiagnosticPreview(preview);
                 std::filesystem::path exported;
@@ -1104,7 +1107,8 @@ void PollSampledDepth() noexcept {
 }
 void ObserveSampledDepth(cojvr::runtime::Eye eye, std::uint64_t frame, std::uintptr_t owner,
     bool begin, bool complete, bool gameplay) noexcept {
-    thread_local cojvr::games::call_of_juarez::CoJTemporalProbeSchedule schedule;
+    thread_local cojvr::games::call_of_juarez::CoJTemporalProbeSchedule schedule(
+        g_sampled_temporal_sequence_enabled.load(std::memory_order_acquire));
     thread_local std::uint64_t selected_frame = 0;
     thread_local bool entered = false;
     const auto generation = g_stereo.device_generation.load(std::memory_order_acquire);
@@ -1123,7 +1127,7 @@ void ObserveSampledDepth(cojvr::runtime::Eye eye, std::uint64_t frame, std::uint
         const auto pose = g_stereo.luma_pose_sequence.load();
         entered = integrity.intact && g_sampled_depth.Begin(device.Get(), native,
             generation, integrity.epoch, frame, owner, index, pose);
-        if(entered&&index==0){
+        if(entered&&index==0&&!g_sampled_temporal_sequence_enabled){
             (void)g_stereo.sampled_worker.Start(device.Get());
             g_stereo.sampled_worker.BeginFrame(frame);
         }
@@ -3571,6 +3575,7 @@ void EnsureStarted() noexcept {
                         !command.render_resource_probe_enabled;
                     if(g_sampled_depth_enabled&&!g_sampled_depth.ConfigureFullSizeColor(true))
                         g_sampled_depth_enabled=false;
+                    g_sampled_temporal_sequence_enabled=command.sampled_temporal_sequence_enabled&&g_sampled_depth_enabled;
                     g_stereo.luma_enabled = command.frame_luma_probe_enabled;
                     if (command.independent_eye_height == 1440 || command.independent_eye_height == 1920) {
                         g_stereo.fixed_outputs = {
@@ -3587,6 +3592,10 @@ void EnsureStarted() noexcept {
                 LogLine(std::string("native_stereo_luma_probe_config: startup_enabled=") +
                     (g_stereo.luma_enabled ? "true" : "false") +
                     ";grid=16x16;ring_slots_per_stream=3;query_poll=no_flush;effects_unchanged=true;coverage=native_source_points");
+                if(g_sampled_depth_enabled)
+                    LogLine(std::string("native_sampled_depth_config: mode=")+
+                        (g_sampled_temporal_sequence_enabled?"temporal_sequence":"copy_audit")+
+                        ";max_frames=8;temporal_admitted=false");
                 LogLine(std::string("independent_eye_config: startup_enabled=") +
                     (g_stereo.fixed_outputs.enabled ? "true" : "false") +
                     ";native_width=" + std::to_string(g_stereo.fixed_outputs.native_width) +

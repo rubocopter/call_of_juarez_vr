@@ -8907,6 +8907,21 @@ bool ParseCameraProbeCommand(
             SetError(error,"sampledSceneDepthEnabled requires a complete boolean token"); return false;
         }
     }
+    bool sequence_present=false;
+    constexpr std::string_view sequence_key="sampledTemporalSequenceEnabled";
+    if(!ReadBool(text,sequence_key,parsed.sampled_temporal_sequence_enabled,sequence_present)){
+        SetError(error,"sampledTemporalSequenceEnabled must be true or false");return false;
+    }
+    if(sequence_present){
+        const auto end=text.find_first_not_of(" \t\r\n",*ValueOffset(text,sequence_key)+
+            (parsed.sampled_temporal_sequence_enabled?4U:5U));
+        if(end==std::string_view::npos||(text[end]!=','&&text[end]!='}')){
+            SetError(error,"sampledTemporalSequenceEnabled requires a complete boolean token");return false;
+        }
+    }
+    if(parsed.sampled_temporal_sequence_enabled&&!parsed.sampled_scene_depth_enabled){
+        SetError(error,"sampledTemporalSequenceEnabled requires sampledSceneDepthEnabled");return false;
+    }
     bool luma_probe_present = false;
     if (!ReadBool(text,"frameLumaProbeEnabled",parsed.frame_luma_probe_enabled,luma_probe_present)) {
         SetError(error,"frameLumaProbeEnabled must be true or false"); return false;

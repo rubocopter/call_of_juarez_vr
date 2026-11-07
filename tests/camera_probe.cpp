@@ -349,6 +349,12 @@ int main() {
         std::cerr << "asymmetric OpenVR FOV did not map to the native off-center frustum\n";
         return 1;
     }
+    if(!ParseCameraProbeCommand(R"({"enabled":false,"sampledSceneDepthEnabled":true,"sampledTemporalSequenceEnabled":true})",command,&error) ||
+        !command.sampled_temporal_sequence_enabled ||
+        ParseCameraProbeCommand(R"({"enabled":false,"sampledTemporalSequenceEnabled":true})",command,&error) ||
+        ParseCameraProbeCommand(R"({"enabled":false,"sampledSceneDepthEnabled":true,"sampledTemporalSequenceEnabled":truejunk})",command,&error) ||
+        !ParseCameraProbeCommand(R"({"enabled":false})",command,&error) ||
+        command.sampled_temporal_sequence_enabled) return 1;
     const CameraProbeFrustum valid_stereo_frustum = stereo_frustum;
     {
         const CameraProbeFrustum f{-30,20,-20,30,25,50000};
