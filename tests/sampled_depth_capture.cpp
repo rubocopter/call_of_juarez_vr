@@ -406,7 +406,14 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
     D3DCAPS9 scene_caps{};
     Check(device->GetDeviceCaps(&scene_caps),"read scene state limits");
     const auto native_state=NativeState::Read(device,std::min<DWORD>(scene_caps.NumSimultaneousRTs,4));
-    adapter.AfterCopy(device,scene_color.Get(),nullptr,terminal_surface.Get(),nullptr,copy);
+    const coj::CoJNativeTemporalOptics fixture_optics{
+        cojvr::runtime::TemporalIdentity(),17,.25F,100.F,true,true};
+    adapter.AfterCopy(device,scene_color.Get(),nullptr,terminal_surface.Get(),nullptr,copy,
+        +[](unsigned eye,std::uint64_t frame,std::uint64_t pose) noexcept {
+            if (eye!=0 || frame!=2 || pose!=2) return coj::CoJNativeTemporalOptics{};
+            return coj::CoJNativeTemporalOptics{
+                cojvr::runtime::TemporalIdentity(),17,.25F,100.F,true,true};
+        });
     native_state.Equals(NativeState::Read(device,std::min<DWORD>(scene_caps.NumSimultaneousRTs,4)));
     Check(device->EndScene(), "finish native depth transaction");
     Require(adapter.End(2,0,kGeneration,1,1,true,queued) && queued, "complete native depth transaction rejected");
@@ -421,7 +428,7 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
         adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,1,2)==S_FALSE &&
         adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,3)==S_FALSE,
         "final eye matched a different frame, eye or pose");
-    Check(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2),
+    Check(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2,fixture_optics),
         "copy same-frame final eye");
     Require(adapter.CaptureFinalColor(device,final_color.Get(),kGeneration,2,0,2)!=S_OK,
         "duplicate final eye replaced the snapshot");
@@ -430,7 +437,8 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
     bool ready = false;
     D3D9SampledDepthSnapshot retained_preview;
     Wait([&] {
-        const auto report=[&](auto frame, auto pose, auto owner, auto eye, const auto& image, HRESULT status) {
+        const auto report=[&](auto frame, auto pose, auto owner, auto eye, const auto& image, HRESULT status,
+            const coj::CoJTemporalPreviewOptics& optics={}) {
             Check(status, "sampled scene fence");
             Require(frame == 2 && pose == 2 && owner == 1 && eye == 0, "scene capture lost provenance");
             std::array<std::uint32_t,64> grid{};
@@ -463,7 +471,7 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
                 ("cojvr-scene-preview-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(width));
             const coj::CoJSceneDepthPreviewIdentity identity{frame,pose,owner,image.generation(),
                 image.sequence(),eye,image.width(),image.height()};
-            const auto manifest=coj::ExportCoJSceneDepthPreview(output,"fixture",identity,preview);
+            const auto manifest=coj::ExportCoJSceneDepthPreview(output,"fixture",identity,preview,optics);
             Require(!manifest.empty()&&std::filesystem::exists(manifest),"joint preview manifest was not committed");
             Require(coj::ExportCoJSceneDepthPreview(output,"fixture",identity,preview).empty(),
                 "same preview identity overwrote published files");
@@ -473,6 +481,8 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
                 json.find("\"final_color_format\":\"bgra8_le\"")!=std::string::npos&&
                 json.find("\"temporal_admitted\":false")!=std::string::npos,
                 "preview manifest lost source identity or claimed temporal admission");
+            if (full_color) Require(json.find("\"final_color_match\":true")!=std::string::npos&&
+                json.find("\"recenter_sequence\":17")!=std::string::npos,"manifest lost same-eye optics");
             metadata.close();
             std::size_t files=0;
             for (const auto& entry:std::filesystem::directory_iterator(manifest.parent_path())) {
@@ -487,11 +497,12 @@ void CheckCoJSceneBoundary(IDirect3DDevice9Ex* device, UINT width=kWidth, UINT h
             std::filesystem::remove(output);
             ready = true;
         };
-        if(full_color)adapter.PollPackets([&](const auto& packet,HRESULT result) {
+        if(full_color)adapter.PollPackets([&](const auto& packet,HRESULT result,const auto& optics) {
             Require(packet.stamp.device==reinterpret_cast<std::uintptr_t>(device)&&
                 packet.stamp.generation==kGeneration&&packet.stamp.integrity==1&&packet.stamp.epoch!=0&&
                 packet.snapshot.color_shared_handle(),"exact-game packet lost its admitted source identity/color");
-            report(packet.stamp.frame,packet.stamp.pose,packet.stamp.owner,packet.eye,packet.snapshot,result);
+            Require(optics.depth==fixture_optics&&optics.final_color_match,"packet lost same-eye native optics");
+            report(packet.stamp.frame,packet.stamp.pose,packet.stamp.owner,packet.eye,packet.snapshot,result,optics);
         });
         else adapter.Poll(report);
         return ready ? S_OK : S_FALSE;

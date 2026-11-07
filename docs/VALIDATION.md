@@ -1100,6 +1100,15 @@ Quality after channel reordering and normalization to FP16. Every evaluation
 resets history and supplies zero motion. Wider visibility, display transfer,
 temporal quality and live reconstruction remain unqualified.
 
+Sampled native optics export is implemented and host-tested. The pinned
+projection was exercised offline in both finite and infinite far variants.
+The probe records one matrix per eye at depth capture and can correlate it
+to final native color. The worker's controlled NGX sequence exercises
+consecutive-frame history and resets on hook integrity and authority changes.
+A GPU fixture rejects motion into invalid previous clip depth. Native
+optics delivery in consecutive game frames, scoped jitter, dynamic-object
+motion and temporal headset quality remain open.
+
 The diagnostic candidate also implements joint FP16 color/packed-depth previews
 from the same `1B_16` boundary. They are point-sampled to at most 512 pixels per
 axis and retain one immutable producer lease until readback. Host tests cover

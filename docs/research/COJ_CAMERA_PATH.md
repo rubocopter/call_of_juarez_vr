@@ -117,6 +117,23 @@ flat-theater menu placement consume the same converted eye data. Keep this
 conversion in the OpenVR adapter; no headset-specific FOV or menu offset is needed.
 Physical acceptance remains owned by [Validation](../VALIDATION.md).
 
+### Sampled temporal optics
+
+The pinned projection builder at `0x0022BC50` writes a right-handed, off-center
+D3D9 perspective matrix at camera `+0x184`. The default far plane is infinite
+for device depth, even when the camera exposes a finite far limit. The
+alternate branch uses that limit for finite depth. Offline execution of both
+native branches and the product routine at `0x001F4F30` verifies the
+coefficients and row-vector order `view × projection`.
+
+The sampled depth probe reads native view, projection and their product at
+the qualified scene copy. It requires the active eye, frame, pose, renderer
+camera and recenter sequence to agree. It rejects inconsistent products and
+unsupported projection layouts. The adapter scales the spatial rows once
+for world metres. A second read at final native color capture can attest
+matching optics for that eye. The manifest stores the view-projection and
+its device-depth convention. Temporal admission remains false.
+
 ## Capture boundary
 
 Reading the swap-chain backbuffer from inside the render-view path produced identical left/right hashes even though two game eye passes ran. Capturing the currently bound D3D9 render target exposed the real eye results.

@@ -350,6 +350,32 @@ int main() {
         return 1;
     }
     const CameraProbeFrustum valid_stereo_frustum = stereo_frustum;
+    {
+        const CameraProbeFrustum f{-30,20,-20,30,25,50000};
+        auto view=cojvr::runtime::TemporalIdentity();
+        view[14]=100;
+        const cojvr::runtime::TemporalMatrix infinite{1,0,0,0, 0,1,0,0, -.2F,.2F,-1,-1, 0,0,-25,0};
+        auto native=infinite;
+        native[12]=-20;native[13]=20;native[14]=-125;native[15]=-100;
+        const auto optics=BuildCoJNativeTemporalOptics(view,infinite,native,f,77);
+        if (!optics.valid || !optics.infinite_far || optics.recenter_sequence!=77 ||
+            !Near(optics.near_metres,.25F) || !Near(optics.far_limit_metres,500.F) ||
+            !Near(optics.view_projection_metres[0],100.F) ||
+            !Near(optics.view_projection_metres[14],-125.F)) return 1;
+        auto finite=infinite;
+        finite[10]=f.far_plane/(f.near_plane-f.far_plane);
+        finite[14]=f.near_plane*finite[10];
+        auto finite_product=native;
+        finite_product[10]=finite[10];
+        finite_product[14]=100*finite[10]+finite[14];
+        const auto finite_optics=BuildCoJNativeTemporalOptics(view,finite,finite_product,f,77);
+        auto foreign=native;foreign[14]+=1;
+        auto oblique=infinite;oblique[2]=.125F;
+        if (!finite_optics.valid || finite_optics.infinite_far ||
+            BuildCoJNativeTemporalOptics(view,infinite,foreign,f,77).valid ||
+            BuildCoJNativeTemporalOptics(view,oblique,native,f,77).valid ||
+            BuildCoJNativeTemporalOptics(view,infinite,native,f,0).valid) return 1;
+    }
     // Exercise the focus render copies through the same native frustum and
     // controller-reticle projection used by both world passes. UI retains
     // the original optics; loss/recovery must not accumulate scale or IPD.

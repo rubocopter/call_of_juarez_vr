@@ -9188,6 +9188,62 @@ CoJMovementJumpTransition AdvanceCoJMovementJumpPhase(
     return result;
 }
 
+CoJNativeTemporalOptics BuildCoJNativeTemporalOptics(
+    const runtime::TemporalMatrix& view, const runtime::TemporalMatrix& projection,
+    const runtime::TemporalMatrix& view_projection, const CameraProbeFrustum& f,
+    const std::uint64_t recenter_sequence) noexcept {
+    if (!recenter_sequence || !(f.near_plane > 0 && f.far_plane > f.near_plane &&
+        f.right > f.left && f.top > f.bottom) || !std::isfinite(f.far_plane)) return {};
+    const auto near_plane = f.near_plane;
+    const float width = f.right - f.left, height = f.top - f.bottom;
+    const bool infinite = projection[10] == -1.0F && projection[14] == -near_plane;
+    const float depth_scale = infinite ? -1.0F : f.far_plane / (near_plane - f.far_plane);
+    const runtime::TemporalMatrix expected{
+        2*near_plane/width,0,0,0, 0,2*near_plane/height,0,0,
+        (f.left+f.right)/width,(f.top+f.bottom)/height,depth_scale,-1,
+        0,0,near_plane*depth_scale,0};
+    const auto close = [](double actual, double target) {
+        return std::isfinite(actual) && std::isfinite(target) &&
+            std::abs(actual-target) <= 2e-5 * std::max(1.0, std::abs(target));
+    };
+    if (view[3]!=0 || view[7]!=0 || view[11]!=0 || view[15]!=1) return {};
+    for (std::size_t i=0; i<projection.size(); ++i)
+        if (!close(projection[i],expected[i])) return {};
+    for (unsigned row=0; row<4; ++row) {
+        for (unsigned col=0; col<4; ++col) {
+            double value=0;
+            for (unsigned k=0; k<4; ++k)
+                value += static_cast<double>(view[row*4+k])*projection[k*4+col];
+            if (!close(view_projection[row*4+col],value)) return {};
+        }
+    }
+    auto metres=view_projection;
+    for (unsigned i=0; i<12; ++i) metres[i]*=kGameUnitsPerMeter;
+    runtime::TemporalMatrix inverse_check;
+    if (!runtime::TemporalReprojection(metres,runtime::TemporalIdentity(),inverse_check)) return {};
+    return {metres,recenter_sequence,near_plane/kGameUnitsPerMeter,f.far_plane/kGameUnitsPerMeter,infinite,true};
+}
+
+CoJNativeTemporalOptics ObserveCoJNativeTemporalOptics(
+    const unsigned eye, const std::uint64_t frame, const std::uint64_t pose) noexcept {
+    const auto& scope=g_stereo_eye_override;
+    if (!scope.active || !scope.view_hook_active || !scope.camera || !scope.eye ||
+        static_cast<unsigned>(scope.eye->eye)!=eye || scope.frame_sequence!=frame ||
+        scope.pose_sequence!=pose || !scope.camera_applied || !scope.projection_applied ||
+        !scope.renderer_camera_match || !RendererReferencesCamera(scope.camera))
+        return {};
+    const auto* camera=static_cast<const std::byte*>(scope.camera);
+    runtime::TemporalMatrix view, projection, view_projection;
+    if (!IsReadable(camera+kCameraViewMatrixOffset,kCameraMatrixBytes) ||
+        !IsReadable(camera+kCameraProjectionMatrixOffset,kCameraMatrixBytes) ||
+        !IsReadable(camera+kCameraViewProjectionMatrixOffset,kCameraMatrixBytes)) return {};
+    std::memcpy(view.data(),camera+kCameraViewMatrixOffset,kCameraMatrixBytes);
+    std::memcpy(projection.data(),camera+kCameraProjectionMatrixOffset,kCameraMatrixBytes);
+    std::memcpy(view_projection.data(),camera+kCameraViewProjectionMatrixOffset,kCameraMatrixBytes);
+    return BuildCoJNativeTemporalOptics(view,projection,view_projection,scope.applied_frustum,
+        g_pose_tracker.last_recenter_sequence());
+}
+
 bool BuildCameraProbeFrustum(
     const cojvr::runtime::EyeFov fov,
     const float near_plane,

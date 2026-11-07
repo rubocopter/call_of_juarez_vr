@@ -173,8 +173,10 @@ equivalence remain unqualified.
 The bounded source diagnostic has live same-eye final native color previews
 alongside HDR and depth, including reviewed matching silhouettes in interior
 and exterior gameplay. Those reduced final-color inputs evaluate offline in
-NGX DLAA and DLSS Quality with reset history. Next qualify scoped jitter and
-dynamic masks, connect continuous reconstruction scheduling,
+NGX DLAA and DLSS Quality with reset history. Host-tested per-eye optics
+export preserves native depth projection and history resets follow native
+source continuity. Next capture consecutive same-eye inputs, qualify scoped
+jitter and dynamic masks, connect continuous reconstruction scheduling,
 then atomically present/commit reconstructed pairs with native fallback. DLAA can
 precede independent resizing; DLSS performance still requires reduced native
 raster work and a measured net benefit. Preserve the rejected independent bank's

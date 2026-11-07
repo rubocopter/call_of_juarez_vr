@@ -1,7 +1,20 @@
 #pragma once
+#include "runtime/temporal_reconstruction.hpp"
 #include <array>
 #include <cstdint>
 namespace cojvr::games::call_of_juarez {
+struct CoJNativeTemporalOptics {
+    runtime::TemporalMatrix view_projection_metres{};
+    std::uint64_t recenter_sequence=0;
+    float near_metres=0, far_limit_metres=0;
+    bool infinite_far=false, valid=false;
+    bool operator==(const CoJNativeTemporalOptics&) const = default;
+};
+struct CoJTemporalPreviewOptics {
+    CoJNativeTemporalOptics depth{};
+    bool final_color_match=false;
+};
+
 // Optional content evidence, independent of the much larger binding census.
 // Stable owner windows prevent the census's startup/level-transition budget
 // from being the only source of temporal-input observations. Never admission.

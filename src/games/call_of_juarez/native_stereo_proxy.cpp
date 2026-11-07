@@ -867,7 +867,8 @@ void ResourceProbeCopy(IDirect3DDevice9* device,IDirect3DSurface9* source,const 
     IDirect3DSurface9* destination,const RECT* destination_rect,HRESULT result) noexcept {
     if (g_sampled_depth_enabled) {
         std::lock_guard lock(g_sampled_depth_mutex);
-        g_sampled_depth.AfterCopy(device, source, source_rect, destination, destination_rect, result);
+        g_sampled_depth.AfterCopy(device, source, source_rect, destination, destination_rect, result,
+            &cojvr::games::call_of_juarez::ObserveCoJNativeTemporalOptics);
     }
     if(!g_resource_probe_enabled.load(std::memory_order_acquire))return;
     auto& trace=g_resource_probe_thread;
@@ -1047,7 +1048,7 @@ void PollSampledDepth() noexcept {
             if(worker_status.error[0])line<<";reason="<<worker_status.error.data();LogLine(line.str());
         }catch(...){}
     }
-    g_sampled_depth.PollPackets([](const auto& packet,HRESULT result) noexcept {
+    g_sampled_depth.PollPackets([](const auto& packet,HRESULT result,const auto& optics) noexcept {
         const auto frame=packet.stamp.frame,pose=packet.stamp.pose;
         const auto owner=packet.stamp.owner;const auto eye=packet.eye;const auto& snapshot=packet.snapshot;
         try {
@@ -1086,7 +1087,7 @@ void PollSampledDepth() noexcept {
                     const cojvr::games::call_of_juarez::CoJSceneDepthPreviewIdentity identity{
                         frame,pose,owner,snapshot.generation(),snapshot.sequence(),eye,snapshot.width(),snapshot.height()};
                     exported=cojvr::games::call_of_juarez::ExportCoJSceneDepthPreview(
-                        GameDirectory()/".cojvr-evidence"/"runs"/g_run_id,g_run_id,identity,preview);
+                        GameDirectory()/".cojvr-evidence"/"runs"/g_run_id,g_run_id,identity,preview,optics);
                 }
                 std::ostringstream report;
                 report << "native_sampled_depth_preview: status=" << (exported.empty()?"failed":"written")
@@ -3067,8 +3068,11 @@ bool CaptureStereoEye(
         : state->capture.CaptureEye(device, eye, frame_sequence, generation);
     if (captured && sampled_source) {
         std::lock_guard lock(g_sampled_depth_mutex);
+        const unsigned eye_index=eye==cojvr::runtime::Eye::left ? 0U : 1U;
+        const auto pose=state->luma_pose_sequence.load(std::memory_order_acquire);
+        const auto optics=cojvr::games::call_of_juarez::ObserveCoJNativeTemporalOptics(eye_index,frame_sequence,pose);
         (void)g_sampled_depth.CaptureFinalColor(device, sampled_source.Get(), generation, frame_sequence,
-            eye==cojvr::runtime::Eye::left ? 0U : 1U, state->luma_pose_sequence.load(std::memory_order_acquire));
+            eye_index,pose,optics);
     }
     device->Release();
     if (captured && state->fixed_outputs.enabled && !state->capture.gpu_resident_active()) {

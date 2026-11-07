@@ -67,6 +67,7 @@ def _run_interval(text, run_id, build_id):
 
 def _final_color_pairs(root, inventory, text, run_id, native, read_json):
     complete = {}
+    optics_pairs = {}
     directory = root / "runtime/scene-depth"
     for row in _records(text, "native_sampled_depth_preview"):
         if row.get("final_color") != "captured":
@@ -110,12 +111,28 @@ def _final_color_pairs(root, inventory, text, run_id, native, read_json):
         if eye in eyes:
             raise ValueError("final color preview was replayed")
         eyes.add(eye)
-    return sum(eyes == {0, 1} for eyes in complete.values())
+        if "depth_optics" in manifest:
+            optics = manifest["depth_optics"]
+            near, far_limit = optics["near_metres"], optics["far_limit_metres"]
+            matrix = optics["view_projection"]
+            recenter = optics["recenter_sequence"]
+            if (optics["space"] != "world_metres_row_vector_d3d9_clip" or
+                    type(recenter) is not int or recenter <= 0 or
+                    type(optics["infinite_far"]) is not bool or type(optics["final_color_match"]) is not bool or
+                    type(near) not in (int, float) or type(far_limit) not in (int, float) or
+                    not (math.isfinite(near) and math.isfinite(far_limit) and 0 < near < far_limit) or
+                    not isinstance(matrix, list) or len(matrix) != 16 or
+                    any(type(value) not in (int, float) or not math.isfinite(value) for value in matrix)):
+                raise ValueError("invalid sampled eye optics")
+            if optics["final_color_match"]:
+                optics_pairs.setdefault(stamp[:-1], {})[eye] = recenter
+    return (sum(eyes == {0, 1} for eyes in complete.values()),
+            sum(set(eyes) == {0, 1} and eyes[0] == eyes[1] for eyes in optics_pairs.values()))
 
 
 def analyze(run: Path) -> dict:
     result = {"passed": False, "errors": [], "copied_pairs": 0, "canonical_outcome": "unknown",
-              "final_color_pairs": 0,
+              "final_color_pairs": 0, "matched_optics_pairs": 0,
               "reconstruction_admitted": False, "headset_acceptance": "not_evaluated",
               "timing_basis": "worker_cpu_wall_clock"}
     errors = result["errors"]
@@ -172,7 +189,8 @@ def analyze(run: Path) -> dict:
                 raise ValueError("duplicated native eye/capture identity")
             native[key] = row
             sequences.add(sequence)
-        result["final_color_pairs"] = _final_color_pairs(root, inventory, text, evidence["runId"], native, read_json)
+        result["final_color_pairs"], result["matched_optics_pairs"] = _final_color_pairs(
+            root, inventory, text, evidence["runId"], native, read_json)
         copied, seen, worker_threads, source_threads = [], set(), set(), set()
         events = _records(text, "native_sampled_worker")
         for row in events:

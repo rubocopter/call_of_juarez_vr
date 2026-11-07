@@ -216,6 +216,9 @@ restore an old result. Passive OpenVR input-authority reads do not consume
 buttons. Worker reports contain only identified diagnostic samples, not image
 handles for presentation. Reconstruction requires explicit qualified guide
 metadata and per-eye current-color masks; the game audit supplies neither.
+History also resets when native source identity changes or a reconstructed
+result is rejected at delivery. The guide rejects reprojected samples outside
+the previous clip volume before emitting motion or allowing history.
 
 The developer probe sends matched source packets to the worker in copy-only
 mode. Exact center pixels from both private FP16 source planes are compared
@@ -229,6 +232,12 @@ and native owner observations fence the
 audit; reset/exit retire the worker before the source adapter. CPU wall-clock
 timings are not GPU timestamps or game-performance evidence. Ordinary game
 output and the compositor remain native.
+
+The sampled source can export verified per-eye native optics with the
+preview. The depth and final-color boundaries independently read the same
+renderer's row-vector view-projection. The exact game adapter handles metre
+conversion and finite versus infinite far depth. Missing or mismatched
+optics remain unqualified diagnostic input.
 
 Ordinary OpenVR runs sample elapsed CPU wall time around complete eye wrappers.
 Frame, native owner, device generation, observation epoch and thread bind each

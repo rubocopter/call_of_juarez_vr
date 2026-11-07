@@ -1,8 +1,12 @@
 #pragma once
 #include "backends/d3d9/sampled_depth_capture.hpp"
+#include "games/call_of_juarez/temporal_source_probe.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <limits>
+#include <locale>
 #include <string>
 #include <string_view>
 
@@ -17,7 +21,8 @@ struct CoJSceneDepthPreviewIdentity {
 inline std::filesystem::path ExportCoJSceneDepthPreview(
     const std::filesystem::path& run_directory, std::string_view run_id,
     const CoJSceneDepthPreviewIdentity& id,
-    const backends::d3d9::D3D9SampledDepthPreview& pixels) noexcept {
+    const backends::d3d9::D3D9SampledDepthPreview& pixels,
+    const CoJTemporalPreviewOptics& optics={}) noexcept {
     try {
         if (run_id.empty() || run_id=="unbound" || run_id=="." || run_id==".." ||
             !std::all_of(run_id.begin(),run_id.end(),[](unsigned char c) {
@@ -71,6 +76,21 @@ inline std::filesystem::path ExportCoJSceneDepthPreview(
             out << ",\"final_color_file\":\"" << final_color.filename().string()
                 << "\",\"final_color_format\":\"bgra8_le\",\"final_color_boundary\":\"native_eye_capture_rt0\""
                 << ",\"final_color_d3d9_format\":" << static_cast<unsigned>(pixels.final_color_format);
+        if (optics.depth.valid) {
+            const auto& depth_optics=optics.depth;
+            out.imbue(std::locale::classic());
+            out << std::setprecision(std::numeric_limits<float>::max_digits10)
+                << ",\"depth_optics\":{\"space\":\"world_metres_row_vector_d3d9_clip\""
+                << ",\"recenter_sequence\":" << depth_optics.recenter_sequence
+                << ",\"near_metres\":" << depth_optics.near_metres
+                << ",\"far_limit_metres\":" << depth_optics.far_limit_metres
+                << ",\"infinite_far\":" << (depth_optics.infinite_far?"true":"false")
+                << ",\"final_color_match\":" << ((has_final_color&&optics.final_color_match)?"true":"false")
+                << ",\"view_projection\":[";
+            for (std::size_t i=0;i<depth_optics.view_projection_metres.size();++i)
+                out << (i?",":"") << depth_optics.view_projection_metres[i];
+            out << "]}";
+        }
         out << ",\"temporal_admitted\":false}\n";
         out.close();
         if (!out.good()) return {};

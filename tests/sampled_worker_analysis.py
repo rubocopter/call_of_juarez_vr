@@ -58,7 +58,11 @@ class AuditTests(unittest.TestCase):
                     "source_boundary": "1B_16", "sampling": "point", "format": "rgba16f_le",
                     "depth_encoding": "device_z_rgb24_integer_bytes", "temporal_admitted": False,
                     "final_color_format": "bgra8_le", "final_color_d3d9_format": 21,
-                    "final_color_boundary": "native_eye_capture_rt0"}
+                    "final_color_boundary": "native_eye_capture_rt0",
+                    "depth_optics": {"space": "world_metres_row_vector_d3d9_clip",
+                        "recenter_sequence": 17, "near_metres": .25, "far_limit_metres": 500,
+                        "infinite_far": True, "final_color_match": True,
+                        "view_projection": [100,0,0,0, 0,100,0,0, 0,0,-100,-100, 0,0,-25,0]}}
                 for field, suffix, stride in (
                     ("color_file", ".color.f16", 8), ("depth_file", ".depth.f16", 8),
                     ("final_color_file", ".final.bgra8", 4)):
@@ -84,6 +88,15 @@ class AuditTests(unittest.TestCase):
             result = audit.analyze(root)
             self.assertTrue(result["passed"], result["errors"])
             self.assertEqual(result["final_color_pairs"], 1)
+            self.assertEqual(result["matched_optics_pairs"], 1)
+            right = scene / "f1-p2-g1-e1.json"
+            right_meta = json.loads(right.read_text())
+            right_meta["depth_optics"]["recenter_sequence"] = 18
+            right.write_text(json.dumps(right_meta))
+            refresh_inventory()
+            result = audit.analyze(root)
+            self.assertTrue(result["passed"], result["errors"])
+            self.assertEqual(result["matched_optics_pairs"], 0)
             (scene / "f1-p2-g1-e1.final.bgra8").write_bytes(bytes(64 * 64 * 3))
             refresh_inventory()
             result = audit.analyze(root)

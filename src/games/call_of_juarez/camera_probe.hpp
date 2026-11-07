@@ -2,6 +2,7 @@
 #include "games/call_of_juarez/hud_boundary_probe.hpp"
 #include "games/call_of_juarez/presentation_owner.hpp"
 #include "games/call_of_juarez/movie_input.hpp"
+#include "games/call_of_juarez/temporal_source_probe.hpp"
 #include "games/call_of_juarez/ui_language.hpp"
 
 #include "runtime/pose_source.hpp"
@@ -45,6 +46,13 @@ struct CameraProbeFrustum {
     float near_plane = 0.0F;
     float far_plane = 0.0F;
 };
+
+[[nodiscard]] CoJNativeTemporalOptics BuildCoJNativeTemporalOptics(
+    const runtime::TemporalMatrix& view, const runtime::TemporalMatrix& projection,
+    const runtime::TemporalMatrix& view_projection, const CameraProbeFrustum& frustum,
+    std::uint64_t recenter_sequence) noexcept;
+[[nodiscard]] CoJNativeTemporalOptics ObserveCoJNativeTemporalOptics(
+    unsigned eye, std::uint64_t frame, std::uint64_t pose) noexcept;
 
 struct CameraProbeReticlePoint {
     bool valid = false;

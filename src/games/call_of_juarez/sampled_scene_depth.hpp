@@ -3,6 +3,7 @@
 #include "backends/d3d9/sampled_depth_capture.hpp"
 #include "backends/openvr/scene_depth_transfer.hpp"
 #include "games/call_of_juarez/ppfx_resource_observation.hpp"
+#include "games/call_of_juarez/temporal_source_probe.hpp"
 #include <array>
 #include <cmath>
 #include <limits>
@@ -24,6 +25,7 @@ class SampledSceneDepth final {
         bool clear_started = false, initialized = false, rejected = false;
         Snapshot snapshot;
         std::chrono::steady_clock::time_point capture_time{};
+        CoJNativeTemporalOptics optics{};
     } scope_;
     struct Pending {
         Snapshot snapshot;
@@ -32,6 +34,7 @@ class SampledSceneDepth final {
         unsigned eye = 0;
         std::uint64_t integrity = 0,epoch = 0;
         std::chrono::steady_clock::time_point capture_time{};
+        CoJTemporalPreviewOptics optics{};
     };
     std::array<Pending, Capture::slot_count> pending_{};
     ComPtr<IDirect3DDevice9> device_;
@@ -171,7 +174,8 @@ public:
             device_.Get() == device && surface == original_depth_.Get() ? replacement_.Get() : surface;
     }
     void AfterCopy(IDirect3DDevice9* device, IDirect3DSurface9* source, const RECT* source_rect,
-        IDirect3DSurface9* destination, const RECT* destination_rect, HRESULT result) noexcept {
+        IDirect3DSurface9* destination, const RECT* destination_rect, HRESULT result,
+        CoJNativeTemporalOptics (*read_optics)(unsigned,std::uint64_t,std::uint64_t) noexcept=nullptr) noexcept {
         if (private_call_ || GetCurrentThreadId() != owner_thread_ || device_.Get() != device || !scope_.initialized || scope_.rejected ||
             FAILED(result) || reinterpret_cast<std::uintptr_t>(source) != scope_.color || !destination) return;
         ComPtr<IDirect3DTexture9> container;
@@ -193,7 +197,7 @@ public:
             scope_.rejected = true;
             // Repair any private sampling state while still at the capture boundary.
             if (FAILED(capture_->RetryRestore())) disabled_ = true;
-        }
+        } else if (read_optics) scope_.optics=read_optics(scope_.eye,scope_.frame,scope_.pose);
     }
     [[nodiscard]] bool End(std::uint64_t frame, unsigned eye, std::uint64_t generation,
                            std::uint64_t integrity, std::uintptr_t owner, bool complete, bool& queued) noexcept {
@@ -211,7 +215,7 @@ public:
         if (publish && restored) {
             for (auto& item : pending_) if (!item.snapshot.valid()) {
                 item = {std::move(scope_.snapshot), scope_.frame, scope_.pose, scope_.owner, scope_.eye,
-                    scope_.integrity,capture_epoch_,scope_.capture_time};
+                    scope_.integrity,capture_epoch_,scope_.capture_time,{scope_.optics,false}};
                 queued = true;
                 break;
             }
@@ -239,7 +243,8 @@ public:
         return true;
     }
     [[nodiscard]] HRESULT CaptureFinalColor(IDirect3DDevice9* device, IDirect3DSurface9* source,
-        std::uint64_t generation, std::uint64_t frame, unsigned eye, std::uint64_t pose) noexcept {
+        std::uint64_t generation, std::uint64_t frame, unsigned eye, std::uint64_t pose,
+        const CoJNativeTemporalOptics& optics={}) noexcept {
         if (owner_thread_ != GetCurrentThreadId() || !device || device_.Get() != device ||
             !source || rollback_pending_ || generation != capture_generation_)
             return S_FALSE;
@@ -247,7 +252,9 @@ public:
             if (!item.snapshot.valid() || item.frame != frame || item.eye != eye || item.pose != pose)
                 continue;
             PrivateCall guard(private_call_);
-            return item.snapshot.AttachFinalColorPreview(source);
+            const auto result=item.snapshot.AttachFinalColorPreview(source);
+            if (result==S_OK) item.optics.final_color_match=optics.valid && item.optics.depth==optics;
+            return result;
         }
         return S_FALSE;
     }
@@ -264,7 +271,7 @@ public:
             const backends::openvr::dlss::SceneDepthEye packet{
                 {item.snapshot.producer_device(),item.snapshot.generation(),item.frame,item.pose,
                  item.owner,item.integrity,item.epoch},item.eye,item.snapshot,item.capture_time};
-            report(packet,result);
+            report(packet,result,item.optics);
         });
     }
 private:
