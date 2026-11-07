@@ -37,8 +37,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-if ($HeadTrackedAudio -and ($Action -ne 'prepare' -or -not $BodyIkAtStart -or $StartupOnly)) {
-    throw 'HeadTrackedAudio is a startup option for a BodyIkAtStart preparation.'
+if ($HeadTrackedAudio) {
+    throw 'HeadTrackedAudio is unavailable until a listener-only boundary is verified.'
 }
 if($TransportOnly -and ($Action -ne 'prepare' -or $StartupOnly)) {
     throw 'TransportOnly selects the short prepare validation scope and cannot combine with StartupOnly.'
@@ -374,7 +374,6 @@ switch ($Action) {
                 -LargeAddressAware:$LargeAddressAware `
                 -ExperimentalGog:$ExperimentalGog `
                 -ReloadWaitProbe:$ReloadWaitProbe -ManualReload:$ManualReload -RenderResourceProbe:$RenderResourceProbe -FrameLumaProbe:$FrameLumaProbe -SampledSceneDepth:$SampledSceneDepth `
-                -HeadTrackedAudio:$HeadTrackedAudio `
                 -IndependentEyeResolution $IndependentEyeResolution `
                 -NeuralHostPath $NeuralHostPath -NeuralRuntimeDirectory $NeuralRuntimeDirectory
             if ($LASTEXITCODE -ne 0) { throw "Native-stereo staging failed." }
@@ -469,11 +468,6 @@ switch ($Action) {
             break
         }
         Write-Host "Validation profile: $ValidationProfile"
-        if ($HeadTrackedAudio -and $TransportOnly) {
-            Write-Host 'Combined check. Start SteamVR and CoJ manually. Near a stationary 3D sound, turn your head both ways without moving the stick. Walk and turn normally for about 20 seconds, then pause and resume once and close normally.'
-            Write-Host 'Render measurements are automatic. After closing the game, run pwsh -File tools\vr_test.ps1 finish.'
-            break
-        }
         Write-Host "Tracking/stereo: $(if ($StartupOnly) { 'disabled for startup diagnosis' } else { 'enabled; first valid HMD pose becomes the base orientation' })."
         Write-Host "Read-only render resource probe: $($RenderResourceProbe.IsPresent). Diagnostic overhead excludes performance qualification."
         if ($SampledSceneDepth) { Write-Host 'Native scene color/depth + persistent-worker copy audit enabled (bounded samples; native output). Inspect native_sampled_depth/native_sampled_worker in the collected log.' }

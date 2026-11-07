@@ -2749,21 +2749,6 @@ void InvalidateStereoFrame(void* context) noexcept {
     state->presenter.PublishGameplayFeedbackContext(false);
 }
 
-bool ReadHeadTracking(void* context,
-    cojvr::games::call_of_juarez::CameraHeadTrackingSample& sample) noexcept {
-    sample = {};
-    auto* state = static_cast<NativeStereoState*>(context);
-    if (!state || !state->runtime_ready || g_finalization_started.load(std::memory_order_acquire))
-        return false;
-    cojvr::backends::openvr::OpenVrHeadTrackingSample head{};
-    if (!state->presenter.HeadTracking(head) || !head.available) return false;
-    sample.hmd_pose = {head.pose, head.sequence};
-    sample.input_context = head.input_context; // Gameplay generation, not UI context.
-    sample.captured_at = head.captured_at;
-    sample.available = head.available;
-    return true;
-}
-
 bool BeginStereoFrame(
     void* context,
     cojvr::games::call_of_juarez::CameraStereoFrameSample& sample) noexcept {
@@ -3599,7 +3584,6 @@ void EnsureStarted() noexcept {
             if (exit_boundary_ready && StartStereoRuntime()) {
                 stereo_callbacks.context = &g_stereo;
                 stereo_callbacks.begin_frame = &BeginStereoFrame;
-                stereo_callbacks.read_head_tracking = &ReadHeadTracking;
                 stereo_callbacks.capture_eye = &CaptureStereoEye;
                 stereo_callbacks.invalidate_frame = &InvalidateStereoFrame;
                 stereo_callbacks.submit_frame = &SubmitStereoFrame;

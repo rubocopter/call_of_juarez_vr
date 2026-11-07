@@ -31,8 +31,8 @@ Current source already implements and host-tests these changes:
   sequence identity and blockers remain authoritative.
 - Native desktop output for screenshots, with the blackout pixel transaction
   removed after it caused black captures and desktop flicker.
-- Passive head-pose reads that preserve pending pause/UI actions, and captured
-  world anchors for native hints and mission notices with binocular fitting.
+- Captured world anchors for native hints and mission notices with binocular
+  fitting.
   Zoom-to-pause and ordinary reading stability now have scoped local headset
   acceptance; the separate Quest report does not change the accepted local pose.
 - Contextual EN/ES duel coaching, a pinned EN paused-tutorial overview, a small
@@ -179,11 +179,11 @@ ownership gates. FarCry2VR also supplies a sun-shadow research pattern; independ
 establish Chrome shadow equivalence before skipping any pass. Native video
 filtering already supports anisotropic trilinear; forced 16x is not established.
 
-The active OpenVR route now includes bounded measurements of the full wrapper
-per eye and an opt-in native center-head audio candidate. A combined session
-established a CPU wrapper baseline and found that the audio hook applied no
-listener updates under ordinary startup settings. The corrected audio admission
-still needs native listener evidence. Visibility and draw attribution
+The active OpenVR route includes bounded measurements of the full wrapper per
+eye with a live CPU wrapper baseline. Center-head audio returns to research
+because the retired camera hook could change the inputs to native spatial
+queries. Qualify an audio-only interception point before another physical
+audio session. Visibility and draw attribution
 remain necessary before reducing culling or render work. A Quest-only hand
 correction requires measured controller frames. Hand and weapon contact requires
 the exact native collision and firing seams.

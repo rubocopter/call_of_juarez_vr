@@ -9,8 +9,6 @@
 #include "backends/openvr/stereo_presenter.hpp"
 
 namespace fixture {
-bool pause_pending = true;
-unsigned tracking_consumes = 0;
 HWND window = reinterpret_cast<HWND>(0x1234);
 bool foreground = true;
 unsigned cursor_warps = 0;
@@ -64,23 +62,12 @@ public:
     FORWARD_PRESENTER(PublishSettingsContext)
     FORWARD_PRESENTER(Publish)
     FORWARD_PRESENTER(EyeViews)
+    FORWARD_PRESENTER(LatestTracking)
     FORWARD_PRESENTER(running)
     FORWARD_PRESENTER(display_frequency_hz)
     FORWARD_PRESENTER(stats)
     FORWARD_PRESENTER(last_error)
 #undef FORWARD_PRESENTER
-    bool LatestTracking(OpenVrTrackingSample& sample) noexcept {
-        ++fixture::tracking_consumes;
-        sample={};sample.sequence=1;
-        sample.pose.position_valid=sample.pose.orientation_valid=true;
-        sample.pause_pressed=std::exchange(fixture::pause_pending,false);
-        return true;
-    }
-    bool HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept {
-        sample={};sample.pose.position_valid=sample.pose.orientation_valid=true;
-        sample.pose.position={1,2,3};sample.sequence=27;sample.input_context=4;
-        sample.captured_at=std::chrono::steady_clock::now();sample.available=true;return true;
-    }
 };
 }
 
@@ -146,15 +133,6 @@ bool FixturePointerPosition(CameraProbeVector& position, std::string*, std::int3
 #undef DispatchCameraUiPointerSelectPress
 
 int main() {
-    cojvr::games::call_of_juarez::CameraHeadTrackingSample head;
-    g_stereo.runtime_ready=true;
-    for(unsigned i=0;i<2;++i)if(!ReadHeadTracking(&g_stereo,head)||!head.available||
-        head.hmd_pose.sequence!=27||head.input_context!=4||head.hmd_pose.pose.position.y!=2||
-        fixture::tracking_consumes||!fixture::pause_pending)return 103;
-    g_stereo.runtime_ready=false;
-    if(ReadHeadTracking(&g_stereo,head)||head.available||head.hmd_pose.sequence)return 104;
-    cojvr::backends::openvr::OpenVrTrackingSample pending;
-    if(!g_stereo.presenter.LatestTracking(pending)||!pending.pause_pressed||fixture::pause_pending)return 102;
     using cojvr::backends::openvr::FlatUiPointerSample;
     g_stereo.game_window.store(reinterpret_cast<std::uintptr_t>(fixture::window));
     FlatUiPointerSample sample{};

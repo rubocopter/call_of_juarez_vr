@@ -5,66 +5,6 @@
 namespace cojvr::games::call_of_juarez {
 namespace {
 int native_updates=0;
-int audio_syncs=0,audio_native_updates=0;
-void __fastcall AudioNativeUpdate(void*,void*) {++audio_native_updates;}
-void __fastcall AudioInvert(void* inverse,void*,const void*) {*static_cast<float*>(inverse)=99;}
-void __fastcall AudioSync(void* camera,void*) {
-    ++audio_syncs;auto* bytes=static_cast<std::byte*>(camera);
-    std::memcpy(bytes+0xc4,bytes+0x44,64);
-}
-bool HeadAudioNativeSourceScope() {
-    std::array<std::byte,0x600> camera{};
-    auto* world=reinterpret_cast<float*>(camera.data()+0x44);
-    auto* inverse=reinterpret_cast<float*>(camera.data()+4);
-    world[0]=world[5]=world[10]=world[15]=1;
-    inverse[0]=inverse[5]=inverse[10]=inverse[15]=1;
-    const auto original=camera;
-    const auto saved_reference=g_head_audio_reference;
-    const auto saved_witness=g_head_audio_witness;
-    const auto saved_inverse=g_invert_matrix;const auto saved_sync=g_synchronize_camera;
-    const auto saved_update=g_original_native_camera_update;
-    const auto saved_applied=g_head_audio_applied.load(),saved_verified=g_head_audio_verified.load(),
-        saved_unverified=g_head_audio_unverified.load();
-    const bool saved_enabled=g_head_audio_enabled.load();
-    const auto now=std::chrono::steady_clock::now();
-    CoJHeadAudioIdentity identity{reinterpret_cast<std::uintptr_t>(camera.data()),2,3,4,5,6,GetCurrentThreadId()};
-    g_head_audio_reference={};static_cast<CoJHeadAudioIdentity&>(g_head_audio_reference)=identity;
-    g_head_audio_reference.captured_at=now;g_head_audio_reference.pose_sequence=10;
-    g_invert_matrix=reinterpret_cast<InvertMatrixFn>(&AudioInvert);
-    g_synchronize_camera=reinterpret_cast<RenderCameraUpdateFn>(&AudioSync);
-    g_original_native_camera_update=reinterpret_cast<RenderCameraUpdateFn>(&AudioNativeUpdate);
-    CameraHeadTrackingSample sample;sample.available=true;sample.input_context=4;
-    sample.captured_at=now;sample.hmd_pose.sequence=10;
-    sample.hmd_pose.pose.position_valid=sample.hmd_pose.pose.orientation_valid=true;
-    sample.hmd_pose.pose.position={.2F,.3F,-.4F};
-    g_head_audio_enabled=false;HookNativeHeadAudioUpdate(camera.data(),nullptr);
-    bool passed=audio_native_updates==1&&audio_syncs==0&&camera==original;
-    g_head_audio_verified=g_head_audio_unverified=0;
-    passed&=ApplyNativeHeadAudioCamera(camera.data(),identity,sample,sample.hmd_pose.pose,0,now)&&
-        audio_syncs==1&&g_head_audio_witness.pending&&
-        std::memcmp(camera.data()+4,original.data()+4,128)==0;
-    CameraProbeVector center;std::memcpy(&center,camera.data()+0xf4,sizeof(center));
-    passed&=std::fabs(center.x-20)<1e-4F&&std::fabs(center.y-30)<1e-4F&&std::fabs(center.z+40)<1e-4F;
-    const auto derived=camera;
-    auto foreign=identity;++foreign.context;
-    passed&=!ApplyNativeHeadAudioCamera(camera.data(),foreign,sample,sample.hmd_pose.pose,0,now)&&camera==derived;
-    auto* page=static_cast<std::byte*>(VirtualAlloc(nullptr,4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
-    if(!page)passed=false;
-    else {
-        std::memcpy(page,original.data(),original.size());
-        auto page_id=identity;page_id.camera=reinterpret_cast<std::uintptr_t>(page);
-        static_cast<CoJHeadAudioIdentity&>(g_head_audio_reference)=page_id;
-        DWORD old=0;
-        if(!VirtualProtect(page,4096,PAGE_READONLY,&old))passed=false;
-        else passed&=!ApplyNativeHeadAudioCamera(page,page_id,sample,sample.hmd_pose.pose,0,now)&&audio_syncs==1;
-        VirtualFree(page,0,MEM_RELEASE);
-    }
-    g_head_audio_reference=saved_reference;g_head_audio_witness=saved_witness;
-    g_invert_matrix=saved_inverse;g_synchronize_camera=saved_sync;g_original_native_camera_update=saved_update;
-    g_head_audio_applied=saved_applied;g_head_audio_verified=saved_verified;g_head_audio_unverified=saved_unverified;
-    g_head_audio_enabled=saved_enabled;
-    return passed;
-}
 int diagnostic_hud_calls=0;
 int diagnostic_skeleton_calls=0;
 int diagnostic_inactive_body_calls=0;
@@ -555,9 +495,6 @@ bool InputRestoresNativeRenderContext() {
 }
 }
 int main() {
-    if(!cojvr::games::call_of_juarez::HeadAudioNativeSourceScope()) {
-        std::cerr<<"head audio changed native source ownership, skipped native forwarding or wrote read-only camera state\n";return 1;
-    }
     if(!cojvr::games::call_of_juarez::InactiveBodyDiagnosticsRespectTrace()){
         std::cerr<<"inactive body diagnostics ignored trace opt-in or disabled the legacy writer\n";return 1;}
     if(!cojvr::games::call_of_juarez::SkeletonDiscoveryRespectsTrace()){

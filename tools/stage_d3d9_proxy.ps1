@@ -25,6 +25,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($HeadTrackedAudio) {
+    throw 'HeadTrackedAudio is unavailable until a listener-only boundary is verified.'
+}
 . (Join-Path $PSScriptRoot "deployment_transaction.ps1")
 . (Join-Path $PSScriptRoot "openvr_input_manifest.ps1")
 . (Join-Path $PSScriptRoot "coj_executable_identity.ps1")
@@ -461,12 +464,6 @@ if ($RenderResourceProbe) {
 if ($SampledSceneDepth) {
     $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "sampledSceneDepthEnabled": true')
 }
-if ($HeadTrackedAudio) {
-    if (-not $IsNativeStereo -or -not $IndependentHands) {
-        throw 'HeadTrackedAudio requires the native stereo independent-hands candidate.'
-    }
-    $CameraControlText = $CameraControlText.Replace('"secondEyeRenderEnabled": true', '"secondEyeRenderEnabled": true, "headTrackedAudioEnabled": true')
-}
 if ($FrameLumaProbe) {
     if (-not $IsNativeStereo -or -not $IndependentHands -or $IndependentEyeResolution -ne 'off') {
         throw 'FrameLumaProbe requires ordinary native stereo with independent hands and the private bank off.'
@@ -726,7 +723,6 @@ if ($HadOriginal) {
         manualReloadInstalled = $ManualReload.IsPresent
         renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
         sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
-        headTrackedAudioEnabled = $HeadTrackedAudio.IsPresent
         frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
         independentEyeResolution = $IndependentEyeResolution
         neuralConfigAsset = $NeuralConfigAsset
@@ -821,7 +817,6 @@ if ($HadOriginal) {
             manualReloadInstalled = $ManualReload.IsPresent
             renderResourceProbeEnabled = $RenderResourceProbe.IsPresent
             sampledSceneDepthEnabled = $SampledSceneDepth.IsPresent
-            headTrackedAudioEnabled = $HeadTrackedAudio.IsPresent
             frameLumaProbeEnabled = $FrameLumaProbe.IsPresent
             independentEyeResolution = $IndependentEyeResolution
             profile = if ($IsNativeStereo) { $ValidationProfile } else { "default" }

@@ -30,7 +30,6 @@
 #include "runtime/interaction_gaze.hpp"
 #include "runtime/punch_contact.hpp"
 #include "games/call_of_juarez/fist_contact_sweep.hpp"
-#include "games/call_of_juarez/head_audio_camera.hpp"
 
 #include "backends/d3d9/hook_registry.hpp"
 #include "runtime/build_identity.hpp"
@@ -40,7 +39,6 @@
 #include "runtime/native_render_fault.hpp"
 
 #include <windows.h>
-#include <intrin.h>
 
 #include <algorithm>
 #include <array>
@@ -67,9 +65,6 @@ namespace {
 
 constexpr std::uintptr_t kBaseCameraVtableRva = 0x0030AE1C;
 constexpr std::uintptr_t kRenderCameraUpdateRva = 0x001C5BA0;
-constexpr std::uintptr_t kNativeCameraUpdateRva = 0x001C4F20;
-constexpr std::uintptr_t kSynchronizeCameraRva = 0x0022BB10;
-constexpr std::uintptr_t kListenerViewUpdateReturnRva = 0x00028F58;
 constexpr std::uintptr_t kSetFovRva = 0x001C58E0;
 constexpr std::uintptr_t kInvertMatrixRva = 0x001F3F80;
 constexpr std::uintptr_t kProjectionBuilderRva = 0x0022BC50;
@@ -109,7 +104,6 @@ constexpr std::ptrdiff_t kCameraNearOffset = 0x254;
 constexpr std::ptrdiff_t kCameraFarOffset = 0x258;
 constexpr std::size_t kCameraMatrixBytes = sizeof(float) * 16;
 constexpr std::size_t kRenderCameraUpdateSlot = 9;
-constexpr std::size_t kNativeCameraUpdateSlot = 7;
 constexpr std::size_t kSetFovSlot = 10;
 constexpr float kDegreesToRadians = 0.01745329251994329577F;
 constexpr float kRadiansToDegrees = 57.295779513082320876F;
@@ -132,25 +126,12 @@ struct CommandSnapshot {
 };
 
 cojvr::backends::d3d9::HookRegistry g_camera_hooks;
-cojvr::backends::d3d9::HookRegistry g_head_audio_hooks;
 cojvr::backends::d3d9::HookRegistry g_render_view_hooks;
 std::byte* g_engine_base = nullptr;
 std::atomic_uint32_t g_ppfx_engine_base{0};
 void** g_camera_vtable = nullptr;
 void** g_render_view_entry = nullptr;
 RenderCameraUpdateFn g_original_render_camera_update = nullptr;
-RenderCameraUpdateFn g_original_native_camera_update = nullptr;
-RenderCameraUpdateFn g_synchronize_camera = nullptr;
-std::atomic_bool g_head_audio_enabled{false};
-thread_local CoJHeadAudioReference g_head_audio_reference{};
-struct HeadAudioWitness {
-    CoJHeadAudioIdentity identity{};
-    std::uint64_t pose=0;
-    CameraProbeVector position{},direction{},up{};
-    bool pending=false;
-};
-thread_local HeadAudioWitness g_head_audio_witness;
-std::atomic_uint64_t g_head_audio_applied{0},g_head_audio_verified{0},g_head_audio_unverified{0};
 InvertMatrixFn g_invert_matrix = nullptr;
 ProjectionBuilderFn g_projection_builder = nullptr;
 RenderViewFn g_original_render_view = nullptr;
@@ -1651,112 +1632,6 @@ RelativeAngles HeadAngles(const cojvr::runtime::Quaternion orientation) noexcept
             dot(cross(no_roll_up, tracked_up), tracked_forward),
             dot(no_roll_up, tracked_up)) * kRadiansToDegrees,
     };
-}
-
-bool ApplyNativeHeadAudioCamera(void* camera,const CoJHeadAudioIdentity& identity,
-    const CameraHeadTrackingSample& tracking,const runtime::Pose& relative,float owned_yaw,
-    std::chrono::steady_clock::time_point now) {
-    if(!camera||identity.camera!=reinterpret_cast<std::uintptr_t>(camera)||!g_invert_matrix||!g_synchronize_camera)return false;
-    auto* bytes=static_cast<std::byte*>(camera);
-    auto* world=reinterpret_cast<float*>(bytes+kCameraSourceRightOffset);
-    auto* inverse=reinterpret_cast<float*>(bytes+kCameraSourceViewMatrixOffset);
-    if(!IsReadable(world,kCameraMatrixBytes)||!IsReadable(inverse,kCameraMatrixBytes)||
-        !IsWritable(world,kCameraMatrixBytes)||!IsWritable(inverse,kCameraMatrixBytes)||
-        !SourceMatrixHasNativeHomogeneousLayout(world)||!SourceMatrixHasNativeHomogeneousLayout(inverse))return false;
-    const CameraProbeBasis natural{*reinterpret_cast<CameraProbeVector*>(world+8),
-        *reinterpret_cast<CameraProbeVector*>(world+4),*reinterpret_cast<CameraProbeVector*>(world)};
-    CoJHeadAudioPose centered;
-    if(!BuildCoJHeadAudioPose(g_head_audio_reference,identity,tracking,relative,natural,
-        *reinterpret_cast<CameraProbeVector*>(world+12),owned_yaw,now,centered))return false;
-    // Native derived camera output now represents the physical center head.
-    // Neither source matrices nor the renderer-global camera are retained/edited.
-    if(!WithCoJHeadAudioSource(world,inverse,centered,[&]{
-        g_invert_matrix(inverse,world);g_synchronize_camera(camera);
-    }))return false;
-    ++g_head_audio_applied;
-    if(g_head_audio_verified+g_head_audio_unverified<8&&IsReadable(bytes+0xd4,0x2c)) {
-        g_head_audio_witness={};
-        g_head_audio_witness.identity=identity;g_head_audio_witness.pose=tracking.hmd_pose.sequence;
-        std::memcpy(&g_head_audio_witness.position,bytes+0xf4,sizeof(CameraProbeVector));
-        std::memcpy(&g_head_audio_witness.direction,bytes+0xd4,sizeof(CameraProbeVector));
-        std::memcpy(&g_head_audio_witness.up,bytes+0xe4,sizeof(CameraProbeVector));
-        for(auto* v:{&g_head_audio_witness.direction,&g_head_audio_witness.up}){v->x=-v->x;v->y=-v->y;v->z=-v->z;}
-        g_head_audio_witness.pending=true;
-    }
-    return true;
-}
-
-void __fastcall HookNativeHeadAudioUpdate(void* camera, void*) {
-    const auto original=g_original_native_camera_update;
-    if(!original)return;
-    if(g_head_audio_reference.camera==reinterpret_cast<std::uintptr_t>(camera)&&
-        g_head_audio_reference.thread==GetCurrentThreadId())g_head_audio_witness.pending=false;
-    // Run native animation/FOV bookkeeping once, before its listener collection.
-    original(camera);
-    if(!g_head_audio_enabled.load(std::memory_order_acquire)||!g_engine_base||
-        _ReturnAddress()!=g_engine_base+kListenerViewUpdateReturnRva||!camera||!g_synchronize_camera||
-        !g_stereo_callbacks.read_head_tracking||g_stereo_eye_override.active||g_camera_only_natural_replay||
-        g_head_audio_reference.camera!=reinterpret_cast<std::uintptr_t>(camera)||
-        g_head_audio_reference.thread!=GetCurrentThreadId())return;
-    if(!g_camera_vtable||g_camera_vtable[kNativeCameraUpdateSlot]!=reinterpret_cast<void*>(&HookNativeHeadAudioUpdate))return;
-    const auto command=CurrentCommand();
-    if (!HeadAudioRequested(command.command)) return;
-    CameraHeadTrackingSample tracking;
-    if(!g_stereo_callbacks.read_head_tracking(g_stereo_callbacks.context,tracking)||!tracking.available)return;
-    auto* bytes=static_cast<std::byte*>(camera);
-    if(!IsReadable(bytes+kCameraViewOwnerOffset,sizeof(void*)))return;
-    void* view=nullptr;std::memcpy(&view,bytes+kCameraViewOwnerOffset,sizeof(view));
-    if(reinterpret_cast<std::uintptr_t>(view)!=g_head_audio_reference.view||
-        !IsReadable(view,0x3c))return;
-    auto* view_bytes=static_cast<std::byte*>(view);
-    void* reciprocal=nullptr;std::memcpy(&reciprocal,view_bytes+kViewCameraOffset,sizeof(reciprocal));
-    if(reciprocal!=camera||view_bytes[0x24]==std::byte{}||view_bytes[0x2d]==std::byte{})return;
-    CoJPresentationOwner presentation;
-    if(!g_java_player_bridge.TryGetActiveGamePresentationOwner(presentation)||presentation.blocked())return;
-    runtime::Pose relative;
-    if(!g_pose_tracker.TransformPose(tracking.hmd_pose.pose,relative))return;
-    const CoJHeadAudioIdentity identity{reinterpret_cast<std::uintptr_t>(camera),
-        reinterpret_cast<std::uintptr_t>(view),g_java_player_bridge.being_generation(),tracking.input_context,
-        g_pose_tracker.last_recenter_sequence(),command.generation,GetCurrentThreadId()};
-    (void)ApplyNativeHeadAudioCamera(camera,identity,tracking,relative,BodyYawCompensationForCurrentPlayer(),
-        std::chrono::steady_clock::now());
-}
-
-void ObserveNativeHeadAudioListener(void* view) noexcept {
-    if(!g_head_audio_witness.pending||reinterpret_cast<std::uintptr_t>(view)!=g_head_audio_witness.identity.view||
-        GetCurrentThreadId()!=g_head_audio_witness.identity.thread||!g_engine_base)return;
-    const auto witness=g_head_audio_witness;g_head_audio_witness.pending=false;
-    bool matched=false,available=false;
-    void* mixer=nullptr;void* records=nullptr;
-    auto* global=g_engine_base+0x004E88E4;
-    if(IsReadable(global,sizeof(mixer)))std::memcpy(&mixer,global,sizeof(mixer));
-    if(mixer&&IsReadable(static_cast<std::byte*>(mixer)+0x2878,sizeof(records)))
-        std::memcpy(&records,static_cast<std::byte*>(mixer)+0x2878,sizeof(records));
-    unsigned count=0;
-    if(records&&IsReadable(static_cast<std::byte*>(records)+0xb40,sizeof(count)))
-        std::memcpy(&count,static_cast<std::byte*>(records)+0xb40,sizeof(count));
-    if(count>0&&count<=10&&IsReadable(records,count*0x120)) {
-        const auto same=[](CameraProbeVector a,CameraProbeVector b){
-            return std::isfinite(a.x)&&std::isfinite(a.y)&&std::isfinite(a.z)&&
-                std::fabs(a.x-b.x)<=1e-4F&&std::fabs(a.y-b.y)<=1e-4F&&std::fabs(a.z-b.z)<=1e-4F;
-        };
-        for(unsigned i=0;i<count;++i){CameraProbeVector position,direction,up;
-            auto* record=static_cast<std::byte*>(records)+i*0x120;
-            std::memcpy(&position,record,sizeof(position));std::memcpy(&direction,record+12,sizeof(direction));
-            std::memcpy(&up,record+24,sizeof(up));
-            matched=matched||(same(position,witness.position)&&same(direction,witness.direction)&&same(up,witness.up));
-        }
-        void* current=nullptr;unsigned current_count=0;
-        std::memcpy(&current,static_cast<std::byte*>(mixer)+0x2878,sizeof(current));
-        std::memcpy(&current_count,static_cast<std::byte*>(records)+0xb40,sizeof(current_count));
-        available=current==records&&current_count==count;matched=matched&&available;
-    }
-    if(matched)++g_head_audio_verified;else ++g_head_audio_unverified;
-    try {EmitEvent("head_audio_listener",matched?"matched":"unobserved",
-        "pose_sequence="+std::to_string(witness.pose)+";view="+std::to_string(witness.identity.view)+
-        ";camera="+std::to_string(witness.identity.camera)+";input_context="+std::to_string(witness.identity.context)+
-        ";native_records="+std::to_string(count)+";available="+std::to_string(available)+
-        ";source=native_pending_listener;center_head=true;headset_acceptance=false");}catch(...){}
 }
 
 void __fastcall HookRenderCameraUpdate(void* camera, void*) {
@@ -5745,7 +5620,6 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         original(owner, view);
         return;
     }
-    ObserveNativeHeadAudioListener(view);
 
     CoJStationaryFireFrame stationary_fire_frame{g_stationary_fire};
     CoJScopedRifleFireFrame scoped_rifle_fire_frame{g_scoped_rifle_fire};
@@ -8562,19 +8436,6 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
         submitted = g_stereo_callbacks.submit_frame(
             g_stereo_callbacks.context, frame_sequence, sample.hmd_pose, gameplay_reticle, hud_text);
     }
-    if(g_head_audio_enabled.load(std::memory_order_relaxed)&&HeadAudioRequested(snapshot.command)&&
-        submitted&&gameplay_input_ok&&relative_head_pose.position_valid&&
-        body_position_update.render_head_pose.position_valid&&g_stereo_callbacks.read_head_tracking) {
-        g_head_audio_reference={};
-        static_cast<CoJHeadAudioIdentity&>(g_head_audio_reference)={reinterpret_cast<std::uintptr_t>(camera),
-            reinterpret_cast<std::uintptr_t>(view),g_java_player_bridge.being_generation(),sample.gameplay.input_context_generation,
-            g_pose_tracker.last_recenter_sequence(),snapshot.generation,GetCurrentThreadId()};
-        g_head_audio_reference.captured_at=std::chrono::steady_clock::now();
-        g_head_audio_reference.pose_sequence=sample.hmd_pose.sequence;
-        const auto position=body_position_update.render_head_pose.position;
-        g_head_audio_reference.position_correction={position.x-relative_head_pose.position.x,
-            position.y-relative_head_pose.position.y,position.z-relative_head_pose.position.z};
-    } else g_head_audio_reference={};
     PublishWinchesterLoadingGeometry(frame_sequence,g_java_player_bridge.being_generation(),
         sample.native_gameplay_context_token,gameplay_input_ok&&g_manual_reload_presentation,
         native_paths_restored,submitted,mirror_ready,!EyeRenderRestorationPending(),winchester_cartridge_drawn);
@@ -9015,18 +8876,6 @@ bool ParseCameraProbeCommand(
         while (end < text.size() && (text[end]==' ' || text[end]=='\t' || text[end]=='\r' || text[end]=='\n')) ++end;
         if (end >= text.size() || (text[end]!=',' && text[end]!='}')) {
             SetError(error,"sampledSceneDepthEnabled requires a complete boolean token"); return false;
-        }
-    }
-    bool head_audio_present = false;
-    constexpr std::string_view head_audio_key = "headTrackedAudioEnabled";
-    if (!ReadBool(text,head_audio_key,parsed.head_tracked_audio_enabled,head_audio_present)) {
-        SetError(error,"headTrackedAudioEnabled must be true or false");return false;
-    }
-    if (head_audio_present) {
-        const auto end = text.find_first_not_of(" \t\r\n",*ValueOffset(text,head_audio_key)+
-            (parsed.head_tracked_audio_enabled?4U:5U));
-        if(end==std::string_view::npos||(text[end]!=','&&text[end]!='}')) {
-            SetError(error,"headTrackedAudioEnabled requires a complete boolean token");return false;
         }
     }
     bool luma_probe_present = false;
@@ -9707,26 +9556,6 @@ CameraProbeInstallStatus InitializeCameraProbe(
             EmitEvent("camera_hud_probe_install", hud_installed ? "installed" : "disabled",
                 "passive=true;render_replay=false;rt_mutation=false");
         }
-        if(g_stereo_callbacks.read_head_tracking&&g_render_view_entry&&CurrentCommand().command.head_tracked_audio_enabled) {
-            const auto expected=reinterpret_cast<void*>(g_engine_base+kNativeCameraUpdateRva);
-            const std::array<unsigned char,9> native_prefix{0x56,0x8b,0xf1,0x8b,0x86,0xd0,0x03,0x00,0x00};
-            const std::array<unsigned char,10> sync_prefix{0x53,0x55,0x8b,0xd9,0x80,0xbb,0xcc,0x03,0x00,0x00};
-            const bool identified=g_camera_vtable[kNativeCameraUpdateSlot]==expected&&
-                IsReadable(expected,native_prefix.size())&&std::memcmp(expected,native_prefix.data(),native_prefix.size())==0&&
-                IsReadable(g_engine_base+kSynchronizeCameraRva,sync_prefix.size())&&
-                std::memcmp(g_engine_base+kSynchronizeCameraRva,sync_prefix.data(),sync_prefix.size())==0;
-            if(identified&&backends::d3d9::PinModuleForAddress(reinterpret_cast<void*>(&HookNativeHeadAudioUpdate))) {
-                g_original_native_camera_update=reinterpret_cast<RenderCameraUpdateFn>(expected);
-                g_synchronize_camera=reinterpret_cast<RenderCameraUpdateFn>(g_engine_base+kSynchronizeCameraRva);
-                const std::array audio_requests{backends::d3d9::HookSlotRequest{kNativeCameraUpdateSlot,
-                    reinterpret_cast<void*>(&HookNativeHeadAudioUpdate)}};
-                const auto audio=g_head_audio_hooks.Install(g_camera_vtable,audio_requests);
-                g_head_audio_enabled.store(audio.result==backends::d3d9::HookRegistryResult::Installed||
-                    audio.result==backends::d3d9::HookRegistryResult::AlreadyInstalled,std::memory_order_release);
-            }
-            EmitEvent("head_audio_install",g_head_audio_enabled.load()?"installed":"disabled",
-                "native_update_rva=0x1C4F20;slot=7;source_restored=true;center_head=true;audio_api=native");
-        }
         std::ostringstream detail;
         detail << "engine_sha256=" << *engine_hash
                << ";vtable_rva=0x" << std::hex << kBaseCameraVtableRva
@@ -9765,7 +9594,6 @@ CameraProbeHookState InspectCameraProbe() noexcept {
 }
 
 void ShutdownCameraProbe() noexcept {
-    const bool audio_was_enabled=g_head_audio_enabled.exchange(false,std::memory_order_acq_rel);
     // Do not remove hooks, actor bindings or preimages while a camera-owned
     // native body transaction still needs its original owner for restoration.
     if (g_left_arm_rotation.active || g_right_arm_rotation.active || g_room_scale_body_offset.active) {
@@ -9797,15 +9625,6 @@ void ShutdownCameraProbe() noexcept {
                 view_outcome.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled;
             view_restored_slots = view_outcome.modified_slots;
         }
-        bool audio_restored=true;
-        if(g_camera_vtable&&!g_head_audio_hooks.RegisteredVtables().empty()) {
-            const auto audio=g_head_audio_hooks.Restore(g_camera_vtable);
-            audio_restored=audio.result==backends::d3d9::HookRegistryResult::Installed||
-                audio.result==backends::d3d9::HookRegistryResult::AlreadyInstalled;
-        }
-        if(audio_was_enabled||!audio_restored)EmitEvent("head_audio_shutdown",audio_restored?"restored":"incomplete",
-            "applied_updates="+std::to_string(g_head_audio_applied.load())+";verified_samples="+
-            std::to_string(g_head_audio_verified.load())+";unobserved_samples="+std::to_string(g_head_audio_unverified.load()));
         if (g_camera_vtable) {
             const auto outcome = g_camera_hooks.Restore(g_camera_vtable);
             const bool camera_restored =
@@ -9813,7 +9632,7 @@ void ShutdownCameraProbe() noexcept {
                 outcome.result == cojvr::backends::d3d9::HookRegistryResult::AlreadyInstalled;
             EmitEvent(
                 "camera_probe_restore",
-                camera_restored && view_restored && audio_restored ? "restored" : "incomplete",
+                camera_restored && view_restored ? "restored" : "incomplete",
                 "camera_restored_slots=" + std::to_string(outcome.modified_slots) +
                     ";view_restored_slots=" + std::to_string(view_restored_slots));
         }
@@ -9832,7 +9651,6 @@ void ShutdownCameraProbe() noexcept {
     g_original_render_view = nullptr;
     g_original_set_fov = nullptr;
     g_render_update_override = {};
-    g_head_audio_reference={};g_head_audio_witness={};
     g_stereo_eye_override = {};
     g_pose_tracker.SetEnabled(false);
     (void)UpdateLocalHeadVisibility(

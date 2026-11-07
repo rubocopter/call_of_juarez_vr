@@ -232,14 +232,10 @@ pair. Reset or an incomplete scope prevents mixed samples. Timing is bounded
 and summarized at shutdown. The observer excludes capture and submission and
 does not measure draw counts or GPU execution.
 
-The optional head audio candidate reads passive OpenVR pose snapshots without
-consuming gameplay edges. Admission requires tracking and the explicit audio
-opt-in independently of diagnostic camera overrides. The exact game adapter
-supplies a center-head camera reference to the native view update while
-preserving both source matrices.
-The native mixer retains listener selection and output ownership. See the
-[camera research](research/COJ_CAMERA_PATH.md#native-audio-listener-ownership)
-for the call site and the derived camera lifetime.
+The native mixer owns listener selection and output. A future center-head
+listener must supply pose at an audio-only boundary. Derived camera state
+also drives native spatial queries before collection.
+See the [camera research](research/COJ_CAMERA_PATH.md#native-audio-listener-ownership).
 
 Successful texture-allocation census callbacks, per-resource destruction hooks
 and periodic address-space scans require the startup resource-probe opt-in.
@@ -910,8 +906,8 @@ The ordinary OpenVR route keeps native desktop pixels at Present for monitor
 viewing and screenshots. VR capture and luma diagnostics run before the
 original Present. The retired blackout rendered the same frame, then added a
 GPU save, clear and restore around Present without a measured performance gain.
-Passive pose observations use `HeadTracking`. `LatestTracking` drains pending
-pause, UI, recenter and objectives edges and belongs to the input consumer.
+`LatestTracking` drains pending pause, UI, recenter and objectives edges and
+belongs to the input consumer.
 
 Native hint, mission-notice and timer panels share a reading anchor captured when
 their visible interval starts. Hint/notice changes or game-owner changes acquire

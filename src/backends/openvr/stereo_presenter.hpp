@@ -6,7 +6,6 @@
 #include "runtime/vr_settings.hpp"
 
 #include <array>
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -63,14 +62,6 @@ struct OpenVrTrackingSample {
     bool ui_actions_allowed = false;
     std::uint64_t ui_context_token = 0; // Owner under which pending UI edges were polled.
     bool vr_settings_input_captured = false;
-};
-
-// Passive value snapshot: reading head tracking must never acknowledge input.
-struct OpenVrHeadTrackingSample {
-    runtime::Pose pose{};
-    std::uint64_t sequence=0,input_context=0;
-    std::chrono::steady_clock::time_point captured_at{};
-    bool available=false;
 };
 
 struct OpenVrPresenterStats {
@@ -138,7 +129,6 @@ public:
     // Passive diagnostics must not drain pending input edges through LatestTracking.
     // Passive input-context snapshot; never consumes pending action edges.
     [[nodiscard]] OpenVrInputAuthority InputAuthority() const noexcept;
-    [[nodiscard]] bool HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept;
     [[nodiscard]] bool LatestTracking(OpenVrTrackingSample& sample) noexcept;
     [[nodiscard]] bool EyeViews(std::array<runtime::EyeView, 2>& eyes) const noexcept;
 

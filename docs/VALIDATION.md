@@ -23,7 +23,7 @@ Publication and a staged manifest do not establish headset or campaign support.
 | Community Quest 3 report | The tester identifies package `v0.1.0-prealpha.7` with Virtual Desktop and a VDXR selection. They report working roomscale, tracked weapons and manual reload and confirm pause with right stick up + click. Follow-up screenshots show upward tilt on the free left hand with the right pistol aligned, and a holster tutorial near the view edge. The active runtime bridge and behavior of the newer reading panel on Quest remain unconfirmed. |
 | Pause after zoom and reading panels | The local operator confirms responsive pause after zoom and stable/readable menus and notices in the exercised local headset session. Reading panels retain a captured world anchor and fit both eyes, and main-menu reference changes acquire an anchor at committed upload. This scoped physical acceptance does not qualify every save/back/recovery path or the separate Quest report. The accepted local hand pose is preserved. |
 | Persistent reconstruction worker | Asynchronous D3D11/NGX worker lifecycle, early producer-source retirement, independent authority cancellation and original-capture age bounds are host-tested. Three controlled real NGX stereo jobs complete on one persistent worker. The collected native copy-only audit now has bounded live evidence at 2560×1440: matched eye/source identity, exact color/depth center samples on a separate persistent thread and completed source retirement. This does not qualify game reconstruction, continuous delivery or headset image quality. |
-| Head audio and render work | Collected transport passed and bounded per-eye wrapper timing has live samples for gameplay, settings and movies. The opt-in audio hook installed and restored with zero applied listener updates. Ordinary tracking now admits the explicit audio opt-in without enabling diagnostic camera overrides. Listener application and perceived direction remain pending. Render timing measures CPU wall time. GPU cost and culling savings remain unmeasured. |
+| Head audio and render work | Collected transport passed and bounded per-eye wrapper timing has live samples for gameplay, settings and movies. The prior audio candidate recorded zero listener updates. Offline inspection found a native spatial consumer of the derived camera fields before listener collection. The candidate is retired and its startup switch is rejected. Listener-only interception remains a research gate. Render timing measures CPU wall time. GPU cost and culling savings remain unmeasured. |
 
 ## Current host-tested changes awaiting physical checks
 
@@ -430,14 +430,6 @@ unobserved; no separate session is requested per row. Local run identity and the
 candidate-specific short checklist stay under ignored `work/`. Implementation
 prerequisites belong in [Development backlog](ROADMAP.md#development-backlog).
 
-For a combined `-HeadTrackedAudio -TransportOnly` candidate, use an ordinary
-gameplay save. If a stationary 3D sound is available, turn the head left/right
-with the sticks centered and check that its apparent direction stays in the
-world. Walk and turn normally for about 20 seconds, pause/resume once and quit
-normally. `finish` collects the render measurements and listener observations
-automatically. This scope preserves installed body/manual-reload capabilities
-and uses transport verification. Unavailable sound or gestures remain unobserved.
-
 The explicitly prepared sampled-source worker audit now has scoped live transport
 evidence; do not request another identical session solely for that gate. A future
 candidate changing its transport must retain matched native eye stamps, exact
@@ -457,7 +449,6 @@ or change hand-pose acceptance.
 | Priority / opportunity | What remains to validate |
 | --- | --- |
 | Next ordinary session — monitor output | If taking a screenshot during normal VR play, verify that the game window shows the scene and yields a usable capture. Check this within an existing session. |
-| Next prepared head-audio session | With the explicit startup option, require applied updates and a matching pending listener record during ordinary gameplay, then clean restoration. If a stable positional source is nearby, turn the head with both sticks centered and check that it stays at its world location. |
 | Current candidate — previously failing animation | One fresh skip request should either reach the permitted native consumer or leave unchanged immersive stereo stable after refusal. Record scene/button, skip versus native rejection, and any flash or theater transition. No requirement to force-skip an unskippable scene. |
 | Current candidate — Schofield/Winchester guide | With Weapon Guides enabled and ammunition carried, require one marker at the actual provisional acceptance target, green only when policy is ready. Check native transfer once, no debit on a miss, and disappearance on release/close/cancel/owner loss/Off. This does not test a new mechanical mouth: grip-centred insertion remains rejected. |
 | Current candidate — LEFT fingers after completion | Close reload, release triggers and inspect the idle rifle support hand, then detach/regrip once. Distinguish waiting, carrying, closing and returned-to-idle failures. The terminal cleanup correction does not promise a fixed active-loading pose or grip fit. |

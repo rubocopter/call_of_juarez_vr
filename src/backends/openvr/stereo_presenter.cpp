@@ -154,7 +154,6 @@ struct OpenVrStereoPresenter::Impl {
     std::uint64_t gameplay_context_generation = 0;
     bool gameplay_context_active = false;
     std::uint64_t pose_sequence = 0;
-    std::chrono::steady_clock::time_point latest_pose_at{};
     bool recenter_pending = false;
     runtime::AuxiliaryObjectivesPending objectives_pending{};
     runtime::AuxiliaryButtonGesture create_gesture{};
@@ -1682,7 +1681,6 @@ struct OpenVrStereoPresenter::Impl {
                         latest_settings_capture=settings_result.input_captured;
                         if(settings_result.input_captured)recenter_pending=false;
                         latest_pose = tracked_poses.hmd;
-                        latest_pose_at = std::chrono::steady_clock::now();
                         latest_left_controller = left_handgrip_valid
                             ? hand_poses.left_grip
                             : runtime::Pose{};
@@ -2697,22 +2695,6 @@ OpenVrInputAuthority OpenVrStereoPresenter::InputAuthority() const noexcept {
         authority.available=impl_->latest_ui_actions_allowed&&authority.context&&!authority.settings_captured;
         return authority;
     } catch(...) {return {};}
-}
-
-bool OpenVrStereoPresenter::HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept {
-    sample={};
-    try {
-        std::lock_guard lock(impl_->tracking_mutex);
-        if(!impl_->running.load(std::memory_order_acquire)||impl_->stop_requested.load(std::memory_order_acquire)||
-            !impl_->pose_sequence||!impl_->latest_pose.orientation_valid||!impl_->latest_pose.position_valid)
-            return false;
-        sample.pose=impl_->latest_pose;sample.sequence=impl_->pose_sequence;
-        sample.captured_at=impl_->latest_pose_at;
-        sample.input_context=impl_->latest_gameplay.input_context_generation;
-        sample.available=impl_->latest_gameplay.active&&sample.input_context&&
-            impl_->latest_ui_actions_allowed&&!impl_->latest_settings_capture;
-        return true;
-    }catch(...){sample={};return false;}
 }
 
 bool OpenVrStereoPresenter::LatestTracking(OpenVrTrackingSample& sample) noexcept {

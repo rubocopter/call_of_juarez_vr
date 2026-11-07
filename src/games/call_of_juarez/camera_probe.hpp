@@ -9,7 +9,6 @@
 #include "runtime/scope_view.hpp"
 
 #include <array>
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -89,7 +88,6 @@ struct CameraProbeCommand {
     bool second_eye_render_enabled = true;
     bool render_resource_probe_enabled = false;
     bool sampled_scene_depth_enabled = false;
-    bool head_tracked_audio_enabled = false;
     bool frame_luma_probe_enabled = false; // Startup-only read-only flash diagnosis.
     // Read once by the renderer at startup; 0 disables, width fixed at 2560.
     std::uint32_t independent_eye_height = 0;
@@ -286,13 +284,6 @@ struct CameraStereoFrameSample {
     bool settings_input_captured = false;
 };
 
-struct CameraHeadTrackingSample {
-    runtime::PoseSample hmd_pose{};
-    std::uint64_t input_context=0;
-    std::chrono::steady_clock::time_point captured_at{};
-    bool available=false;
-};
-
 struct CameraStereoDiagnosticCounters {
     std::uint64_t frames_fenced = 0;
     std::uint64_t frames_collected = 0;
@@ -364,7 +355,6 @@ struct CameraStereoRuntimeCallbacks {
     void (*invalidate_frame)(void* context) noexcept = nullptr;
     bool (*begin_frame)(void* context, CameraStereoFrameSample& sample) noexcept = nullptr;
     // Passive: no UI/gameplay edges or recenter acknowledgement are consumed.
-    bool (*read_head_tracking)(void*, CameraHeadTrackingSample&) noexcept = nullptr;
     bool (*capture_eye)(
         void* context,
         cojvr::runtime::Eye eye,

@@ -66,23 +66,34 @@ These are exact static observations, not a generic mapping from OpenVR vectors.
 
 The native active-view loop calls camera slot 7 (`0x001C4F20`) before collecting
 listener data. The listener collection at `0x00039B50` reads derived camera
-position at `+0xF4` and negates the vectors at `+0xD4` and `+0xE4`. It computes
-velocity from the view's previous position and submits to the common mixer
-record builder at `0x000F65D0`. The stereo wrapper does not call this collection.
+position at `+0xF4`, direction from the negated forward row at `+0xE4`, and
+up from the negated up row at `+0xD4`. It computes velocity from the view's
+previous position and submits to the common mixer record builder at
+`0x000F65D0`. The stereo wrapper does not call this collection.
 
-The opt-in candidate scopes slot 7 to the exact active-view call site. It
-forwards the original once and synchronizes derived state with a temporary
-center-head source. Both source matrices restore at callback exit. The native
-loop consumes derived state until the next camera update. Independent eye
-rendering starts from the restored source. Admission requires fresh passive
-tracking and a recent reference for the same camera, view, player and gameplay
-context. The ordinary tracked candidate disables diagnostic camera overrides,
-so the explicit audio opt-in and tracking govern the listener update
-independently of that override. Unknown ownership, movie, pause or tracking
-loss retain native audio.
-The native mixer owns source positions, distance scaling, environment, velocity
-and output. A bounded observation compares pending listener records with the
-derived pose. Audio direction and transition behavior await a headset check.
+Slot 7 returns to RVA `0x00028F58` before a separate active-view loop.
+That loop reads derived camera position at `0x0002900D`, constructs a spatial
+query around it and calls the query at `0x000290C3` before listener collection
+at `0x000290CE`. The same position is also copied into a native per-view
+position list. The earlier experimental hook restored the source matrices
+but left the modified derived camera visible to these consumers. That hook
+has been retired.
+
+A future candidate must intercept only listener collection at `0x00039B50`
+or the pose inputs to the common mixer record builder at `0x000F65D0`.
+Both known collection callers (`0x00028C09`, `0x000290CE`) require explicit
+ownership analysis. Preserve native view selection, environment and scale,
+and qualify position, orientation and velocity together before a headset run.
+Both collection paths converge on the call at `0x00039CC7`. Its relative
+operand is aligned on x86. The collector passes position, direction, up,
+velocity and native context to the builder, then stores the natural position
+as velocity history at view `+0x18`. A builder interception would need its own
+qualified view identity and head-offset history. Offline emulation of the
+actual collector and builder confirms that replacing those four vectors for
+an admitted view updates the pending record without changing the camera or
+natural velocity history. A foreign view forwards the original arguments.
+Disabled listener and full record bank cases preserve native behavior.
+Patch ownership, safe install/restore and live mixer output remain unverified.
 
 ## Eye state and units
 

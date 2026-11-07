@@ -67,6 +67,21 @@ try {
         Assert-True ($Errors.Count -eq 0) "$Script has PowerShell syntax errors."
     }
 
+    $AudioGame = Join-Path $TestRoot "unused-audio-game"
+    foreach ($Request in @(
+        @{ Script = "vr_test.ps1"; Extra = @{ Action = "prepare" } },
+        @{ Script = "stage_d3d9_proxy.ps1"; Extra = @{ IndependentHands = $true } }
+    )) {
+        $Extra = $Request.Extra
+        $AudioFailure = $null
+        try {
+            & (Join-Path $SourceDirectory "tools/$($Request.Script)") @Extra `
+                -GameDirectory $AudioGame -HeadTrackedAudio | Out-Null
+        } catch { $AudioFailure = $_.Exception.Message }
+        Assert-True ($AudioFailure -eq 'HeadTrackedAudio is unavailable until a listener-only boundary is verified.') `
+            "Retired head audio request reached another gate in $($Request.Script): $AudioFailure"
+    }
+
     $VrTestSource = Get-Content -LiteralPath (Join-Path $SourceDirectory "tools\vr_test.ps1") -Raw
     Assert-True ($VrTestSource.Contains('cmake --preset win32-debug')) `
         "vr_test does not configure the canonical Win32 build tree."
