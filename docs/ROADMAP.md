@@ -170,10 +170,11 @@ game to a bounded copy-only worker audit. Collected evidence now qualifies its
 sampled full-size live copies and source retirement, separately from the full
 canonical profile and headset reconstruction. Continuous transport and full-image
 equivalence remain unqualified.
-The bounded source candidate now host-tests a same-eye final native color
-preview alongside HDR and depth. Use the next combined session to compare
-final color, native effects and depth silhouettes. Then qualify scoped
-jitter and dynamic masks, connect continuous reconstruction scheduling,
+The bounded source diagnostic has live same-eye final native color previews
+alongside HDR and depth, including reviewed matching silhouettes in interior
+and exterior gameplay. Those reduced final-color inputs evaluate offline in
+NGX DLAA and DLSS Quality with reset history. Next qualify scoped jitter and
+dynamic masks, connect continuous reconstruction scheduling,
 then atomically present/commit reconstructed pairs with native fallback. DLAA can
 precede independent resizing; DLSS performance still requires reduced native
 raster work and a measured net benefit. Preserve the rejected independent bank's

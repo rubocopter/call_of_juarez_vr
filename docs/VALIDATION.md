@@ -14,14 +14,14 @@ Publication and a staged manifest do not establish headset or campaign support.
 | Core VR already exercised | Native stereo/head tracking, recenter/body following, ordinary menus/HUD/effects, secret-scroll pickup, Gatling, correct duel posture, basic bow firing with one arrow, functional manual reload and cinematic recovery retain their scoped operator acceptance. The detailed limits below still apply. |
 | Subtitles | Revised larger, lower centered presentation is accepted for readability in the exercised scene. New Movie/sequence ownership and broader scenes/localizations remain separate checks. |
 | Movie presentation and skip | Earlier successful skips remain accepted in those scenes. The latest feedback reports button-triggered flicker/non-skip and theater despite Immersive selected. The source now distinguishes native refusal from actual key entry and preserves stereo only for a harmless refusal with the same qualified owner. This correction is host-tested, not headset-accepted. Some native animations are unskippable. |
-| Reload contact and guides | The operator reports improved loading with the 18 cm zone. The exercised Schofield and Winchester retain functional acceptance and correlated native transfers. Deferred Square presses during the base Schofield shot tail also have bounded live evidence through manual opening and transfer. Precise cartridge-to-mouth contact and broader interruption recovery remain pending. |
-| Left hand and grip | The free-left index still intermittently adopts an upward/support-like pose, including around reloads; grip intersections remain unresolved. Native-completion cleanup recovery is host-tested for a verified idle rifle. It does not qualify active-loading skin pose or complete recovery. |
+| Reload contact and guides | The operator reports improved loading with the 18 cm zone and confirms manual reload in the latest PS VR2 session. The collected Schofield clip transfer added three loaded rounds and debited three from reserve. The exercised Winchester retains its earlier functional acceptance. Deferred Square presses during the base Schofield shot tail have bounded live evidence through manual opening and transfer. Precise cartridge-to-mouth contact and broader interruption recovery remain pending. |
+| Left hand and grip | The operator reports aligned hands in the latest PS VR2 session. Earlier intermittent free-left index posture and grip intersections remain separate from that scoped verdict. Native-completion cleanup recovery is host-tested for a verified idle rifle. The Quest free-left tilt remains a separate open observation. |
 | Monitor output | The operator reported black screenshots and desktop flicker with the blackout. Collected telemetry confirms alternation between black and native output. The blackout transaction is removed and native desktop presentation is restored in source. Screenshot capture with this build remains unverified in game. |
 | New exact reload profiles | Sixteen exact firearm profiles are runtime-integrated and host-tested. Henry is a pinned right-owned 12-round Winchester alias. Latest correlated transfers include Winchester and base Schofield; neither establishes all models, contact, playback or interruption recovery. |
 | Duel and bow instruction | Optional contextual EN/ES duel coach, exact paused EN overview and 3.6 cm native-nock bow guide are implemented/host-tested. Their presentation/timing/fit await headset checks; existing functional duel/bow acceptance remains scoped. |
 | Horse and scoped aiming | Horse steering/sign/speed/comfort and scoped reticle-versus-impact remain rejected/unresolved. Observers and source-only corrections do not promote them. |
 | Community Quest 3 report | The tester identifies package `v0.1.0-prealpha.7` with Virtual Desktop and a VDXR selection. They report working roomscale, tracked weapons and manual reload and confirm pause with right stick up + click. Follow-up screenshots show upward tilt on the free left hand with the right pistol aligned, and a holster tutorial near the view edge. The active runtime bridge and behavior of the newer reading panel on Quest remain unconfirmed. |
-| Pause after zoom and reading panels | The local operator confirms responsive pause after zoom and stable/readable menus and notices in the exercised local headset session. Reading panels retain a captured world anchor and fit both eyes, and main-menu reference changes acquire an anchor at committed upload. This scoped physical acceptance does not qualify every save/back/recovery path or the separate Quest report. The accepted local hand pose is preserved. |
+| Pause after zoom and reading panels | The operator again confirms responsive pause after zoom on PS VR2. The collected log confirms native Escape dispatch from stereo gameplay. Earlier stable/readable menus and notices retain their scoped headset acceptance. Reading panels retain a captured world anchor and fit both eyes, and main-menu reference changes acquire an anchor at committed upload. Broader save/back/recovery paths and the separate Quest reading report remain open. |
 | Persistent reconstruction worker | Asynchronous D3D11/NGX worker lifecycle, early producer-source retirement, independent authority cancellation and original-capture age bounds are host-tested. Three controlled real NGX stereo jobs complete on one persistent worker. The collected native copy-only audit now has bounded live evidence at 2560×1440: matched eye/source identity, exact color/depth center samples on a separate persistent thread and completed source retirement. This does not qualify game reconstruction, continuous delivery or headset image quality. |
 | Head audio and render work | Collected transport passed and bounded per-eye wrapper timing has live samples for gameplay, settings and movies. The prior audio candidate recorded zero listener updates. Offline inspection found a native spatial consumer of the derived camera fields before listener collection. The candidate is retired and its startup switch is rejected. Listener-only interception remains a research gate. Render timing measures CPU wall time. GPU cost and culling savings remain unmeasured. |
 
@@ -1088,12 +1088,17 @@ The latest collected copy run also supplied two reduced-size real game pairs
 for offline DLSS Quality. NGX evaluated both pairs with zero motion and reset
 history. The game path still presents native color.
 
-The next sampled-source candidate adds the final native BGRA8 eye preview,
+The sampled-source diagnostic now includes a live final native BGRA8 eye preview,
 joined to the same native HDR/depth snapshot by frame, pose, eye and device
 generation. Host tests verify source overwrite survival, rejection of foreign
-eye identities and inventoried paired previews. The read-only analyzer counts
-complete final-color pairs separately from worker copies. Live alignment,
-visibility coverage and color transfer remain pending.
+eye identities and inventoried paired previews. Collected stereo previews
+confirm matching final-color and depth silhouettes in reviewed interior and
+exterior gameplay, including hands, weapons, people and horse. The read-only
+analyzer counts complete final-color pairs separately from worker copies.
+NVIDIA NGX evaluates the recorded final BGRA8 eyes offline in DLAA and DLSS
+Quality after channel reordering and normalization to FP16. Every evaluation
+resets history and supplies zero motion. Wider visibility, display transfer,
+temporal quality and live reconstruction remain unqualified.
 
 The diagnostic candidate also implements joint FP16 color/packed-depth previews
 from the same `1B_16` boundary. They are point-sampled to at most 512 pixels per
