@@ -171,6 +171,12 @@ The tracked grip anchors the native holding socket rather than substituting the
 wrist pivot. For an unarmed hand, the authored socket maps to absolute controller
 grip orientation; it does not retain a fit to the first animated/controller pose.
 Socket mapping, rollback and both-eye verifier rejection are host-tested.
+Sampled diagnostics correlate the original OpenVR grip and tip quaternions
+with the authored socket, native wrist and target wrist bases by frame. The
+hand record identifies free, boxing and weapon routes and tags manual reload.
+Use aligned controllers and a steady free-left and armed-right pose to
+compare the runtime frames and native anatomy. The records report a mapped
+target and do not establish skin fit or perceived controller alignment.
 Exercised independent-hand grip/wrist comfort and side-on/rolled pistol coherence
 have operator acceptance. Broader equipment, anatomy and recovery remain separate
 gates; this does not accept the legacy connected-arm solver.

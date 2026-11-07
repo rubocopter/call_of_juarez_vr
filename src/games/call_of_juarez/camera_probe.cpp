@@ -4561,9 +4561,21 @@ bool ApplyTrackedWeapons(
                 return false;
             }
             if (ShouldObserveBodyFrame(frame_sequence)) {
-                EmitEvent("body_hand_tracking","applied",
-                    "frame_sequence="+std::to_string(frame_sequence)+";side="+(left ? "left" : "right")+
-                    ";presentation=independent_native_hands;reach_scale=1;upper_arm_write=false;rigid_elements=20;reference=authored_hand_socket;detail="+error);
+                std::ostringstream detail;
+                detail << "frame_sequence=" << frame_sequence << ";side=" << (left ? "left" : "right")
+                       << ";presentation=independent_native_hands;reach_scale=1;upper_arm_write=false"
+                       << ";rigid_elements=20;reference=authored_hand_socket"
+                       << ";player_generation=" << generation
+                       << ";pose_route=" << (prepared ? "weapon" : boxing_pose ? "boxing" : "free")
+                       << ";manual_reload=" << (manual_presentation ? "true" : "false")
+                       << ";natural_socket_up=" << RuntimeVectorText(socket.up)
+                       << ";natural_socket_forward=" << RuntimeVectorText(socket.forward)
+                       << ";natural_wrist_up=" << RuntimeVectorText(natural_hand.up)
+                       << ";natural_wrist_forward=" << RuntimeVectorText(natural_hand.forward)
+                       << ";target_wrist_up=" << RuntimeVectorText(hand_target.up)
+                       << ";target_wrist_forward=" << RuntimeVectorText(hand_target.forward)
+                       << ";basis_space=game_world;detail=" << error;
+                EmitEvent("body_hand_tracking", "applied", detail.str());
             }
         } else {
             applied=g_java_player_bridge.TryApplyTrackedWeapon(
@@ -7222,6 +7234,23 @@ void __fastcall HookRenderViewImpl(void* owner, void*, void* view) {
                        << (relative_left_aim.orientation_valid ? "true" : "false")
                        << ";right_aim_orientation_valid="
                        << (relative_right_aim.orientation_valid ? "true" : "false");
+            body_input << ";pose_sequence=" << sample.hmd_pose.sequence
+                       << ";input_context=" << sample.gameplay.input_context_generation
+                       << ";orientation_space=runtime_tracking_xyzw";
+            const auto append_orientation = [&](const char* key, const runtime::Pose& pose) {
+                body_input << ';' << key << '=';
+                if (!pose.orientation_valid) {
+                    body_input << "unavailable";
+                    return;
+                }
+                const auto& q = pose.orientation;
+                body_input << std::fixed << std::setprecision(6)
+                           << '(' << q.x << ',' << q.y << ',' << q.z << ',' << q.w << ')';
+            };
+            append_orientation("left_grip_orientation", sample.left_controller);
+            append_orientation("right_grip_orientation", sample.right_controller);
+            append_orientation("left_tip_orientation", sample.left_aim);
+            append_orientation("right_tip_orientation", sample.right_aim);
             EmitEvent("body_tracking_input", "observed", body_input.str());
             const auto finger_detail = [&](const runtime::FingerTrackingState& fingers) {
                 std::ostringstream values;
