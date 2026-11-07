@@ -136,7 +136,6 @@ public:
     [[nodiscard]] bool TryAcquireReusableFrame(d3d9::StereoCpuFrame& frame) noexcept;
     void RecycleFrame(d3d9::StereoCpuFrame frame) noexcept;
     // Passive diagnostics must not drain pending input edges through LatestTracking.
-    [[nodiscard]] bool HasValidTracking() const noexcept;
     // Passive input-context snapshot; never consumes pending action edges.
     [[nodiscard]] OpenVrInputAuthority InputAuthority() const noexcept;
     [[nodiscard]] bool HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept;

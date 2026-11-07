@@ -2686,16 +2686,6 @@ void OpenVrStereoPresenter::RecycleFrame(d3d9::StereoCpuFrame frame) noexcept {
     impl_->mailbox.Recycle(std::move(frame));
 }
 
-bool OpenVrStereoPresenter::HasValidTracking() const noexcept {
-    try {
-        std::lock_guard lock(impl_->tracking_mutex);
-        return impl_->running.load(std::memory_order_acquire) &&
-            !impl_->stop_requested.load(std::memory_order_acquire) && impl_->pose_sequence != 0 &&
-            impl_->latest_pose.orientation_valid && impl_->latest_pose.position_valid;
-    } catch (...) {
-        return false;
-    }
-}
 OpenVrInputAuthority OpenVrStereoPresenter::InputAuthority() const noexcept {
     try {
         std::lock_guard lock(impl_->tracking_mutex);

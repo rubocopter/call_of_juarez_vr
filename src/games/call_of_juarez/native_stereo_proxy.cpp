@@ -31,7 +31,6 @@
 #include "runtime/ui_pointer_ownership.hpp"
 #include "backends/d3d9/vr_present_policy.hpp"
 #include "backends/d3d9/source_capture_admission.hpp"
-#include "backends/d3d9/monitor_black.hpp"
 #include "backends/d3d9/frame_luma_probe.hpp"
 #include "backends/d3d9/hdr_alpha_probe.hpp"
 
@@ -127,9 +126,6 @@ struct NativeStereoState {
     cojvr::runtime::VrFrameCadence frame_cadence;
     std::atomic_bool desktop_vsync_disabled{false};
     cojvr::backends::d3d9::VrPresentPolicy present_policy;
-    cojvr::backends::d3d9::MonitorBlackPolicy monitor_black;
-    cojvr::backends::d3d9::MonitorBlackSurface monitor_surface;
-    bool monitor_output_black = false;
     bool late_rate_reported = false;
     float last_pacing_hz = 0.0F;
     std::uint64_t pacing_sequence = 0;
@@ -562,8 +558,6 @@ bool AllowDeviceReset(IDirect3DDevice9*) noexcept {
         if (!g_stereo.sampled_worker.Retire()) return false;
         if (!g_sampled_depth.Retire()) return false;
     }
-    g_stereo.monitor_surface.Reset(); // Release DEFAULT-pool preimage before either reset API.
-    g_stereo.monitor_black = {};
     AbortHudBatch(cojvr::backends::d3d9::hud::unterminated);
     DrainHudBatch();
     ResetFrameLumaProbes(); // Called before both Reset and ResetEx, even failed attempts.
@@ -2022,28 +2016,27 @@ void ObserveNaturalFrame(void* context,bool complete) noexcept {
     state.natural_frame_ready.store(observed,std::memory_order_release);
 }
 
-// Reports usable captured visor content, never permission to skip native Present.
-bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
+void BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcept {
     if (g_sampled_depth_enabled) PollSampledDepth();
     AbortHudBatch(hud::unterminated); DrainHudBatch();
     if (!device || !g_stereo.runtime_ready) {
         cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
         InvalidateSourceAuthority(g_stereo);
         g_stereo.presenter.PublishGameplayFeedbackContext(false);
-        return false;
+        return;
     }
     if (g_stereo.frame_cadence.PresentNeedsPacing()) {
         if (!PaceRenderFrame(&g_stereo)) {
             InvalidateSourceAuthority(g_stereo);
             g_stereo.presenter.PublishGameplayFeedbackContext(false);
-            return false;
+            return;
         }
         (void)g_stereo.frame_cadence.PresentNeedsPacing();
     }
     // A failed native/COM rollback still owns its restore transaction. Do not
     // capture partially redirected targets as natural desktop/theater content.
     if (g_stereo.fixed_outputs.enabled &&
-        (g_stereo.independent_render.active() || g_stereo.independent_render.restoration_pending())) return false;
+        (g_stereo.independent_render.active() || g_stereo.independent_render.restoration_pending())) return;
     try {
         bool timer_frozen = false;
         std::string timer_error;
@@ -2083,7 +2076,7 @@ bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 // next Begin's collection, and never recapture the eye mirror
                 // under the natural-theater label at this Present boundary.
                 g_stereo.flat_capture_active.store(false, std::memory_order_release);
-                return false; // Private-bank output is outside monitor-black admission.
+                return; // The private-bank owner provides its own output.
             }
         }
         const bool stereo_fresh = g_stereo.stereo_queue.Fresh(now_ms);
@@ -2094,8 +2087,7 @@ bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         if (presentation_valid && (!presentation_blocked || immersive_movie) && !g_stereo.flat_ui_select_release_required &&
             stereo_fresh) {
             g_stereo.flat_capture_active.store(false, std::memory_order_release);
-            g_stereo.monitor_black.FlatCaptured(0, 0, 0);
-            return true; // A complete published native pair retains its existing lease.
+            return; // A complete published native pair remains available.
         }
 
         if (!g_stereo.flat_capture_active.exchange(true, std::memory_order_acq_rel)) {
@@ -2129,7 +2121,7 @@ bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             cojvr::games::call_of_juarez::ProcessCameraNativeSettings(false);
             g_stereo.stereo_queue.Invalidate();
             g_stereo.presenter.PublishGameplayFeedbackContext(false);
-            return false;
+            return;
         }
 
         const HWND ui_window = reinterpret_cast<HWND>(g_stereo.game_window.load(std::memory_order_acquire));
@@ -2262,28 +2254,22 @@ bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
         if(g_stereo.fixed_outputs.enabled&&g_stereo.natural_world_seen.load()){
             std::lock_guard lock(g_stereo.source_mutex);
             if(!g_stereo.natural_frame_ready.load()||g_stereo.natural_owner.load()!=g_stereo.source_owner||
-               g_stereo.natural_generation.load()!=g_stereo.device_generation.load())return false;
+               g_stereo.natural_generation.load()!=g_stereo.device_generation.load())return;
         }
         // The startup/menu fallback does not need a full 60/90 Hz CPU readback.
         // Capture every second Present; the presenter repeats the latest frame
         // at compositor cadence between updates.
         const std::uint64_t present_sequence =
             g_stereo.flat_capture_sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
-        if ((present_sequence & 1U) != 0U)
-            return g_stereo.monitor_black.FlatFresh(reinterpret_cast<std::uintptr_t>(device),
-                g_stereo.device_generation.load(std::memory_order_acquire), now_ms);
-
-        // An attempted readback/publication failure must withdraw the prior
-        // theater lease; the following throttled Present cannot hide that failure.
-        g_stereo.monitor_black.FlatCaptured(0, 0, 0);
+        if ((present_sequence & 1U) != 0U) return;
 
         Microsoft::WRL::ComPtr<IDirect3DSurface9> back_buffer;
         const HRESULT back_buffer_result =
             device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
-        if (FAILED(back_buffer_result) || !back_buffer) return false;
+        if (FAILED(back_buffer_result) || !back_buffer) return;
         const std::uint64_t generation =
             g_stereo.device_generation.load(std::memory_order_acquire);
-        if (generation == 0) return false;
+        if (generation == 0) return;
         // Menu dispatch above may have changed native owner synchronously.
         // Freeze the fresh flat owner and source mode before its immediate copy.
         if (g_stereo.fixed_outputs.enabled) {
@@ -2304,7 +2290,7 @@ bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
             LogTransportFailure(
                 present_sequence, "flat_capture", g_stereo.flat_capture.last_error());
             if (g_stereo.fixed_outputs.enabled) InvalidateSourceAuthority(g_stereo);
-            return false;
+            return;
         }
         if (ShouldLogStereoTiming(present_sequence)) {
             LogLine(
@@ -2326,62 +2312,14 @@ bool BeforePresentBoundary(IDirect3DDevice9* device, const char* source) noexcep
                 cojvr::backends::d3d9::FramePresentationMode::flat_theater,
                 "flat_publish", authorization)) {
             g_stereo.stereo_queue.FlatPublished();
-            g_stereo.monitor_black.FlatCaptured(reinterpret_cast<std::uintptr_t>(device),
-                generation, GetTickCount64());
             if (ShouldLogStereoTiming(present_sequence))
                 LogLine(
                     "native_stereo_flat_theater: status=published " +
                     std::string(g_stereo.flat_capture.collect_description()));
-            return true;
         }
     } catch (...) {
         g_stereo.presenter.PublishGameplayFeedbackContext(false);
         LogLine("native_stereo_flat_theater: status=exception");
-    }
-    g_stereo.monitor_black.FlatCaptured(0, 0, 0);
-    return false;
-}
-
-void FinishMonitorOutput(IDirect3DDevice9* device, const bool captured) noexcept {
-    if (!captured) g_stereo.monitor_black.FlatCaptured(0, 0, 0);
-    const auto stats = g_stereo.presenter.stats();
-    const bool tracked = g_stereo.presenter.HasValidTracking();
-    const bool ready = g_stereo.monitor_black.Allow(reinterpret_cast<std::uintptr_t>(device),
-        g_stereo.device_generation.load(std::memory_order_acquire), GetTickCount64(), captured,
-        g_stereo.runtime_ready && g_stereo.presenter.running() &&
-            !g_finalization_started.load(std::memory_order_acquire) && !g_stereo.fixed_outputs.enabled,
-        tracked, stats.new_frame_submissions + stats.repeated_frame_submissions, stats.submit_failures);
-    // All source copies and luma observations precede this pixel transaction.
-    // Its exact preimage is restored only after the original Present returns.
-    const HRESULT result = ready ? g_stereo.monitor_surface.Begin(device,
-        g_stereo.device_generation.load(std::memory_order_acquire)) : S_FALSE;
-    const bool black = result == S_OK;
-    if (FAILED(result)) g_stereo.monitor_black.FlatCaptured(0, 0, 0);
-    if (black != g_stereo.monitor_output_black || FAILED(result)) {
-        try {
-            std::ostringstream line;
-            line << "native_stereo_monitor: status=" << (black ? "black" : "native")
-                 << ";generation=" << g_stereo.device_generation.load()
-                 << ";hr=0x" << std::hex << static_cast<unsigned long>(result);
-            LogLine(line.str());
-        } catch (...) {}
-    }
-    g_stereo.monitor_output_black = black;
-}
-
-void RestoreMonitorContent(IDirect3DDevice9* device) noexcept {
-    const HRESULT result = g_stereo.monitor_surface.End(device,
-        g_stereo.device_generation.load(std::memory_order_acquire));
-    if (FAILED(result)) {
-        g_stereo.monitor_black = {};
-        g_stereo.monitor_output_black = false;
-        try {
-            std::ostringstream line;
-            line << "native_stereo_monitor: status=restore_failed;generation="
-                 << g_stereo.device_generation.load()
-                 << ";hr=0x" << std::hex << static_cast<unsigned long>(result);
-            LogLine(line.str());
-        } catch (...) {}
     }
 }
 
@@ -2408,20 +2346,17 @@ void BeforeDevicePresent(IDirect3DDevice9* device) noexcept {
             } catch (...) {
             }
         }
-        const bool captured = BeforePresentBoundary(device, "device_present");
+        BeforePresentBoundary(device, "device_present");
         PollFrameLumaProbes();
         if (g_stereo.luma_enabled) {
             Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
             if (SUCCEEDED(device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer)))
                 QueueFrameLumaProbe(device, backbuffer.Get(), 2, g_device_present_sequence);
         }
-        FinishMonitorOutput(device, captured);
     }
 }
 
 void AfterDevicePresent(IDirect3DDevice9* device, const HRESULT result) noexcept {
-    if (g_device_present_depth == 1 && g_swapchain_present_depth == 0)
-        RestoreMonitorContent(device);
     if (g_device_present_depth == 1 &&
         (g_device_present_sequence <= 8 || (g_device_present_sequence % 90) == 0)) {
         try {
@@ -2511,7 +2446,7 @@ void AfterDeviceReset(
 void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
     ++g_swapchain_present_depth;
     if (g_device_present_depth == 0 && g_swapchain_present_depth == 1) {
-        const bool captured = BeforePresentBoundary(device, "swapchain_present");
+        BeforePresentBoundary(device, "swapchain_present");
         PollFrameLumaProbes();
         if (g_stereo.luma_enabled && device) {
             Microsoft::WRL::ComPtr<IDirect3DSurface9> backbuffer;
@@ -2519,13 +2454,10 @@ void BeforeSwapChainPresent(IDirect3DDevice9* device) noexcept {
                 QueueFrameLumaProbe(device, backbuffer.Get(), 2,
                     g_stereo.present_telemetry_sequence.fetch_add(1) + 1);
         }
-        FinishMonitorOutput(device, captured);
     }
 }
 
-void AfterSwapChainPresent(IDirect3DDevice9* device, HRESULT) noexcept {
-    if (g_device_present_depth == 0 && g_swapchain_present_depth == 1)
-        RestoreMonitorContent(device);
+void AfterSwapChainPresent(IDirect3DDevice9*, HRESULT) noexcept {
     if (g_swapchain_present_depth) --g_swapchain_present_depth;
 }
 
@@ -2687,8 +2619,6 @@ void AfterCreateDevice(
         g_stereo.render_work_epoch.fetch_add(1, std::memory_order_acq_rel);
         AbortHudBatch(hud::identity_changed); DrainHudBatch();
         ResetFrameLumaProbes();
-        g_stereo.monitor_surface.Reset();
-        g_stereo.monitor_black = {};
         (void)RetireIndependentBank(g_stereo, "device_replacement");
         if(g_resource_probe_enabled.load(std::memory_order_acquire))
             g_resource_probe_resets.fetch_add(1,std::memory_order_acq_rel);
@@ -3429,7 +3359,6 @@ void Finalize() noexcept {
         if (!g_sampled_depth.Retire()) LogLine("native_sampled_depth: status=retirement_pending");
     }
     (void)RetireIndependentBank(g_stereo, "pre_destroy_game");
-    g_stereo.monitor_surface.Reset();
     const bool legacy_texture_restored =
         cojvr::games::call_of_juarez::RestoreD3D9ExLegacyTextureCompatibility();
     LogLine(std::string("native_stereo_legacy_texture_hook: status=") +

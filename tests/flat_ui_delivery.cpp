@@ -10,7 +10,7 @@
 
 namespace fixture {
 bool pause_pending = true;
-unsigned tracking_consumes = 0, tracking_checks = 0;
+unsigned tracking_consumes = 0;
 HWND window = reinterpret_cast<HWND>(0x1234);
 bool foreground = true;
 unsigned cursor_warps = 0;
@@ -76,7 +76,6 @@ public:
         sample.pause_pressed=std::exchange(fixture::pause_pending,false);
         return true;
     }
-    bool HasValidTracking() const noexcept { ++fixture::tracking_checks;return true; }
     bool HeadTracking(OpenVrHeadTrackingSample& sample) const noexcept {
         sample={};sample.pose.position_valid=sample.pose.orientation_valid=true;
         sample.pose.position={1,2,3};sample.sequence=27;sample.input_context=4;
@@ -154,11 +153,6 @@ int main() {
         fixture::tracking_consumes||!fixture::pause_pending)return 103;
     g_stereo.runtime_ready=false;
     if(ReadHeadTracking(&g_stereo,head)||head.available||head.hmd_pose.sequence)return 104;
-    FinishMonitorOutput(nullptr,false);
-    if(fixture::tracking_consumes||!fixture::pause_pending||fixture::tracking_checks!=1) {
-        std::cerr<<"monitor tracking check consumed a pause pending for the next game sample\n";
-        return 101;
-    }
     cojvr::backends::openvr::OpenVrTrackingSample pending;
     if(!g_stereo.presenter.LatestTracking(pending)||!pending.pause_pressed||fixture::pause_pending)return 102;
     using cojvr::backends::openvr::FlatUiPointerSample;
